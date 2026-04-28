@@ -1,0 +1,182 @@
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '')
+}
+
+const PUBLIC_ORIGIN = trimTrailingSlash((import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined) || '')
+
+export const AIVISION_URL =
+  (import.meta.env.VITE_AIVISION_URL as string | undefined) ||
+  (PUBLIC_ORIGIN ? `${PUBLIC_ORIGIN}/aivision/` : '/aivision/')
+
+export type AiVisionCamera = {
+  id: string
+  name: string
+  shm_name: string
+  url: string
+  camera_id: number
+  enabled: boolean
+  functions: Record<string, boolean> | string[]
+}
+
+export type CreateAiVisionCameraPayload = {
+  name: string
+  url: string
+  shm_name: string
+  fps?: number
+  max_restart?: number
+  enabled?: boolean
+}
+
+export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled'>>
+
+export type AiVisionModel = {
+  id: number
+  name: string
+  type: string
+  path: string
+  import_path?: string | null
+  description?: string | null
+  enable: boolean
+}
+
+export type CreateAiVisionModelPayload = Pick<AiVisionModel, 'name' | 'type' | 'path'> &
+  Partial<Pick<AiVisionModel, 'import_path' | 'description' | 'enable'>>
+
+type AiVisionCamerasResponse = {
+  cameras: AiVisionCamera[]
+} | AiVisionCamera[]
+
+async function readAiVisionError(response: Response) {
+  if (response.status === 401) {
+    window.dispatchEvent(new Event('aicv:unauthorized'))
+  }
+  let detail = await response.text().catch(() => '')
+  try {
+    const parsed = JSON.parse(detail) as { detail?: string }
+    detail = parsed.detail || detail
+  } catch {
+    // Keep the raw response text when it is not JSON.
+  }
+  return detail || `${response.status} ${response.statusText}`
+}
+
+export async function getAiVisionCameras() {
+  const response = await fetch('/api/aivision/cameras', { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  const payload = (await response.json()) as AiVisionCamerasResponse
+  return Array.isArray(payload) ? payload : payload.cameras || []
+}
+
+export function getAiVisionCameraKey(camera: AiVisionCamera) {
+  return camera.shm_name || camera.id || String(camera.camera_id)
+}
+
+export function isAiVisionFeatureEnabled(camera: AiVisionCamera, feature: string) {
+  const functions = camera.functions
+  if (Array.isArray(functions)) {
+    return functions.includes(feature)
+  }
+  return Boolean(functions?.[feature])
+}
+
+export type AiVisionFrameOptions = {
+  maxWidth?: number
+  maxHeight?: number
+  quality?: number
+}
+
+export function aiVisionFrameUrl(cameraKey: string, feature?: string, nonce?: number, options: AiVisionFrameOptions = {}) {
+  const params = new URLSearchParams()
+  if (feature) params.set('feature', feature)
+  if (nonce) params.set('t', String(nonce))
+  if (options.maxWidth) params.set('max_width', String(options.maxWidth))
+  if (options.maxHeight) params.set('max_height', String(options.maxHeight))
+  if (options.quality) params.set('quality', String(options.quality))
+  const query = params.toString()
+  return `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/frame.jpg${query ? `?${query}` : ''}`
+}
+
+export async function createAiVisionCamera(payload: CreateAiVisionCameraPayload) {
+  const response = await fetch('/api/aivision/cameras', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  const camera = (await response.json()) as AiVisionCamera
+  window.dispatchEvent(new Event('aivision:cameras-changed'))
+  return camera
+}
+
+export async function updateAiVisionCamera(cameraKey: string, payload: UpdateAiVisionCameraPayload) {
+  const response = await fetch(`/api/aivision/cameras/${encodeURIComponent(cameraKey)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  const camera = (await response.json()) as AiVisionCamera
+  window.dispatchEvent(new Event('aivision:cameras-changed'))
+  return camera
+}
+
+export async function deleteAiVisionCamera(cameraKey: string) {
+  const response = await fetch(`/api/aivision/cameras/${encodeURIComponent(cameraKey)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  window.dispatchEvent(new Event('aivision:cameras-changed'))
+  return (await response.json()) as { ok: boolean }
+}
+
+export async function getAiVisionModels() {
+  const response = await fetch('/api/aivision/models', { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  return (await response.json()) as AiVisionModel[]
+}
+
+export async function updateAiVisionModel(modelId: number, payload: Partial<Pick<AiVisionModel, 'path'>>) {
+  const response = await fetch(`/api/aivision/models/${encodeURIComponent(String(modelId))}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  return (await response.json()) as AiVisionModel
+}
+
+export async function createAiVisionModel(payload: CreateAiVisionModelPayload) {
+  const response = await fetch('/api/aivision/models', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  return (await response.json()) as AiVisionModel
+}

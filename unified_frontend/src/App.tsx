@@ -1,0 +1,107 @@
+import { useState } from 'react'
+import { Sidebar } from '@/components/Sidebar'
+import { Topbar } from '@/components/Topbar'
+import { HomeSection } from '@/sections/HomeSection'
+import { GuardBehaviorSection } from '@/sections/GuardBehaviorSection'
+import { IntrusionDetectionSection } from '@/sections/IntrusionDetectionSection'
+import { DoorDetectionSection } from '@/sections/DoorDetectionSection'
+import { FaceDetectionSection } from '@/sections/FaceDetectionSection'
+import { HumanDetectionSection } from '@/sections/HumanDetectionSection'
+import { PhoneDetectionSection } from '@/sections/PhoneDetectionSection'
+import { AlarmsSection } from '@/sections/AlarmsSection'
+import { StatisticsSection } from '@/sections/StatisticsSection'
+import { Toaster } from '@/components/ui/sonner'
+import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/use-mobile'
+
+function App() {
+  const [currentPage, setCurrentPage] = useState('overview')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const isMobile = useIsMobile()
+
+  const handlePageChange = (page: string) => {
+    setCurrentPage(page)
+    if (isMobile) setMobileSidebarOpen(false)
+  }
+
+  const handleToggleSidebar = () => {
+    if (isMobile) {
+      setMobileSidebarOpen((value) => !value)
+      return
+    }
+    setSidebarCollapsed((value) => !value)
+  }
+
+  const renderContent = () => {
+    switch (currentPage) {
+      case 'overview':
+        return <HomeSection onNavigate={setCurrentPage} />
+      case 'home':
+        return <HomeSection onNavigate={setCurrentPage} />
+      case 'guard-behavior':
+        return <GuardBehaviorSection />
+      case 'intrusion-detection':
+        return <IntrusionDetectionSection />
+      case 'door-detection':
+        return <DoorDetectionSection />
+      case 'face-detection':
+        return <FaceDetectionSection />
+      case 'human-detection':
+        return <HumanDetectionSection />
+      case 'phone-detection':
+        return <PhoneDetectionSection />
+      case 'alarms':
+        return <AlarmsSection />
+      case 'statistics':
+        return <StatisticsSection />
+      default:
+        return <HomeSection onNavigate={setCurrentPage} />
+    }
+  }
+
+  return (
+    <div className="relative min-h-screen bg-background text-foreground">
+      {/* Subtle background texture */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(60rem_40rem_at_-10%_-20%,hsl(var(--primary)/0.06),transparent),radial-gradient(50rem_30rem_at_110%_10%,hsl(217_91%_60%/0.08),transparent)]"
+      />
+
+      <Sidebar
+        currentPage={currentPage}
+        onPageChange={handlePageChange}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
+        isMobile={isMobile}
+      />
+
+      {isMobile && mobileSidebarOpen && (
+        <button
+          type="button"
+          aria-label="关闭侧边栏"
+          className="fixed inset-0 z-30 bg-slate-950/40 backdrop-blur-[2px]"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      <div
+        className={cn(
+          'min-w-0 transition-[padding] duration-300 ease-in-out',
+          isMobile ? 'pl-0' : sidebarCollapsed ? 'pl-[4.75rem]' : 'pl-[18rem]',
+        )}
+      >
+        <Topbar currentPage={currentPage} onToggleSidebar={handleToggleSidebar} />
+        <main className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
+          <div className="w-full min-w-0">{renderContent()}</div>
+        </main>
+      </div>
+
+      <Toaster />
+    </div>
+  )
+}
+
+export default App

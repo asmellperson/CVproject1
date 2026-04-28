@@ -1,0 +1,4 @@
+/* Vite 默认样式已移除，布局交由 Tailwind + Sidebar 控制 */
+#root {
+  min-height: 100vh;
+}

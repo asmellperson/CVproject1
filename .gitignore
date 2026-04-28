@@ -1,0 +1,260 @@
+# ======================
+# Python
+# ======================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ======================
+# Conda / venv
+# ======================
+venv/
+env/
+.venv/
+ENV/
+
+# ======================
+# Node / Frontend
+# ======================
+node_modules/
+dist/
+build/
+.vite/
+.next/
+.nuxt/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ======================
+# IDE
+# ======================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ======================
+# Logs / runtime
+# ======================
+logs/
+log/
+*.log
+nohup.out
+*.pid
+tmp/
+temp/
+cache/
+runtime/
+runs/
+outputs/
+output/
+results/
+debug/
+
+# ======================
+# AI models / weights
+# ======================
+models/
+weights/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.ckpt
+*.safetensors
+*.task
+
+# ======================
+# Dataset / media
+# ======================
+data/
+dataset/
+datasets/
+videos/
+video/
+frames/
+captures/
+records/
+recordings/
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.flv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+
+# ======================
+# Secrets
+# ======================
+.env
+.env.*
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# 本地真实配置不要传
+config.local.yaml
+config.local.yml
+config.prod.yaml
+config.prod.yml
+*.local.yaml
+*.local.yml
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+！unified_frontend/public/company-home-bg.jpg
+
+# ======================
+# Local assistant / CLI config
+# ======================
+.codex/
+.claude/
+
+# ======================
+# Python virtual env
+# ======================
+.venv/
+venv/
+env/
+ENV/
+AiVision/.venv/
+
+# ======================
+# AI model files
+# ======================
+models/
+**/models/
+weights/
+**/weights/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.ckpt
+*.safetensors
+*.task
+
+# ======================
+# Runtime outputs
+# ======================
+outputs/
+**/outputs/
+runs/
+**/runs/
+logs/
+**/logs/
+*.log
+nohup.out
+
+# ======================
+# Video / image data
+# ======================
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.flv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+
+# ======================
+# Frontend dependencies
+# ======================
+node_modules/
+**/node_modules/
+dist/
+build/
+.vite/
+
+# ======================
+# Cache
+# ======================
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ======================
+# Secrets / local config
+# ======================
+.env
+.env.*
+*.local.yaml
+*.local.yml
+config.local.yaml
+config.local.yml
+config.prod.yaml
+config.prod.yml
+*.key
+*.pem
+*.crt
+.codex/
+
+# ======================
+# Local AI assistant / CLI files
+# ======================
+.codex
+.codex/
+**/.codex
+**/.codex/
+.claude
+.claude/
+**/.claude
+**/.claude/
+
+# ======================
+# Node dependencies
+# 注意：同时忽略目录、文件、软链接形式的 node_modules
+# ======================
+node_modules
+node_modules/
+**/node_modules
+**/node_modules/
+
+# ======================
+# Database backups / dumps
+# ======================
+db_backups/
+**/db_backups/
+*.sql
+
+# ======================
+# Real local config / users / secrets
+# 建议只上传 example，不上传真实配置
+# ======================
+**/config/auth_users.json
+**/config/config.yaml
+**/config/*.local.json
+**/config/*.local.yaml
+**/config/*.prod.json
+**/config/*.prod.yaml

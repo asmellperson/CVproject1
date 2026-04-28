@@ -1,0 +1,460 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  createAiVisionCamera,
+  deleteAiVisionCamera,
+  getAiVisionCameraKey,
+  type AiVisionCamera,
+  isAiVisionFeatureEnabled,
+  updateAiVisionCamera,
+} from '@/lib/aivision'
+
+type FeatureCameraManagerProps = {
+  cameras: AiVisionCamera[]
+  feature: string
+  currentCameraName: string
+  disabled?: boolean
+  onSelectCamera: (shmName: string) => void
+  onAddCamera: (shmName: string) => Promise<void>
+  onRemoveCamera: (shmName: string) => Promise<void>
+}
+
+export function FeatureCameraManager({
+  cameras,
+  feature,
+  currentCameraName,
+  disabled,
+  onSelectCamera,
+  onAddCamera,
+  onRemoveCamera,
+}: FeatureCameraManagerProps) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [cameraAlias, setCameraAlias] = useState('')
+  const [rtspUrl, setRtspUrl] = useState('')
+  const [formError, setFormError] = useState('')
+  const [workingCamera, setWorkingCamera] = useState('')
+  const [selectedExistingCamera, setSelectedExistingCamera] = useState('')
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [cameraToRename, setCameraToRename] = useState<AiVisionCamera | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameError, setRenameError] = useState('')
+  const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+
+  const enabledCameras = useMemo(
+    () => cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature)),
+    [cameras, feature],
+  )
+  const availableCameras = useMemo(
+    () => cameras.filter((camera) => !isAiVisionFeatureEnabled(camera, feature)),
+    [cameras, feature],
+  )
+
+  useEffect(() => {
+    if (selectedExistingCamera && !availableCameras.some((camera) => camera.shm_name === selectedExistingCamera)) {
+      setSelectedExistingCamera('')
+    }
+  }, [availableCameras, selectedExistingCamera])
+
+  const resetCreateForm = () => {
+    setCameraAlias('')
+    setRtspUrl('')
+    setFormError('')
+  }
+
+  const makeShmName = (alias: string) => {
+    const base = alias
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+    return `${base || 'camera'}_${Date.now().toString(36)}`
+  }
+
+  const handleCreateCamera = async () => {
+    const name = cameraAlias.trim()
+    const url = rtspUrl.trim()
+    if (!name || !url) {
+      setFormError('摄像头别名和 RTSP 流地址都不能为空。')
+      return
+    }
+
+    const shmName = makeShmName(name)
+    setWorkingCamera(shmName)
+    setFormError('')
+    try {
+      const camera = await createAiVisionCamera({
+        name,
+        url,
+        shm_name: shmName,
+        enabled: true,
+      })
+      await onAddCamera(camera.shm_name)
+      window.dispatchEvent(new Event('aivision:cameras-changed'))
+      resetCreateForm()
+      setDialogOpen(false)
+    } catch (error) {
+      setFormError(`添加失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  const handleEnableExisting = async () => {
+    const shmName = selectedExistingCamera.trim()
+    if (!shmName) return
+
+    setWorkingCamera(shmName)
+    try {
+      await onAddCamera(shmName)
+      setSelectedExistingCamera('')
+      window.dispatchEvent(new Event('aivision:cameras-changed'))
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  const handleRemove = async (shmName: string) => {
+    setWorkingCamera(shmName)
+    try {
+      await onRemoveCamera(shmName)
+      window.dispatchEvent(new Event('aivision:cameras-changed'))
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  const openRenameDialog = (camera: AiVisionCamera) => {
+    setCameraToRename(camera)
+    setRenameValue(camera.name)
+    setRenameError('')
+    setRenameDialogOpen(true)
+  }
+
+  const handleRenameCamera = async () => {
+    if (!cameraToRename) return
+
+    const nextName = renameValue.trim()
+    if (!nextName) {
+      setRenameError('摄像头名称不能为空。')
+      return
+    }
+
+    const cameraKey = getAiVisionCameraKey(cameraToRename)
+    setWorkingCamera(cameraKey)
+    setRenameError('')
+    try {
+      await updateAiVisionCamera(cameraKey, { name: nextName })
+      setRenameDialogOpen(false)
+      setCameraToRename(null)
+    } catch (error) {
+      setRenameError(`改名失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  const openDeleteDialog = (camera: AiVisionCamera) => {
+    setCameraToDelete(camera)
+    setDeleteError('')
+  }
+
+  const handleDeleteCamera = async () => {
+    if (!cameraToDelete) return
+
+    const cameraKey = getAiVisionCameraKey(cameraToDelete)
+    setWorkingCamera(cameraKey)
+    setDeleteError('')
+    try {
+      await deleteAiVisionCamera(cameraKey)
+      setCameraToDelete(null)
+    } catch (error) {
+      setDeleteError(`删除失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  return (
+    <Card className="border-slate-200 bg-white/95">
+      <CardHeader>
+        <CardTitle className="text-lg">摄像头管理</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-900">启用已有摄像头</div>
+            <div className="text-xs text-slate-500">从全局摄像头列表中选择，并启用当前功能。</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select
+              value={selectedExistingCamera}
+              onValueChange={setSelectedExistingCamera}
+              disabled={disabled || Boolean(workingCamera) || availableCameras.length === 0}
+            >
+              <SelectTrigger className="min-w-0 flex-1 bg-white sm:min-w-60">
+                <SelectValue placeholder={availableCameras.length === 0 ? '暂无可启用摄像头' : '选择已有摄像头'} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableCameras.map((camera) => (
+                  <SelectItem key={camera.id} value={camera.shm_name}>
+                    {camera.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              className="gap-2"
+              onClick={handleEnableExisting}
+              disabled={disabled || Boolean(workingCamera) || !selectedExistingCamera}
+            >
+              <Power className="h-4 w-4" />
+              启用
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-900">新增摄像头</div>
+            <div className="text-xs text-slate-500">写入新的摄像头别名和 RTSP 流地址，添加后自动启用当前功能。</div>
+          </div>
+          <Button className="gap-2" onClick={() => setDialogOpen(true)} disabled={disabled || Boolean(workingCamera)}>
+            <Plus className="h-4 w-4" />
+            新增摄像头
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <Label>全部摄像头</Label>
+          <div className="rounded-2xl border border-slate-200">
+            {cameras.length === 0 ? (
+              <div className="px-4 py-5 text-sm text-slate-500">暂无摄像头。</div>
+            ) : (
+              cameras.map((camera) => {
+                const active = camera.shm_name === currentCameraName
+                const featureEnabled = isAiVisionFeatureEnabled(camera, feature)
+                const cameraKey = getAiVisionCameraKey(camera)
+                return (
+                  <div
+                    key={camera.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelectCamera(camera.shm_name)}
+                      className="min-w-0 text-left"
+                      disabled={disabled}
+                    >
+                      <div className="truncate text-sm font-medium text-slate-900">{camera.name}</div>
+                      <div className="truncate text-xs text-slate-500">
+                        {camera.shm_name}
+                        {active ? ' · 当前正在编辑' : ''}
+                        {featureEnabled ? ' · 当前功能已启用' : ' · 当前功能未启用'}
+                      </div>
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => openRenameDialog(camera)}
+                        disabled={disabled || Boolean(workingCamera)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        改名
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => openDeleteDialog(camera)}
+                        disabled={disabled || Boolean(workingCamera)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        删除
+                      </Button>
+                    </div>
+                    {workingCamera === cameraKey ? (
+                      <div className="basis-full text-xs text-slate-500">正在处理该摄像头...</div>
+                    ) : null}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>已启用当前功能的摄像头</Label>
+          <div className="rounded-2xl border border-slate-200">
+            {enabledCameras.length === 0 ? (
+              <div className="px-4 py-5 text-sm text-slate-500">暂无摄像头启用当前功能。</div>
+            ) : (
+              enabledCameras.map((camera) => {
+                const active = camera.shm_name === currentCameraName
+                return (
+                  <div
+                    key={camera.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelectCamera(camera.shm_name)}
+                      className="min-w-0 text-left"
+                      disabled={disabled}
+                    >
+                      <div className="truncate text-sm font-medium text-slate-900">{camera.name}</div>
+                      <div className="text-xs text-slate-500">{active ? '当前正在编辑' : '点击切换配置'}</div>
+                    </button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-amber-700 hover:text-amber-800"
+                      onClick={() => handleRemove(camera.shm_name)}
+                      disabled={disabled || Boolean(workingCamera)}
+                    >
+                      <PowerOff className="h-4 w-4" />
+                      停用
+                    </Button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </CardContent>
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) resetCreateForm()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新增摄像头</DialogTitle>
+            <DialogDescription>新增摄像头会写入数据库，并立即启用当前功能。</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={`${feature}-camera-alias`}>摄像头别名</Label>
+              <Input
+                id={`${feature}-camera-alias`}
+                value={cameraAlias}
+                onChange={(event) => setCameraAlias(event.target.value)}
+                placeholder="例如：一号门摄像头"
+                disabled={Boolean(workingCamera)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${feature}-camera-rtsp`}>RTSP 流地址</Label>
+              <Input
+                id={`${feature}-camera-rtsp`}
+                value={rtspUrl}
+                onChange={(event) => setRtspUrl(event.target.value)}
+                placeholder="rtsp://user:password@host:554/stream"
+                disabled={Boolean(workingCamera)}
+              />
+            </div>
+            {formError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={Boolean(workingCamera)}>
+              取消
+            </Button>
+            <Button className="gap-2" onClick={handleCreateCamera} disabled={Boolean(workingCamera)}>
+              <Plus className="h-4 w-4" />
+              {workingCamera ? '添加中' : '添加'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renameDialogOpen}
+        onOpenChange={(open) => {
+          setRenameDialogOpen(open)
+          if (!open) {
+            setCameraToRename(null)
+            setRenameValue('')
+            setRenameError('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改摄像头名称</DialogTitle>
+            <DialogDescription>摄像头标识和 RTSP 地址保持不变，仅修改前端展示名称。</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor={`${feature}-rename-camera`}>摄像头名称</Label>
+            <Input
+              id={`${feature}-rename-camera`}
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              disabled={Boolean(workingCamera)}
+            />
+            {renameError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{renameError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDialogOpen(false)} disabled={Boolean(workingCamera)}>
+              取消
+            </Button>
+            <Button className="gap-2" onClick={handleRenameCamera} disabled={Boolean(workingCamera)}>
+              <Pencil className="h-4 w-4" />
+              {workingCamera ? '保存中' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(cameraToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !workingCamera) {
+            setCameraToDelete(null)
+            setDeleteError('')
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除摄像头</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后会从数据库移除 {cameraToDelete?.name || '该摄像头'}，并清理它在所有算法里的配置。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{deleteError}</div> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(workingCamera)}>取消</AlertDialogCancel>
+            <Button variant="destructive" className="gap-2" onClick={handleDeleteCamera} disabled={Boolean(workingCamera)}>
+              <Trash2 className="h-4 w-4" />
+              {workingCamera ? '删除中' : '删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  )
+}

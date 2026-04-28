@@ -1,0 +1,75 @@
+福达视觉平台公网网址：https://aicv.fudar.com/
+
+使用tmux在后端跑代码：下载：
+apt update
+apt install -y tmux
+
+退出窗口（启动了窗口后要按这个退出窗口）
+################
+Ctrl + B
+松开
+再按 D
+###############
+进入已有窗口：
+****************************************
+tmux attach -t unified_frontend
+tmux attach -t guard_room
+tmux attach -t aivision
+****************************************
+关闭程序：
+****************************************
+tmux kill-session -t unified_frontend
+tmux kill-session -t guard_room
+tmux kill-session -t aivision
+****************************************
+
+1、启动unified_frontend:
+tmux new -s unified_frontend
+cd /usr/zyy/Fuda_CVPreject/unified_frontend
+npm run dev
+
+2、启动guard_room:
+tmux new -s guard_room
+cd /usr/zyy/Fuda_CVPreject/guard_room
+python run_server.py
+
+3、启动AiVision
+tmux new -s aivision
+cd /usr/zyy/Fuda_CVPreject/AiVision
+uv run main.py
+
+
+4、tmux常用命令:
+查看所有正在跑的tmux：
+tmux ls
+
+
+
+
+如何添加新工号
+
+  编辑：
+
+  /usr/zyy/Fuda_CVPreject/guard_room/config/auth_users.json
+
+  追加：
+
+  {
+    "employee_id": "10003",
+    "name": "新用户",
+    "role": "viewer",
+    "enabled": true
+
+  AUTH_DEFAULT_PASSWORD='新密码'
+
+  如何区分 admin 和 viewer
+
+  在 auth_users.json 里改 role：
+
+  "role": "admin"
+
+  或：
+
+  "role": "viewer"
+
+  admin 可修改配置、启停算法、录屏；viewer 只能查看。

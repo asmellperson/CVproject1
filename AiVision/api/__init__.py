@@ -1,0 +1,1 @@
+"""AiVision FastAPI package."""

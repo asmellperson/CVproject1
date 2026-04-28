@@ -1,0 +1,133 @@
+"""
+platform/inference/manager.py
+推理 Worker 进程生命周期管理 — 替代旧 CapManager.start_inferworker。
+
+启动时按数据库 ai_model 表逐个尝试加载,导入失败 / 模型缺失就跳过,
+不影响其他模型。Consumer 那边通过 _dispatch_frame 找不到对应模型时也会优雅降级。
+"""
+from __future__ import annotations
+import importlib
+from multiprocessing import Queue
+
+from core.logger import logger
+from core.cache import config_cache
+from features import all_specs
+from .service import model_service
+
+
+class InferenceManager:
+    """所有推理 Worker 进程的管理器"""
+
+    def __init__(self):
+        # model_name → infer_queue (Consumer 投递任务给 Worker)
+        self.infer_queues: dict[str, Queue] = {}
+        # function_name → result_queue (Worker 把结果推给对应 Consumer)
+        self.result_queues: dict[str, Queue] = {}
+        # model_name → BaseModelWorker 实例
+        self._workers: dict[str, object] = {}
+
+    def initialize_queues(self):
+        """启动前预创建所有队列"""
+        # 一个 model 一个推理输入队列
+        for m in model_service.list_models(enabled_only=True):
+            self.infer_queues[m["name"]] = Queue(maxsize=10)
+        # 一个 feature 一个结果队列
+        for fname in all_specs():
+            self.result_queues[fname] = Queue(maxsize=10)
+
+        logger.info(
+            f"[InferenceManager] 初始化 {len(self.infer_queues)} 个推理队列, "
+            f"{len(self.result_queues)} 个结果队列"
+        )
+
+    def start_all(self):
+        """加载并启动所有已启用的推理 Worker"""
+        for model in model_service.list_models(enabled_only=True):
+            self._start_one(model)
+        logger.info(f"[InferenceManager] 启动了 {len(self._workers)} 个推理进程")
+
+    def stop_all(self):
+        for name, worker in list(self._workers.items()):
+            try:
+                worker.stop()
+            except Exception as e:
+                logger.warning(f"[InferenceManager] 停止 {name} 失败: {e}")
+        self._workers.clear()
+
+    def _start_one(self, model_cfg: dict) -> bool:
+        name = model_cfg["name"]
+        import_path = model_cfg.get("import_path")
+        if not import_path:
+            logger.info(f"[InferenceManager] 模型 {name} 未配置 import_path,跳过")
+            return False
+
+        # 收集本模型对应的初始 camera 配置(供 Worker 用)
+        initial_configs = self._collect_initial_configs(name)
+
+        try:
+            worker_cls = self._import_worker_class(import_path)
+        except Exception as e:
+            logger.warning(f"[InferenceManager] 模型 {name} 导入失败 ({import_path}): {e}")
+            return False
+
+        infer_queue = self.infer_queues.get(name)
+        if infer_queue is None:
+            logger.warning(f"[InferenceManager] 模型 {name} 缺少 infer_queue")
+            return False
+
+        try:
+            worker = worker_cls(
+                infer_queue=infer_queue,
+                result_queues=self.result_queues,
+                model_cfg=model_cfg,
+                initial_configs=initial_configs,
+            )
+            worker.start()
+            self._workers[name] = worker
+            logger.info(f"[InferenceManager] 推理 Worker 启动: {name}")
+            return True
+        except Exception as e:
+            logger.exception(f"[InferenceManager] 启动 Worker {name} 失败: {e}")
+            return False
+
+    def _collect_initial_configs(self, model_name: str) -> dict:
+        """收集所有依赖该模型的 (camera_id, function) 配置"""
+        result = {}
+        all_cfg = config_cache.get_all_function_configs()
+        specs = all_specs()
+        for (cam_id, fname), cfg in all_cfg.items():
+            spec = specs.get(fname)
+            if spec is None:
+                continue
+            if model_name in spec.required_models:
+                result[cam_id] = cfg
+        return result
+
+    @staticmethod
+    def _import_worker_class(path: str) -> type:
+        """支持两种格式:
+        - module 路径(模块内有 ModelWorker 类): 'platform.inference.workers.yolo_detector'
+        - 完整类路径: 'platform.inference.workers.yolo_detector.YoloDetectorWorker'
+        """
+        if "." not in path:
+            raise ImportError(f"无效的 import_path: {path}")
+        # 尝试当作完整类路径
+        try:
+            mod_path, cls_name = path.rsplit(".", 1)
+            module = importlib.import_module(mod_path)
+            cls = getattr(module, cls_name, None)
+            if cls is not None:
+                return cls
+        except ImportError:
+            pass
+        # fallback: 当作 module 路径,用 ModelWorker 名字
+        module = importlib.import_module(path)
+        return module.ModelWorker
+
+    # ---------- 状态查询 ----------
+
+    def list_running(self) -> list[str]:
+        return list(self._workers.keys())
+
+
+inference_manager = InferenceManager()
