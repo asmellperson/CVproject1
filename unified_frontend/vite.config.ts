@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const backendTarget = env.VITE_BACKEND_TARGET || 'http://127.0.0.1:5000'
   const aivisionTarget = env.VITE_AIVISION_BACKEND_TARGET || 'http://127.0.0.1:7862'
+  const securityVlmTarget = env.VITE_SECURITY_VLM_BACKEND_TARGET || 'http://127.0.0.1:8000'
   const devPort = Number(env.VITE_DEV_PORT || 3000)
 
   return {
@@ -41,6 +42,13 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           ws: false,
+        },
+        '/security-vlm': {
+          target: securityVlmTarget,
+          changeOrigin: true,
+          secure: false,
+          ws: false,
+          rewrite: (proxyPath) => proxyPath.replace(/^\/security-vlm/, '') || '/',
         },
         '/api': {
           target: backendTarget,

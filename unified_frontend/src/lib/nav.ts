@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Radar,
   ScanFace,
+  ShieldAlert,
   ShieldCheck,
   Smartphone,
 } from 'lucide-react'
@@ -36,12 +37,14 @@ export const navGroups: NavGroup[] = [
     id: 'modules',
     label: '能力中心',
     items: [
+      { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
       { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
       { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
-      { id: 'door-detection', label: '大门检测', icon: DoorOpen, description: '大门状态监控与配置入口' },
+      { id: 'door-detection', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
       { id: 'face-detection', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
-      { id: 'human-detection', label: '人体逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
-      { id: 'phone-detection', label: '手机检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+      { id: 'human-detection', label: '人员逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
+      { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+      
     ],
   },
   { 

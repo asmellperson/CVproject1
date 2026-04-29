@@ -1,8 +1,31 @@
 # server.py
 """
-使用FastAPI搭建网页接口服务器。接受前端请求，调用runtime和state
+FastAPI Web 服务模块。
+
+将系统的核心功能（检测控制、状态查询、报警管理、视频流）
+以 RESTful API 的形式暴露给前端，同时处理认证与跨域。
+
+API 分组：
+    /api/auth/*        —— 登录、登出、当前用户信息
+    /api/control/*     —— 检测系统启动/停止/重启（需 admin）
+    /api/recording/*   —— 手动录制控制（需 admin）
+    /api/config        —— 配置读取与更新（更新需 admin）
+    /api/alarms/*      —— 报警列表、截图、视频
+    /api/statistics    —— 统计信息
+    /api/frame.jpg     —— 最新帧快照
+    /api/stream.mjpg   —— MJPEG 推流
+
+认证机制：
+    HTTP 中间件拦截所有 /api/* 请求（公开路径除外），
+    通过 auth.py 的 get_current_user_from_request() 验证 Token。
+    公开路径：/ 、/api/health、/api/auth/login、/api/auth/logout。
+
+CORS：
+    允许的源由环境变量 AUTH_CORS_ORIGINS 控制（逗号分隔），
+    默认包含本地开发地址和生产域名。
 """
 from __future__ import annotations
+
 import os
 import time
 from typing import Optional
@@ -30,7 +53,16 @@ from .state import AppState
 from .wechat_notifier import WeChatNotifier
 
 
+# ---------------------------------------------------------------------------
+# 请求/响应模型
+# ---------------------------------------------------------------------------
+
 class ConfigUpdateRequest(BaseModel):
+    """配置更新请求体。
+
+    各字段均为可选，前端只需传入需要修改的配置节，未传入的节保持不变。
+    字段名与 AppConfig 子配置的节名称一一对应，便于按名索引更新。
+    """
     video: Optional[dict] = None
     models: Optional[dict] = None
     room: Optional[dict] = None
@@ -40,7 +72,16 @@ class ConfigUpdateRequest(BaseModel):
     wechat: Optional[dict] = None
 
 
+# ---------------------------------------------------------------------------
+# 工厂函数
+# ---------------------------------------------------------------------------
+
 def _cors_origins() -> list[str]:
+    """从环境变量 AUTH_CORS_ORIGINS 读取允许的 CORS 源列表。
+
+    多个源用逗号分隔；未配置时回落到本地开发地址和生产域名。
+    生产环境应通过环境变量明确指定，避免开发地址被保留在白名单中。
+    """
     raw = os.getenv(
         "AUTH_CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000,https://aicv.fudar.com",
@@ -49,44 +90,55 @@ def _cors_origins() -> list[str]:
 
 
 def create_app(config_path: str = "config/config.yaml") -> FastAPI:
-    """
-    根据配置文件，创建并返回一个FastAPI对象
-    """
-    # ======================准备对象=============================================
+    """创建并配置 FastAPI 应用实例。
 
+    采用工厂函数模式（而非模块级全局对象），便于在测试中注入不同配置。
+    所有路由均闭包引用此函数内的 runtime / state / cfg 对象，无全局状态。
+
+    Args:
+        config_path: YAML 配置文件路径，默认 "config/config.yaml"。
+
+    Returns:
+        配置完毕、已注册所有路由的 FastAPI 实例。
+    """
+    # ── 初始化核心对象 ────────────────────────────────────────────────────
     cfg = AppConfig.from_yaml(config_path)
-    state = AppState(cfg, config_path=config_path)   # 创建应用状态对象（全局共享对应仓库）
-    wechat_notifier = None
+    state = AppState(cfg, config_path=config_path)  # 全局共享状态，供运行时写入、API 读取
 
-    # 创建企业微信通知器对象
+    wechat_notifier = None
     if cfg.wechat.enable:
         wechat_notifier = WeChatNotifier(
             corpid=cfg.wechat.corpid,
             corpsecret=cfg.wechat.corpsecret,
             agentid=cfg.wechat.agentid,
-        )         
+        )
 
-    # 创建后端总运行对象，负责开始和停止检测,读取视频，跑模型，更新状态，发出告警，录制视频
     runtime = GuardRoomRuntime(
         config=cfg,
-        state=state,                        #共享状态对象
-        wechat_notifier=wechat_notifier,    # 微信通知器
-        alarm_user=cfg.wechat.alarm_user,   # 报警发送的用户
-        alarm_camera_name=cfg.wechat.camera_name,   # 报警发送的摄像头名称
+        state=state,
+        wechat_notifier=wechat_notifier,
+        alarm_user=cfg.wechat.alarm_user,
+        alarm_camera_name=cfg.wechat.camera_name,
     )
-    
-    # 创建FastAPI对象
+
+    # ── 创建 FastAPI 实例并注册中间件 ──────────────────────────────────────
     app = FastAPI(title="Guard Room API", version="1.0.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
-        allow_credentials=True,
+        allow_credentials=True,     # 允许携带 Cookie，JWT 认证必须
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
+        """HTTP 认证中间件：拦截所有 /api/* 请求，验证 Token。
+
+        公开路径和 OPTIONS 预检请求直接放行，不做认证。
+        认证通过后将用户信息写入 request.state.user，供路由函数读取。
+        认证失败返回 401，不暴露具体错误细节。
+        """
         path = request.url.path
         public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout"}
         if request.method == "OPTIONS" or path in public_paths:
@@ -98,11 +150,15 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
         return await call_next(request)
 
-    # ===============================注册接口=================================
-    # 当前端访问这个网址时，就执行下面的各个函数，get:读取数据不改东西，post:执行动作或修改数据
+    # ── 认证路由 ─────────────────────────────────────────────────────────
 
     @app.post("/api/auth/login")
     def login(payload: LoginRequest, request: Request, response: Response):
+        """验证工号与密码，成功后签发 JWT 并写入 HttpOnly Cookie。
+
+        Cookie 与响应体中均返回 Token，兼顾浏览器（Cookie）和 API 客户端（JSON）。
+        认证失败统一返回 401，不区分"工号不存在"和"密码错误"，防止枚举攻击。
+        """
         user = verify_login(payload.employee_id, payload.password)
         if user is None:
             raise HTTPException(status_code=401, detail="invalid employee_id or password")
@@ -112,36 +168,38 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
 
     @app.get("/api/auth/me")
     def me(user: dict = Depends(get_current_user)):
+        """返回当前已登录用户的信息，常用于前端刷新页面后恢复登录状态。"""
         return {"success": True, "user": user}
 
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response):
+        """清除认证 Cookie，完成登出。Token 本身无法主动失效（无服务端存储），
+        依赖 Cookie 删除使浏览器不再携带凭证。"""
         clear_auth_cookie(response, request)
         return {"success": True}
 
+    # ── 手动录制路由 ──────────────────────────────────────────────────────
+
     @app.get("/api/recording/status")
     def recording_status():
-        """
-        查看当前录制器状态
-        """
+        """返回手动录制器的当前状态（是否录制中、当前文件路径等）。"""
         return runtime.recorder.status()
 
     @app.post("/api/recording/start")
     def start_recording(_user: dict = Depends(require_admin)):
-        """
-        启动录制
-        """
+        """启动手动录制（需 admin）。VideoWriter 在首帧到来时懒创建。"""
         return runtime.recorder.start()
 
     @app.post("/api/recording/stop")
     def stop_recording(_user: dict = Depends(require_admin)):
+        """停止手动录制（需 admin），返回已保存文件的路径。"""
         return runtime.recorder.stop()
+
+    # ── 基础路由 ─────────────────────────────────────────────────────────
 
     @app.get("/")
     def root():
-        """
-        获取根目录信息
-        """
+        """根路径：返回服务基本信息，供反向代理健康探测或人工确认服务身份。"""
         return {
             "name": "guard-room-api",
             "ok": True,
@@ -151,162 +209,174 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        """
-        健康检查，服务器还活着
-        前端想检查后端是否在线时，会调用这个接口
+        """健康检查端点，无需认证。
+
+        前端、负载均衡器或监控系统定期轮询此接口以确认服务存活。
         """
         return {"status": "ok", "port": 5000}
 
     @app.get("/api/status")
     def status():
-        """
-        获取当前状态
-        """
+        """返回系统运行状态快照（是否运行、FPS、当前帧计数、最新报警等）。"""
         return state.get_status()
+
+    # ── 配置路由 ─────────────────────────────────────────────────────────
 
     @app.get("/api/config")
     def get_config():
-        """
-        获取当前配置
-        """
+        """返回当前完整配置字典（含所有子节），供前端配置页面回显。"""
         return state.get_config_dict()
 
     @app.post("/api/config")
     def update_config(payload: ConfigUpdateRequest, _user: dict = Depends(require_admin)):
-        """
-        更新配置
-        参数：
-            payload：前端发来的请求体
+        """更新配置并持久化到 YAML 文件（需 admin）。
+
+        更新策略：局部合并（patch），只修改请求体中出现的字段，
+        未传入的字段保持原值，避免误清空其他配置节。
+
+        注意：runtime.cfg 在此处直接替换为新配置对象，
+        但运行中的子模块（BehaviorEngine、共识引擎等）持有旧配置引用，
+        修改大多数阈值参数需重启检测才能完全生效。
         """
         current = state.get_config_dict()
 
-        for section_name in ["video", "models", "room", "rules", "classes", "runtime","wechat"]:
-            incoming = getattr(payload, section_name)   # 按名字取请求体的值，当 section_name 是 "video" 时，就等于取 payload.video
-            # 如果前端传了section_name这一部分的配置，就更新当前配置的对应部分
-            if incoming:  
-                current[section_name].update(incoming)
+        for section_name in ["video", "models", "room", "rules", "classes", "runtime", "wechat"]:
+            incoming = getattr(payload, section_name)   # 按节名取请求体对应字段
+            if incoming:
+                current[section_name].update(incoming) # 局部合并，不覆盖未传入的字段
 
-        # 写到yaml文件中
+        # 持久化到 YAML（覆写）
         import yaml
         with open(config_path, "w", encoding="utf-8") as f:
-            # 把 Python 字典写成 yaml 格式。
-            yaml.safe_dump(current, f, allow_unicode=True, sort_keys=False) #sort_keys：是否按字母排序
+            yaml.safe_dump(current, f, allow_unicode=True, sort_keys=False)
 
-        # 读取新配置，更新 state 里的配置
+        # 重新加载配置并更新 state 和 runtime 的引用
         new_cfg = AppConfig.from_yaml(config_path)
-        state.set_config(new_cfg, config_path=config_path)         # 注意：state.set_config(...)内部如果没有联动机制（运行中的 runtime 是否立刻使用新配置），可能需要重启才能使配置生效 
+        state.set_config(new_cfg, config_path=config_path)
         runtime.cfg = new_cfg
-        
+
         return {"success": True, "config": state.get_config_dict()}
+
+    # ── 检测控制路由 ──────────────────────────────────────────────────────
 
     @app.post("/api/control/start")
     def start_runtime(_user: dict = Depends(require_admin)):
-        """
-        启动整个检测系统
-        """
+        """启动检测系统（需 admin）。已运行时幂等，不重复启动。"""
         runtime.start()
         return {"success": True, "running": True}
 
     @app.post("/api/control/stop")
     def stop_runtime(_user: dict = Depends(require_admin)):
-        """
-        停止整个系统的检测
-        """
+        """停止检测系统（需 admin），等待主循环线程退出后返回。"""
         runtime.stop()
         return {"success": True, "running": False}
 
     @app.post("/api/control/restart")
     def restart_runtime(_user: dict = Depends(require_admin)):
-        """
-        重启
-        """
+        """重启检测系统（需 admin）：先停止再启动，使新配置完全生效。"""
         runtime.stop()
         runtime.start()
         return {"success": True, "running": True}
 
+    # ── 报警路由 ─────────────────────────────────────────────────────────
+
     @app.get("/api/alarms")
     def get_alarms(limit: int = 50):
-        """
-        获取告警列表
-        """
+        """返回最近 limit 条报警记录列表，按时间倒序排列。"""
         return {"items": state.get_alarms(limit=limit)}
+
     @app.get("/api/alarms/{alarm_id}/image")
     def get_alarm_image(alarm_id: str):
-        """返回报警截图"""
+        """返回指定报警的 JPEG 快照文件。
+
+        文件不存在时（已被清理或移动）返回 404，
+        错误信息中包含原始路径，便于运维排查。
+        """
         alarm = state.get_alarm(alarm_id)
         if not alarm:
             raise HTTPException(status_code=404, detail="报警不存在")
-        
+
         image_path = alarm.get("image_path")
         if not image_path:
             raise HTTPException(status_code=404, detail="该报警无截图")
-        
+
         path = Path(image_path)
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"截图文件已被清理或移动: {image_path}")
-        
-        return FileResponse(str(path), media_type="image/jpeg")
 
+        return FileResponse(str(path), media_type="image/jpeg")
 
     @app.get("/api/alarms/{alarm_id}/video")
     def get_alarm_video(alarm_id: str):
-        """返回报警视频"""
+        """返回指定报警的 MP4 视频片段文件。
+
+        视频在报警触发后由 AlarmClipRecorder 异步录制，
+        录制未完成时 video_path 为空，返回 404。
+        """
         alarm = state.get_alarm(alarm_id)
         if not alarm:
             raise HTTPException(status_code=404, detail="报警不存在")
-        
+
         video_path = alarm.get("video_path")
         if not video_path:
-            raise HTTPException(status_code=404, detail="该报警无视频")
-        
+            raise HTTPException(status_code=404, detail="该报警无视频（录制未完成或未启用）")
+
         path = Path(video_path)
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"视频文件已被清理或移动: {video_path}")
-        
+
         return FileResponse(str(path), media_type="video/mp4")
+
+    # ── 统计与视频流路由 ──────────────────────────────────────────────────
 
     @app.get("/api/statistics")
     def get_statistics():
-        """
-        获取统计信息
-        """
+        """返回报警统计汇总信息（各类报警次数、时段分布等）。"""
         return state.get_statistics()
 
     @app.get("/api/frame.jpg")
     def frame_jpg():
-        """
-        获取最新帧
+        """返回当前最新帧的 JPEG 二进制数据，适合需要单帧快照的客户端。
+
+        每次请求返回调用时刻的最新帧，不保证与上次请求不同。
         """
         return Response(content=state.get_latest_frame(), media_type="image/jpeg")
 
     @app.get("/api/stream.mjpg")
     def mjpeg_stream():
-        """
-        获取 MJPEG 视频流,就是把很多张jpg图片一张接一张的不断发给浏览器看，看起来就像视频
+        """推送 MJPEG 视频流。
+
+        MJPEG 原理：在同一 HTTP 连接上持续发送 JPEG 帧，
+        每帧以 multipart boundary 分隔，浏览器逐帧渲染形成视频效果，
+        无需 WebSocket 或 WebRTC，兼容性好但效率较低。
+
+        帧率控制：通过 state.last_update_ts 检测新帧到来，
+        有新帧才推送（避免重复推送相同帧），每次推送后休眠 50ms（约 20fps 上限）。
         """
         def gen():
-            """
-            生成器函数
-            """
+            """MJPEG 帧生成器：有新帧时推送，否则等待。"""
             boundary = b"--frame\r\n"
-            last_update_ts = object()
+            last_update_ts = object()   # 初始化为不等于任何时间戳的哨兵值
+
             while True:
                 update_ts = state.last_update_ts
                 if update_ts == last_update_ts:
-                    time.sleep(0.05)
+                    time.sleep(0.05)    # 无新帧，等待后重试
                     continue
 
                 last_update_ts = update_ts
-                frame = state.get_latest_frame()  # 从状态对象里取最新帧的jpg二进制数据
-                yield boundary
-                # 标准的 MJPEG 帧格式：内容类型是jpeg，后面跟着图片二进制数据，末尾换行
-                yield b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-                time.sleep(0.05)
+                frame = state.get_latest_frame()    # 取最新帧的 JPEG 二进制数据
 
-        # 将生成器函数给StreamingResponse类，streamingResponse会不断读取gen()产出的数据，持续发送到前端
+                # 标准 MJPEG 帧格式：boundary + Content-Type + 图片数据 + 换行
+                yield boundary
+                yield b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                time.sleep(0.05)    # 控制推流帧率上限约 20fps
+
+        # StreamingResponse 持续读取生成器输出并写入响应体
         return StreamingResponse(
             gen(),
-            media_type="multipart/x-mixed-replace; boundary=frame", # 这是多段连续内容，每一段都是一帧，用 boundary=frame 来分隔。
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            # boundary=frame 告知浏览器以 "--frame" 为分隔符区分各帧
         )
 
     return app

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Filter, Download, Eye, Smartphone, UserRound, AlertTriangle, Radar, DoorOpen, ScanFace, ShieldCheck } from 'lucide-react'
+import { Search, Filter, Download, Eye, Smartphone, UserRound, AlertTriangle, Radar, DoorOpen, ScanFace, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { alarmImageUrl, getAlarms, type AlarmEvent } from '@/lib/api'
 import { alarmVideoUrl } from '@/lib/api'
 
@@ -85,6 +85,10 @@ export function AlarmsSection() {
         return <Badge className="bg-orange-700">保安玩手机</Badge>
       case 'guard_prone_sleep':
         return <Badge className="bg-yellow-600">保安趴睡</Badge>
+      case 'security_vlm_non_compliant':
+        return <Badge className="bg-cyan-700">安检流程不规范</Badge>
+      case 'security_vlm_error':
+        return <Badge className="bg-amber-600">安检判定错误</Badge>
       default:
         return <Badge variant="secondary">未知报警</Badge>
     }
@@ -149,7 +153,7 @@ export function AlarmsSection() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="保安离岗"
           value={counts.byType.guard_absent || 0}
@@ -167,6 +171,18 @@ export function AlarmsSection() {
           value={counts.byType.guard_prone_sleep || 0}
           icon={<UserRound className="w-6 h-6 text-yellow-600" />}
           valueClassName="text-yellow-600"
+        />
+        <StatCard
+          title="安检不规范"
+          value={counts.byType.security_vlm_non_compliant || 0}
+          icon={<ShieldAlert className="w-6 h-6 text-cyan-700" />}
+          valueClassName="text-cyan-700"
+        />
+        <StatCard
+          title="安检判定错误"
+          value={counts.byType.security_vlm_error || 0}
+          icon={<AlertTriangle className="w-6 h-6 text-amber-600" />}
+          valueClassName="text-amber-600"
         />
       </div>
 
@@ -207,6 +223,8 @@ export function AlarmsSection() {
                 <SelectItem value="guard_absent">保安离岗</SelectItem>
                 <SelectItem value="guard_phone_use">保安玩手机</SelectItem>
                 <SelectItem value="guard_prone_sleep">保安趴睡</SelectItem>
+                <SelectItem value="security_vlm_non_compliant">安检流程不规范</SelectItem>
+                <SelectItem value="security_vlm_error">安检判定错误</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -333,7 +351,9 @@ export function AlarmsSection() {
                 )}
 
                 {!selectedAlarm.video_status && (
-                  <div className="text-sm text-slate-500">当前 AiVision 报警记录已保存截图；未配置录屏文件。</div>
+                  <div className="text-sm text-slate-500">
+                    {selectedAlarm.source === 'security_vlm' ? '当前安检流程记录来自 VLM 历史判定；后端未提供单条截图接口。' : '当前 AiVision 报警记录已保存截图；未配置录屏文件。'}
+                  </div>
                 )}
                 
                 {selectedAlarm.video_status === 'pending' && (

@@ -122,7 +122,7 @@ export function PhoneDetectionSection() {
       const payload = await requestPhoneConfig(shmName)
       setPhoneConfig(payload.detect_phone)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的手机检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的手机使用检测配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -143,7 +143,7 @@ export function PhoneDetectionSection() {
       }
       if (!nextCamera) {
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前手机检测未添加摄像头，请先添加摄像头。')
+        setMessage('当前手机使用检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
@@ -172,7 +172,7 @@ export function PhoneDetectionSection() {
 
   const addCameraToFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在添加摄像头并启用手机检测...')
+    setMessage('正在添加摄像头并启用手机使用检测...')
     try {
       const payload = await requestPhoneConfig(cameraName)
       await requestPhoneConfig(cameraName, {
@@ -182,7 +182,7 @@ export function PhoneDetectionSection() {
       })
       await refreshCameraList()
       await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用手机检测。`)
+      setMessage(`添加成功：${cameraName} 已启用手机使用检测。`)
     } catch (error) {
       setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -263,7 +263,7 @@ export function PhoneDetectionSection() {
     }
 
     setSaving(true)
-    setMessage('正在保存手机检测配置...')
+    setMessage('正在保存手机使用检测配置...')
     try {
       await requestPhoneConfig(shmName, {
         method: 'PUT',
@@ -345,7 +345,7 @@ export function PhoneDetectionSection() {
 
             <TabsContent value="roi" className="space-y-6">
               <AiVisionRoiEditor
-                title="手机检测 ROI 绘制"
+                title="手机使用检测 ROI 绘制"
                 cameraKey={form.cameraName}
                 roiJson={form.roiPos}
                 disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
@@ -422,7 +422,7 @@ export function PhoneDetectionSection() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone-roi">手机检测 ROI 区域坐标</Label>
+                  <Label htmlFor="phone-roi">手机使用检测 ROI 区域坐标</Label>
                   <Textarea
                     id="phone-roi"
                     value={form.roiPos}

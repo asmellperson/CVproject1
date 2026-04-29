@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>安检合规 VLM 检测</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f5f7fb;color:#222}
+  .header{background:linear-gradient(135deg,#4f46e5,#0891b2);color:#fff;padding:22px 20px;text-align:center}
+  .header h1{font-size:28px;margin-bottom:6px}
+  .nav-tabs{display:flex;justify-content:center;background:#fff;border-bottom:1px solid #e5e7eb}
+  .nav-tab{padding:15px 30px;cursor:pointer;border-bottom:3px solid transparent;font-weight:700}
+  .nav-tab.active{color:#4f46e5;border-bottom-color:#4f46e5}
+  .container{max-width:1520px;margin:0 auto;padding:22px}
+  .tab-content{display:none}.tab-content.active{display:block}
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px;margin-bottom:22px}
+  .stat-card{background:#fff;border-radius:16px;padding:18px;box-shadow:0 3px 14px rgba(0,0,0,.08)}
+  .label{color:#666;font-size:13px;margin-bottom:8px}.value{font-size:30px;font-weight:800}
+  .success{color:#16a34a}.error{color:#dc2626}.warning{color:#d97706}.cyan{color:#0891b2}.gray{color:#6b7280}
+  .panel{background:#fff;border-radius:16px;padding:20px;margin-bottom:22px;box-shadow:0 3px 14px rgba(0,0,0,.08)}
+  .panel h2{font-size:22px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eef2f7}
+  .video-wrap{overflow:hidden;border-radius:12px;border:1px solid #eceff4;background:#000}
+  .video-wrap img{width:100%;display:block}
+  .results-table{width:100%;border-collapse:collapse;font-size:14px}
+  .results-table th,.results-table td{padding:11px 9px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}
+  .results-table th{background:#fafafa;color:#666;font-size:13px}
+  .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}
+  .badge.success{background:#dcfce7;color:#166534}
+  .badge.error{background:#fee2e2;color:#991b1b}
+  .badge.warning{background:#fef3c7;color:#92400e}
+  .badge.gray{background:#f3f4f6;color:#4b5563}
+  .ok{color:#16a34a;font-weight:700}.no{color:#9ca3af}
+  .empty-state{text-align:center;padding:32px;color:#9ca3af}
+  .status-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .tip{font-size:13px;color:#6b7280;margin-top:10px}
+
+  .roi-container{display:flex;gap:20px;flex-wrap:wrap}
+  .roi-stage-wrapper{flex:1;min-width:720px}
+  .roi-stage{position:relative;background:#000;border-radius:12px;overflow:hidden}
+  .roi-stage img{width:100%;display:block}
+  .roi-overlay{position:absolute;inset:0;cursor:crosshair}
+  .roi-box{position:absolute;border-radius:8px;border:2px solid #4f46e5;background:rgba(79,70,229,.22)}
+  .roi-box .label{position:absolute;left:6px;top:6px;padding:2px 8px;background:rgba(255,255,255,.95);border-radius:999px;font-size:12px;font-weight:700;color:#111}
+  .roi-sidebar{width:340px;min-width:300px}
+  .roi-item{display:flex;align-items:center;padding:10px;margin-bottom:8px;background:#fafafa;border-radius:10px;border:2px solid transparent;cursor:pointer}
+  .roi-item.active{border-color:#4f46e5;background:#eef2ff}
+  .color-indicator{width:14px;height:14px;border-radius:4px;margin-right:10px}
+  .roi-item .info{flex:1}.roi-item .name{font-weight:700}.roi-item .coords{font-size:12px;color:#6b7280}
+  .roi-controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .btn{padding:9px 14px;border:none;border-radius:9px;font-weight:700;cursor:pointer}
+  .btn-primary{background:#4f46e5;color:#fff}.btn-secondary{background:#f3f4f6;color:#111}
+  .status-message{padding:9px 13px;border-radius:9px;margin-bottom:12px;font-size:14px;display:none}
+  .status-message.success{display:block;background:#f0fdf4;border:1px solid #86efac;color:#166534}
+  .status-message.error{display:block;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>安检合规 VLM 检测</h1>
+  <div>YOLO + ByteTrack + Qwen-VL 三段式合规判定</div>
+</div>
+
+<div class="nav-tabs">
+  <div class="nav-tab active" data-tab="dashboard">检测面板</div>
+  <div class="nav-tab" data-tab="roi">ROI 绘制</div>
+</div>
+
+<div class="container">
+  <div id="dashboard-tab" class="tab-content active">
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">总 session</div><div class="value" id="s-total">0</div></div>
+      <div class="stat-card"><div class="label">合规</div><div class="value success" id="s-ok">0</div></div>
+      <div class="stat-card"><div class="label">不合规</div><div class="value error" id="s-no">0</div></div>
+      <div class="stat-card"><div class="label">错误</div><div class="value warning" id="s-err">0</div></div>
+      <div class="stat-card"><div class="label">合规率</div><div class="value cyan" id="s-rate">0%</div></div>
+      <div class="stat-card"><div class="label">VLM 队列</div><div class="value gray" id="s-queue">0</div></div>
+      <div class="stat-card"><div class="label">今日花费</div><div class="value gray" id="s-spent">¥0</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>实时视频</h2>
+      <div class="video-wrap"><img id="ruleImage" alt="rule"/></div>
+      <div class="status-row">
+        <span id="b-capture"></span><span id="b-detector"></span>
+        <span id="b-session"></span><span id="b-vlm"></span>
+      </div>
+      <div class="tip" id="last-update">最后更新:-</div>
+    </div>
+
+    <div class="panel">
+      <h2>历史判定结果</h2>
+      <div id="history-container"><div class="empty-state">暂无历史结果</div></div>
+    </div>
+  </div>
+
+  <div id="roi-tab" class="tab-content">
+    <div class="panel">
+      <h2>工位 ROI 绘制</h2>
+      <div id="roi-status" class="status-message"></div>
+      <div class="roi-container">
+        <div class="roi-stage-wrapper">
+          <div id="roiStage" class="roi-stage">
+            <img id="roiImage" alt="roi"/>
+            <div id="roiOverlay" class="roi-overlay"></div>
+          </div>
+        </div>
+        <div class="roi-sidebar">
+          <div style="font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:12px">
+            画出每个工位的大致工作区域，覆盖安检员站位 + 被检人站位即可。保存后自动热加载。
+          </div>
+          <div id="roi-list"></div>
+          <div class="roi-controls">
+            <button class="btn btn-secondary" id="add-roi-btn">新增</button>
+            <button class="btn btn-secondary" id="delete-roi-btn">删除</button>
+            <button class="btn btn-secondary" id="clear-all-btn">清空</button>
+            <button class="btn btn-primary" id="save-roi-btn">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let rois = {};
+let slotNames = [];
+let currentEditingRoi = null;
+let isDrawing = false;
+let startPoint = null;
+let currentRect = null;
+
+/* 关键：不用 roiImage.naturalWidth/naturalHeight 当原图尺寸。
+   改用 /health 里的 capture.width/height 作为真实源分辨率。 */
+let roiSourceW = 0;
+let roiSourceH = 0;
+
+const roiColors = [
+  {bg:'rgba(79,70,229,.22)',border:'#4f46e5'},
+  {bg:'rgba(8,145,178,.22)',border:'#0891b2'},
+  {bg:'rgba(245,158,11,.22)',border:'#f59e0b'},
+  {bg:'rgba(236,72,153,.22)',border:'#ec4899'},
+  {bg:'rgba(22,163,74,.22)',border:'#16a34a'}
+];
+
+function statusBadge(t){
+  return t ? '<span class="badge success">' + '✓ ' + t + '</span>' : '';
+}
+
+function badgeHTML(s){
+  const m = {
+    compliant:'<span class="badge success">合规</span>',
+    non_compliant:'<span class="badge error">不合规</span>',
+    error:'<span class="badge warning">错误</span>'
+  };
+  return m[s] || '<span class="badge gray">-</span>';
+}
+
+function mark(v){
+  if(v === true) return '<span class="ok">✓</span>';
+  if(v === false) return '<span class="no">✗</span>';
+  return '<span class="no">-</span>';
+}
+
+function switchTab(tab){
+  document.querySelectorAll('.nav-tab').forEach(el=>{
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-content').forEach(el=>{
+    el.classList.toggle('active', el.id === tab + '-tab');
+  });
+
+  const ruleImg = document.getElementById('ruleImage');
+  const roiImg = document.getElementById('roiImage');
+
+  if(tab === 'dashboard'){
+    if(!ruleImg.getAttribute('src')){
+      ruleImg.src = '/video/rule?ts=' + Date.now();
+    }
+    if(roiImg.getAttribute('src')){
+      roiImg.removeAttribute('src');
+      roiImg.src = '';
+    }
+  }else if(tab === 'roi'){
+    if(!roiImg.getAttribute('src')){
+      roiImg.src = '/video/original?ts=' + Date.now();
+    }
+    if(ruleImg.getAttribute('src')){
+      ruleImg.removeAttribute('src');
+      ruleImg.src = '';
+    }
+    renderRoiOverlay();
+  }
+}
+
+document.querySelectorAll('.nav-tab').forEach(el => {
+  el.addEventListener('click', () => switchTab(el.dataset.tab));
+});
+
+function renderHistory(items){
+  const c = document.getElementById('history-container');
+  if(!items || !items.length){
+    c.innerHTML = '<div class="empty-state">暂无历史结果</div>';
+    return;
+  }
+
+  c.innerHTML = `<table class="results-table"><thead><tr>
+    <th>时间</th><th>Session</th><th>工位</th><th>时长</th><th>状态</th>
+    <th>说明</th>
+  </tr></thead><tbody>${
+    items.slice(0,100).map(it => `
+      <tr>
+        <td>${it.time || '-'}</td>
+        <td>${it.session_id || '-'}</td>
+        <td>${it.roi_name || '-'}</td>
+        <td>${it.duration_sec || 0}s</td>
+        <td>${badgeHTML(it.status)}</td>
+        <td>${mark(it.upper_checked)}</td>
+        <td>${mark(it.middle_checked)}</td>
+        <td>${mark(it.lower_checked)}</td>
+        <td>${mark(it.arms_open)}</td>
+        <td>${(it.reason || it.error || '').toString().slice(0,80)}</td>
+      </tr>`
+    ).join('')
+  }</tbody></table>`;
+}
+
+function updateStats(data){
+  const s = data.stats || {};
+  document.getElementById('s-total').textContent = s.total || 0;
+  document.getElementById('s-ok').textContent = s.compliant || 0;
+  document.getElementById('s-no').textContent = s.non_compliant || 0;
+  document.getElementById('s-err').textContent = s.error || 0;
+  document.getElementById('s-rate').textContent = (s.rate || 0) + '%';
+  document.getElementById('s-queue').textContent = s.queue || 0;
+  document.getElementById('s-spent').textContent = '¥' + ((s.budget && s.budget.spent_yuan) || 0);
+
+  renderHistory(data.history || []);
+
+  const b = (tag, obj) => {
+    const ok = obj && obj.ok;
+    const color = ok ? 'success' : 'error';
+    const txt = ok ? (tag + ' OK') : (tag + ' ✗');
+    return `<span class="badge ${color}">${txt}</span>`;
+  };
+
+  document.getElementById('b-capture').innerHTML = b('capture', data.capture);
+  document.getElementById('b-detector').innerHTML = b('detector', data.detector);
+  document.getElementById('b-session').innerHTML = b('session', data.session);
+  document.getElementById('b-vlm').innerHTML = b('vlm', data.vlm);
+  document.getElementById('last-update').textContent = '最后更新:' + new Date().toLocaleString();
+
+  const cap = data.capture || {};
+  const oldW = roiSourceW;
+  const oldH = roiSourceH;
+  if(cap.width && cap.height){
+    roiSourceW = Number(cap.width);
+    roiSourceH = Number(cap.height);
+  }
+
+  if((oldW !== roiSourceW || oldH !== roiSourceH) && document.getElementById('roi-tab').classList.contains('active')){
+    renderRoiOverlay();
+  }
+}
+
+async function loadData(){
+  try{
+    const r = await fetch('/health');
+    updateStats(await r.json());
+  }catch(e){
+    console.error(e);
+  }
+}
+
+/* ===== ROI ===== */
+function showStatus(msg, type){
+  const el = document.getElementById('roi-status');
+  el.textContent = msg;
+  el.className = 'status-message ' + type;
+  setTimeout(() => {
+    el.className = 'status-message';
+  }, 2500);
+}
+
+async function loadRoiData(){
+  const r = await fetch('/api/rois');
+  const d = await r.json();
+  rois = d.staff_rois || {};
+  slotNames = d.available_slots || Object.keys(rois);
+  if(!slotNames.length) slotNames = Object.keys(rois);
+  if(!currentEditingRoi || !slotNames.includes(currentEditingRoi)){
+    currentEditingRoi = slotNames[0] || null;
+  }
+  initRoiList();
+  renderRoiOverlay();
+}
+
+function initRoiList(){
+  const lst = document.getElementById('roi-list');
+  lst.innerHTML = '';
+
+  slotNames.forEach((n, i) => {
+    const r = rois[n];
+    const c = roiColors[i % roiColors.length];
+    const it = document.createElement('div');
+    it.className = 'roi-item' + (currentEditingRoi === n ? ' active' : '');
+    it.onclick = () => {
+      currentEditingRoi = n;
+      initRoiList();
+      renderRoiOverlay();
+    };
+    it.innerHTML = `
+      <div class="color-indicator" style="background:${c.border}"></div>
+      <div class="info">
+        <div class="name">${n}</div>
+        <div class="coords">${r ? '[' + r.join(', ') + ']' : '未设置'}</div>
+      </div>`;
+    lst.appendChild(it);
+  });
+}
+
+function nextSlot(){
+  let i = 1;
+  const used = new Set(slotNames);
+  while(used.has('security_staff_' + i)) i++;
+  return 'security_staff_' + i;
+}
+
+document.getElementById('add-roi-btn').onclick = () => {
+  const n = nextSlot();
+  slotNames.push(n);
+  currentEditingRoi = n;
+  initRoiList();
+  renderRoiOverlay();
+  showStatus('新增 ' + n + ' 请拖拽绘制', 'success');
+};
+
+document.getElementById('delete-roi-btn').onclick = () => {
+  if(!currentEditingRoi) return;
+  delete rois[currentEditingRoi];
+  slotNames = slotNames.filter(x => x !== currentEditingRoi);
+  currentEditingRoi = slotNames[0] || null;
+  initRoiList();
+  renderRoiOverlay();
+  showStatus('已删除', 'success');
+};
+
+document.getElementById('clear-all-btn').onclick = () => {
+  if(!confirm('清空所有 ROI?')) return;
+  rois = {};
+  slotNames = [];
+  currentEditingRoi = null;
+  initRoiList();
+  renderRoiOverlay();
+};
+
+document.getElementById('save-roi-btn').onclick = async () => {
+  try{
+    const r = await fetch('/api/rois', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({staff_rois:rois})
+    });
+    const d = await r.json();
+    if(d.ok){
+      rois = d.staff_rois || rois;
+      initRoiList();
+      renderRoiOverlay();
+      showStatus('保存成功', 'success');
+    }else{
+      showStatus('保存失败', 'error');
+    }
+  }catch(e){
+    showStatus('保存失败:' + e.message, 'error');
+  }
+};
+
+function imgMetrics(){
+  const img = document.getElementById('roiImage');
+  const stage = document.getElementById('roiStage');
+  const ir = img.getBoundingClientRect();
+  const sr = stage.getBoundingClientRect();
+
+  const sw = roiSourceW || img.naturalWidth || 1;
+  const sh = roiSourceH || img.naturalHeight || 1;
+
+  return {
+    left: ir.left - sr.left,
+    top: ir.top - sr.top,
+    width: ir.width,
+    height: ir.height,
+    sw,
+    sh
+  };
+}
+
+function renderRoiOverlay(){
+  const ov = document.getElementById('roiOverlay');
+  ov.innerHTML = '';
+
+  const m = imgMetrics();
+  if(!m.width || !m.height) return;
+
+  slotNames.forEach((n, i) => {
+    const r = rois[n];
+    if(!r || r.length < 4) return;
+
+    const c = roiColors[i % roiColors.length];
+    const [x1, y1, x2, y2] = r;
+
+    const b = document.createElement('div');
+    b.className = 'roi-box';
+    b.style.borderColor = c.border;
+    b.style.background = c.bg;
+    b.style.left = (m.left + Math.min(x1, x2) / m.sw * m.width) + 'px';
+    b.style.top = (m.top + Math.min(y1, y2) / m.sh * m.height) + 'px';
+    b.style.width = (Math.abs(x2 - x1) / m.sw * m.width) + 'px';
+    b.style.height = (Math.abs(y2 - y1) / m.sh * m.height) + 'px';
+
+    const lb = document.createElement('div');
+    lb.className = 'label';
+    lb.textContent = n;
+    b.appendChild(lb);
+    ov.appendChild(b);
+  });
+
+  if(currentRect){
+    const idx = Math.max(0, slotNames.indexOf(currentEditingRoi));
+    const c = roiColors[idx % roiColors.length];
+    const b = document.createElement('div');
+    b.className = 'roi-box';
+    b.style.borderColor = c.border;
+    b.style.background = c.bg;
+    b.style.left = currentRect.left + 'px';
+    b.style.top = currentRect.top + 'px';
+    b.style.width = currentRect.width + 'px';
+    b.style.height = currentRect.height + 'px';
+
+    const lb = document.createElement('div');
+    lb.className = 'label';
+    lb.textContent = currentEditingRoi || 'ROI';
+    b.appendChild(lb);
+    ov.appendChild(b);
+  }
+}
+
+function toImgPt(cx, cy){
+  const sr = document.getElementById('roiStage').getBoundingClientRect();
+  const m = imgMetrics();
+  const x = cx - sr.left;
+  const y = cy - sr.top;
+
+  const rx = Math.max(m.left, Math.min(m.left + m.width, x));
+  const ry = Math.max(m.top, Math.min(m.top + m.height, y));
+
+  return {
+    rx,
+    ry,
+    ix: ((rx - m.left) / m.width) * m.sw,
+    iy: ((ry - m.top) / m.height) * m.sh
+  };
+}
+
+document.getElementById('roiOverlay').addEventListener('mousedown', e => {
+  if(!currentEditingRoi){
+    showStatus('请先选择一个 ROI', 'error');
+    return;
+  }
+  const p = toImgPt(e.clientX, e.clientY);
+  isDrawing = true;
+  startPoint = p;
+  currentRect = {
+    left: p.rx,
+    top: p.ry,
+    width: 0,
+    height: 0,
+    sx: p.ix,
+    sy: p.iy,
+    ex: p.ix,
+    ey: p.iy
+  };
+  renderRoiOverlay();
+});
+
+window.addEventListener('mousemove', e => {
+  if(!isDrawing || !currentRect) return;
+  const p = toImgPt(e.clientX, e.clientY);
+  currentRect.left = Math.min(startPoint.rx, p.rx);
+  currentRect.top = Math.min(startPoint.ry, p.ry);
+  currentRect.width = Math.abs(p.rx - startPoint.rx);
+  currentRect.height = Math.abs(p.ry - startPoint.ry);
+  currentRect.ex = p.ix;
+  currentRect.ey = p.iy;
+  renderRoiOverlay();
+});
+
+window.addEventListener('mouseup', () => {
+  if(!isDrawing || !currentRect) return;
+  isDrawing = false;
+
+  const x1 = Math.min(currentRect.sx, currentRect.ex);
+  const y1 = Math.min(currentRect.sy, currentRect.ey);
+  const x2 = Math.max(currentRect.sx, currentRect.ex);
+  const y2 = Math.max(currentRect.sy, currentRect.ey);
+
+  if(Math.abs(x2 - x1) >= 4 && Math.abs(y2 - y1) >= 4){
+    rois[currentEditingRoi] = [
+      Math.round(x1),
+      Math.round(y1),
+      Math.round(x2),
+      Math.round(y2)
+    ];
+  }
+
+  currentRect = null;
+  initRoiList();
+  renderRoiOverlay();
+});
+
+document.getElementById('roiImage').addEventListener('load', renderRoiOverlay);
+window.addEventListener('resize', renderRoiOverlay);
+
+loadRoiData();
+loadData();
+setInterval(loadData, 2000);
+switchTab('dashboard');
+</script>
+</body>
+</html>

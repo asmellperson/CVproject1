@@ -1,5 +1,4 @@
 video:
-  source: rtsp://admin:hengfeng123@172.16.128.23:554/streaming/channels/101
   source_cam1: rtsp://admin:Fuda2025@172.21.144.114:554/Streaming/Channels/101
   source_cam2: rtsp://admin:Fuda2025@172.21.144.105:554/Streaming/Channels/101
   source_cam3: rtsp://admin:Fuda2025@172.21.144.115:554/Streaming/Channels/101

@@ -20,18 +20,33 @@ from core.logger import logger
 from core.settings import settings
 
 
-# 事件名 → UI 友好显示名
+# 功能内部名称 → 推送消息中的中文展示名
+# 新增事件类型时在此表补充，无需改动发送逻辑
 _EVENT_DISPLAY = {
-    "blocks": "区域入侵",
-    "detect_face": "人脸逗留",
-    "detect_phone": "手机违规",
-    "detect_door": "大门状态",
-    "detect_human": "人员逗留",
+    "blocks":        "区域入侵",
+    "detect_face":   "人脸逗留",
+    "detect_phone":  "手机违规",
+    "detect_door":   "大门状态",
+    "detect_human":  "人员逗留",
 }
 
 
 class WeChatNotifier:
-    """企业微信通知发送器 — 单例,缓存 access_token"""
+    """
+    企业微信应用消息发送器。
+
+    发送流程（每次 send() 调用）:
+        1. _get_token()    — 向企业微信接口换取 access_token（未缓存，每次重新获取）。
+        2. _upload_image() — 将 JPEG 字节流上传为临时素材，换取 media_id。
+        3. send()          — 先发 Markdown 文本告警，再发图片消息（media_id 有效时）。
+
+    凭据优先级（三选一，从高到低）:
+        构造参数 > settings.alarm > 环境变量 WECHAT_CORP_ID / WECHAT_CORP_SECRET / WECHAT_AGENT_ID
+
+    Note:
+        未配置凭据时 _get_token() 返回 None，send() 记录 info 日志后静默跳过，
+        不影响其他告警通道（喇叭、SQL）的正常执行。
+    """
 
     def __init__(
         self,
@@ -39,14 +54,31 @@ class WeChatNotifier:
         corp_secret: Optional[str] = None,
         agent_id: int = 1000050,
     ):
+        # 凭据按优先级合并：构造参数 > settings > 环境变量 > 默认值
         self.corp_id = corp_id or settings.alarm.wechat_corp_id or os.environ.get("WECHAT_CORP_ID", "")
         self.corp_secret = corp_secret or settings.alarm.wechat_corp_secret or os.environ.get("WECHAT_CORP_SECRET", "")
         self.agent_id = int(settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", agent_id))
-        self._token: Optional[str] = None
+
+        self._token: Optional[str] = None  # 预留字段，当前每次 send() 都重新获取
+
+    # ------------------------------------------------------------------ #
+    #  私有方法                                                             #
+    # ------------------------------------------------------------------ #
 
     def _get_token(self) -> Optional[str]:
+        """
+        向企业微信接口换取 access_token。
+
+        Returns:
+            成功时返回 token 字符串；凭据未配置或接口报错时返回 None。
+
+        Note:
+            access_token 有效期为 7200 秒，当前未做本地缓存，每次调用都重新请求。
+            若并发量大或调用频繁，可在此处加入过期时间缓存以减少接口压力。
+        """
         if not self.corp_id or not self.corp_secret:
-            return None
+            return None  # 凭据缺失，无法请求，提前返回
+
         try:
             resp = requests.get(
                 "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
@@ -55,6 +87,7 @@ class WeChatNotifier:
             )
             data = resp.json()
             if data.get("errcode", 0) != 0:
+                # errcode 非 0 表示企业微信侧返回业务错误（如凭据错误、IP 未加白）
                 logger.warning(f"[WeChat] 获取 access_token 失败: {data}")
                 return None
             self._token = data.get("access_token")
@@ -64,12 +97,26 @@ class WeChatNotifier:
             return None
 
     def _upload_image(self, token: str, image_bytes: bytes) -> Optional[str]:
+        """
+        将 JPEG 图片上传为企业微信临时素材，获取 media_id。
+
+        临时素材在企业微信服务端保留 3 天，期间可用 media_id 发送图片消息。
+        上传失败时返回 None，send() 将跳过图片消息，仅发送文本告警。
+
+        Args:
+            token      : 有效的 access_token。
+            image_bytes: JPEG 格式的图片字节流（由调用方负责编码格式正确）。
+
+        Returns:
+            成功时返回 media_id 字符串；失败时返回 None。
+        """
         try:
             resp = requests.post(
                 "https://qyapi.weixin.qq.com/cgi-bin/media/upload",
                 params={"access_token": token, "type": "image"},
+                # 以 multipart/form-data 格式上传，文件名固定为 alarm.jpg
                 files={"media": ("alarm.jpg", BytesIO(image_bytes), "image/jpeg")},
-                timeout=30,
+                timeout=30,  # 图片上传网络耗时较长，超时设为 30 秒
             )
             data = resp.json()
             if data.get("errcode", 0) != 0:
@@ -80,6 +127,10 @@ class WeChatNotifier:
             logger.warning(f"[WeChat] 上传图片失败: {e}")
             return None
 
+    # ------------------------------------------------------------------ #
+    #  核心入口                                                             #
+    # ------------------------------------------------------------------ #
+
     def send(
         self,
         feature_name: str,
@@ -87,24 +138,42 @@ class WeChatNotifier:
         image_jpeg_bytes: bytes,
         recipients: str,
     ):
-        """发送告警通知 — recipients 形如 'user1|user2'"""
+        """
+        向指定接收人发送告警通知（Markdown 文本 + 图片各一条）。
+
+        发送策略:
+            - 文本消息必发（token 有效即发）。
+            - 图片消息仅在 _upload_image() 成功返回 media_id 后才发，
+              上传失败时降级为纯文本告警，不中断整体流程。
+            - 单条消息失败不影响另一条，两条请求相互独立。
+
+        Args:
+            feature_name    : 功能内部名称，通过 _EVENT_DISPLAY 映射为中文展示名。
+            camera_name     : 摄像头展示名称，写入告警文本。
+            image_jpeg_bytes: 违规帧的 JPEG 字节流，由 AlarmDispatcher 编码后传入。
+            recipients      : 接收人账号，多人用 | 分隔，如 "user1|user2"。
+        """
         if not recipients:
-            return
+            return  # 无接收人，跳过
+
         token = self._get_token()
         if token is None:
             logger.info("[WeChat] 未配置企业微信凭据,跳过推送")
             return
 
+        # 上传图片（失败时 media_id 为 None，后续图片消息跳过）
         media_id = self._upload_image(token, image_jpeg_bytes)
+
+        # 将内部功能名映射为用户友好的中文标签；未收录的名称原样展示
         event_label = _EVENT_DISPLAY.get(feature_name, feature_name)
 
-        # 文本告警
+        # ---- 消息 1: Markdown 文本告警 ----
         try:
             resp = requests.post(
-                f"https://qyapi.weixin.qq.com/cgi-bin/message/send",
+                "https://qyapi.weixin.qq.com/cgi-bin/message/send",
                 params={"access_token": token},
                 json={
-                    "touser": recipients,
+                    "touser":  recipients,
                     "msgtype": "markdown",
                     "agentid": self.agent_id,
                     "markdown": {
@@ -114,7 +183,7 @@ class WeChatNotifier:
                             f"**摄像头**: {camera_name}\n"
                         )
                     },
-                    "safe": 0,
+                    "safe": 0,  # 0: 普通消息；1: 保密消息（不可转发）
                 },
                 timeout=10,
             )
@@ -124,17 +193,17 @@ class WeChatNotifier:
         except Exception as e:
             logger.warning(f"[WeChat] 发送文本失败: {e}")
 
-        # 图片告警
+        # ---- 消息 2: 图片消息（依赖上传成功）----
         if media_id is not None:
             try:
                 resp = requests.post(
-                    f"https://qyapi.weixin.qq.com/cgi-bin/message/send",
+                    "https://qyapi.weixin.qq.com/cgi-bin/message/send",
                     params={"access_token": token},
                     json={
-                        "touser": recipients,
+                        "touser":  recipients,
                         "msgtype": "image",
                         "agentid": self.agent_id,
-                        "image": {"media_id": media_id},
+                        "image":   {"media_id": media_id},
                         "safe": 0,
                     },
                     timeout=10,

@@ -164,7 +164,7 @@ export function HumanDetectionSection() {
       const payload = await requestHumanConfig(shmName)
       setHumanConfig(payload.detect_human)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人体逗留检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人员逗留检测配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -185,7 +185,7 @@ export function HumanDetectionSection() {
       }
       if (!nextCamera) {
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前人体逗留检测未添加摄像头，请先添加摄像头。')
+        setMessage('当前人员逗留检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
@@ -214,7 +214,7 @@ export function HumanDetectionSection() {
 
   const addCameraToFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在添加摄像头并启用人体逗留检测...')
+    setMessage('正在添加摄像头并启用人员逗留检测...')
     try {
       const payload = await requestHumanConfig(cameraName)
       await requestHumanConfig(cameraName, {
@@ -224,7 +224,7 @@ export function HumanDetectionSection() {
       })
       await refreshCameraList()
       await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用人体逗留检测。`)
+      setMessage(`添加成功：${cameraName} 已启用人员逗留检测。`)
     } catch (error) {
       setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -234,7 +234,7 @@ export function HumanDetectionSection() {
 
   const removeCameraFromFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在停用该摄像头的人体逗留检测...')
+    setMessage('正在停用该摄像头的人员逗留检测...')
     try {
       const payload = await requestHumanConfig(cameraName)
       await requestHumanConfig(cameraName, {
@@ -250,7 +250,7 @@ export function HumanDetectionSection() {
         setHumanConfig(defaultHumanConfig)
         setForm({ ...defaultForm, cameraName: '' })
       }
-      setMessage(`停用成功：${cameraName} 已关闭人体逗留检测。`)
+      setMessage(`停用成功：${cameraName} 已关闭人员逗留检测。`)
     } catch (error) {
       setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -334,7 +334,7 @@ export function HumanDetectionSection() {
       setHumanConfig(payload.detect_human)
       setForm(toForm(payload))
       const items = await refreshCameraList()
-      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的人体逗留检测配置已更新。`)
+      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的人员逗留检测配置已更新。`)
     } catch (error) {
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -359,7 +359,7 @@ export function HumanDetectionSection() {
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="人体逗留检测监控" feature="detect_human" />
+          <AiVisionMonitor title="人员逗留检测监控" feature="detect_human" />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

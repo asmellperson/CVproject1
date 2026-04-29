@@ -6,7 +6,7 @@ from .schema import PhoneConfigSchema
 
 SPEC = FeatureSpec(
     name="detect_phone",
-    display_name="手机检测",
+    display_name="手机使用检测",
     consumer_cls=PhoneConsumer,
     orm_class=PhoneConfigORM,
     config_schema=PhoneConfigSchema,

@@ -1,1 +1,1 @@
-"""Shared feature infrastructure."""
+"""功能模块共享基础设施。"""

@@ -4,6 +4,7 @@ import type {
   ControlResponse,
   StatisticsResponse,
 } from '@/types'
+import { getSecurityVlmHistory, type SecurityVlmHistoryItem } from '@/lib/security-vlm'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -76,7 +77,7 @@ export const getStatus = () => apiGet<BackendStatus>('/status')
 // api.ts
 export type AlarmEvent = {
   id: string
-  source?: 'aivision' | 'guard_room'
+  source?: 'aivision' | 'guard_room' | 'security_vlm'
   source_id?: string
   event_type: 'absent' | 'phone_use' | 'prone_sleep' | string
   event_label?: string
@@ -152,6 +153,25 @@ function normalizeAiVisionAlarm(alarm: AlarmEvent): AlarmEvent {
   }
 }
 
+function normalizeSecurityVlmAlarm(item: SecurityVlmHistoryItem): AlarmEvent | null {
+  if (item.status !== 'non_compliant' && item.status !== 'error') return null
+
+  const sourceId = item.session_id || `${item.roi_name || 'security_vlm'}:${item.time || Date.now()}`
+  const eventType = item.status === 'error' ? 'security_vlm_error' : 'security_vlm_non_compliant'
+  return {
+    id: `security_vlm:${sourceId}`,
+    source: 'security_vlm',
+    source_id: sourceId,
+    event_type: eventType,
+    event_label: item.status === 'error' ? '安检判定错误' : '安检流程不规范',
+    camera_no: item.roi_name || 'security_vlm',
+    camera_name: item.roi_name || '安检流程规范检测',
+    reason: item.error || item.reason || '安检流程规范检测判定异常',
+    confidence: 1,
+    created_at: item.time,
+  }
+}
+
 export const getGuardRoomAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
   const data = await apiGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}`)
   const items = Array.isArray(data) ? data : (data?.items || [])
@@ -162,11 +182,22 @@ export const getAiVisionAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
   const items = Array.isArray(data) ? data : (data?.items || [])
   return items.map(normalizeAiVisionAlarm)
 }
+export const getSecurityVlmAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
+  const data = await getSecurityVlmHistory(limit)
+  return (data.history || [])
+    .map(normalizeSecurityVlmAlarm)
+    .filter((item): item is AlarmEvent => Boolean(item))
+}
 export const getAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
-  const [aiVision, guardRoom] = await Promise.allSettled([getAiVisionAlarms(limit), getGuardRoomAlarms(limit)])
+  const [aiVision, guardRoom, securityVlm] = await Promise.allSettled([
+    getAiVisionAlarms(limit),
+    getGuardRoomAlarms(limit),
+    getSecurityVlmAlarms(limit),
+  ])
   const items = [
     ...(aiVision.status === 'fulfilled' ? aiVision.value : []),
     ...(guardRoom.status === 'fulfilled' ? guardRoom.value : []),
+    ...(securityVlm.status === 'fulfilled' ? securityVlm.value : []),
   ]
   return items
     .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
@@ -191,6 +222,8 @@ export const getStatistics = async () => {
     guard_absent: '#dc2626',
     guard_phone_use: '#ea580c',
     guard_prone_sleep: '#ca8a04',
+    security_vlm_non_compliant: '#0891b2',
+    security_vlm_error: '#d97706',
   }
   const typeName: Record<string, string> = {
     blocks: '区域入侵',
@@ -201,6 +234,8 @@ export const getStatistics = async () => {
     guard_absent: '保安离岗',
     guard_phone_use: '保安玩手机',
     guard_prone_sleep: '保安趴睡',
+    security_vlm_non_compliant: '安检流程不规范',
+    security_vlm_error: '安检判定错误',
   }
 
   const daily = Array.from({ length: 7 }, (_, index) => {

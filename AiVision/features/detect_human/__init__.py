@@ -6,7 +6,7 @@ from .schema import HumanConfigSchema
 
 SPEC = FeatureSpec(
     name="detect_human",
-    display_name="人体逗留检测",
+    display_name="人员逗留检测",
     consumer_cls=HumanConsumer,
     orm_class=HumanConfigORM,
     config_schema=HumanConfigSchema,

@@ -1,1 +1,1 @@
-"""AiVision core package."""
+"""AiVision 核心包"""

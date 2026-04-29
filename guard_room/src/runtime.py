@@ -1,11 +1,42 @@
+# runtime.py
+"""
+系统运行时核心模块。
+
+负责将所有子模块（摄像头读取、目标检测、制服识别、姿态估计、
+行为分析、多摄共识、报警管理、视频录制、微信推送）串联为完整的处理流水线。
+
+整体架构：
+                    ┌─────────────────────────────────────┐
+    RTSPReader ──▶ LatestFrameBuffer ──▶ _process_one_camera (线程池)
+    RTSPReader ──▶ LatestFrameBuffer ──▶ _process_one_camera (线程池)
+                    └─────────────────────────────────────┘
+                                    ↓
+                          MultiCameraConsensus
+                                    ↓
+                    AlarmManager + AlarmClipRecorder + WeChatNotifier
+                                    ↓
+                              AppState (供 Web API 读取)
+
+线程模型：
+    - RTSPReader：每路摄像头一个守护线程，负责拉流并写入 LatestFrameBuffer。
+    - _run_loop：主循环守护线程，读 buffer → 推理 → 报警 → 更新状态。
+    - ThreadPoolExecutor（cam-infer）：各路摄像头的推理并行执行，结果汇聚后再做共识。
+
+CUDA 内存限制（模块顶部）：
+    在 import 时立即限制单进程 GPU 显存为 45%（约 4.6 GB），
+    防止多模型（检测 × N 路 + 手机检测 + 姿态估计）共同推理时显存 OOM。
+"""
 from __future__ import annotations
+
+# ── CUDA 显存限制：在任何模型加载前执行 ─────────────────────────────────────
 import torch
 if torch.cuda.is_available():
     try:
-        torch.cuda.set_per_process_memory_fraction(0.45, device=0)  # 最多用 45% = ~4.6GB
+        torch.cuda.set_per_process_memory_fraction(0.45, device=0)  # 最多用 45% ≈ 4.6 GB
         torch.cuda.empty_cache()
     except RuntimeError as exc:
         print(f"[WARN] CUDA memory limit skipped: {exc}")
+
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -32,20 +63,37 @@ from .utils import ensure_dir
 from .wechat_notifier import WeChatNotifier
 
 
+# ---------------------------------------------------------------------------
+# 工具类：帧缓冲与摄像头读取
+# ---------------------------------------------------------------------------
+
 class LatestFrameBuffer:
+    """线程安全的单槽帧缓冲，始终只保留最新一帧。
+
+    RTSPReader 以生产者身份持续写入；主循环以消费者身份按需读取。
+    "只保留最新帧"的设计有意丢弃积压帧，确保处理的始终是当前画面，
+    而非滞后数秒的历史帧。
+    """
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._frame: np.ndarray | None = None
-        self._frame_id: int = 0
-        self._ts: float = 0.0
+        self._frame_id: int = 0     # 单调递增，主循环用于判断是否有新帧到来
+        self._ts: float = 0.0       # 写入时的 wall clock 时间戳
 
     def put(self, frame: np.ndarray) -> None:
+        """写入新帧，覆盖上一帧（生产者调用）。"""
         with self._lock:
             self._frame = frame
             self._frame_id += 1
             self._ts = time.time()
 
     def get(self) -> tuple[int, float, np.ndarray | None]:
+        """读取当前最新帧的副本（消费者调用）。
+
+        Returns:
+            (frame_id, timestamp, frame_copy)；尚无帧时 frame_copy 为 None。
+        """
         with self._lock:
             if self._frame is None:
                 return self._frame_id, self._ts, None
@@ -53,6 +101,18 @@ class LatestFrameBuffer:
 
 
 class RTSPReader(threading.Thread):
+    """单路摄像头的拉流守护线程。
+
+    持续从 RTSP/本地文件/摄像头索引读取帧，写入 LatestFrameBuffer。
+    断流后自动重连，重连间隔由 reconnect_seconds 控制。
+    连续 20 帧读取失败视为流中断，触发重连。
+
+    Attributes:
+        meta:  从 VideoCapture 读取的流元数据（fps / width / height）；
+               打开失败时保留初始默认值。
+        error: 当前错误描述；正常运行时为 None，主循环据此判断摄像头是否在线。
+    """
+
     def __init__(
         self,
         *,
@@ -65,6 +125,16 @@ class RTSPReader(threading.Thread):
         buffer: LatestFrameBuffer,
         stop_event: threading.Event,
     ):
+        """
+        Args:
+            camera_name:        摄像头标识，用于日志和线程命名。
+            source:             视频源，RTSP URL、文件路径或摄像头索引字符串。
+            frame_width/height: 预期分辨率，VideoCapture 读取失败时的回落值。
+            reconnect_seconds:  断流后等待重连的秒数。
+            camera_buffer_size: OpenCV 内部缓冲帧数；设为 1 降低延迟。
+            buffer:             写入目标缓冲区。
+            stop_event:         主循环通过此事件通知读取线程退出。
+        """
         super().__init__(daemon=True, name=f"guard-room-reader-{camera_name}")
         self.camera_name = camera_name
         self.source = source
@@ -76,13 +146,14 @@ class RTSPReader(threading.Thread):
         self.stop_event = stop_event
 
         self.meta: dict[str, float] = {
-            "fps": 12.0,
+            "fps": 12.0,            # 打开前的默认帧率
             "width": frame_width,
             "height": frame_height,
         }
-        self.error: str | None = None
+        self.error: str | None = None   # None 表示当前无错误（摄像头在线）
 
     def run(self) -> None:
+        """拉流主循环：打开 → 读帧 → 断流重连。"""
         source = self._normalize_source(self.source)
 
         while not self.stop_event.is_set():
@@ -91,33 +162,34 @@ class RTSPReader(threading.Thread):
                 try:
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, self.camera_buffer_size)
                 except Exception:
-                    pass
+                    pass    # 部分后端不支持此属性，静默忽略
 
                 if not cap.isOpened():
                     self.error = f"{self.camera_name} 无法打开视频源: {self.source}"
                     time.sleep(self.reconnect_seconds)
                     continue
 
+                # 读取流元数据，供主循环计算实际 fps
                 fps = cap.get(cv2.CAP_PROP_FPS)
                 width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
                 height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                 self.meta["fps"] = fps if fps and fps > 1 else 12.0
                 self.meta["width"] = int(width or self.frame_width)
                 self.meta["height"] = int(height or self.frame_height)
-                self.error = None
+                self.error = None   # 成功打开，清除错误状态
 
                 fail_count = 0
                 while not self.stop_event.is_set():
                     ok, frame = cap.read()
                     if not ok or frame is None:
                         fail_count += 1
-                        if fail_count >= 20:
+                        if fail_count >= 20:    # 连续 20 次失败，视为流中断
                             break
                         time.sleep(0.05)
                         continue
 
                     fail_count = 0
-                    self.buffer.put(frame)
+                    self.buffer.put(frame)      # 写入最新帧，覆盖上一帧
             finally:
                 cap.release()
 
@@ -127,26 +199,41 @@ class RTSPReader(threading.Thread):
 
     @staticmethod
     def _normalize_source(source: str):
+        """将纯数字字符串转换为整数摄像头索引，其余原样返回。"""
         return int(source) if str(source).isdigit() else source
 
 
+# ---------------------------------------------------------------------------
+# 工具类：手动录制
+# ---------------------------------------------------------------------------
+
 class ManualRecorder:
+    """按需手动录制 MP4 的录像机，供 Web API 控制开始/停止。
+
+    与 AlarmClipRecorder（触发式固定时长录制）不同，
+    ManualRecorder 由用户主动控制录制时长，适合值班人员手动存证。
+
+    线程安全：start()/stop()/write()/status() 均在内部加锁，可跨线程调用。
+    """
+
     def __init__(self, output_dir: str | Path, fps: int = 10):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.fps = fps
         self._lock = threading.Lock()
-        self._want_recording = False
-        self.recording = False
+        self._want_recording = False    # 用户意图：是否希望录制
+        self.recording = False          # 实际状态：VideoWriter 是否已创建
         self.writer = None
         self.current_file: str | None = None
 
     def start(self) -> dict:
+        """标记录制意图为开始，VideoWriter 在首帧到来时懒创建。"""
         with self._lock:
             self._want_recording = True
             return self.status()
 
     def stop(self) -> dict:
+        """停止录制并释放 VideoWriter，返回含 saved_file 路径的状态字典。"""
         with self._lock:
             self._want_recording = False
             if self.writer is not None:
@@ -160,11 +247,16 @@ class ManualRecorder:
             return data
 
     def write(self, frame: np.ndarray) -> None:
+        """将一帧写入录制文件；未处于录制状态时静默跳过。
+
+        VideoWriter 在首次调用时懒创建，以获取正确的帧尺寸。
+        """
         with self._lock:
             if not self._want_recording:
                 return
 
             if self.writer is None:
+                # 懒创建：首帧时根据实际帧尺寸初始化 VideoWriter
                 h, w = frame.shape[:2]
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 path = self.output_dir / f"manual_record_{ts}.mp4"
@@ -177,6 +269,7 @@ class ManualRecorder:
                 self.writer.write(frame)
 
     def status(self) -> dict:
+        """返回当前录制状态（调用方需在持锁时调用，或自行加锁）。"""
         return {
             "recording": self.recording or self._want_recording,
             "output_dir": str(self.output_dir),
@@ -184,8 +277,26 @@ class ManualRecorder:
         }
 
 
+# ---------------------------------------------------------------------------
+# 数据结构
+# ---------------------------------------------------------------------------
+
 @dataclass
 class SingleCameraResult:
+    """单路摄像头一帧处理的完整输出，由 _process_one_camera() 返回。
+
+    Attributes:
+        camera_id:       摄像头标识。
+        annotated_frame: 已叠加检测框、标签、状态头部的标注帧。
+        all_persons:     本帧检测到的所有人体目标。
+        guard_persons:   经制服识别（含保持窗口）确认为保安的子集。
+        phones:          本帧检测到的手机目标（已去重）。
+        pose_features:   各 track_id 对应的姿态特征字典。
+        local_decisions: 单路摄像头的行为规则判断结果。
+        guard_present:   本帧是否有保安在场（guard_persons 非空）。
+        guard_confidence:所有保安目标中制服识别置信度的最大值。
+        camera_online:   摄像头当前是否在线（读取线程无错误）。
+    """
     camera_id: str
     annotated_frame: np.ndarray
     all_persons: List[Detection]
@@ -197,12 +308,27 @@ class SingleCameraResult:
     guard_confidence: float
     camera_online: bool
 
+
+# ---------------------------------------------------------------------------
+# 辅助类：保安识别平滑 & 制服识别缓存
+# ---------------------------------------------------------------------------
+
 class TrackGuardGate:
+    """逐目标的保安识别结果保持器（同 guard_gate.py 中的 GuardGate）。
+
+    单帧制服识别可能因遮挡产生漏识别；通过 hold_seconds 窗口将
+    正识别结果在时间轴上平滑，避免"保安在画面内但间歇被判为非保安"。
+    """
+
     def __init__(self, hold_seconds: float = 1.0):
         self.hold_seconds = hold_seconds
-        self.last_positive_ts: Dict[int, float] = {}
+        self.last_positive_ts: Dict[int, float] = {}   # track_id → 最近一次正识别时间戳
 
     def keep(self, track_id: int | None, timestamp_s: float, is_guard_now: bool) -> bool:
+        """查询目标当前是否应视为保安（含保持窗口）。
+
+        track_id 为 None 时直接透传本帧结果，不做跨帧平滑。
+        """
         if track_id is None:
             return is_guard_now
 
@@ -210,14 +336,23 @@ class TrackGuardGate:
             self.last_positive_ts[track_id] = timestamp_s
             return True
 
-        last_ts = self.last_positive_ts.get(track_id, -1e9)
+        last_ts = self.last_positive_ts.get(track_id, -1e9)    # 未见过则视为无穷久前
         return (timestamp_s - last_ts) <= self.hold_seconds
 
 
 class UniformCache:
+    """制服识别结果的 TTL 缓存，避免对同一目标每帧重复推理。
+
+    制服识别（UniformClassifier.predict_person）需要裁图并通过分类模型推理，
+    相对耗时；同一 track_id 在 ttl 秒内的结果复用上次推理结论，显著降低 CPU 开销。
+
+    缓存键：(camera_id, track_id)，区分不同摄像头的同号目标。
+    容量保护：超过 200 条时清理 3×TTL 之前的过期条目，防止内存无限增长。
+    """
+
     def __init__(self, ttl_seconds: float = 1):
         self.ttl = ttl_seconds
-        self._cache: dict[tuple[str, int], tuple[float, bool, float]] = {}
+        self._cache: dict[tuple[str, int], tuple[float, bool, float]] = {}  # key → (ts, is_guard, conf)
         self._lock = threading.Lock()
 
     def get_or_infer(
@@ -229,18 +364,23 @@ class UniformCache:
         frame: np.ndarray,
         bbox: tuple[int, int, int, int],
     ) -> tuple[bool, float]:
+        """返回制服识别结果 (is_guard, confidence)，命中缓存则跳过推理。
+
+        track_id 为 None 时（目标无跟踪 ID）不使用缓存，直接推理。
+        """
         if track_id is not None:
             key = (camera_id, track_id)
             with self._lock:
                 cached = self._cache.get(key)
                 if cached and (timestamp_s - cached[0]) < self.ttl:
-                    return cached[1], cached[2]
+                    return cached[1], cached[2]     # 缓存命中，直接返回
 
         is_guard, conf = classifier.predict_person(frame, bbox)
 
         if track_id is not None:
             with self._lock:
                 self._cache[(camera_id, track_id)] = (timestamp_s, is_guard, conf)
+                # 容量保护：超过 200 条时清理 3×TTL 之前的过期条目
                 if len(self._cache) > 200:
                     expired = [
                         k for k, v in self._cache.items()
@@ -252,7 +392,27 @@ class UniformCache:
         return is_guard, conf
 
 
+# ---------------------------------------------------------------------------
+# 主运行时
+# ---------------------------------------------------------------------------
+
 class GuardRoomRuntime:
+    """系统核心运行时，管理完整的检测-分析-报警流水线。
+
+    生命周期：
+        runtime.start() → 后台 _run_loop 线程启动 → runtime.stop() → 优雅退出
+
+    外部接口：
+        start() / stop()         —— 控制运行状态
+        recorder.start/stop()    —— 控制手动录制
+        is_running               —— 查询运行状态
+
+    内部关键状态：
+        _alarm_latches   —— 报警锁存字典，防止同一行为触发期间重复调用 AlarmManager
+        _banner_alarm    —— 当前显示在画面顶部的最新报警事件
+        _banner_expire_ts —— 横幅过期时间戳，超过后清除横幅显示
+    """
+
     def __init__(
         self,
         config: AppConfig,
@@ -262,12 +422,21 @@ class GuardRoomRuntime:
         alarm_user: str = "",
         alarm_camera_name: str = "值班室双摄像头",
     ):
+        """
+        Args:
+            config:           应用全局配置。
+            state:            共享状态对象，供 Web API 读取最新帧与报警信息。
+            wechat_notifier:  企业微信推送器；None 时跳过推送。
+            alarm_user:       报警推送的接收人账号。
+            alarm_camera_name:推送消息中显示的摄像头名称。
+        """
         self.cfg = config
         self.state = state
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
+        # 报警横幅：显示最近一次报警，持续 _banner_show_seconds 秒后自动消失
         self._alarm_latches: dict[str, bool] = {}
         self._banner_alarm = None
         self._banner_expire_ts: float = 0.0
@@ -287,15 +456,20 @@ class GuardRoomRuntime:
             clip_seconds=self.cfg.wechat.clip_seconds,
         )
 
-        self.uniform_cache = UniformCache(ttl_seconds=0.1)
+        self.uniform_cache = UniformCache(ttl_seconds=0.1)  # 0.1s TTL：约 1~2 帧复用
         self._camera_pool: ThreadPoolExecutor | None = None
 
+    # -----------------------------------------------------------------------
+    # 公开接口
+    # -----------------------------------------------------------------------
 
     @property
     def is_running(self) -> bool:
+        """返回主循环线程是否存活。"""
         return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
+        """启动主循环线程（幂等：已运行时直接返回）。"""
         with self._lock:
             if self.is_running:
                 return
@@ -314,9 +488,11 @@ class GuardRoomRuntime:
             self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
+        """通知主循环退出并等待线程结束，之后关闭线程池。"""
         with self._lock:
             self._stop_event.set()
             thread = self._thread
+
         if thread and thread.is_alive():
             thread.join(timeout=timeout)
 
@@ -330,10 +506,21 @@ class GuardRoomRuntime:
 
         self.state.mark_running(False)
 
+    # -----------------------------------------------------------------------
+    # 报警锁存：防止同一行为期间重复触发
+    # -----------------------------------------------------------------------
+
     def _active_alarm_key(self, event_type: str, track_id: int | None) -> str:
+        """生成报警锁存键，格式："{event_type}:{track_id|global}"。"""
         return f"{event_type}:{track_id if track_id is not None else 'global'}"
 
     def _refresh_alarm_latches(self, decisions: dict[str, object]) -> None:
+        """根据当前共识结果刷新报警锁存字典。
+
+        锁存语义：行为持续期间 latch=True，行为结束（active=False）后清除锁存，
+        下次同类行为触发时可重新报警。
+        这样同一次行为期间只打扰 AlarmManager 一次，不会每帧都调用 emit()。
+        """
         active_keys = set()
 
         if getattr(decisions["absent"], "active", False):
@@ -349,8 +536,7 @@ class GuardRoomRuntime:
                 getattr(decisions["prone_sleep"], "track_id", None),
             ))
 
-        # 只在行为真正结束(不再 active)时才清 latch
-        # 这样同一轮行为期间,latch 一直锁着,不会重复打扰 alarm_manager
+        # 仅清除已不再 active 的锁存；active 的保持锁定
         for key in list(self._alarm_latches.keys()):
             if key not in active_keys:
                 self._alarm_latches.pop(key, None)
@@ -367,9 +553,29 @@ class GuardRoomRuntime:
         reason: str,
         cooldown_seconds: float = 60.0,
     ):
+        """尝试触发一次报警，锁存期内静默跳过（不调用 AlarmManager）。
+
+        两层去重：
+          1. 锁存（_alarm_latches）：行为持续期间只触发一次，避免每帧调用；
+          2. 冷却（AlarmManager.emit）：同一类型报警在冷却期内不重复推送。
+
+        Args:
+            alarm_manager:   报警管理器，负责写快照和持久化。
+            event_type:      报警类型字符串。
+            frame:           报警触发时的合并画面帧。
+            timestamp_s:     当前流时间戳（秒）。
+            frame_id:        当前帧序号。
+            track_id:        触发目标的 track_id；无具体目标时为 None。
+            confidence:      置信度。
+            reason:          人类可读原因。
+            cooldown_seconds:AlarmManager 的冷却时长（秒）。
+
+        Returns:
+            实际触发的 AlarmEvent；锁存或冷却期内返回 None。
+        """
         key = self._active_alarm_key(event_type, track_id)
         if self._alarm_latches.get(key, False):
-            return None
+            return None     # 锁存中，静默跳过
 
         event = alarm_manager.emit(
             event_type,
@@ -383,18 +589,33 @@ class GuardRoomRuntime:
             cooldown_seconds=cooldown_seconds,
         )
         if event is not None:
-            # 真实触发:更新 state、latch、banner
+            # 真实触发：更新共享状态、锁存、横幅
             self.state.add_alarm(event)
             self._alarm_latches[key] = True
             self._banner_alarm = event
             self._banner_expire_ts = timestamp_s + self._banner_show_seconds
         else:
-            # 冷却期拦住:也要锁 latch,防止每帧都打扰 alarm_manager
-            # 但不刷新 banner
+            # 冷却期拦截：同样锁存，防止每帧都穿透到 AlarmManager
             self._alarm_latches[key] = True
         return event
 
+    # -----------------------------------------------------------------------
+    # 主循环
+    # -----------------------------------------------------------------------
+
     def _run_loop(self) -> None:
+        """主处理循环（在守护线程中运行）。
+
+        流程：
+          1. 初始化所有模型和读取线程；
+          2. 等待各路摄像头首帧就绪；
+          3. 进入帧循环：
+             a. 从各路 buffer 取最新帧；
+             b. 按 process_every_n_frames 决定是否执行推理；
+             c. 并行处理各路摄像头（线程池）；
+             d. 多摄共识 → 报警判断 → 视频录制 → 状态更新。
+          4. 异常时写入错误状态，finally 中释放所有资源。
+        """
         detector_by_camera: Dict[str, YOLO] = {}
         detector_phone = None
         pose_estimator_by_camera: Dict[str, PoseEstimator] = {}
@@ -411,11 +632,12 @@ class GuardRoomRuntime:
             if len(camera_sources) < 2:
                 raise RuntimeError("请至少配置两路摄像头，当前需要设置 video.source_cam1 和 video.source_cam2")
 
+            # 每路摄像头独立的检测器（避免多线程共享同一 YOLO 实例的锁竞争）
             detector_by_camera = {
                 camera_id: YOLO(self.cfg.models.detector_model)
                 for camera_id, _ in camera_sources
             }
-            detector_phone = YOLO(self.cfg.models.detector_model)
+            detector_phone = YOLO(self.cfg.models.detector_model)   # 手机检测器（全图或裁图模式共用）
 
             uniform_classifier = UniformClassifier(
                 model_path=self.cfg.models.uniform_cls_model,
@@ -429,11 +651,13 @@ class GuardRoomRuntime:
                 for camera_id, _ in camera_sources
             }
 
+            # 每路摄像头独立的行为引擎（各自维护跨帧状态，互不干扰）
             behavior_by_camera = {
                 camera_id: BehaviorEngine(self.cfg)
                 for camera_id, _ in camera_sources
             }
 
+            # 每路摄像头独立的保安识别保持器
             guard_gate_by_camera = {
                 camera_id: TrackGuardGate(hold_seconds=self.cfg.rules.guard_hold_seconds)
                 for camera_id, _ in camera_sources
@@ -452,6 +676,7 @@ class GuardRoomRuntime:
                 for camera_id, _ in camera_sources
             }
 
+            # 启动各路摄像头的拉流线程
             for camera_id, source in camera_sources:
                 reader = RTSPReader(
                     camera_name=camera_id,
@@ -466,6 +691,7 @@ class GuardRoomRuntime:
                 readers[camera_id] = reader
                 reader.start()
 
+            # 等待各路摄像头首帧，超时则抛异常
             first_frames = {
                 camera_id: self._wait_first_frame(latest_buffers[camera_id], readers[camera_id], timeout_s=12.0)
                 for camera_id, _ in camera_sources
@@ -475,18 +701,20 @@ class GuardRoomRuntime:
             out_writer = self._build_writer(combined_first.shape[1], combined_first.shape[0])
 
             frame_id = 0
-            infer_fps_ema = 0.0
+            infer_fps_ema = 0.0     # 推理帧率的指数移动平均（α=0.15）
             last_infer_ts = time.time()
-            started_wall_ts = time.time()
+            started_wall_ts = time.time()   # 流时间戳的起点
 
             processed_ids = {camera_id: -1 for camera_id, _ in camera_sources}
 
+            # 各规则的"未触发"默认值，用于初始化 last_results / last_global_decisions
             false_decisions = {
                 "absent": RuleDecision(),
                 "phone": RuleDecision(),
                 "prone_sleep": RuleDecision(),
             }
 
+            # 首帧前的默认结果（确保 combined 帧在首次推理前也有内容可显示）
             last_results = {
                 camera_id: SingleCameraResult(
                     camera_id=camera_id,
@@ -504,6 +732,7 @@ class GuardRoomRuntime:
             }
             last_global_decisions = false_decisions
 
+            # ── 帧循环 ────────────────────────────────────────────────────
             while not self._stop_event.is_set():
                 buffer_items = {
                     camera_id: latest_buffers[camera_id].get()
@@ -514,10 +743,12 @@ class GuardRoomRuntime:
                     for camera_id, item in buffer_items.items()
                 }
 
+                # 任意摄像头尚无帧：等待
                 if any(frame is None for frame in current_frames.values()):
                     time.sleep(0.02)
                     continue
 
+                # 所有摄像头帧 ID 均未变化：无新帧，跳过
                 if all(buffer_items[camera_id][0] == processed_ids[camera_id] for camera_id, _ in camera_sources):
                     time.sleep(0.01)
                     continue
@@ -528,6 +759,7 @@ class GuardRoomRuntime:
 
                 timestamp_s = time.time() - started_wall_ts
 
+                # 按 process_every_n_frames 决定是否执行推理（跳帧节省算力）
                 need_infer = (
                     self.cfg.video.process_every_n_frames <= 1
                     or frame_id % self.cfg.video.process_every_n_frames == 0
@@ -545,6 +777,7 @@ class GuardRoomRuntime:
                     precomputed_phone_map: dict[str, List[Detection]] | None = None
 
                     if phone_mode == "full_frame_test":
+                        # 全图模式：批量推理所有摄像头，避免 N 次独立 predict 调用
                         precomputed_phone_map = self._detect_phones_full_frames_batch(
                             detector=detector_phone,
                             frames_by_camera={camera_id: current_frames[camera_id] for camera_id, _ in camera_sources},
@@ -553,12 +786,14 @@ class GuardRoomRuntime:
                     if self._camera_pool is None:
                         raise RuntimeError("camera pool 未初始化")
 
+                    # 各路摄像头并行处理，提交到线程池
                     futures = {
                         camera_id: self._camera_pool.submit(
                             self._process_one_camera,
                             camera_id=camera_id,
                             frame=current_frames[camera_id],
                             timestamp_s=timestamp_s,
+                            # 推理有效 fps = 实际 fps / 跳帧数，用于将帧计数转换为时长
                             fps=max(
                                 fps_by_camera[camera_id] / max(1, self.cfg.video.process_every_n_frames),
                                 1.0,
@@ -575,11 +810,13 @@ class GuardRoomRuntime:
                         for camera_id, _ in camera_sources
                     }
 
+                    # 等待所有摄像头推理完成，取结果
                     last_results = {
                         camera_id: future.result()
                         for camera_id, future in futures.items()
                     }
 
+                    # 多摄共识：汇聚各路结果，输出全局报警决策
                     last_global_decisions = consensus.update(
                         timestamp_s=timestamp_s,
                         cameras={
@@ -595,18 +832,14 @@ class GuardRoomRuntime:
                     )
                     self._refresh_alarm_latches(last_global_decisions)
 
+                # ── 合并画面 & 全局状态面板 ──────────────────────────────
                 ordered_frames = [last_results[camera_id].annotated_frame for camera_id, _ in camera_sources]
                 combined = self._stack_frames(ordered_frames)
+                self._draw_global_panel(combined, last_global_decisions, timestamp_s)
 
-                self._draw_global_panel(
-                    combined,
-                    last_global_decisions,
-                    timestamp_s,
-                )
-
+                # ── 报警触发（三类，各有独立冷却时长）───────────────────
                 new_alarm_events = []
 
-                # 离岗
                 if last_global_decisions["absent"].active:
                     event = self._emit_alarm_once(
                         alarm_manager=alarm_manager,
@@ -622,7 +855,6 @@ class GuardRoomRuntime:
                     if event is not None:
                         new_alarm_events.append(event)
 
-                # 手机
                 if last_global_decisions["phone"].active:
                     event = self._emit_alarm_once(
                         alarm_manager=alarm_manager,
@@ -638,7 +870,6 @@ class GuardRoomRuntime:
                     if event is not None:
                         new_alarm_events.append(event)
 
-                # 趴睡
                 if last_global_decisions["prone_sleep"].active:
                     event = self._emit_alarm_once(
                         alarm_manager=alarm_manager,
@@ -654,9 +885,11 @@ class GuardRoomRuntime:
                     if event is not None:
                         new_alarm_events.append(event)
 
+                # 横幅：仅在 _banner_show_seconds 内显示，之后自动消失
                 visible_alarm = self._banner_alarm if timestamp_s <= self._banner_expire_ts else None
                 draw_alarm_banner(combined, visible_alarm)
 
+                # ── 启动新报警的视频录制任务 ─────────────────────────────
                 for event in new_alarm_events:
                     self.alarm_clip_recorder.start_clip(
                         event=event,
@@ -666,15 +899,19 @@ class GuardRoomRuntime:
                         alarm_user=self.alarm_user,
                     )
 
-                self.recorder.write(combined)
+                # ── 写入各路视频 ──────────────────────────────────────────
+                self.recorder.write(combined)       # 手动录制（按需）
                 if out_writer is not None:
-                    out_writer.write(combined)
+                    out_writer.write(combined)      # 标注视频（配置开启时）
 
+                # ── 处理已完成的报警视频片段 ─────────────────────────────
                 finished_tasks = self.alarm_clip_recorder.update(combined, timestamp_s)
                 for task in finished_tasks:
+                    # 回写视频路径到 AlarmEvent
                     if hasattr(alarm_manager, "attach_video"):
                         alarm_manager.attach_video(task.event, task.video_path)
 
+                    # 通知 AppState 更新视频路径，供 Web API 查询
                     if hasattr(self.state, "attach_alarm_video"):
                         self.state.attach_alarm_video(
                             task.event.event_type,
@@ -682,11 +919,10 @@ class GuardRoomRuntime:
                             task.video_path,
                         )
 
+                    # 企业微信推送（按事件类型子开关过滤）
                     if self.wechat_notifier is not None:
                         event_type = task.event.event_type
                         wechat_cfg = self.cfg.wechat
-                        
-                        # 子开关检查
                         enabled = True
                         if event_type == "phone_use" and not wechat_cfg.enable_phone:
                             enabled = False
@@ -694,17 +930,17 @@ class GuardRoomRuntime:
                             enabled = False
                         elif event_type == "prone_sleep" and not wechat_cfg.enable_prone_sleep:
                             enabled = False
-                        
+
                         if enabled:
-                            # 抓一下当前 task 引用,闭包要用
+                            # 用默认参数捕获 task.event 引用，避免闭包捕获循环变量的经典陷阱
                             _event_ref = task.event
-                            
+
                             def _on_wechat_result(success: bool, _event=_event_ref):
                                 if not success:
-                                    print(f"[ALARM] {_event.event_type} 微信视频推送失败,本地报警视频已保留")
+                                    print(f"[ALARM] {_event.event_type} 微信视频推送失败，本地报警视频已保留")
                                 else:
                                     print(f"[ALARM] {_event.event_type} 视频推送成功")
-                            
+
                             self.wechat_notifier.notify_alarm(
                                 frame=task.snapshot_frame,
                                 camera_name=task.camera_name,
@@ -714,11 +950,14 @@ class GuardRoomRuntime:
                                 on_result=_on_wechat_result,
                             )
 
+                # ── FPS 统计（指数移动平均，α=0.15）────────────────────────
                 now = time.time()
                 instant_fps = 1.0 / max(1e-6, now - last_infer_ts)
                 last_infer_ts = now
                 infer_fps_ema = instant_fps if infer_fps_ema == 0 else (infer_fps_ema * 0.85 + instant_fps * 0.15)
 
+                # ── 更新 AppState（供 Web API 推流）─────────────────────
+                # 重新拼帧并计算各路摄像头检测结果在合并画面中的 Y 偏移
                 stacked_frames, y_offsets = self._stack_frames_with_offsets(
                     [last_results[camera_id].annotated_frame for camera_id, _ in camera_sources]
                 )
@@ -729,8 +968,10 @@ class GuardRoomRuntime:
 
                 for idx, (camera_id, _) in enumerate(camera_sources):
                     result = last_results[camera_id]
+                    # 将各路坐标平移到合并画面中的实际位置
                     merged_persons.extend(self._offset_detections(result.all_persons, y_offset=y_offsets[idx]))
                     merged_phones.extend(self._offset_detections(result.phones, y_offset=y_offsets[idx]))
+                    # track_id 加偏移以区分不同摄像头的同号目标
                     merged_pose_features.update(
                         self._merge_pose_features(result.pose_features, camera_index=idx)
                     )
@@ -748,6 +989,7 @@ class GuardRoomRuntime:
                     jpeg_quality=self.cfg.video.jpeg_quality,
                 )
 
+                # 汇总各路摄像头的错误信息写入共享状态
                 warn_msgs = [reader.error for reader in readers.values() if reader.error]
                 if warn_msgs:
                     self.state.set_reader_warning(" | ".join(warn_msgs))
@@ -757,6 +999,7 @@ class GuardRoomRuntime:
         except Exception as exc:
             self.state.set_error(str(exc))
         finally:
+            # 无论正常退出还是异常，均确保资源被释放
             self.state.mark_running(False)
             self._stop_event.set()
             self.recorder.stop()
@@ -774,25 +1017,43 @@ class GuardRoomRuntime:
             if pool is not None:
                 pool.shutdown(wait=True, cancel_futures=True)
 
+    # -----------------------------------------------------------------------
+    # 单路摄像头处理（在线程池中并行执行）
+    # -----------------------------------------------------------------------
+
     def _process_one_camera(
-    self,
-    *,
-    camera_id: str,
-    frame: np.ndarray,
-    timestamp_s: float,
-    fps: float,
-    main_detector: YOLO,
-    phone_detector: YOLO,
-    pose_estimator: PoseEstimator,
-    behavior_engine: BehaviorEngine,
-    guard_gate: TrackGuardGate,
-    uniform_classifier: UniformClassifier,
-    camera_online: bool,
-    precomputed_phones: Optional[List[Detection]] = None,
-) -> SingleCameraResult:
+        self,
+        *,
+        camera_id: str,
+        frame: np.ndarray,
+        timestamp_s: float,
+        fps: float,
+        main_detector: YOLO,
+        phone_detector: YOLO,
+        pose_estimator: PoseEstimator,
+        behavior_engine: BehaviorEngine,
+        guard_gate: TrackGuardGate,
+        uniform_classifier: UniformClassifier,
+        camera_online: bool,
+        precomputed_phones: Optional[List[Detection]] = None,
+    ) -> SingleCameraResult:
+        """处理单路摄像头的一帧，返回完整的 SingleCameraResult。
+
+        执行顺序：
+          1. 人体检测（带跟踪）；
+          2. 制服识别（含缓存 + 保持窗口）→ 筛出保安；
+          3. 手机检测（裁图模式或全图模式）；
+          4. 姿态估计；
+          5. 行为规则判断；
+          6. 标注帧绘制。
+
+        此方法由线程池调用，使用的所有对象（detector / behavior_engine 等）
+        均为当前摄像头专属，无跨线程共享，无需加锁。
+        uniform_cache 内部自行加锁（多摄共享同一 cache 实例）。
+        """
         main_detections = self._detect_main(main_detector, frame)
         all_persons = [d for d in main_detections if d.cls_id == self.cfg.classes.person]
-        
+
         guard_persons: List[Detection] = []
         guard_confidence = 0.0
 
@@ -807,29 +1068,31 @@ class GuardRoomRuntime:
             )
 
             if person.track_id is None:
+                # 无跟踪 ID：无法使用 guard_gate 平滑，直接用本帧结果
                 if is_guard_now:
                     guard_persons.append(person)
                     guard_confidence = max(guard_confidence, uniform_conf)
                 continue
 
+            # 有跟踪 ID：通过 guard_gate 平滑识别结果
             keep_guard = guard_gate.keep(person.track_id, timestamp_s, is_guard_now)
             if keep_guard:
                 guard_persons.append(person)
                 guard_confidence = max(guard_confidence, uniform_conf)
 
+        # 手机检测：根据 phone_detect_mode 选择裁图或全图策略
         phone_mode = str(
             getattr(self.cfg.runtime, "phone_detect_mode", "guard_crop") or "guard_crop"
         ).strip().lower()
 
         if phone_mode == "full_frame_test":
-            if precomputed_phones is not None:
-                phones = precomputed_phones
-            else:
-                phones = self._detect_phones_full_frame(phone_detector, frame)
-            persons_for_phone_rule = all_persons
+            # 全图模式：使用主循环预计算的全图结果（批量推理更高效）
+            phones = precomputed_phones if precomputed_phones is not None else self._detect_phones_full_frame(phone_detector, frame)
+            persons_for_phone_rule = all_persons   # 全图模式对所有人做手机规则
         else:
+            # 裁图模式（默认）：仅对保安区域裁图检测，减少误检
             phones = self._detect_phones_in_person_regions(phone_detector, frame, guard_persons)
-            persons_for_phone_rule = guard_persons
+            persons_for_phone_rule = guard_persons  # 裁图模式只对保安做手机规则
 
         pose_features = self._estimate_pose(pose_estimator, frame, guard_persons, timestamp_s)
 
@@ -868,7 +1131,17 @@ class GuardRoomRuntime:
             camera_online=camera_online,
         )
 
+    # -----------------------------------------------------------------------
+    # 检测辅助方法
+    # -----------------------------------------------------------------------
+
     def _detect_main(self, detector: YOLO, frame: np.ndarray) -> List[Detection]:
+        """对单帧执行带跟踪的人体检测，返回 Detection 列表。
+
+        使用 detector.track() 而非 predict()，以获得跨帧稳定的 track_id，
+        供 guard_gate 和 behavior_engine 做时序状态管理。
+        置信度下限取 max(0.20, config) 以避免配置过高导致漏检。
+        """
         results = detector.track(
             source=frame,
             persist=True,
@@ -908,6 +1181,22 @@ class GuardRoomRuntime:
         frame: np.ndarray,
         persons: List[Detection],
     ) -> List[Detection]:
+        """裁图模式手机检测：对每个保安区域裁图，批量推理后坐标还原到全图。
+
+        裁图策略：
+          - 水平方向：人体框两侧各扩展 35%，容纳手持手机时手臂外伸的情况；
+          - 垂直方向：顶部扩展 20%，底部扩展 15%，覆盖弯腰或低头场景；
+          - 坐标钳位在画面范围内，防止越界。
+
+        误检过滤（平板电脑/书本等大面积物体）：
+          满足以下任一条件则视为平板误检并丢弃：
+            - 检测框面积 > 人体面积的 12%；
+            - 检测框宽度 > 人体宽度的 38%；
+            - 检测框高度 > 人体高度的 30%；
+            - 面积 > 8% 且长宽比在 [0.55, 1.8]（接近正方形的大框）。
+
+        最后调用 _dedup_overlaps() 去除 IoU > 0.5 的重复检测。
+        """
         if not persons:
             return []
 
@@ -934,22 +1223,22 @@ class GuardRoomRuntime:
                 continue
 
             crops.append(crop)
-            crop_meta.append(
-                {
-                    "offset": (x1, y1),
-                    "person_w": person_w,
-                    "person_h": person_h,
-                    "person_area": person_w * person_h,
-                }
-            )
+            crop_meta.append({
+                "offset": (x1, y1),    # 裁图左上角在全图中的坐标，用于还原检测框
+                "person_w": person_w,
+                "person_h": person_h,
+                "person_area": person_w * person_h,
+            })
 
         if not crops:
             return []
 
+        # 批量推理所有裁图，比逐个 predict 减少 GPU 调度开销
         results = detector.predict(
             source=crops,
             classes=[self.cfg.classes.play_phone],
-            conf=min(0.9,max(0.10, self.cfg.models.detector_conf * 3.0)),
+            # 裁图模式置信度阈值提升（×3.0），降低小图中的误检
+            conf=min(0.9, max(0.10, self.cfg.models.detector_conf * 3.0)),
             iou=self.cfg.models.detector_iou,
             imgsz=640,
             device=(self.cfg.models.device or None),
@@ -978,12 +1267,14 @@ class GuardRoomRuntime:
                 area = bw * bh
                 aspect = bw / max(1, bh)
 
+                # 坐标还原：裁图内坐标 + 裁图偏移 = 全图坐标
                 gx1, gy1, gx2, gy2 = cx1 + ox, cy1 + oy, cx2 + ox, cy2 + oy
 
                 area_ratio = area / max(1, person_area)
                 width_ratio = bw / max(1, person_w)
                 height_ratio = bh / max(1, person_h)
 
+                # 平板/书本误检过滤：满足任一大尺寸条件则丢弃
                 suspected_tablet = (
                     area_ratio > 0.12
                     or width_ratio > 0.38
@@ -998,7 +1289,7 @@ class GuardRoomRuntime:
                         cls_id=self.cfg.classes.play_phone,
                         conf=float(confs[idx]),
                         bbox=(gx1, gy1, gx2, gy2),
-                        track_id=None,
+                        track_id=None,      # 手机不做跨帧跟踪
                     )
                 )
 
@@ -1009,6 +1300,12 @@ class GuardRoomRuntime:
         detector: YOLO,
         frames_by_camera: Dict[str, np.ndarray],
     ) -> Dict[str, List[Detection]]:
+        """全图批量手机检测（调试模式），一次 predict 处理所有摄像头帧。
+
+        与裁图模式相比误检率更高，主要用于验证模型在全图下的检测能力，
+        不建议在生产环境使用（phone_detect_mode="full_frame_test"）。
+        imgsz=1280 提供更高分辨率以检测画面中较小的手机目标。
+        """
         if not frames_by_camera:
             return {}
 
@@ -1018,7 +1315,7 @@ class GuardRoomRuntime:
         results = detector.predict(
             source=frames,
             classes=[self.cfg.classes.play_phone],
-            conf=max(0.05, self.cfg.models.detector_conf*1.8),
+            conf=max(0.05, self.cfg.models.detector_conf * 1.8),
             iou=self.cfg.models.detector_iou,
             imgsz=1280,
             device=(self.cfg.models.device or None),
@@ -1036,14 +1333,14 @@ class GuardRoomRuntime:
                 h, w = frame.shape[:2]
                 for idx, bbox in enumerate(xyxy):
                     x1, y1, x2, y2 = map(int, bbox.tolist())
-
+                    # 坐标钳位：防止浮点精度或 letterbox 导致越界
                     x1 = max(0, min(x1, w - 1))
                     y1 = max(0, min(y1, h - 1))
                     x2 = max(0, min(x2, w - 1))
                     y2 = max(0, min(y2, h - 1))
 
                     if x2 <= x1 or y2 <= y1:
-                        continue
+                        continue    # 钳位后退化为零面积框，丢弃
 
                     detections.append(
                         Detection(
@@ -1063,6 +1360,7 @@ class GuardRoomRuntime:
         detector: YOLO,
         frame: np.ndarray,
     ) -> List[Detection]:
+        """对单帧执行全图手机检测（_detect_phones_full_frames_batch 的单帧便捷封装）。"""
         result = self._detect_phones_full_frames_batch(
             detector=detector,
             frames_by_camera={"single": frame},
@@ -1076,11 +1374,18 @@ class GuardRoomRuntime:
         persons: List[Detection],
         timestamp_s: float,
     ) -> Dict[int, Dict[str, float]]:
+        """调用姿态估计器（未启用时返回空字典）。
+
+        仅对 guard_persons 做姿态估计（而非 all_persons），
+        减少不必要的关键点匹配计算。
+        """
         if not pose_estimator.enabled:
             return {}
-        
-        # YOLO-Pose 对整帧做一次推理,内部匹配每个 person
         return pose_estimator.infer_frame(frame, persons)
+
+    # -----------------------------------------------------------------------
+    # 画面标注方法
+    # -----------------------------------------------------------------------
 
     def _draw_camera(
         self,
@@ -1095,9 +1400,19 @@ class GuardRoomRuntime:
         local_decisions: Dict[str, RuleDecision],
         camera_online: bool,
     ) -> None:
+        """在单路摄像头帧上绘制检测框、姿态信息和状态头部栏。
+
+        绘制层次（从下到上）：
+          1. 所有人体框（灰色）；
+          2. 保安框（绿色，含低头比率 hd=...）；
+          3. 手机框（品红色）；
+          4. 顶部状态头部栏（在线=绿底，离线=红底）。
+        """
+        # 所有人体：灰色框，区分于保安
         for det in all_persons:
             draw_detection(frame, det, f"person id={det.track_id}", color=(128, 128, 128))
 
+        # 保安：绿色框，附加低头比率供调试
         for det in guard_persons:
             label = f"guard id={det.track_id}"
             if (
@@ -1111,7 +1426,7 @@ class GuardRoomRuntime:
         for det in phones:
             draw_detection(frame, det, f"phone {det.conf:.2f}", color=(255, 0, 255))
 
-
+        # 顶部状态栏：在线绿底，离线红底，一眼区分摄像头状态
         header_bg = (0, 120, 0) if camera_online else (0, 0, 180)
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), header_bg, -1)
         header = (
@@ -1127,17 +1442,26 @@ class GuardRoomRuntime:
         decisions: Dict[str, RuleDecision],
         timestamp_s: float,
     ) -> None:
+        """在合并画面底部绘制全局共识状态文字条。"""
         text = (
             f"GLOBAL | t={timestamp_s:.1f}s | "
             f"absent={decisions['absent'].active} | "
             f"phone={decisions['phone'].active} | "
             f"prone={decisions['prone_sleep'].active}"
         )
-        y = frame.shape[0] - 14
+        y = frame.shape[0] - 14     # 固定在画面底部上方 14 像素
         cv2.putText(frame, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (0, 180, 255), 2)
+
+    # -----------------------------------------------------------------------
+    # 静态工具方法
+    # -----------------------------------------------------------------------
 
     @staticmethod
     def _dedup_overlaps(dets: List[Detection], iou_threshold: float = 0.5) -> List[Detection]:
+        """贪心 NMS：按置信度降序保留，IoU 超阈值的后续框丢弃。
+
+        用于去除裁图/全图检测中来自不同裁图区域的重叠手机框。
+        """
         if not dets:
             return []
 
@@ -1156,17 +1480,15 @@ class GuardRoomRuntime:
 
     @staticmethod
     def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+        """计算两个检测框的 IoU，无交集时返回 0.0。"""
         ax1, ay1, ax2, ay2 = a
         bx1, by1, bx2, by2 = b
-
         inter_x1 = max(ax1, bx1)
         inter_y1 = max(ay1, by1)
         inter_x2 = min(ax2, bx2)
         inter_y2 = min(ay2, by2)
-
         if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
             return 0.0
-
         inter = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
         area_a = max(1, ax2 - ax1) * max(1, ay2 - ay1)
         area_b = max(1, bx2 - bx1) * max(1, by2 - by1)
@@ -1174,6 +1496,7 @@ class GuardRoomRuntime:
 
     @staticmethod
     def _resize_to_width(frame: np.ndarray, target_w: int) -> np.ndarray:
+        """等比缩放帧到指定宽度，已是目标宽度时原样返回。"""
         h, w = frame.shape[:2]
         if w == target_w:
             return frame
@@ -1182,11 +1505,36 @@ class GuardRoomRuntime:
         return cv2.resize(frame, (target_w, new_h))
 
     def _stack_frames(self, frames: List[np.ndarray]) -> np.ndarray:
+        """垂直拼接多路帧（不需要偏移量时的便捷封装）。"""
         combined, _ = self._stack_frames_with_offsets(frames)
         return combined
 
+    def _stack_frames_with_offsets(self, frames: List[np.ndarray]) -> tuple[np.ndarray, List[int]]:
+        """垂直拼接多路帧，返回合并帧与各路帧在合并帧中的 Y 轴起始偏移。
+
+        所有帧先统一缩放到最小宽度，再垂直拼接，确保等宽。
+        y_offsets 用于将各路摄像头的检测框坐标映射到合并帧中的正确位置。
+
+        Returns:
+            (combined_frame, y_offsets)，y_offsets[i] 为第 i 路帧顶部的 Y 坐标。
+        """
+        if not frames:
+            raise RuntimeError("没有可拼接的画面")
+
+        target_w = min(frame.shape[1] for frame in frames)     # 以最小宽度为基准
+        resized_frames = [self._resize_to_width(frame, target_w) for frame in frames]
+
+        y_offsets: List[int] = []
+        current_y = 0
+        for frame in resized_frames:
+            y_offsets.append(current_y)
+            current_y += frame.shape[0]
+
+        return np.vstack(resized_frames), y_offsets
+
     @staticmethod
     def _offset_detections(dets: List[Detection], y_offset: int = 0) -> List[Detection]:
+        """将检测框的 Y 坐标整体平移 y_offset，用于映射到合并画面坐标系。"""
         out: List[Detection] = []
         for d in dets:
             x1, y1, x2, y2 = d.bbox
@@ -1205,30 +1553,27 @@ class GuardRoomRuntime:
         pose_features: Dict[int, Dict[str, float]],
         camera_index: int,
     ) -> Dict[int, Dict[str, float]]:
+        """将姿态特征的 track_id 加上摄像头索引偏移（× 100000），避免多路 ID 冲突。
+
+        例：cam1 的 track_id=5 → 5，cam2 的 track_id=5 → 100005，互不覆盖。
+        """
         base = camera_index * 100000
         return {
             int(track_id) + base: value
             for track_id, value in pose_features.items()
         }
 
-    def _stack_frames_with_offsets(self, frames: List[np.ndarray]) -> tuple[np.ndarray, List[int]]:
-        if not frames:
-            raise RuntimeError("没有可拼接的画面")
+    def _wait_first_frame(
+        self,
+        buffer: LatestFrameBuffer,
+        reader: RTSPReader,
+        timeout_s: float = 12.0,
+    ) -> np.ndarray:
+        """阻塞等待摄像头首帧，超时则抛出 RuntimeError。
 
-        target_w = min(frame.shape[1] for frame in frames)
-        resized_frames = [self._resize_to_width(frame, target_w) for frame in frames]
-
-        y_offsets: List[int] = []
-        current_y = 0
-        for frame in resized_frames:
-            y_offsets.append(current_y)
-            current_y += frame.shape[0]
-
-        return np.vstack(resized_frames), y_offsets
-
-    def _wait_first_frame(self, buffer: LatestFrameBuffer, reader: RTSPReader, timeout_s: float = 12.0) -> np.ndarray:
+        超时时优先使用 reader.error 中的具体错误信息，便于定位问题（URL 错误、网络不通等）。
+        """
         deadline = time.time() + timeout_s
-        frame = None
         while not self._stop_event.is_set() and time.time() < deadline:
             _, _, frame = buffer.get()
             if frame is not None:
@@ -1237,6 +1582,7 @@ class GuardRoomRuntime:
         raise RuntimeError(reader.error or f"{reader.camera_name} 首帧超时: {reader.source}")
 
     def _build_writer(self, width: int, height: int):
+        """根据配置创建标注视频的 VideoWriter；save_annotated_video=False 时返回 None。"""
         if not self.cfg.video.save_annotated_video:
             return None
         output_dir = ensure_dir(self.cfg.video.output_dir)

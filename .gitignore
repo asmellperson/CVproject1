@@ -117,6 +117,7 @@ config.local.yaml
 config.local.yml
 config.prod.yaml
 config.prod.yml
+security_vlm/configs/config.yaml
 *.local.yaml
 *.local.yml
 
@@ -132,6 +133,7 @@ config.prod.yml
 # ======================
 .codex/
 .claude/
+agents.md
 
 # ======================
 # Python virtual env

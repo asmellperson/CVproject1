@@ -130,7 +130,7 @@ export function DoorDetectionSection() {
       const payload = await requestDoorConfig(shmName)
       setDoorConfig(payload.detect_door)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的大门检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的大门开关异常检测配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -279,7 +279,7 @@ export function DoorDetectionSection() {
       setDoorConfig(payload.detect_door)
       setForm(toForm(payload))
       const items = await refreshCameraList()
-      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的大门检测配置已更新。`)
+      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的大门开关异常检测配置已更新。`)
     } catch (error) {
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -349,7 +349,7 @@ export function DoorDetectionSection() {
 
             <TabsContent value="roi" className="space-y-6">
               <AiVisionRoiEditor
-                title="大门检测 ROI 绘制"
+                title="大门开关异常检测 ROI 绘制"
                 cameraKey={form.cameraName}
                 roiJson={form.roiPos}
                 disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}

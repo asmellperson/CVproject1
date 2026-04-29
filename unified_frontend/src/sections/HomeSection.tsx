@@ -1,4 +1,4 @@
-import { ArrowRight, CircleDotDashed, DoorOpen, ScanFace, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
+import { ArrowRight, CircleDotDashed, DoorOpen, ScanFace, ShieldAlert, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -30,7 +30,7 @@ const moduleEntries = [
   },
   {
     id: 'door-detection',
-    title: '大门检测入口',
+    title: '大门开关检测入口',
     icon: DoorOpen,
     status: '已接入',
     accent: 'from-indigo-500 to-blue-600',
@@ -50,7 +50,7 @@ const moduleEntries = [
   },
   {
     id: 'human-detection',
-    title: '人体逗留检测入口',
+    title: '人员逗留检测入口',
     icon: CircleDotDashed,
     status: '已接入',
     accent: 'from-amber-400 to-orange-500',
@@ -60,13 +60,23 @@ const moduleEntries = [
   },
   {
     id: 'phone-detection',
-    title: '手机检测入口',
+    title: '手机使用检测入口',
     icon: Smartphone,
     status: '已接入',
     accent: 'from-rose-500 to-red-500',
     glow: 'shadow-rose-500/16',
     iconColor: 'text-rose-600',
     iconBg: 'from-rose-50 to-red-100',
+  },
+  {
+    id: 'security-vlm',
+    title: '安检流程规范检测入口',
+    icon: ShieldAlert,
+    status: '已接入',
+    accent: 'from-cyan-500 to-blue-500',
+    glow: 'shadow-cyan-500/16',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
   },
 ]
 
@@ -88,7 +98,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
           {moduleEntries.map((entry) => {
             const Icon = entry.icon
             return (

@@ -8,6 +8,7 @@ import { DoorDetectionSection } from '@/sections/DoorDetectionSection'
 import { FaceDetectionSection } from '@/sections/FaceDetectionSection'
 import { HumanDetectionSection } from '@/sections/HumanDetectionSection'
 import { PhoneDetectionSection } from '@/sections/PhoneDetectionSection'
+import { SecurityVlmSection } from '@/sections/SecurityVlmSection'
 import { AlarmsSection } from '@/sections/AlarmsSection'
 import { StatisticsSection } from '@/sections/StatisticsSection'
 import { Toaster } from '@/components/ui/sonner'
@@ -51,6 +52,8 @@ function App() {
         return <HumanDetectionSection />
       case 'phone-detection':
         return <PhoneDetectionSection />
+      case 'security-vlm':
+        return <SecurityVlmSection />
       case 'alarms':
         return <AlarmsSection />
       case 'statistics':

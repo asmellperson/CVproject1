@@ -1,0 +1,126 @@
+
+  # ======================================================================
+# 安检合规检测 - VLM 方案 完整版配置
+# ======================================================================
+
+project:
+  root: /usr/zyy/SecurityDutyDetect/security_vlm
+  name: security_vlm
+
+# ---- Python 环境 ----
+envs:
+  # 新建的 security_vlm conda env 的 python 路径
+  # 安装好后用 `which python` 替换下面这行
+  worker_python: /root/miniconda3/envs/security_vlm/bin/python
+
+# ---- 运行时目录(共享内存 + 状态文件) ----
+runtime:
+  dir: /dev/shm/security_vlm_runtime
+  camera_fps_hint: 10
+
+# ---- 子进程轮询间隔 ----
+workers:
+  poll_interval_sec: 0.01
+
+# ---- Web 服务 ----
+web:
+  host: 0.0.0.0
+  port: 8000
+  # jpeg_quality: 60
+  # display_every_n: 1
+
+# ---- 视频源 ----
+data:
+  input_video:
+  # ROI 配置持久化目录
+  staff_identity_dir: /usr/zyy/SecurityDutyDetect/security_vlm/data/annotations/staff_rois
+
+# ---- 默认工位 ROI(首次启动用;后续以前端保存的 JSON 为准) ----
+staff_rois:
+  security_staff_1: [455, 160, 735, 555]
+  security_staff_2: [690, 95, 985, 565]
+  security_staff_3: [995, 95, 1215, 520]
+
+# ---- YOLO 检测 + ByteTrack ----
+yolo:
+  model: yolo11s.pt
+  device: cuda:0
+  imgsz: 640
+  conf: 0.35
+  iou: 0.60
+  half: true
+  verbose: false
+  person_class_id: 0
+  tracker: bytetrack.yaml   # 走 ultralytics 内置 ByteTrack
+  persist: true
+  # 共享内存 key
+  result_key: tracker_latest
+  status_key: tracker_status
+
+# ---- Session 管理 ----
+session:
+  # 每个 ROI 独立计数
+  min_persons_to_start: 2
+  start_hold_frames: 15       # 连续 15 帧(≈0.5s @30fps)ROI 内 ≥2 人 → session 开始
+  end_hold_frames: 45         # 连续 45 帧(≈1.5s)ROI 内 <2 人 → session 结束
+  keyframes_per_session: 12    # 每个 session 采样的关键帧数(送 VLM)
+  min_session_seconds: 3      # session 时长不足不送 VLM
+  keyframe_interval_sec: 0.60  # 关键帧间隔
+  # 共享内存 key
+  status_key: session_status
+  pending_queue_dir: /dev/shm/security_vlm_runtime/session_pending
+
+  roi_crop_padding: 40   # 外扩像素,2560x1440 分辨率下推荐 80-120
+
+    # —— 启动 ——
+  pair_start_hold_frames: 8        # 候选 pair 持续 N 帧才启动 session
+  
+  # —— 结束（关键改动：分两种）——
+  fingerprint_lost_seconds: 3.0    # 指纹找不回这对人 3 秒 → 结束
+  no_interact_seconds: 4.0         # 找到了但不再交互 4 秒 → 结束
+  max_session_seconds: 90.0        # 兜底,极端情况下强制结束
+  
+  # —— 关键帧 ——
+  keyframes_per_session: 8
+  keyframe_interval_sec: 0.6
+  roi_crop_padding: 100            # 1080p 下推荐 100,2K/4K 推荐 150
+  
+  # —— 指纹匹配 ——
+  fp_match_threshold: 0.55         # 颜色直方图相似度阈值
+  
+  # —— 交互检测 ——
+  interact_distance_max_ratio: 1.5    # 中心距/平均身高 < 1.5 视为贴近
+  interact_motion_min_pixels: 8.0     # 至少一方 1 秒内位移 >= 8 像素
+  
+  pending_queue_dir: /dev/shm/security_vlm_runtime/session_pending
+
+# ---- VLM(Qwen-VL)调用 ----
+vlm:
+  api_key: 
+  model: 
+  # 排队超时:session 在 VLM 队列超过此秒数则丢弃并记录
+  queue_timeout_sec: 60
+  # 同时最多几个 session 并发送 VLM(防止突发 RTSP 大量 session 堆积)
+  max_concurrent: 3
+  # API 调用超时
+  api_timeout_sec: 45
+  # 图像缩放上限(长边)
+  image_max_side: 960
+  image_jpeg_quality: 85
+  # 共享内存 key
+  status_key: vlm_status
+  result_key: vlm_latest
+
+# ---- 成本保护 ----
+budget:
+  daily_limit_yuan: 50.0
+  estimated_cost_per_call: 0.05
+
+# ---- 输出 ----
+output:
+  results_dir: results        # 每个 session 一个 JSON
+  clips_dir: clips            # 只保存"不合规"的关键帧拼图
+  save_clip_only_non_compliant: true
+  log_dir: logs
+  # 历史记录保留条数(Web 端显示用)
+  max_history_items: 300
