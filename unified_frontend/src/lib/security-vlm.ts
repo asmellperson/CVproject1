@@ -116,5 +116,11 @@ export const getSecurityVlmRois = () => securityVlmGet<SecurityVlmRoisResponse>(
 export const saveSecurityVlmRois = (staff_rois: Record<string, number[]>) =>
   securityVlmPost<SecurityVlmRoisResponse>('/api/rois', { staff_rois })
 
+export const startSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/start')
+
+export const stopSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/stop')
+
+export const restartSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/restart')
+
 export const securityVlmVideoUrl = (kind: 'original' | 'rule', nonce?: number) =>
   `/security-vlm/video/${kind}${nonce ? `?t=${nonce}` : ''}`

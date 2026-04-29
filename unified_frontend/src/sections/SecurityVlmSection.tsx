@@ -8,6 +8,8 @@ import {
   Crosshair,
   FileCheck2,
   Layers3,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Save,
@@ -26,6 +28,8 @@ import {
   getSecurityVlmRois,
   saveSecurityVlmRois,
   securityVlmVideoUrl,
+  startSecurityVlmRuntime,
+  stopSecurityVlmRuntime,
   type SecurityVlmHealth,
   type SecurityVlmHistoryItem,
 } from '@/lib/security-vlm'
@@ -88,6 +92,8 @@ export function SecurityVlmSection() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [health, setHealth] = useState<SecurityVlmHealth | null>(null)
   const [message, setMessage] = useState('正在连接安检流程规范检测服务...')
+  const [controlMessage, setControlMessage] = useState('')
+  const [controlBusy, setControlBusy] = useState(false)
   const [videoNonce, setVideoNonce] = useState(Date.now())
   const [rois, setRois] = useState<Record<string, number[]>>({})
   const [slotNames, setSlotNames] = useState<string[]>([])
@@ -105,6 +111,7 @@ export function SecurityVlmSection() {
   const history = health?.history || []
   const sourceWidth = Number(health?.capture?.width || 0)
   const sourceHeight = Number(health?.capture?.height || 0)
+  const runtimeRunning = Boolean(health?.running)
 
   const activeVideoUrl = useMemo(() => {
     if (activeTab === 'roi') return securityVlmVideoUrl('original', videoNonce)
@@ -115,6 +122,31 @@ export function SecurityVlmSection() {
     const next = await getSecurityVlmHealth()
     setHealth(next)
     setMessage('服务已连接')
+  }
+
+  const handleToggleRuntime = async () => {
+    if (!isAdmin) {
+      setControlMessage('当前账号为 viewer，只能查看运行状态。')
+      return
+    }
+    setControlBusy(true)
+    setControlMessage(runtimeRunning ? '正在关闭检测...' : '正在开启检测...')
+    try {
+      if (runtimeRunning) {
+        await stopSecurityVlmRuntime()
+        setVideoNonce(Date.now())
+        setControlMessage('检测已关闭，VLM 不会继续产生新的调用费用。')
+      } else {
+        await startSecurityVlmRuntime()
+        setVideoNonce(Date.now())
+        setControlMessage('检测已开启。')
+      }
+      await loadHealth()
+    } catch (error) {
+      setControlMessage(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setControlBusy(false)
+    }
   }
 
   const loadRois = async () => {
@@ -336,10 +368,20 @@ export function SecurityVlmSection() {
           <p className="text-slate-500">YOLO + ByteTrack + VLM 合规判定面板</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={health ? 'default' : 'secondary'} className={cn('gap-2', health && 'bg-emerald-600')}>
-            <span className={cn('h-2 w-2 rounded-full', health ? 'bg-emerald-200' : 'bg-slate-400')} />
-            {health ? '已连接' : '未连接'}
+          <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
+            <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
+            {runtimeRunning ? '检测开启' : '检测关闭'}
           </Badge>
+          <Button
+            variant={runtimeRunning ? 'destructive' : 'default'}
+            size="sm"
+            className="gap-2"
+            onClick={handleToggleRuntime}
+            disabled={!isAdmin || controlBusy}
+          >
+            {runtimeRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            {controlBusy ? '处理中' : runtimeRunning ? '关闭功能' : '开启功能'}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -368,6 +410,36 @@ export function SecurityVlmSection() {
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-6">
+          <Card className="overflow-hidden">
+            <CardHeader className="flex flex-col gap-3 border-b bg-slate-50 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="text-lg">摄像头画面</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">{controlMessage || message}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {workerBadge('capture', health?.capture?.ok)}
+                {workerBadge('detector', health?.detector?.ok)}
+                {workerBadge('session', health?.session?.ok)}
+                {workerBadge('vlm', health?.vlm?.ok)}
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="aspect-video w-full bg-slate-950">
+                {runtimeRunning ? (
+                  <img src={activeVideoUrl} alt="安检流程规范检测实时画面" className="h-full w-full object-contain" />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-slate-300">
+                    <Pause className="h-10 w-10" />
+                    <div className="text-base font-semibold">检测功能已关闭</div>
+                    <div className="text-sm text-slate-400">开启功能后恢复摄像头画面和 VLM 判定</div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <HistoryTable items={history} />
+
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
             <StatCard title="总 session" value={formatNumber(stats.total)} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
             <StatCard title="合规" value={formatNumber(stats.compliant)} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />
@@ -377,39 +449,6 @@ export function SecurityVlmSection() {
             <StatCard title="VLM 队列" value={formatNumber(stats.queue)} icon={<Clock3 className="h-5 w-5 text-slate-600" />} />
             <StatCard title="今日花费" value={`¥${stats.budget?.spent_yuan ?? 0}`} icon={<CircleDollarSign className="h-5 w-5 text-slate-600" />} />
           </div>
-
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(26rem,0.8fr)]">
-            <Card className="overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-slate-50">
-                <CardTitle className="text-lg">实时视频</CardTitle>
-                <div className="flex flex-wrap gap-2">
-                  {workerBadge('capture', health?.capture?.ok)}
-                  {workerBadge('detector', health?.detector?.ok)}
-                  {workerBadge('session', health?.session?.ok)}
-                  {workerBadge('vlm', health?.vlm?.ok)}
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="aspect-video w-full bg-slate-950">
-                  <img src={activeVideoUrl} alt="安检流程规范检测实时画面" className="h-full w-full object-contain" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">最近判定</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {history.slice(0, 6).map((item) => (
-                  <HistoryCard key={`${item.session_id}-${item.time}`} item={item} />
-                ))}
-                {history.length === 0 && <div className="rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">{message}</div>}
-              </CardContent>
-            </Card>
-          </div>
-
-          <HistoryTable items={history} />
         </TabsContent>
 
         <TabsContent value="roi" className="space-y-6">
@@ -530,21 +569,6 @@ function StatCard({
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">{icon}</div>
       </CardContent>
     </Card>
-  )
-}
-
-function HistoryCard({ item }: { item: SecurityVlmHistoryItem }) {
-  return (
-    <div className="rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-900">{item.roi_name || item.session_id || '-'}</div>
-          <div className="text-xs text-slate-500">{item.time || '-'}</div>
-        </div>
-        {statusBadge(item.status)}
-      </div>
-      <p className="mt-2 line-clamp-2 text-sm text-slate-600">{item.reason || item.error || '暂无说明'}</p>
-    </div>
   )
 }
 

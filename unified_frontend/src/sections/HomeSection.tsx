@@ -9,6 +9,16 @@ interface HomeSectionProps {
 
 const moduleEntries = [
   {
+    id: 'security-vlm',
+    title: '安检流程规范检测入口',
+    icon: ShieldAlert,
+    status: '已接入',
+    accent: 'from-cyan-500 to-blue-500',
+    glow: 'shadow-cyan-500/16',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
+  },
+  {
     id: 'guard-behavior',
     title: '保安行为规范检测入口',
     icon: ShieldCheck,
@@ -68,16 +78,7 @@ const moduleEntries = [
     iconColor: 'text-rose-600',
     iconBg: 'from-rose-50 to-red-100',
   },
-  {
-    id: 'security-vlm',
-    title: '安检流程规范检测入口',
-    icon: ShieldAlert,
-    status: '已接入',
-    accent: 'from-cyan-500 to-blue-500',
-    glow: 'shadow-cyan-500/16',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
-  },
+  
 ]
 
 export function HomeSection({ onNavigate }: HomeSectionProps) {
