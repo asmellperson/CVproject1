@@ -30,6 +30,7 @@ npm run dev
 
 2、启动guard_room:
 tmux new -s guard_room
+conda activate guard_room (保安行为规范检测使用的是guard_room的conda环境)
 cd /usr/zyy/Fuda_CVPreject/guard_room
 python run_server.py
 
@@ -73,3 +74,33 @@ tmux ls
   "role": "viewer"
 
   admin 可修改配置、启停算法、录屏；viewer 只能查看。
+
+
+
+
+
+# 1. 先加载 nvm
+source ~/.nvm/nvm.sh
+
+# 2. 使用你之前装好的 Node 20
+nvm use 20
+
+# 3. 看 npm 全局目录
+npm prefix -g
+echo "$(npm prefix -g)/bin"
+
+# 4. 确认 PATH 是否包含 npm 全局 bin
+echo $PATH | tr ':' '\n' | grep "$(npm prefix -g)/bin" || echo "PATH里没有npm全局bin"
+
+# 5. 重新安装 Codex
+npm i -g @openai/codex@latest
+
+# 6. 刷新命令缓存
+hash -r
+
+# 7. 检查
+which codex
+codex --version
+
+# 8. 启动
+codex
