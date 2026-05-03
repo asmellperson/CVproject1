@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import uvicorn
 from src.server import create_app
 
@@ -16,6 +17,8 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
+
+    os.environ["GUARD_ROOM_PORT"] = str(args.port)
 
     # 创建一个FastAPI应用对象
     app = create_app(args.config)

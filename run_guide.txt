@@ -27,25 +27,37 @@ tmux kill-session -t aivision
 tmux new -s unified_frontend
 cd /usr/zyy/Fuda_CVPreject/unified_frontend
 npm run dev
+如需临时改端口：npm run dev -- --port <前端调试端口>
 
 2、启动guard_room:
 tmux new -s guard_room
 conda activate guard_room (保安行为规范检测使用的是guard_room的conda环境)
 cd /usr/zyy/Fuda_CVPreject/guard_room
 python run_server.py
+如需临时改端口：python run_server.py --port <guard_room调试端口>
 
 3、启动AiVision
 tmux new -s aivision
 cd /usr/zyy/Fuda_CVPreject/AiVision
 uv run main.py
+如需临时改端口：uv run main.py --port <AiVision调试端口>
+
+4、启动security_vlm:
+tmux new -s security_vlm
+cd /usr/zyy/Fuda_CVPreject/security_vlm
+python src/main.py --config configs/config.yaml
+如需临时改端口：python src/main.py --config configs/config.yaml --port <security_vlm调试端口>
 
 
-4、tmux常用命令:
+5、tmux常用命令:
 查看所有正在跑的tmux：
 tmux ls
 
 
 
+uv run AiVision/main.py --port <端口>
+python security_vlm/src/main.py --config configs/config.yaml --port <端口>
+npm run dev -- --port <端口>
 
 如何添加新工号
 

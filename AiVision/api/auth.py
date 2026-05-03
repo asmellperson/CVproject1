@@ -59,7 +59,7 @@ def load_auth_users() -> list[dict[str, Any]]:
         raise AuthError("auth users file is invalid") from exc
 
 
-def find_enabled_user(employee_id: str) -> dict[str, str] | None:
+def find_enabled_user(employee_id: str) -> dict[str, Any] | None:
     employee_id = str(employee_id).strip()
     for item in load_auth_users():
         if str(item.get("employee_id", "")).strip() != employee_id:
@@ -70,6 +70,7 @@ def find_enabled_user(employee_id: str) -> dict[str, str] | None:
             "employee_id": employee_id,
             "name": str(item.get("name", "")),
             "role": str(item.get("role", "viewer")),
+            "department": item.get("department"),
         }
     return None
 
@@ -103,7 +104,7 @@ def token_from_request(request: Request) -> str | None:
     return request.cookies.get(COOKIE_NAME)
 
 
-def get_current_user_from_request(request: Request) -> dict[str, str]:
+def get_current_user_from_request(request: Request) -> dict[str, Any]:
     token = token_from_request(request)
     if not token:
         raise AuthError("not authenticated")
@@ -114,14 +115,14 @@ def get_current_user_from_request(request: Request) -> dict[str, str]:
     return user
 
 
-def get_current_user(request: Request) -> dict[str, str]:
+def get_current_user(request: Request) -> dict[str, Any]:
     try:
         return get_current_user_from_request(request)
     except AuthError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
-def require_admin(user: dict[str, str] = Depends(get_current_user)) -> dict[str, str]:
+def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin permission required")
     return user

@@ -14,15 +14,19 @@ import { StatisticsSection } from '@/sections/StatisticsSection'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAuth } from '@/auth/useAuth'
+import { hasPageAccess } from '@/lib/permissions'
 
 function App() {
+  const { user } = useAuth()
   const [currentPage, setCurrentPage] = useState('overview')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
+  const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
 
   const handlePageChange = (page: string) => {
-    setCurrentPage(page)
+    setCurrentPage(hasPageAccess(user, page) ? page : 'overview')
     if (isMobile) setMobileSidebarOpen(false)
   }
 
@@ -35,11 +39,11 @@ function App() {
   }
 
   const renderContent = () => {
-    switch (currentPage) {
+    switch (activePage) {
       case 'overview':
-        return <HomeSection onNavigate={setCurrentPage} />
+        return <HomeSection onNavigate={handlePageChange} />
       case 'home':
-        return <HomeSection onNavigate={setCurrentPage} />
+        return <HomeSection onNavigate={handlePageChange} />
       case 'guard-behavior':
         return <GuardBehaviorSection />
       case 'intrusion-detection':
@@ -59,7 +63,7 @@ function App() {
       case 'statistics':
         return <StatisticsSection />
       default:
-        return <HomeSection onNavigate={setCurrentPage} />
+        return <HomeSection onNavigate={handlePageChange} />
     }
   }
 
@@ -72,7 +76,7 @@ function App() {
       />
 
       <Sidebar
-        currentPage={currentPage}
+        currentPage={activePage}
         onPageChange={handlePageChange}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
@@ -96,7 +100,7 @@ function App() {
           isMobile ? 'pl-0' : sidebarCollapsed ? 'pl-[4.75rem]' : 'pl-[18rem]',
         )}
       >
-        <Topbar currentPage={currentPage} onToggleSidebar={handleToggleSidebar} />
+        <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
         <main className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           <div className="w-full min-w-0">{renderContent()}</div>
         </main>

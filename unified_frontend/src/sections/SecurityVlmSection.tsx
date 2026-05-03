@@ -33,7 +33,7 @@ import {
   type SecurityVlmHealth,
   type SecurityVlmHistoryItem,
 } from '@/lib/security-vlm'
-import { useAuth } from '@/auth/AuthContext'
+import { useAuth } from '@/auth/useAuth'
 
 const POLL_MS = 2000
 const ROI_COLORS = ['#2563eb', '#059669', '#d97706', '#db2777', '#7c3aed', '#0891b2']
@@ -65,15 +65,6 @@ function boolMark(value?: boolean | null) {
   if (value === true) return <CheckCircle2 className="h-4 w-4 text-emerald-600" />
   if (value === false) return <XCircle className="h-4 w-4 text-slate-300" />
   return <span className="text-slate-400">-</span>
-}
-
-function workerBadge(label: string, ok?: boolean) {
-  return (
-    <Badge variant={ok ? 'default' : 'secondary'} className={cn('gap-2', ok && 'bg-emerald-600')}>
-      <span className={cn('h-2 w-2 rounded-full', ok ? 'bg-emerald-200' : 'bg-slate-400')} />
-      {label}
-    </Badge>
-  )
 }
 
 function nextRoiName(names: string[]) {
@@ -365,7 +356,6 @@ export function SecurityVlmSection() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">安检流程规范检测</h2>
-          <p className="text-slate-500">YOLO + ByteTrack + VLM 合规判定面板</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
@@ -415,12 +405,6 @@ export function SecurityVlmSection() {
               <div className="min-w-0">
                 <CardTitle className="text-lg">摄像头画面</CardTitle>
                 <p className="mt-1 text-sm text-slate-500">{controlMessage || message}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {workerBadge('capture', health?.capture?.ok)}
-                {workerBadge('detector', health?.detector?.ok)}
-                {workerBadge('session', health?.session?.ok)}
-                {workerBadge('vlm', health?.vlm?.ok)}
               </div>
             </CardHeader>
             <CardContent className="p-0">

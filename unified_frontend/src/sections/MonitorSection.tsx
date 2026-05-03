@@ -20,7 +20,7 @@ import {
   Download,
 } from 'lucide-react'
 import { frameUrl, getStatus, restartRuntime, startRuntime, stopRuntime } from '@/lib/api'
-import { useAuth } from '@/auth/AuthContext'
+import { useAuth } from '@/auth/useAuth'
 import type { BackendStatus } from '@/types'
 const POLL_MS = 1000
 const RECORD_POLL_MS = 2000

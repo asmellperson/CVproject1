@@ -1,23 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-
-export type AuthUser = {
-  employee_id: string
-  name: string
-  role: 'admin' | 'viewer' | string
-}
-
-type AuthContextValue = {
-  user: AuthUser | null
-  loading: boolean
-  isAdmin: boolean
-  login: (employeeId: string, password: string) => Promise<void>
-  logout: () => Promise<void>
-  refreshMe: () => Promise<void>
-  handleUnauthorized: () => void
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
+import { getUserRole } from '@/lib/permissions'
+import { AuthContext } from '@/auth/auth-context'
+import type { AuthContextValue, AuthUser } from '@/auth/auth-context'
 
 async function readError(response: Response) {
   const text = await response.text().catch(() => '')
@@ -29,6 +14,19 @@ async function readError(response: Response) {
   }
 }
 
+async function fetchCurrentUser() {
+  const response = await fetch('/api/auth/me', {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (response.status === 401) return null
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  const payload = (await response.json()) as { user: AuthUser }
+  return payload.user
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,26 +36,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshMe = useCallback(async () => {
-    const response = await fetch('/api/auth/me', {
-      method: 'GET',
-      credentials: 'include',
-    })
-    if (response.status === 401) {
-      setUser(null)
-      return
-    }
-    if (!response.ok) {
-      throw new Error(await readError(response))
-    }
-    const payload = (await response.json()) as { user: AuthUser }
-    setUser(payload.user)
+    setUser(await fetchCurrentUser())
   }, [])
 
   useEffect(() => {
-    refreshMe()
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false))
-  }, [refreshMe])
+    let cancelled = false
+    fetchCurrentUser()
+      .then((nextUser) => {
+        if (!cancelled) setUser(nextUser)
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const listener = () => handleUnauthorized()
@@ -88,25 +85,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      loading,
-      isAdmin: user?.role === 'admin',
-      login,
-      logout,
-      refreshMe,
-      handleUnauthorized,
-    }),
+    () => {
+      const normalizedRole = getUserRole(user)
+      return {
+        user,
+        loading,
+        isAdmin: normalizedRole === 'admin',
+        login,
+        logout,
+        refreshMe,
+        handleUnauthorized,
+      }
+    },
     [handleUnauthorized, loading, login, logout, refreshMe, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider')
-  }
-  return context
 }

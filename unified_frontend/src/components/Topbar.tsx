@@ -2,8 +2,9 @@ import { LogOut, Menu, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { findNavItem } from '@/lib/nav'
+import { getPageDisplayOverride } from '@/lib/permissions'
 import { useTheme } from '@/hooks/use-theme'
-import { useAuth } from '@/auth/AuthContext'
+import { useAuth } from '@/auth/useAuth'
 
 interface TopbarProps {
   currentPage: string
@@ -14,9 +15,10 @@ export function Topbar({ currentPage, onToggleSidebar }: TopbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout } = useAuth()
   const current = findNavItem(currentPage)
+  const displayOverride = getPageDisplayOverride(user, currentPage)
   const isHome = currentPage === 'home' || currentPage === 'overview'
-  const title = current?.label ?? '统一监控平台'
-  const subtitle = current?.description ?? '一体化监控与告警平台'
+  const title = displayOverride?.label ?? current?.label ?? '统一监控平台'
+  const subtitle = displayOverride?.description ?? current?.description ?? '一体化监控与告警平台'
 
   return (
     <header

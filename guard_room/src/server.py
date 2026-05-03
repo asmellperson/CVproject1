@@ -213,7 +213,7 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
 
         前端、负载均衡器或监控系统定期轮询此接口以确认服务存活。
         """
-        return {"status": "ok", "port": 5000}
+        return {"status": "ok", "port": int(os.getenv("GUARD_ROOM_PORT", "5000"))}
 
     @app.get("/api/status")
     def status():

@@ -48,14 +48,19 @@ python src/main.py --config configs/config.yaml
 nohup python src/main.py --config configs/config.yaml > logs/main.log 2>&1 &
 ```
 
-访问 `http://服务器IP:8000`
+后端启动后由统一前端 `unified_frontend` 访问；直接访问 `http://服务器IP:8000/` 只返回服务信息。
+
+调试时可用命令行临时覆盖端口：
+
+```bash
+python src/main.py --config configs/config.yaml --port <调试端口>
+```
 
 ## 目录说明
 
 - `configs/config.yaml` — 总配置
 - `src/` — 5 个进程脚本
-- `templates/index.html` — 前端
-- `data/annotations/staff_rois/` — 前端保存的 ROI 配置
+- `data/annotations/staff_rois/` — 统一前端保存的 ROI 配置
 - `results/` — 每个 session 的 JSON 判定结果
 - `clips/` — **只保存不合规的**关键帧拼图
 - `logs/` — 日志

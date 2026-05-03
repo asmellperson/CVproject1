@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { LoginPage } from '@/pages/LoginPage'
-import { useAuth } from '@/auth/AuthContext'
+import { useAuth } from '@/auth/useAuth'
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { loading, user } = useAuth()

@@ -5,7 +5,7 @@ main.py —— Web 主进程 (FastAPI)
 职责:
     1. 启动时按顺序拉起 4 个 worker 子进程 (capture/detector/session/vlm)
     2. 提供 REST API:
-         GET  /              主页 (templates/index.html)
+         GET  /              服务信息
          GET  /health        所有 worker 状态 + 历史 + 统计 (前端轮询)
          GET  /api/history   只返回历史
          GET  /api/rois      读 ROI 配置
@@ -39,7 +39,7 @@ import cv2
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 # 把 src/ 加入 import 路径, 让 frame_hub 能被找到
@@ -105,6 +105,14 @@ class AppService:
         # ROI 缓存，用于 MJPEG 渲染时高频读取，通过 mtime 判断是否需重新加载
         self._roi_cache: Dict[str, List[float]] | None = None
         self._roi_cache_mtime = 0.0
+
+    def is_running(self) -> bool:
+        """只要有 worker 进程存活，就认为检测功能处于开启状态。"""
+        return any(p.poll() is None for p in self.procs.values())
+
+    def _clear_frame_hub(self):
+        """worker 停止/重启后丢弃旧 reader，避免继续读旧共享内存句柄。"""
+        self._frame_hub = None
 
     # ---- FrameHub 懒加载 ----
     def get_frame_hub(self):
@@ -193,6 +201,9 @@ class AppService:
             capture  → detector → session → vlm
         每个进程启动后休眠 0.3 秒，避免同时抢占资源。
         """
+        if self.is_running():
+            return
+        self._clear_frame_hub()
         worker_py = str(self.cfg["envs"]["worker_python"])
         scripts = [
             ("capture",  "capture_worker.py"),    # 必须先起 (产出 FrameHub)
@@ -211,6 +222,11 @@ class AppService:
                 env=env,                       # 环境变量设置
             )
             time.sleep(0.3)  # 给前一个 worker 一点启动时间
+        self.store.write("runtime_control", {
+            "enabled": True,
+            "message": "running",
+            "ts": time.time(),
+        })
 
     def stop_workers(self):
         """
@@ -240,6 +256,15 @@ class AppService:
                 except Exception:
                     pass
         self.procs.clear()
+        self._clear_frame_hub()
+        now = time.time()
+        self.store.write("runtime_control", {
+            "enabled": False,
+            "message": "stopped",
+            "ts": now,
+        })
+        for key in ("capture_status", "tracker_status", "session_status", "vlm_status"):
+            self.store.write(key, {"ok": False, "message": "stopped", "ts": now})
 
     # ---- 聚合状态供前端轮询 ----
     def get_state(self) -> Dict[str, Any]:
@@ -253,13 +278,15 @@ class AppService:
         vlm_status  = self.store.read("vlm_status", {}) or {}
         vlm_stats   = self.store.read("vlm_latest_stats", {}) or {}
         history     = (self.store.read("vlm_history", {}) or {}).get("items", [])
+        running = self.is_running()
+        stopped_status = {"ok": False, "message": "stopped", "ts": time.time()}
         return {
-            "running": True,
+            "running": running,
             "ts":      time.time(),
-            "capture": capture,
-            "detector": detector,
-            "session": sess_latest,
-            "vlm":     vlm_status,
+            "capture": capture if running else stopped_status,
+            "detector": detector if running else stopped_status,
+            "session": sess_latest if running else stopped_status,
+            "vlm":     vlm_status if running else stopped_status,
             "stats":   vlm_stats,
             "history": history[:200],    # 限制最多返回200条历史记录，避免数据量过大
             "staff_rois": sess_latest.get("staff_rois") or self._roi_load(),
@@ -377,12 +404,16 @@ def create_app(config_path: Path) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ---- 页面 ----
-    @app.get("/", response_class=HTMLResponse)
-    async def index():
-        """返回前端监控主页 HTML"""
-        html_path = Path(__file__).resolve().parent.parent / "templates" / "index.html"
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    # ---- 基础信息 ----
+    @app.get("/")
+    async def root():
+        """返回服务信息；页面统一由 unified_frontend 提供。"""
+        return {
+            "name": "security-vlm-api",
+            "ok": True,
+            "health": "/health",
+            "frontend": "https://aicv.fudar.com",
+        }
 
     # ---- 数据接口 ----
     @app.get("/health")
@@ -425,6 +456,26 @@ def create_app(config_path: Path) -> FastAPI:
             "available_slots": list(rois.keys()),
             "video_id":        service.video_id,
         })
+
+    # ---- 检测总开关 ----
+    @app.post("/api/control/start")
+    async def control_start():
+        """开启安检流程规范检测。已开启时幂等，不重复拉起 worker。"""
+        service.start_workers()
+        return JSONResponse({"success": True, "running": True})
+
+    @app.post("/api/control/stop")
+    async def control_stop():
+        """关闭安检流程规范检测，终止所有 worker，避免继续产生 VLM 调用费用。"""
+        service.stop_workers()
+        return JSONResponse({"success": True, "running": False})
+
+    @app.post("/api/control/restart")
+    async def control_restart():
+        """重启安检流程规范检测。"""
+        service.stop_workers()
+        service.start_workers()
+        return JSONResponse({"success": True, "running": True})
 
     # ---- MJPEG 流生成器 ----
     async def _mjpeg(kind: str):
@@ -518,6 +569,8 @@ def main():
     """解析命令行参数，加载配置，启动 uvicorn 服务器"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--host", type=str, default=None)
+    parser.add_argument("--port", type=int, default=None)
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
@@ -528,8 +581,8 @@ def main():
     import uvicorn
     uvicorn.run(
         create_app(config_path),
-        host=str(cfg["web"]["host"]),
-        port=int(cfg["web"]["port"]),
+        host=str(args.host or cfg["web"]["host"]),
+        port=int(args.port or cfg["web"]["port"]),
         reload=False,                 # 生产环境不启用热重载
         access_log=False,             # 关闭访问日志，减少输出噪音
         log_level="warning",          # 仅输出警告及以上级别日志

@@ -169,7 +169,7 @@ def load_auth_users() -> list[dict[str, Any]]:
         raise AuthError("auth users file is invalid") from exc
 
 
-def find_enabled_user(employee_id: str) -> dict[str, str] | None:
+def find_enabled_user(employee_id: str) -> dict[str, Any] | None:
     """按工号查找已启用的用户，返回精简后的用户信息字典。
 
     对 employee_id 两端做 strip()，容错前端或文件中的多余空格。
@@ -188,6 +188,7 @@ def find_enabled_user(employee_id: str) -> dict[str, str] | None:
             "employee_id": employee_id,
             "name": str(item.get("name", "")),
             "role": str(item.get("role", "viewer")),    # 未配置 role 时默认最低权限
+            "department": item.get("department"),
         }
     return None
 
@@ -196,7 +197,7 @@ def find_enabled_user(employee_id: str) -> dict[str, str] | None:
 # JWT 签发与验证
 # ---------------------------------------------------------------------------
 
-def create_token(user: dict[str, str]) -> str:
+def create_token(user: dict[str, Any]) -> str:
     """为已认证用户签发 HS256 JWT。
 
     Payload 标准字段：
@@ -217,6 +218,7 @@ def create_token(user: dict[str, str]) -> str:
         "sub": user["employee_id"],
         "name": user.get("name", ""),
         "role": user.get("role", "viewer"),
+        "department": user.get("department"),
         "iat": now,
         "exp": now + get_token_expire_hours() * 3600,
     }
@@ -296,7 +298,7 @@ def token_from_request(request: Request) -> str | None:
     return request.cookies.get(COOKIE_NAME)
 
 
-def get_current_user_from_request(request: Request) -> dict[str, str]:
+def get_current_user_from_request(request: Request) -> dict[str, Any]:
     """从请求中解析并验证当前用户，返回用户信息字典。
 
     与 get_current_user() 的区别：抛出 AuthError 而非 HTTPException，
@@ -316,7 +318,7 @@ def get_current_user_from_request(request: Request) -> dict[str, str]:
     return user
 
 
-def get_current_user(request: Request) -> dict[str, str]:
+def get_current_user(request: Request) -> dict[str, Any]:
     """FastAPI 依赖项：获取当前已认证用户。
 
     认证失败时抛出 HTTP 401，由 FastAPI 统一处理为标准错误响应。
@@ -328,7 +330,7 @@ def get_current_user(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
-def require_admin(user: dict[str, str] = Depends(get_current_user)) -> dict[str, str]:
+def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     """FastAPI 依赖项：要求当前用户具有 admin 角色，否则返回 HTTP 403。
 
     使用示例：
@@ -344,7 +346,7 @@ def require_admin(user: dict[str, str] = Depends(get_current_user)) -> dict[str,
 # 登录验证
 # ---------------------------------------------------------------------------
 
-def verify_login(employee_id: str, password: str) -> dict[str, str] | None:
+def verify_login(employee_id: str, password: str) -> dict[str, Any] | None:
     """验证工号与密码，返回用户信息或 None。
 
     使用 hmac.compare_digest 进行密码比对，防止字符串比较的时序攻击。

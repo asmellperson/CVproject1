@@ -98,6 +98,12 @@ npm run dev
 
 浏览器访问：`http://<服务器IP>:3000`
 
+调试时可用命令行临时覆盖端口：
+
+```bash
+npm run dev -- --port <前端调试端口>
+```
+
 生产公网域名：`https://aicv.fudar.com/`
 
 ### 代理后端
@@ -111,6 +117,16 @@ npm run dev
 默认后端代理目标：
 - Guard Room: `http://127.0.0.1:5000`
 - AiVision: `http://127.0.0.1:7862`
+- Security VLM: `http://127.0.0.1:8000`
+
+调试时可用本地环境变量临时覆盖代理目标：
+
+```bash
+VITE_BACKEND_TARGET=http://127.0.0.1:<GuardRoom调试端口> \
+VITE_AIVISION_BACKEND_TARGET=http://127.0.0.1:<AiVision调试端口> \
+VITE_SECURITY_VLM_BACKEND_TARGET=http://127.0.0.1:<SecurityVlm调试端口> \
+npm run dev -- --port <前端调试端口>
+```
 
 如需修改后端地址，可复制 `.env.example` 为 `.env` 后调整：
 
@@ -119,6 +135,7 @@ VITE_DEV_PORT=3000
 VITE_PUBLIC_ORIGIN=https://aicv.fudar.com
 VITE_BACKEND_TARGET=http://127.0.0.1:5000
 VITE_AIVISION_BACKEND_TARGET=http://127.0.0.1:7862
+VITE_SECURITY_VLM_BACKEND_TARGET=http://127.0.0.1:8000
 VITE_API_BASE=https://aicv.fudar.com
 VITE_WS_BASE=wss://aicv.fudar.com
 VITE_AIVISION_URL=https://aicv.fudar.com/aivision/

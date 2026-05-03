@@ -28,6 +28,12 @@ python main.py
 
 默认 API 地址：`http://0.0.0.0:7862`。
 
+调试时可用命令行临时覆盖端口：
+
+```bash
+python main.py --port <调试端口>
+```
+
 ## 新 v2 路径
 
 ```text

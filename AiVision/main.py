@@ -10,6 +10,7 @@ AiVision 后端入口。
 """
 from __future__ import annotations
 
+import argparse
 import multiprocessing as mp
 import signal
 from types import FrameType
@@ -33,6 +34,11 @@ def _set_spawn_start_method() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="AiVision FastAPI Server")
+    parser.add_argument("--host", default=None, help="覆盖 API_HOST")
+    parser.add_argument("--port", type=int, default=None, help="覆盖 API_PORT")
+    args = parser.parse_args()
+
     _set_spawn_start_method()
     _load_dotenv_if_available()
 
@@ -64,8 +70,8 @@ def main() -> None:
         orchestrator.start()
         uvicorn.run(
             create_app(),
-            host=settings.api.host,
-            port=settings.api.port,
+            host=args.host or settings.api.host,
+            port=args.port or settings.api.port,
             log_level="info",
             access_log=False,
         )

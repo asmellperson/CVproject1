@@ -1,5 +1,7 @@
 import { cn } from '@/lib/utils'
 import { navGroups } from '@/lib/nav'
+import { filterNavGroupsByPermission } from '@/lib/permissions'
+import { useAuth } from '@/auth/useAuth'
 import { Activity, ChevronRight, ChevronsLeft, X } from 'lucide-react'
 
 interface SidebarProps {
@@ -22,6 +24,8 @@ export function Sidebar({
   isMobile = false,
 }: SidebarProps) {
   const compact = !isMobile && collapsed
+  const { user } = useAuth()
+  const visibleNavGroups = filterNavGroupsByPermission(user, navGroups)
 
   return (
     <aside
@@ -39,9 +43,12 @@ export function Sidebar({
         )}
       >
         <div className="flex items-center gap-3 overflow-hidden">
-          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 via-blue-600 to-indigo-600 shadow-[0_12px_26px_rgba(37,99,235,0.26)] ring-4 ring-blue-50">
-            <div className="h-5 w-5 rounded-full border-[5px] border-white/95" />
-            <div className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-cyan-300 ring-2 ring-white" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-[0_12px_26px_rgba(37,99,235,0.18)] ring-4 ring-blue-50">
+            <img
+              src="/mascot.png"
+              alt="福达视觉平台"
+              className="h-full w-full object-cover object-top"
+            />
           </div>
           {!compact && (
             <div className="min-w-0">
@@ -70,7 +77,7 @@ export function Sidebar({
       </div>
 
       <nav className="relative z-[1] flex-1 overflow-y-auto px-4 py-5">
-        {navGroups.map((group, idx) => (
+        {visibleNavGroups.map((group, idx) => (
           <div key={group.id} className={cn(idx !== 0 && 'mt-6')}>
             {!compact && group.label && (
               <div className="mb-3 px-3 text-sm font-bold tracking-[0] text-slate-500">

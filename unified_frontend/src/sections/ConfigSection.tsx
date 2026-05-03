@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell } from 'lucide-react'
 import { getConfig, saveConfig, restartRuntime, getStatus } from '@/lib/api'
-import { useAuth } from '@/auth/AuthContext'
+import { useAuth } from '@/auth/useAuth'
 // ==================== 类型定义 ====================
 
 type AppConfigPayload = {
