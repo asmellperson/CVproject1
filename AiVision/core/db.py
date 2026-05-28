@@ -164,6 +164,7 @@ def ensure_schema_compatible():
     from features import all_specs  # noqa: F401
     from platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
     from platform.camera import orm as _camera_orm              # noqa: F401
+    from platform.department import orm as _department_orm       # noqa: F401
     from platform.inference import orm as _inference_orm        # noqa: F401
     from platform.violation import orm as _violation_orm        # noqa: F401
 

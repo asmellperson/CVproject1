@@ -135,7 +135,11 @@ async function requestHumanConfig(shmName: string, init?: RequestInit) {
   }
 }
 
-export function HumanDetectionSection() {
+interface HumanDetectionSectionProps {
+  department?: string
+}
+
+export function HumanDetectionSection({ department }: HumanDetectionSectionProps) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [humanConfig, setHumanConfig] = useState<HumanConfig>(defaultHumanConfig)
@@ -164,7 +168,7 @@ export function HumanDetectionSection() {
       const payload = await requestHumanConfig(shmName)
       setHumanConfig(payload.detect_human)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人员逗留检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人员逗留配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -175,7 +179,7 @@ export function HumanDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))
       const nextCamera = enabledCamera?.shm_name || ''
@@ -204,10 +208,10 @@ export function HumanDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -399,6 +403,7 @@ export function HumanDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                department={department}
               />
             </TabsContent>
 

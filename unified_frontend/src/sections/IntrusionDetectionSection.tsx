@@ -97,7 +97,11 @@ async function requestBlocksConfig(shmName: string, init?: RequestInit) {
   }
 }
 
-export function IntrusionDetectionSection() {
+interface IntrusionDetectionSectionProps {
+  department?: string
+}
+
+export function IntrusionDetectionSection({ department }: IntrusionDetectionSectionProps) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [blocks, setBlocks] = useState<BlocksConfig>(defaultBlocks)
@@ -137,7 +141,7 @@ export function IntrusionDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
       const nextCamera = enabledCamera?.shm_name || ''
@@ -166,10 +170,10 @@ export function IntrusionDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -340,6 +344,7 @@ export function IntrusionDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                department={department}
               />
             </TabsContent>
 

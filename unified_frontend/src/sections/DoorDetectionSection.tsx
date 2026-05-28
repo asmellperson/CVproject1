@@ -101,7 +101,11 @@ async function requestDoorConfig(shmName: string, init?: RequestInit) {
   }
 }
 
-export function DoorDetectionSection() {
+interface DoorDetectionSectionProps {
+  department?: string
+}
+
+export function DoorDetectionSection({ department }: DoorDetectionSectionProps) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [doorConfig, setDoorConfig] = useState<DoorConfig>(defaultDoorConfig)
@@ -130,7 +134,7 @@ export function DoorDetectionSection() {
       const payload = await requestDoorConfig(shmName)
       setDoorConfig(payload.detect_door)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的大门开关异常检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的大门开关配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -141,7 +145,7 @@ export function DoorDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_door'))
       const nextCamera = enabledCamera?.shm_name || ''
@@ -170,10 +174,10 @@ export function DoorDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -344,6 +348,7 @@ export function DoorDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                department={department}
               />
             </TabsContent>
 

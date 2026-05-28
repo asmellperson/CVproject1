@@ -32,6 +32,7 @@ type FeatureCameraManagerProps = {
   onSelectCamera: (shmName: string) => void
   onAddCamera: (shmName: string) => Promise<void>
   onRemoveCamera: (shmName: string) => Promise<void>
+  department?: string
 }
 
 export function FeatureCameraManager({
@@ -42,6 +43,7 @@ export function FeatureCameraManager({
   onSelectCamera,
   onAddCamera,
   onRemoveCamera,
+  department,
 }: FeatureCameraManagerProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [cameraAlias, setCameraAlias] = useState('')
@@ -103,6 +105,7 @@ export function FeatureCameraManager({
         url,
         shm_name: shmName,
         enabled: true,
+        department,
       })
       await onAddCamera(camera.shm_name)
       window.dispatchEvent(new Event('aivision:cameras-changed'))

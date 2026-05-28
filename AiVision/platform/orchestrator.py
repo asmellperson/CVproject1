@@ -58,6 +58,11 @@ class Orchestrator:
 
         # 1) 数据库 schema 修补
         ensure_schema_compatible()
+        # 确保部门种子数据
+        from platform.department.service import department_service
+        from core.db import session_scope
+        with session_scope() as s:
+            department_service.ensure_seed_data(s)
         camera_service.normalize_shm_names()
         camera_service.ensure_feature_configs(enable_all=False)
         config_cache.init()

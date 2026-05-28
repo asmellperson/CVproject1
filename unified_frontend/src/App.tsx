@@ -25,6 +25,10 @@ function App() {
   const isMobile = useIsMobile()
   const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
 
+  // Parse the activePage to get feature and department
+  const [basePage, pageDept] = activePage.split('@')
+  const normalizedDepartment = pageDept ? pageDept.replace(/-/g, '_') : undefined
+
   const handlePageChange = (page: string) => {
     setCurrentPage(hasPageAccess(user, page) ? page : 'overview')
     if (isMobile) setMobileSidebarOpen(false)
@@ -39,7 +43,7 @@ function App() {
   }
 
   const renderContent = () => {
-    switch (activePage) {
+    switch (basePage) {
       case 'overview':
         return <HomeSection onNavigate={handlePageChange} />
       case 'home':
@@ -47,15 +51,15 @@ function App() {
       case 'guard-behavior':
         return <GuardBehaviorSection />
       case 'intrusion-detection':
-        return <IntrusionDetectionSection />
+        return <IntrusionDetectionSection department={normalizedDepartment} />
       case 'door-detection':
-        return <DoorDetectionSection />
+        return <DoorDetectionSection department={normalizedDepartment} />
       case 'face-detection':
-        return <FaceDetectionSection />
+        return <FaceDetectionSection department={normalizedDepartment} />
       case 'human-detection':
-        return <HumanDetectionSection />
+        return <HumanDetectionSection department={normalizedDepartment} />
       case 'phone-detection':
-        return <PhoneDetectionSection />
+        return <PhoneDetectionSection department={normalizedDepartment} />
       case 'security-vlm':
         return <SecurityVlmSection />
       case 'alarms':

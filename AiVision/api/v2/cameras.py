@@ -31,6 +31,7 @@ class CameraCreateRequest(BaseModel):
     max_restart: int = Field(10, ge=0)
     enable: bool | None = None
     enabled: bool | None = None
+    department: str | None = None
 
 
 class CameraUpdateRequest(BaseModel):
@@ -40,11 +41,15 @@ class CameraUpdateRequest(BaseModel):
     max_restart: int | None = Field(None, ge=0)
     enable: bool | None = None
     enabled: bool | None = None
+    department: str | None = None
 
 
 @router.get("")
-def list_cameras(camera_service=Depends(get_camera_service)) -> list[dict[str, Any]]:
-    return camera_service.list_cameras()
+def list_cameras(
+    department: str | None = Query(None, description="可选按部门过滤"),
+    camera_service=Depends(get_camera_service),
+) -> list[dict[str, Any]]:
+    return camera_service.list_cameras(department=department)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

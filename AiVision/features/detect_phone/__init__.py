@@ -12,4 +12,5 @@ SPEC = FeatureSpec(
     config_schema=PhoneConfigSchema,
     required_models=("yolo_phone",),
     violation_type=3,
+    departments=("general_electric", "research_institute"),
 )

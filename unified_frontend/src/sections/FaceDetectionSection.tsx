@@ -93,7 +93,11 @@ async function requestFaceConfig(shmName: string, init?: RequestInit) {
   }
 }
 
-export function FaceDetectionSection() {
+interface FaceDetectionSectionProps {
+  department?: string
+}
+
+export function FaceDetectionSection({ department }: FaceDetectionSectionProps) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [faceConfig, setFaceConfig] = useState<FaceConfig>(defaultFaceConfig)
@@ -133,7 +137,7 @@ export function FaceDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_face'))
       const nextCamera = enabledCamera?.shm_name || ''
@@ -162,10 +166,10 @@ export function FaceDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -338,6 +342,7 @@ export function FaceDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                department={department}
               />
             </TabsContent>
 

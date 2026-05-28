@@ -86,8 +86,10 @@ const pageIds = new Set<string>([
 ])
 
 function normalizePageId(pageId: string): PageId | null {
-  if (!pageIds.has(pageId)) return null
-  return (pageId === 'home' ? 'overview' : pageId) as PageId
+  // Handle "feature@department" pattern
+  const baseId = pageId.split('@')[0]
+  if (!pageIds.has(baseId)) return null
+  return (baseId === 'home' ? 'overview' : baseId) as PageId
 }
 
 function normalizeKey(value: unknown) {
@@ -118,7 +120,18 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string)
   if (!department) return false
   if (department === 'all') return true
 
-  return departmentPermissions[department]?.pages.includes(normalizedPageId) ?? false
+  // Check if user has access to the page, and if it's a dept-specific page, check if it's their dept
+  const hasAccess = departmentPermissions[department]?.pages.includes(normalizedPageId) ?? false
+  
+  // Also check if the page's department (if any) matches the user's department
+  const pageDept = pageId.split('@')[1]
+  if (pageDept) {
+    // Convert kebab-case to snake_case
+    const normalizedPageDept = pageDept.replace(/-/g, '_') as Department
+    return hasAccess && normalizedPageDept === department
+  }
+  
+  return hasAccess
 }
 
 export function getPageDisplayOverride(user: AuthUser | null | undefined, pageId: string) {
@@ -145,13 +158,30 @@ function applyDisplayOverride<T extends { id: string; label?: string; title?: st
 
 export function filterNavGroupsByPermission(user: AuthUser | null | undefined, groups: NavGroup[]): NavGroup[] {
   return groups
-    .map((group) => ({
-      ...group,
-      items: group.items
+    .map((group) => {
+      const filteredItems = group.items
         .filter((item) => hasPageAccess(user, item.id))
-        .map((item) => applyDisplayOverride<NavItem>(user, item)),
-    }))
-    .filter((group) => group.items.length > 0)
+        .map((item) => applyDisplayOverride<NavItem>(user, item))
+
+      let filteredDepartments = group.departments
+      if (filteredDepartments) {
+        filteredDepartments = filteredDepartments
+          .map((dept) => ({
+            ...dept,
+            items: dept.items
+              .filter((item) => hasPageAccess(user, item.id))
+              .map((item) => applyDisplayOverride<NavItem>(user, item)),
+          }))
+          .filter((dept) => dept.items.length > 0)
+      }
+
+      return {
+        ...group,
+        items: filteredItems,
+        departments: filteredDepartments,
+      }
+    })
+    .filter((group) => group.items.length > 0 || (group.departments && group.departments.length > 0))
 }
 
 export function filterHomeModulesByPermission<T extends { id: string; title: string; description?: string }>(

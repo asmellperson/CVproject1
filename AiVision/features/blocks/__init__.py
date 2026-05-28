@@ -12,4 +12,5 @@ SPEC = FeatureSpec(
     config_schema=BlocksConfigSchema,
     required_models=(),  # 纯帧差,无需推理模型
     violation_type=1,
+    departments=("research_institute",),
 )

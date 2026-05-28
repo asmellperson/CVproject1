@@ -33,6 +33,7 @@ class AiCameraConfig(Base):
     )
     import_message = Column(Text)
     shape = Column(JSON, nullable=True, default=[1080, 1920, 3], comment="默认分辨率 [H,W,C]")
+    department = Column(String(100), nullable=True, comment="归属部门")
 
     def __repr__(self):
-        return f"<AiCameraConfig id={self.id} name={self.name!r} enable={self.enable}>"
+        return f"<AiCameraConfig id={self.id} name={self.name!r} enable={self.enable} dept={self.department!r}>"

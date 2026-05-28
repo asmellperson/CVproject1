@@ -37,6 +37,7 @@ class FeatureMetaResponse(BaseModel):
     required_models: list[str]
     violation_type: int
     config_schema: dict
+    departments: list[str] = []
 
 
 class FeaturesListResponse(BaseModel):
@@ -90,7 +91,7 @@ def _require_spec(feature: str) -> FeatureSpec:
 #  路由工厂                                                             #
 # ------------------------------------------------------------------ #
 
-def create_features_router(feature_service) -> APIRouter:
+def create_features_router(feature_service, dept_service=None) -> APIRouter:
     """
     构造功能元数据查询 + 配置读写的统一 APIRouter。
 
@@ -100,11 +101,34 @@ def create_features_router(feature_service) -> APIRouter:
     Args:
         feature_service: FeatureConfigService 实例，封装跨功能的配置读写逻辑，
                          由调用方（通常是 Orchestrator 或 app 工厂）负责创建并传入。
+        dept_service: DepartmentService 实例，可选，用于获取功能归属的部门列表。
 
     Returns:
         挂载在 /api/v2/features 下的 APIRouter，可直接 app.include_router()。
     """
     router = APIRouter(prefix="/api/v2/features", tags=["features"])
+
+    def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
+        """将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化。"""
+        departments = []
+        if dept_service:
+            try:
+                from core.db import session_scope
+                with session_scope() as session:
+                    departments = dept_service.get_departments_by_feature(session, spec.name)
+            except Exception:
+                departments = list(spec.departments) if hasattr(spec, "departments") else []
+        else:
+            departments = list(spec.departments) if hasattr(spec, "departments") else []
+
+        return FeatureMetaResponse(
+            name=spec.name,
+            display_name=spec.display_name,
+            required_models=list(spec.required_models),
+            violation_type=spec.violation_type,
+            config_schema=spec.config_schema.model_json_schema(),
+            departments=departments,
+        )
 
     @router.get("", response_model=FeaturesListResponse)
     def list_features():

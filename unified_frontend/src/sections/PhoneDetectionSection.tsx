@@ -93,7 +93,11 @@ async function requestPhoneConfig(shmName: string, init?: RequestInit) {
   }
 }
 
-export function PhoneDetectionSection() {
+interface PhoneDetectionSectionProps {
+  department?: string
+}
+
+export function PhoneDetectionSection({ department }: PhoneDetectionSectionProps) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [phoneConfig, setPhoneConfig] = useState<PhoneConfig>(defaultPhoneConfig)
@@ -122,7 +126,7 @@ export function PhoneDetectionSection() {
       const payload = await requestPhoneConfig(shmName)
       setPhoneConfig(payload.detect_phone)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的手机使用检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的手机使用配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -133,7 +137,7 @@ export function PhoneDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_phone'))
       const nextCamera = enabledCamera?.shm_name || ''
@@ -162,10 +166,10 @@ export function PhoneDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -340,6 +344,7 @@ export function PhoneDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                department={department}
               />
             </TabsContent>
 
