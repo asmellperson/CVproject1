@@ -89,9 +89,9 @@ export const navGroupsFallback: NavGroup[] = [
         label: '通用电气',
         items: [
           { id: 'security-vlm@general-electric', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
-          { id: 'guard-behavior@general-electric', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
-          { id: 'human-detection@general-electric', featureId: 'human-detection', department: 'general_electric', label: '人员逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
-          { id: 'phone-detection@general-electric', featureId: 'phone-detection', department: 'general_electric', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+          { id: 'guard-behavior@general-electric', label: '保安执勤规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
+          { id: 'human-detection@general-electric', featureId: 'human-detection', department: 'general_electric', label: '人员异常逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
+          { id: 'phone-detection@general-electric', featureId: 'phone-detection', department: 'general_electric', label: '违规使用手机检测', icon: Smartphone, description: '手机检测监控与配置入口' },
 
         ],
       },
@@ -99,10 +99,10 @@ export const navGroupsFallback: NavGroup[] = [
         name: 'research-institute',
         label: '研究院',
         items: [
-          { id: 'door-detection@research-institute', featureId: 'door-detection', department: 'research_institute', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
-          { id: 'intrusion-detection@research-institute', featureId: 'intrusion-detection', department: 'research_institute', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
-          { id: 'face-detection@research-institute', featureId: 'face-detection', department: 'research_institute', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
-          { id: 'phone-detection@research-institute', featureId: 'phone-detection', department: 'research_institute', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+          { id: 'door-detection@research-institute', featureId: 'door-detection', department: 'research_institute', label: '侧门状态异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
+          { id: 'intrusion-detection@research-institute', featureId: 'intrusion-detection', department: 'research_institute', label: '展厅指定区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
+          { id: 'face-detection@research-institute', featureId: 'face-detection', department: 'research_institute', label: '展厅人员异常逗留检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
+          { id: 'phone-detection@research-institute', featureId: 'phone-detection', department: 'research_institute', label: '展厅防拍检测', icon: Smartphone, description: '手机检测监控与配置入口' },
         ],
       },
     ],

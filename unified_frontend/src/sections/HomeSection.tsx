@@ -198,7 +198,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78">
                 {departmentLabel(department)}
               </Badge>
-              <h2 className="max-w-2xl text-4xl font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] sm:text-5xl md:text-6xl">
+              <h2 className="max-w-2xl text-3xl font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] sm:text-4xl md:text-5xl">
                 福达 AI 视觉安全监管平台
               </h2>
               <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-[#25456f] sm:text-lg">
