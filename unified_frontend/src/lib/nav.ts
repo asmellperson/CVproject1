@@ -82,16 +82,16 @@ export const navGroupsFallback: NavGroup[] = [
     id: 'modules',
     label: '能力中心',
     items: [
-      { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
-      { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
     ],
     departments: [
       {
         name: 'general-electric',
         label: '通用电气',
         items: [
+          { id: 'security-vlm@general-electric', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
+          { id: 'guard-behavior@general-electric', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
           { id: 'human-detection@general-electric', featureId: 'human-detection', department: 'general_electric', label: '人员逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
-          { id: 'phone-detection@research-institute', featureId: 'phone-detection', department: 'general_electric', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+          { id: 'phone-detection@general-electric', featureId: 'phone-detection', department: 'general_electric', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
 
         ],
       },
@@ -99,7 +99,7 @@ export const navGroupsFallback: NavGroup[] = [
         name: 'research-institute',
         label: '研究院',
         items: [
-                    { id: 'door-detection@general-electric', featureId: 'door-detection', department: 'research_institute', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
+          { id: 'door-detection@research-institute', featureId: 'door-detection', department: 'research_institute', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
           { id: 'intrusion-detection@research-institute', featureId: 'intrusion-detection', department: 'research_institute', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
           { id: 'face-detection@research-institute', featureId: 'face-detection', department: 'research_institute', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
           { id: 'phone-detection@research-institute', featureId: 'phone-detection', department: 'research_institute', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
@@ -179,14 +179,28 @@ export async function buildDynamicNavGroups(): Promise<NavGroup[]> {
       }
     }
 
+    // 安检流程和保安行为属于通用电气部门，放入 departments 与 fallback 保持一致
+    const generalElectricItems: NavItem[] = [
+      { id: 'security-vlm@general-electric', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
+      { id: 'guard-behavior@general-electric', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
+    ]
+
+    const geDept = navDepartments.find(d => d.name === 'general-electric')
+    if (geDept) {
+      geDept.items = [...generalElectricItems, ...geDept.items]
+    } else {
+      navDepartments.unshift({
+        name: 'general-electric',
+        label: '通用电气',
+        items: generalElectricItems,
+      })
+    }
+
     // 添加能力中心导航组（包含静态项和动态部门项）
     staticGroups.push({
       id: 'modules',
       label: '能力中心',
-      items: [
-        { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
-        { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
-      ],
+      items: [],
       departments: navDepartments.length > 0 ? navDepartments : undefined,
     })
   } catch (error) {

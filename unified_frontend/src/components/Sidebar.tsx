@@ -155,7 +155,7 @@ export function Sidebar({
                   <div key={dept.name} className="mt-3">
                     <button
                       onClick={() => toggleDept(dept.name)}
-                      className="group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold tracking-[0] text-slate-500 transition hover:text-[#09265a]"
+                      className="group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold tracking-[0] text-slate-500 transition hover:text-[#09265a]"
                     >
                       <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', !expandedDepts.has(dept.name) && '-rotate-90')} />
                       <span>{dept.label}</span>

@@ -34,6 +34,14 @@ function App() {
 
   // 加载动态导航数据
   useEffect(() => {
+    const enableDynamicNav = import.meta.env.VITE_ENABLE_DYNAMIC_NAV !== 'false'
+    
+    if (!enableDynamicNav) {
+      // 动态导航被禁用，直接使用 fallback
+      setNavGroups(navGroupsFallback)
+      return
+    }
+    
     let mounted = true
     const loadNav = async () => {
       setNavLoading(true)
