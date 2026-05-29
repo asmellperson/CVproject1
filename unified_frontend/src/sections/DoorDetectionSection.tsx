@@ -308,7 +308,7 @@ export function DoorDetectionSection({ department }: DoorDetectionSectionProps) 
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="大门开关检测监控" feature="detect_door" />
+          <AiVisionMonitor title="大门开关检测监控" feature="detect_door" department={department} />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

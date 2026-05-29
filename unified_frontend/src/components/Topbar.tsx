@@ -1,7 +1,7 @@
 import { LogOut, Menu, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { findNavItem } from '@/lib/nav'
+import { findNavItem, type NavGroup } from '@/lib/nav'
 import { getPageDisplayOverride } from '@/lib/permissions'
 import { useTheme } from '@/hooks/use-theme'
 import { useAuth } from '@/auth/useAuth'
@@ -9,12 +9,13 @@ import { useAuth } from '@/auth/useAuth'
 interface TopbarProps {
   currentPage: string
   onToggleSidebar: () => void
+  navGroups?: NavGroup[]
 }
 
-export function Topbar({ currentPage, onToggleSidebar }: TopbarProps) {
+export function Topbar({ currentPage, onToggleSidebar, navGroups }: TopbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { user, logout } = useAuth()
-  const current = findNavItem(currentPage)
+  const current = findNavItem(currentPage, navGroups)
   const displayOverride = getPageDisplayOverride(user, currentPage)
   const isHome = currentPage === 'home' || currentPage === 'overview'
   const title = displayOverride?.label ?? current?.label ?? '统一监控平台'

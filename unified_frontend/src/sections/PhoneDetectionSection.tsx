@@ -304,7 +304,7 @@ export function PhoneDetectionSection({ department }: PhoneDetectionSectionProps
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="手机检测监控" feature="detect_phone" />
+          <AiVisionMonitor title="手机检测监控" feature="detect_phone" department={department} />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

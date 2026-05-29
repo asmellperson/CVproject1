@@ -304,7 +304,7 @@ export function IntrusionDetectionSection({ department }: IntrusionDetectionSect
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="区域入侵检测监控" feature="blocks" />
+          <AiVisionMonitor title="区域入侵检测监控" feature="blocks" department={department} />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

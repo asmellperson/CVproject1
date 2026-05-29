@@ -12,5 +12,5 @@ SPEC = FeatureSpec(
     config_schema=DoorConfigSchema,
     required_models=(),
     violation_type=2,
-    departments=("research_institute",),
+    departments=("general_electric",),
 )

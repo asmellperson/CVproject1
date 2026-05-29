@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { Topbar } from '@/components/Topbar'
 import { HomeSection } from '@/sections/HomeSection'
@@ -16,18 +16,44 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/auth/useAuth'
 import { hasPageAccess } from '@/lib/permissions'
+import { buildDynamicNavGroups, navGroups as navGroupsFallback, type NavGroup } from '@/lib/nav'
 
 function App() {
   const { user } = useAuth()
   const [currentPage, setCurrentPage] = useState('overview')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [navGroups, setNavGroups] = useState<NavGroup[]>(navGroupsFallback)
+  const [navLoading, setNavLoading] = useState(false)
   const isMobile = useIsMobile()
   const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
 
   // Parse the activePage to get feature and department
   const [basePage, pageDept] = activePage.split('@')
   const normalizedDepartment = pageDept ? pageDept.replace(/-/g, '_') : undefined
+
+  // 加载动态导航数据
+  useEffect(() => {
+    let mounted = true
+    const loadNav = async () => {
+      setNavLoading(true)
+      try {
+        const dynamicGroups = await buildDynamicNavGroups()
+        if (mounted) {
+          setNavGroups(dynamicGroups)
+        }
+      } catch (error) {
+        console.error('Failed to load navigation groups:', error)
+        // 出错时保持使用 fallback 数据
+      } finally {
+        if (mounted) {
+          setNavLoading(false)
+        }
+      }
+    }
+    loadNav()
+    return () => { mounted = false }
+  }, [])
 
   const handlePageChange = (page: string) => {
     setCurrentPage(hasPageAccess(user, page) ? page : 'overview')
@@ -87,6 +113,8 @@ function App() {
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
         isMobile={isMobile}
+        navGroups={navGroups}
+        loading={navLoading}
       />
 
       {isMobile && mobileSidebarOpen && (
@@ -104,7 +132,7 @@ function App() {
           isMobile ? 'pl-0' : sidebarCollapsed ? 'pl-[4.75rem]' : 'pl-[18rem]',
         )}
       >
-        <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
+        <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} navGroups={navGroups} />
         <main className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           <div className="w-full min-w-0">{renderContent()}</div>
         </main>

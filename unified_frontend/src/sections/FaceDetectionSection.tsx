@@ -302,7 +302,7 @@ export function FaceDetectionSection({ department }: FaceDetectionSectionProps) 
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="人脸检测监控" feature="detect_face" />
+          <AiVisionMonitor title="人脸检测监控" feature="detect_face" department={department} />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

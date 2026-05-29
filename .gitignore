@@ -263,3 +263,6 @@ db_backups/
 **/config/*.local.yaml
 **/config/*.prod.json
 **/config/*.prod.yaml
+.understand-anything/
+.codegraph/
+.cursor/

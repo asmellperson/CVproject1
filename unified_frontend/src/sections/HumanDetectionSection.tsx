@@ -363,7 +363,7 @@ export function HumanDetectionSection({ department }: HumanDetectionSectionProps
         </TabsList>
 
         <TabsContent value="monitor" className="space-y-6">
-          <AiVisionMonitor title="人员逗留检测监控" feature="detect_human" />
+          <AiVisionMonitor title="人员逗留检测监控" feature="detect_human" department={department} />
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">

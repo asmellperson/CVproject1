@@ -266,7 +266,7 @@ fi
 SERVICES=()
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$GUARD_ROOM_ENV" "$CONDA_SH_PATH"; then
-  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|source ${CONDA_SH_PATH} && conda activate ${GUARD_ROOM_ENV} && python run_server.py|5000|${WAIT_GUARD_ROOM}")
+  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room| /root/miniconda3/envs/${GUARD_ROOM_ENV}/bin/python run_server.py |5000|${WAIT_GUARD_ROOM}")
 else
   SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|__DEP_MISSING__|5000|${WAIT_GUARD_ROOM}")
 fi
