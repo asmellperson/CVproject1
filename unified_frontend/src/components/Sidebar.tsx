@@ -123,7 +123,7 @@ export function Sidebar({
           visibleNavGroups.map((group, idx) => (
             <div key={group.id} className={cn(idx !== 0 && 'mt-6')}>
               {!compact && group.label && (
-                <div className="mb-3 px-3 text-sm font-bold tracking-[0] text-slate-500">
+                <div className="mb-3 px-3  text-[17px] font-bold tracking-[0] text-slate-500">
                   {group.label}
                 </div>
               )}
@@ -155,7 +155,7 @@ export function Sidebar({
                   <div key={dept.name} className="mt-3">
                     <button
                       onClick={() => toggleDept(dept.name)}
-                      className="group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold tracking-[0] text-slate-500 transition hover:text-[#09265a]"
+                      className="group flex w-full items-center gap-2 rounded-lg px-3 py-2  text-[17px] font-bold tracking-[0] text-slate-500 transition hover:text-[#09265a]"
                     >
                       <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', !expandedDepts.has(dept.name) && '-rotate-90')} />
                       <span>{dept.label}</span>
@@ -170,7 +170,7 @@ export function Sidebar({
                               key={item.id}
                               onClick={() => onPageChange(item.id)}
                               className={cn(
-                                'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all',
+                                'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-semibold transition-all',
                                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                                 isActive
                                   ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_8px_18px_rgba(0,27,67,0.18)]'
