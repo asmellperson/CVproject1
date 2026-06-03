@@ -8,6 +8,9 @@ from .orm import AiModel
 from .model_paths import resolve_model_path
 
 
+YOLO_DETECTOR_WORKER = "platform.inference.workers.yolo_detector.YoloDetectorWorker"
+
+
 class ModelService:
 
     def list_models(self, enabled_only: bool = False) -> list[dict]:
@@ -69,6 +72,29 @@ class ModelService:
                 return False
             session.delete(m)
             return True
+
+    def normalize_builtin_models(self) -> int:
+        """修正常见内置模型的旧版运行配置。
+
+        旧库里的 yolo_face 可能仍指向已不存在的旧 worker,且处于禁用状态。
+        这里只修已有模型行,不创建新模型,避免覆盖现场自定义模型清单。
+        """
+        patched = 0
+        with session_scope() as session:
+            face_model = session.query(AiModel).filter_by(name="yolo_face").first()
+            if face_model is None:
+                return 0
+
+            if face_model.import_path != YOLO_DETECTOR_WORKER:
+                face_model.import_path = YOLO_DETECTOR_WORKER
+                patched += 1
+            if not bool(face_model.enable):
+                face_model.enable = True
+                patched += 1
+
+        if patched:
+            logger.info("[ModelService] 已修正内置模型 yolo_face 的运行配置")
+        return patched
 
     @staticmethod
     def _to_dict(m: AiModel) -> dict:

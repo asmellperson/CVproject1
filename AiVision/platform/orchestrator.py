@@ -32,6 +32,7 @@ from platform.camera.manager import CameraManager
 from platform.camera.frame_reader import frame_reader_registry
 from platform.camera.service import camera_service
 from platform.inference.manager import inference_manager
+from platform.inference.service import model_service
 from platform.alarm_device.service import horn_service
 from platform.violation.service import violation_writer
 
@@ -58,6 +59,7 @@ class Orchestrator:
 
         # 1) 数据库 schema 修补
         ensure_schema_compatible()
+        model_service.normalize_builtin_models()
         camera_service.normalize_shm_names()
         camera_service.ensure_feature_configs(enable_all=False)
         config_cache.init()
