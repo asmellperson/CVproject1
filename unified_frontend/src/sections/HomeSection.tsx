@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
-import { filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
+import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 
@@ -124,6 +124,13 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
 }
 
 type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
+type ModuleEntry = (typeof moduleEntries)[number]
+type DepartmentModuleGroup = {
+  id: string
+  title: string
+  description: string
+  entries: ModuleEntry[]
+}
 
 type FeatureCameraCounts = Record<string, {
   cameraCount: number
@@ -246,6 +253,46 @@ function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStat
   })
 }
 
+const adminDepartmentGroups = [
+  {
+    id: 'general_electric',
+    title: '通用电气部',
+    description: '安检流程、保安行为、后大门异常逗留等检测能力',
+    pages: departmentPermissions.general_electric.pages,
+  },
+  {
+    id: 'research_institute',
+    title: '研究院',
+    description: '区域入侵、人脸检测、手机使用等检测能力',
+    pages: departmentPermissions.research_institute.pages,
+  },
+]
+
+function getAdminDepartmentModuleGroups(entries: ModuleEntry[]): DepartmentModuleGroup[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const groupedIds = new Set<string>()
+  const groups = adminDepartmentGroups.flatMap((group) => {
+    const groupEntries = group.pages.flatMap((pageId) => {
+      const entry = byId.get(pageId)
+      if (!entry) return []
+      groupedIds.add(entry.id)
+      return [entry]
+    })
+    if (!groupEntries.length) return []
+    return [{ id: group.id, title: group.title, description: group.description, entries: groupEntries }]
+  })
+  const unassignedEntries = entries.filter((entry) => !groupedIds.has(entry.id))
+  if (unassignedEntries.length) {
+    groups.push({
+      id: 'shared',
+      title: '公共能力',
+      description: '暂未归入单一部门的检测能力',
+      entries: unassignedEntries,
+    })
+  }
+  return groups
+}
+
 function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!platformStatus) {
     return {
@@ -287,8 +334,12 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
 }
 
 export function HomeSection({ onNavigate }: HomeSectionProps) {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
+  const adminModuleGroups = useMemo(
+    () => (isAdmin ? getAdminDepartmentModuleGroups(visibleModuleEntries) : []),
+    [isAdmin, visibleModuleEntries],
+  )
   const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
@@ -531,48 +582,74 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
-          {visibleModuleEntries.map((entry) => {
-            const Icon = entry.icon
-            return (
-              <article
-                key={entry.title}
-                className={cn(
-                  'group relative min-h-[176px] overflow-hidden rounded-[14px] border border-white bg-white shadow-[0_16px_42px_rgba(25,53,93,0.10)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_16px_42px_rgba(0,0,0,0.30)] sm:min-h-[218px]',
-                  'transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(25,53,93,0.16)]',
-                  entry.glow,
-                )}
-              >
-                <div className={`h-1.5 bg-gradient-to-r ${entry.accent}`} />
-                <div className="absolute -right-10 bottom-2 opacity-[0.055] transition duration-200 group-hover:scale-105 group-hover:opacity-[0.08] sm:-right-12">
-                  <Icon className="h-32 w-32 text-slate-900 sm:h-40 sm:w-40" strokeWidth={1.4} />
-                </div>
-                <div className="relative flex h-full flex-col justify-between p-5 sm:p-7">
-                  <div className="flex items-start gap-4 sm:gap-5">
-                    <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${entry.iconBg} shadow-[0_10px_26px_rgba(30,78,141,0.12)] ring-1 ring-white sm:h-[74px] sm:w-[74px]`}>
-                      <Icon className={`h-7 w-7 sm:h-9 sm:w-9 ${entry.iconColor}`} strokeWidth={1.8} />
-                    </div>
-                    <div className="min-w-0 pt-1 sm:pt-3">
-                      <h3 className="text-lg font-bold tracking-[0] text-[#071d3d] sm:text-[22px]">{entry.title}</h3>
-                      <Badge className="mt-3 border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-600 shadow-none hover:bg-emerald-50">
-                        {entry.status}
-                      </Badge>
-                    </div>
+        {isAdmin ? (
+          <section className="space-y-4">
+            {adminModuleGroups.map((group) => (
+              <div key={group.id} className="space-y-3">
+                <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+                  <div>
+                    <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">{group.title}</h3>
+                    <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">{group.description}</p>
                   </div>
-                  <Button
-                    className="mt-5 h-11 w-full justify-between rounded-xl bg-[#001b43] px-5 text-base font-semibold text-white shadow-[0_10px_20px_rgba(0,27,67,0.22)] hover:bg-[#082a5f] dark:bg-blue-600 dark:hover:bg-blue-500 sm:mt-7 sm:h-12 sm:w-[210px] sm:px-8"
-                    onClick={() => onNavigate(entry.id)}
-                  >
-                    进入功能
-                    <ArrowRight className="h-5 w-5" />
-                  </Button>
+                  <Badge className="border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100">
+                    {group.entries.length} 项能力
+                  </Badge>
                 </div>
-              </article>
-            )
-          })}
-        </section>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+                  {group.entries.map((entry) => (
+                    <ModuleEntryCard key={entry.id} entry={entry} onNavigate={onNavigate} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        ) : (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+            {visibleModuleEntries.map((entry) => (
+              <ModuleEntryCard key={entry.id} entry={entry} onNavigate={onNavigate} />
+            ))}
+          </section>
+        )}
       </div>
     </div>
+  )
+}
+
+function ModuleEntryCard({ entry, onNavigate }: { entry: ModuleEntry; onNavigate: (page: string) => void }) {
+  const Icon = entry.icon
+  return (
+    <article
+      className={cn(
+        'group relative min-h-[176px] overflow-hidden rounded-[14px] border border-white bg-white shadow-[0_16px_42px_rgba(25,53,93,0.10)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_16px_42px_rgba(0,0,0,0.30)] sm:min-h-[218px]',
+        'transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(25,53,93,0.16)]',
+        entry.glow,
+      )}
+    >
+      <div className={`h-1.5 bg-gradient-to-r ${entry.accent}`} />
+      <div className="absolute -right-10 bottom-2 opacity-[0.055] transition duration-200 group-hover:scale-105 group-hover:opacity-[0.08] sm:-right-12">
+        <Icon className="h-32 w-32 text-slate-900 sm:h-40 sm:w-40" strokeWidth={1.4} />
+      </div>
+      <div className="relative flex h-full flex-col justify-between p-5 sm:p-7">
+        <div className="flex items-start gap-4 sm:gap-5">
+          <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${entry.iconBg} shadow-[0_10px_26px_rgba(30,78,141,0.12)] ring-1 ring-white sm:h-[74px] sm:w-[74px]`}>
+            <Icon className={`h-7 w-7 sm:h-9 sm:w-9 ${entry.iconColor}`} strokeWidth={1.8} />
+          </div>
+          <div className="min-w-0 pt-1 sm:pt-3">
+            <h3 className="text-lg font-bold tracking-[0] text-[#071d3d] sm:text-[22px]">{entry.title}</h3>
+            <Badge className="mt-3 border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-600 shadow-none hover:bg-emerald-50">
+              {entry.status}
+            </Badge>
+          </div>
+        </div>
+        <Button
+          className="mt-5 h-11 w-full justify-between rounded-xl bg-[#001b43] px-5 text-base font-semibold text-white shadow-[0_10px_20px_rgba(0,27,67,0.22)] hover:bg-[#082a5f] dark:bg-blue-600 dark:hover:bg-blue-500 sm:mt-7 sm:h-12 sm:w-[210px] sm:px-8"
+          onClick={() => onNavigate(entry.id)}
+        >
+          进入功能
+          <ArrowRight className="h-5 w-5" />
+        </Button>
+      </div>
+    </article>
   )
 }
 
