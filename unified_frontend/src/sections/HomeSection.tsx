@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
+import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
@@ -124,6 +125,11 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
 
 type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
 
+type FeatureCameraCounts = Record<string, {
+  cameraCount: number
+  enabledCameraCount: number
+}>
+
 const defaultOverview: OverviewState = {
   cameraCount: 0,
   todayAlarms: 0,
@@ -162,24 +168,49 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
   return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
 }
 
+function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCounts {
+  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_phone']
+  return features.reduce<FeatureCameraCounts>((acc, feature) => {
+    const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
+    acc[feature] = {
+      cameraCount: featureCameras.length,
+      enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
+    }
+    return acc
+  }, {})
+}
+
 function getFeatureStatus(service?: PlatformServiceStatus, featureKey?: string) {
   if (!featureKey) return undefined
   return service?.feature_status?.[featureKey]
 }
 
-function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: string) {
+function getLocalFeatureCount(featureCounts: FeatureCameraCounts | undefined, featureKey?: string) {
+  if (!featureKey) return undefined
+  return featureCounts?.[featureKey]?.cameraCount
+}
+
+function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
+  const localCount = getLocalFeatureCount(featureCounts, featureKey)
+  if (typeof localCount === 'number') return localCount
   const featureStatus = getFeatureStatus(service, featureKey)
   return Number(featureStatus?.camera_count ?? service?.camera_count ?? 0)
 }
 
-function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string) {
+function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
+  const localCount = getLocalFeatureCount(featureCounts, featureKey)
   const featureStatus = getFeatureStatus(service, featureKey)
+  if (typeof localCount === 'number') {
+    return Math.min(localCount, Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0))
+  }
   return Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0)
 }
 
-function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string) {
+function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   if (!service?.online || !service.running) return false
   if (!featureKey) return true
+  const localCount = getLocalFeatureCount(featureCounts, featureKey)
+  if (typeof localCount === 'number' && localCount <= 0) return false
   const featureStatus = getFeatureStatus(service, featureKey)
   if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
   const runningConsumers = getRunningConsumers(service)
@@ -187,8 +218,10 @@ function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: strin
   return runningConsumers.includes(featureKey)
 }
 
-function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string) {
+function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   if (!featureKey) return Boolean(service?.model_status?.loaded)
+  const localCount = getLocalFeatureCount(featureCounts, featureKey)
+  if (typeof localCount === 'number' && localCount <= 0) return false
   const featureStatus = getFeatureStatus(service, featureKey)
   if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
   const runningConsumers = getRunningConsumers(service)
@@ -196,11 +229,11 @@ function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: st
   return runningConsumers.includes(featureKey)
 }
 
-function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null) {
+function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!cards.length || !platformStatus) return 'down'
   const services = cards.map((card) => platformStatus.services[card.serviceKey])
   const onlineCount = services.filter((service) => service?.online).length
-  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey)).length
+  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)).length
   if (onlineCount === cards.length && runningCount === cards.length) return 'healthy'
   if (onlineCount > 0) return 'degraded'
   return 'down'
@@ -213,7 +246,7 @@ function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStat
   })
 }
 
-function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null) {
+function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!platformStatus) {
     return {
       capabilityTotal: cards.length,
@@ -235,10 +268,10 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
     return total + Number(platformStatus.services[serviceKey]?.online_camera_count || 0)
   }, 0)
   const featureCameraTotal = featureCards.reduce((total, card) => {
-    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey)
+    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)
   }, 0)
   const featureCameraOnline = featureCards.reduce((total, card) => {
-    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey)
+    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)
   }, 0)
   const cameraTotal = serviceCameraTotal + featureCameraTotal
   const cameraOnline = serviceCameraOnline + featureCameraOnline
@@ -246,7 +279,7 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
   return {
     capabilityTotal: cards.length,
     capabilityOnline: cards.filter((card) => platformStatus.services[card.serviceKey]?.online).length,
-    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey)).length,
+    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)).length,
     cameraTotal,
     cameraOnline,
     cameraOffline: Math.max(0, cameraTotal - cameraOnline),
@@ -259,23 +292,28 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
   const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
+  const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
   const department = getUserDepartment(user)
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
-  const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus), [platformStatus, visibleStatusCards])
-  const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus), [platformStatus, visibleStatusCards])
+  const aiVisionFeatureCounts = useMemo(() => getAiVisionFeatureCounts(aiVisionCameras), [aiVisionCameras])
+  const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
+  const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
 
   useEffect(() => {
     let cancelled = false
 
     async function loadOverview() {
-      const [status, alarms] = await Promise.allSettled([
+      const [status, alarms, cameras] = await Promise.allSettled([
         getPlatformStatus(),
         getAlarms(100),
+        getAiVisionCameras(),
       ])
 
       if (cancelled) return
       const currentStatus = status.status === 'fulfilled' ? status.value : null
       setPlatformStatus(currentStatus)
+      const currentAiVisionCameras = cameras.status === 'fulfilled' ? cameras.value : []
+      setAiVisionCameras(currentAiVisionCameras)
 
       const allowedAlarmTypes = accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null
       const alarmItems = alarms.status === 'fulfilled'
@@ -283,7 +321,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
         : []
 
       setOverview({
-        cameraCount: getScopedStatusSummary(getVisibleStatusCards(visibleModuleEntries), currentStatus).cameraTotal,
+        cameraCount: getScopedStatusSummary(getVisibleStatusCards(visibleModuleEntries), currentStatus, getAiVisionFeatureCounts(currentAiVisionCameras)).cameraTotal,
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
         latestAlarm: alarmItems[0] || null,
@@ -467,6 +505,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
                     service={platformStatus?.services[card.serviceKey]}
                     displayName={card.title}
                     featureKey={card.featureKey}
+                    featureCounts={card.serviceKey === 'aivision' ? aiVisionFeatureCounts : undefined}
                   />
                 ))}
               </div>
@@ -602,16 +641,18 @@ function ServiceStatusCard({
   service,
   displayName,
   featureKey,
+  featureCounts,
 }: {
   service?: PlatformServiceStatus
   displayName: string
   featureKey?: string
+  featureCounts?: FeatureCameraCounts
 }) {
   const online = Boolean(service?.online)
-  const running = isCapabilityRunning(service, featureKey)
-  const modelLoaded = isCapabilityModelReady(service, featureKey)
-  const cameraCount = getCapabilityCameraCount(service, featureKey)
-  const onlineCameras = getCapabilityOnlineCameraCount(service, featureKey)
+  const running = isCapabilityRunning(service, featureKey, featureCounts)
+  const modelLoaded = isCapabilityModelReady(service, featureKey, featureCounts)
+  const cameraCount = getCapabilityCameraCount(service, featureKey, featureCounts)
+  const onlineCameras = getCapabilityOnlineCameraCount(service, featureKey, featureCounts)
   const frameAge = service?.last_frame_age_sec
 
   return (
