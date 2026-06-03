@@ -483,7 +483,7 @@ export function IntrusionDetectionSection() {
 
             <TabsContent value="model" className="space-y-6">
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
-                <AiVisionModelConfig requiredModels={[]} />
+                <AiVisionModelConfig requiredModels={['yolo_human']} />
               </Suspense>
             </TabsContent>
 
