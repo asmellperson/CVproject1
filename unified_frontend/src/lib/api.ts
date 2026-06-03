@@ -91,6 +91,11 @@ export type PlatformServiceStatus = {
   running_cameras?: string[]
   running_models?: string[]
   running_consumers?: string[]
+  feature_status?: Record<string, {
+    camera_count?: number
+    online_camera_count?: number
+    offline_camera_count?: number
+  }>
   model_status?: {
     loaded?: boolean
     running_count?: number

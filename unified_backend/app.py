@@ -427,6 +427,38 @@ def _camera_functions_enabled(camera: dict) -> bool:
     return False
 
 
+def _camera_feature_enabled(camera: dict, feature: str) -> bool:
+    functions = camera.get("functions")
+    if isinstance(functions, dict):
+        return bool(functions.get(feature))
+    if isinstance(functions, list):
+        return feature in {str(item) for item in functions}
+    return False
+
+
+def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
+    running_camera_names = {str(item) for item in running_cameras}
+    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_phone")
+    status: dict[str, dict[str, int]] = {}
+    for feature in feature_names:
+        enabled_cameras = [
+            camera
+            for camera in cameras
+            if camera.get("enabled") and _camera_feature_enabled(camera, feature)
+        ]
+        online_count = sum(
+            1
+            for camera in enabled_cameras
+            if str(camera.get("shm_name") or camera.get("camera_no") or camera.get("name") or "") in running_camera_names
+        )
+        status[feature] = {
+            "camera_count": len(enabled_cameras),
+            "online_camera_count": online_count,
+            "offline_camera_count": max(0, len(enabled_cameras) - online_count),
+        }
+    return status
+
+
 def _service_status(name: str, url: str, online: bool, latency_ms: float | None, error: str | None, extra: dict) -> dict:
     return {
         "name": name,
@@ -524,6 +556,7 @@ def create_app() -> FastAPI:
         ai_running_consumers = ai_status.get("running_consumers", []) if isinstance(ai_status, dict) else []
         ai_camera_items = ai_cameras if isinstance(ai_cameras, list) else []
         ai_enabled_camera_count = sum(1 for camera in ai_camera_items if camera.get("enabled") and _camera_functions_enabled(camera))
+        ai_feature_status = _aivision_feature_status(ai_camera_items, ai_running_cameras)
 
         vlm_ok, vlm_health, vlm_latency, vlm_error = _get_json(security_vlm_url, "/health")
         vlm_running = bool(vlm_health.get("running")) if isinstance(vlm_health, dict) else False
@@ -570,6 +603,7 @@ def create_app() -> FastAPI:
                     "running_cameras": ai_running_cameras,
                     "running_models": ai_running_models,
                     "running_consumers": ai_running_consumers,
+                    "feature_status": ai_feature_status,
                     "model_status": {
                         "loaded": len(ai_running_models) > 0,
                         "running_count": len(ai_running_models),

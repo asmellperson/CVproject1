@@ -162,9 +162,26 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
   return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
 }
 
+function getFeatureStatus(service?: PlatformServiceStatus, featureKey?: string) {
+  if (!featureKey) return undefined
+  return service?.feature_status?.[featureKey]
+}
+
+function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: string) {
+  const featureStatus = getFeatureStatus(service, featureKey)
+  return Number(featureStatus?.camera_count ?? service?.camera_count ?? 0)
+}
+
+function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string) {
+  const featureStatus = getFeatureStatus(service, featureKey)
+  return Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0)
+}
+
 function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string) {
   if (!service?.online || !service.running) return false
   if (!featureKey) return true
+  const featureStatus = getFeatureStatus(service, featureKey)
+  if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
   const runningConsumers = getRunningConsumers(service)
   if (!runningConsumers.length) return true
   return runningConsumers.includes(featureKey)
@@ -172,6 +189,8 @@ function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: strin
 
 function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string) {
   if (!featureKey) return Boolean(service?.model_status?.loaded)
+  const featureStatus = getFeatureStatus(service, featureKey)
+  if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
   const runningConsumers = getRunningConsumers(service)
   if (!runningConsumers.length) return Boolean(service?.model_status?.loaded || service?.running)
   return runningConsumers.includes(featureKey)
@@ -206,21 +225,31 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
     }
   }
 
-  const uniqueServices = Array.from(new Set(cards.map((card) => card.serviceKey)))
+  const serviceCards = cards.filter((card) => !card.featureKey)
+  const featureCards = cards.filter((card) => card.featureKey)
+  const uniqueServices = Array.from(new Set(serviceCards.map((card) => card.serviceKey)))
   const serviceCameraTotal = uniqueServices.reduce((total, serviceKey) => {
     return total + Number(platformStatus.services[serviceKey]?.camera_count || 0)
   }, 0)
   const serviceCameraOnline = uniqueServices.reduce((total, serviceKey) => {
     return total + Number(platformStatus.services[serviceKey]?.online_camera_count || 0)
   }, 0)
+  const featureCameraTotal = featureCards.reduce((total, card) => {
+    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey)
+  }, 0)
+  const featureCameraOnline = featureCards.reduce((total, card) => {
+    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey)
+  }, 0)
+  const cameraTotal = serviceCameraTotal + featureCameraTotal
+  const cameraOnline = serviceCameraOnline + featureCameraOnline
 
   return {
     capabilityTotal: cards.length,
     capabilityOnline: cards.filter((card) => platformStatus.services[card.serviceKey]?.online).length,
     capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey)).length,
-    cameraTotal: serviceCameraTotal,
-    cameraOnline: serviceCameraOnline,
-    cameraOffline: Math.max(0, serviceCameraTotal - serviceCameraOnline),
+    cameraTotal,
+    cameraOnline,
+    cameraOffline: Math.max(0, cameraTotal - cameraOnline),
   }
 }
 
@@ -581,8 +610,8 @@ function ServiceStatusCard({
   const online = Boolean(service?.online)
   const running = isCapabilityRunning(service, featureKey)
   const modelLoaded = isCapabilityModelReady(service, featureKey)
-  const cameraCount = Number(service?.camera_count || 0)
-  const onlineCameras = Number(service?.online_camera_count || 0)
+  const cameraCount = getCapabilityCameraCount(service, featureKey)
+  const onlineCameras = getCapabilityOnlineCameraCount(service, featureKey)
   const frameAge = service?.last_frame_age_sec
 
   return (
@@ -591,7 +620,7 @@ function ServiceStatusCard({
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-[#071d3d] dark:text-slate-100">{displayName}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">
-            {online ? (running ? '正常检测中' : featureKey ? '服务在线，能力未启动' : '已连接，未开始检测') : '暂时不可用'}
+            {online ? (running ? '正常检测中' : featureKey && cameraCount <= 0 ? '未配置检测摄像头' : featureKey ? '服务在线，能力未启动' : '已连接，未开始检测') : '暂时不可用'}
           </div>
         </div>
         <span
