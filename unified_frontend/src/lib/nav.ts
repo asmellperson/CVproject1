@@ -23,6 +23,7 @@ export type NavGroup = {
   id: string
   label: string
   items: NavItem[]
+  children?: NavGroup[]
 }
 
 export const navGroups: NavGroup[] = [

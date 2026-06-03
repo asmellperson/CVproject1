@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils'
-import { navGroups } from '@/lib/nav'
-import { filterNavGroupsByPermission } from '@/auth/permissions'
+import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
+import { departmentPermissions, filterNavGroupsByPermission } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronRight, ChevronsLeft, X } from 'lucide-react'
 import { getPlatformStatus, type PlatformStatus } from '@/lib/api'
 
@@ -26,8 +26,11 @@ export function Sidebar({
   isMobile = false,
 }: SidebarProps) {
   const compact = !isMobile && collapsed
-  const { user } = useAuth()
-  const visibleNavGroups = filterNavGroupsByPermission(user, navGroups)
+  const { user, isAdmin } = useAuth()
+  const visibleNavGroups = useMemo(
+    () => buildSidebarNavGroups(user, isAdmin),
+    [isAdmin, user],
+  )
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
 
   useEffect(() => {
@@ -125,29 +128,35 @@ export function Sidebar({
               </div>
             )}
             <div className="space-y-2">
-              {group.items.map((item) => {
-                const Icon = item.icon
-                const isActive = currentPage === item.id
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onPageChange(item.id)}
-                    title={compact ? item.label : undefined}
-                    className={cn(
-                      'group relative flex w-full items-center gap-4 rounded-xl px-4 py-3 text-[15px] font-semibold transition-all',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      compact && 'justify-center px-0',
-                      isActive
-                        ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_12px_26px_rgba(0,27,67,0.22)] dark:from-blue-600 dark:to-cyan-500 dark:shadow-blue-950/35'
-                        : 'text-[#40557a] hover:bg-white hover:text-[#09265a] hover:shadow-[0_8px_20px_rgba(31,58,97,0.08)] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white',
-                    )}
-                  >
-                    <Icon className="h-[18px] w-[18px] shrink-0" />
-                    {!compact && <span className="truncate">{item.label}</span>}
-                    {isActive && !compact && <ChevronRight className="ml-auto h-4 w-4" />}
-                  </button>
-                )
-              })}
+              {group.items.map((item) => (
+                <SidebarNavButton
+                  key={item.id}
+                  item={item}
+                  compact={compact}
+                  active={currentPage === item.id}
+                  onClick={() => onPageChange(item.id)}
+                />
+              ))}
+              {group.children?.map((child) => (
+                <div key={child.id} className={cn(!compact && 'pt-2')}>
+                  {!compact && (
+                    <div className="mb-2 px-3 text-xs font-black tracking-[0] text-slate-400">
+                      {child.label}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {child.items.map((item) => (
+                      <SidebarNavButton
+                        key={item.id}
+                        item={item}
+                        compact={compact}
+                        active={currentPage === item.id}
+                        onClick={() => onPageChange(item.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ))}
@@ -195,5 +204,78 @@ export function Sidebar({
         )}
       </div>
     </aside>
+  )
+}
+
+const adminModuleGroups = [
+  {
+    id: 'general_electric',
+    label: '通用电气部',
+    pages: departmentPermissions.general_electric.pages,
+  },
+  {
+    id: 'research_institute',
+    label: '研究院',
+    pages: departmentPermissions.research_institute.pages,
+  },
+]
+
+function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
+  const visibleGroups = filterNavGroupsByPermission(user, navGroups)
+  if (!isAdmin) return visibleGroups
+
+  const modules = visibleGroups.find((group) => group.id === 'modules')
+  if (!modules) return visibleGroups
+
+  const moduleItemsById = new Map(modules.items.map((item) => [item.id, item]))
+  const groupedIds = new Set<string>()
+  const children = adminModuleGroups.flatMap((group) => {
+    const items = group.pages.flatMap((pageId) => {
+      const item = moduleItemsById.get(pageId)
+      if (!item) return []
+      groupedIds.add(item.id)
+      return [item]
+    })
+    return items.length ? [{ id: group.id, label: group.label, items }] : []
+  })
+  const sharedItems = modules.items.filter((item) => !groupedIds.has(item.id))
+  if (sharedItems.length) {
+    children.push({ id: 'shared', label: '公共能力', items: sharedItems })
+  }
+
+  return visibleGroups.map((group) => (
+    group.id === 'modules' ? { ...group, items: [], children } : group
+  ))
+}
+
+function SidebarNavButton({
+  item,
+  compact,
+  active,
+  onClick,
+}: {
+  item: NavItem
+  compact: boolean
+  active: boolean
+  onClick: () => void
+}) {
+  const Icon = item.icon
+  return (
+    <button
+      onClick={onClick}
+      title={compact ? item.label : undefined}
+      className={cn(
+        'group relative flex w-full items-center gap-4 rounded-xl px-4 py-3 text-[15px] font-semibold transition-all',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        compact && 'justify-center px-0',
+        active
+          ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_12px_26px_rgba(0,27,67,0.22)] dark:from-blue-600 dark:to-cyan-500 dark:shadow-blue-950/35'
+          : 'text-[#40557a] hover:bg-white hover:text-[#09265a] hover:shadow-[0_8px_20px_rgba(31,58,97,0.08)] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white',
+      )}
+    >
+      <Icon className="h-[18px] w-[18px] shrink-0" />
+      {!compact && <span className="truncate">{item.label}</span>}
+      {active && !compact && <ChevronRight className="ml-auto h-4 w-4" />}
+    </button>
   )
 }

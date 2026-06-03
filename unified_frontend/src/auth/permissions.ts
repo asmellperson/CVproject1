@@ -155,13 +155,14 @@ function applyDisplayOverride<T extends { id: string; label?: string; title?: st
 
 export function filterNavGroupsByPermission(user: AuthUser | null | undefined, groups: NavGroup[]): NavGroup[] {
   return groups
-    .map((group) => ({
-      ...group,
-      items: group.items
+    .map((group) => {
+      const items = group.items
         .filter((item) => hasPageAccess(user, item.id))
-        .map((item) => applyDisplayOverride<NavItem>(user, item)),
-    }))
-    .filter((group) => group.items.length > 0)
+        .map((item) => applyDisplayOverride<NavItem>(user, item))
+      const children = group.children ? filterNavGroupsByPermission(user, group.children) : undefined
+      return { ...group, items, children }
+    })
+    .filter((group) => group.items.length > 0 || (group.children?.length ?? 0) > 0)
 }
 
 export function filterHomeModulesByPermission<T extends { id: string; title: string; description?: string }>(
