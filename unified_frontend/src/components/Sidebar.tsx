@@ -31,7 +31,21 @@ export function Sidebar({
     () => buildSidebarNavGroups(user, isAdmin),
     [isAdmin, user],
   )
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(adminModuleGroups.map((group) => group.id).concat('shared')))
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
+
+  useEffect(() => {
+    const activeGroup = visibleNavGroups
+      .flatMap((group) => group.children || [])
+      .find((child) => child.items.some((item) => item.id === currentPage))
+    if (!activeGroup) return
+    setExpandedGroups((prev) => {
+      if (prev.has(activeGroup.id)) return prev
+      const next = new Set(prev)
+      next.add(activeGroup.id)
+      return next
+    })
+  }, [currentPage, visibleNavGroups])
 
   useEffect(() => {
     let cancelled = false
@@ -137,14 +151,32 @@ export function Sidebar({
                   onClick={() => onPageChange(item.id)}
                 />
               ))}
-              {group.children?.map((child) => (
+              {group.children?.map((child) => {
+                const expanded = compact || expandedGroups.has(child.id)
+                return (
                 <div key={child.id} className={cn(!compact && 'pt-2')}>
                   {!compact && (
-                    <div className="mb-2 px-3 text-xs font-black tracking-[0] text-slate-400">
-                      {child.label}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpandedGroups((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(child.id)) {
+                            next.delete(child.id)
+                          } else {
+                            next.add(child.id)
+                          }
+                          return next
+                        })
+                      }}
+                      className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-base font-black tracking-[0] text-[#09265a] transition hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60"
+                      aria-expanded={expanded}
+                    >
+                      <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', expanded && 'rotate-90')} />
+                      <span className="truncate">{child.label}</span>
+                    </button>
                   )}
-                  <div className="space-y-2">
+                  <div className={cn('space-y-2 overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out', expanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0')}>
                     {child.items.map((item) => (
                       <SidebarNavButton
                         key={item.id}
@@ -156,7 +188,8 @@ export function Sidebar({
                     ))}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ))}
