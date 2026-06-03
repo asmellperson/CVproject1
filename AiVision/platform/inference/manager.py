@@ -8,6 +8,8 @@ platform/inference/manager.py
 """
 from __future__ import annotations
 import importlib
+import os
+import time
 from multiprocessing import Queue
 
 from core.logger import logger
@@ -45,7 +47,12 @@ class InferenceManager:
         """加载并启动所有已启用的推理 Worker"""
         for model in model_service.list_models(enabled_only=True):
             self._start_one(model)
-        logger.info(f"[InferenceManager] 启动了 {len(self._workers)} 个推理进程")
+        total_workers = len(self._workers)
+        self._wait_for_workers_ready()
+        logger.info(
+            f"[InferenceManager] 模型就绪 {len(self.list_running())}/{total_workers}: "
+            f"{self.list_running()}"
+        )
 
     def stop_all(self):
         for name, worker in list(self._workers.items()):
@@ -104,6 +111,49 @@ class InferenceManager:
                 result[cam_id] = cfg
         return result
 
+    def _wait_for_workers_ready(self):
+        """等待子进程完成模型加载,避免状态接口把加载失败的模型误判为在线。"""
+        try:
+            timeout = float(os.getenv("MODEL_WORKER_READY_TIMEOUT", "60"))
+        except ValueError:
+            timeout = 60.0
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        pending = set(self._workers.keys())
+
+        while pending and time.monotonic() < deadline:
+            for name in list(pending):
+                worker = self._workers.get(name)
+                if worker is None:
+                    pending.discard(name)
+                    continue
+                if worker.is_running():
+                    pending.discard(name)
+                    continue
+                if worker.is_failed() or not worker.is_alive():
+                    logger.warning(f"[InferenceManager] 模型 {name} 未就绪,worker 已失败或退出")
+                    pending.discard(name)
+                    continue
+            if pending:
+                time.sleep(0.2)
+
+        for name in sorted(pending):
+            logger.warning(
+                f"[InferenceManager] 模型 {name} 在 {timeout:.1f}s 内未完成加载,暂不计入运行模型"
+            )
+            worker = self._workers.get(name)
+            if worker is not None:
+                try:
+                    worker.stop()
+                except Exception as e:
+                    logger.warning(f"[InferenceManager] 停止未就绪模型 {name} 失败: {e}")
+
+        self._workers = {
+            name: worker
+            for name, worker in self._workers.items()
+            if worker.is_running()
+        }
+
     @staticmethod
     def _import_worker_class(path: str) -> type:
         """支持两种格式:
@@ -128,6 +178,11 @@ class InferenceManager:
     # ---------- 状态查询 ----------
 
     def list_running(self) -> list[str]:
+        self._workers = {
+            name: worker
+            for name, worker in self._workers.items()
+            if worker.is_running()
+        }
         return list(self._workers.keys())
 
 

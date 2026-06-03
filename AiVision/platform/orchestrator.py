@@ -290,11 +290,18 @@ class Orchestrator:
         )
 
     def runtime_status(self) -> dict:
+        running_models = inference_manager.list_running()
+        running_model_set = set(running_models)
+        running_consumers = [
+            name
+            for name, consumer in self.consumers.items()
+            if consumer.running and all(model in running_model_set for model in consumer.spec.required_models)
+        ]
         return {
             "started": self._started,
             "running_cameras": self.camera_manager.list_running(),
-            "running_models": inference_manager.list_running(),
-            "running_consumers": list(self.consumers.keys()),
+            "running_models": running_models,
+            "running_consumers": running_consumers,
         }
 
 

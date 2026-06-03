@@ -43,6 +43,8 @@ class BaseModelWorker(ABC):
 
         self._proc: mp.Process | None = None
         self._stop_event = mp.Event()
+        self._ready_event = mp.Event()
+        self._failed_event = mp.Event()
 
     # ---------- 子类必须实现 ----------
 
@@ -64,6 +66,8 @@ class BaseModelWorker(ABC):
         if self._proc is not None and self._proc.is_alive():
             return
         self._stop_event.clear()
+        self._ready_event.clear()
+        self._failed_event.clear()
         self._proc = mp.Process(
             target=self._run,
             name=f"ModelWorker[{self.model_name}]",
@@ -79,6 +83,18 @@ class BaseModelWorker(ABC):
             if self._proc.is_alive():
                 self._proc.terminate()
             logger.info(f"[ModelWorker:{self.model_name}] 进程已停止")
+
+    def is_alive(self) -> bool:
+        return self._proc is not None and self._proc.is_alive()
+
+    def is_ready(self) -> bool:
+        return self._ready_event.is_set()
+
+    def is_failed(self) -> bool:
+        return self._failed_event.is_set()
+
+    def is_running(self) -> bool:
+        return self.is_alive() and self.is_ready() and not self.is_failed()
 
     # ---------- 配置热更新(由 Orchestrator 调用) ----------
 
@@ -102,7 +118,9 @@ class BaseModelWorker(ABC):
                 f"[ModelWorker:{self.model_name}] 模型加载成功 "
                 f"path={self.model_path} source={self.model_path_source}"
             )
+            self._ready_event.set()
         except Exception:
+            self._failed_event.set()
             logger.exception(f"[ModelWorker:{self.model_name}] 模型加载失败,worker 退出")
             return
 
