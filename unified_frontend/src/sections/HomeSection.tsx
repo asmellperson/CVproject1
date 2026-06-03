@@ -165,12 +165,16 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
 function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string) {
   if (!service?.online || !service.running) return false
   if (!featureKey) return true
-  return getRunningConsumers(service).includes(featureKey)
+  const runningConsumers = getRunningConsumers(service)
+  if (!runningConsumers.length) return true
+  return runningConsumers.includes(featureKey)
 }
 
 function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string) {
   if (!featureKey) return Boolean(service?.model_status?.loaded)
-  return getRunningConsumers(service).includes(featureKey)
+  const runningConsumers = getRunningConsumers(service)
+  if (!runningConsumers.length) return Boolean(service?.model_status?.loaded || service?.running)
+  return runningConsumers.includes(featureKey)
 }
 
 function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null) {
