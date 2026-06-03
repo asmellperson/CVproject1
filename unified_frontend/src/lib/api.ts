@@ -93,6 +93,7 @@ export type PlatformServiceStatus = {
   running_consumers?: string[]
   feature_status?: Record<string, {
     camera_count?: number
+    enabled_camera_count?: number
     online_camera_count?: number
     offline_camera_count?: number
   }>

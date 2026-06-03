@@ -441,10 +441,15 @@ def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict
     feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_phone")
     status: dict[str, dict[str, int]] = {}
     for feature in feature_names:
-        enabled_cameras = [
+        configured_cameras = [
             camera
             for camera in cameras
-            if camera.get("enabled") and _camera_feature_enabled(camera, feature)
+            if _camera_feature_enabled(camera, feature)
+        ]
+        enabled_cameras = [
+            camera
+            for camera in configured_cameras
+            if camera.get("enabled")
         ]
         online_count = sum(
             1
@@ -452,9 +457,10 @@ def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict
             if str(camera.get("shm_name") or camera.get("camera_no") or camera.get("name") or "") in running_camera_names
         )
         status[feature] = {
-            "camera_count": len(enabled_cameras),
+            "camera_count": len(configured_cameras),
+            "enabled_camera_count": len(enabled_cameras),
             "online_camera_count": online_count,
-            "offline_camera_count": max(0, len(enabled_cameras) - online_count),
+            "offline_camera_count": max(0, len(configured_cameras) - online_count),
         }
     return status
 
