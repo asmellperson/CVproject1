@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
-import { MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
+import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { aiVisionFrameUrl } from '@/lib/aivision'
@@ -21,6 +21,7 @@ type AiVisionRoiEditorProps = {
   disabled?: boolean
   saving?: boolean
   message?: string
+  minRoiArea?: number
   onChange: (roiJson: string) => void
   onRegionChange?: (regionJson: string) => void
   onSave: () => void
@@ -28,6 +29,7 @@ type AiVisionRoiEditorProps = {
 
 const fallbackSize = { width: 1920, height: 1080 }
 const DRAG_THRESHOLD_PX = 8
+const DEFAULT_MIN_ROI_AREA = 2500
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
@@ -56,6 +58,15 @@ function pointsToRect(points: Point[]) {
     Math.round(Math.max(...xs)),
     Math.round(Math.max(...ys)),
   ]
+}
+
+function polygonArea(points: Point[]) {
+  if (points.length < 3) return 0
+  const area = points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length]
+    return sum + point.x * next.y - next.x * point.y
+  }, 0)
+  return Math.abs(area) / 2
 }
 
 function pointDistance(a: Point, b: Point) {
@@ -92,6 +103,7 @@ export function AiVisionRoiEditor({
   disabled,
   saving,
   message,
+  minRoiArea = DEFAULT_MIN_ROI_AREA,
   onChange,
   onRegionChange,
   onSave,
@@ -108,6 +120,12 @@ export function AiVisionRoiEditor({
     [cameraKey, feature, nonce],
   )
   const valid = mode === 'rect' ? points.length === 4 : points.length >= 3
+  const outOfBounds = points.some(
+    (point) => point.x < 0 || point.y < 0 || point.x > imageSize.width || point.y > imageSize.height,
+  )
+  const roiArea = valid ? polygonArea(points) : 0
+  const areaTooSmall = valid && roiArea < minRoiArea
+  const canSave = valid && !outOfBounds && !areaTooSmall
 
   useEffect(() => {
     // Keep the editable draft in sync when a different camera/config is loaded.
@@ -211,10 +229,12 @@ export function AiVisionRoiEditor({
   }
 
   return (
-    <Card className="border-slate-200 bg-white/95">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <MousePointer2 className="h-5 w-5 text-slate-700" />
+    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+      <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-[0_12px_24px_rgba(37,99,235,0.22)]">
+            <MousePointer2 className="h-5 w-5" />
+          </span>
           {title}
         </CardTitle>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
@@ -222,9 +242,13 @@ export function AiVisionRoiEditor({
           刷新画面
         </Button>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+      <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
+        <div className="overflow-hidden rounded-2xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.18)]">
           <div className="relative mx-auto max-h-[68vh] w-full">
+            <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm">
+              <Eye className="h-3.5 w-3.5" />
+              保存前预览
+            </div>
             {frameUrl ? (
               <img
                 src={frameUrl}
@@ -275,16 +299,25 @@ export function AiVisionRoiEditor({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div className="min-w-0 text-sm text-slate-600">
             <div>{message || 'ROI 修改后点击保存配置生效。'}</div>
             <div className="mt-1 font-mono text-xs text-slate-500">
               {bbox.length === 4
-                ? `区域: [${bbox.join(', ')}]`
+                ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px²`
                 : mode === 'polygon'
                   ? `顶点数: ${points.length}`
                   : '未绘制区域'}
             </div>
+            {outOfBounds || areaTooSmall ? (
+              <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  {outOfBounds ? <div>ROI 坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
+                  {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-2" onClick={undo} disabled={disabled || points.length === 0}>
@@ -299,7 +332,7 @@ export function AiVisionRoiEditor({
               <RotateCcw className="h-4 w-4" />
               全画面
             </Button>
-            <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !valid}>
+            <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !canSave}>
               <Save className="h-4 w-4" />
               {saving ? '保存中' : '保存ROI'}
             </Button>

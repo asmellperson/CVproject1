@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Box, Camera, DoorOpen, MousePointer2, RefreshCw, Save, SlidersHorizontal, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
+import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
-import { AiVisionModelConfig } from '@/components/AiVisionModelConfig'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +16,21 @@ import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
+const AiVisionRoiEditor = lazy(() =>
+  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
+)
+const AiVisionModelConfig = lazy(() =>
+  import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
+)
+
+function LazyConfigFallback({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
+      {label}
+    </div>
+  )
+}
+
 type DoorConfig = {
   enable: boolean
   value: {
@@ -29,6 +43,10 @@ type DoorConfig = {
     diff_threshold_env?: number
     env_threshold?: number
     first_alarm?: number
+    stable_confirm_seconds?: number
+    stable_confirm_hits?: number
+    background_update_alpha?: number
+    global_motion_threshold?: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -47,6 +65,10 @@ const defaultForm = {
   threshold: '0.5',
   firstAlarm: '60',
   alarmInterval: '5.0',
+  stableConfirmSeconds: '1.0',
+  stableConfirmHits: '3',
+  globalMotionThreshold: '0.22',
+  backgroundUpdateAlpha: '0.05',
 }
 
 const defaultDoorConfig: DoorConfig = {
@@ -61,6 +83,10 @@ const defaultDoorConfig: DoorConfig = {
     diff_threshold_env: 10,
     env_threshold: 10,
     first_alarm: 60,
+    stable_confirm_seconds: 1.0,
+    stable_confirm_hits: 3,
+    background_update_alpha: 0.05,
+    global_motion_threshold: 0.22,
   },
   alarm: {
     horn: { enable: false, parm: {} },
@@ -80,6 +106,10 @@ function toForm(payload: DoorConfigResponse) {
     threshold: String(payload.detect_door.value.threshold ?? 0.5),
     firstAlarm: String(payload.detect_door.value.first_alarm ?? 60),
     alarmInterval: String(payload.detect_door.value.alarm_interval ?? 5.0),
+    stableConfirmSeconds: String(payload.detect_door.value.stable_confirm_seconds ?? 1.0),
+    stableConfirmHits: String(payload.detect_door.value.stable_confirm_hits ?? 3),
+    globalMotionThreshold: String(payload.detect_door.value.global_motion_threshold ?? 0.22),
+    backgroundUpdateAlpha: String(payload.detect_door.value.background_update_alpha ?? 0.05),
   }
 }
 
@@ -170,6 +200,7 @@ export function DoorDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refreshCameraList = async () => {
@@ -250,8 +281,20 @@ export function DoorDetectionSection() {
     const threshold = Number(form.threshold)
     const firstAlarm = Number(form.firstAlarm)
     const alarmInterval = Number(form.alarmInterval)
-    if (!Number.isFinite(threshold) || !Number.isFinite(firstAlarm) || !Number.isFinite(alarmInterval)) {
-      setMessage('保存失败：检测阈值、首次告警时间和告警间隔必须是数字。')
+    const stableConfirmSeconds = Number(form.stableConfirmSeconds)
+    const stableConfirmHits = Number(form.stableConfirmHits)
+    const globalMotionThreshold = Number(form.globalMotionThreshold)
+    const backgroundUpdateAlpha = Number(form.backgroundUpdateAlpha)
+    if (
+      !Number.isFinite(threshold) ||
+      !Number.isFinite(firstAlarm) ||
+      !Number.isFinite(alarmInterval) ||
+      !Number.isFinite(stableConfirmSeconds) ||
+      !Number.isFinite(stableConfirmHits) ||
+      !Number.isFinite(globalMotionThreshold) ||
+      !Number.isFinite(backgroundUpdateAlpha)
+    ) {
+      setMessage('保存失败：检测阈值、告警时间、持续确认和背景稳定参数必须是数字。')
       return
     }
 
@@ -264,6 +307,10 @@ export function DoorDetectionSection() {
         threshold,
         first_alarm: firstAlarm,
         alarm_interval: alarmInterval,
+        stable_confirm_seconds: stableConfirmSeconds,
+        stable_confirm_hits: Math.max(1, Math.round(stableConfirmHits)),
+        global_motion_threshold: globalMotionThreshold,
+        background_update_alpha: backgroundUpdateAlpha,
       },
       alarm: doorConfig.alarm || defaultDoorConfig.alarm,
     }
@@ -285,6 +332,34 @@ export function DoorDetectionSection() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const applyDayPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      threshold: '0.5',
+      firstAlarm: '60',
+      alarmInterval: '5.0',
+      stableConfirmSeconds: '1.0',
+      stableConfirmHits: '3',
+      globalMotionThreshold: '0.22',
+      backgroundUpdateAlpha: '0.05',
+    }))
+    setMessage('已应用白天参数预设，确认后请保存配置。')
+  }
+
+  const applyNightPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      threshold: '0.42',
+      firstAlarm: '90',
+      alarmInterval: '5.0',
+      stableConfirmSeconds: '1.5',
+      stableConfirmHits: '4',
+      globalMotionThreshold: '0.28',
+      backgroundUpdateAlpha: '0.04',
+    }))
+    setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_door'))
@@ -344,31 +419,48 @@ export function DoorDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                onConfigCopied={(cameraName) => {
+                  setForm((prev) => ({ ...prev, cameraName }))
+                  return loadConfig(cameraName)
+                }}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <AiVisionRoiEditor
-                title="大门开关异常检测 ROI 绘制"
-                cameraKey={form.cameraName}
-                roiJson={form.roiPos}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
-                saving={saving}
-                message={message}
-                onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
-                onSave={saveConfig}
-              />
+              <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
+                <AiVisionRoiEditor
+                  title="大门开关异常检测 ROI 绘制"
+                  cameraKey={form.cameraName}
+                  feature="detect_door"
+                  roiJson={form.roiPos}
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  saving={saving}
+                  message={message}
+                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
+                  onSave={saveConfig}
+                />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <Card className="border-slate-200 bg-white/95">
-              <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <CardTitle className="text-lg">配置表单</CardTitle>
+              <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#eef2ff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+                <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_12px_24px_rgba(79,70,229,0.22)]">
+                    <SlidersHorizontal className="h-5 w-5" />
+                  </span>
+                  配置表单
+                </CardTitle>
                 <Badge variant="outline" className="border-slate-300 text-slate-600">
                   AiVision detect_door
                 </Badge>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 bg-[#f8faff] p-4 sm:p-5 dark:bg-slate-950/30">
+                <AiVisionPresetActions
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  onApplyDay={applyDayPreset}
+                  onApplyNight={applyNightPreset}
+                />
                 <div className="grid gap-5 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="door-camera">摄像头名称</Label>
@@ -423,6 +515,46 @@ export function DoorDetectionSection() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="door-stable-seconds">变化确认时间</Label>
+                    <Input
+                      id="door-stable-seconds"
+                      value={form.stableConfirmSeconds}
+                      onChange={(event) => setForm((prev) => ({ ...prev, stableConfirmSeconds: event.target.value }))}
+                      placeholder="1.0"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="door-stable-hits">连续确认次数</Label>
+                    <Input
+                      id="door-stable-hits"
+                      value={form.stableConfirmHits}
+                      onChange={(event) => setForm((prev) => ({ ...prev, stableConfirmHits: event.target.value }))}
+                      placeholder="3"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="door-global-motion">背景抖动阈值</Label>
+                    <Input
+                      id="door-global-motion"
+                      value={form.globalMotionThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, globalMotionThreshold: event.target.value }))}
+                      placeholder="0.22"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="door-bg-alpha">背景更新速率</Label>
+                    <Input
+                      id="door-bg-alpha"
+                      value={form.backgroundUpdateAlpha}
+                      onChange={(event) => setForm((prev) => ({ ...prev, backgroundUpdateAlpha: event.target.value }))}
+                      placeholder="0.05"
+                    />
+                  </div>
+
                 </div>
 
                 <div className="space-y-2">
@@ -436,7 +568,7 @@ export function DoorDetectionSection() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-indigo-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                   <div className="text-sm text-slate-600">{message}</div>
                   <div className="flex gap-2">
                     <Button variant="outline" className="gap-2" onClick={() => loadConfig()} disabled={loading || saving || !form.cameraName}>
@@ -454,7 +586,9 @@ export function DoorDetectionSection() {
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <AiVisionModelConfig requiredModels={[]} />
+              <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
+                <AiVisionModelConfig requiredModels={[]} />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">

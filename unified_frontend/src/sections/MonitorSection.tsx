@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress'
 import {
   Play,
   Pause,
-  RotateCcw,
+  RefreshCw,
   Camera,
   User,
   Smartphone,
@@ -15,15 +15,11 @@ import {
   CheckCircle2,
   XCircle,
   Activity,
-  Circle,
-  Square,
-  Download,
 } from 'lucide-react'
-import { frameUrl, getStatus, restartRuntime, startRuntime, stopRuntime } from '@/lib/api'
+import { frameUrl, getStatus, startRuntime, stopRuntime } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import type { BackendStatus } from '@/types'
 const POLL_MS = 1000
-const RECORD_POLL_MS = 2000
 const FRAME_REFRESH_MS = 200
 
 function alarmText(type?: string) {
@@ -65,39 +61,6 @@ function AlarmIcon({ type }: { type?: string }) {
   }
 }
 
-type RecordingStatus = {
-  recording: boolean
-  output_dir?: string
-  current_file?: string | null
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message
-  return fallback
-}
-
-function getDetailMessage(data: unknown): string | undefined {
-  if (!data || typeof data !== 'object') return undefined
-  const detail = (data as { detail?: unknown }).detail
-  return typeof detail === 'string' && detail ? detail : undefined
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-    credentials: 'include',
-  })
-  const data: unknown = await res.json().catch(() => null)
-  if (res.status === 401) {
-    window.dispatchEvent(new Event('aicv:unauthorized'))
-  }
-  if (!res.ok) {
-    throw new Error(getDetailMessage(data) || `HTTP ${res.status}`)
-  }
-  return data as T
-}
-
 export function MonitorSection() {
   const { isAdmin } = useAuth()
   const [status, setStatus] = useState<BackendStatus | null>(null)
@@ -106,14 +69,6 @@ export function MonitorSection() {
   const [imgKey, setImgKey] = useState(0)
   const [frameSrc, setFrameSrc] = useState('')
   const objectUrlRef = useRef<string | null>(null)
-
-  const [recording, setRecording] = useState<RecordingStatus>({
-    recording: false,
-    output_dir: '-',
-    current_file: null,
-  })
-  const [recordBusy, setRecordBusy] = useState(false)
-  const [recordError, setRecordError] = useState('')
 
   const revokeFrameUrl = useCallback(() => {
     if (objectUrlRef.current) {
@@ -198,34 +153,6 @@ export function MonitorSection() {
     }
   }, [imgKey, revokeFrameUrl])
 
-  useEffect(() => {
-    let mounted = true
-
-    const fetchRecordingStatus = async () => {
-      try {
-        const next = await apiJson<RecordingStatus>('/api/recording/status')
-        if (mounted) {
-          setRecording(next)
-          setRecordError('')
-        }
-      } catch (err: unknown) {
-        if (mounted) {
-          setRecordError(getErrorMessage(err, '录屏状态获取失败'))
-        }
-      }
-    }
-
-    fetchRecordingStatus().catch(() => undefined)
-    const timer = window.setInterval(() => {
-      fetchRecordingStatus().catch(() => undefined)
-    }, RECORD_POLL_MS)
-
-    return () => {
-      mounted = false
-      window.clearInterval(timer)
-    }
-  }, [])
-
   const handleStartStop = async () => {
     if (!isAdmin) return
     setBusy(true)
@@ -242,35 +169,12 @@ export function MonitorSection() {
     }
   }
 
-  const handleRestart = async () => {
-    if (!isAdmin) return
-    setBusy(true)
+  const handleRefresh = async () => {
     try {
-      await restartRuntime()
       setStatus(await getStatus())
       setImgKey((value) => value + 1)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleToggleRecording = async () => {
-    if (!isAdmin) return
-    setRecordBusy(true)
-    try {
-      if (recording.recording) {
-        await apiJson('/api/recording/stop', { method: 'POST' })
-      } else {
-        await apiJson('/api/recording/start', { method: 'POST' })
-      }
-      const next = await apiJson<RecordingStatus>('/api/recording/status')
-      setRecording(next)
-      setRecordError('')
-    } catch (err: unknown) {
-      console.error(err)
-      setRecordError(getErrorMessage(err, '录屏操作失败'))
-    } finally {
-      setRecordBusy(false)
+    } catch {
+      setImgKey((value) => value + 1)
     }
   }
 
@@ -296,41 +200,27 @@ export function MonitorSection() {
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
-          <Badge variant={status?.running ? 'default' : 'secondary'} className="px-3 py-1">
-            <div className={`w-2 h-2 rounded-full mr-2 ${status?.running ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`} />
-            {status?.running ? '运行中' : '已停止'}
+          <Badge variant={status?.running ? 'default' : 'secondary'} className={`gap-2 ${status?.running ? 'bg-emerald-600' : ''}`}>
+            <span className={`h-2 w-2 rounded-full ${status?.running ? 'bg-emerald-200' : 'bg-slate-400'}`} />
+            {status?.running ? '检测开启' : '检测关闭'}
           </Badge>
 
-          <Button variant="outline" size="icon" onClick={handleStartStop} disabled={!isAdmin || busy}>
+          <Button
+            variant={status?.running ? 'destructive' : 'default'}
+            size="sm"
+            className="gap-2"
+            onClick={handleStartStop}
+            disabled={!isAdmin || busy}
+          >
             {status?.running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            {busy ? '处理中' : status?.running ? '关闭功能' : '开启功能'}
           </Button>
 
-          <Button variant="outline" size="icon" onClick={handleRestart} disabled={!isAdmin || busy}>
-            <RotateCcw className="w-4 h-4" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh}>
+            <RefreshCw className="w-4 h-4" />
+            刷新
           </Button>
 
-          {!recording.recording ? (
-            <Button onClick={handleToggleRecording} disabled={!isAdmin || recordBusy} className="min-w-0 flex-1 gap-2 sm:flex-none">
-              <Circle className="w-4 h-4" />
-              开启录屏
-            </Button>
-          ) : (
-            <Button onClick={handleToggleRecording} disabled={!isAdmin || recordBusy} variant="destructive" className="min-w-0 flex-1 gap-2 sm:flex-none">
-              <Square className="w-4 h-4" />
-              停止录屏
-            </Button>
-          )}
-
-          <div>
-            {recording.recording ? (
-              <Badge className="bg-red-500 gap-1">
-                <Download className="w-3 h-3" />
-                录制中
-              </Badge>
-            ) : (
-              <Badge variant="outline">未录制</Badge>
-            )}
-          </div>
         </div>
       </div>
 
@@ -349,12 +239,12 @@ export function MonitorSection() {
         </CardHeader>
 
           <CardContent className="p-0">
-            <div className="relative h-[clamp(220px,56vh,520px)] w-full overflow-hidden bg-slate-950 sm:h-[clamp(520px,68vh,980px)] 2xl:h-[clamp(680px,72vh,1180px)]">
+            <div className="relative w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
               <img
                 key={imgKey}
                 src={frameSrc || `${frameUrl()}?t=${Date.now()}`}
                 alt="实时监控"
-                className="absolute inset-0 h-full w-full object-contain bg-black"
+                className="block h-auto w-full"
               />
 
             {/* {lastAlarm && (
@@ -402,19 +292,6 @@ export function MonitorSection() {
               </div>
             )}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>录屏信息</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div>状态：<strong>{recording.recording ? '录制中' : '未录制'}</strong></div>
-          <div>输出目录：</div>
-          <div className="break-all rounded border bg-slate-50 px-3 py-2">{recording.output_dir || '-'}</div>
-          <div>当前活跃任务：<span>{recording.current_file || '-'}</span></div>
-          {recordError ? <div className="text-red-500">错误：{recordError}</div> : null}
         </CardContent>
       </Card>
 

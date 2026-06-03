@@ -73,12 +73,10 @@ AiVision/
 ### 8. 旧 `migrations/` 20 个一次性脚本归档到 `_archive/migrations/`
 不参与运行。无需重写新迁移脚本(因为表结构不变)。
 
-### 9. 用户的真实模型路径(数据库 ai_model.path 字段)
-- `yolo_phone` / `yolo_human` → `/usr/zyy/Fuda_CVPreject/guard_room/models/person_phone.pt`
-  (class 0=人, class 1=手机)
-- `yolo_face` → `/srv/cv/research/models/face/yolov8x-face-lindevs.pt`
-
-用户原话: **代码以数据库路径为准,不假设也不替换。**
+### 9. 模型路径来源(已更新)
+旧原则“代码以数据库路径为准”已废弃。当前模型文件路径只从
+`MODEL_PATHS_CONFIG` 指向的本机配置文件读取，默认是
+`AiVision/config/model_paths.yaml`；数据库 `ai_model.path` 不再作为回退来源。
 
 启用新代码前,需要执行的数据库 UPDATE:
 ```sql
@@ -97,7 +95,7 @@ UPDATE ai_model SET
   import_path='platform.inference.workers.yolo_detector.YoloDetectorWorker'
 WHERE name='yolo_face';
 
--- 用户已确认数据库里 path 字段需要更新到上面的实际路径
+-- path 字段可保留占位值；实际模型路径请写入 config/model_paths.yaml
 ```
 
 ---

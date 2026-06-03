@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
+import { Camera, Copy, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -18,9 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   createAiVisionCamera,
   deleteAiVisionCamera,
+  getAiVisionFeatureConfig,
   getAiVisionCameraKey,
   type AiVisionCamera,
   isAiVisionFeatureEnabled,
+  saveAiVisionFeatureConfig,
   updateAiVisionCamera,
 } from '@/lib/aivision'
 
@@ -32,6 +34,7 @@ type FeatureCameraManagerProps = {
   onSelectCamera: (shmName: string) => void
   onAddCamera: (shmName: string) => Promise<void>
   onRemoveCamera: (shmName: string) => Promise<void>
+  onConfigCopied?: (targetShmName: string) => void | Promise<void>
 }
 
 export function FeatureCameraManager({
@@ -42,6 +45,7 @@ export function FeatureCameraManager({
   onSelectCamera,
   onAddCamera,
   onRemoveCamera,
+  onConfigCopied,
 }: FeatureCameraManagerProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [cameraAlias, setCameraAlias] = useState('')
@@ -55,6 +59,9 @@ export function FeatureCameraManager({
   const [renameError, setRenameError] = useState('')
   const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
   const [deleteError, setDeleteError] = useState('')
+  const [copySourceCamera, setCopySourceCamera] = useState('')
+  const [copyTargetCamera, setCopyTargetCamera] = useState('')
+  const [copyError, setCopyError] = useState('')
 
   const enabledCameras = useMemo(
     () => cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature)),
@@ -70,6 +77,15 @@ export function FeatureCameraManager({
       setSelectedExistingCamera('')
     }
   }, [availableCameras, selectedExistingCamera])
+
+  useEffect(() => {
+    if (copySourceCamera && !cameras.some((camera) => camera.shm_name === copySourceCamera)) {
+      setCopySourceCamera('')
+    }
+    if (copyTargetCamera && !cameras.some((camera) => camera.shm_name === copyTargetCamera)) {
+      setCopyTargetCamera('')
+    }
+  }, [cameras, copySourceCamera, copyTargetCamera])
 
   const resetCreateForm = () => {
     setCameraAlias('')
@@ -190,16 +206,47 @@ export function FeatureCameraManager({
     }
   }
 
+  const handleCopyConfig = async () => {
+    const source = copySourceCamera.trim()
+    const target = copyTargetCamera.trim()
+    if (!source || !target || source === target) {
+      setCopyError('请选择不同的源摄像头和目标摄像头。')
+      return
+    }
+
+    setWorkingCamera(target)
+    setCopyError('')
+    try {
+      const sourceConfig = await getAiVisionFeatureConfig(feature, source)
+      await saveAiVisionFeatureConfig(feature, target, {
+        ...sourceConfig.config,
+        enable: true,
+      })
+      await onConfigCopied?.(target)
+      setCopyTargetCamera('')
+      window.dispatchEvent(new Event('aivision:cameras-changed'))
+    } catch (error) {
+      setCopyError(`复制失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
   return (
-    <Card className="border-slate-200 bg-white/95">
-      <CardHeader>
-        <CardTitle className="text-lg">摄像头管理</CardTitle>
+    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-slate-900">
+        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_12px_24px_rgba(0,27,67,0.22)] dark:bg-blue-600">
+            <Camera className="h-5 w-5" />
+          </span>
+          摄像头管理
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
+        <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
-            <div className="text-sm font-medium text-slate-900">启用已有摄像头</div>
-            <div className="text-xs text-slate-500">从全局摄像头列表中选择，并启用当前功能。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">启用已有摄像头</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">从全局摄像头列表中选择，并启用当前功能。</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Select
@@ -229,10 +276,10 @@ export function FeatureCameraManager({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
-            <div className="text-sm font-medium text-slate-900">新增摄像头</div>
-            <div className="text-xs text-slate-500">写入新的摄像头别名和 RTSP 流地址，添加后自动启用当前功能。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新增摄像头</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">写入新的摄像头别名和 RTSP 流地址，添加后自动启用当前功能。</div>
           </div>
           <Button className="gap-2" onClick={() => setDialogOpen(true)} disabled={disabled || Boolean(workingCamera)}>
             <Plus className="h-4 w-4" />
@@ -240,9 +287,61 @@ export function FeatureCameraManager({
           </Button>
         </div>
 
+        <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+          <div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制当前功能配置</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">将一个摄像头的当前功能参数、ROI 和告警配置复制到另一个摄像头。</div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <Select
+              value={copySourceCamera}
+              onValueChange={setCopySourceCamera}
+              disabled={disabled || Boolean(workingCamera) || enabledCameras.length === 0}
+            >
+              <SelectTrigger className="min-w-0 bg-white">
+                <SelectValue placeholder={enabledCameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
+              </SelectTrigger>
+              <SelectContent>
+                {enabledCameras.map((camera) => (
+                  <SelectItem key={camera.id} value={camera.shm_name}>
+                    {camera.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={copyTargetCamera}
+              onValueChange={setCopyTargetCamera}
+              disabled={disabled || Boolean(workingCamera) || cameras.length < 2}
+            >
+              <SelectTrigger className="min-w-0 bg-white">
+                <SelectValue placeholder={cameras.length < 2 ? '暂无目标摄像头' : '目标摄像头'} />
+              </SelectTrigger>
+              <SelectContent>
+                {cameras
+                  .filter((camera) => camera.shm_name !== copySourceCamera)
+                  .map((camera) => (
+                    <SelectItem key={camera.id} value={camera.shm_name}>
+                      {camera.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <Button
+              className="gap-2"
+              onClick={handleCopyConfig}
+              disabled={disabled || Boolean(workingCamera) || !copySourceCamera || !copyTargetCamera || copySourceCamera === copyTargetCamera}
+            >
+              <Copy className="h-4 w-4" />
+              {workingCamera === copyTargetCamera ? '复制中' : '复制配置'}
+            </Button>
+          </div>
+          {copyError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{copyError}</div> : null}
+        </div>
+
         <div className="space-y-2">
           <Label>全部摄像头</Label>
-          <div className="rounded-2xl border border-slate-200">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
             {cameras.length === 0 ? (
               <div className="px-4 py-5 text-sm text-slate-500">暂无摄像头。</div>
             ) : (
@@ -253,7 +352,7 @@ export function FeatureCameraManager({
                 return (
                   <div
                     key={camera.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0"
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition hover:bg-blue-50/60 last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60"
                   >
                     <button
                       type="button"
@@ -261,7 +360,7 @@ export function FeatureCameraManager({
                       className="min-w-0 text-left"
                       disabled={disabled}
                     >
-                      <div className="truncate text-sm font-medium text-slate-900">{camera.name}</div>
+                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
                       <div className="truncate text-xs text-slate-500">
                         {camera.shm_name}
                         {active ? ' · 当前正在编辑' : ''}
@@ -302,7 +401,7 @@ export function FeatureCameraManager({
 
         <div className="space-y-2">
           <Label>已启用当前功能的摄像头</Label>
-          <div className="rounded-2xl border border-slate-200">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
             {enabledCameras.length === 0 ? (
               <div className="px-4 py-5 text-sm text-slate-500">暂无摄像头启用当前功能。</div>
             ) : (
@@ -311,7 +410,7 @@ export function FeatureCameraManager({
                 return (
                   <div
                     key={camera.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0"
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition hover:bg-emerald-50/60 last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60"
                   >
                     <button
                       type="button"
@@ -319,7 +418,7 @@ export function FeatureCameraManager({
                       className="min-w-0 text-left"
                       disabled={disabled}
                     >
-                      <div className="truncate text-sm font-medium text-slate-900">{camera.name}</div>
+                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
                       <div className="text-xs text-slate-500">{active ? '当前正在编辑' : '点击切换配置'}</div>
                     </button>
                     <Button

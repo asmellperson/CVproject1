@@ -15,6 +15,11 @@ models:
   pose_model_task: models/yolo11n-pose.engine
   detector_conf: 0.25
   detector_iou: 0.45
+  detector_imgsz: 640
+  phone_crop_imgsz: 640
+  phone_full_frame_imgsz: 960
+  pose_imgsz: 640
+  use_half: true
   tracker: bytetrack.yaml
   device: '0'
   uniform_cls_imgsz: 224
@@ -50,6 +55,9 @@ runtime:
   debug: true
   draw_debug: false
   max_alarm_history: 1000
+  infer_max_workers: 1
+  share_phone_detector: true
+  share_pose_estimator: true
   phone_detect_mode: guard_crop
 wechat:
   enable: true

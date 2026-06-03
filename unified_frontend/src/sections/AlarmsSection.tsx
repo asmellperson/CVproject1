@@ -3,26 +3,63 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Filter, Download, Eye, Smartphone, UserRound, AlertTriangle, Radar, DoorOpen, ScanFace, ShieldAlert, ShieldCheck } from 'lucide-react'
-import { alarmImageUrl, getAlarms, type AlarmEvent } from '@/lib/api'
+import {
+  Search,
+  Filter,
+  Download,
+  Eye,
+  Smartphone,
+  UserRound,
+  AlertTriangle,
+  Radar,
+  DoorOpen,
+  ScanFace,
+  ShieldAlert,
+  ShieldCheck,
+  CheckCircle2,
+  CircleAlert,
+  CircleDashed,
+  XCircle,
+} from 'lucide-react'
+import {
+  alarmImageUrl,
+  getAlarms,
+  updateAlarmDisposition,
+  type AlarmDisposition,
+  type AlarmDispositionStatus,
+  type AlarmEvent,
+} from '@/lib/api'
 import { alarmVideoUrl } from '@/lib/api'
+import { useAuth } from '@/auth/useAuth'
+import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
 
 export function AlarmsSection() {
+  const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('open')
   const [selectedAlarm, setSelectedAlarm] = useState<AlarmEvent | null>(null)
+  const [dispositionNote, setDispositionNote] = useState('')
+  const [dispositionError, setDispositionError] = useState('')
+  const [dispositionBusy, setDispositionBusy] = useState<AlarmDispositionStatus | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [alarms, setAlarms] = useState<AlarmEvent[]>([])
   const itemsPerPage = 10
+  const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
+  const allowedAlarmTypes = useMemo(
+    () => (accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null),
+    [accessibleAlarmEventTypes],
+  )
 
   useEffect(() => {
     let mounted = true
 
     const load = async () => {
-      const data = await getAlarms(200)
+      const data = await getAlarms(200, accessibleAlarmEventTypes)
       if (mounted) setAlarms(data)
     }
 
@@ -40,7 +77,16 @@ export function AlarmsSection() {
       mounted = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [accessibleAlarmEventTypes])
+
+  useEffect(() => {
+    setDispositionNote(selectedAlarm?.disposition_note || '')
+    setDispositionError('')
+    setDispositionBusy(null)
+  }, [selectedAlarm?.id, selectedAlarm?.disposition_note])
+
+  const effectiveTypeFilter =
+    typeFilter !== 'all' && allowedAlarmTypes && !allowedAlarmTypes.has(typeFilter) ? 'all' : typeFilter
 
   const filteredAlarms = useMemo(
     () =>
@@ -50,22 +96,54 @@ export function AlarmsSection() {
           (alarm.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.camera_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.camera_no || '').toLowerCase().includes(searchQuery.toLowerCase())
-        const matchesType = typeFilter === 'all' || alarm.event_type === typeFilter
-        return matchesSearch && matchesType
+        const matchesType = effectiveTypeFilter === 'all' || alarm.event_type === effectiveTypeFilter
+        const status = alarm.disposition_status || 'pending'
+        const matchesStatus =
+          statusFilter === 'all' ||
+          (statusFilter === 'open' ? status === 'pending' || status === 'acknowledged' : status === statusFilter)
+        return matchesSearch && matchesType && matchesStatus
       }),
-    [alarms, searchQuery, typeFilter],
+    [alarms, searchQuery, effectiveTypeFilter, statusFilter],
   )
 
-  const paginatedAlarms = filteredAlarms.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
   const totalPages = Math.max(1, Math.ceil(filteredAlarms.length / itemsPerPage))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const pageStart = filteredAlarms.length === 0 ? 0 : (safeCurrentPage - 1) * itemsPerPage + 1
+  const pageEnd = Math.min(safeCurrentPage * itemsPerPage, filteredAlarms.length)
+  const paginatedAlarms = filteredAlarms.slice((safeCurrentPage - 1) * itemsPerPage, safeCurrentPage * itemsPerPage)
 
   const counts = useMemo(() => {
     const byType = alarms.reduce<Record<string, number>>((acc, alarm) => {
       acc[alarm.event_type] = (acc[alarm.event_type] || 0) + 1
       return acc
     }, {})
-    return { total: alarms.length, byType }
+    const byStatus = alarms.reduce<Record<AlarmDispositionStatus, number>>(
+      (acc, alarm) => {
+        const status = alarm.disposition_status || 'pending'
+        acc[status] = (acc[status] || 0) + 1
+        return acc
+      },
+      { pending: 0, acknowledged: 0, resolved: 0, false_positive: 0 },
+    )
+    return { total: alarms.length, byType, byStatus }
   }, [alarms])
+
+  const alarmTypeOptions = useMemo(
+    () =>
+      [
+        { eventType: 'blocks', label: '区域入侵', icon: <Radar className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
+        { eventType: 'detect_door', label: '大门开关', icon: <DoorOpen className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
+        { eventType: 'detect_face', label: '人脸检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
+        { eventType: 'detect_phone', label: '手机检测', icon: <Smartphone className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
+        { eventType: 'detect_human', label: '人体逗留', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
+        { eventType: 'guard_absent', label: '保安离岗', icon: <ShieldCheck className="w-6 h-6 text-red-700" />, valueClassName: 'text-red-700' },
+        { eventType: 'guard_phone_use', label: '保安玩手机', icon: <Smartphone className="w-6 h-6 text-orange-700" />, valueClassName: 'text-orange-700' },
+        { eventType: 'guard_prone_sleep', label: '保安趴睡', icon: <UserRound className="w-6 h-6 text-yellow-600" />, valueClassName: 'text-yellow-600' },
+        { eventType: 'security_vlm_non_compliant', label: '安检不规范', icon: <ShieldAlert className="w-6 h-6 text-cyan-700" />, valueClassName: 'text-cyan-700' },
+        { eventType: 'security_vlm_error', label: '安检判定错误', icon: <AlertTriangle className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
+      ].filter((item) => !allowedAlarmTypes || allowedAlarmTypes.has(item.eventType)),
+    [allowedAlarmTypes],
+  )
 
   const getAlarmBadge = (type: string) => {
     switch (type) {
@@ -94,7 +172,50 @@ export function AlarmsSection() {
     }
   }
 
+  const getDispositionBadge = (status: AlarmDispositionStatus) => {
+    switch (status) {
+      case 'pending':
+        return <Badge className="bg-red-600">待处理</Badge>
+      case 'acknowledged':
+        return <Badge className="bg-blue-600">已确认</Badge>
+      case 'resolved':
+        return <Badge className="bg-emerald-600">已处理</Badge>
+      case 'false_positive':
+        return <Badge variant="secondary">误报</Badge>
+      default:
+        return <Badge variant="secondary">未知</Badge>
+    }
+  }
+
   const formatTime = (timestamp?: string) => (timestamp ? new Date(timestamp).toLocaleString('zh-CN') : '-')
+
+  const applyDisposition = (alarmId: string, disposition: AlarmDisposition) => {
+    const patch = (alarm: AlarmEvent): AlarmEvent =>
+      alarm.id === alarmId
+        ? {
+            ...alarm,
+            disposition_status: disposition.status,
+            disposition_note: disposition.note,
+            disposition_updated_at: disposition.updated_at,
+            disposition_updated_by: disposition.updated_by || null,
+          }
+        : alarm
+    setAlarms((items) => items.map(patch))
+    setSelectedAlarm((alarm) => (alarm ? patch(alarm) : alarm))
+  }
+
+  const handleDisposition = async (alarm: AlarmEvent, status: AlarmDispositionStatus) => {
+    setDispositionBusy(status)
+    setDispositionError('')
+    try {
+      const disposition = await updateAlarmDisposition(alarm.id, status, dispositionNote)
+      applyDisposition(alarm.id, disposition)
+    } catch (error) {
+      setDispositionError(error instanceof Error ? error.message : '处置状态保存失败')
+    } finally {
+      setDispositionBusy(null)
+    }
+  }
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(filteredAlarms, null, 2)], { type: 'application/json' })
@@ -121,69 +242,19 @@ export function AlarmsSection() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard title="总报警数" value={counts.total} icon={<AlertTriangle className="w-6 h-6 text-slate-600" />} />
-        <StatCard
-          title="区域入侵"
-          value={counts.byType.blocks || 0}
-          icon={<Radar className="w-6 h-6 text-red-600" />}
-          valueClassName="text-red-600"
-        />
-        <StatCard
-          title="大门开关"
-          value={counts.byType.detect_door || 0}
-          icon={<DoorOpen className="w-6 h-6 text-amber-600" />}
-          valueClassName="text-amber-600"
-        />
-        <StatCard
-          title="人脸检测"
-          value={counts.byType.detect_face || 0}
-          icon={<ScanFace className="w-6 h-6 text-violet-600" />}
-          valueClassName="text-violet-600"
-        />
-        <StatCard
-          title="手机检测"
-          value={counts.byType.detect_phone || 0}
-          icon={<Smartphone className="w-6 h-6 text-orange-600" />}
-          valueClassName="text-orange-600"
-        />
-        <StatCard
-          title="人体逗留"
-          value={counts.byType.detect_human || 0}
-          icon={<UserRound className="w-6 h-6 text-blue-600" />}
-          valueClassName="text-blue-600"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard
-          title="保安离岗"
-          value={counts.byType.guard_absent || 0}
-          icon={<ShieldCheck className="w-6 h-6 text-red-700" />}
-          valueClassName="text-red-700"
-        />
-        <StatCard
-          title="保安玩手机"
-          value={counts.byType.guard_phone_use || 0}
-          icon={<Smartphone className="w-6 h-6 text-orange-700" />}
-          valueClassName="text-orange-700"
-        />
-        <StatCard
-          title="保安趴睡"
-          value={counts.byType.guard_prone_sleep || 0}
-          icon={<UserRound className="w-6 h-6 text-yellow-600" />}
-          valueClassName="text-yellow-600"
-        />
-        <StatCard
-          title="安检不规范"
-          value={counts.byType.security_vlm_non_compliant || 0}
-          icon={<ShieldAlert className="w-6 h-6 text-cyan-700" />}
-          valueClassName="text-cyan-700"
-        />
-        <StatCard
-          title="安检判定错误"
-          value={counts.byType.security_vlm_error || 0}
-          icon={<AlertTriangle className="w-6 h-6 text-amber-600" />}
-          valueClassName="text-amber-600"
-        />
+        <StatCard title="待处理" value={counts.byStatus.pending} icon={<CircleAlert className="w-6 h-6 text-red-600" />} valueClassName="text-red-600" />
+        <StatCard title="已确认" value={counts.byStatus.acknowledged} icon={<CircleDashed className="w-6 h-6 text-blue-600" />} valueClassName="text-blue-600" />
+        <StatCard title="已处理" value={counts.byStatus.resolved} icon={<CheckCircle2 className="w-6 h-6 text-emerald-600" />} valueClassName="text-emerald-600" />
+        <StatCard title="误报" value={counts.byStatus.false_positive} icon={<XCircle className="w-6 h-6 text-slate-500" />} valueClassName="text-slate-600" />
+        {alarmTypeOptions.map((item) => (
+          <StatCard
+            key={item.eventType}
+            title={item.label}
+            value={counts.byType[item.eventType] || 0}
+            icon={item.icon}
+            valueClassName={item.valueClassName}
+          />
+        ))}
       </div>
 
       <Card>
@@ -203,7 +274,7 @@ export function AlarmsSection() {
             </div>
 
             <Select
-              value={typeFilter}
+              value={effectiveTypeFilter}
               onValueChange={(value) => {
                 setTypeFilter(value)
                 setCurrentPage(1)
@@ -215,16 +286,30 @@ export function AlarmsSection() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部类型</SelectItem>
-                <SelectItem value="blocks">区域入侵</SelectItem>
-                <SelectItem value="detect_door">大门开关</SelectItem>
-                <SelectItem value="detect_face">人脸检测</SelectItem>
-                <SelectItem value="detect_phone">手机检测</SelectItem>
-                <SelectItem value="detect_human">人体逗留</SelectItem>
-                <SelectItem value="guard_absent">保安离岗</SelectItem>
-                <SelectItem value="guard_phone_use">保安玩手机</SelectItem>
-                <SelectItem value="guard_prone_sleep">保安趴睡</SelectItem>
-                <SelectItem value="security_vlm_non_compliant">安检流程不规范</SelectItem>
-                <SelectItem value="security_vlm_error">安检判定错误</SelectItem>
+                {alarmTypeOptions.map((item) => (
+                  <SelectItem key={item.eventType} value={item.eventType}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-full md:w-44">
+                <CircleDashed className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="处置状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">待处理/已确认</SelectItem>
+                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="pending">待处理</SelectItem>
+                <SelectItem value="acknowledged">已确认</SelectItem>
+                <SelectItem value="resolved">已处理</SelectItem>
+                <SelectItem value="false_positive">误报</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -243,6 +328,7 @@ export function AlarmsSection() {
                 <TableHead>类型</TableHead>
                 <TableHead>摄像头</TableHead>
                 <TableHead>说明</TableHead>
+                <TableHead>处置状态</TableHead>
                 <TableHead>时间</TableHead>
                 <TableHead>截图</TableHead>
                 <TableHead>操作</TableHead>
@@ -255,6 +341,7 @@ export function AlarmsSection() {
                   <TableCell>{getAlarmBadge(alarm.event_type)}</TableCell>
                   <TableCell className="max-w-[12rem] truncate">{alarm.camera_name || alarm.camera_no || '-'}</TableCell>
                   <TableCell className="max-w-xs truncate">{alarm.reason || '-'}</TableCell>
+                  <TableCell>{getDispositionBadge(alarm.disposition_status || 'pending')}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatTime(alarm.created_at)}</TableCell>
                   <TableCell>{alarm.image_path || alarm.image_url ? <Badge variant="outline">可查看</Badge> : <Badge variant="secondary">无</Badge>}</TableCell>
                   <TableCell>
@@ -269,25 +356,24 @@ export function AlarmsSection() {
 
           <div className="mt-4 flex flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              显示 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredAlarms.length)} 条，共{' '}
-              {filteredAlarms.length} 条
+              显示 {pageStart} - {pageEnd} 条，共 {filteredAlarms.length} 条
             </span>
             <div className="flex items-center justify-between gap-2 sm:justify-start">
               <Button
                 variant="outline"
                 size="sm"
-                disabled={currentPage <= 1}
+                disabled={safeCurrentPage <= 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               >
                 上一页
               </Button>
               <span>
-                {currentPage}/{totalPages}
+                {safeCurrentPage}/{totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                disabled={currentPage >= totalPages}
+                disabled={safeCurrentPage >= totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               >
                 下一页
@@ -326,6 +412,74 @@ export function AlarmsSection() {
 
               <div className="rounded-lg border bg-slate-50 p-3 text-sm">{selectedAlarm.reason || '-'}</div>
 
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-900">处置状态</div>
+                    <div className="mt-1 text-slate-500">
+                      {selectedAlarm.disposition_updated_at
+                        ? `${formatTime(selectedAlarm.disposition_updated_at)} 由 ${selectedAlarm.disposition_updated_by?.name || selectedAlarm.disposition_updated_by?.employee_id || '-'} 更新`
+                        : '尚未处置'}
+                    </div>
+                  </div>
+                  {getDispositionBadge(selectedAlarm.disposition_status || 'pending')}
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="text-sm font-medium text-slate-700">处置备注</div>
+                  <Textarea
+                    value={dispositionNote}
+                    onChange={(event) => setDispositionNote(event.target.value)}
+                    placeholder="可填写现场情况、误报原因或处理结果"
+                    className="min-h-20"
+                  />
+                </div>
+
+                {dispositionError && (
+                  <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {dispositionError}
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    disabled={Boolean(dispositionBusy)}
+                    onClick={() => handleDisposition(selectedAlarm, 'acknowledged')}
+                  >
+                    <CircleDashed className="h-4 w-4" />
+                    {dispositionBusy === 'acknowledged' ? '保存中' : '确认'}
+                  </Button>
+                  <Button
+                    className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                    disabled={Boolean(dispositionBusy)}
+                    onClick={() => handleDisposition(selectedAlarm, 'resolved')}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {dispositionBusy === 'resolved' ? '保存中' : '标记已处理'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="gap-2"
+                    disabled={Boolean(dispositionBusy)}
+                    onClick={() => handleDisposition(selectedAlarm, 'false_positive')}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    {dispositionBusy === 'false_positive' ? '保存中' : '标记误报'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    disabled={Boolean(dispositionBusy)}
+                    onClick={() => handleDisposition(selectedAlarm, 'pending')}
+                  >
+                    <CircleAlert className="h-4 w-4" />
+                    {dispositionBusy === 'pending' ? '保存中' : '退回待处理'}
+                  </Button>
+                </div>
+              </div>
+
               <div className="space-y-3">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">报警截图</div>
@@ -352,7 +506,7 @@ export function AlarmsSection() {
 
                 {!selectedAlarm.video_status && (
                   <div className="text-sm text-slate-500">
-                    {selectedAlarm.source === 'security_vlm' ? '当前安检流程记录来自 VLM 历史判定；后端未提供单条截图接口。' : '当前 AiVision 报警记录已保存截图；未配置录屏文件。'}
+                    {selectedAlarm.source === 'security_vlm' ? '当前安检流程记录来自 VLM 历史判定；后端未提供单条截图接口。' : '当前 AiVision 报警记录已保存截图；未配置报警视频文件。'}
                   </div>
                 )}
                 

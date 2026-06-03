@@ -14,3 +14,7 @@ class HumanConfigORM(FeatureConfigBase):
     region = Column(JSON, nullable=True)
     MIN_BOX_AREA = Column(Integer, default=0)
     ASPECT_RATIO_RANGE = Column(JSON, nullable=True)
+    CENTER_DIST_THR = Column(Float, default=0.65)
+    AREA_RATIO_THR = Column(Float, default=0.55)
+    MATCH_SCORE_THR = Column(Float, default=0.35)
+    TRACK_SMOOTH_ALPHA = Column(Float, default=0.7)

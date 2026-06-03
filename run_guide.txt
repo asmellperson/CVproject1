@@ -13,43 +13,55 @@ Ctrl + B
 进入已有窗口：
 ****************************************
 tmux attach -t unified_frontend
+tmux attach -t unified_backend
 tmux attach -t guard_room
 tmux attach -t aivision
+tmux attach -t security_vlm
 ****************************************
 关闭程序：
 ****************************************
 tmux kill-session -t unified_frontend
+tmux kill-session -t unified_backend
 tmux kill-session -t guard_room
 tmux kill-session -t aivision
+tmux kill-session -t security_vlm
 ****************************************
 
 1、启动unified_frontend:
 tmux new -s unified_frontend
-cd /usr/zyy/Fuda_CVPreject/unified_frontend
+cd unified_frontend
 npm run dev
 如需临时改端口：npm run dev -- --port <前端调试端口>
 
-2、启动guard_room:
+2、启动unified_backend（统一后端，固定对外 5000）:
+tmux new -s unified_backend
+export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
+python -m unified_backend.run_server
+如需临时改端口：python -m unified_backend.run_server --port <统一后端调试端口>
+
+3、启动guard_room（内部服务，默认 5001）:
 tmux new -s guard_room
 conda activate guard_room (保安行为规范检测使用的是guard_room的conda环境)
-cd /usr/zyy/Fuda_CVPreject/guard_room
-python run_server.py
+cd guard_room
+export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
+python run_server.py --host 127.0.0.1 --port 5001
 如需临时改端口：python run_server.py --port <guard_room调试端口>
 
-3、启动AiVision
+4、启动AiVision
 tmux new -s aivision
-cd /usr/zyy/Fuda_CVPreject/AiVision
-uv run main.py
+cd AiVision
+export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
+uv run main.py --host 127.0.0.1 --port 7862
 如需临时改端口：uv run main.py --port <AiVision调试端口>
 
-4、启动security_vlm:
+5、启动security_vlm:
 tmux new -s security_vlm
-cd /usr/zyy/Fuda_CVPreject/security_vlm
-python src/main.py --config configs/config.yaml
+cd security_vlm
+python src/main.py --config configs/config.yaml --host 127.0.0.1 --port 8000
 如需临时改端口：python src/main.py --config configs/config.yaml --port <security_vlm调试端口>
 
 
-5、tmux常用命令:
+6、tmux常用命令:
 查看所有正在跑的tmux：
 tmux ls
 
@@ -63,7 +75,7 @@ npm run dev -- --port <端口>
 
   编辑：
 
-  /usr/zyy/Fuda_CVPreject/guard_room/config/auth_users.json
+  /usr/zyy/Fuda_CVPreject_V3/auth/auth_users.json
 
   追加：
 

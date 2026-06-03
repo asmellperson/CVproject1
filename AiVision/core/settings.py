@@ -91,6 +91,18 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+class ModelPathSettings(BaseSettings):
+    """
+    本机模型路径配置。
+
+    模型文件路径只从此配置读取，不回退数据库 ai_model.path。
+    这样同一套数据库可以部署到不同服务器，只需要调整本机配置文件。
+    """
+    config_path: str = Field("config/model_paths.yaml", alias="MODEL_PATHS_CONFIG")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
 class Settings:
     """
     配置聚合根，将四个子配置组合为单一访问点。
@@ -105,6 +117,7 @@ class Settings:
         self.storage = StorageSettings()
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
+        self.model_paths = ModelPathSettings()
 
 
 @lru_cache(maxsize=1)

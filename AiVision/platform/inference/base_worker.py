@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from core.logger import logger
+from platform.inference.model_paths import apply_model_path_override
 
 
 class BaseModelWorker(ABC):
@@ -29,14 +30,15 @@ class BaseModelWorker(ABC):
         self,
         infer_queue: mp.Queue,
         result_queues: dict[str, mp.Queue],   # {function_name: Queue}
-        model_cfg: dict,                       # 来自 ai_model 表的一行
+        model_cfg: dict,                       # 来自 ai_model 表的一行，模型文件路径会被本机配置覆盖
         initial_configs: dict[int, dict],      # {camera_id: function_config_dict}
     ):
         self.infer_queue = infer_queue
         self.result_queues = result_queues
-        self.model_cfg = model_cfg
-        self.model_name = model_cfg.get("name", "<unknown>")
-        self.model_path = model_cfg.get("path", "")
+        self.model_cfg = apply_model_path_override(model_cfg)
+        self.model_name = self.model_cfg.get("name", "<unknown>")
+        self.model_path = self.model_cfg.get("path", "")
+        self.model_path_source = self.model_cfg.get("path_source", "database")
         self.initial_configs = initial_configs
 
         self._proc: mp.Process | None = None
@@ -96,7 +98,10 @@ class BaseModelWorker(ABC):
 
         try:
             model = self.load_model()
-            logger.info(f"[ModelWorker:{self.model_name}] 模型加载成功 path={self.model_path}")
+            logger.info(
+                f"[ModelWorker:{self.model_name}] 模型加载成功 "
+                f"path={self.model_path} source={self.model_path_source}"
+            )
         except Exception:
             logger.exception(f"[ModelWorker:{self.model_name}] 模型加载失败,worker 退出")
             return

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, Radar, RefreshCw, Save, SlidersHorizontal, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
+import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
-import { AiVisionModelConfig } from '@/components/AiVisionModelConfig'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +15,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
+
+const AiVisionRoiEditor = lazy(() =>
+  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
+)
+const AiVisionModelConfig = lazy(() =>
+  import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
+)
+
+function LazyConfigFallback({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
+      {label}
+    </div>
+  )
+}
 
 type BlocksConfig = {
   enable: boolean
@@ -166,6 +180,7 @@ export function IntrusionDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refreshCameraList = async () => {
@@ -283,6 +298,16 @@ export function IntrusionDetectionSection() {
     }
   }
 
+  const applyDayPreset = () => {
+    setForm((prev) => ({ ...prev, threshold: '0.12', alarmInterval: '5.0' }))
+    setMessage('已应用白天参数预设，确认后请保存配置。')
+  }
+
+  const applyNightPreset = () => {
+    setForm((prev) => ({ ...prev, threshold: '0.08', alarmInterval: '5.0' }))
+    setMessage('已应用夜间参数预设，确认后请保存配置。')
+  }
+
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
 
   return (
@@ -340,31 +365,48 @@ export function IntrusionDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                onConfigCopied={(cameraName) => {
+                  setForm((prev) => ({ ...prev, cameraName }))
+                  return loadConfig(cameraName)
+                }}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <AiVisionRoiEditor
-                title="区域入侵 ROI 绘制"
-                cameraKey={form.cameraName}
-                roiJson={form.roiPos}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
-                saving={saving}
-                message={message}
-                onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
-                onSave={saveConfig}
-              />
+              <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
+                <AiVisionRoiEditor
+                  title="区域入侵 ROI 绘制"
+                  cameraKey={form.cameraName}
+                  feature="blocks"
+                  roiJson={form.roiPos}
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  saving={saving}
+                  message={message}
+                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
+                  onSave={saveConfig}
+                />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <Card className="border-slate-200 bg-white/95">
-              <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <CardTitle className="text-lg">配置表单</CardTitle>
+              <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#f0fdfa_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+                <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-[0_12px_24px_rgba(16,185,129,0.22)]">
+                    <SlidersHorizontal className="h-5 w-5" />
+                  </span>
+                  配置表单
+                </CardTitle>
                 <Badge variant="outline" className="border-slate-300 text-slate-600">
                   AiVision blocks
                 </Badge>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 bg-[#f7fffc] p-4 sm:p-5 dark:bg-slate-950/30">
+                <AiVisionPresetActions
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  onApplyDay={applyDayPreset}
+                  onApplyNight={applyNightPreset}
+                />
                 <div className="grid gap-5 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="intrusion-camera">摄像头名称</Label>
@@ -422,7 +464,7 @@ export function IntrusionDetectionSection() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                   <div className="text-sm text-slate-600">{message}</div>
                   <div className="flex gap-2">
                     <Button variant="outline" className="gap-2" onClick={() => loadConfig()} disabled={loading || saving || !form.cameraName}>
@@ -440,7 +482,9 @@ export function IntrusionDetectionSection() {
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <AiVisionModelConfig requiredModels={[]} />
+              <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
+                <AiVisionModelConfig requiredModels={[]} />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">

@@ -1,21 +1,46 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { Topbar } from '@/components/Topbar'
 import { HomeSection } from '@/sections/HomeSection'
-import { GuardBehaviorSection } from '@/sections/GuardBehaviorSection'
-import { IntrusionDetectionSection } from '@/sections/IntrusionDetectionSection'
-import { DoorDetectionSection } from '@/sections/DoorDetectionSection'
-import { FaceDetectionSection } from '@/sections/FaceDetectionSection'
-import { HumanDetectionSection } from '@/sections/HumanDetectionSection'
-import { PhoneDetectionSection } from '@/sections/PhoneDetectionSection'
-import { SecurityVlmSection } from '@/sections/SecurityVlmSection'
-import { AlarmsSection } from '@/sections/AlarmsSection'
-import { StatisticsSection } from '@/sections/StatisticsSection'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/auth/useAuth'
-import { hasPageAccess } from '@/lib/permissions'
+import { hasPageAccess } from '@/auth/permissions'
+
+const GuardBehaviorSection = lazy(() =>
+  import('@/sections/GuardBehaviorSection').then((module) => ({ default: module.GuardBehaviorSection })),
+)
+const IntrusionDetectionSection = lazy(() =>
+  import('@/sections/IntrusionDetectionSection').then((module) => ({ default: module.IntrusionDetectionSection })),
+)
+const DoorDetectionSection = lazy(() =>
+  import('@/sections/DoorDetectionSection').then((module) => ({ default: module.DoorDetectionSection })),
+)
+const FaceDetectionSection = lazy(() =>
+  import('@/sections/FaceDetectionSection').then((module) => ({ default: module.FaceDetectionSection })),
+)
+const HumanDetectionSection = lazy(() =>
+  import('@/sections/HumanDetectionSection').then((module) => ({ default: module.HumanDetectionSection })),
+)
+const PhoneDetectionSection = lazy(() =>
+  import('@/sections/PhoneDetectionSection').then((module) => ({ default: module.PhoneDetectionSection })),
+)
+const SecurityVlmSection = lazy(() =>
+  import('@/sections/SecurityVlmSection').then((module) => ({ default: module.SecurityVlmSection })),
+)
+const AlarmsSection = lazy(() => import('@/sections/AlarmsSection').then((module) => ({ default: module.AlarmsSection })))
+const StatisticsSection = lazy(() =>
+  import('@/sections/StatisticsSection').then((module) => ({ default: module.StatisticsSection })),
+)
+
+function PageLoadingFallback() {
+  return (
+    <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
+      正在加载页面...
+    </div>
+  )
+}
 
 function App() {
   const { user } = useAuth()
@@ -102,7 +127,9 @@ function App() {
       >
         <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
         <main className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
-          <div className="w-full min-w-0">{renderContent()}</div>
+          <div className="w-full min-w-0">
+            <Suspense fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
+          </div>
         </main>
       </div>
 

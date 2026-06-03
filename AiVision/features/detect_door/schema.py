@@ -11,6 +11,11 @@ class DoorValueSchema(BaseModel):
     diff_threshold_env: int = Field(10, ge=0)
     env_threshold: float = Field(10.0, ge=0)
     first_alarm: int = Field(60, ge=0)
+    stable_confirm_seconds: float = Field(1.0, ge=0)
+    stable_confirm_hits: int = Field(3, ge=1)
+    background_update_alpha: float = Field(0.05, ge=0, le=1)
+    global_motion_threshold: float = Field(0.22, ge=0)
+    min_local_change_ratio: float = Field(0.01, ge=0, le=1)
     cap_interval: float = Field(0.1, gt=0)
     alarm_interval: float = Field(5.0, gt=0)
 

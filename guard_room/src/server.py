@@ -8,7 +8,6 @@ FastAPI Web 服务模块。
 API 分组：
     /api/auth/*        —— 登录、登出、当前用户信息
     /api/control/*     —— 检测系统启动/停止/重启（需 admin）
-    /api/recording/*   —— 手动录制控制（需 admin）
     /api/config        —— 配置读取与更新（更新需 admin）
     /api/alarms/*      —— 报警列表、截图、视频
     /api/statistics    —— 统计信息
@@ -38,7 +37,9 @@ from pathlib import Path
 
 from .auth import (
     AuthError,
+    ChangePasswordRequest,
     LoginRequest,
+    change_own_password,
     clear_auth_cookie,
     create_token,
     get_current_user,
@@ -178,22 +179,18 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
         clear_auth_cookie(response, request)
         return {"success": True}
 
-    # ── 手动录制路由 ──────────────────────────────────────────────────────
-
-    @app.get("/api/recording/status")
-    def recording_status():
-        """返回手动录制器的当前状态（是否录制中、当前文件路径等）。"""
-        return runtime.recorder.status()
-
-    @app.post("/api/recording/start")
-    def start_recording(_user: dict = Depends(require_admin)):
-        """启动手动录制（需 admin）。VideoWriter 在首帧到来时懒创建。"""
-        return runtime.recorder.start()
-
-    @app.post("/api/recording/stop")
-    def stop_recording(_user: dict = Depends(require_admin)):
-        """停止手动录制（需 admin），返回已保存文件的路径。"""
-        return runtime.recorder.stop()
+    @app.post("/api/auth/password")
+    def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+        """修改当前登录用户自己的密码。"""
+        try:
+            updated_user = change_own_password(
+                user.get("employee_id", ""),
+                payload.current_password,
+                payload.new_password,
+            )
+        except AuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"success": True, "user": updated_user}
 
     # ── 基础路由 ─────────────────────────────────────────────────────────
 

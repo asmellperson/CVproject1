@@ -49,6 +49,10 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         max_time = _number_or_default(cfg.get("MAX_TIME"), 10.0)
         iou_thr = _number_or_default(cfg.get("IOU_THR"), 0.3)
         max_lost = int(_number_or_default(cfg.get("MAX_LOST"), 5))
+        center_dist_thr = _number_or_default(cfg.get("CENTER_DIST_THR"), 0.65)
+        area_ratio_thr = _number_or_default(cfg.get("AREA_RATIO_THR"), 0.55)
+        match_score_thr = _number_or_default(cfg.get("MATCH_SCORE_THR"), 0.35)
+        smooth_alpha = _number_or_default(cfg.get("TRACK_SMOOTH_ALPHA"), 0.7)
         conf_thr = _number_or_default(cfg.get("CONF_THRESHOLD", cfg.get("FACE_SCORE_THR")), 0.3)
         min_box_area = _number_or_default(cfg.get("MIN_BOX_AREA"), 0)
         aspect_range = cfg.get("ASPECT_RATIO_RANGE") or []
@@ -72,10 +76,21 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         for roi_index, det_result in enumerate(det_results):
             tracker_key = (camera_id, roi_index)
             if tracker_key not in self._trackers:
-                self._trackers[tracker_key] = IouTracker(iou_thr=iou_thr, max_lost=max_lost)
+                self._trackers[tracker_key] = IouTracker(
+                    iou_thr=iou_thr,
+                    max_lost=max_lost,
+                    center_dist_thr=center_dist_thr,
+                    area_ratio_thr=area_ratio_thr,
+                    match_score_thr=match_score_thr,
+                    smooth_alpha=smooth_alpha,
+                )
             tracker = self._trackers[tracker_key]
             tracker.iou_thr = iou_thr
             tracker.max_lost = max_lost
+            tracker.center_dist_thr = center_dist_thr
+            tracker.area_ratio_thr = area_ratio_thr
+            tracker.match_score_thr = match_score_thr
+            tracker.smooth_alpha = smooth_alpha
 
             # 提取检测框
             detections = []

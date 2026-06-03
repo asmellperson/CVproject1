@@ -39,12 +39,13 @@ def _suppress_native_stderr():
 class CameraRuntime:
     """单个摄像头的采集运行时"""
 
-    def __init__(self, config: dict, active_index):
+    def __init__(self, config: dict, active_index, frame_seq):
         self.cfg = config
         self.name: str = config["name"]
         self.shm_name: str = config["shm_name"]
         self.url: str = config["url"]
         self.active_index = active_index
+        self.frame_seq = frame_seq
 
         self.status = True
         self.running = False
@@ -104,7 +105,7 @@ class CameraRuntime:
 
         self.proc = Process(
             target=self._capture_loop,
-            kwargs={"active_index": active_index},
+            kwargs={"active_index": active_index, "frame_seq": self.frame_seq},
             name=f"camera-capture-{self.shm_name}",
             daemon=True,
         )
@@ -159,7 +160,7 @@ class CameraRuntime:
 
     # ---------- 采集主循环 ----------
 
-    def _capture_loop(self, active_index):
+    def _capture_loop(self, active_index, frame_seq):
         try:
             from setproctitle import setproctitle
             setproctitle(f"Camera[{self.shm_name}]")
@@ -202,6 +203,7 @@ class CameraRuntime:
 
                     buffers[idx][:] = frame
                     active_index.value = idx
+                    frame_seq.value += 1
                     self.ready_event.set()
                     idx = 1 - idx
 

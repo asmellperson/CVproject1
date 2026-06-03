@@ -41,6 +41,7 @@ class UniformClassifier:
         expand_ratio: float = 0.10,
         model_name: str = "hf_hub:timm/convnextv2_tiny.fcmae_ft_in22k_in1k",
         positive_class_name: str = "uniform",
+        use_half: bool = False,
     ):
         """
         Args:
@@ -55,6 +56,7 @@ class UniformClassifier:
                                  容忍 hf_hub: 前缀在离线环境下不可用的情况。
             positive_class_name: checkpoint 中代表"保安制服"的类别名，
                                  必须存在于 class_to_idx 中。
+            use_half:            CUDA 推理时是否使用 FP16，降低显存占用。
         """
         # 设备选择：device 为数字字符串时映射到对应 GPU，否则 CPU
         if device and device != "cpu" and torch.cuda.is_available():
@@ -67,6 +69,7 @@ class UniformClassifier:
         self.expand_ratio = expand_ratio
         self.model_name = model_name
         self.positive_class_name = positive_class_name
+        self.use_half = bool(use_half and self.device.type == "cuda")
 
         # ── 加载 checkpoint ──────────────────────────────────────────────
         ckpt = torch.load(model_path, map_location="cpu")   # 先加载到 CPU，再按需移到 GPU
@@ -105,6 +108,8 @@ class UniformClassifier:
             print("[WARN] unexpected keys:", unexpected[:20], "... total =", len(unexpected))
 
         self.model.to(self.device)
+        if self.use_half:
+            self.model.half()
         self.model.eval()   # 关闭 dropout / BN 的训练模式
 
         # ── 推理预处理：与训练时完全对齐 ────────────────────────────────
@@ -198,6 +203,8 @@ class UniformClassifier:
         crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(crop_rgb)
         tensor = self.transform(image).unsqueeze(0).to(self.device)
+        if self.use_half:
+            tensor = tensor.half()
 
         with torch.no_grad():   # 推理阶段不计算梯度，节省显存和计算
             logits = self.model(tensor)
@@ -206,3 +213,7 @@ class UniformClassifier:
 
         is_guard = conf >= self.conf_thres
         return is_guard, conf
+
+    def close(self) -> None:
+        """释放模型引用，便于运行时停止后回收显存。"""
+        self.model = None

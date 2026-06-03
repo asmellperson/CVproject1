@@ -19,14 +19,15 @@ class FrameReaderRegistry:
     """统一帧读取器集合 — 一个摄像头一个线程"""
 
     def __init__(self):
-        # shm_name → ((shm_0, frame_0), (shm_1, frame_1), active_index)
+        # shm_name → ((shm_0, frame_0), (shm_1, frame_1), active_index, frame_seq)
         self._shm_views: dict[str, tuple] = {}
         self._threads: dict[str, threading.Thread] = {}
         self.latest_frames: dict[str, np.ndarray] = {}
         self.latest_frame_times: dict[str, float] = {}
+        self.latest_frame_seq: dict[str, int] = {}
         self._running = False
 
-    def register(self, shm_name: str, shape: tuple, active_index):
+    def register(self, shm_name: str, shape: tuple, active_index, frame_seq):
         """注册一个摄像头的共享内存视图,启动其读取线程"""
         try:
             shm0 = shared_memory.SharedMemory(name=shm_name + "_0")
@@ -37,7 +38,7 @@ class FrameReaderRegistry:
             logger.error(f"[FrameReader] 共享内存附加失败 {shm_name}: {e}")
             return
 
-        self._shm_views[shm_name] = ((shm0, frame0), (shm1, frame1), active_index)
+        self._shm_views[shm_name] = ((shm0, frame0), (shm1, frame1), active_index, frame_seq)
         if self._running:
             self._start_thread(shm_name)
 
@@ -58,6 +59,7 @@ class FrameReaderRegistry:
 
         self.latest_frames.pop(shm_name, None)
         self.latest_frame_times.pop(shm_name, None)
+        self.latest_frame_seq.pop(shm_name, None)
 
     def start_all(self):
         self._running = True
@@ -81,6 +83,7 @@ class FrameReaderRegistry:
         self._shm_views.clear()
         self.latest_frames.clear()
         self.latest_frame_times.clear()
+        self.latest_frame_seq.clear()
 
     def is_active(self, shm_name: str) -> bool:
         return shm_name in self._shm_views
@@ -100,10 +103,16 @@ class FrameReaderRegistry:
             view = self._shm_views.get(shm_name)
             if view is None:
                 break
-            (_, frame0), (_, frame1), active_index = view
+            (_, frame0), (_, frame1), active_index, frame_seq = view
             try:
-                idx = active_index.value
+                seq = int(frame_seq.value)
+                last_seq = self.latest_frame_seq.get(shm_name, -1)
+                if seq == last_seq:
+                    time.sleep(0.1)
+                    continue
+                idx = int(active_index.value)
                 self.latest_frames[shm_name] = (frame0 if idx == 0 else frame1).copy()
+                self.latest_frame_seq[shm_name] = seq
                 self.latest_frame_times[shm_name] = time.time()
             except Exception as e:
                 logger.warning(f"[FrameReader:{shm_name}] 读帧异常: {e}")

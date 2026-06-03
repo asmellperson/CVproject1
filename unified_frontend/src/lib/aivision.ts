@@ -42,6 +42,23 @@ export type AiVisionModel = {
 export type CreateAiVisionModelPayload = Pick<AiVisionModel, 'name' | 'type' | 'path'> &
   Partial<Pick<AiVisionModel, 'import_path' | 'description' | 'enable'>>
 
+export type AiVisionFeatureConfig = {
+  enable: boolean
+  value: Record<string, unknown>
+  alarm?: unknown
+}
+
+type AiVisionFeatureConfigResponse = {
+  camera: {
+    id: number
+    name: string
+    shm_name: string
+    enable: boolean
+  }
+  feature: string
+  config: AiVisionFeatureConfig
+}
+
 type AiVisionCamerasResponse = {
   cameras: AiVisionCamera[]
 } | AiVisionCamera[]
@@ -142,6 +159,32 @@ export async function deleteAiVisionCamera(cameraKey: string) {
 
   window.dispatchEvent(new Event('aivision:cameras-changed'))
   return (await response.json()) as { ok: boolean }
+}
+
+export async function getAiVisionFeatureConfig(feature: string, cameraKey: string) {
+  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  return (await response.json()) as AiVisionFeatureConfigResponse
+}
+
+export async function saveAiVisionFeatureConfig(feature: string, cameraKey: string, config: AiVisionFeatureConfig) {
+  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  window.dispatchEvent(new Event('aivision:cameras-changed'))
+  return (await response.json()) as AiVisionFeatureConfigResponse
 }
 
 export async function getAiVisionModels() {

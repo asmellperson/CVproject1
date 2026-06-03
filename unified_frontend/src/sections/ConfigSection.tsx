@@ -7,9 +7,11 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell } from 'lucide-react'
+import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { getConfig, saveConfig, restartRuntime, getStatus } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
+import { cn } from '@/lib/utils'
 // ==================== 类型定义 ====================
 
 type AppConfigPayload = {
@@ -458,58 +460,216 @@ async function waitUntilRunning(timeoutMs: number) {
 
         {/* ==================== 检测规则 ==================== */}
         <TabsContent value="rules" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80">
+              <CardTitle className="flex items-center gap-2 text-[#10264d]">
                 <Shield className="w-5 h-5 text-green-600" />
                 检测规则配置
               </CardTitle>
               <CardDescription>配置离岗、玩手机、趴睡等行为检测的阈值参数</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-8">
+            <CardContent className="space-y-5 bg-[#f8fbff] p-4 sm:p-5 lg:p-6">
               {/* 离岗相关 */}
-              <div className="space-y-6">
-                <Label className="text-base font-semibold text-slate-700">离岗检测</Label>
-                <SliderRow title="离岗触发时间（秒）" value={config.rules.absent_seconds} min={10} max={1800} step={10} onChange={(v) => setRules({ absent_seconds: v })} />
-                <SliderRow title="双摄离岗报警时间（秒）" value={config.rules.absent_alarm_seconds} min={10} max={600} step={10} onChange={(v) => setRules({ absent_alarm_seconds: v })} />
-              </div>
+              <RuleGroup title="离岗检测" icon={UserRound} tone="green">
+                <SliderRow
+                  title="离岗触发时间（秒）"
+                  description="所有在线摄像头均未见保安后，持续达到该时间即触发离岗报警。"
+                  value={config.rules.absent_alarm_seconds}
+                  min={10}
+                  max={600}
+                  step={10}
+                  onChange={(v) => setRules({ absent_alarm_seconds: v })}
+                  tone="green"
+                />
+                <SliderRow
+                  title="离岗重复报警间隔（秒）"
+                  description="同一次离岗报警触发后，至少间隔这么久才允许再次推送离岗报警。"
+                  value={config.rules.alarm_cooldown_absent}
+                  min={30}
+                  max={1800}
+                  step={30}
+                  onChange={(v) => setRules({ alarm_cooldown_absent: v })}
+                  tone="green"
+                />
+              </RuleGroup>
 
               {/* 手机检测相关 */}
-              <div className="space-y-6">
-                <Label className="text-base font-semibold text-slate-700">手机检测</Label>
-                <SliderRow title="玩手机触发时间（秒）" value={config.rules.phone_seconds} min={0.3} max={600} step={0.1} onChange={(v) => setRules({ phone_seconds: v })} />
-                <SliderRow title="手机检测窗口（秒）" value={config.rules.phone_window_seconds} min={1} max={20} step={1} onChange={(v) => setRules({ phone_window_seconds: v })} />
-                <SliderRow title="窗口内最小命中帧数" value={config.rules.phone_min_hits_in_window} min={1} max={30} step={1} onChange={(v) => setRules({ phone_min_hits_in_window: v })} />
-                <SliderRow title="手机检测宽限（秒）" value={config.rules.phone_grace_seconds} min={0.5} max={10} step={0.5} onChange={(v) => setRules({ phone_grace_seconds: v })} />
-                <SliderRow title="手机靠近人体阈值（px）" value={config.rules.phone_near_person_px} min={50} max={400} step={10} onChange={(v) => setRules({ phone_near_person_px: v })} />
-                <SliderRow title="手机靠近头部阈值（px）" value={config.rules.phone_near_head_px} min={50} max={300} step={10} onChange={(v) => setRules({ phone_near_head_px: v })} />
-              </div>
+              <RuleGroup title="手机检测" icon={Smartphone} tone="blue">
+                <SliderRow
+                  title="持续玩手机多久报警（秒）"
+                  description="疑似玩手机状态连续累计达到该时间后，才触发报警。"
+                  value={config.rules.phone_seconds}
+                  min={0.3}
+                  max={600}
+                  step={0.1}
+                  onChange={(v) => setRules({ phone_seconds: v })}
+                  tone="blue"
+                />
+                <SliderRow
+                  title="手机重复报警间隔（秒）"
+                  description="同一次手机报警触发后，至少间隔这么久才允许再次推送手机报警。"
+                  value={config.rules.alarm_cooldown_phone}
+                  min={30}
+                  max={1800}
+                  step={30}
+                  onChange={(v) => setRules({ alarm_cooldown_phone: v })}
+                  tone="blue"
+                />
+                <SliderRow
+                  title="统计最近几秒内的手机命中"
+                  description="系统只统计最近这段时间内识别到手机的次数，用来过滤偶发误检。"
+                  value={config.rules.phone_window_seconds}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onChange={(v) => setRules({ phone_window_seconds: v })}
+                  tone="blue"
+                />
+                <SliderRow
+                  title="统计窗口内至少识别到几次手机"
+                  description="在上面的统计时间内，识别到手机的次数达到该值，才认为证据有效。"
+                  value={config.rules.phone_min_hits_in_window}
+                  min={1}
+                  max={30}
+                  step={1}
+                  onChange={(v) => setRules({ phone_min_hits_in_window: v })}
+                  tone="blue"
+                />
+                <SliderRow
+                  title="短暂漏检宽限时间（秒）"
+                  description="手机被遮挡或短暂没识别到时，在该时间内不会立刻清零计时。"
+                  value={config.rules.phone_grace_seconds}
+                  min={0.5}
+                  max={10}
+                  step={0.5}
+                  onChange={(v) => setRules({ phone_grace_seconds: v })}
+                  tone="blue"
+                />
+                <div className="space-y-4 rounded-xl border border-dashed border-blue-300 bg-blue-50/35 p-4 md:col-span-2">
+                  <div>
+                    <Label className="text-sm font-semibold text-blue-800">高级参数</Label>
+                    <p className="mt-1 text-xs leading-5 text-blue-700/70">通常不需要调整。数值越大越宽松，越容易把附近物体判断为手机。</p>
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <SliderRow
+                      title="手机靠近身体判定范围（px）"
+                      description="手机中心点落在人体框附近多大范围内，才认为可能属于这个保安。"
+                      value={config.rules.phone_near_person_px}
+                      min={50}
+                      max={400}
+                      step={10}
+                      onChange={(v) => setRules({ phone_near_person_px: v })}
+                      tone="blue"
+                    />
+                    <SliderRow
+                      title="手机靠近头部判定范围（px）"
+                      description="手机中心点距离头部估计位置多近，才认为像是在看手机或接打电话。"
+                      value={config.rules.phone_near_head_px}
+                      min={50}
+                      max={300}
+                      step={10}
+                      onChange={(v) => setRules({ phone_near_head_px: v })}
+                      tone="blue"
+                    />
+                  </div>
+                </div>
+              </RuleGroup>
 
               {/* 趴睡检测相关 */}
-              <div className="space-y-6">
-                <Label className="text-base font-semibold text-slate-700">趴睡检测</Label>
-                <SliderRow title="趴睡触发时间（秒）" value={config.rules.prone_sleep_seconds} min={60} max={1200} step={30} onChange={(v) => setRules({ prone_sleep_seconds: v })} />
-                <SliderRow title="低头比例阈值" value={config.rules.prone_head_down_ratio_threshold} min={0.05} max={0.5} step={0.01} onChange={(v) => setRules({ prone_head_down_ratio_threshold: v })} />
-                <SliderRow title="趴睡框高度比例阈值" value={config.rules.prone_bbox_height_ratio_threshold} min={0.05} max={0.5} step={0.01} onChange={(v) => setRules({ prone_bbox_height_ratio_threshold: v })} />
-                <SliderRow title="趴睡连续帧阈值" value={config.rules.prone_consecutive_frames} min={1} max={30} step={1} onChange={(v) => setRules({ prone_consecutive_frames: v })} />
-              </div>
+              <RuleGroup title="趴睡检测" icon={Moon} tone="purple">
+                <SliderRow
+                  title="持续趴睡多久报警（秒）"
+                  description="疑似趴睡状态连续达到该时间后，才触发报警。"
+                  value={config.rules.prone_sleep_seconds}
+                  min={60}
+                  max={1200}
+                  step={30}
+                  onChange={(v) => setRules({ prone_sleep_seconds: v })}
+                  tone="purple"
+                />
+                <SliderRow
+                  title="趴睡重复报警间隔（秒）"
+                  description="同一次趴睡报警触发后，至少间隔这么久才允许再次推送趴睡报警。"
+                  value={config.rules.alarm_cooldown_prone_sleep}
+                  min={30}
+                  max={1800}
+                  step={30}
+                  onChange={(v) => setRules({ alarm_cooldown_prone_sleep: v })}
+                  tone="purple"
+                />
+                <div className="space-y-4 rounded-xl border border-dashed border-violet-300 bg-violet-50/35 p-4 md:col-span-2">
+                  <div>
+                    <Label className="text-sm font-semibold text-violet-800">高级参数</Label>
+                    <p className="mt-1 text-xs leading-5 text-violet-700/70">通常不需要调整。参数越敏感越容易报警，参数越严格越不容易误报。</p>
+                  </div>
+                  <div className="grid gap-5 lg:grid-cols-3">
+                    <SliderRow
+                      title="低头判定灵敏度"
+                      description="数值越小越容易判定为低头；数值越大越严格。"
+                      value={config.rules.prone_head_down_ratio_threshold}
+                      min={0.05}
+                      max={0.5}
+                      step={0.01}
+                      onChange={(v) => setRules({ prone_head_down_ratio_threshold: v })}
+                      tone="purple"
+                    />
+                    <SliderRow
+                      title="伏桌/趴下判定灵敏度"
+                      description="用于判断人体框是否明显变矮。数值越大越容易认为是在伏桌或趴下。"
+                      value={config.rules.prone_bbox_height_ratio_threshold}
+                      min={0.05}
+                      max={0.5}
+                      step={0.01}
+                      onChange={(v) => setRules({ prone_bbox_height_ratio_threshold: v })}
+                      tone="purple"
+                    />
+                    <SliderRow
+                      title="连续低头确认帧数"
+                      description="连续识别到低头达到该帧数后，才认为低头证据有效。"
+                      value={config.rules.prone_consecutive_frames}
+                      min={1}
+                      max={30}
+                      step={1}
+                      onChange={(v) => setRules({ prone_consecutive_frames: v })}
+                      tone="purple"
+                    />
+                  </div>
+                </div>
+              </RuleGroup>
 
-              {/* 通用参数 */}
-              <div className="space-y-6">
-                <Label className="text-base font-semibold text-slate-700">通用参数</Label>
-                <SliderRow title="静止运动阈值" value={config.rules.static_motion_threshold} min={1} max={20} step={1} onChange={(v) => setRules({ static_motion_threshold: v })} />
-                <SliderRow title="人员状态 TTL（秒）" value={config.rules.state_ttl_seconds} min={5} max={120} step={1} onChange={(v) => setRules({ state_ttl_seconds: v })} />
-                <SliderRow title="保安识别保活时间（秒）" value={config.rules.guard_hold_seconds} min={0.5} max={10} step={0.1} onChange={(v) => setRules({ guard_hold_seconds: v })} />
-                <SliderRow title="双摄同步窗口（秒）" value={config.rules.dual_sync_seconds} min={0.5} max={10} step={0.5} onChange={(v) => setRules({ dual_sync_seconds: v })} />
-              </div>
-
-              {/* 报警冷却 */}
-              <div className="space-y-6">
-                <Label className="text-base font-semibold text-slate-700">报警冷却</Label>
-                <SliderRow title="离岗报警冷却（秒）" value={config.rules.alarm_cooldown_absent} min={30} max={1800} step={30} onChange={(v) => setRules({ alarm_cooldown_absent: v })} />
-                <SliderRow title="手机报警冷却（秒）" value={config.rules.alarm_cooldown_phone} min={30} max={1800} step={30} onChange={(v) => setRules({ alarm_cooldown_phone: v })} />
-                <SliderRow title="趴睡报警冷却（秒）" value={config.rules.alarm_cooldown_prone_sleep} min={30} max={1800} step={30} onChange={(v) => setRules({ alarm_cooldown_prone_sleep: v })} />
-              </div>
+              {/* 识别稳定性参数 */}
+              <RuleGroup title="识别稳定性参数" icon={Settings2} tone="amber">
+                <SliderRow
+                  title="静止判定灵敏度"
+                  description="用于趴睡判断。人体移动小于该范围时，认为基本静止。数值越大越容易判定为静止。"
+                  value={config.rules.static_motion_threshold}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onChange={(v) => setRules({ static_motion_threshold: v })}
+                  tone="amber"
+                />
+                <SliderRow
+                  title="目标短暂消失保留时间（秒）"
+                  description="人员被遮挡或短暂丢失后，系统继续保留其跟踪状态的时间。超过该时间会按新目标处理。"
+                  value={config.rules.state_ttl_seconds}
+                  min={5}
+                  max={120}
+                  step={1}
+                  onChange={(v) => setRules({ state_ttl_seconds: v })}
+                  tone="amber"
+                />
+                <SliderRow
+                  title="保安短暂丢失宽限时间（秒）"
+                  description="保安被短暂遮挡或制服识别漏判时，在该时间内仍视为保安在场，避免离岗误报。"
+                  value={config.rules.guard_hold_seconds}
+                  min={0.5}
+                  max={10}
+                  step={0.1}
+                  onChange={(v) => setRules({ guard_hold_seconds: v })}
+                  tone="amber"
+                />
+              </RuleGroup>
             </CardContent>
           </Card>
         </TabsContent>
@@ -653,6 +813,70 @@ async function waitUntilRunning(timeoutMs: number) {
 
 // ==================== 通用子组件 ====================
 
+type RuleTone = 'green' | 'blue' | 'purple' | 'amber'
+
+const ruleToneStyles: Record<RuleTone, {
+  panel: string
+  icon: string
+  iconWrap: string
+  badge: string
+  slider: string
+}> = {
+  green: {
+    panel: 'border-emerald-100 bg-white shadow-[0_12px_28px_rgba(16,185,129,0.06)]',
+    icon: 'text-emerald-700',
+    iconWrap: 'bg-emerald-500 text-white shadow-emerald-500/20',
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    slider: '[&_[data-slot=slider-range]]:bg-emerald-500 [&_[data-slot=slider-thumb]]:border-emerald-500 [&_[data-slot=slider-thumb]]:ring-emerald-500/20',
+  },
+  blue: {
+    panel: 'border-blue-100 bg-white shadow-[0_12px_28px_rgba(37,99,235,0.06)]',
+    icon: 'text-blue-700',
+    iconWrap: 'bg-blue-600 text-white shadow-blue-500/20',
+    badge: 'border-blue-200 bg-blue-50 text-blue-700',
+    slider: '[&_[data-slot=slider-range]]:bg-blue-600 [&_[data-slot=slider-thumb]]:border-blue-600 [&_[data-slot=slider-thumb]]:ring-blue-500/20',
+  },
+  purple: {
+    panel: 'border-violet-100 bg-white shadow-[0_12px_28px_rgba(124,58,237,0.06)]',
+    icon: 'text-violet-700',
+    iconWrap: 'bg-violet-600 text-white shadow-violet-500/20',
+    badge: 'border-violet-200 bg-violet-50 text-violet-700',
+    slider: '[&_[data-slot=slider-range]]:bg-violet-600 [&_[data-slot=slider-thumb]]:border-violet-600 [&_[data-slot=slider-thumb]]:ring-violet-500/20',
+  },
+  amber: {
+    panel: 'border-amber-100 bg-white shadow-[0_12px_28px_rgba(245,158,11,0.06)]',
+    icon: 'text-amber-700',
+    iconWrap: 'bg-amber-500 text-white shadow-amber-500/20',
+    badge: 'border-amber-200 bg-amber-50 text-amber-700',
+    slider: '[&_[data-slot=slider-range]]:bg-amber-500 [&_[data-slot=slider-thumb]]:border-amber-500 [&_[data-slot=slider-thumb]]:ring-amber-500/20',
+  },
+}
+
+function RuleGroup({
+  title,
+  icon: Icon,
+  tone,
+  children,
+}: {
+  title: string
+  icon: LucideIcon
+  tone: RuleTone
+  children: React.ReactNode
+}) {
+  const styles = ruleToneStyles[tone]
+  return (
+    <section className={cn('rounded-2xl border p-4 sm:p-5', styles.panel)}>
+      <div className="mb-5 flex items-center gap-3">
+        <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm', styles.iconWrap)}>
+          <Icon className="h-4 w-4" />
+        </span>
+        <Label className={cn('text-base font-bold', styles.icon)}>{title}</Label>
+      </div>
+      <div className="grid gap-x-8 gap-y-6 md:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
@@ -688,27 +912,46 @@ function SwitchRow({
 
 function SliderRow({
   title,
+  description,
   value,
   min,
   max,
   step,
   onChange,
+  tone = 'blue',
 }: {
   title: string
+  description?: string
   value: number
   min: number
   max: number
   step: number
   onChange: (value: number) => void
+  tone?: RuleTone
 }) {
   const safeValue = Number.isFinite(value) ? value : min
+  const styles = ruleToneStyles[tone]
   return (
     <div className="space-y-3">
-      <div className="flex justify-between text-sm">
-        <Label>{title}</Label>
-        <span>{safeValue}</span>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Label className="text-sm font-bold text-[#1a2e55]">{title}</Label>
+          {description && <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>}
+        </div>
+        <span className={cn('shrink-0 rounded-md border px-2.5 py-1 text-xs font-bold shadow-sm', styles.badge)}>{safeValue}</span>
       </div>
-      <Slider value={[safeValue]} onValueChange={([next]) => onChange(next ?? min)} min={min} max={max} step={step} />
+      <Slider
+        value={[safeValue]}
+        onValueChange={([next]) => onChange(next ?? min)}
+        min={min}
+        max={max}
+        step={step}
+        className={styles.slider}
+      />
+      <div className="flex justify-between text-[11px] font-medium text-slate-500">
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
     </div>
   )
 }

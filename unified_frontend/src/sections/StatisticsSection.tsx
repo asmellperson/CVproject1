@@ -17,6 +17,8 @@ import {
 } from 'recharts'
 import { Activity, AlertTriangle, Calendar, Camera, Clock, TrendingUp } from 'lucide-react'
 import { getStatistics, type AlarmEvent } from '@/lib/api'
+import { useAuth } from '@/auth/useAuth'
+import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
 
 type TypeBucket = {
   event_type: string
@@ -43,6 +45,8 @@ type TrendRow = {
   guard_absent?: number
   guard_phone_use?: number
   guard_prone_sleep?: number
+  security_vlm_non_compliant?: number
+  security_vlm_error?: number
 }
 
 type AiVisionStatistics = {
@@ -79,6 +83,8 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'guard_absent', name: '保安离岗', value: 0, color: '#dc2626' },
   { event_type: 'guard_phone_use', name: '保安玩手机', value: 0, color: '#ea580c' },
   { event_type: 'guard_prone_sleep', name: '保安趴睡', value: 0, color: '#ca8a04' },
+  { event_type: 'security_vlm_non_compliant', name: '安检流程不规范', value: 0, color: '#0891b2' },
+  { event_type: 'security_vlm_error', name: '安检判定错误', value: 0, color: '#d97706' },
 ]
 
 function toRecord(value: unknown): Record<string, unknown> | null {
@@ -108,6 +114,8 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     guard_absent: toNumber(row?.guard_absent),
     guard_phone_use: toNumber(row?.guard_phone_use),
     guard_prone_sleep: toNumber(row?.guard_prone_sleep),
+    security_vlm_non_compliant: toNumber(row?.security_vlm_non_compliant),
+    security_vlm_error: toNumber(row?.security_vlm_error),
   }
 }
 
@@ -157,13 +165,19 @@ function formatTime(timestamp?: string) {
 }
 
 export function StatisticsSection() {
+  const { user } = useAuth()
   const [stats, setStats] = useState<AiVisionStatistics>(EMPTY)
+  const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
+  const allowedAlarmTypes = useMemo(
+    () => (accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null),
+    [accessibleAlarmEventTypes],
+  )
 
   useEffect(() => {
     let mounted = true
 
     const load = async () => {
-      const next = await getStatistics()
+      const next = await getStatistics(accessibleAlarmEventTypes)
       if (mounted) setStats(normalizeStatistics(next))
     }
 
@@ -181,14 +195,22 @@ export function StatisticsSection() {
       mounted = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [accessibleAlarmEventTypes])
+
+  const typeMetaRows = useMemo(
+    () => TYPE_META.filter((item) => !allowedAlarmTypes || allowedAlarmTypes.has(item.event_type)),
+    [allowedAlarmTypes],
+  )
 
   const typeRows = useMemo(() => {
     const live = new Map(stats.by_type.map((item) => [item.event_type, item]))
-    return TYPE_META.map((item) => live.get(item.event_type) || item)
-  }, [stats.by_type])
+    return typeMetaRows.map((item) => live.get(item.event_type) || item)
+  }, [stats.by_type, typeMetaRows])
 
-  const topType = typeRows.reduce((best, item) => (item.value > best.value ? item : best), TYPE_META[0])
+  const topType = typeRows.reduce(
+    (best, item) => (item.value > best.value ? item : best),
+    typeMetaRows[0] || { event_type: 'none', name: '-', value: 0, color: '#64748b' },
+  )
 
   return (
     <div className="space-y-6">
@@ -220,7 +242,7 @@ export function StatisticsSection() {
             <ResponsiveContainer width="100%" height={330}>
               <AreaChart data={stats.daily}>
                 <defs>
-                  {TYPE_META.map((item) => (
+                  {typeMetaRows.map((item) => (
                     <linearGradient key={item.event_type} id={`fill-${item.event_type}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={item.color} stopOpacity={0.32} />
                       <stop offset="95%" stopColor={item.color} stopOpacity={0.04} />
@@ -231,7 +253,7 @@ export function StatisticsSection() {
                 <XAxis dataKey="day" stroke="#64748b" />
                 <YAxis stroke="#64748b" allowDecimals={false} />
                 <Tooltip />
-                {TYPE_META.map((item) => (
+                {typeMetaRows.map((item) => (
                   <Area
                     key={item.event_type}
                     type="monotone"

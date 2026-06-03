@@ -305,6 +305,8 @@ def compat_get_camera_frame_jpg(
         frame, updated_at = orchestrator.get_camera_frame_info(key, feature=feature)
     else:
         frame, updated_at = orchestrator.get_camera_frame(key, feature=feature), 0.0
+    if frame is None and updated_at:
+        raise HTTPException(status_code=503, detail="camera frame is stale")
     return Response(
         content=encode_frame_to_jpeg(
             frame,

@@ -59,7 +59,7 @@ mysqldump -h 127.0.0.1 -P 3306 -u root -p \
   > aivision_backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
-本次重构 **不要求改表结构**，但会更新 `ai_model.import_path`、`ai_model.description` 和必要的模型路径，所以仍然建议备份。
+本次重构 **不要求改表结构**，但会更新 `ai_model.import_path` 和 `ai_model.description`，所以仍然建议备份。
 
 ## Stage 3：替换代码
 
@@ -86,29 +86,39 @@ ls api main.py pyproject.toml .env.example MIGRATION.md
 
 ## Stage 4：执行 SQL UPDATE 修正 `ai_model`
 
-重构版以数据库 `ai_model.path` 为准，不在代码里写死模型路径。请按现场实际路径更新。
+重构版的 worker 实际加载路径以本机 `MODEL_PATHS_CONFIG` 指向的配置文件为准；
+数据库 `ai_model.path` 不再作为回退来源。SQL 里可以保留占位路径，重点是修正
+`import_path`、`description` 和 `enable`。
 
 ```sql
 UPDATE ai_model SET 
-  path='/usr/zyy/Fuda_CVPreject/guard_room/models/person_phone.pt',
+  path='configured-by-local-model-paths',
   description='{"class_filter":[0],"type_label":"person","conf":0.3}',
   import_path='platform.inference.workers.yolo_detector.YoloDetectorWorker',
   enable=1
 WHERE name='yolo_human';
 
 UPDATE ai_model SET 
-  path='/usr/zyy/Fuda_CVPreject/guard_room/models/person_phone.pt',
+  path='configured-by-local-model-paths',
   description='{"class_filter":[1],"type_label":"phone","conf":0.7}',
   import_path='platform.inference.workers.yolo_detector.YoloDetectorWorker',
   enable=1
 WHERE name='yolo_phone';
 
 UPDATE ai_model SET 
-  path='/srv/cv/research/models/face/yolov8x-face-lindevs.pt',
+  path='configured-by-local-model-paths',
   description='{"type_label":"face","conf":0.6}',
   import_path='platform.inference.workers.yolo_detector.YoloDetectorWorker',
   enable=1
 WHERE name='yolo_face';
+```
+
+随后在每台服务器上配置本机模型路径：
+
+```bash
+cd /usr/zyy/Fuda_CVPreject/AiVision
+cp config/model_paths.example.yaml config/model_paths.yaml
+vim config/model_paths.yaml
 ```
 
 检查更新结果：
@@ -193,7 +203,7 @@ PY
 
 1. `ai_model.enable=1`。
 2. `ai_model.import_path` 是否为 `platform.inference.workers.yolo_detector.YoloDetectorWorker`。
-3. `ai_model.path` 文件是否真实存在。
+3. `MODEL_PATHS_CONFIG` 指向的本机模型配置文件是否包含该模型 name。
 4. `description` 是否为合法 JSON。
 5. 当前虚拟环境是否安装 `ultralytics`、`torch`、`opencv-python`。
 

@@ -9,6 +9,17 @@ class PhoneValueSchema(BaseModel):
     IOU_THR: float = Field(0.5, ge=0, le=1)
     cap_interval: float = Field(0.1, gt=0)
     alarm_interval: float = Field(5.0, gt=0)
+    MIN_CONFIRM_SECONDS: float = Field(1.2, ge=0)
+    MIN_CONSECUTIVE_HITS: int = Field(3, ge=1)
+    MAX_MISSED_SECONDS: float = Field(0.6, ge=0)
+    TRACK_TTL_SECONDS: float = Field(2.0, gt=0)
+    TRACK_IOU_THRESHOLD: float = Field(0.2, ge=0, le=1)
+    PERSON_CONF_THRESHOLD: float = Field(0.3, ge=0, le=1)
+    PERSON_IOU_THR: float = Field(0.3, ge=0, le=1)
+    REQUIRE_PERSON_ASSOCIATION: bool = True
+    PERSON_EXPAND_RATIO: float = Field(0.18, ge=0, le=1)
+    HAND_REGION_MAX_Y_RATIO: float = Field(0.85, ge=0, le=1.5)
+    MIN_PERSON_PHONE_OVERLAP: float = Field(0.08, ge=0, le=1)
 
     @field_validator("roi_pos", mode="before")
     @classmethod

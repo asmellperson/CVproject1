@@ -117,10 +117,12 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
   }
 
   return (
-    <Card className="border-slate-200 bg-white/95">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Box className="h-5 w-5 text-violet-600" />
+    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+      <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#fbf7ff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white shadow-[0_12px_24px_rgba(124,58,237,0.22)]">
+            <Box className="h-5 w-5" />
+          </span>
           模型配置
         </CardTitle>
         <Button variant="outline" className="gap-2" onClick={loadModels} disabled={loading || savingId !== null}>
@@ -128,7 +130,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
           {loading ? '读取中' : '重新读取'}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-5 bg-[#fbf8ff] p-4 sm:p-5 dark:bg-slate-950/30">
         {loadFailed ? (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             模型接口不可用。请确认 AiVision 后端已重启并加载最新接口。
@@ -140,7 +142,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
         ) : (
           <div className="space-y-4">
             {visibleModels.map(({ name, model }) => (
-              <div key={name} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div key={name} className="space-y-3 rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-medium text-slate-900">{name}</div>
@@ -188,7 +190,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">{message}</div>
+        <div className="rounded-2xl border border-violet-100 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">{message}</div>
       </CardContent>
     </Card>
   )

@@ -13,6 +13,8 @@ api/                  FastAPI v2 路由和旧路径兼容层
 main.py               后端入口
 ```
 
+认证与管理员鉴权复用根目录 `auth/auth.py`；`api/auth.py` 仅保留为兼容入口。
+
 ## 启动
 
 ```bash
@@ -69,7 +71,31 @@ GET      /api/aivision/cameras/{key}/frame.jpg
 
 ## 模型配置
 
-推理 Worker 从数据库 `ai_model` 表读取模型路径和 `import_path`。建议把 YOLO 模型统一指向：
+推理 Worker 仍从数据库 `ai_model` 表读取模型名称、`import_path` 和 `description`，
+但模型文件路径只从本机配置文件读取，不再回退数据库 `ai_model.path`。
+这样同一套数据库部署到不同服务器时，只需要调整每台机器自己的本机配置文件。
+
+本机配置：
+
+```bash
+cp config/model_paths.example.yaml config/model_paths.yaml
+# 修改 config/model_paths.yaml 中各模型的 path
+```
+
+默认读取 `.env` 的 `MODEL_PATHS_CONFIG=config/model_paths.yaml`，相对路径以 `AiVision`
+目录为基准。配置文件中按模型 `name` 覆盖路径：
+
+```yaml
+models:
+  yolo_human:
+    path: /path/to/person_phone.pt
+  yolo_phone:
+    path: /path/to/person_phone.pt
+  yolo_face:
+    path: /path/to/yolov8x-face.pt
+```
+
+数据库中的 `import_path` 建议统一指向：
 
 ```text
 platform.inference.workers.yolo_detector.YoloDetectorWorker

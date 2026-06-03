@@ -5,6 +5,7 @@ from typing import Optional
 from core.db import session_scope, get_session
 from core.logger import logger
 from .orm import AiModel
+from .model_paths import resolve_model_path
 
 
 class ModelService:
@@ -71,11 +72,18 @@ class ModelService:
 
     @staticmethod
     def _to_dict(m: AiModel) -> dict:
+        resolution = resolve_model_path({
+            "name": m.name,
+            "path": m.path,
+        })
         return {
             "id": m.id,
             "name": m.name,
             "type": m.type,
-            "path": m.path,
+            "path": resolution.path,
+            "effective_path": resolution.path,
+            "path_source": resolution.source,
+            "database_path": resolution.database_path,
             "import_path": m.import_path,
             "description": m.description,
             "enable": bool(m.enable),

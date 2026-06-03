@@ -4,7 +4,6 @@ import type {
   ControlResponse,
   StatisticsResponse,
 } from '@/types'
-import { getSecurityVlmHistory, type SecurityVlmHistoryItem } from '@/lib/security-vlm'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -74,6 +73,56 @@ export async function apiPost<T>(path: string, body?: unknown, init?: RequestIni
 }
 
 export const getStatus = () => apiGet<BackendStatus>('/status')
+
+export type PlatformServiceStatus = {
+  name: string
+  url: string
+  online: boolean
+  running?: boolean
+  latency_ms?: number | null
+  error?: string | null
+  camera_count?: number
+  enabled_camera_count?: number
+  online_camera_count?: number
+  offline_camera_count?: number
+  last_frame_age_sec?: number | null
+  fps?: number | null
+  frame_count?: number | null
+  running_cameras?: string[]
+  running_models?: string[]
+  running_consumers?: string[]
+  model_status?: {
+    loaded?: boolean
+    running_count?: number
+    pose_enabled?: boolean
+    vlm_ok?: boolean
+  }
+  worker_status?: Record<string, unknown>
+  stats?: Record<string, unknown>
+}
+
+export type PlatformStatus = {
+  ok: boolean
+  level: 'healthy' | 'degraded' | 'down' | string
+  generated_at: number
+  summary: {
+    service_total: number
+    service_online: number
+    service_running: number
+    camera_total: number
+    camera_online: number
+    camera_offline: number
+    model_loaded: Record<string, boolean>
+  }
+  services: {
+    guard_room: PlatformServiceStatus
+    aivision: PlatformServiceStatus
+    security_vlm: PlatformServiceStatus
+  }
+}
+
+export const getPlatformStatus = () => apiGet<PlatformStatus>('/platform/status')
+
 // api.ts
 export type AlarmEvent = {
   id: string
@@ -94,206 +143,64 @@ export type AlarmEvent = {
   video_path?: string | null
   video_url?: string | null
   video_status?: 'pending' | 'ready' | 'failed'
+  disposition_status?: AlarmDispositionStatus
+  disposition_note?: string
+  disposition_updated_at?: string
+  disposition_updated_by?: AlarmDispositionActor | null
 }
 
 type AlarmsResponse = {
   items?: AlarmEvent[]
 }
 
-async function aiVisionGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/aivision${path}`, {
-    ...init,
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      ...(init?.headers || {}),
-    },
+export type AlarmDispositionStatus = 'pending' | 'acknowledged' | 'resolved' | 'false_positive'
+
+export type AlarmDispositionActor = {
+  employee_id: string
+  name: string
+}
+
+export type AlarmDisposition = {
+  alarm_id: string
+  status: AlarmDispositionStatus
+  note: string
+  updated_at: string
+  updated_by?: AlarmDispositionActor | null
+}
+
+type AlarmDispositionsResponse = {
+  items?: AlarmDisposition[]
+}
+
+export const getAlarmDispositions = async (): Promise<AlarmDisposition[]> => {
+  const data = await apiGet<AlarmDispositionsResponse>('/alarm-dispositions')
+  return data.items || []
+}
+
+export const updateAlarmDisposition = async (
+  alarmId: string,
+  status: AlarmDispositionStatus,
+  note = '',
+): Promise<AlarmDisposition> => {
+  const data = await apiPost<{ success: boolean; item: AlarmDisposition }>('/alarm-dispositions', {
+    alarm_id: alarmId,
+    status,
+    note,
   })
-
-  notifyUnauthorized(response)
-  if (!response.ok) {
-    throw new Error(`GET /api/aivision${path} failed: ${response.status} ${response.statusText}`)
-  }
-
-  return response.json() as Promise<T>
+  return data.item
 }
 
-const GUARD_EVENT_META: Record<string, { event_type: string; event_label: string }> = {
-  absent: { event_type: 'guard_absent', event_label: '保安离岗' },
-  phone_use: { event_type: 'guard_phone_use', event_label: '保安玩手机' },
-  prone_sleep: { event_type: 'guard_prone_sleep', event_label: '保安趴睡' },
+function eventTypesQuery(eventTypes?: readonly string[] | null) {
+  return eventTypes && eventTypes.length > 0 ? `&event_types=${encodeURIComponent(eventTypes.join(','))}` : ''
 }
 
-function normalizeGuardAlarm(alarm: AlarmEvent): AlarmEvent {
-  const sourceId = String(alarm.id)
-  const meta = GUARD_EVENT_META[alarm.event_type] || { event_type: `guard_${alarm.event_type}`, event_label: '保安行为' }
-  return {
-    ...alarm,
-    id: `guard:${sourceId}`,
-    source: 'guard_room',
-    source_id: sourceId,
-    event_type: meta.event_type,
-    event_label: meta.event_label,
-    camera_no: alarm.camera_name || 'guard_room',
-    camera_name: alarm.camera_name || '保安行为规范检测',
-    image_url: `${API_PREFIX}/alarms/${encodeURIComponent(sourceId)}/image`,
-    video_url: alarm.video_status === 'ready' ? `${API_PREFIX}/alarms/${encodeURIComponent(sourceId)}/video` : null,
-  }
+export const getAlarms = async (limit = 100, eventTypes?: readonly string[] | null): Promise<AlarmEvent[]> => {
+  const data = await apiGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`)
+  return Array.isArray(data) ? data : (data?.items || [])
 }
 
-function normalizeAiVisionAlarm(alarm: AlarmEvent): AlarmEvent {
-  const sourceId = String(alarm.id)
-  return {
-    ...alarm,
-    id: `aivision:${sourceId}`,
-    source: 'aivision',
-    source_id: sourceId,
-    image_url: alarm.image_url || `/api/aivision/alarms/${encodeURIComponent(sourceId)}/image`,
-    video_url: alarm.video_url || null,
-  }
-}
-
-function normalizeSecurityVlmAlarm(item: SecurityVlmHistoryItem): AlarmEvent | null {
-  if (item.status !== 'non_compliant' && item.status !== 'error') return null
-
-  const sourceId = item.session_id || `${item.roi_name || 'security_vlm'}:${item.time || Date.now()}`
-  const eventType = item.status === 'error' ? 'security_vlm_error' : 'security_vlm_non_compliant'
-  return {
-    id: `security_vlm:${sourceId}`,
-    source: 'security_vlm',
-    source_id: sourceId,
-    event_type: eventType,
-    event_label: item.status === 'error' ? '安检判定错误' : '安检流程不规范',
-    camera_no: item.roi_name || 'security_vlm',
-    camera_name: item.roi_name || '安检流程规范检测',
-    reason: item.error || item.reason || '安检流程规范检测判定异常',
-    confidence: 1,
-    created_at: item.time,
-  }
-}
-
-export const getGuardRoomAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
-  const data = await apiGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}`)
-  const items = Array.isArray(data) ? data : (data?.items || [])
-  return items.map(normalizeGuardAlarm)
-}
-export const getAiVisionAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
-  const data = await aiVisionGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}`)
-  const items = Array.isArray(data) ? data : (data?.items || [])
-  return items.map(normalizeAiVisionAlarm)
-}
-export const getSecurityVlmAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
-  const data = await getSecurityVlmHistory(limit)
-  return (data.history || [])
-    .map(normalizeSecurityVlmAlarm)
-    .filter((item): item is AlarmEvent => Boolean(item))
-}
-export const getAlarms = async (limit = 100): Promise<AlarmEvent[]> => {
-  const [aiVision, guardRoom, securityVlm] = await Promise.allSettled([
-    getAiVisionAlarms(limit),
-    getGuardRoomAlarms(limit),
-    getSecurityVlmAlarms(limit),
-  ])
-  const items = [
-    ...(aiVision.status === 'fulfilled' ? aiVision.value : []),
-    ...(guardRoom.status === 'fulfilled' ? guardRoom.value : []),
-    ...(securityVlm.status === 'fulfilled' ? securityVlm.value : []),
-  ]
-  return items
-    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-    .slice(0, limit)
-}
-export const getStatistics = async () => {
-  const alarms = await getAlarms(1000)
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const rangeStart = new Date(todayStart)
-  rangeStart.setDate(todayStart.getDate() - 6)
-  const inRange = alarms.filter((alarm) => new Date(alarm.created_at || 0) >= rangeStart)
-
-  const byTypeMap = new Map<string, { event_type: string; name: string; value: number; color: string }>()
-  const byCameraMap = new Map<string, { camera_no: string; name: string; value: number }>()
-  const typeColor: Record<string, string> = {
-    blocks: '#ef4444',
-    detect_door: '#f59e0b',
-    detect_phone: '#f97316',
-    detect_face: '#8b5cf6',
-    detect_human: '#2563eb',
-    guard_absent: '#dc2626',
-    guard_phone_use: '#ea580c',
-    guard_prone_sleep: '#ca8a04',
-    security_vlm_non_compliant: '#0891b2',
-    security_vlm_error: '#d97706',
-  }
-  const typeName: Record<string, string> = {
-    blocks: '区域入侵',
-    detect_door: '大门开关',
-    detect_phone: '手机检测',
-    detect_face: '人脸检测',
-    detect_human: '人体逗留',
-    guard_absent: '保安离岗',
-    guard_phone_use: '保安玩手机',
-    guard_prone_sleep: '保安趴睡',
-    security_vlm_non_compliant: '安检流程不规范',
-    security_vlm_error: '安检判定错误',
-  }
-
-  const daily = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(rangeStart)
-    day.setDate(rangeStart.getDate() + index)
-    return { day: `${day.getMonth() + 1}-${String(day.getDate()).padStart(2, '0')}`, total: 0 } as Record<string, number | string>
-  })
-  const hourly = Array.from({ length: 24 }, (_, hour) => ({ time: `${String(hour).padStart(2, '0')}:00`, total: 0 } as Record<string, number | string>))
-
-  for (const alarm of inRange) {
-    const created = new Date(alarm.created_at || 0)
-    if (Number.isNaN(created.getTime())) continue
-    const eventType = alarm.event_type
-    const label = alarm.event_label || typeName[eventType] || eventType
-    const typeRow = byTypeMap.get(eventType) || {
-      event_type: eventType,
-      name: label,
-      value: 0,
-      color: typeColor[eventType] || '#64748b',
-    }
-    typeRow.value += 1
-    byTypeMap.set(eventType, typeRow)
-
-    const cameraNo = alarm.camera_no || alarm.camera_name || 'unknown'
-    const cameraRow = byCameraMap.get(cameraNo) || {
-      camera_no: cameraNo,
-      name: alarm.camera_name || cameraNo,
-      value: 0,
-    }
-    cameraRow.value += 1
-    byCameraMap.set(cameraNo, cameraRow)
-
-    const dayIndex = Math.floor((new Date(created.getFullYear(), created.getMonth(), created.getDate()).getTime() - rangeStart.getTime()) / 86400000)
-    if (dayIndex >= 0 && dayIndex < daily.length) {
-      daily[dayIndex].total = Number(daily[dayIndex].total || 0) + 1
-      daily[dayIndex][eventType] = Number(daily[dayIndex][eventType] || 0) + 1
-    }
-    hourly[created.getHours()].total = Number(hourly[created.getHours()].total || 0) + 1
-    hourly[created.getHours()][eventType] = Number(hourly[created.getHours()][eventType] || 0) + 1
-  }
-
-  const hourlyPeak = hourly.reduce((best, item) => (Number(item.total) > Number(best.total) ? item : best), hourly[0])
-  return {
-    summary: {
-      total: inRange.length,
-      today: inRange.filter((alarm) => new Date(alarm.created_at || 0) >= todayStart).length,
-      week: inRange.length,
-      avg_per_day: Number((inRange.length / 7).toFixed(2)),
-      active_cameras: byCameraMap.size,
-      peak_hour: hourlyPeak.time || '-',
-    },
-    by_type: Array.from(byTypeMap.values()),
-    by_camera: Array.from(byCameraMap.values()).sort((a, b) => b.value - a.value).slice(0, 8),
-    daily,
-    hourly,
-    recent: alarms.slice(0, 8),
-  }
-}
+export const getStatistics = async (eventTypes?: readonly string[] | null) =>
+  apiGet(`/statistics?days=7${eventTypesQuery(eventTypes)}`)
 export const getGuardRoomStatistics = () => apiGet<StatisticsResponse>('/statistics')
 export const getConfig = () => apiGet<AppConfigPayload>('/config')
 export const saveConfig = (payload: Partial<AppConfigPayload>) => apiPost<{ ok: boolean; restarted: boolean; config: AppConfigPayload }>('/config', payload)

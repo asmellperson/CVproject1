@@ -32,7 +32,7 @@
 | 报警录制 | 触发报警时自动录制 5 秒（可配）MP4 视频片段 |
 | 企业微信推送 | 报警视频异步推送到指定员工 |
 | Web 管理界面 | FastAPI 提供状态查询、配置管理、MJPEG 推流、报警回放等接口 |
-| JWT 认证 | HttpOnly Cookie + Bearer Token 双模式，支持 admin/viewer 角色 |
+| JWT 认证 | 通过根目录 `auth/auth.py` 提供，HttpOnly Cookie + Bearer Token 双模式，支持 admin/viewer 角色 |
 
 ---
 
@@ -138,7 +138,7 @@ GuardRoomRuntime._run_loop (主循环线程)
     ├── utils.py             # 通用工具函数（ensure_dir、now_str、safe_float）
     ├── geometry.py          # 几何计算（IoU、中心点、多边形转换）
     ├── drawing.py           # 画面标注（检测框、多边形、调试文字、报警横幅）
-    ├── auth.py              # 认证授权（手动实现 HS256 JWT、Cookie 管理）
+    ├── auth.py              # 认证授权兼容入口，实际逻辑在 ../auth/auth.py
     ├── state.py             # 共享状态（AppState，运行时与 Web API 的数据中转站）
     ├── guard_gate.py        # 保安识别结果平滑（hold_seconds 宽限期）
     ├── uniform.py           # 制服识别分类器（ConvNeXtV2，timm）
@@ -219,7 +219,7 @@ cp config/config.yaml.example config/config.yaml
 ### 2. 准备用户数据库
 
 ```json
-// config/auth_users.json
+// auth/auth_users.json
 [
   {
     "employee_id": "001",
@@ -305,7 +305,7 @@ kill $(cat logs/server.pid)
 ```bash
 export AUTH_SECRET="your-strong-random-secret-32chars+"
 export AUTH_DEFAULT_PASSWORD="your-password"
-export AUTH_TOKEN_EXPIRE_HOURS=12
+# 默认长期登录；如需固定过期时间，再设置 AUTH_TOKEN_EXPIRE_HOURS=12
 export AUTH_USERS_FILE="/path/to/auth_users.json"
 export AUTH_CORS_ORIGINS="https://your-frontend.com"
 ```

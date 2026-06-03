@@ -119,6 +119,7 @@ config.local.yml
 config.prod.yaml
 config.prod.yml
 security_vlm/configs/config.yaml
+AiVision/config/model_paths.yaml
 *.local.yaml
 *.local.yml
 
@@ -131,6 +132,7 @@ security_vlm/configs/config.yaml
 # Local assistant / CLI config
 # ======================
 .codex/
+.codegraph/
 .claude/
 agents.md
 

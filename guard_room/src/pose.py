@@ -41,13 +41,25 @@ class PoseEstimator:
     KP_LEFT_WRIST = 9
     KP_RIGHT_WRIST = 10
 
-    def __init__(self, model_path: str):
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "",
+        imgsz: int = 640,
+        half: bool = True,
+    ):
         """
         Args:
             model_path: YOLO-Pose 权重文件路径（.pt）。
                         文件不存在时 enabled=False，infer_frame() 返回空字典。
+            device:     推理设备，传给 Ultralytics。
+            imgsz:      姿态模型输入尺寸。
+            half:       CUDA 下是否使用 FP16。
         """
         self.model_path = model_path
+        self.device = device
+        self.imgsz = imgsz
+        self.half = half
         self.enabled = Path(model_path).exists()    # 文件不存在时静默降级，不抛异常
         self.model = YOLO(model_path) if self.enabled else None
 
@@ -78,7 +90,9 @@ class PoseEstimator:
             source=frame_bgr,
             conf=conf,
             iou=0.45,
-            imgsz=640,
+            imgsz=self.imgsz,
+            half=self.half,
+            device=(self.device or None),
             verbose=False,
         )
 

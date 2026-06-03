@@ -353,40 +353,6 @@ export function SecurityVlmSection() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold text-slate-900">安检流程规范检测</h2>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
-            <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
-            {runtimeRunning ? '检测开启' : '检测关闭'}
-          </Badge>
-          <Button
-            variant={runtimeRunning ? 'destructive' : 'default'}
-            size="sm"
-            className="gap-2"
-            onClick={handleToggleRuntime}
-            disabled={!isAdmin || controlBusy}
-          >
-            {runtimeRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {controlBusy ? '处理中' : runtimeRunning ? '关闭功能' : '开启功能'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => {
-              setVideoNonce(Date.now())
-              loadHealth().catch((error) => setMessage(`刷新失败：${error instanceof Error ? error.message : String(error)}`))
-            }}
-          >
-            <RefreshCw className="h-4 w-4" />
-            刷新
-          </Button>
-        </div>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 p-1">
           <TabsTrigger value="dashboard" className="gap-2 py-2">
@@ -398,6 +364,40 @@ export function SecurityVlmSection() {
             ROI 绘制
           </TabsTrigger>
         </TabsList>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold text-slate-900">安检流程规范检测</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
+              <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
+              {runtimeRunning ? '检测开启' : '检测关闭'}
+            </Badge>
+            <Button
+              variant={runtimeRunning ? 'destructive' : 'default'}
+              size="sm"
+              className="gap-2"
+              onClick={handleToggleRuntime}
+              disabled={!isAdmin || controlBusy}
+            >
+              {runtimeRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {controlBusy ? '处理中' : runtimeRunning ? '关闭功能' : '开启功能'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                setVideoNonce(Date.now())
+                loadHealth().catch((error) => setMessage(`刷新失败：${error instanceof Error ? error.message : String(error)}`))
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
+          </div>
+        </div>
 
         <TabsContent value="dashboard" className="space-y-6">
           <Card className="overflow-hidden">

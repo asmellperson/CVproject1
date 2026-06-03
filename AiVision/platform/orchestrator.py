@@ -269,17 +269,22 @@ class Orchestrator:
 
     def get_camera_frame_info(self, shm_name: str, feature: str | None = None):
         """获取摄像头画面及更新时间,用于 API 层复用 JPEG 编码结果。"""
+        now = time.time()
+        raw = frame_reader_registry.latest_frames.get(shm_name)
+        raw_updated_at = frame_reader_registry.latest_frame_times.get(shm_name, 0.0)
+        raw_is_fresh = raw is not None and raw_updated_at > 0 and now - raw_updated_at <= 10.0
         if feature and feature in self.consumers:
             consumer = self.consumers[feature]
             annotated = consumer.result_dict.get(shm_name)
             updated_at = consumer.result_updated_at.get(shm_name, 0.0)
             if annotated is not None:
-                raw = frame_reader_registry.latest_frames.get(shm_name)
-                if raw is None or time.time() - updated_at <= 2.0:
+                if raw is None or now - updated_at <= 2.0:
                     return annotated, updated_at
+        if not raw_is_fresh:
+            return None, raw_updated_at
         return (
-            frame_reader_registry.latest_frames.get(shm_name),
-            frame_reader_registry.latest_frame_times.get(shm_name, 0.0),
+            raw,
+            raw_updated_at,
         )
 
     def runtime_status(self) -> dict:

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Box, Camera, Clock3, MousePointer2, RefreshCw, Save, SlidersHorizontal, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
+import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
-import { AiVisionModelConfig } from '@/components/AiVisionModelConfig'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +15,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
+
+const AiVisionRoiEditor = lazy(() =>
+  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
+)
+const AiVisionModelConfig = lazy(() =>
+  import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
+)
+
+function LazyConfigFallback({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
+      {label}
+    </div>
+  )
+}
 
 type HumanConfig = {
   enable: boolean
@@ -30,6 +44,10 @@ type HumanConfig = {
     region?: number[]
     MIN_BOX_AREA?: number
     ASPECT_RATIO_RANGE?: number[]
+    CENTER_DIST_THR?: number
+    AREA_RATIO_THR?: number
+    MATCH_SCORE_THR?: number
+    TRACK_SMOOTH_ALPHA?: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -52,6 +70,10 @@ const defaultForm = {
   maxLost: '5',
   minBoxArea: '0',
   aspectRatioRange: '[0,10]',
+  centerDistThreshold: '0.65',
+  areaRatioThreshold: '0.55',
+  matchScoreThreshold: '0.35',
+  trackSmoothAlpha: '0.7',
   alarmInterval: '5.0',
 }
 
@@ -68,6 +90,10 @@ const defaultHumanConfig: HumanConfig = {
     region: [100, 100, 500, 500],
     MIN_BOX_AREA: 0,
     ASPECT_RATIO_RANGE: [0, 10],
+    CENTER_DIST_THR: 0.65,
+    AREA_RATIO_THR: 0.55,
+    MATCH_SCORE_THR: 0.35,
+    TRACK_SMOOTH_ALPHA: 0.7,
   },
   alarm: {
     horn: { enable: false, parm: {} },
@@ -113,6 +139,10 @@ function toForm(payload: HumanConfigResponse) {
     maxLost: String(value.MAX_LOST ?? 5),
     minBoxArea: String(value.MIN_BOX_AREA ?? 0),
     aspectRatioRange: formatJson(value.ASPECT_RATIO_RANGE ?? [0, 10]),
+    centerDistThreshold: String(value.CENTER_DIST_THR ?? 0.65),
+    areaRatioThreshold: String(value.AREA_RATIO_THR ?? 0.55),
+    matchScoreThreshold: String(value.MATCH_SCORE_THR ?? 0.35),
+    trackSmoothAlpha: String(value.TRACK_SMOOTH_ALPHA ?? 0.7),
     alarmInterval: String(value.alarm_interval ?? 5.0),
   }
 }
@@ -204,6 +234,7 @@ export function HumanDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refreshCameraList = async () => {
@@ -292,6 +323,10 @@ export function HumanDetectionSection() {
     const maxTime = Number(form.maxTime)
     const maxLost = Number(form.maxLost)
     const minBoxArea = Number(form.minBoxArea)
+    const centerDistThreshold = Number(form.centerDistThreshold)
+    const areaRatioThreshold = Number(form.areaRatioThreshold)
+    const matchScoreThreshold = Number(form.matchScoreThreshold)
+    const trackSmoothAlpha = Number(form.trackSmoothAlpha)
     const alarmInterval = Number(form.alarmInterval)
     if (
       !Number.isFinite(confidenceThreshold) ||
@@ -299,9 +334,13 @@ export function HumanDetectionSection() {
       !Number.isFinite(maxTime) ||
       !Number.isFinite(maxLost) ||
       !Number.isFinite(minBoxArea) ||
+      !Number.isFinite(centerDistThreshold) ||
+      !Number.isFinite(areaRatioThreshold) ||
+      !Number.isFinite(matchScoreThreshold) ||
+      !Number.isFinite(trackSmoothAlpha) ||
       !Number.isFinite(alarmInterval)
     ) {
-      setMessage('保存失败：置信度、IoU、逗留时间、丢失帧数、最小面积和告警间隔必须是数字。')
+      setMessage('保存失败：置信度、IoU、逗留时间、跟踪增强参数和告警间隔必须是数字。')
       return
     }
 
@@ -318,6 +357,10 @@ export function HumanDetectionSection() {
         MAX_LOST: maxLost,
         MIN_BOX_AREA: minBoxArea,
         ASPECT_RATIO_RANGE: aspectRatioRange,
+        CENTER_DIST_THR: centerDistThreshold,
+        AREA_RATIO_THR: areaRatioThreshold,
+        MATCH_SCORE_THR: matchScoreThreshold,
+        TRACK_SMOOTH_ALPHA: trackSmoothAlpha,
         alarm_interval: alarmInterval,
       },
       alarm: humanConfig.alarm || defaultHumanConfig.alarm,
@@ -340,6 +383,38 @@ export function HumanDetectionSection() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const applyDayPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      confidenceThreshold: '0.3',
+      iouThreshold: '0.3',
+      maxLost: '5',
+      minBoxArea: '0',
+      centerDistThreshold: '0.65',
+      areaRatioThreshold: '0.55',
+      matchScoreThreshold: '0.35',
+      trackSmoothAlpha: '0.7',
+      alarmInterval: '5.0',
+    }))
+    setMessage('已应用白天参数预设，确认后请保存配置。')
+  }
+
+  const applyNightPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      confidenceThreshold: '0.25',
+      iouThreshold: '0.28',
+      maxLost: '8',
+      minBoxArea: '0',
+      centerDistThreshold: '0.8',
+      areaRatioThreshold: '0.45',
+      matchScoreThreshold: '0.3',
+      trackSmoothAlpha: '0.75',
+      alarmInterval: '5.0',
+    }))
+    setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))
@@ -399,31 +474,48 @@ export function HumanDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                onConfigCopied={(cameraName) => {
+                  setForm((prev) => ({ ...prev, cameraName }))
+                  return loadConfig(cameraName)
+                }}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <AiVisionRoiEditor
-                title="人体逗留 ROI 绘制"
-                cameraKey={form.cameraName}
-                roiJson={form.roiPos}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
-                saving={saving}
-                message={message}
-                onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos, region: bboxFromRoiJson(roiPos, prev.region) }))}
-                onSave={saveConfig}
-              />
+              <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
+                <AiVisionRoiEditor
+                  title="人体逗留 ROI 绘制"
+                  cameraKey={form.cameraName}
+                  feature="detect_human"
+                  roiJson={form.roiPos}
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  saving={saving}
+                  message={message}
+                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos, region: bboxFromRoiJson(roiPos, prev.region) }))}
+                  onSave={saveConfig}
+                />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <Card className="border-slate-200 bg-white/95">
-              <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <CardTitle className="text-lg">配置表单</CardTitle>
+              <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#fffbeb_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+                <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white shadow-[0_12px_24px_rgba(249,115,22,0.22)]">
+                    <SlidersHorizontal className="h-5 w-5" />
+                  </span>
+                  配置表单
+                </CardTitle>
                 <Badge variant="outline" className="border-slate-300 text-slate-600">
                   AiVision detect_human
                 </Badge>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 bg-[#fffaf2] p-4 sm:p-5 dark:bg-slate-950/30">
+                <AiVisionPresetActions
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  onApplyDay={applyDayPreset}
+                  onApplyNight={applyNightPreset}
+                />
                 <div className="grid gap-5 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="human-camera">摄像头名称</Label>
@@ -499,6 +591,46 @@ export function HumanDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
+                    <Label htmlFor="human-center-distance">中心距离阈值</Label>
+                    <Input
+                      id="human-center-distance"
+                      value={form.centerDistThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, centerDistThreshold: event.target.value }))}
+                      placeholder="0.65"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="human-area-ratio">面积相似阈值</Label>
+                    <Input
+                      id="human-area-ratio"
+                      value={form.areaRatioThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, areaRatioThreshold: event.target.value }))}
+                      placeholder="0.55"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="human-match-score">匹配分数阈值</Label>
+                    <Input
+                      id="human-match-score"
+                      value={form.matchScoreThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, matchScoreThreshold: event.target.value }))}
+                      placeholder="0.35"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="human-track-smooth">轨迹平滑系数</Label>
+                    <Input
+                      id="human-track-smooth"
+                      value={form.trackSmoothAlpha}
+                      onChange={(event) => setForm((prev) => ({ ...prev, trackSmoothAlpha: event.target.value }))}
+                      placeholder="0.7"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="human-interval">告警间隔</Label>
                     <Input
                       id="human-interval"
@@ -540,7 +672,7 @@ export function HumanDetectionSection() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                   <div className="text-sm text-slate-600">{message}</div>
                   <div className="flex gap-2">
                     <Button variant="outline" className="gap-2" onClick={() => loadConfig()} disabled={loading || saving || !form.cameraName}>
@@ -558,7 +690,9 @@ export function HumanDetectionSection() {
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <AiVisionModelConfig requiredModels={['yolo_human']} />
+              <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
+                <AiVisionModelConfig requiredModels={['yolo_human']} />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">

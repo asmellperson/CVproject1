@@ -23,25 +23,30 @@
     - ThreadPoolExecutor（cam-infer）：各路摄像头的推理并行执行，结果汇聚后再做共识。
 
 CUDA 内存限制（模块顶部）：
-    在 import 时立即限制单进程 GPU 显存为 45%（约 4.6 GB），
+    在 import 时立即限制单进程 GPU 显存，默认 35%，可通过
+    GUARD_ROOM_CUDA_MEMORY_FRACTION 覆盖，
     防止多模型（检测 × N 路 + 手机检测 + 姿态估计）共同推理时显存 OOM。
 """
 from __future__ import annotations
 
 # ── CUDA 显存限制：在任何模型加载前执行 ─────────────────────────────────────
+import os
 import torch
 if torch.cuda.is_available():
     try:
-        torch.cuda.set_per_process_memory_fraction(0.45, device=0)  # 最多用 45% ≈ 4.6 GB
+        _cuda_fraction = float(os.getenv("GUARD_ROOM_CUDA_MEMORY_FRACTION", "0.35"))
+        _cuda_fraction = min(1.0, max(0.05, _cuda_fraction))
+        torch.cuda.set_per_process_memory_fraction(_cuda_fraction, device=0)
         torch.cuda.empty_cache()
     except RuntimeError as exc:
         print(f"[WARN] CUDA memory limit skipped: {exc}")
+    except ValueError as exc:
+        print(f"[WARN] invalid GUARD_ROOM_CUDA_MEMORY_FRACTION: {exc}")
 
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -204,80 +209,6 @@ class RTSPReader(threading.Thread):
 
 
 # ---------------------------------------------------------------------------
-# 工具类：手动录制
-# ---------------------------------------------------------------------------
-
-class ManualRecorder:
-    """按需手动录制 MP4 的录像机，供 Web API 控制开始/停止。
-
-    与 AlarmClipRecorder（触发式固定时长录制）不同，
-    ManualRecorder 由用户主动控制录制时长，适合值班人员手动存证。
-
-    线程安全：start()/stop()/write()/status() 均在内部加锁，可跨线程调用。
-    """
-
-    def __init__(self, output_dir: str | Path, fps: int = 10):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.fps = fps
-        self._lock = threading.Lock()
-        self._want_recording = False    # 用户意图：是否希望录制
-        self.recording = False          # 实际状态：VideoWriter 是否已创建
-        self.writer = None
-        self.current_file: str | None = None
-
-    def start(self) -> dict:
-        """标记录制意图为开始，VideoWriter 在首帧到来时懒创建。"""
-        with self._lock:
-            self._want_recording = True
-            return self.status()
-
-    def stop(self) -> dict:
-        """停止录制并释放 VideoWriter，返回含 saved_file 路径的状态字典。"""
-        with self._lock:
-            self._want_recording = False
-            if self.writer is not None:
-                self.writer.release()
-                self.writer = None
-            self.recording = False
-            saved_file = self.current_file
-            self.current_file = None
-            data = self.status()
-            data["saved_file"] = saved_file
-            return data
-
-    def write(self, frame: np.ndarray) -> None:
-        """将一帧写入录制文件；未处于录制状态时静默跳过。
-
-        VideoWriter 在首次调用时懒创建，以获取正确的帧尺寸。
-        """
-        with self._lock:
-            if not self._want_recording:
-                return
-
-            if self.writer is None:
-                # 懒创建：首帧时根据实际帧尺寸初始化 VideoWriter
-                h, w = frame.shape[:2]
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                path = self.output_dir / f"manual_record_{ts}.mp4"
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                self.writer = cv2.VideoWriter(str(path), fourcc, self.fps, (w, h))
-                self.current_file = str(path)
-                self.recording = True
-
-            if self.writer is not None:
-                self.writer.write(frame)
-
-    def status(self) -> dict:
-        """返回当前录制状态（调用方需在持锁时调用，或自行加锁）。"""
-        return {
-            "recording": self.recording or self._want_recording,
-            "output_dir": str(self.output_dir),
-            "current_file": self.current_file,
-        }
-
-
-# ---------------------------------------------------------------------------
 # 数据结构
 # ---------------------------------------------------------------------------
 
@@ -404,7 +335,6 @@ class GuardRoomRuntime:
 
     外部接口：
         start() / stop()         —— 控制运行状态
-        recorder.start/stop()    —— 控制手动录制
         is_running               —— 查询运行状态
 
     内部关键状态：
@@ -442,10 +372,6 @@ class GuardRoomRuntime:
         self._banner_expire_ts: float = 0.0
         self._banner_show_seconds: float = 1.0
 
-        self.recorder = ManualRecorder(
-            output_dir=Path(self.cfg.video.output_dir) / "records",
-            fps=self.cfg.video.annotated_video_fps,
-        )
         self.wechat_notifier = wechat_notifier
         self.alarm_user = alarm_user
         self.alarm_camera_name = alarm_camera_name
@@ -458,6 +384,7 @@ class GuardRoomRuntime:
 
         self.uniform_cache = UniformCache(ttl_seconds=0.1)  # 0.1s TTL：约 1~2 帧复用
         self._camera_pool: ThreadPoolExecutor | None = None
+        self._pose_lock = threading.Lock()
 
     # -----------------------------------------------------------------------
     # 公开接口
@@ -468,13 +395,20 @@ class GuardRoomRuntime:
         """返回主循环线程是否存活。"""
         return self._thread is not None and self._thread.is_alive()
 
+    def _use_half(self) -> bool:
+        """CUDA 推理时启用 FP16，CPU 下保持 FP32。"""
+        device = str(getattr(self.cfg.models, "device", "") or "").strip().lower()
+        return bool(self.cfg.models.use_half and device != "cpu" and torch.cuda.is_available())
+
     def start(self) -> None:
         """启动主循环线程（幂等：已运行时直接返回）。"""
         with self._lock:
             if self.is_running:
                 return
             self._stop_event.clear()
-            max_workers = max(1, len(self.cfg.camera_sources()))
+            camera_count = max(1, len(self.cfg.camera_sources()))
+            configured_workers = int(getattr(self.cfg.runtime, "infer_max_workers", 1) or 1)
+            max_workers = max(1, min(camera_count, configured_workers))
             if self._camera_pool is None:
                 self._camera_pool = ThreadPoolExecutor(
                     max_workers=max_workers,
@@ -632,24 +566,47 @@ class GuardRoomRuntime:
             if len(camera_sources) < 2:
                 raise RuntimeError("请至少配置两路摄像头，当前需要设置 video.source_cam1 和 video.source_cam2")
 
-            # 每路摄像头独立的检测器（避免多线程共享同一 YOLO 实例的锁竞争）
+            # 每路摄像头独立的人体检测器，保留各自 ByteTrack 状态。
             detector_by_camera = {
                 camera_id: YOLO(self.cfg.models.detector_model)
                 for camera_id, _ in camera_sources
             }
-            detector_phone = YOLO(self.cfg.models.detector_model)   # 手机检测器（全图或裁图模式共用）
+
+            phone_mode = str(
+                getattr(self.cfg.runtime, "phone_detect_mode", "guard_crop") or "guard_crop"
+            ).strip().lower()
+            share_phone_detector = bool(getattr(self.cfg.runtime, "share_phone_detector", True))
+            detector_phone = None if share_phone_detector else YOLO(self.cfg.models.detector_model)
 
             uniform_classifier = UniformClassifier(
                 model_path=self.cfg.models.uniform_cls_model,
                 device=self.cfg.models.device,
                 imgsz=self.cfg.models.uniform_cls_imgsz,
                 conf_thres=self.cfg.models.uniform_cls_conf,
+                use_half=self._use_half(),
             )
 
-            pose_estimator_by_camera = {
-                camera_id: PoseEstimator(self.cfg.models.pose_model_task)
-                for camera_id, _ in camera_sources
-            }
+            if bool(getattr(self.cfg.runtime, "share_pose_estimator", True)):
+                shared_pose_estimator = PoseEstimator(
+                    self.cfg.models.pose_model_task,
+                    device=self.cfg.models.device,
+                    imgsz=self.cfg.models.pose_imgsz,
+                    half=self._use_half(),
+                )
+                pose_estimator_by_camera = {
+                    camera_id: shared_pose_estimator
+                    for camera_id, _ in camera_sources
+                }
+            else:
+                pose_estimator_by_camera = {
+                    camera_id: PoseEstimator(
+                        self.cfg.models.pose_model_task,
+                        device=self.cfg.models.device,
+                        imgsz=self.cfg.models.pose_imgsz,
+                        half=self._use_half(),
+                    )
+                    for camera_id, _ in camera_sources
+                }
 
             # 每路摄像头独立的行为引擎（各自维护跨帧状态，互不干扰）
             behavior_by_camera = {
@@ -771,12 +728,9 @@ class GuardRoomRuntime:
                         for camera_id, _ in camera_sources
                     }
 
-                    phone_mode = str(
-                        getattr(self.cfg.runtime, "phone_detect_mode", "guard_crop") or "guard_crop"
-                    ).strip().lower()
                     precomputed_phone_map: dict[str, List[Detection]] | None = None
 
-                    if phone_mode == "full_frame_test":
+                    if phone_mode == "full_frame_test" and detector_phone is not None:
                         # 全图模式：批量推理所有摄像头，避免 N 次独立 predict 调用
                         precomputed_phone_map = self._detect_phones_full_frames_batch(
                             detector=detector_phone,
@@ -899,8 +853,7 @@ class GuardRoomRuntime:
                         alarm_user=self.alarm_user,
                     )
 
-                # ── 写入各路视频 ──────────────────────────────────────────
-                self.recorder.write(combined)       # 手动录制（按需）
+                # ── 写入标注视频 ──────────────────────────────────────────
                 if out_writer is not None:
                     out_writer.write(combined)      # 标注视频（配置开启时）
 
@@ -1002,14 +955,26 @@ class GuardRoomRuntime:
             # 无论正常退出还是异常，均确保资源被释放
             self.state.mark_running(False)
             self._stop_event.set()
-            self.recorder.stop()
             self.alarm_clip_recorder.close()
 
             if out_writer is not None:
                 out_writer.release()
 
+            closed_pose_estimators = set()
             for pose_estimator in pose_estimator_by_camera.values():
+                if id(pose_estimator) in closed_pose_estimators:
+                    continue
+                closed_pose_estimators.add(id(pose_estimator))
                 pose_estimator.close()
+
+            if uniform_classifier is not None and hasattr(uniform_classifier, "close"):
+                uniform_classifier.close()
+
+            detector_by_camera.clear()
+            detector_phone = None
+            uniform_classifier = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             with self._lock:
                 pool = self._camera_pool
@@ -1029,7 +994,7 @@ class GuardRoomRuntime:
         timestamp_s: float,
         fps: float,
         main_detector: YOLO,
-        phone_detector: YOLO,
+        phone_detector: Optional[YOLO],
         pose_estimator: PoseEstimator,
         behavior_engine: BehaviorEngine,
         guard_gate: TrackGuardGate,
@@ -1087,11 +1052,12 @@ class GuardRoomRuntime:
 
         if phone_mode == "full_frame_test":
             # 全图模式：使用主循环预计算的全图结果（批量推理更高效）
-            phones = precomputed_phones if precomputed_phones is not None else self._detect_phones_full_frame(phone_detector, frame)
+            detector_for_phone = phone_detector or main_detector
+            phones = precomputed_phones if precomputed_phones is not None else self._detect_phones_full_frame(detector_for_phone, frame)
             persons_for_phone_rule = all_persons   # 全图模式对所有人做手机规则
         else:
             # 裁图模式（默认）：仅对保安区域裁图检测，减少误检
-            phones = self._detect_phones_in_person_regions(phone_detector, frame, guard_persons)
+            phones = self._detect_phones_in_person_regions(phone_detector or main_detector, frame, guard_persons)
             persons_for_phone_rule = guard_persons  # 裁图模式只对保安做手机规则
 
         pose_features = self._estimate_pose(pose_estimator, frame, guard_persons, timestamp_s)
@@ -1149,6 +1115,8 @@ class GuardRoomRuntime:
             classes=[self.cfg.classes.person],
             conf=max(0.20, self.cfg.models.detector_conf),
             iou=self.cfg.models.detector_iou,
+            imgsz=self.cfg.models.detector_imgsz,
+            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
         )
@@ -1240,7 +1208,8 @@ class GuardRoomRuntime:
             # 裁图模式置信度阈值提升（×3.0），降低小图中的误检
             conf=min(0.9, max(0.10, self.cfg.models.detector_conf * 3.0)),
             iou=self.cfg.models.detector_iou,
-            imgsz=640,
+            imgsz=self.cfg.models.phone_crop_imgsz,
+            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
         )
@@ -1304,7 +1273,8 @@ class GuardRoomRuntime:
 
         与裁图模式相比误检率更高，主要用于验证模型在全图下的检测能力，
         不建议在生产环境使用（phone_detect_mode="full_frame_test"）。
-        imgsz=1280 提供更高分辨率以检测画面中较小的手机目标。
+        phone_full_frame_imgsz 可适当调高以检测画面中较小的手机目标，
+        但会明显增加瞬时显存。
         """
         if not frames_by_camera:
             return {}
@@ -1317,7 +1287,8 @@ class GuardRoomRuntime:
             classes=[self.cfg.classes.play_phone],
             conf=max(0.05, self.cfg.models.detector_conf * 1.8),
             iou=self.cfg.models.detector_iou,
-            imgsz=1280,
+            imgsz=self.cfg.models.phone_full_frame_imgsz,
+            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
         )
@@ -1381,6 +1352,9 @@ class GuardRoomRuntime:
         """
         if not pose_estimator.enabled:
             return {}
+        if bool(getattr(self.cfg.runtime, "share_pose_estimator", True)):
+            with self._pose_lock:
+                return pose_estimator.infer_frame(frame, persons)
         return pose_estimator.infer_frame(frame, persons)
 
     # -----------------------------------------------------------------------

@@ -29,7 +29,7 @@ type DepartmentPermission = {
 
 export const departmentPermissions: Record<Exclude<Department, 'all'>, DepartmentPermission> = {
   general_electric: {
-    pages: ['overview', 'security-vlm', 'guard-behavior', 'human-detection'],
+    pages: ['overview', 'security-vlm', 'guard-behavior', 'human-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'human-detection': {
         label: '后大门异常逗留检测',
@@ -39,15 +39,25 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   research_institute: {
-    pages: ['overview', 'intrusion-detection', 'face-detection', 'phone-detection'],
+    pages: ['overview', 'intrusion-detection', 'face-detection', 'phone-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'intrusion-detection': {
-        label: '区域逗留检测',
-        title: '区域逗留检测',
-        description: '区域逗留监控与配置入口',
+        label: '区域入侵检测',
+        title: '区域入侵检测',
+        description: '区域入侵监控与配置入口',
       },
     },
   },
+}
+
+export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
+  'security-vlm': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
+  'intrusion-detection': ['blocks'],
+  'door-detection': ['detect_door'],
+  'face-detection': ['detect_face'],
+  'human-detection': ['detect_human'],
+  'phone-detection': ['detect_phone'],
 }
 
 const departmentAliases: Record<string, Department> = {
@@ -161,4 +171,22 @@ export function filterHomeModulesByPermission<T extends { id: string; title: str
   return moduleEntries
     .filter((entry) => hasPageAccess(user, entry.id))
     .map((entry) => applyDisplayOverride<T>(user, entry))
+}
+
+export function getAccessibleAlarmEventTypes(user: AuthUser | null | undefined): string[] | null {
+  const role = getUserRole(user)
+  if (role === 'admin') return null
+  if (!user || role !== 'viewer') return []
+
+  const department = getUserDepartment(user)
+  if (department === 'all') return null
+  if (!department) return []
+
+  const allowed = new Set<string>()
+  for (const [pageId, eventTypes] of Object.entries(alarmEventTypesByPage)) {
+    if (hasPageAccess(user, pageId)) {
+      eventTypes.forEach((eventType) => allowed.add(eventType))
+    }
+  }
+  return Array.from(allowed)
 }

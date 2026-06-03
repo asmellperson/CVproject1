@@ -3,7 +3,7 @@ platform/inference/workers/yolo_detector.py
 通用 YOLO 检测 Worker — 一个类替代旧代码假设的
 yolo_face_worker.py / yolo_phone_worker.py / yolo_human_worker.py。
 
-通过 ai_model 表的 path 字段加载实际模型(代码不写死路径,以数据库为准)。
+模型文件路径来自本机配置文件，不再使用 ai_model.path 作为加载依据。
 
 每个数据库 ai_model 行可以在 description 字段或新增 extra 字段配置 class_filter,
 比如 person_phone.pt 同时检测人和手机时:

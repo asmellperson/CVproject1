@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { Department, UserRole } from '@/lib/permissions'
+import type { Department, UserRole } from '@/auth/permissions'
 
 export type AuthUser = {
   employee_id: string
@@ -12,7 +12,8 @@ export type AuthContextValue = {
   user: AuthUser | null
   loading: boolean
   isAdmin: boolean
-  login: (employeeId: string, password: string) => Promise<void>
+  login: (account: string, password: string) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   logout: () => Promise<void>
   refreshMe: () => Promise<void>
   handleUnauthorized: () => void

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, RefreshCw, Save, SlidersHorizontal, Smartphone, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
+import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
-import { AiVisionModelConfig } from '@/components/AiVisionModelConfig'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -12,10 +11,26 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
+
+const AiVisionRoiEditor = lazy(() =>
+  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
+)
+const AiVisionModelConfig = lazy(() =>
+  import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
+)
+
+function LazyConfigFallback({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
+      {label}
+    </div>
+  )
+}
 
 type PhoneConfig = {
   enable: boolean
@@ -25,6 +40,10 @@ type PhoneConfig = {
     alarm_interval?: number
     CONF_THRESHOLD?: number
     IOU_THR?: number
+    MIN_CONFIRM_SECONDS?: number
+    MIN_CONSECUTIVE_HITS?: number
+    REQUIRE_PERSON_ASSOCIATION?: boolean
+    PERSON_EXPAND_RATIO?: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -43,6 +62,10 @@ const defaultForm = {
   confidenceThreshold: '0.7',
   iouThreshold: '0.5',
   alarmInterval: '5.0',
+  minConfirmSeconds: '1.2',
+  minConsecutiveHits: '3',
+  requirePersonAssociation: true,
+  personExpandRatio: '0.18',
 }
 
 const defaultPhoneConfig: PhoneConfig = {
@@ -53,6 +76,10 @@ const defaultPhoneConfig: PhoneConfig = {
     alarm_interval: 5.0,
     CONF_THRESHOLD: 0.7,
     IOU_THR: 0.5,
+    MIN_CONFIRM_SECONDS: 1.2,
+    MIN_CONSECUTIVE_HITS: 3,
+    REQUIRE_PERSON_ASSOCIATION: true,
+    PERSON_EXPAND_RATIO: 0.18,
   },
   alarm: {
     horn: { enable: false, parm: {} },
@@ -72,6 +99,10 @@ function toForm(payload: PhoneConfigResponse) {
     confidenceThreshold: String(payload.detect_phone.value.CONF_THRESHOLD ?? 0.7),
     iouThreshold: String(payload.detect_phone.value.IOU_THR ?? 0.5),
     alarmInterval: String(payload.detect_phone.value.alarm_interval ?? 5.0),
+    minConfirmSeconds: String(payload.detect_phone.value.MIN_CONFIRM_SECONDS ?? 1.2),
+    minConsecutiveHits: String(payload.detect_phone.value.MIN_CONSECUTIVE_HITS ?? 3),
+    requirePersonAssociation: payload.detect_phone.value.REQUIRE_PERSON_ASSOCIATION ?? true,
+    personExpandRatio: String(payload.detect_phone.value.PERSON_EXPAND_RATIO ?? 0.18),
   }
 }
 
@@ -162,6 +193,7 @@ export function PhoneDetectionSection() {
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refreshCameraList = async () => {
@@ -243,9 +275,19 @@ export function PhoneDetectionSection() {
     const confidenceThreshold = Number(form.confidenceThreshold)
     const iouThreshold = Number(form.iouThreshold)
     const alarmInterval = Number(form.alarmInterval)
+    const minConfirmSeconds = Number(form.minConfirmSeconds)
+    const minConsecutiveHits = Number(form.minConsecutiveHits)
+    const personExpandRatio = Number(form.personExpandRatio)
 
-    if (!Number.isFinite(confidenceThreshold) || !Number.isFinite(iouThreshold) || !Number.isFinite(alarmInterval)) {
-      setMessage('保存失败：置信度、IOU 和告警间隔必须是数字。')
+    if (
+      !Number.isFinite(confidenceThreshold) ||
+      !Number.isFinite(iouThreshold) ||
+      !Number.isFinite(alarmInterval) ||
+      !Number.isFinite(minConfirmSeconds) ||
+      !Number.isFinite(minConsecutiveHits) ||
+      !Number.isFinite(personExpandRatio)
+    ) {
+      setMessage('保存失败：置信度、IOU、告警间隔和误报控制参数必须是数字。')
       return
     }
 
@@ -258,6 +300,10 @@ export function PhoneDetectionSection() {
         CONF_THRESHOLD: confidenceThreshold,
         IOU_THR: iouThreshold,
         alarm_interval: alarmInterval,
+        MIN_CONFIRM_SECONDS: minConfirmSeconds,
+        MIN_CONSECUTIVE_HITS: Math.max(1, Math.round(minConsecutiveHits)),
+        REQUIRE_PERSON_ASSOCIATION: form.requirePersonAssociation,
+        PERSON_EXPAND_RATIO: personExpandRatio,
       },
       alarm: phoneConfig.alarm || defaultPhoneConfig.alarm,
     }
@@ -281,6 +327,34 @@ export function PhoneDetectionSection() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const applyDayPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      confidenceThreshold: '0.7',
+      iouThreshold: '0.5',
+      alarmInterval: '5.0',
+      minConfirmSeconds: '1.2',
+      minConsecutiveHits: '3',
+      requirePersonAssociation: true,
+      personExpandRatio: '0.18',
+    }))
+    setMessage('已应用白天参数预设，确认后请保存配置。')
+  }
+
+  const applyNightPreset = () => {
+    setForm((prev) => ({
+      ...prev,
+      confidenceThreshold: '0.62',
+      iouThreshold: '0.45',
+      alarmInterval: '5.0',
+      minConfirmSeconds: '1.6',
+      minConsecutiveHits: '4',
+      requirePersonAssociation: true,
+      personExpandRatio: '0.22',
+    }))
+    setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_phone'))
@@ -340,31 +414,48 @@ export function PhoneDetectionSection() {
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
+                onConfigCopied={(cameraName) => {
+                  setForm((prev) => ({ ...prev, cameraName }))
+                  return loadConfig(cameraName)
+                }}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-              <AiVisionRoiEditor
-                title="手机使用检测 ROI 绘制"
-                cameraKey={form.cameraName}
-                roiJson={form.roiPos}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
-                saving={saving}
-                message={message}
-                onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
-                onSave={saveConfig}
-              />
+              <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
+                <AiVisionRoiEditor
+                  title="手机使用检测 ROI 绘制"
+                  cameraKey={form.cameraName}
+                  feature="detect_phone"
+                  roiJson={form.roiPos}
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  saving={saving}
+                  message={message}
+                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
+                  onSave={saveConfig}
+                />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <Card className="border-slate-200 bg-white/95">
-              <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <CardTitle className="text-lg">配置表单</CardTitle>
+              <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+              <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#fff1f2_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
+                <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500 text-white shadow-[0_12px_24px_rgba(244,63,94,0.22)]">
+                    <SlidersHorizontal className="h-5 w-5" />
+                  </span>
+                  配置表单
+                </CardTitle>
                 <Badge variant="outline" className="border-slate-300 text-slate-600">
                   AiVision detect_phone
                 </Badge>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 bg-[#fff8f8] p-4 sm:p-5 dark:bg-slate-950/30">
+                <AiVisionPresetActions
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  onApplyDay={applyDayPreset}
+                  onApplyNight={applyNightPreset}
+                />
                 <div className="grid gap-5 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="phone-camera">摄像头名称</Label>
@@ -419,6 +510,45 @@ export function PhoneDetectionSection() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-confirm-seconds">确认持续时间</Label>
+                    <Input
+                      id="phone-confirm-seconds"
+                      value={form.minConfirmSeconds}
+                      onChange={(event) => setForm((prev) => ({ ...prev, minConfirmSeconds: event.target.value }))}
+                      placeholder="1.2"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-hit-count">连续命中次数</Label>
+                    <Input
+                      id="phone-hit-count"
+                      value={form.minConsecutiveHits}
+                      onChange={(event) => setForm((prev) => ({ ...prev, minConsecutiveHits: event.target.value }))}
+                      placeholder="3"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-person-expand">人体关联扩展比例</Label>
+                    <Input
+                      id="phone-person-expand"
+                      value={form.personExpandRatio}
+                      onChange={(event) => setForm((prev) => ({ ...prev, personExpandRatio: event.target.value }))}
+                      placeholder="0.18"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+                    <Label htmlFor="phone-person-association">启用人体区域关联</Label>
+                    <Switch
+                      id="phone-person-association"
+                      checked={form.requirePersonAssociation}
+                      onCheckedChange={(checked) => setForm((prev) => ({ ...prev, requirePersonAssociation: checked }))}
+                    />
+                  </div>
+
                 </div>
 
                 <div className="space-y-2">
@@ -432,7 +562,7 @@ export function PhoneDetectionSection() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                   <div className="text-sm text-slate-600">{message}</div>
                   <div className="flex gap-2">
                     <Button variant="outline" className="gap-2" onClick={() => loadConfig()} disabled={loading || saving || !form.cameraName}>
@@ -450,7 +580,9 @@ export function PhoneDetectionSection() {
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
-              <AiVisionModelConfig requiredModels={['yolo_phone']} />
+              <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
+                <AiVisionModelConfig requiredModels={['yolo_phone']} />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">

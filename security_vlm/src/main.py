@@ -3,7 +3,7 @@
 main.py —— Web 主进程 (FastAPI)
 ================================================================================
 职责:
-    1. 启动时按顺序拉起 4 个 worker 子进程 (capture/detector/session/vlm)
+    1. 启动 Web API；检测 worker 仅在 /api/control/start 被调用后启动
     2. 提供 REST API:
          GET  /              服务信息
          GET  /health        所有 worker 状态 + 历史 + 统计 (前端轮询)
@@ -12,7 +12,7 @@ main.py —— Web 主进程 (FastAPI)
          POST /api/rois      保存 ROI 配置 (前端绘制后调用)
          GET  /video/original 原始 MJPEG 流
          GET  /video/rule     带 ROI / 人体框 / 统计 banner 的 MJPEG 流
-    3. 退出时反向终止 worker
+    3. 退出时反向终止已启动的 worker
 
 MJPEG 渲染:
     web 端两路视频都是从 FrameHub 读最新帧, 按 6fps 限流 + 长边 960 缩放
@@ -113,6 +113,17 @@ class AppService:
     def _clear_frame_hub(self):
         """worker 停止/重启后丢弃旧 reader，避免继续读旧共享内存句柄。"""
         self._frame_hub = None
+
+    def mark_stopped(self):
+        """标记检测功能为关闭状态，不启动 worker。"""
+        now = time.time()
+        self.store.write("runtime_control", {
+            "enabled": False,
+            "message": "stopped",
+            "ts": now,
+        })
+        for key in ("capture_status", "tracker_status", "session_status", "vlm_status"):
+            self.store.write(key, {"ok": False, "message": "stopped", "ts": now})
 
     # ---- FrameHub 懒加载 ----
     def get_frame_hub(self):
@@ -384,11 +395,10 @@ def create_app(config_path: Path) -> FastAPI:
     async def lifespan(app: FastAPI):
         """
         FastAPI 生命周期上下文管理器。
-        启动时：拉起所有 worker 子进程
+        启动时：只启动 API，不自动拉起 worker 子进程
         关闭时：反向终止所有 worker
         """
-        # 启动: 拉起所有 worker; 退出: 反向终止
-        service.start_workers()
+        service.mark_stopped()
         try:
             yield
         finally:

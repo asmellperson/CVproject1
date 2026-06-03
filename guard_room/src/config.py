@@ -76,6 +76,11 @@ class ModelConfig:
         pose_model_task:    姿态估计任务标识；为空时跳过姿态估计。
         detector_conf:      检测置信度阈值，低于此值的框被过滤。
         detector_iou:       NMS IoU 阈值，控制重叠框的合并程度。
+        detector_imgsz:     人体检测输入尺寸，越小显存/算力占用越低。
+        phone_crop_imgsz:   裁图手机检测输入尺寸。
+        phone_full_frame_imgsz: 全图手机检测输入尺寸（调试模式）。
+        pose_imgsz:         姿态模型输入尺寸。
+        use_half:           CUDA 推理时是否使用 FP16，降低显存占用。
         tracker:            ByteTrack 配置文件名，由 Ultralytics 内置解析。
         device:             推理设备，如 "cuda:0"、"cpu"；为空时由框架自动选择。
         uniform_cls_imgsz:  制服分类模型的输入边长（正方形，像素）。
@@ -86,6 +91,11 @@ class ModelConfig:
     pose_model_task: str = ""
     detector_conf: float = 0.35
     detector_iou: float = 0.45
+    detector_imgsz: int = 640
+    phone_crop_imgsz: int = 640
+    phone_full_frame_imgsz: int = 960
+    pose_imgsz: int = 640
+    use_half: bool = True
     tracker: str = "bytetrack.yaml"
     device: str = ""
     uniform_cls_imgsz: int = 224
@@ -193,6 +203,9 @@ class RuntimeConfig:
         debug:              是否输出详细调试日志。
         draw_debug:         是否在画面上绘制调试信息（骨骼点、规则状态等）。
         max_alarm_history:  内存中保留的最大报警事件条数，防止长时间运行内存膨胀。
+        infer_max_workers:  摄像头推理线程数上限；GPU 显存紧张时建议为 1。
+        share_phone_detector: 裁图手机检测复用各摄像头人体检测模型，少加载一份 YOLO。
+        share_pose_estimator: 多路摄像头共享一份姿态模型，少加载 N-1 份姿态模型。
         phone_detect_mode:  手机检测范围模式：
                               "guard_crop"      —— 仅对识别为保安的区域裁图检测（推荐）；
                               "full_frame_test" —— 对全图检测，用于调试误检问题。
@@ -201,6 +214,9 @@ class RuntimeConfig:
     debug: bool = True
     draw_debug: bool = False
     max_alarm_history: int = 1000
+    infer_max_workers: int = 1
+    share_phone_detector: bool = True
+    share_pose_estimator: bool = True
     phone_detect_mode: str = "guard_crop"
 
 

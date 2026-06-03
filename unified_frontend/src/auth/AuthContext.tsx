@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getUserRole } from '@/lib/permissions'
+import { getUserRole } from '@/auth/permissions'
 import { AuthContext } from '@/auth/auth-context'
 import type { AuthContextValue, AuthUser } from '@/auth/auth-context'
 
@@ -62,12 +62,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('aicv:unauthorized', listener)
   }, [handleUnauthorized])
 
-  const login = useCallback(async (employeeId: string, password: string) => {
+  const login = useCallback(async (account: string, password: string) => {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employeeId, password }),
+      body: JSON.stringify({ employee_id: account, password }),
     })
     if (!response.ok) {
       throw new Error(await readError(response))
@@ -75,6 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const payload = (await response.json()) as { user: AuthUser }
     setUser(payload.user)
   }, [])
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const response = await fetch('/api/auth/password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    })
+    if (response.status === 401) {
+      handleUnauthorized()
+    }
+    if (!response.ok) {
+      throw new Error(await readError(response))
+    }
+    const payload = (await response.json()) as { user: AuthUser }
+    setUser(payload.user)
+  }, [handleUnauthorized])
 
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', {
@@ -92,12 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         isAdmin: normalizedRole === 'admin',
         login,
+        changePassword,
         logout,
         refreshMe,
         handleUnauthorized,
       }
     },
-    [handleUnauthorized, loading, login, logout, refreshMe, user],
+    [changePassword, handleUnauthorized, loading, login, logout, refreshMe, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -2,7 +2,8 @@
 platform/inference/manager.py
 推理 Worker 进程生命周期管理 — 替代旧 CapManager.start_inferworker。
 
-启动时按数据库 ai_model 表逐个尝试加载,导入失败 / 模型缺失就跳过,
+启动时按数据库 ai_model 表逐个尝试加载模型元数据，模型文件路径来自本机配置文件。
+导入失败 / 模型缺失 / 本机路径未配置时会跳过,
 不影响其他模型。Consumer 那边通过 _dispatch_frame 找不到对应模型时也会优雅降级。
 """
 from __future__ import annotations

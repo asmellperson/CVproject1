@@ -1,0 +1,65 @@
+[
+  {
+    "employee_id": "260210063",
+    "name": "周瑶瑶",
+    "role": "admin",
+    "department": "all",
+    "enabled": true,
+    "password_hash": "pbkdf2_sha256$260000$kMUmhG76Mi6NMV8pLcw9-g$feUAMC8nQqIXRNK1AgzmYj8-Tk0Cy7aa_UQKbC9mwcs"
+  },
+  {
+    "employee_id": "25099807",
+    "name": "黄泓皓",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
+  },
+  {
+    "employee_id": "25028888",
+    "name": "向晨曦",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
+  },
+  {
+    "employee_id": "22086522",
+    "name": "何洪财",
+    "role": "viewer",
+    "department": "ge",
+    "enabled": true
+  },
+  {
+    "employee_id": "24088453",
+    "name": "程培",
+    "role": "admin",
+    "enabled": true
+  },
+  {
+    "employee_id": "24068253",
+    "name": "汪总",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
+  },
+  {
+    "employee_id": "10090148",
+    "name": "刘占中",
+    "role": "viewer",
+    "department": "research_institute",
+    "enabled": true
+  },
+  {
+    "employee_id": "25129957",
+    "name": "耿中睿",
+    "role": "viewer",
+    "department": "general_electric",
+    "enabled": true
+  },
+  {
+    "employee_id": "24118635",
+    "name": "丁传娣",
+    "role": "viewer",
+    "department": "general_electric",
+    "enabled": true
+  }
+]

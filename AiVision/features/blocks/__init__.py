@@ -10,6 +10,6 @@ SPEC = FeatureSpec(
     consumer_cls=BlocksConsumer,
     orm_class=BlocksConfigORM,
     config_schema=BlocksConfigSchema,
-    required_models=(),  # 纯帧差,无需推理模型
+    required_models=("yolo_human",),
     violation_type=1,
 )
