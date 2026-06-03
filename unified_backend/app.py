@@ -125,12 +125,25 @@ def _stream_response(upstream: requests.Response) -> StreamingResponse:
     )
 
 
-def _get_json(base_url: str, path: str, *, timeout: float = 2.0) -> tuple[bool, dict | list | None, float | None, str | None]:
+def _get_json(
+    base_url: str,
+    path: str,
+    *,
+    timeout: float = 2.0,
+    request: Request | None = None,
+) -> tuple[bool, dict | list | None, float | None, str | None]:
     started_at = _now()
     try:
+        kwargs: dict[str, Any] = {}
+        if request is not None:
+            kwargs = {
+                "headers": _request_headers(request),
+                "cookies": request.cookies,
+            }
         response = requests.get(
             urljoin(f"{base_url}/", path.lstrip("/")),
             timeout=timeout,
+            **kwargs,
         )
         latency_ms = round((_now() - started_at) * 1000, 1)
         if not response.ok:
@@ -542,19 +555,19 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "unified_backend", "port": int(os.getenv("UNIFIED_BACKEND_PORT", "5000"))}
 
     @app.get("/api/platform/status")
-    def platform_status():
+    def platform_status(request: Request):
         now = _now()
 
         guard_health_ok, _guard_health, guard_latency, guard_health_error = _get_json(guard_room_url, "/api/health")
-        _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = _get_json(guard_room_url, "/api/status")
-        guard_cfg_ok, guard_config, _guard_cfg_latency, _guard_cfg_error = _get_json(guard_room_url, "/api/config")
+        _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = _get_json(guard_room_url, "/api/status", request=request)
+        guard_cfg_ok, guard_config, _guard_cfg_latency, _guard_cfg_error = _get_json(guard_room_url, "/api/config", request=request)
         guard_last_frame_ts = _parse_iso_ts(guard_status.get("updated_at") if isinstance(guard_status, dict) else None)
         guard_camera_count = _count_guard_cameras(guard_config) if guard_cfg_ok else 0
         guard_running = bool(guard_status.get("running")) if isinstance(guard_status, dict) else False
 
         ai_health_ok, ai_health, ai_latency, ai_health_error = _get_json(aivision_url, "/api/v2/runtime/health")
-        _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = _get_json(aivision_url, "/api/v2/runtime/status")
-        _ai_cam_ok, ai_cameras, _ai_cam_latency, _ai_cam_error = _get_json(aivision_url, "/api/v2/cameras")
+        _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = _get_json(aivision_url, "/api/v2/runtime/status", request=request)
+        _ai_cam_ok, ai_cameras, _ai_cam_latency, _ai_cam_error = _get_json(aivision_url, "/api/v2/cameras", request=request)
         if not isinstance(ai_status, dict) and isinstance(ai_health, dict):
             ai_status = ai_health
         ai_running_cameras = ai_status.get("running_cameras", []) if isinstance(ai_status, dict) else []
