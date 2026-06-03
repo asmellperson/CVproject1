@@ -105,6 +105,25 @@ type OverviewState = {
   latestAlarm: AlarmEvent | null
 }
 
+type ServiceKey = keyof PlatformStatus['services']
+
+type ModuleStatusSource = {
+  serviceKey: ServiceKey
+  featureKey?: string
+}
+
+const moduleStatusSources: Record<string, ModuleStatusSource> = {
+  'security-vlm': { serviceKey: 'security_vlm' },
+  'guard-behavior': { serviceKey: 'guard_room' },
+  'intrusion-detection': { serviceKey: 'aivision', featureKey: 'blocks' },
+  'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
+  'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
+  'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
+  'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
+}
+
+type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
+
 const defaultOverview: OverviewState = {
   cameraCount: 0,
   todayAlarms: 0,
@@ -139,13 +158,78 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   return '权限视图'
 }
 
+function getRunningConsumers(service?: PlatformServiceStatus) {
+  return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
+}
+
+function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string) {
+  if (!service?.online || !service.running) return false
+  if (!featureKey) return true
+  return getRunningConsumers(service).includes(featureKey)
+}
+
+function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string) {
+  if (!featureKey) return Boolean(service?.model_status?.loaded)
+  return getRunningConsumers(service).includes(featureKey)
+}
+
+function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null) {
+  if (!cards.length || !platformStatus) return 'down'
+  const services = cards.map((card) => platformStatus.services[card.serviceKey])
+  const onlineCount = services.filter((service) => service?.online).length
+  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey)).length
+  if (onlineCount === cards.length && runningCount === cards.length) return 'healthy'
+  if (onlineCount > 0) return 'degraded'
+  return 'down'
+}
+
+function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStatusCard[] {
+  return visibleEntries.flatMap((entry) => {
+    const source = moduleStatusSources[entry.id]
+    return source ? [{ ...entry, ...source }] : []
+  })
+}
+
+function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null) {
+  if (!platformStatus) {
+    return {
+      capabilityTotal: cards.length,
+      capabilityOnline: 0,
+      capabilityRunning: 0,
+      cameraTotal: 0,
+      cameraOnline: 0,
+      cameraOffline: 0,
+    }
+  }
+
+  const uniqueServices = Array.from(new Set(cards.map((card) => card.serviceKey)))
+  const serviceCameraTotal = uniqueServices.reduce((total, serviceKey) => {
+    return total + Number(platformStatus.services[serviceKey]?.camera_count || 0)
+  }, 0)
+  const serviceCameraOnline = uniqueServices.reduce((total, serviceKey) => {
+    return total + Number(platformStatus.services[serviceKey]?.online_camera_count || 0)
+  }, 0)
+
+  return {
+    capabilityTotal: cards.length,
+    capabilityOnline: cards.filter((card) => platformStatus.services[card.serviceKey]?.online).length,
+    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey)).length,
+    cameraTotal: serviceCameraTotal,
+    cameraOnline: serviceCameraOnline,
+    cameraOffline: Math.max(0, serviceCameraTotal - serviceCameraOnline),
+  }
+}
+
 export function HomeSection({ onNavigate }: HomeSectionProps) {
   const { user } = useAuth()
-  const visibleModuleEntries = filterHomeModulesByPermission(user, moduleEntries)
+  const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
+  const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
   const department = getUserDepartment(user)
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
+  const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus), [platformStatus, visibleStatusCards])
+  const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus), [platformStatus, visibleStatusCards])
 
   useEffect(() => {
     let cancelled = false
@@ -166,7 +250,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
         : []
 
       setOverview({
-        cameraCount: currentStatus?.summary.camera_total ?? 0,
+        cameraCount: getScopedStatusSummary(getVisibleStatusCards(visibleModuleEntries), currentStatus).cameraTotal,
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
         latestAlarm: alarmItems[0] || null,
@@ -190,7 +274,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [accessibleAlarmEventTypes])
+  }, [accessibleAlarmEventTypes, visibleModuleEntries])
 
   return (
     <div className="relative -mx-3 -my-4 min-h-[calc(100dvh-64px)] overflow-hidden bg-[#f5f8fc] p-3 dark:bg-[#07111f] sm:-mx-4 sm:-my-5 sm:min-h-[calc(100vh-72px)] sm:p-4 lg:-mx-8 lg:-my-6 lg:p-8 2xl:-mx-10 2xl:p-10">
@@ -340,13 +424,18 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
                     <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">现场检测模块、摄像头和画面更新时间</p>
                   </div>
                 </div>
-                <StatusBadge level={platformStatus?.level || 'down'} />
+                <StatusBadge level={scopedStatusLevel} />
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <ServiceStatusCard service={platformStatus?.services.guard_room} displayName="保安行为监管" />
-                <ServiceStatusCard service={platformStatus?.services.aivision} displayName="厂区 AI 视觉检测" />
-                <ServiceStatusCard service={platformStatus?.services.security_vlm} displayName="安检流程监管" />
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {visibleStatusCards.map((card) => (
+                  <ServiceStatusCard
+                    key={card.id}
+                    service={platformStatus?.services[card.serviceKey]}
+                    displayName={card.title}
+                    featureKey={card.featureKey}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -362,10 +451,10 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
               </div>
             </div>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              <MiniStatusMetric label="模块在线" value={`${platformStatus?.summary.service_online ?? 0}/${platformStatus?.summary.service_total ?? 3}`} />
-              <MiniStatusMetric label="正在检测" value={`${platformStatus?.summary.service_running ?? 0}/${platformStatus?.summary.service_total ?? 3}`} />
-              <MiniStatusMetric label="摄像头在线" value={`${platformStatus?.summary.camera_online ?? 0}/${platformStatus?.summary.camera_total ?? 0}`} />
-              <MiniStatusMetric label="摄像头离线" value={platformStatus?.summary.camera_offline ?? 0} warn={(platformStatus?.summary.camera_offline ?? 0) > 0} />
+              <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
+              <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
+              <MiniStatusMetric label="摄像头在线" value={`${scopedStatusSummary.cameraOnline}/${scopedStatusSummary.cameraTotal}`} />
+              <MiniStatusMetric label="摄像头离线" value={scopedStatusSummary.cameraOffline} warn={scopedStatusSummary.cameraOffline > 0} />
             </div>
           </div>
         </section>
@@ -479,13 +568,15 @@ function StatusBadge({ level }: { level: string }) {
 function ServiceStatusCard({
   service,
   displayName,
+  featureKey,
 }: {
   service?: PlatformServiceStatus
   displayName: string
+  featureKey?: string
 }) {
   const online = Boolean(service?.online)
-  const running = Boolean(service?.running)
-  const modelLoaded = Boolean(service?.model_status?.loaded)
+  const running = isCapabilityRunning(service, featureKey)
+  const modelLoaded = isCapabilityModelReady(service, featureKey)
   const cameraCount = Number(service?.camera_count || 0)
   const onlineCameras = Number(service?.online_camera_count || 0)
   const frameAge = service?.last_frame_age_sec
@@ -496,7 +587,7 @@ function ServiceStatusCard({
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-[#071d3d] dark:text-slate-100">{displayName}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">
-            {online ? (running ? '正常检测中' : '已连接，未开始检测') : '暂时不可用'}
+            {online ? (running ? '正常检测中' : featureKey ? '服务在线，能力未启动' : '已连接，未开始检测') : '暂时不可用'}
           </div>
         </div>
         <span
@@ -515,7 +606,7 @@ function ServiceStatusCard({
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
           <div className="text-slate-500">识别能力</div>
           <div className={cn('mt-1 font-black', modelLoaded ? 'text-emerald-600' : 'text-amber-600')}>
-            {modelLoaded ? '已就绪' : '待确认'}
+            {modelLoaded ? (featureKey ? '已启用' : '已就绪') : '待确认'}
           </div>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
