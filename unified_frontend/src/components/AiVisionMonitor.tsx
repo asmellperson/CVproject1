@@ -18,7 +18,7 @@ type AiVisionMonitorProps = {
   feature: string
 }
 
-const FRAME_REFRESH_MS = 1000
+const FRAME_REFRESH_MS = 200
 const PREVIEW_MAX_WIDTH = 960
 const PREVIEW_QUALITY = 72
 
