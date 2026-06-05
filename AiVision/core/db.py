@@ -162,6 +162,7 @@ def ensure_schema_compatible():
     """
     # 强制 import，确保所有 ORM 类注册进 Base.metadata
     from features import all_specs  # noqa: F401
+    from core import system_config as _system_config_orm       # noqa: F401
     from platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
     from platform.camera import orm as _camera_orm              # noqa: F401
     from platform.inference import orm as _inference_orm        # noqa: F401

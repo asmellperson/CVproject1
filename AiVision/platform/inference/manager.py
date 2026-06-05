@@ -9,8 +9,10 @@ platform/inference/manager.py
 from __future__ import annotations
 import importlib
 import os
+import threading
 import time
 from multiprocessing import Queue
+from typing import Callable
 
 from core.logger import logger
 from core.cache import config_cache
@@ -28,6 +30,7 @@ class InferenceManager:
         self.result_queues: dict[str, Queue] = {}
         # model_name → BaseModelWorker 实例
         self._workers: dict[str, object] = {}
+        self._runtime_alert_handler: Callable[[str, str, str, str], None] | None = None
 
     def initialize_queues(self):
         """启动前预创建所有队列"""
@@ -62,6 +65,9 @@ class InferenceManager:
                 logger.warning(f"[InferenceManager] 停止 {name} 失败: {e}")
         self._workers.clear()
 
+    def configure_runtime_alerts(self, handler: Callable[[str, str, str, str], None] | None):
+        self._runtime_alert_handler = handler
+
     def _start_one(self, model_cfg: dict) -> bool:
         name = model_cfg["name"]
         import_path = model_cfg.get("import_path")
@@ -76,11 +82,13 @@ class InferenceManager:
             worker_cls = self._import_worker_class(import_path)
         except Exception as e:
             logger.warning(f"[InferenceManager] 模型 {name} 导入失败 ({import_path}): {e}")
+            self._notify_runtime_alert(name, name, "模型导入失败", str(e))
             return False
 
         infer_queue = self.infer_queues.get(name)
         if infer_queue is None:
             logger.warning(f"[InferenceManager] 模型 {name} 缺少 infer_queue")
+            self._notify_runtime_alert(name, name, "模型队列缺失", "缺少 infer_queue")
             return False
 
         try:
@@ -96,6 +104,7 @@ class InferenceManager:
             return True
         except Exception as e:
             logger.exception(f"[InferenceManager] 启动 Worker {name} 失败: {e}")
+            self._notify_runtime_alert(name, name, "模型 Worker 启动失败", str(e))
             return False
 
     def _collect_initial_configs(self, model_name: str) -> dict:
@@ -132,6 +141,7 @@ class InferenceManager:
                     continue
                 if worker.is_failed() or not worker.is_alive():
                     logger.warning(f"[InferenceManager] 模型 {name} 未就绪,worker 已失败或退出")
+                    self._notify_runtime_alert(name, name, "模型 Worker 未就绪", "worker 已失败或退出")
                     pending.discard(name)
                     continue
             if pending:
@@ -141,6 +151,7 @@ class InferenceManager:
             logger.warning(
                 f"[InferenceManager] 模型 {name} 在 {timeout:.1f}s 内未完成加载,暂不计入运行模型"
             )
+            self._notify_runtime_alert(name, name, "模型 Worker 加载超时", f"{timeout:.1f}s 内未完成加载")
             worker = self._workers.get(name)
             if worker is not None:
                 try:
@@ -178,12 +189,32 @@ class InferenceManager:
     # ---------- 状态查询 ----------
 
     def list_running(self) -> list[str]:
+        for name, worker in list(self._workers.items()):
+            if not worker.is_running():
+                self._notify_runtime_alert(name, name, "模型 Worker 退出", "worker 已不在运行状态")
         self._workers = {
             name: worker
             for name, worker in self._workers.items()
             if worker.is_running()
         }
         return list(self._workers.keys())
+
+    def _notify_runtime_alert(self, target_name: str, target_key: str, event_type: str, detail: str):
+        handler = self._runtime_alert_handler
+        if handler is None:
+            return
+
+        def _send():
+            try:
+                handler(target_name, target_key, event_type, detail)
+            except Exception as e:
+                logger.warning(f"[InferenceManager] 异常企微推送失败 {target_key}: {e}")
+
+        threading.Thread(
+            target=_send,
+            daemon=True,
+            name=f"inference-runtime-alert-{target_key}",
+        ).start()
 
 
 inference_manager = InferenceManager()

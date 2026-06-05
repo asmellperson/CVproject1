@@ -10,6 +10,7 @@ platform/camera/manager.py
 from __future__ import annotations
 import threading
 import time
+from typing import Callable
 
 from core.logger import logger
 from .runtime import CameraRuntime
@@ -30,6 +31,12 @@ class CameraManager:
         self._watchdog_thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._stale_seconds = 15.0
+        self._restart_retry_interval = 30.0
+        self._last_start_attempts: dict[str, float] = {}
+        self._runtime_alert_handler: Callable[[str, str, str, str], None] | None = None
+        self._runtime_alert_cooldown = 300.0
+        self._last_runtime_alerts: dict[tuple[str, str], float] = {}
+        self._runtime_event_queue = manager.Queue(maxsize=200)
 
     def initialize_configs(self, camera_configs: list[dict]):
         """把摄像头配置列表转成跨进程共享 Manager.dict"""
@@ -77,6 +84,13 @@ class CameraManager:
         logger.info(f"[CameraManager] 摄像头已停止: {shm_name}")
         time.sleep(0.3)
 
+    def remove_camera_config(self, shm_name: str):
+        """彻底移除摄像头运行配置,用于删除摄像头后避免 watchdog 再次拉起。"""
+        self.stop_camera(shm_name)
+        with self._lock:
+            self._shared_configs.pop(shm_name, None)
+            self._last_start_attempts.pop(shm_name, None)
+
     def update_camera_config(self, shm_name: str, new_cfg: dict):
         """运行时更新摄像头共享配置 — 子进程会看到最新值"""
         item = self._shared_configs.get(shm_name)
@@ -98,6 +112,15 @@ class CameraManager:
     def list_running(self) -> list[str]:
         return list(self._runtimes.keys())
 
+    def configure_runtime_alerts(
+        self,
+        handler: Callable[[str, str, str, str], None] | None,
+        cooldown_seconds: float = 300.0,
+    ):
+        """配置摄像头运行异常通知回调。"""
+        self._runtime_alert_handler = handler
+        self._runtime_alert_cooldown = max(1.0, float(cooldown_seconds))
+
     # ---------- 内部 ----------
 
     def _start_one(self, shm_name: str, cfg, active_index, frame_seq) -> bool:
@@ -108,17 +131,30 @@ class CameraManager:
         with self._lock:
             if shm_name in self._runtimes:
                 return True
+            self._last_start_attempts[shm_name] = time.time()
 
         frame_seq.value = 0
-        runtime = CameraRuntime(dict(cfg), active_index, frame_seq)
+        runtime = CameraRuntime(dict(cfg), active_index, frame_seq, event_queue=self._runtime_event_queue)
         if not runtime.status:
             logger.warning(f"[CameraManager] 摄像头初始化失败 {shm_name}: {runtime.msg}")
+            self._notify_runtime_alert(
+                shm_name=shm_name,
+                camera_name=cfg.get("name", shm_name),
+                event_type="启动失败",
+                detail=str(runtime.msg),
+            )
             return False
 
         try:
             runtime.start(active_index)
         except TimeoutError as e:
             logger.warning(f"[CameraManager] {e}")
+            self._notify_runtime_alert(
+                shm_name=shm_name,
+                camera_name=cfg.get("name", shm_name),
+                event_type="启动超时",
+                detail=str(e),
+            )
             return False
 
         # 写回实际分辨率(子进程探测到的真实尺寸)
@@ -152,6 +188,7 @@ class CameraManager:
         while self._watchdog_running:
             time.sleep(5.0)
             now = time.time()
+            self._drain_runtime_events()
             with self._lock:
                 items = list(self._runtimes.items())
             for shm_name, runtime in items:
@@ -164,7 +201,14 @@ class CameraManager:
                     continue
                 reason = "采集进程退出" if proc_dead else f"画面停更 {now - updated_at:.1f}s"
                 logger.warning(f"[CameraManager] 摄像头异常,准备重启 {shm_name}: {reason}")
+                self._notify_runtime_alert(
+                    shm_name=shm_name,
+                    camera_name=runtime.name,
+                    event_type=reason,
+                    detail="准备自动重启采集进程",
+                )
                 self._restart_one(shm_name)
+            self._retry_missing_enabled(now)
 
     def _restart_one(self, shm_name: str):
         item = self._shared_configs.get(shm_name)
@@ -173,3 +217,66 @@ class CameraManager:
         cfg, active_index, frame_seq = item
         self.stop_camera(shm_name)
         self._start_one(shm_name, cfg, active_index, frame_seq)
+
+    def _retry_missing_enabled(self, now: float):
+        with self._lock:
+            missing = [
+                (shm_name, item)
+                for shm_name, item in self._shared_configs.items()
+                if shm_name not in self._runtimes
+            ]
+        for shm_name, (cfg, active_index, frame_seq) in missing:
+            if not cfg.get("enable", True):
+                continue
+            last_attempt = self._last_start_attempts.get(shm_name, 0.0)
+            if now - last_attempt < self._restart_retry_interval:
+                continue
+            logger.warning(f"[CameraManager] 摄像头未运行,自动重试启动 {shm_name}")
+            self._notify_runtime_alert(
+                shm_name=shm_name,
+                camera_name=cfg.get("name", shm_name),
+                event_type="摄像头未运行",
+                detail="正在自动重试启动",
+            )
+            self._start_one(shm_name, cfg, active_index, frame_seq)
+
+    def _drain_runtime_events(self):
+        while True:
+            try:
+                event = self._runtime_event_queue.get_nowait()
+            except Exception:
+                break
+
+            shm_name = str(event.get("shm_name") or "")
+            if not shm_name:
+                continue
+            self._notify_runtime_alert(
+                shm_name=shm_name,
+                camera_name=str(event.get("camera_name") or shm_name),
+                event_type=str(event.get("event_type") or "摄像头运行异常"),
+                detail=str(event.get("detail") or ""),
+            )
+
+    def _notify_runtime_alert(self, shm_name: str, camera_name: str, event_type: str, detail: str):
+        handler = self._runtime_alert_handler
+        if handler is None:
+            return
+
+        now = time.time()
+        key = (shm_name, event_type)
+        last = self._last_runtime_alerts.get(key, 0.0)
+        if now - last < self._runtime_alert_cooldown:
+            return
+        self._last_runtime_alerts[key] = now
+
+        def _send():
+            try:
+                handler(camera_name, shm_name, event_type, detail)
+            except Exception as e:
+                logger.warning(f"[CameraManager] 摄像头异常企微推送失败 {shm_name}: {e}")
+
+        threading.Thread(
+            target=_send,
+            daemon=True,
+            name=f"camera-runtime-alert-{shm_name}",
+        ).start()

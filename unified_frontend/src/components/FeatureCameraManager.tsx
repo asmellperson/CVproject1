@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Camera, Copy, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
+import { Bell, Camera, Copy, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -15,13 +15,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import {
   createAiVisionCamera,
   deleteAiVisionCamera,
+  getAiVisionExceptionAlertSettings,
   getAiVisionFeatureConfig,
   getAiVisionCameraKey,
   type AiVisionCamera,
   isAiVisionFeatureEnabled,
+  saveAiVisionExceptionAlertSettings,
   saveAiVisionFeatureConfig,
   updateAiVisionCamera,
 } from '@/lib/aivision'
@@ -50,6 +53,12 @@ export function FeatureCameraManager({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [cameraAlias, setCameraAlias] = useState('')
   const [rtspUrl, setRtspUrl] = useState('')
+  const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
+  const [exceptionWechatUser, setExceptionWechatUser] = useState('')
+  const [exceptionSettingsLoading, setExceptionSettingsLoading] = useState(false)
+  const [exceptionSettingsSaving, setExceptionSettingsSaving] = useState(false)
+  const [exceptionSettingsMessage, setExceptionSettingsMessage] = useState('')
+  const [exceptionSettingsError, setExceptionSettingsError] = useState('')
   const [formError, setFormError] = useState('')
   const [workingCamera, setWorkingCamera] = useState('')
   const [selectedExistingCamera, setSelectedExistingCamera] = useState('')
@@ -86,6 +95,19 @@ export function FeatureCameraManager({
       setCopyTargetCamera('')
     }
   }, [cameras, copySourceCamera, copyTargetCamera])
+
+  useEffect(() => {
+    setExceptionSettingsLoading(true)
+    getAiVisionExceptionAlertSettings()
+      .then((settings) => {
+        setExceptionWechatEnabled(Boolean(settings.wechat_enable))
+        setExceptionWechatUser(settings.wechat_user || '')
+      })
+      .catch((error) => {
+        setExceptionSettingsError(`读取全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+      .finally(() => setExceptionSettingsLoading(false))
+  }, [])
 
   const resetCreateForm = () => {
     setCameraAlias('')
@@ -185,6 +207,31 @@ export function FeatureCameraManager({
     }
   }
 
+  const handleSaveExceptionSettings = async () => {
+    if (exceptionWechatEnabled && !exceptionWechatUser.trim()) {
+      setExceptionSettingsError('启用全局异常推送时，接收人不能为空。')
+      setExceptionSettingsMessage('')
+      return
+    }
+
+    setExceptionSettingsSaving(true)
+    setExceptionSettingsError('')
+    setExceptionSettingsMessage('')
+    try {
+      const next = await saveAiVisionExceptionAlertSettings({
+        wechat_enable: exceptionWechatEnabled,
+        wechat_user: exceptionWechatUser.trim(),
+      })
+      setExceptionWechatEnabled(Boolean(next.wechat_enable))
+      setExceptionWechatUser(next.wechat_user || '')
+      setExceptionSettingsMessage('全局异常推送配置已保存。')
+    } catch (error) {
+      setExceptionSettingsError(`保存全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setExceptionSettingsSaving(false)
+    }
+  }
+
   const openDeleteDialog = (camera: AiVisionCamera) => {
     setCameraToDelete(camera)
     setDeleteError('')
@@ -243,6 +290,41 @@ export function FeatureCameraManager({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
+        <div className="space-y-3 rounded-2xl border border-amber-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold text-[#071d3d] dark:text-slate-100">
+                <Bell className="h-4 w-4 text-amber-600" />
+                全局异常推送
+              </div>
+              <div className="mt-1 text-xs font-medium text-slate-500">摄像头断流、功能异常、模型 Worker 退出等系统异常统一推送。</div>
+            </div>
+            <Switch
+              checked={exceptionWechatEnabled}
+              onCheckedChange={setExceptionWechatEnabled}
+              disabled={disabled || exceptionSettingsLoading || exceptionSettingsSaving}
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <Input
+              value={exceptionWechatUser}
+              onChange={(event) => setExceptionWechatUser(event.target.value)}
+              placeholder="多个接收人用 | 分隔，例如 zhangsan|lisi；也可填 @all"
+              disabled={disabled || exceptionSettingsLoading || exceptionSettingsSaving || !exceptionWechatEnabled}
+            />
+            <Button
+              className="gap-2"
+              onClick={handleSaveExceptionSettings}
+              disabled={disabled || exceptionSettingsLoading || exceptionSettingsSaving}
+            >
+              <Bell className="h-4 w-4" />
+              {exceptionSettingsSaving ? '保存中' : '保存'}
+            </Button>
+          </div>
+          {exceptionSettingsError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{exceptionSettingsError}</div> : null}
+          {exceptionSettingsMessage ? <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{exceptionSettingsMessage}</div> : null}
+        </div>
+
         <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">启用已有摄像头</div>
@@ -376,7 +458,7 @@ export function FeatureCameraManager({
                         disabled={disabled || Boolean(workingCamera)}
                       >
                         <Pencil className="h-4 w-4" />
-                        改名
+                        设置
                       </Button>
                       <Button
                         variant="destructive"
@@ -501,18 +583,20 @@ export function FeatureCameraManager({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>修改摄像头名称</DialogTitle>
-            <DialogDescription>摄像头标识和 RTSP 地址保持不变，仅修改前端展示名称。</DialogDescription>
+            <DialogTitle>摄像头设置</DialogTitle>
+            <DialogDescription>摄像头标识和 RTSP 地址保持不变。</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor={`${feature}-rename-camera`}>摄像头名称</Label>
-            <Input
-              id={`${feature}-rename-camera`}
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              disabled={Boolean(workingCamera)}
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={`${feature}-rename-camera`}>摄像头名称</Label>
+              <Input
+                id={`${feature}-rename-camera`}
+                value={renameValue}
+                onChange={(event) => setRenameValue(event.target.value)}
+                disabled={Boolean(workingCamera)}
+              />
+            </div>
             {renameError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{renameError}</div> : null}
           </div>
 

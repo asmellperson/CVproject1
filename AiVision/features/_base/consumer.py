@@ -14,7 +14,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Optional
+from typing import Callable, Optional
 
 import cv2
 import numpy as np
@@ -52,6 +52,7 @@ class BaseFunctionConsumer(ABC):
         result_queue,                               # 本 feature 接收推理结果的队列
         latest_frames: dict[str, np.ndarray],      # 由 CameraManager 维护的最新帧字典
         is_camera_active,                           # callable(shm_name) -> bool，查询摄像头是否在线
+        runtime_alert_handler: Callable[[str, str, str, str], None] | None = None,
     ):
         self.spec = spec
         self.feature_name = spec.name
@@ -59,6 +60,7 @@ class BaseFunctionConsumer(ABC):
         self.result_queue = result_queue
         self.latest_frames = latest_frames
         self.is_camera_active = is_camera_active
+        self.runtime_alert_handler = runtime_alert_handler
 
         # ---- 配置与帧缓存（以 camera_id 为索引）----
         self.config_cache: dict[int, dict] = {}        # 运行时功能配置快照
@@ -211,6 +213,7 @@ class BaseFunctionConsumer(ABC):
                 time.sleep(0.05)
             except Exception:
                 logger.exception(f"[{self.feature_name}] 主循环异常")
+                self._notify_runtime_alert("功能主循环异常", "Consumer 主循环捕获异常,已继续运行")
                 time.sleep(0.5)  # 异常后短暂等待，避免日志刷屏
 
     # ------------------------------------------------------------------ #
@@ -236,6 +239,23 @@ class BaseFunctionConsumer(ABC):
         Returns:
             带标注的 BGR 图像帧，写入 result_dict 后供前端预览。
         """
+
+    def _notify_runtime_alert(self, event_type: str, detail: str):
+        handler = self.runtime_alert_handler
+        if handler is None:
+            return
+
+        def _send():
+            try:
+                handler(self.feature_name, self.feature_name, event_type, detail)
+            except Exception as e:
+                logger.warning(f"[{self.feature_name}] 功能异常企微推送失败: {e}")
+
+        threading.Thread(
+            target=_send,
+            daemon=True,
+            name=f"feature-runtime-alert-{self.feature_name}",
+        ).start()
 
     # ------------------------------------------------------------------ #
     #  告警处理                                                             #

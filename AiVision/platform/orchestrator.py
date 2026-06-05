@@ -24,6 +24,7 @@ from core.events import config_event_bus, ConfigChangeEvent
 from core.alarm.dispatcher import alarm_dispatcher
 from core.alarm.wechat import WeChatNotifier
 from core.settings import settings
+from core.system_config import system_config_service
 
 from features import all_specs
 from features._base.consumer import BaseFunctionConsumer
@@ -46,6 +47,8 @@ class Orchestrator:
         self._horn_dict: dict = {}
         self._wechat: Optional[WeChatNotifier] = None
         self._started = False
+        self._last_system_exception_alerts: dict[tuple[str, str], float] = {}
+        self._system_exception_alert_cooldown = 300.0
 
         # 订阅配置变更事件
         config_event_bus.subscribe_wildcard(self._on_config_change)
@@ -64,7 +67,16 @@ class Orchestrator:
         camera_service.ensure_feature_configs(enable_all=False)
         config_cache.init()
 
-        # 2) 摄像头进程
+        # 2) 企微客户端先初始化,摄像头启动异常可直接推送
+        if settings.alarm.wechat_enable:
+            self._wechat = WeChatNotifier()
+            self.camera_manager.configure_runtime_alerts(self._send_system_exception_alert)
+            inference_manager.configure_runtime_alerts(self._send_system_exception_alert)
+        else:
+            self.camera_manager.configure_runtime_alerts(None)
+            inference_manager.configure_runtime_alerts(None)
+
+        # 3) 摄像头进程
         cameras = camera_service.list_cameras()
         # 转成 CameraManager 期望的格式(把功能配置展平后传)
         cam_configs = []
@@ -83,24 +95,22 @@ class Orchestrator:
         self.camera_manager.start_all()
         frame_reader_registry.start_all()
 
-        # 3) 违规图片写入
+        # 4) 违规图片写入
         violation_writer.start()
 
-        # 4) 告警通道
+        # 5) 告警通道
         self._horn_dict = horn_service.load_runtime_instances()
-        if settings.alarm.wechat_enable:
-            self._wechat = WeChatNotifier()
         alarm_dispatcher.configure(
             horn_dict=self._horn_dict,
             wechat=self._wechat,
             violation_writer=violation_writer,
         )
 
-        # 5) 推理 Worker 进程
+        # 6) 推理 Worker 进程
         inference_manager.initialize_queues()
         inference_manager.start_all()
 
-        # 6) Feature Consumers
+        # 7) Feature Consumers
         self._start_consumers()
 
         self._started = True
@@ -173,11 +183,18 @@ class Orchestrator:
                     result_queue=inference_manager.result_queues[name],
                     latest_frames=frame_reader_registry.latest_frames,
                     is_camera_active=frame_reader_registry.is_active,
+                    runtime_alert_handler=self._send_system_exception_alert,
                 )
                 consumer.start()
                 self.consumers[name] = consumer
             except Exception:
                 logger.exception(f"[Orchestrator] 启动 Consumer {name} 失败")
+                self._send_system_exception_alert(
+                    target_name=name,
+                    target_key=name,
+                    event_type="功能启动异常",
+                    detail=f"Consumer {name} 启动失败",
+                )
 
         logger.info(f"[Orchestrator] 已启动 {len(self.consumers)} 个 Consumer")
 
@@ -195,7 +212,7 @@ class Orchestrator:
             self._restart_or_stop_camera(event.camera_name)
             return
         if change == "camera_removed":
-            self.camera_manager.stop_camera(event.camera_name)
+            self.camera_manager.remove_camera_config(event.camera_name)
             logger.info(f"[Orchestrator] 摄像头已热移除 cam_id={cam_id} shm={event.camera_name}")
             return
 
@@ -229,6 +246,34 @@ class Orchestrator:
             "enable": bool(camera["enabled"]) and any(bool(v) for v in functions.values()),
             "shape": camera.get("shape") or [1080, 1920, 3],
         }
+
+    def _send_system_exception_alert(self, target_name: str, target_key: str, event_type: str, detail: str):
+        if self._wechat is None:
+            return
+        alert = system_config_service.get_exception_alert()
+        if not alert.get("wechat_enable"):
+            return
+        recipients = str(alert.get("wechat_user") or "").strip()
+        if not recipients:
+            return
+        now = time.time()
+        alert_key = (target_key, event_type)
+        last = self._last_system_exception_alerts.get(alert_key, 0.0)
+        if now - last < self._system_exception_alert_cooldown:
+            return
+        self._last_system_exception_alerts[alert_key] = now
+        now_text = time.strftime("%Y-%m-%d %H:%M:%S")
+        self._wechat.send_text(
+            content=(
+                "AiVision 系统异常\n"
+                f"**对象**: {target_name}\n"
+                f"**标识**: {target_key}\n"
+                f"**类型**: {event_type}\n"
+                f"**详情**: {detail}\n"
+                f"**时间**: {now_text}\n"
+            ),
+            recipients=recipients,
+        )
 
     def _start_or_update_camera(self, key: str):
         cfg = self._camera_runtime_config(key)
@@ -297,6 +342,14 @@ class Orchestrator:
             for name, consumer in self.consumers.items()
             if consumer.running and all(model in running_model_set for model in consumer.spec.required_models)
         ]
+        for name, consumer in self.consumers.items():
+            if not consumer.running:
+                self._send_system_exception_alert(
+                    target_name=name,
+                    target_key=name,
+                    event_type="功能线程退出",
+                    detail=f"Consumer {name} 已不在运行状态",
+                )
         return {
             "started": self._started,
             "running_cameras": self.camera_manager.list_running(),

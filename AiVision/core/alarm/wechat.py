@@ -213,3 +213,38 @@ class WeChatNotifier:
                     logger.warning(f"[WeChat] 发送图片失败: {data}")
             except Exception as e:
                 logger.warning(f"[WeChat] 发送图片失败: {e}")
+
+    def send_text(self, content: str, recipients: str):
+        """
+        发送纯 Markdown 文本消息,用于系统运行状态类通知。
+
+        Args:
+            content   : Markdown 消息正文。
+            recipients: 接收人账号,多人用 | 分隔；@all 表示全体。
+        """
+        if not recipients:
+            return
+
+        token = self._get_token()
+        if token is None:
+            logger.info("[WeChat] 未配置企业微信凭据,跳过推送")
+            return
+
+        try:
+            resp = requests.post(
+                "https://qyapi.weixin.qq.com/cgi-bin/message/send",
+                params={"access_token": token},
+                json={
+                    "touser": recipients,
+                    "msgtype": "markdown",
+                    "agentid": self.agent_id,
+                    "markdown": {"content": content},
+                    "safe": 0,
+                },
+                timeout=10,
+            )
+            data = resp.json()
+            if data.get("errcode", 0) != 0:
+                logger.warning(f"[WeChat] 发送文本失败: {data}")
+        except Exception as e:
+            logger.warning(f"[WeChat] 发送文本失败: {e}")

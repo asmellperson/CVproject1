@@ -29,6 +29,11 @@ export type CreateAiVisionCameraPayload = {
 
 export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled'>>
 
+export type AiVisionExceptionAlertSettings = {
+  wechat_enable: boolean
+  wechat_user: string
+}
+
 export type AiVisionModel = {
   id: number
   name: string
@@ -159,6 +164,27 @@ export async function deleteAiVisionCamera(cameraKey: string) {
 
   window.dispatchEvent(new Event('aivision:cameras-changed'))
   return (await response.json()) as { ok: boolean }
+}
+
+export async function getAiVisionExceptionAlertSettings() {
+  const response = await fetch('/api/v2/runtime/exception-alert', { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as AiVisionExceptionAlertSettings
+}
+
+export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExceptionAlertSettings) {
+  const response = await fetch('/api/v2/runtime/exception-alert', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as AiVisionExceptionAlertSettings
 }
 
 export async function getAiVisionFeatureConfig(feature: string, cameraKey: string) {

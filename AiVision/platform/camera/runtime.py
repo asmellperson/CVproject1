@@ -13,6 +13,7 @@ import datetime
 import os
 import subprocess as sp
 import time
+from collections import deque
 from contextlib import contextmanager
 from multiprocessing import Process, Event, shared_memory
 
@@ -39,13 +40,14 @@ def _suppress_native_stderr():
 class CameraRuntime:
     """单个摄像头的采集运行时"""
 
-    def __init__(self, config: dict, active_index, frame_seq):
+    def __init__(self, config: dict, active_index, frame_seq, event_queue=None):
         self.cfg = config
         self.name: str = config["name"]
         self.shm_name: str = config["shm_name"]
         self.url: str = config["url"]
         self.active_index = active_index
         self.frame_seq = frame_seq
+        self.event_queue = event_queue
 
         self.status = True
         self.running = False
@@ -59,7 +61,8 @@ class CameraRuntime:
         self.frame_interval = 1.0 / config.get("fps", 5)
         self.diff_threshold = config.get("diff_threshold", 70)
         self.max_restart = config.get("max_restart", 10)
-        self.restart_cooldown = 1.0
+        self.restart_cooldown = float(config.get("restart_cooldown", 1.0))
+        self.restart_window_seconds = max(1.0, float(config.get("restart_window_seconds", 600.0)))
 
         if not config.get("enable", True):
             self.status = False
@@ -154,9 +157,34 @@ class CameraRuntime:
 
     def _restart_ffmpeg(self):
         if self.pipe:
-            self.pipe.terminate()
+            try:
+                self.pipe.terminate()
+                self.pipe.wait(timeout=2)
+            except sp.TimeoutExpired:
+                self.pipe.kill()
+                self.pipe.wait(timeout=2)
+            except Exception:
+                pass
+            try:
+                if self.pipe.stdout:
+                    self.pipe.stdout.close()
+            except Exception:
+                pass
         time.sleep(self.restart_cooldown)
         self._start_ffmpeg()
+
+    def _emit_runtime_event(self, event_type: str, detail: str):
+        if self.event_queue is None:
+            return
+        try:
+            self.event_queue.put_nowait({
+                "shm_name": self.shm_name,
+                "camera_name": self.name,
+                "event_type": event_type,
+                "detail": detail,
+            })
+        except Exception:
+            pass
 
     # ---------- 采集主循环 ----------
 
@@ -176,7 +204,7 @@ class CameraRuntime:
         self._start_ffmpeg()
         idx = 0
         prev_gray = None
-        restart_count = 0
+        restart_times = deque()
 
         try:
             while not self.stop_event.is_set():
@@ -212,11 +240,37 @@ class CameraRuntime:
                         time.sleep(sleep_time)
 
                 except Exception as e:
-                    logger.warning(f"[Camera:{self.name}] 视频流异常: {e},重启 ffmpeg")
-                    restart_count += 1
-                    if restart_count > self.max_restart:
-                        logger.error(f"[Camera:{self.name}] 达到最大重启次数,退出")
+                    now = time.time()
+                    while restart_times and now - restart_times[0] > self.restart_window_seconds:
+                        restart_times.popleft()
+                    restart_times.append(now)
+                    if len(restart_times) > self.max_restart:
+                        self._emit_runtime_event(
+                            "视频流异常",
+                            (
+                                f"{e}; {self.restart_window_seconds:.0f}s 内达到最大重启次数"
+                                f"({self.max_restart}),采集进程退出"
+                            ),
+                        )
+                        logger.error(
+                            f"[Camera:{self.name}] {self.restart_window_seconds:.0f}s 内达到最大重启次数"
+                            f"({self.max_restart}),退出"
+                        )
                         break
+                    self._emit_runtime_event(
+                        "视频流异常",
+                        (
+                            f"{e}; 正在重启 ffmpeg "
+                            f"({len(restart_times)}/{self.max_restart}, "
+                            f"window={self.restart_window_seconds:.0f}s)"
+                        ),
+                    )
+                    logger.warning(
+                        f"[Camera:{self.name}] 视频流异常: {e},重启 ffmpeg "
+                        f"({len(restart_times)}/{self.max_restart}, "
+                        f"window={self.restart_window_seconds:.0f}s)"
+                    )
+                    prev_gray = None
                     self._restart_ffmpeg()
         finally:
             if self.pipe:
