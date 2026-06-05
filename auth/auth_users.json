@@ -61,5 +61,27 @@
     "role": "viewer",
     "department": "general_electric",
     "enabled": true
+  },
+  {
+    "employee_id": "25129962",
+    "name": "王亚丹",
+    "role": "viewer",
+    "department": "research_institute",
+    "enabled": true
+  },
+  {
+    "employee_id": "25069481",
+    "name": "傅瑞申",
+    "role": "viewer",
+    "department": "research_institute",
+    "enabled": true
+  },
+  {
+    "employee_id": "25028939",
+    "name": "宋振阳",
+    "role": "viewer",
+    "department": "research_institute",
+    "enabled": true
   }
+
 ]
