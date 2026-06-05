@@ -9,7 +9,7 @@ type Point = {
   y: number
 }
 
-type RoiMode = 'polygon' | 'rect'
+type RoiMode = 'polygon' | 'rect' | 'line'
 
 type AiVisionRoiEditorProps = {
   title: string
@@ -119,12 +119,12 @@ export function AiVisionRoiEditor({
     () => (cameraKey ? aiVisionFrameUrl(cameraKey, feature, nonce) : ''),
     [cameraKey, feature, nonce],
   )
-  const valid = mode === 'rect' ? points.length === 4 : points.length >= 3
+  const valid = mode === 'line' ? points.length === 2 : mode === 'rect' ? points.length === 4 : points.length >= 3
   const outOfBounds = points.some(
     (point) => point.x < 0 || point.y < 0 || point.x > imageSize.width || point.y > imageSize.height,
   )
-  const roiArea = valid ? polygonArea(points) : 0
-  const areaTooSmall = valid && roiArea < minRoiArea
+  const roiArea = valid && mode !== 'line' ? polygonArea(points) : 0
+  const areaTooSmall = valid && mode !== 'line' && roiArea < minRoiArea
   const canSave = valid && !outOfBounds && !areaTooSmall
 
   useEffect(() => {
@@ -140,6 +140,10 @@ export function AiVisionRoiEditor({
       const nextJson = JSON.stringify(rect)
       onChange(nextJson)
       onRegionChange?.(nextJson)
+      return
+    }
+    if (mode === 'line') {
+      onChange(JSON.stringify(nextPoints.slice(0, 2).map(roundPoint)))
       return
     }
     onChange(JSON.stringify(nextPoints.map(roundPoint)))
@@ -197,7 +201,17 @@ export function AiVisionRoiEditor({
     }
     if (!dragStart || !draftPoint) return
     const dragged = pointDistance(dragStart, draftPoint) > DRAG_THRESHOLD_PX * (imageSize.width / Math.max(1, event.currentTarget.getBoundingClientRect().width))
-    if (dragged || mode === 'rect') {
+    if (mode === 'line') {
+      if (dragged) {
+        commitPoints([dragStart, draftPoint])
+      } else if (points.length === 0) {
+        commitPoints([dragStart])
+      } else if (points.length === 1) {
+        commitPoints([points[0], dragStart])
+      } else {
+        commitPoints([dragStart])
+      }
+    } else if (dragged || mode === 'rect') {
       commitPoints(rectToPoints(pointsToRect([dragStart, draftPoint])))
     } else if (mode === 'polygon') {
       commitPoints([...points, dragStart])
@@ -207,7 +221,9 @@ export function AiVisionRoiEditor({
   }
 
   const displayPoints = dragPointIndex === null && dragStart && draftPoint && pointDistance(dragStart, draftPoint) > 0
-    ? rectToPoints(pointsToRect([dragStart, draftPoint]))
+    ? mode === 'line'
+      ? [dragStart, draftPoint]
+      : rectToPoints(pointsToRect([dragStart, draftPoint]))
     : points
   const polyline = displayPoints.map((point) => `${point.x},${point.y}`).join(' ')
   const bbox = displayPoints.length ? pointsToRect(displayPoints) : []
@@ -301,9 +317,13 @@ export function AiVisionRoiEditor({
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div className="min-w-0 text-sm text-slate-600">
-            <div>{message || 'ROI 修改后点击保存配置生效。'}</div>
+            <div>{message || (mode === 'line' ? '警戒线修改后点击保存配置生效。' : 'ROI 修改后点击保存配置生效。')}</div>
             <div className="mt-1 font-mono text-xs text-slate-500">
-              {bbox.length === 4
+              {mode === 'line'
+                ? points.length === 2
+                  ? `警戒线: [${Math.round(points[0].x)}, ${Math.round(points[0].y)}] -> [${Math.round(points[1].x)}, ${Math.round(points[1].y)}]`
+                  : `端点数: ${points.length}/2`
+                : bbox.length === 4
                 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px²`
                 : mode === 'polygon'
                   ? `顶点数: ${points.length}`
@@ -313,7 +333,7 @@ export function AiVisionRoiEditor({
               <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  {outOfBounds ? <div>ROI 坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
+                  {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
                   {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
                 </div>
               </div>
@@ -328,13 +348,15 @@ export function AiVisionRoiEditor({
               <Trash2 className="h-4 w-4" />
               清空
             </Button>
-            <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraKey}>
-              <RotateCcw className="h-4 w-4" />
-              全画面
-            </Button>
+            {mode !== 'line' ? (
+              <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraKey}>
+                <RotateCcw className="h-4 w-4" />
+                全画面
+              </Button>
+            ) : null}
             <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !canSave}>
               <Save className="h-4 w-4" />
-              {saving ? '保存中' : '保存ROI'}
+              {saving ? '保存中' : mode === 'line' ? '保存警戒线' : '保存ROI'}
             </Button>
           </div>
         </div>

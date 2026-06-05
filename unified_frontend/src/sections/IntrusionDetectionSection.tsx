@@ -12,10 +12,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
+const AiVisionRoiEditor = lazy(() =>
+  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
+)
 const AiVisionModelConfig = lazy(() =>
   import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
 )
@@ -363,7 +365,7 @@ export function IntrusionDetectionSection() {
 
         <TabsContent value="config" className="space-y-6">
           <Tabs defaultValue="camera" className="space-y-6">
-            <TabsList className="grid h-auto w-full max-w-3xl grid-cols-2 p-1 sm:grid-cols-4">
+            <TabsList className="grid h-auto w-full max-w-4xl grid-cols-2 p-1 sm:grid-cols-3 lg:grid-cols-5">
               <TabsTrigger value="camera" className="gap-2 py-2">
                 <Camera className="h-4 w-4" />
                 摄像头管理
@@ -371,6 +373,10 @@ export function IntrusionDetectionSection() {
               <TabsTrigger value="params" className="gap-2 py-2">
                 <SlidersHorizontal className="h-4 w-4" />
                 参数配置
+              </TabsTrigger>
+              <TabsTrigger value="line" className="gap-2 py-2">
+                <Waypoints className="h-4 w-4" />
+                警戒线绘制
               </TabsTrigger>
               <TabsTrigger value="model" className="gap-2 py-2">
                 <Box className="h-4 w-4" />
@@ -399,6 +405,23 @@ export function IntrusionDetectionSection() {
                   return loadConfig(cameraName)
                 }}
               />
+            </TabsContent>
+
+            <TabsContent value="line" className="space-y-6">
+              <Suspense fallback={<LazyConfigFallback label="正在加载警戒线编辑器..." />}>
+                <AiVisionRoiEditor
+                  title="区域入侵警戒线绘制"
+                  cameraKey={form.cameraName}
+                  feature="blocks"
+                  mode="line"
+                  roiJson={form.linePoints}
+                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  saving={saving}
+                  message={message}
+                  onChange={(linePoints) => setForm((prev) => ({ ...prev, linePoints }))}
+                  onSave={saveConfig}
+                />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
@@ -491,18 +514,6 @@ export function IntrusionDetectionSection() {
                     />
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="intrusion-line">警戒线坐标</Label>
-                  <Textarea
-                    id="intrusion-line"
-                    value={form.linePoints}
-                    onChange={(event) => setForm((prev) => ({ ...prev, linePoints: event.target.value }))}
-                    rows={4}
-                    placeholder="[[0.2,0.7],[0.8,0.7]]"
-                  />
-                </div>
-
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                   <div className="text-sm text-slate-600">{message}</div>
                   <div className="flex gap-2">
