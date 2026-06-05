@@ -31,10 +31,16 @@ class ConfigChangeEvent:
         new_value   : 变更后的配置快照，可为 None（删除场景）。
     """
     change_type: str
-    camera_id: int
-    camera_name: str
+    camera_id: int | None = None
+    camera_name: str | None = None
     old_value: Optional[dict] = None
     new_value: Optional[dict] = None
+
+    @staticmethod
+    def publish_departments_changed():
+        """发布部门配置变更事件，用于刷新缓存与 UI。"""
+        event = ConfigChangeEvent(change_type="departments_changed")
+        config_event_bus.publish(event)
 
 
 class ConfigEventBus:

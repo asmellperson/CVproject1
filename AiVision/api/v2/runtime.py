@@ -23,11 +23,22 @@ class ExceptionAlertSettings(BaseModel):
 
 @router.get("/health")
 def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
+    """健康检查端点。
+
+    反映真实就绪状态供冷启动脚本与监控判定：
+        ready = orchestrator 已 start 且至少 1 个推理模型在跑
+    """
     status = orchestrator.runtime_status()
+    started = bool(status.get("started", False))
+    models = status.get("running_models") or []
+    model_ready = len(models) > 0
+    ready = started and model_ready
     return {
-        "ok": True,
+        "ok": ready,
         "service": "AiVision",
-        "started": status.get("started", False),
+        "started": started,
+        "model_ready": model_ready,
+        "running_models_count": len(models),
         "database": settings.db.name,
     }
 

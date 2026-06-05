@@ -43,6 +43,10 @@ class FeatureSpec:
     violation_type: int = 0
     """违规类型枚举,用于写入 ai_violation_image.violation_type"""
 
+    departments: tuple[str, ...] = field(default_factory=tuple)
+    """默认归属部门列表。空 tuple 表示无默认部门(可由 DB 覆盖)"""
+
     def __repr__(self) -> str:
         models = list(self.required_models) or "无"
-        return f"<FeatureSpec name={self.name!r} display={self.display_name!r} models={models}>"
+        depts = list(self.departments) or "无"
+        return f"<FeatureSpec name={self.name!r} display={self.display_name!r} models={models} depts={depts}>"

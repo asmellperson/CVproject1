@@ -12,4 +12,5 @@ SPEC = FeatureSpec(
     config_schema=FaceConfigSchema,
     required_models=("yolo_face",),
     violation_type=4,
+    departments=("research_institute",),
 )

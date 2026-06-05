@@ -21,6 +21,7 @@ from api.v2.features import router as features_router
 from api.v2.models import router as models_router
 from api.v2.runtime import router as runtime_router
 from api.v2.alarms import router as alarms_router
+from api.v2.departments import router as departments_router
 from api.compat import router as compat_router
 
 
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(models_router)
     app.include_router(compat_router)
     app.include_router(alarms_router)
+    app.include_router(departments_router)
 
     return app
 

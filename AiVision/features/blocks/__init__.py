@@ -12,4 +12,5 @@ SPEC = FeatureSpec(
     config_schema=BlocksConfigSchema,
     required_models=("yolo_human",),
     violation_type=1,
+    departments=("research_institute",),
 )

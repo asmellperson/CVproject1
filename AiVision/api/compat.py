@@ -14,10 +14,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from api.auth import require_admin
-from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service
+from api.auth import require_admin, get_current_user
+from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service, get_department_service
 from api.v2.cameras import encode_frame_to_jpeg
 from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
+from core.db import session_scope
+from platform.department.service import DepartmentService
 from features import get_spec
 
 
@@ -243,8 +245,11 @@ def put_human_config(
 
 
 @router.get("/api/aivision/cameras")
-def compat_list_cameras(camera_service=Depends(get_camera_service)):
-    return camera_service.list_cameras()
+def compat_list_cameras(
+    department: str | None = Query(None, description="可选按部门过滤"),
+    camera_service=Depends(get_camera_service),
+):
+    return camera_service.list_cameras(department=department)
 
 
 @router.post("/api/aivision/cameras", status_code=status.HTTP_201_CREATED)
@@ -378,3 +383,25 @@ def compat_patch_model(
     model_service=Depends(get_model_service),
 ):
     return compat_update_model(model_id, payload, _user, model_service)
+
+
+# ----- AiVision departments 路径 -----
+
+@router.get("/api/aivision/departments")
+def compat_list_departments(
+    user: dict = Depends(get_current_user),
+    dept_service: DepartmentService = Depends(get_department_service),
+):
+    with session_scope() as session:
+        depts = dept_service.list_departments(session)
+        return [{"name": d.name, "display_name": d.display_name} for d in depts]
+
+
+@router.get("/api/aivision/departments/{name}/features")
+def compat_get_department_features(
+    name: str,
+    user: dict = Depends(get_current_user),
+    dept_service: DepartmentService = Depends(get_department_service),
+):
+    with session_scope() as session:
+        return dept_service.get_features_by_department(session, name)

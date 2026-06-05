@@ -34,3 +34,8 @@ def get_feature_config_service():
 def get_model_service():
     from platform.inference.service import model_service
     return model_service
+
+
+def get_department_service():
+    from platform.department.service import department_service
+    return department_service

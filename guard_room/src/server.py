@@ -208,9 +208,24 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
     def health():
         """健康检查端点，无需认证。
 
-        前端、负载均衡器或监控系统定期轮询此接口以确认服务存活。
+        反映真实就绪状态供冷启动脚本与负载均衡器判定：
+            ready  = 服务进程正常运行（runtime 启动/停止是管理员按需操作，不影响就绪判定）
+            有 error 时返回 503
         """
-        return {"status": "ok", "port": int(os.getenv("GUARD_ROOM_PORT", "5000"))}
+        with state._lock:
+            running = state.running
+            error = state.error
+        has_error = error is not None
+        payload = {
+            "status": "error" if has_error else "ok",
+            "ready": not has_error,
+            "running": bool(running),
+            "error": error,
+            "port": int(os.getenv("GUARD_ROOM_PORT", "5000")),
+        }
+        if has_error:
+            return JSONResponse(payload, status_code=503)
+        return payload
 
     @app.get("/api/status")
     def status():

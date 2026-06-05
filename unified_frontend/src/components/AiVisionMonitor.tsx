@@ -16,13 +16,14 @@ import {
 type AiVisionMonitorProps = {
   title: string
   feature: string
+  department?: string
 }
 
 const FRAME_REFRESH_MS = 200
 const PREVIEW_MAX_WIDTH = 960
 const PREVIEW_QUALITY = 72
 
-export function AiVisionMonitor({ title, feature }: AiVisionMonitorProps) {
+export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
@@ -48,7 +49,7 @@ export function AiVisionMonitor({ title, feature }: AiVisionMonitorProps) {
     setLoading(true)
     setMessage('正在读取摄像头列表...')
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       const featureCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
       setCameras(featureCameras)
       const currentCamera = selectedCameraRef.current
@@ -62,7 +63,7 @@ export function AiVisionMonitor({ title, feature }: AiVisionMonitorProps) {
     } finally {
       setLoading(false)
     }
-  }, [feature])
+  }, [feature, department])
 
   useEffect(() => {
     selectedCameraRef.current = selectedCamera

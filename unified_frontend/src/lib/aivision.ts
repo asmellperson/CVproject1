@@ -16,6 +16,21 @@ export type AiVisionCamera = {
   camera_id: number
   enabled: boolean
   functions: Record<string, boolean> | string[]
+  department?: string | null
+}
+
+export type AiVisionDepartment = {
+  name: string
+  display_name: string
+}
+
+export type AiVisionFeatureMeta = {
+  name: string
+  display_name: string
+  required_models: string[]
+  violation_type: number
+  config_schema: Record<string, any>
+  departments: string[]
 }
 
 export type CreateAiVisionCameraPayload = {
@@ -25,9 +40,10 @@ export type CreateAiVisionCameraPayload = {
   fps?: number
   max_restart?: number
   enabled?: boolean
+  department?: string | null
 }
 
-export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled'>>
+export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled' | 'department'>>
 
 export type AiVisionExceptionAlertSettings = {
   wechat_enable: boolean
@@ -82,14 +98,33 @@ async function readAiVisionError(response: Response) {
   return detail || `${response.status} ${response.statusText}`
 }
 
-export async function getAiVisionCameras() {
-  const response = await fetch('/api/aivision/cameras', { credentials: 'include' })
+export async function getAiVisionCameras(department?: string) {
+  const params = new URLSearchParams()
+  if (department) params.set('department', department)
+  const query = params.toString()
+  const response = await fetch(`/api/aivision/cameras${query ? `?${query}` : ''}`, { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
 
   const payload = (await response.json()) as AiVisionCamerasResponse
   return Array.isArray(payload) ? payload : payload.cameras || []
+}
+
+export async function getAiVisionDepartments() {
+  const response = await fetch('/api/aivision/departments', { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as AiVisionDepartment[]
+}
+
+export async function getAiVisionDepartmentFeatures(departmentName: string) {
+  const response = await fetch(`/api/aivision/departments/${encodeURIComponent(departmentName)}/features`, { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as Array<{ name: string; display_name: string }>
 }
 
 export function getAiVisionCameraKey(camera: AiVisionCamera) {

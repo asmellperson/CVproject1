@@ -23,11 +23,14 @@ class CameraService:
 
     # ---------- Read ----------
 
-    def list_cameras(self) -> list[dict]:
-        """返回所有摄像头列表(基础信息 + 各功能启用状态)"""
+    def list_cameras(self, department: Optional[str] = None) -> list[dict]:
+        """返回摄像头列表(基础信息 + 各功能启用状态)，可选按部门过滤"""
         session = get_session()
         try:
-            cameras = session.query(AiCameraConfig).order_by(AiCameraConfig.id).all()
+            query = session.query(AiCameraConfig)
+            if department:
+                query = query.filter(AiCameraConfig.department == department)
+            cameras = query.order_by(AiCameraConfig.id).all()
             specs = all_specs()
             results = []
             for cam in cameras:
@@ -75,6 +78,7 @@ class CameraService:
         fps = int(payload.get("fps", 5))
         max_restart = int(payload.get("max_restart", 10))
         enable = bool(payload.get("enabled", payload.get("enable", True)))
+        department = payload.get("department")
 
         if not (name and url and shm_name):
             raise ValueError("name, url, shm_name 都是必填")
@@ -94,6 +98,7 @@ class CameraService:
                 name=name, url=url, shm_name=shm_name,
                 fps=fps, max_restart=max_restart, enable=enable,
                 function_config={},
+                department=department,
             )
             session.add(cam)
             session.flush()
@@ -122,7 +127,7 @@ class CameraService:
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return None
-            for field in ("name", "url", "fps", "max_restart"):
+            for field in ("name", "url", "fps", "max_restart", "department"):
                 if field in payload:
                     setattr(cam, field, payload[field])
             if "enabled" in payload:
@@ -224,6 +229,7 @@ class CameraService:
             "max_restart": cam.max_restart,
             "enabled": bool(cam.enable),
             "shape": cam.shape,
+            "department": cam.department,
             "functions": functions,
         }
 
