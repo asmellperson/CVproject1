@@ -41,7 +41,7 @@ class BlocksConsumer(BaseFunctionConsumer):
                 enriched = dict(det)
                 bbox = enriched.get("bbox") or []
                 foot_point = self._foot_point(bbox, foot_ratio)
-                side = self._point_side(line_points, foot_point) if foot_point is not None else 0.0
+                side = self._point_side(line_points, foot_point) if line_points and foot_point is not None else 0.0
                 intrusion = self._is_alarm_side(side, alarm_side) if line_points and foot_point is not None else False
                 enriched["foot_point"] = foot_point
                 enriched["line_side"] = side
