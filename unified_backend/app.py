@@ -779,6 +779,10 @@ def create_app() -> FastAPI:
     async def proxy_aivision_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/aivision/{path}")
 
+    @app.api_route("/api/v2/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    async def proxy_aivision_v2_api(path: str, request: Request):
+        return await _proxy(request, aivision_url, f"/api/v2/{path}")
+
     @app.api_route("/api/ai/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_legacy_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/ai/{path}")
