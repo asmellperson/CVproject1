@@ -23,6 +23,7 @@ from core.db import ensure_schema_compatible
 from core.events import config_event_bus, ConfigChangeEvent
 from core.alarm.dispatcher import alarm_dispatcher
 from core.alarm.wechat import WeChatNotifier
+from core.process_cleanup import cleanup_aivision_residual_processes
 from core.settings import settings
 from core.system_config import system_config_service
 
@@ -78,6 +79,15 @@ class Orchestrator:
 
         # 3) 摄像头进程
         cameras = camera_service.list_cameras()
+        models = model_service.list_models(enabled_only=True)
+        cleanup_count = cleanup_aivision_residual_processes(
+            camera_shm_names=[c["shm_name"] for c in cameras],
+            camera_urls=[c["url"] for c in cameras],
+            model_names=[m["name"] for m in models],
+        )
+        if cleanup_count:
+            logger.warning(f"[Orchestrator] 启动前已清理 {cleanup_count} 个 AiVision 残留进程")
+
         # 转成 CameraManager 期望的格式(把功能配置展平后传)
         cam_configs = []
         for c in cameras:

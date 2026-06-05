@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Activity,
+  Bell,
   CircleDotDashed,
   DoorOpen,
   ScanFace,
@@ -15,11 +16,19 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import {
+  getAiVisionCameras,
+  getAiVisionExceptionAlertSettings,
+  isAiVisionFeatureEnabled,
+  saveAiVisionExceptionAlertSettings,
+  type AiVisionCamera,
+} from '@/lib/aivision'
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
@@ -344,11 +353,55 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
+  const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
+  const [exceptionWechatUser, setExceptionWechatUser] = useState('')
+  const [exceptionSettingsLoading, setExceptionSettingsLoading] = useState(false)
+  const [exceptionSettingsSaving, setExceptionSettingsSaving] = useState(false)
+  const [exceptionSettingsMessage, setExceptionSettingsMessage] = useState('')
+  const [exceptionSettingsError, setExceptionSettingsError] = useState('')
   const department = getUserDepartment(user)
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const aiVisionFeatureCounts = useMemo(() => getAiVisionFeatureCounts(aiVisionCameras), [aiVisionCameras])
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
+
+  useEffect(() => {
+    setExceptionSettingsLoading(true)
+    getAiVisionExceptionAlertSettings()
+      .then((settings) => {
+        setExceptionWechatEnabled(Boolean(settings.wechat_enable))
+        setExceptionWechatUser(settings.wechat_user || '')
+      })
+      .catch((error) => {
+        setExceptionSettingsError(`读取全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+      .finally(() => setExceptionSettingsLoading(false))
+  }, [])
+
+  const handleSaveExceptionSettings = async () => {
+    if (exceptionWechatEnabled && !exceptionWechatUser.trim()) {
+      setExceptionSettingsError('启用全局异常推送时，接收人不能为空。')
+      setExceptionSettingsMessage('')
+      return
+    }
+
+    setExceptionSettingsSaving(true)
+    setExceptionSettingsError('')
+    setExceptionSettingsMessage('')
+    try {
+      const next = await saveAiVisionExceptionAlertSettings({
+        wechat_enable: exceptionWechatEnabled,
+        wechat_user: exceptionWechatUser.trim(),
+      })
+      setExceptionWechatEnabled(Boolean(next.wechat_enable))
+      setExceptionWechatUser(next.wechat_user || '')
+      setExceptionSettingsMessage('全局异常推送配置已保存。')
+    } catch (error) {
+      setExceptionSettingsError(`保存全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setExceptionSettingsSaving(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -547,6 +600,43 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
                   </div>
                 </div>
                 <StatusBadge level={scopedStatusLevel} />
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50/55 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-black text-[#071d3d] dark:text-slate-100">
+                      <Bell className="h-4 w-4 text-amber-600" />
+                      全局异常推送
+                    </div>
+                    <div className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                      摄像头断流、功能异常、模型 Worker 退出和 API 未处理异常统一推送。
+                    </div>
+                  </div>
+                  <Switch
+                    checked={exceptionWechatEnabled}
+                    onCheckedChange={setExceptionWechatEnabled}
+                    disabled={!isAdmin || exceptionSettingsLoading || exceptionSettingsSaving}
+                  />
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <Input
+                    value={exceptionWechatUser}
+                    onChange={(event) => setExceptionWechatUser(event.target.value)}
+                    placeholder="多个接收人用 | 分隔，例如 zhangsan|lisi；也可填 @all"
+                    disabled={!isAdmin || exceptionSettingsLoading || exceptionSettingsSaving || !exceptionWechatEnabled}
+                  />
+                  <Button
+                    className="gap-2"
+                    onClick={handleSaveExceptionSettings}
+                    disabled={!isAdmin || exceptionSettingsLoading || exceptionSettingsSaving}
+                  >
+                    <Bell className="h-4 w-4" />
+                    {exceptionSettingsSaving ? '保存中' : '保存'}
+                  </Button>
+                </div>
+                {exceptionSettingsError ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{exceptionSettingsError}</div> : null}
+                {exceptionSettingsMessage ? <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{exceptionSettingsMessage}</div> : null}
               </div>
 
               <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">

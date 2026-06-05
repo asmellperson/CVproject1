@@ -57,6 +57,7 @@ uv run main.py --host 127.0.0.1 --port 7862
 5、启动security_vlm:
 tmux new -s security_vlm
 cd security_vlm
+conda activate security_vlm1
 python src/main.py --config configs/config.yaml --host 127.0.0.1 --port 8000
 如需临时改端口：python src/main.py --config configs/config.yaml --port <security_vlm调试端口>
 
