@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Bell, Box, Camera, MousePointer2, Radar, RefreshCw, Save, SlidersHorizontal, Waypoints } from 'lucide-react'
+import { Bell, Box, Camera, Radar, RefreshCw, Save, SlidersHorizontal, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
@@ -16,9 +16,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
-const AiVisionRoiEditor = lazy(() =>
-  import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
-)
 const AiVisionModelConfig = lazy(() =>
   import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
 )
@@ -35,6 +32,9 @@ type BlocksConfig = {
   enable: boolean
   value: {
     roi_pos: number[][]
+    line_points?: number[][]
+    alarm_side?: number
+    foot_ratio?: number
     threshold?: number
     cap_interval?: number
     alarm_interval?: number
@@ -56,7 +56,9 @@ type BlocksConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[[100,100],[500,100],[500,500],[100,500]]',
+  linePoints: '[[0.2,0.7],[0.8,0.7]]',
+  alarmSide: '1',
+  footRatio: '0.93',
   threshold: '0.1',
   alarmInterval: '5.0',
 }
@@ -65,6 +67,9 @@ const defaultBlocks: BlocksConfig = {
   enable: false,
   value: {
     roi_pos: [],
+    line_points: [[0.2, 0.7], [0.8, 0.7]],
+    alarm_side: 1,
+    foot_ratio: 0.93,
     threshold: 0.1,
     cap_interval: 0.1,
     alarm_interval: 5.0,
@@ -80,17 +85,41 @@ const defaultBlocks: BlocksConfig = {
   },
 }
 
-function formatRoi(roiPos: number[][]) {
-  return JSON.stringify(roiPos || [])
+function formatLinePoints(linePoints?: number[][]) {
+  return JSON.stringify(linePoints && linePoints.length >= 2 ? linePoints.slice(0, 2) : defaultBlocks.value.line_points)
 }
 
 function toForm(payload: BlocksConfigResponse) {
   return {
     cameraName: payload.shm_name,
-    roiPos: formatRoi(payload.blocks.value.roi_pos),
+    linePoints: formatLinePoints(payload.blocks.value.line_points),
+    alarmSide: String(payload.blocks.value.alarm_side ?? 1),
+    footRatio: String(payload.blocks.value.foot_ratio ?? 0.93),
     threshold: String(payload.blocks.value.threshold ?? 0.1),
     alarmInterval: String(payload.blocks.value.alarm_interval ?? 5.0),
   }
+}
+
+function parseLinePoints(raw: string) {
+  const parsed = JSON.parse(raw)
+  if (!Array.isArray(parsed) || parsed.length < 2) {
+    throw new Error('警戒线必须包含两个点')
+  }
+  const points = parsed.slice(0, 2).map((point) => {
+    if (!Array.isArray(point) || point.length < 2) {
+      throw new Error('每个点必须是 [x,y]')
+    }
+    const x = Number(point[0])
+    const y = Number(point[1])
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error('坐标必须是数字')
+    }
+    return [x, y]
+  })
+  if (points[0][0] === points[1][0] && points[0][1] === points[1][1]) {
+    throw new Error('两个点不能相同')
+  }
+  return points
 }
 
 async function requestBlocksConfig(shmName: string, init?: RequestInit) {
@@ -246,22 +275,23 @@ export function IntrusionDetectionSection() {
       return
     }
 
-    let roiPos: number[][]
+    let linePoints: number[][]
     try {
-      const parsed = JSON.parse(form.roiPos)
-      if (!Array.isArray(parsed)) {
-        throw new Error('ROI 必须是二维数组')
-      }
-      roiPos = parsed
+      linePoints = parseLinePoints(form.linePoints)
     } catch (error) {
-      setMessage(`保存失败：ROI 坐标不是合法 JSON。${error instanceof Error ? error.message : ''}`)
+      setMessage(`保存失败：警戒线坐标不是合法 JSON。${error instanceof Error ? error.message : ''}`)
       return
     }
 
     const threshold = Number(form.threshold)
     const alarmInterval = Number(form.alarmInterval)
-    if (!Number.isFinite(threshold) || !Number.isFinite(alarmInterval)) {
-      setMessage('保存失败：检测阈值和告警间隔必须是数字。')
+    const footRatio = Number(form.footRatio)
+    if (!Number.isFinite(threshold) || !Number.isFinite(alarmInterval) || !Number.isFinite(footRatio)) {
+      setMessage('保存失败：检测阈值、告警间隔和脚底比例必须是数字。')
+      return
+    }
+    if (footRatio < 0 || footRatio > 1) {
+      setMessage('保存失败：脚底比例必须在 0 到 1 之间。')
       return
     }
 
@@ -270,7 +300,10 @@ export function IntrusionDetectionSection() {
       enable: true,
       value: {
         ...blocks.value,
-        roi_pos: roiPos,
+        roi_pos: blocks.value.roi_pos || [],
+        line_points: linePoints,
+        alarm_side: Number(form.alarmSide) < 0 ? -1 : 1,
+        foot_ratio: footRatio,
         threshold,
         alarm_interval: alarmInterval,
       },
@@ -330,7 +363,7 @@ export function IntrusionDetectionSection() {
 
         <TabsContent value="config" className="space-y-6">
           <Tabs defaultValue="camera" className="space-y-6">
-            <TabsList className="grid h-auto w-full max-w-4xl grid-cols-2 p-1 sm:grid-cols-3 lg:grid-cols-5">
+            <TabsList className="grid h-auto w-full max-w-3xl grid-cols-2 p-1 sm:grid-cols-4">
               <TabsTrigger value="camera" className="gap-2 py-2">
                 <Camera className="h-4 w-4" />
                 摄像头管理
@@ -338,10 +371,6 @@ export function IntrusionDetectionSection() {
               <TabsTrigger value="params" className="gap-2 py-2">
                 <SlidersHorizontal className="h-4 w-4" />
                 参数配置
-              </TabsTrigger>
-              <TabsTrigger value="roi" className="gap-2 py-2">
-                <MousePointer2 className="h-4 w-4" />
-                ROI绘制
               </TabsTrigger>
               <TabsTrigger value="model" className="gap-2 py-2">
                 <Box className="h-4 w-4" />
@@ -370,22 +399,6 @@ export function IntrusionDetectionSection() {
                   return loadConfig(cameraName)
                 }}
               />
-            </TabsContent>
-
-            <TabsContent value="roi" className="space-y-6">
-              <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
-                <AiVisionRoiEditor
-                  title="区域入侵 ROI 绘制"
-                  cameraKey={form.cameraName}
-                  feature="blocks"
-                  roiJson={form.roiPos}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
-                  saving={saving}
-                  message={message}
-                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
-                  onSave={saveConfig}
-                />
-              </Suspense>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
@@ -451,16 +464,42 @@ export function IntrusionDetectionSection() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="intrusion-side">入侵侧</Label>
+                    <Select
+                      value={form.alarmSide}
+                      onValueChange={(value) => setForm((prev) => ({ ...prev, alarmSide: value }))}
+                      disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                    >
+                      <SelectTrigger id="intrusion-side" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">线左侧</SelectItem>
+                        <SelectItem value="-1">线右侧</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="intrusion-foot-ratio">脚底比例</Label>
+                    <Input
+                      id="intrusion-foot-ratio"
+                      value={form.footRatio}
+                      onChange={(event) => setForm((prev) => ({ ...prev, footRatio: event.target.value }))}
+                      placeholder="0.93"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="intrusion-roi">ROI 区域坐标</Label>
+                  <Label htmlFor="intrusion-line">警戒线坐标</Label>
                   <Textarea
-                    id="intrusion-roi"
-                    value={form.roiPos}
-                    onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
-                    rows={6}
-                    placeholder="[[100,100],[500,100],[500,500],[100,500]]"
+                    id="intrusion-line"
+                    value={form.linePoints}
+                    onChange={(event) => setForm((prev) => ({ ...prev, linePoints: event.target.value }))}
+                    rows={4}
+                    placeholder="[[0.2,0.7],[0.8,0.7]]"
                   />
                 </div>
 

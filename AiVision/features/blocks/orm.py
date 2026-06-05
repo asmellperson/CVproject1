@@ -13,6 +13,9 @@ class BlocksConfigORM(FeatureConfigBase):
 
     # 特有字段(共享字段在 FeatureConfigBase 里)
     roi_pos = Column(JSON, nullable=True, comment="ROI区域坐标点集")
+    line_points = Column(JSON, nullable=True, comment="警戒线两点坐标")
+    alarm_side = Column(Integer, default=1, comment="警戒线入侵侧: 1=左侧,-1=右侧")
+    foot_ratio = Column(Float, default=0.93, comment="人体框脚底点高度比例")
     threshold = Column(Float, default=0.1, comment="检测阈值")
     blur_kernel = Column(Integer, default=5, comment="模糊核大小")
     diff_threshold = Column(Integer, default=10, comment="差异阈值")
