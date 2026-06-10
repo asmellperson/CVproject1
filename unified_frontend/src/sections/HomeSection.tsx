@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Smartphone,
   UserRound,
+  UsersRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -96,6 +97,16 @@ const moduleEntries = [
     iconBg: 'from-orange-50 to-amber-100',
   },
   {
+    id: 'logistics-single-person-detection',
+    title: '物流通道单人检测入口',
+    icon: UsersRound,
+    status: '已接入',
+    accent: 'from-teal-500 to-cyan-600',
+    glow: 'shadow-teal-500/16',
+    iconColor: 'text-teal-700',
+    iconBg: 'from-teal-50 to-cyan-100',
+  },
+  {
     id: 'phone-detection',
     title: '手机使用检测入口',
     icon: Smartphone,
@@ -129,6 +140,7 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
+  'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
   'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
 }
 
@@ -185,7 +197,7 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
 }
 
 function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCounts {
-  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_phone']
+  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone']
   return features.reduce<FeatureCameraCounts>((acc, feature) => {
     const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
     acc[feature] = {

@@ -32,6 +32,7 @@ _LEGACY_FEATURE_MAP = {
     "face": "detect_face",
     "phone": "detect_phone",
     "human": "detect_human",
+    "logistics_single_person": "detect_logistics_single_person",
 }
 
 
@@ -239,6 +240,21 @@ def put_human_config(
     feature_service=Depends(get_feature_config_service),
 ):
     return _put_legacy_config("human", shm_name, payload, feature_service)
+
+
+@router.get("/api/ai/logistics-single-person-config/{shm_name}")
+def get_logistics_single_person_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
+    return _get_legacy_config("logistics_single_person", shm_name, feature_service)
+
+
+@router.put("/api/ai/logistics-single-person-config/{shm_name}")
+def put_logistics_single_person_config(
+    shm_name: str,
+    payload: dict[str, Any],
+    _user: dict = Depends(require_admin),
+    feature_service=Depends(get_feature_config_service),
+):
+    return _put_legacy_config("logistics_single_person", shm_name, payload, feature_service)
 
 
 # ----- 旧 camera 路径 -----

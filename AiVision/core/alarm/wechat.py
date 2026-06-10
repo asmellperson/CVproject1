@@ -28,6 +28,7 @@ _EVENT_DISPLAY = {
     "detect_phone":  "手机违规",
     "detect_door":   "大门状态",
     "detect_human":  "人员逗留",
+    "detect_logistics_single_person": "物流通道单人异常",
 }
 
 

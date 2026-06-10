@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   CircleAlert,
   CircleDashed,
+  UsersRound,
   XCircle,
 } from 'lucide-react'
 import {
@@ -136,6 +137,7 @@ export function AlarmsSection() {
         { eventType: 'detect_face', label: '人脸检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
         { eventType: 'detect_phone', label: '手机检测', icon: <Smartphone className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
         { eventType: 'detect_human', label: '人体逗留', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
+        { eventType: 'detect_logistics_single_person', label: '物流通道单人', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
         { eventType: 'guard_absent', label: '保安离岗', icon: <ShieldCheck className="w-6 h-6 text-red-700" />, valueClassName: 'text-red-700' },
         { eventType: 'guard_phone_use', label: '保安玩手机', icon: <Smartphone className="w-6 h-6 text-orange-700" />, valueClassName: 'text-orange-700' },
         { eventType: 'guard_prone_sleep', label: '保安趴睡', icon: <UserRound className="w-6 h-6 text-yellow-600" />, valueClassName: 'text-yellow-600' },
@@ -157,6 +159,8 @@ export function AlarmsSection() {
         return <Badge className="bg-violet-600">人脸检测</Badge>
       case 'detect_human':
         return <Badge className="bg-blue-600">人体逗留</Badge>
+      case 'detect_logistics_single_person':
+        return <Badge className="bg-teal-700">物流通道单人</Badge>
       case 'guard_absent':
         return <Badge className="bg-red-700">保安离岗</Badge>
       case 'guard_phone_use':

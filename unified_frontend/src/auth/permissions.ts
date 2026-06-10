@@ -12,6 +12,7 @@ export type PageId =
   | 'door-detection'
   | 'face-detection'
   | 'human-detection'
+  | 'logistics-single-person-detection'
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
@@ -29,7 +30,7 @@ type DepartmentPermission = {
 
 export const departmentPermissions: Record<Exclude<Department, 'all'>, DepartmentPermission> = {
   general_electric: {
-    pages: ['overview', 'security-vlm', 'guard-behavior', 'human-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm', 'guard-behavior', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'human-detection': {
         label: '后大门异常逗留检测',
@@ -57,6 +58,7 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'door-detection': ['detect_door'],
   'face-detection': ['detect_face'],
   'human-detection': ['detect_human'],
+  'logistics-single-person-detection': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
 }
 
@@ -90,6 +92,7 @@ const pageIds = new Set<string>([
   'door-detection',
   'face-detection',
   'human-detection',
+  'logistics-single-person-detection',
   'phone-detection',
   'alarms',
   'statistics',
