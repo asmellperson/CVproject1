@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Camera, Copy, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
+import { Camera, Copy, MoreHorizontal, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -12,6 +12,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -245,7 +252,7 @@ export function FeatureCameraManager({
       <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
         <div className="space-y-3 rounded-2xl border border-emerald-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前功能启用范围</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前功能摄像头</div>
             <div className="mt-1 text-xs font-medium text-slate-500">这里的摄像头会运行当前检测功能，并用于预览、ROI 和告警配置。</div>
           </div>
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/80">
@@ -268,16 +275,42 @@ export function FeatureCameraManager({
                       <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
                       <div className="text-xs text-slate-500">{active ? '当前正在编辑' : '点击切换配置'}</div>
                     </button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 text-amber-700 hover:text-amber-800"
-                      onClick={() => handleRemove(camera.shm_name)}
-                      disabled={disabled || Boolean(workingCamera)}
-                    >
-                      <PowerOff className="h-4 w-4" />
-                      停用当前功能
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-amber-700 hover:text-amber-800"
+                        onClick={() => handleRemove(camera.shm_name)}
+                        disabled={disabled || Boolean(workingCamera)}
+                      >
+                        <PowerOff className="h-4 w-4" />
+                        停用当前功能
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            disabled={disabled || Boolean(workingCamera)}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                            更多
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openRenameDialog(camera)}>
+                            <Pencil className="h-4 w-4" />
+                            重命名摄像头
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem variant="destructive" onClick={() => openDeleteDialog(camera)}>
+                            <Trash2 className="h-4 w-4" />
+                            删除摄像头
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 )
               })
@@ -287,8 +320,8 @@ export function FeatureCameraManager({
 
         <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从全局摄像头库加入</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">选择系统内已有摄像头，并加入当前检测功能。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">添加摄像头到当前功能</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">从已有摄像头加入，或新建一路摄像头并直接加入当前功能。</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Select
@@ -315,18 +348,16 @@ export function FeatureCameraManager({
               <Power className="h-4 w-4" />
               加入当前功能
             </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setDialogOpen(true)}
+              disabled={disabled || Boolean(workingCamera)}
+            >
+              <Plus className="h-4 w-4" />
+              新增摄像头并加入
+            </Button>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-          <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新增摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">写入新的摄像头别名和 RTSP 流地址，添加到全局库后自动加入当前功能。</div>
-          </div>
-          <Button className="gap-2" onClick={() => setDialogOpen(true)} disabled={disabled || Boolean(workingCamera)}>
-            <Plus className="h-4 w-4" />
-            新增摄像头
-          </Button>
         </div>
 
         <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
@@ -379,69 +410,6 @@ export function FeatureCameraManager({
             </Button>
           </div>
           {copyError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{copyError}</div> : null}
-        </div>
-
-        <div className="space-y-2">
-          <div>
-            <Label>系统级摄像头库</Label>
-            <div className="mt-1 text-xs font-medium text-slate-500">这里是 AiVision 全局摄像头资产，不代表都在运行当前检测功能。</div>
-          </div>
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-            {cameras.length === 0 ? (
-              <div className="px-4 py-5 text-sm text-slate-500">暂无摄像头。</div>
-            ) : (
-              cameras.map((camera) => {
-                const active = camera.shm_name === currentCameraName
-                const featureEnabled = isAiVisionFeatureEnabled(camera, feature)
-                const cameraKey = getAiVisionCameraKey(camera)
-                return (
-                  <div
-                    key={camera.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition hover:bg-blue-50/60 last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onSelectCamera(camera.shm_name)}
-                      className="min-w-0 text-left"
-                      disabled={disabled}
-                    >
-                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
-                      <div className="truncate text-xs text-slate-500">
-                        {camera.shm_name}
-                        {active ? ' · 当前正在编辑' : ''}
-                        {featureEnabled ? ' · 已加入当前功能' : ' · 未加入当前功能'}
-                      </div>
-                    </button>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                        onClick={() => openRenameDialog(camera)}
-                        disabled={disabled || Boolean(workingCamera)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        设置
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="gap-2"
-                        onClick={() => openDeleteDialog(camera)}
-                        disabled={disabled || Boolean(workingCamera)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        删除
-                      </Button>
-                    </div>
-                    {workingCamera === cameraKey ? (
-                      <div className="basis-full text-xs text-slate-500">正在处理该摄像头...</div>
-                    ) : null}
-                  </div>
-                )
-              })
-            )}
-          </div>
         </div>
       </CardContent>
 
