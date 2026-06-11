@@ -5,29 +5,48 @@ import {
   ArrowRight,
   Activity,
   Bell,
+  Camera,
   CircleDotDashed,
   DoorOpen,
+  Pencil,
+  Plus,
   ScanFace,
   Server,
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Trash2,
   UserRound,
   UsersRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
 import {
+  createAiVisionCamera,
+  deleteAiVisionCamera,
+  getAiVisionCameraKey,
   getAiVisionCameras,
   getAiVisionExceptionAlertSettings,
   isAiVisionFeatureEnabled,
   saveAiVisionExceptionAlertSettings,
+  updateAiVisionCamera,
   type AiVisionCamera,
 } from '@/lib/aivision'
 
@@ -158,6 +177,15 @@ type FeatureCameraCounts = Record<string, {
   enabledCameraCount: number
 }>
 
+const aiVisionFeatureLabels: Record<string, string> = {
+  blocks: '区域入侵',
+  detect_door: '大门开关',
+  detect_face: '人脸检测',
+  detect_human: '人员逗留',
+  detect_logistics_single_person: '物流单人',
+  detect_phone: '手机使用',
+}
+
 const defaultOverview: OverviewState = {
   cameraCount: 0,
   todayAlarms: 0,
@@ -206,6 +234,25 @@ function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCount
     }
     return acc
   }, {})
+}
+
+function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
+  const functions = camera.functions
+  const enabledFeatures = Array.isArray(functions)
+    ? functions
+    : Object.entries(functions || {})
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([feature]) => feature)
+  return enabledFeatures.map((feature) => aiVisionFeatureLabels[feature] || feature)
+}
+
+function makeAiVisionShmName(alias: string) {
+  const base = alias
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `${base || 'camera'}_${Date.now().toString(36)}`
 }
 
 function getFeatureStatus(service?: PlatformServiceStatus, featureKey?: string) {
@@ -371,6 +418,15 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
   const [exceptionSettingsSaving, setExceptionSettingsSaving] = useState(false)
   const [exceptionSettingsMessage, setExceptionSettingsMessage] = useState('')
   const [exceptionSettingsError, setExceptionSettingsError] = useState('')
+  const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
+  const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
+  const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
+  const [cameraName, setCameraName] = useState('')
+  const [cameraUrl, setCameraUrl] = useState('')
+  const [cameraFormError, setCameraFormError] = useState('')
+  const [cameraActionKey, setCameraActionKey] = useState('')
+  const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
+  const [cameraDeleteError, setCameraDeleteError] = useState('')
   const department = getUserDepartment(user)
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const aiVisionFeatureCounts = useMemo(() => getAiVisionFeatureCounts(aiVisionCameras), [aiVisionCameras])
@@ -416,6 +472,86 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
       setExceptionSettingsError(`保存全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setExceptionSettingsSaving(false)
+    }
+  }
+
+  const reloadAiVisionCameras = async () => {
+    const cameras = await getAiVisionCameras()
+    setAiVisionCameras(cameras)
+    window.dispatchEvent(new Event('aivision:cameras-changed'))
+  }
+
+  const resetCameraForm = () => {
+    setCameraName('')
+    setCameraUrl('')
+    setCameraToEdit(null)
+    setCameraFormError('')
+  }
+
+  const openCreateCameraDialog = () => {
+    setCameraDialogMode('create')
+    resetCameraForm()
+    setCameraDialogOpen(true)
+  }
+
+  const openEditCameraDialog = (camera: AiVisionCamera) => {
+    setCameraDialogMode('edit')
+    setCameraToEdit(camera)
+    setCameraName(camera.name)
+    setCameraUrl(camera.url)
+    setCameraFormError('')
+    setCameraDialogOpen(true)
+  }
+
+  const handleSaveCamera = async () => {
+    if (!isAdmin) return
+    const name = cameraName.trim()
+    const url = cameraUrl.trim()
+    if (!name || !url) {
+      setCameraFormError('摄像头名称和 RTSP 地址都不能为空。')
+      return
+    }
+
+    const actionKey = cameraDialogMode === 'edit' && cameraToEdit
+      ? getAiVisionCameraKey(cameraToEdit)
+      : makeAiVisionShmName(name)
+    setCameraActionKey(actionKey)
+    setCameraFormError('')
+    try {
+      if (cameraDialogMode === 'edit' && cameraToEdit) {
+        await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url })
+      } else {
+        await createAiVisionCamera({
+          name,
+          url,
+          shm_name: actionKey,
+          enabled: true,
+        })
+      }
+      await reloadAiVisionCameras()
+      setCameraDialogOpen(false)
+      resetCameraForm()
+    } catch (error) {
+      setCameraFormError(`保存失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setCameraActionKey('')
+    }
+  }
+
+  const handleDeleteCamera = async () => {
+    if (!isAdmin || !cameraToDelete) return
+
+    const cameraKey = getAiVisionCameraKey(cameraToDelete)
+    setCameraActionKey(cameraKey)
+    setCameraDeleteError('')
+    try {
+      await deleteAiVisionCamera(cameraKey)
+      await reloadAiVisionCameras()
+      setCameraToDelete(null)
+    } catch (error) {
+      setCameraDeleteError(`删除失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setCameraActionKey('')
     }
   }
 
@@ -468,7 +604,8 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
   }, [accessibleAlarmEventTypes, visibleModuleEntries])
 
   return (
-    <div className="relative -mx-3 -my-4 min-h-[calc(100dvh-64px)] overflow-hidden bg-[#f5f8fc] p-3 dark:bg-[#07111f] sm:-mx-4 sm:-my-5 sm:min-h-[calc(100vh-72px)] sm:p-4 lg:-mx-8 lg:-my-6 lg:p-8 2xl:-mx-10 2xl:p-10">
+    <>
+      <div className="relative -mx-3 -my-4 min-h-[calc(100dvh-64px)] overflow-hidden bg-[#f5f8fc] p-3 dark:bg-[#07111f] sm:-mx-4 sm:-my-5 sm:min-h-[calc(100vh-72px)] sm:p-4 lg:-mx-8 lg:-my-6 lg:p-8 2xl:-mx-10 2xl:p-10">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4fb_48%,#f8fafc_100%)] dark:bg-[linear-gradient(180deg,#07111f_0%,#0b1626_48%,#07111f_100%)]" />
       <div aria-hidden className="pointer-events-none absolute inset-x-10 top-8 h-24 rounded-full bg-blue-200/20 blur-3xl dark:bg-blue-500/10" />
 
@@ -687,6 +824,92 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
               <MiniStatusMetric label="摄像头在线" value={`${scopedStatusSummary.cameraOnline}/${scopedStatusSummary.cameraTotal}`} />
               <MiniStatusMetric label="摄像头离线" value={scopedStatusSummary.cameraOffline} warn={scopedStatusSummary.cameraOffline > 0} />
             </div>
+
+            <div className="mt-5 flex h-[360px] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-[#f8fbff] shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
+              <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-blue-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-black text-[#071d3d] dark:text-slate-100">
+                    <Camera className="h-4 w-4 text-cyan-600" />
+                    全部摄像头
+                  </div>
+                  <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    共 {aiVisionCameras.length} 路；在各检测功能配置页可选择加入当前功能。
+                  </div>
+                </div>
+                {isAdmin ? (
+                  <Button size="sm" className="gap-2" onClick={openCreateCameraDialog} disabled={Boolean(cameraActionKey)}>
+                    <Plus className="h-4 w-4" />
+                    新增摄像头
+                  </Button>
+                ) : (
+                  <Badge variant="outline" className="shrink-0 bg-white text-xs font-semibold text-slate-500 dark:bg-slate-900">
+                    只读
+                  </Badge>
+                )}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {aiVisionCameras.length === 0 ? (
+                  <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
+                ) : (
+                  aiVisionCameras.map((camera) => {
+                    const cameraKey = getAiVisionCameraKey(camera)
+                    const featureLabels = getAiVisionCameraFeatureLabels(camera)
+                    return (
+                      <div
+                        key={cameraKey}
+                        className="border-b border-blue-100 bg-white px-4 py-3 last:border-b-0 dark:border-slate-800 dark:bg-slate-900/70"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
+                            <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
+                          </div>
+                          {isAdmin ? (
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => openEditCameraDialog(camera)}
+                                disabled={Boolean(cameraActionKey)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                修改
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => {
+                                  setCameraToDelete(camera)
+                                  setCameraDeleteError('')
+                                }}
+                                disabled={Boolean(cameraActionKey)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                删除
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {featureLabels.length ? (
+                            featureLabels.map((label) => (
+                              <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700">
+                                {label}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -719,7 +942,86 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
           </section>
         )}
       </div>
-    </div>
+      </div>
+
+      <Dialog
+        open={cameraDialogOpen}
+        onOpenChange={(open) => {
+          setCameraDialogOpen(open)
+          if (!open && !cameraActionKey) resetCameraForm()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{cameraDialogMode === 'edit' ? '修改摄像头' : '新增摄像头'}</DialogTitle>
+            <DialogDescription>
+              {cameraDialogMode === 'edit' ? '修改全局摄像头信息，相关检测功能会继续引用该摄像头。' : '新增后会出现在各检测功能配置页的已有摄像头列表中。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="overview-camera-name">摄像头名称</Label>
+              <Input
+                id="overview-camera-name"
+                value={cameraName}
+                onChange={(event) => setCameraName(event.target.value)}
+                placeholder="例如：物流通道3"
+                disabled={Boolean(cameraActionKey)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="overview-camera-url">RTSP 流地址</Label>
+              <Input
+                id="overview-camera-url"
+                value={cameraUrl}
+                onChange={(event) => setCameraUrl(event.target.value)}
+                placeholder="rtsp://user:password@host:554/stream"
+                disabled={Boolean(cameraActionKey)}
+              />
+            </div>
+            {cameraFormError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraFormError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCameraDialogOpen(false)} disabled={Boolean(cameraActionKey)}>
+              取消
+            </Button>
+            <Button className="gap-2" onClick={handleSaveCamera} disabled={Boolean(cameraActionKey)}>
+              {cameraDialogMode === 'edit' ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {cameraActionKey ? '保存中' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(cameraToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !cameraActionKey) {
+            setCameraToDelete(null)
+            setCameraDeleteError('')
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除摄像头</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后会从全局摄像头库移除 {cameraToDelete?.name || '该摄像头'}，并清理它在所有检测功能里的配置。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {cameraDeleteError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraDeleteError}</div> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(cameraActionKey)}>取消</AlertDialogCancel>
+            <Button variant="destructive" className="gap-2" onClick={handleDeleteCamera} disabled={Boolean(cameraActionKey)}>
+              <Trash2 className="h-4 w-4" />
+              {cameraActionKey ? '删除中' : '删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
