@@ -39,6 +39,9 @@ from platform.alarm_device.service import horn_service
 from platform.violation.service import violation_writer
 
 
+_CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
+
+
 class Orchestrator:
     """系统总编排器"""
 
@@ -219,7 +222,11 @@ class Orchestrator:
             self._start_or_update_camera(event.camera_name)
             return
         if change == "camera_updated":
-            self._restart_or_stop_camera(event.camera_name)
+            if self._camera_update_requires_restart(event):
+                self._restart_or_stop_camera(event.camera_name)
+            else:
+                self._refresh_consumer_camera_config(cam_id)
+                logger.info(f"[Orchestrator] 摄像头展示信息已热更新 cam_id={cam_id} shm={event.camera_name}")
             return
         if change == "camera_removed":
             self.camera_manager.remove_camera_config(event.camera_name)
@@ -240,6 +247,27 @@ class Orchestrator:
                 else:  # config_updated, alarm_updated, ...
                     consumer.update_config(cam_id)
                 return
+
+    @staticmethod
+    def _camera_update_requires_restart(event: ConfigChangeEvent) -> bool:
+        old_value = event.old_value or {}
+        new_value = event.new_value or {}
+        if not old_value or not new_value:
+            return True
+
+        for field in _CAMERA_RUNTIME_FIELDS:
+            if old_value.get(field) != new_value.get(field):
+                return True
+        return False
+
+    def _refresh_consumer_camera_config(self, camera_id: int | None):
+        if camera_id is None:
+            return
+        for consumer in self.consumers.values():
+            try:
+                consumer.update_config(camera_id)
+            except Exception as e:
+                logger.warning(f"[Orchestrator] 刷新 Consumer 摄像头展示信息失败 cam_id={camera_id}: {e}")
 
     def _camera_runtime_config(self, key: str) -> dict | None:
         camera = camera_service.get_camera(key)

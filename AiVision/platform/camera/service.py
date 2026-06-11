@@ -127,6 +127,7 @@ class CameraService:
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return None
+            old_value = self._event_snapshot(cam)
             for field in ("name", "url", "fps", "max_restart", "department"):
                 if field in payload:
                     setattr(cam, field, payload[field])
@@ -134,12 +135,19 @@ class CameraService:
                 cam.enable = bool(payload["enabled"])
             elif "enable" in payload:
                 cam.enable = bool(payload["enable"])
+            session.flush()
+            new_value = self._event_snapshot(cam)
             cam_id, cam_shm = cam.id, cam.shm_name
 
         config_cache.refresh_camera(cam_id)
+        for fname in all_specs():
+            config_cache.refresh_function(cam_id, fname)
         config_event_bus.publish(ConfigChangeEvent(
             change_type="camera_updated",
-            camera_id=cam_id, camera_name=cam_shm,
+            camera_id=cam_id,
+            camera_name=cam_shm,
+            old_value=old_value,
+            new_value=new_value,
         ))
         return self.get_camera(cam_shm)
 
@@ -231,6 +239,19 @@ class CameraService:
             "shape": cam.shape,
             "department": cam.department,
             "functions": functions,
+        }
+
+    @staticmethod
+    def _event_snapshot(cam: AiCameraConfig) -> dict:
+        return {
+            "id": cam.id,
+            "name": cam.name,
+            "shm_name": cam.shm_name or f"camera_{cam.id}",
+            "url": cam.url,
+            "fps": cam.fps,
+            "max_restart": cam.max_restart,
+            "enabled": bool(cam.enable),
+            "department": cam.department,
         }
 
 
