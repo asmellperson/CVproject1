@@ -1,4 +1,6 @@
-from features.detect_logistics_single_person.consumer import SinglePersonPresenceState
+from datetime import time as datetime_time
+
+from features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer, SinglePersonPresenceState
 
 
 def test_empty_detection_alarms_only_after_grace_period():
@@ -44,3 +46,10 @@ def test_unknown_result_does_not_accumulate_empty_time():
     assert unknown.alarm is False
     assert unknown.reason == "unknown"
     assert empty_again.alarm is False
+
+
+def test_logistics_single_person_detects_only_from_8_to_before_20():
+    assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(7, 59, 59)) is False
+    assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(8, 0, 0)) is True
+    assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(19, 59, 59)) is True
+    assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(20, 0, 0)) is False

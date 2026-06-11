@@ -1,6 +1,7 @@
 """features/detect_logistics_single_person/consumer.py — 物流通道单人检测"""
 from __future__ import annotations
 
+import datetime as dt
 import time
 from dataclasses import dataclass
 
@@ -70,6 +71,9 @@ class SinglePersonPresenceState:
 
 class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
     """物流通道单人检测 — ROI 内必须且只能有一个人体框。"""
+
+    DETECTION_START = dt.time(8, 0, 0)
+    DETECTION_END = dt.time(20, 0, 0)
 
     BBOX_COLOR_NORMAL = (0, 180, 0)
     BBOX_COLOR_ALARM = (0, 0, 255)
@@ -230,6 +234,21 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True
+
+    def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
+        if self._is_detection_time(dt.datetime.now().time()):
+            return True
+
+        self._reset_presence_state(camera_id)
+        return False
+
+    @classmethod
+    def _is_detection_time(cls, current_time: dt.time) -> bool:
+        return cls.DETECTION_START <= current_time < cls.DETECTION_END
+
+    def _reset_presence_state(self, camera_id: int):
+        for key in [key for key in self._presence_states if key[0] == camera_id]:
+            self._presence_states.pop(key, None)
 
     def _get_roi_offsets(self, camera_id: int) -> list[tuple[int, int]]:
         offsets = []

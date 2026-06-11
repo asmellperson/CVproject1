@@ -138,6 +138,11 @@ class AlarmDispatcher:
         self._execute(request)
         return True
 
+    def reset_cooldown(self, camera_id: int, feature_name: str) -> None:
+        """清除指定摄像头和功能的告警冷却状态。"""
+        with self._lock:
+            self._last_alarm.pop((camera_id, feature_name), None)
+
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #

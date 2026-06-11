@@ -136,6 +136,7 @@ class BaseFunctionConsumer(ABC):
         cfg = config_cache.get_function_config(camera_id, self.feature_name)
         if cfg:
             self.config_cache[camera_id] = cfg
+            alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
             # 清除 ROI 缓存，下轮迭代时按新配置重建
             self._masks.pop(camera_id, None)
             self._masks_roi_input.pop(camera_id, None)
@@ -187,10 +188,14 @@ class BaseFunctionConsumer(ABC):
                     frame = self.latest_frames.get(cam_name)
                     if frame is None:
                         continue
+
+                    cfg = self.config_cache.get(cam_id, {})
+                    if not self._should_process_now(cam_id, cfg):
+                        continue
+
                     self.frame_cache[cam_id] = frame  # 缓存供告警截图使用
 
                     roi_list = self._get_roi(cam_id, frame)
-                    cfg = self.config_cache.get(cam_id, {})
                     frame_changed = self._frame_changed(cam_id, roi_list)
                     now = time.time()
                     cap_interval = float(self._value_config(cfg).get("cap_interval", 0.1) or 0.1)
@@ -333,6 +338,10 @@ class BaseFunctionConsumer(ABC):
         YOLO 逗留/目标追踪类功能应重写为 True，否则静止目标的逗留时间无法持续累积。
         """
         return False
+
+    def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
+        """控制当前摄像头本轮是否进入检测流程，默认不做时间限制。"""
+        return True
 
     @staticmethod
     def _value_config(cfg: dict) -> dict:
