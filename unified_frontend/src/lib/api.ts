@@ -2,6 +2,8 @@ import type {
   AppConfigPayload,
   BackendStatus,
   ControlResponse,
+  GuardRoomCamera,
+  GuardRoomSite,
   StatisticsResponse,
 } from '@/types'
 
@@ -72,6 +74,43 @@ export async function apiPost<T>(path: string, body?: unknown, init?: RequestIni
   return response.json() as Promise<T>
 }
 
+export async function apiPut<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    ...init,
+    method: 'PUT',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  notifyUnauthorized(response)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`PUT ${path} failed: ${response.status} ${response.statusText} ${detail}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
+export async function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    ...init,
+    method: 'DELETE',
+    credentials: 'include',
+  })
+
+  notifyUnauthorized(response)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`DELETE ${path} failed: ${response.status} ${response.statusText} ${detail}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
 export const getStatus = () => apiGet<BackendStatus>('/status')
 
 export type PlatformServiceStatus = {
@@ -134,6 +173,8 @@ export type AlarmEvent = {
   id: string
   source?: 'aivision' | 'guard_room' | 'security_vlm'
   source_id?: string
+  site_id?: number
+  site_name?: string
   event_type: 'absent' | 'phone_use' | 'prone_sleep' | string
   event_label?: string
   violation_type?: number
@@ -217,3 +258,77 @@ export const streamUrl = () => `${API_PREFIX}/stream.mjpg`
 export const frameUrl = () => `${API_PREFIX}/frame.jpg`
 export const alarmImageUrl = (alarmId: string) => `/api/aivision/alarms/${alarmId}/image`
 export const alarmVideoUrl = (alarmId: string) => `/api/aivision/alarms/${alarmId}/video`
+
+type GuardRoomSitesResponse = {
+  items?: GuardRoomSite[]
+}
+
+type GuardRoomCamerasResponse = {
+  items?: GuardRoomCamera[]
+}
+
+export type CreateGuardRoomSitePayload = {
+  name: string
+  enabled?: boolean
+  description?: string | null
+  sort_order?: number
+}
+
+export type UpdateGuardRoomSitePayload = Partial<CreateGuardRoomSitePayload>
+
+export type CreateGuardRoomCameraPayload = {
+  name: string
+  rtsp_url: string
+  enabled?: boolean
+  sort_order?: number
+}
+
+export type UpdateGuardRoomCameraPayload = Partial<CreateGuardRoomCameraPayload>
+
+export const getGuardRoomSites = async (): Promise<GuardRoomSite[]> => {
+  const data = await apiGet<GuardRoomSitesResponse>('/sites')
+  return data.items || []
+}
+
+export const createGuardRoomSite = (payload: CreateGuardRoomSitePayload) =>
+  apiPost<GuardRoomSite>('/sites', payload)
+
+export const updateGuardRoomSite = (siteId: number, payload: UpdateGuardRoomSitePayload) =>
+  apiPut<GuardRoomSite>(`/sites/${siteId}`, payload)
+
+export const deleteGuardRoomSite = (siteId: number) =>
+  apiDelete<{ success: boolean }>(`/sites/${siteId}`)
+
+export const getGuardRoomSiteConfig = (siteId: number) =>
+  apiGet<AppConfigPayload>(`/sites/${siteId}/config`)
+
+export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConfigPayload>) =>
+  apiPost<{ success: boolean; config: AppConfigPayload }>(`/sites/${siteId}/config`, payload)
+
+export const getGuardRoomSiteStatus = (siteId: number) =>
+  apiGet<BackendStatus>(`/sites/${siteId}/status`)
+
+export const startGuardRoomSiteRuntime = (siteId: number) =>
+  apiPost<ControlResponse>(`/sites/${siteId}/control/start`)
+
+export const stopGuardRoomSiteRuntime = (siteId: number) =>
+  apiPost<ControlResponse>(`/sites/${siteId}/control/stop`)
+
+export const restartGuardRoomSiteRuntime = (siteId: number) =>
+  apiPost<ControlResponse>(`/sites/${siteId}/control/restart`)
+
+export const getGuardRoomSiteCameras = async (siteId: number): Promise<GuardRoomCamera[]> => {
+  const data = await apiGet<GuardRoomCamerasResponse>(`/sites/${siteId}/cameras`)
+  return data.items || []
+}
+
+export const createGuardRoomSiteCamera = (siteId: number, payload: CreateGuardRoomCameraPayload) =>
+  apiPost<GuardRoomCamera>(`/sites/${siteId}/cameras`, payload)
+
+export const updateGuardRoomCamera = (cameraId: number, payload: UpdateGuardRoomCameraPayload) =>
+  apiPut<GuardRoomCamera>(`/cameras/${cameraId}`, payload)
+
+export const deleteGuardRoomCamera = (cameraId: number) =>
+  apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
+
+export const guardRoomSiteFrameUrl = (siteId: number) => `${API_PREFIX}/sites/${siteId}/frame.jpg`

@@ -212,23 +212,33 @@ def _items_from_payload(payload: object) -> list[dict[str, Any]]:
 
 def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     source_id = str(alarm.get("id") or "")
+    site_id = alarm.get("site_id")
+    site_name = str(alarm.get("site_name") or "").strip()
     raw_type = str(alarm.get("event_type") or "")
     meta = GUARD_EVENT_META.get(raw_type) or {
         "event_type": f"guard_{raw_type}" if raw_type else "guard_alarm",
         "event_label": "保安行为",
     }
-    camera_name = str(alarm.get("camera_name") or "保安行为规范检测")
+    camera_name = site_name or str(alarm.get("camera_name") or "保安行为规范检测")
+    normalized_id = f"guard:{site_id}:{source_id}" if site_id is not None else f"guard:{source_id}"
+    image_url = f"/api/alarms/{source_id}/image"
+    video_url = f"/api/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None
+    if site_id is not None:
+        image_url = f"/api/sites/{site_id}/alarms/{source_id}/image"
+        video_url = f"/api/sites/{site_id}/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None
     return {
         **alarm,
-        "id": f"guard:{source_id}",
+        "id": normalized_id,
         "source": "guard_room",
         "source_id": source_id,
+        "site_id": site_id,
+        "site_name": site_name or None,
         "event_type": meta["event_type"],
         "event_label": meta["event_label"],
-        "camera_no": alarm.get("camera_name") or "guard_room",
+        "camera_no": f"guard_room_site_{site_id}" if site_id is not None else (alarm.get("camera_name") or "guard_room"),
         "camera_name": camera_name,
-        "image_url": f"/api/alarms/{source_id}/image",
-        "video_url": f"/api/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None,
+        "image_url": image_url,
+        "video_url": video_url,
     }
 
 
@@ -328,8 +338,15 @@ def _collect_alarms(
     ai_payload = _get_upstream_json(aivision_url, f"/api/aivision/alarms?limit={upstream_limit}", request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
 
-    guard_payload = _get_upstream_json(guard_room_url, f"/api/alarms?limit={upstream_limit}", request)
-    alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
+    guard_sites_payload = _get_upstream_json(guard_room_url, "/api/sites", request)
+    guard_paths = _guard_alarm_paths(guard_sites_payload, upstream_limit)
+    if guard_paths:
+        for path in guard_paths:
+            guard_payload = _get_upstream_json(guard_room_url, path, request)
+            alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
+    else:
+        guard_payload = _get_upstream_json(guard_room_url, f"/api/alarms?limit={upstream_limit}", request)
+        alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
 
     vlm_payload = _get_upstream_json(security_vlm_url, f"/api/history?limit={upstream_limit}", request)
     if isinstance(vlm_payload, dict):
@@ -429,6 +446,83 @@ def _count_guard_cameras(config: object) -> int:
         for key in ("source_cam1", "source_cam2", "source_cam3")
         if str(video.get(key) or "").strip()
     )
+
+
+def _guard_site_items(payload: object) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        rows = payload.get("items") or []
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        rows = []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _count_guard_site_cameras(payload: object) -> tuple[int, int]:
+    camera_count = 0
+    enabled_camera_count = 0
+    for site in _guard_site_items(payload):
+        cameras = site.get("cameras")
+        if isinstance(cameras, list):
+            camera_count += len([camera for camera in cameras if isinstance(camera, dict)])
+            if site.get("enabled_camera_count") is not None:
+                enabled_camera_count += int(site.get("enabled_camera_count") or 0)
+            else:
+                enabled_camera_count += sum(1 for camera in cameras if isinstance(camera, dict) and camera.get("enabled", True))
+            continue
+        camera_count += int(site.get("camera_count") or 0)
+        enabled_camera_count += int(site.get("enabled_camera_count") or 0)
+    return camera_count, enabled_camera_count
+
+
+def _guard_site_runtime_summary(sites_payload: object, statuses: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    items = _guard_site_items(sites_payload)
+    running_sites: list[int] = []
+    online_camera_count = 0
+    frame_count = 0
+    fps_values: list[float] = []
+    updated_at_values: list[str] = []
+    pose_enabled = False
+
+    for site in items:
+        try:
+            site_id = int(site.get("id"))
+        except (TypeError, ValueError):
+            continue
+        status = statuses.get(site_id) or {}
+        if not bool(status.get("running")):
+            continue
+        running_sites.append(site_id)
+        online_camera_count += int(site.get("enabled_camera_count") or 0)
+        frame_count += int(status.get("frame_count") or 0)
+        if status.get("fps") is not None:
+            fps_values.append(float(status.get("fps") or 0))
+        if isinstance(status.get("updated_at"), str):
+            updated_at_values.append(status["updated_at"])
+        pose_enabled = pose_enabled or bool(status.get("pose_enabled"))
+
+    _camera_count, enabled_camera_count = _count_guard_site_cameras(sites_payload)
+    return {
+        "running": bool(running_sites),
+        "running_sites": running_sites,
+        "online_camera_count": online_camera_count,
+        "offline_camera_count": max(0, enabled_camera_count - online_camera_count),
+        "fps": round(max(fps_values), 2) if fps_values else None,
+        "frame_count": frame_count,
+        "updated_at": max(updated_at_values) if updated_at_values else None,
+        "pose_enabled": pose_enabled,
+    }
+
+
+def _guard_alarm_paths(sites_payload: object, limit: int) -> list[str]:
+    paths: list[str] = []
+    for site in _guard_site_items(sites_payload):
+        try:
+            site_id = int(site.get("id"))
+        except (TypeError, ValueError):
+            continue
+        paths.append(f"/api/sites/{site_id}/alarms?limit={limit}")
+    return paths
 
 
 def _camera_functions_enabled(camera: dict) -> bool:
@@ -560,10 +654,21 @@ def create_app() -> FastAPI:
 
         guard_health_ok, _guard_health, guard_latency, guard_health_error = _get_json(guard_room_url, "/api/health")
         _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = _get_json(guard_room_url, "/api/status", request=request)
-        guard_cfg_ok, guard_config, _guard_cfg_latency, _guard_cfg_error = _get_json(guard_room_url, "/api/config", request=request)
-        guard_last_frame_ts = _parse_iso_ts(guard_status.get("updated_at") if isinstance(guard_status, dict) else None)
-        guard_camera_count = _count_guard_cameras(guard_config) if guard_cfg_ok else 0
-        guard_running = bool(guard_status.get("running")) if isinstance(guard_status, dict) else False
+        guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = _get_json(guard_room_url, "/api/sites", request=request)
+        guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
+        guard_site_statuses: dict[int, dict[str, Any]] = {}
+        if guard_sites_ok:
+            for site in _guard_site_items(guard_sites):
+                try:
+                    site_id = int(site.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                _ok, site_status, _latency, _error = _get_json(guard_room_url, f"/api/sites/{site_id}/status", request=request)
+                if isinstance(site_status, dict):
+                    guard_site_statuses[site_id] = site_status
+        guard_runtime = _guard_site_runtime_summary(guard_sites, guard_site_statuses) if guard_sites_ok else {}
+        guard_last_frame_ts = _parse_iso_ts(guard_runtime.get("updated_at"))
+        guard_running = bool(guard_runtime.get("running")) if guard_sites_ok else (bool(guard_status.get("running")) if isinstance(guard_status, dict) else False)
 
         ai_health_ok, ai_health, ai_latency, ai_health_error = _get_json(aivision_url, "/api/v2/runtime/health")
         _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = _get_json(aivision_url, "/api/v2/runtime/status", request=request)
@@ -596,13 +701,15 @@ def create_app() -> FastAPI:
                 {
                     "running": guard_running,
                     "camera_count": guard_camera_count,
-                    "online_camera_count": guard_camera_count if guard_running else 0,
-                    "offline_camera_count": 0 if guard_running else guard_camera_count,
-                    "fps": guard_status.get("fps") if isinstance(guard_status, dict) else None,
-                    "frame_count": guard_status.get("frame_count") if isinstance(guard_status, dict) else None,
+                    "enabled_camera_count": guard_enabled_camera_count,
+                    "online_camera_count": int(guard_runtime.get("online_camera_count") or 0) if guard_sites_ok else (guard_enabled_camera_count if guard_running else 0),
+                    "offline_camera_count": int(guard_runtime.get("offline_camera_count") or 0) if guard_sites_ok else (0 if guard_running else guard_enabled_camera_count),
+                    "fps": guard_runtime.get("fps") if guard_sites_ok else (guard_status.get("fps") if isinstance(guard_status, dict) else None),
+                    "frame_count": guard_runtime.get("frame_count") if guard_sites_ok else (guard_status.get("frame_count") if isinstance(guard_status, dict) else None),
+                    "running_sites": guard_runtime.get("running_sites", []),
                     "last_frame_age_sec": round(now - guard_last_frame_ts, 1) if guard_last_frame_ts else None,
                     "model_status": {
-                        "pose_enabled": bool(guard_status.get("pose_enabled")) if isinstance(guard_status, dict) else False,
+                        "pose_enabled": bool(guard_runtime.get("pose_enabled")) if guard_sites_ok else (bool(guard_status.get("pose_enabled")) if isinstance(guard_status, dict) else False),
                         "loaded": guard_health_ok,
                     },
                 },

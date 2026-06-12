@@ -10,6 +10,8 @@ export interface Detection {
 export interface AlarmEvent {
   id: string
   event_type: AlarmType
+  site_id?: number
+  site_name?: string
   timestamp_s: number
   frame_index: number
   track_id?: number
@@ -128,6 +130,8 @@ export interface StatisticsResponse {
 }
 
 export interface BackendStatus {
+  site_id?: number
+  site_name?: string
   running: boolean
   fps: number
   frame_count: number
@@ -164,6 +168,33 @@ export interface ControlResponse {
   ok?: boolean
   success?: boolean
   message?: string
+  running?: boolean
+  site_id?: number
+  site_name?: string
+}
+
+export interface GuardRoomCamera {
+  id: number
+  site_id: number
+  name: string
+  rtsp_url: string
+  enabled: boolean
+  sort_order: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface GuardRoomSite {
+  id: number
+  name: string
+  enabled: boolean
+  sort_order: number
+  description?: string | null
+  camera_count: number
+  enabled_camera_count: number
+  cameras: GuardRoomCamera[]
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export interface AlarmStatistics {

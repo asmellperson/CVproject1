@@ -50,6 +50,8 @@ from .auth import (
 )
 from .config import AppConfig
 from .runtime import GuardRoomRuntime
+from .runtime_manager import GuardRoomRuntimeManager
+from .service import GuardRoomService
 from .state import AppState
 from .wechat_notifier import WeChatNotifier
 
@@ -73,6 +75,42 @@ class ConfigUpdateRequest(BaseModel):
     wechat: Optional[dict] = None
 
 
+class SiteCreateRequest(BaseModel):
+    """新增保安室/监控区域请求体。"""
+
+    name: str
+    enabled: bool = True
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class SiteUpdateRequest(BaseModel):
+    """更新保安室/监控区域请求体。"""
+
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class CameraCreateRequest(BaseModel):
+    """新增保安室摄像头请求体。"""
+
+    name: str
+    rtsp_url: str
+    enabled: bool = True
+    sort_order: Optional[int] = None
+
+
+class CameraUpdateRequest(BaseModel):
+    """更新保安室摄像头请求体。"""
+
+    name: Optional[str] = None
+    rtsp_url: Optional[str] = None
+    enabled: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
 # ---------------------------------------------------------------------------
 # 工厂函数
 # ---------------------------------------------------------------------------
@@ -90,7 +128,12 @@ def _cors_origins() -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def create_app(config_path: str = "config/config.yaml") -> FastAPI:
+def create_app(
+    config_path: str = "config/config.yaml",
+    *,
+    guard_room_service: GuardRoomService | None = None,
+    runtime_manager: GuardRoomRuntimeManager | None = None,
+) -> FastAPI:
     """创建并配置 FastAPI 应用实例。
 
     采用工厂函数模式（而非模块级全局对象），便于在测试中注入不同配置。
@@ -121,6 +164,9 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
         alarm_user=cfg.wechat.alarm_user,
         alarm_camera_name=cfg.wechat.camera_name,
     )
+    site_service = guard_room_service or GuardRoomService(default_config_path=config_path)
+    site_service.ensure_schema()
+    site_runtime_manager = runtime_manager or GuardRoomRuntimeManager(site_service)
 
     # ── 创建 FastAPI 实例并注册中间件 ──────────────────────────────────────
     app = FastAPI(title="Guard Room API", version="1.0.0")
@@ -231,6 +277,230 @@ def create_app(config_path: str = "config/config.yaml") -> FastAPI:
     def status():
         """返回系统运行状态快照（是否运行、FPS、当前帧计数、最新报警等）。"""
         return state.get_status()
+
+    # ── 保安室/摄像头路由 ────────────────────────────────────────────────
+
+    @app.get("/api/sites")
+    def list_sites():
+        """返回保安行为规范检测下的保安室/监控区域列表。"""
+        return {"items": site_service.list_sites(include_cameras=True)}
+
+    @app.post("/api/sites")
+    def create_site(payload: SiteCreateRequest, _user: dict = Depends(require_admin)):
+        """新增保安室/监控区域（需 admin）。
+
+        新增保安室只需要名称，默认配置从当前 guard_room 配置模板复制；
+        RTSP 地址在该保安室下继续通过摄像头接口添加。
+        """
+        try:
+            return site_service.create_site(
+                payload.name,
+                enabled=payload.enabled,
+                description=payload.description,
+                sort_order=payload.sort_order,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/sites/{site_id}")
+    def get_site(site_id: int):
+        """返回单个保安室详情，包含该保安室下的摄像头列表和配置。"""
+        site = site_service.get_site(site_id)
+        if site is None:
+            raise HTTPException(status_code=404, detail="保安室不存在")
+        return site
+
+    @app.put("/api/sites/{site_id}")
+    def update_site(site_id: int, payload: SiteUpdateRequest, _user: dict = Depends(require_admin)):
+        """更新保安室基础信息（需 admin）。"""
+        try:
+            site = site_service.update_site(site_id, payload.model_dump(exclude_unset=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if site is None:
+            raise HTTPException(status_code=404, detail="保安室不存在")
+        return site
+
+    @app.delete("/api/sites/{site_id}")
+    def delete_site(site_id: int, _user: dict = Depends(require_admin)):
+        """删除保安室及其摄像头/配置（需 admin）。"""
+        if not site_service.delete_site(site_id):
+            raise HTTPException(status_code=404, detail="保安室不存在")
+        return {"success": True}
+
+    @app.get("/api/sites/{site_id}/config")
+    def get_site_config(site_id: int):
+        """返回保安室独立配置。"""
+        cfg_payload = site_service.get_site_config(site_id)
+        if cfg_payload is None:
+            raise HTTPException(status_code=404, detail="保安室配置不存在")
+        return cfg_payload
+
+    @app.post("/api/sites/{site_id}/config")
+    def update_site_config(site_id: int, payload: ConfigUpdateRequest, _user: dict = Depends(require_admin)):
+        """局部更新保安室独立配置（需 admin）。"""
+        patch = payload.model_dump(exclude_unset=True)
+        cfg_payload = site_service.update_site_config(site_id, patch)
+        if cfg_payload is None:
+            raise HTTPException(status_code=404, detail="保安室不存在")
+        return {"success": True, "config": cfg_payload}
+
+    @app.get("/api/sites/{site_id}/status")
+    def get_site_status(site_id: int):
+        """返回指定保安室的独立运行状态。"""
+        try:
+            return site_runtime_manager.get_status(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/sites/{site_id}/control/start")
+    def start_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+        """启动指定保安室的检测运行时（需 admin）。"""
+        try:
+            return site_runtime_manager.start(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/sites/{site_id}/control/stop")
+    def stop_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+        """停止指定保安室的检测运行时（需 admin）。"""
+        try:
+            return site_runtime_manager.stop(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/sites/{site_id}/control/restart")
+    def restart_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+        """重启指定保安室的检测运行时（需 admin）。"""
+        try:
+            return site_runtime_manager.restart(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/sites/{site_id}/frame.jpg")
+    def site_frame_jpg(site_id: int):
+        """返回指定保安室拼接后的最新 JPEG 帧。"""
+        try:
+            return Response(content=site_runtime_manager.get_latest_frame(site_id), media_type="image/jpeg")
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/sites/{site_id}/stream.mjpg")
+    def site_mjpeg_stream(site_id: int):
+        """返回指定保安室的 MJPEG 拼接视频流。"""
+        try:
+            state_for_site = site_runtime_manager.get_state(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        def gen():
+            boundary = b"--frame\r\n"
+            last_update_ts = object()
+
+            while True:
+                update_ts = state_for_site.last_update_ts
+                if update_ts == last_update_ts:
+                    time.sleep(0.05)
+                    continue
+
+                last_update_ts = update_ts
+                frame = state_for_site.get_latest_frame()
+                yield boundary
+                yield b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                time.sleep(0.05)
+
+        return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+    @app.get("/api/sites/{site_id}/alarms")
+    def get_site_alarms(site_id: int, limit: int = 50):
+        """返回指定保安室最近报警。"""
+        try:
+            return {"items": site_runtime_manager.get_alarms(site_id, limit=limit)}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/sites/{site_id}/alarms/{alarm_id}/image")
+    def get_site_alarm_image(site_id: int, alarm_id: str):
+        """返回指定保安室报警快照。"""
+        try:
+            alarm = site_runtime_manager.get_alarm(site_id, alarm_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not alarm:
+            raise HTTPException(status_code=404, detail="报警不存在")
+        image_path = alarm.get("image_path")
+        if not image_path:
+            raise HTTPException(status_code=404, detail="该报警无截图")
+        path = Path(image_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"截图文件已被清理或移动: {image_path}")
+        return FileResponse(str(path), media_type="image/jpeg")
+
+    @app.get("/api/sites/{site_id}/alarms/{alarm_id}/video")
+    def get_site_alarm_video(site_id: int, alarm_id: str):
+        """返回指定保安室报警视频。"""
+        try:
+            alarm = site_runtime_manager.get_alarm(site_id, alarm_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not alarm:
+            raise HTTPException(status_code=404, detail="报警不存在")
+        video_path = alarm.get("video_path")
+        if not video_path:
+            raise HTTPException(status_code=404, detail="该报警无视频（录制未完成或未启用）")
+        path = Path(video_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"视频文件已被清理或移动: {video_path}")
+        return FileResponse(str(path), media_type="video/mp4")
+
+    @app.get("/api/sites/{site_id}/statistics")
+    def get_site_statistics(site_id: int):
+        """返回指定保安室报警统计。"""
+        try:
+            return site_runtime_manager.get_statistics(site_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/sites/{site_id}/cameras")
+    def list_site_cameras(site_id: int):
+        """返回指定保安室下的摄像头列表。"""
+        if site_service.get_site(site_id, include_config=False) is None:
+            raise HTTPException(status_code=404, detail="保安室不存在")
+        return {"items": site_service.list_cameras(site_id)}
+
+    @app.post("/api/sites/{site_id}/cameras")
+    def create_site_camera(site_id: int, payload: CameraCreateRequest, _user: dict = Depends(require_admin)):
+        """在指定保安室下新增摄像头（需 admin），每个保安室最多 9 路。"""
+        try:
+            return site_service.create_camera(
+                site_id,
+                name=payload.name,
+                rtsp_url=payload.rtsp_url,
+                enabled=payload.enabled,
+                sort_order=payload.sort_order,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            status_code = 404 if "保安室不存在" in message else 400
+            raise HTTPException(status_code=status_code, detail=message) from exc
+
+    @app.put("/api/cameras/{camera_id}")
+    def update_site_camera(camera_id: int, payload: CameraUpdateRequest, _user: dict = Depends(require_admin)):
+        """更新保安室摄像头（需 admin）。"""
+        try:
+            camera = site_service.update_camera(camera_id, payload.model_dump(exclude_unset=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if camera is None:
+            raise HTTPException(status_code=404, detail="摄像头不存在")
+        return camera
+
+    @app.delete("/api/cameras/{camera_id}")
+    def delete_site_camera(camera_id: int, _user: dict = Depends(require_admin)):
+        """删除保安室摄像头（需 admin）。"""
+        if not site_service.delete_camera(camera_id):
+            raise HTTPException(status_code=404, detail="摄像头不存在")
+        return {"success": True}
 
     # ── 配置路由 ─────────────────────────────────────────────────────────
 

@@ -7,11 +7,19 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2 } from 'lucide-react'
+import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { getConfig, saveConfig, restartRuntime, getStatus } from '@/lib/api'
+import {
+  createGuardRoomSiteCamera,
+  deleteGuardRoomCamera,
+  getGuardRoomSiteConfig,
+  getGuardRoomSiteStatus,
+  restartGuardRoomSiteRuntime,
+  saveGuardRoomSiteConfig,
+} from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import { cn } from '@/lib/utils'
+import type { GuardRoomSite } from '@/types'
 // ==================== 类型定义 ====================
 
 type AppConfigPayload = {
@@ -176,31 +184,48 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 // ==================== 主组件 ====================
 
-function ConfigSection() {
+type ConfigSectionProps = {
+  site: GuardRoomSite | null
+  onSitesChanged?: () => void | Promise<void>
+}
+
+function ConfigSection({ site, onSitesChanged }: ConfigSectionProps) {
   const { isAdmin } = useAuth()
   const [activeTab, setActiveTab] = useState('video')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<AppConfigPayload>(defaultConfig)
+  const [cameraName, setCameraName] = useState('')
+  const [cameraRtsp, setCameraRtsp] = useState('')
+  const [cameraBusy, setCameraBusy] = useState(false)
 
   const loadConfig = async () => {
-    const next = await getConfig()
+    if (!site) {
+      setConfig(defaultConfig)
+      return
+    }
+    const next = await getGuardRoomSiteConfig(site.id)
     setConfig(mergeConfig(next))
   }
 
   useEffect(() => {
+    setLoading(true)
     loadConfig()
       .catch((err) => {
         console.error('加载配置失败:', err)
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [site])
 
   const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savePhase, setSavePhase] = useState('')  // 显示当前阶段
 
   const handleSave = async () => {
+    if (!site) {
+      setSaveError('请先选择保安室。')
+      return
+    }
     if (!isAdmin) {
       setSaveError('当前账号为 viewer，只能查看配置。')
       return
@@ -210,7 +235,7 @@ function ConfigSection() {
     try {
       // 阶段 1: 保存配置
       setSavePhase('正在保存配置...')
-      await saveConfig({
+      await saveGuardRoomSiteConfig(site.id, {
         video: config.video,
         models: config.models,
         room: config.room,
@@ -222,7 +247,7 @@ function ConfigSection() {
 
       // 阶段 2: 重启算法
       setSavePhase('正在重启算法（约 15 秒）...')
-      await restartRuntime()
+      await restartGuardRoomSiteRuntime(site.id)
 
       // 阶段 3: 等后端真的起来
       setSavePhase('等待算法就绪...')
@@ -243,10 +268,11 @@ function ConfigSection() {
 
 // 轮询 /api/status 直到 running=true 或超时
 async function waitUntilRunning(timeoutMs: number) {
+  if (!site) throw new Error('请先选择保安室')
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      const s = await getStatus()
+      const s = await getGuardRoomSiteStatus(site.id)
       if (s.running && !s.error) return
     } catch {
       // 重启期间 API 可能短暂不可达，继续等
@@ -256,8 +282,48 @@ async function waitUntilRunning(timeoutMs: number) {
   throw new Error('算法启动超时，请检查后端日志')
 }
 
+  const handleAddCamera = async () => {
+    if (!site || !isAdmin || cameraBusy) return
+    const name = cameraName.trim()
+    const rtsp = cameraRtsp.trim()
+    if (!name || !rtsp) {
+      setSaveError('摄像头名称和 RTSP 地址都不能为空。')
+      return
+    }
+    setCameraBusy(true)
+    setSaveError('')
+    try {
+      await createGuardRoomSiteCamera(site.id, { name, rtsp_url: rtsp })
+      setCameraName('')
+      setCameraRtsp('')
+      await onSitesChanged?.()
+    } catch (err: unknown) {
+      setSaveError(getErrorMessage(err, '添加摄像头失败'))
+    } finally {
+      setCameraBusy(false)
+    }
+  }
+
+  const handleDeleteCamera = async (cameraId: number) => {
+    if (!isAdmin || cameraBusy) return
+    setCameraBusy(true)
+    setSaveError('')
+    try {
+      await deleteGuardRoomCamera(cameraId)
+      await onSitesChanged?.()
+    } catch (err: unknown) {
+      setSaveError(getErrorMessage(err, '删除摄像头失败'))
+    } finally {
+      setCameraBusy(false)
+    }
+  }
+
   if (loading) {
     return <div className="text-slate-500">正在加载配置...</div>
+  }
+
+  if (!site) {
+    return <div className="text-slate-500">请先新增或选择一个保安室。</div>
   }
 
   // 便捷更新函数
@@ -353,35 +419,67 @@ async function waitUntilRunning(timeoutMs: number) {
               <CardDescription>配置多路摄像头视频输入源、抽帧、编码与输出参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* 多路摄像头地址 */}
-              <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <Label className="text-base font-semibold text-blue-800">摄像头 RTSP 地址</Label>
-                <div className="grid grid-cols-1 gap-4">
-                  <Field label="摄像头 1（cam1）">
-                    <Input
-                      value={config.video.source_cam1}
-                      onChange={(e) => setVideo({ source_cam1: e.target.value })}
-                      placeholder="rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101"
-                    />
-                  </Field>
-                  <Field label="摄像头 2（cam2）">
-                    <Input
-                      value={config.video.source_cam2}
-                      onChange={(e) => setVideo({ source_cam2: e.target.value })}
-                      placeholder="rtsp://admin:password@192.168.1.101:554/Streaming/Channels/101"
-                    />
-                  </Field>
-                  <Field label="摄像头 3（cam3）">
-                    <Input
-                      value={config.video.source_cam3}
-                      onChange={(e) => setVideo({ source_cam3: e.target.value })}
-                      placeholder="rtsp://admin:password@192.168.1.102:554/Streaming/Channels/101"
-                    />
-                  </Field>
+              <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-base font-semibold text-blue-800">当前保安室摄像头</Label>
+                    <p className="mt-1 text-xs text-blue-600">每个保安室最多 9 路，按列表顺序参与拼接和联合判定。</p>
+                  </div>
+                  <Badge variant="outline">{site.enabled_camera_count}/{site.camera_count} 路</Badge>
                 </div>
-                <p className="text-xs text-blue-600">
-                  至少需要两路摄像头。第三路填上后会自动参与联合判定。修改地址后需重启算法才能生效。
-                </p>
+
+                <div className="overflow-hidden rounded-lg border border-blue-100 bg-white">
+                  {site.cameras.length === 0 ? (
+                    <div className="px-4 py-5 text-sm text-slate-500">当前保安室还没有摄像头。</div>
+                  ) : (
+                    site.cameras.map((camera) => (
+                      <div key={camera.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-slate-900">{camera.name}</span>
+                            <Badge variant={camera.enabled ? 'default' : 'secondary'} className={camera.enabled ? 'bg-emerald-600' : ''}>
+                              {camera.enabled ? '启用' : '停用'}
+                            </Badge>
+                          </div>
+                          <div className="mt-1 max-w-full truncate text-xs text-slate-500" title={camera.rtsp_url}>{camera.rtsp_url}</div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-red-600 hover:text-red-700"
+                          onClick={() => handleDeleteCamera(camera.id)}
+                          disabled={!isAdmin || cameraBusy}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          删除
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
+                  <Input
+                    value={cameraName}
+                    onChange={(e) => setCameraName(e.target.value)}
+                    placeholder="摄像头名称"
+                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
+                  />
+                  <Input
+                    value={cameraRtsp}
+                    onChange={(e) => setCameraRtsp(e.target.value)}
+                    placeholder="rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101"
+                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
+                  />
+                  <Button
+                    className="gap-2"
+                    onClick={handleAddCamera}
+                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {cameraBusy ? '处理中' : '添加摄像头'}
+                  </Button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

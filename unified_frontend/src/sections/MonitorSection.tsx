@@ -16,9 +16,14 @@ import {
   XCircle,
   Activity,
 } from 'lucide-react'
-import { frameUrl, getStatus, startRuntime, stopRuntime } from '@/lib/api'
+import {
+  getGuardRoomSiteStatus,
+  guardRoomSiteFrameUrl,
+  startGuardRoomSiteRuntime,
+  stopGuardRoomSiteRuntime,
+} from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
-import type { BackendStatus } from '@/types'
+import type { BackendStatus, GuardRoomSite } from '@/types'
 const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
 
@@ -61,7 +66,11 @@ function AlarmIcon({ type }: { type?: string }) {
   }
 }
 
-export function MonitorSection() {
+type MonitorSectionProps = {
+  site: GuardRoomSite | null
+}
+
+export function MonitorSection({ site }: MonitorSectionProps) {
   const { isAdmin } = useAuth()
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -78,11 +87,18 @@ export function MonitorSection() {
   }, [])
 
   useEffect(() => {
+    if (!site) {
+      setStatus(null)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
     let mounted = true
 
     const fetchStatus = async () => {
       try {
-        const next = await getStatus()
+        const next = await getGuardRoomSiteStatus(site.id)
         if (mounted) {
           setStatus(next)
           setLoading(false)
@@ -101,9 +117,15 @@ export function MonitorSection() {
       mounted = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [site])
 
   useEffect(() => {
+    if (!site) {
+      setFrameSrc('')
+      revokeFrameUrl()
+      return
+    }
+
     let cancelled = false
     let timeoutId: number | undefined
     let controller: AbortController | null = null
@@ -112,7 +134,7 @@ export function MonitorSection() {
       const startedAt = performance.now()
       controller = new AbortController()
       try {
-        const response = await fetch(`${frameUrl()}?t=${Date.now()}`, {
+        const response = await fetch(`${guardRoomSiteFrameUrl(site.id)}?t=${Date.now()}`, {
           cache: 'no-store',
           credentials: 'include',
           signal: controller.signal,
@@ -151,18 +173,18 @@ export function MonitorSection() {
       if (timeoutId) window.clearTimeout(timeoutId)
       revokeFrameUrl()
     }
-  }, [imgKey, revokeFrameUrl])
+  }, [imgKey, revokeFrameUrl, site])
 
   const handleStartStop = async () => {
-    if (!isAdmin) return
+    if (!isAdmin || !site) return
     setBusy(true)
     try {
       if (status?.running) {
-        await stopRuntime()
+        await stopGuardRoomSiteRuntime(site.id)
       } else {
-        await startRuntime()
+        await startGuardRoomSiteRuntime(site.id)
       }
-      setStatus(await getStatus())
+      setStatus(await getGuardRoomSiteStatus(site.id))
       setImgKey((value) => value + 1)
     } finally {
       setBusy(false)
@@ -170,8 +192,9 @@ export function MonitorSection() {
   }
 
   const handleRefresh = async () => {
+    if (!site) return
     try {
-      setStatus(await getStatus())
+      setStatus(await getGuardRoomSiteStatus(site.id))
       setImgKey((value) => value + 1)
     } catch {
       setImgKey((value) => value + 1)
@@ -191,12 +214,22 @@ export function MonitorSection() {
       : null
   const currentTime = new Date().toLocaleTimeString('zh-CN')
 
+  if (!site) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-slate-500">
+          请先新增或选择一个保安室。
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">实时监控</h2>
-          <p className="text-slate-500">保安室行为分析监控面板</p>
+          <p className="text-slate-500">{site.name} 行为分析监控面板</p>
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
@@ -242,8 +275,8 @@ export function MonitorSection() {
             <div className="relative w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
               <img
                 key={imgKey}
-                src={frameSrc || `${frameUrl()}?t=${Date.now()}`}
-                alt="实时监控"
+                src={frameSrc || `${guardRoomSiteFrameUrl(site.id)}?t=${Date.now()}`}
+                alt={`${site.name}实时监控`}
                 className="block h-auto w-full"
               />
 
