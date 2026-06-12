@@ -3,6 +3,7 @@ import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { aiVisionFrameUrl } from '@/lib/aivision'
+import { clientPointToImagePoint, imagePixelsPerRenderedPixel } from './AiVisionRoiEditor.geometry'
 
 type Point = {
   x: number
@@ -30,10 +31,6 @@ type AiVisionRoiEditorProps = {
 const fallbackSize = { width: 1920, height: 1080 }
 const DRAG_THRESHOLD_PX = 8
 const DEFAULT_MIN_ROI_AREA = 2500
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value))
-}
 
 function roundPoint(point: Point) {
   return [Math.round(point.x), Math.round(point.y)]
@@ -151,15 +148,17 @@ export function AiVisionRoiEditor({
 
   const getPoint = (event: PointerEvent<SVGSVGElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect()
-    return {
-      x: clamp((event.clientX - rect.left) * (imageSize.width / rect.width), 0, imageSize.width),
-      y: clamp((event.clientY - rect.top) * (imageSize.height / rect.height), 0, imageSize.height),
-    }
+    return clientPointToImagePoint({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      overlayRect: rect,
+      imageSize,
+    })
   }
 
   const getHitRadius = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
-    return Math.max(12, 14 * (imageSize.width / Math.max(1, rect.width)))
+    return Math.max(12, 14 * imagePixelsPerRenderedPixel(rect, imageSize))
   }
 
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
@@ -200,7 +199,7 @@ export function AiVisionRoiEditor({
       return
     }
     if (!dragStart || !draftPoint) return
-    const dragged = pointDistance(dragStart, draftPoint) > DRAG_THRESHOLD_PX * (imageSize.width / Math.max(1, event.currentTarget.getBoundingClientRect().width))
+    const dragged = pointDistance(dragStart, draftPoint) > DRAG_THRESHOLD_PX * imagePixelsPerRenderedPixel(event.currentTarget.getBoundingClientRect(), imageSize)
     if (mode === 'line') {
       if (dragged) {
         commitPoints([dragStart, draftPoint])
