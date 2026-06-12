@@ -9,9 +9,11 @@ import {
   aiVisionFrameUrl,
   getAiVisionCameraKey,
   getAiVisionCameras,
+  getAiVisionFeatureConfig,
   isAiVisionFeatureEnabled,
   type AiVisionCamera,
 } from '@/lib/aivision'
+import { buildAiVisionMonitorOverlay } from './AiVisionMonitor.overlay'
 
 type AiVisionMonitorProps = {
   title: string
@@ -20,8 +22,8 @@ type AiVisionMonitorProps = {
 }
 
 const FRAME_REFRESH_MS = 200
-const PREVIEW_MAX_WIDTH = 960
 const PREVIEW_QUALITY = 72
+const fallbackImageSize = { width: 1920, height: 1080 }
 
 export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -29,6 +31,8 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
   const [loading, setLoading] = useState(true)
   const [frameSrc, setFrameSrc] = useState('')
   const [message, setMessage] = useState('正在读取摄像头列表...')
+  const [featureValue, setFeatureValue] = useState<Record<string, unknown> | null>(null)
+  const [imageSize, setImageSize] = useState(fallbackImageSize)
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
   const objectUrlRef = useRef<string | null>(null)
@@ -36,6 +40,10 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
     [cameras, selectedCamera],
+  )
+  const overlay = useMemo(
+    () => buildAiVisionMonitorOverlay({ feature, value: featureValue, imageSize }),
+    [feature, featureValue, imageSize],
   )
 
   const revokeFrameUrl = useCallback(() => {
@@ -68,6 +76,26 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
   useEffect(() => {
     selectedCameraRef.current = selectedCamera
   }, [selectedCamera])
+
+  useEffect(() => {
+    if (!selectedCamera) {
+      setFeatureValue(null)
+      return
+    }
+
+    let cancelled = false
+    getAiVisionFeatureConfig(feature, selectedCamera)
+      .then((payload) => {
+        if (!cancelled) setFeatureValue(payload.config.value || {})
+      })
+      .catch(() => {
+        if (!cancelled) setFeatureValue(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [feature, selectedCamera])
 
   useEffect(() => {
     refreshCameras()
@@ -112,7 +140,6 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
       try {
         const response = await fetch(
           aiVisionFrameUrl(selectedCamera, feature, Date.now(), {
-            maxWidth: PREVIEW_MAX_WIDTH,
             quality: PREVIEW_QUALITY,
           }),
           { cache: 'no-store', credentials: 'include', signal: controller.signal },
@@ -220,6 +247,13 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
                 src={frameSrc}
                 alt={`${title}实时画面`}
                 className="h-full w-full object-contain"
+                onLoad={(event) => {
+                  const image = event.currentTarget
+                  setImageSize({
+                    width: image.naturalWidth || fallbackImageSize.width,
+                    height: image.naturalHeight || fallbackImageSize.height,
+                  })
+                }}
                 onError={() => setMessage('画面渲染失败：请刷新后重试。')}
               />
             ) : (
@@ -232,6 +266,35 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
               {loading ? '正在读取摄像头...' : message}
             </div>
           )}
+          {frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
+            <svg
+              viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              {overlay.polygons.map((polygon, index) => (
+                <polygon
+                  key={`roi-${index}`}
+                  points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                  fill="rgba(14, 165, 233, 0.16)"
+                  stroke="rgb(14, 165, 233)"
+                  strokeWidth="4"
+                />
+              ))}
+              {overlay.lines.map(([start, end], index) => (
+                <line
+                  key={`line-${index}`}
+                  x1={start.x}
+                  y1={start.y}
+                  x2={end.x}
+                  y2={end.y}
+                  stroke="rgb(239, 68, 68)"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                />
+              ))}
+            </svg>
+          ) : null}
           {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
         </div>
         </div>
