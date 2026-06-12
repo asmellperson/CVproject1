@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,7 +7,8 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   createGuardRoomSiteCamera,
@@ -186,27 +187,48 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 type ConfigSectionProps = {
   site: GuardRoomSite | null
+  sites: GuardRoomSite[]
+  selectedSiteId: number | null
+  loadingSites: boolean
+  siteError?: string
+  onSelectSite: (siteId: number) => void
+  onCreateSite: (name: string) => Promise<GuardRoomSite>
+  onDeleteSite: (siteId: number) => Promise<void>
   onSitesChanged?: () => void | Promise<void>
 }
 
-function ConfigSection({ site, onSitesChanged }: ConfigSectionProps) {
+function ConfigSection({
+  site,
+  sites,
+  selectedSiteId,
+  loadingSites,
+  siteError,
+  onSelectSite,
+  onCreateSite,
+  onDeleteSite,
+  onSitesChanged,
+}: ConfigSectionProps) {
   const { isAdmin } = useAuth()
-  const [activeTab, setActiveTab] = useState('video')
+  const [activeTab, setActiveTab] = useState('sites')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<AppConfigPayload>(defaultConfig)
   const [cameraName, setCameraName] = useState('')
   const [cameraRtsp, setCameraRtsp] = useState('')
   const [cameraBusy, setCameraBusy] = useState(false)
+  const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
+  const [siteName, setSiteName] = useState('')
+  const [siteBusy, setSiteBusy] = useState(false)
+  const [siteActionError, setSiteActionError] = useState('')
 
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
     if (!site) {
       setConfig(defaultConfig)
       return
     }
     const next = await getGuardRoomSiteConfig(site.id)
     setConfig(mergeConfig(next))
-  }
+  }, [site])
 
   useEffect(() => {
     setLoading(true)
@@ -215,7 +237,13 @@ function ConfigSection({ site, onSitesChanged }: ConfigSectionProps) {
         console.error('加载配置失败:', err)
       })
       .finally(() => setLoading(false))
-  }, [site])
+  }, [loadConfig])
+
+  useEffect(() => {
+    if (!site && activeTab !== 'sites') {
+      setActiveTab('sites')
+    }
+  }, [activeTab, site])
 
   const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -296,6 +324,7 @@ async function waitUntilRunning(timeoutMs: number) {
       await createGuardRoomSiteCamera(site.id, { name, rtsp_url: rtsp })
       setCameraName('')
       setCameraRtsp('')
+      setCameraDialogOpen(false)
       await onSitesChanged?.()
     } catch (err: unknown) {
       setSaveError(getErrorMessage(err, '添加摄像头失败'))
@@ -318,12 +347,32 @@ async function waitUntilRunning(timeoutMs: number) {
     }
   }
 
-  if (loading) {
-    return <div className="text-slate-500">正在加载配置...</div>
+  const handleCreateSite = async () => {
+    const name = siteName.trim()
+    if (!name || siteBusy || !isAdmin) return
+    setSiteBusy(true)
+    setSiteActionError('')
+    try {
+      await onCreateSite(name)
+      setSiteName('')
+    } catch (err: unknown) {
+      setSiteActionError(getErrorMessage(err, '新增保安室失败'))
+    } finally {
+      setSiteBusy(false)
+    }
   }
 
-  if (!site) {
-    return <div className="text-slate-500">请先新增或选择一个保安室。</div>
+  const handleDeleteSite = async (siteId: number) => {
+    if (!isAdmin || siteBusy) return
+    setSiteBusy(true)
+    setSiteActionError('')
+    try {
+      await onDeleteSite(siteId)
+    } catch (err: unknown) {
+      setSiteActionError(getErrorMessage(err, '删除保安室失败'))
+    } finally {
+      setSiteBusy(false)
+    }
   }
 
   // 便捷更新函数
@@ -367,49 +416,129 @@ async function waitUntilRunning(timeoutMs: number) {
               {saveError}
             </Badge>
           )}
-          <Button 
-            variant="outline" 
-            className="gap-2" 
-            onClick={() => loadConfig().catch(() => undefined)}
-            disabled={saving}
-          >
-            <RotateCcw className="w-4 h-4" />
-            重载配置
-          </Button>
-          <Button 
-            className="gap-2" 
-            onClick={() => handleSave()}
-            disabled={!isAdmin || saving}
-          >
-            <Save className="w-4 h-4" />
-            {saving ? '处理中...' : '保存配置'}
-          </Button>
+          {activeTab !== 'sites' && site ? (
+            <>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => loadConfig().catch(() => undefined)}
+                disabled={saving}
+              >
+                <RotateCcw className="w-4 h-4" />
+                重载配置
+              </Button>
+              <Button
+                className="gap-2"
+                onClick={() => handleSave()}
+                disabled={!isAdmin || saving}
+              >
+                <Save className="w-4 h-4" />
+                {saving ? '处理中...' : '保存配置'}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
 
       {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-2xl grid-cols-2 p-1 sm:grid-cols-4">
-          <TabsTrigger value="video" className="gap-2">
+        <TabsList className="grid h-auto w-full max-w-3xl grid-cols-2 p-1 sm:grid-cols-5">
+          <TabsTrigger value="sites" className="gap-2">
+            <Building2 className="w-4 h-4" />
+            保安室管理
+          </TabsTrigger>
+          <TabsTrigger value="video" className="gap-2" disabled={!site}>
             <Video className="w-4 h-4" />
             视频源
           </TabsTrigger>
-          <TabsTrigger value="rules" className="gap-2">
+          <TabsTrigger value="rules" className="gap-2" disabled={!site}>
             <Shield className="w-4 h-4" />
             检测规则
           </TabsTrigger>
-          <TabsTrigger value="model" className="gap-2">
+          <TabsTrigger value="model" className="gap-2" disabled={!site}>
             <Box className="w-4 h-4" />
             模型配置
           </TabsTrigger>
-          <TabsTrigger value="wechat" className="gap-2">
+          <TabsTrigger value="wechat" className="gap-2" disabled={!site}>
             <Bell className="w-4 h-4" />
             报警推送
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="sites" className="space-y-6">
+          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80">
+              <CardTitle className="flex items-center gap-2 text-[#10264d]">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                保安室管理
+              </CardTitle>
+              <CardDescription>维护保安行为规范检测的保安室，并选择要配置的对象。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5 bg-[#f8fbff] p-4 sm:p-5 lg:p-6">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <Input
+                  value={siteName}
+                  onChange={(event) => setSiteName(event.target.value)}
+                  placeholder="新增保安室名称，例如：一厂区南门保安室"
+                  disabled={!isAdmin || siteBusy}
+                />
+                <Button className="gap-2" onClick={handleCreateSite} disabled={!isAdmin || siteBusy || !siteName.trim()}>
+                  <Plus className="h-4 w-4" />
+                  {siteBusy ? '新增中' : '新增保安室'}
+                </Button>
+              </div>
+
+              {siteActionError || siteError ? (
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{siteActionError || siteError}</div>
+              ) : null}
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                {loadingSites ? (
+                  <div className="px-4 py-5 text-sm text-slate-500">正在加载保安室...</div>
+                ) : sites.length === 0 ? (
+                  <div className="px-4 py-5 text-sm text-slate-500">暂无保安室，请先新增。</div>
+                ) : (
+                  sites.map((item) => (
+                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+                      <button
+                        type="button"
+                        className="min-w-0 text-left"
+                        onClick={() => onSelectSite(item.id)}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-slate-900">{item.name}</span>
+                          {item.id === selectedSiteId ? <Badge className="bg-blue-600">当前配置</Badge> : null}
+                          <Badge variant={item.enabled ? 'outline' : 'secondary'}>{item.enabled ? '启用' : '停用'}</Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">{item.enabled_camera_count}/{item.camera_count} 路摄像头</div>
+                      </button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-red-600 hover:text-red-700"
+                        onClick={() => handleDeleteSite(item.id)}
+                        disabled={!isAdmin || siteBusy}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        删除
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ==================== 视频源 ==================== */}
         <TabsContent value="video" className="space-y-6">
+          {!site ? (
+            <Card>
+              <CardContent className="p-6 text-sm text-slate-500">请先在保安室管理中新增或选择一个保安室。</CardContent>
+            </Card>
+          ) : loading ? (
+            <div className="text-slate-500">正在加载配置...</div>
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -458,28 +587,47 @@ async function waitUntilRunning(timeoutMs: number) {
                   )}
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
-                  <Input
-                    value={cameraName}
-                    onChange={(e) => setCameraName(e.target.value)}
-                    placeholder="摄像头名称"
-                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
-                  />
-                  <Input
-                    value={cameraRtsp}
-                    onChange={(e) => setCameraRtsp(e.target.value)}
-                    placeholder="rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101"
-                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
-                  />
-                  <Button
-                    className="gap-2"
-                    onClick={handleAddCamera}
-                    disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {cameraBusy ? '处理中' : '添加摄像头'}
-                  </Button>
-                </div>
+                <Dialog open={cameraDialogOpen} onOpenChange={setCameraDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="gap-2" disabled={!isAdmin || cameraBusy || site.cameras.length >= 9}>
+                      <Plus className="h-4 w-4" />
+                      添加摄像头
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>添加摄像头</DialogTitle>
+                      <DialogDescription>为当前保安室添加一路 RTSP 摄像头。</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4">
+                      <Field label="摄像头名称">
+                        <Input
+                          value={cameraName}
+                          onChange={(e) => setCameraName(e.target.value)}
+                          placeholder="摄像头名称"
+                          disabled={!isAdmin || cameraBusy}
+                        />
+                      </Field>
+                      <Field label="RTSP 地址">
+                        <Input
+                          value={cameraRtsp}
+                          onChange={(e) => setCameraRtsp(e.target.value)}
+                          placeholder="rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101"
+                          disabled={!isAdmin || cameraBusy}
+                        />
+                      </Field>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setCameraDialogOpen(false)} disabled={cameraBusy}>
+                        取消
+                      </Button>
+                      <Button className="gap-2" onClick={handleAddCamera} disabled={!isAdmin || cameraBusy || !cameraName.trim() || !cameraRtsp.trim()}>
+                        <Plus className="h-4 w-4" />
+                        {cameraBusy ? '处理中' : '添加摄像头'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -554,6 +702,7 @@ async function waitUntilRunning(timeoutMs: number) {
               />
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* ==================== 检测规则 ==================== */}

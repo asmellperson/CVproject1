@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Play,
   Pause,
@@ -68,9 +70,13 @@ function AlarmIcon({ type }: { type?: string }) {
 
 type MonitorSectionProps = {
   site: GuardRoomSite | null
+  sites: GuardRoomSite[]
+  selectedSiteId: number | null
+  loadingSites: boolean
+  onSelectSite: (siteId: number) => void
 }
 
-export function MonitorSection({ site }: MonitorSectionProps) {
+export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite }: MonitorSectionProps) {
   const { isAdmin } = useAuth()
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -214,22 +220,12 @@ export function MonitorSection({ site }: MonitorSectionProps) {
       : null
   const currentTime = new Date().toLocaleTimeString('zh-CN')
 
-  if (!site) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-sm text-slate-500">
-          请先新增或选择一个保安室。
-        </CardContent>
-      </Card>
-    )
-  }
-
   return (
     <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold text-slate-900">实时监控</h2>
-          <p className="text-slate-500">{site.name} 行为分析监控面板</p>
+          <p className="text-slate-500">{site ? `${site.name} 行为分析监控面板` : '选择保安室后查看实时拼接画面'}</p>
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
@@ -243,13 +239,13 @@ export function MonitorSection({ site }: MonitorSectionProps) {
             size="sm"
             className="gap-2"
             onClick={handleStartStop}
-            disabled={!isAdmin || busy}
+            disabled={!isAdmin || busy || !site}
           >
             {status?.running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             {busy ? '处理中' : status?.running ? '关闭功能' : '开启功能'}
           </Button>
 
-          <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh} disabled={!site}>
             <RefreshCw className="w-4 h-4" />
             刷新
           </Button>
@@ -257,7 +253,49 @@ export function MonitorSection({ site }: MonitorSectionProps) {
         </div>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
+        <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-slate-900">
+          <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_12px_24px_rgba(0,27,67,0.22)] dark:bg-blue-600">
+              <Camera className="h-5 w-5" />
+            </span>
+            监控对象
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="guard-room-monitor-site">保安室名称</Label>
+              <Select
+                value={selectedSiteId ? String(selectedSiteId) : ''}
+                onValueChange={(value) => onSelectSite(Number(value))}
+                disabled={loadingSites || sites.length === 0}
+              >
+                <SelectTrigger id="guard-room-monitor-site" className="w-full bg-white">
+                  <SelectValue placeholder={loadingSites ? '正在读取保安室' : '选择保安室'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {sites.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!site ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-slate-500">
+            请先在配置管理的保安室管理中新增保安室。
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {site ? <Card className="overflow-hidden">
         <CardHeader className="pb-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2">
@@ -326,9 +364,9 @@ export function MonitorSection({ site }: MonitorSectionProps) {
             )}
           </div>
         </CardContent>
-      </Card>
+      </Card> : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {site ? <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -406,9 +444,9 @@ export function MonitorSection({ site }: MonitorSectionProps) {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </div> : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {site ? <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>检测详情</CardTitle>
@@ -459,7 +497,7 @@ export function MonitorSection({ site }: MonitorSectionProps) {
             )}
           </CardContent>
         </Card>
-      </div>
+      </div> : null}
     </div>
   )
 }
