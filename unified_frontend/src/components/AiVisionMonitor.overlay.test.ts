@@ -22,7 +22,21 @@ assertEqual(
 assertEqual(
   buildAiVisionMonitorOverlay({
     feature: 'detect_human',
-    value: { region: [10, 20, 110, 120] },
+    value: {
+      roi_pos: [[10, 20], [110, 20], [70, 120]],
+      region: [10, 20, 110, 120],
+    },
+  }),
+  {
+    polygons: [[{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 70, y: 120 }]],
+    lines: [],
+  },
+)
+
+assertEqual(
+  buildAiVisionMonitorOverlay({
+    feature: 'detect_human',
+    value: { roi_pos: [], region: [10, 20, 110, 120] },
   }),
   {
     polygons: [[{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 120 }, { x: 10, y: 120 }]],

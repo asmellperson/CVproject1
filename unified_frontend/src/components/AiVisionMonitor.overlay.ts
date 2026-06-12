@@ -82,9 +82,10 @@ export function buildAiVisionMonitorOverlay({
   const configValue = value || {}
   const region = configValue.region
   const roiPos = configValue.roi_pos
-  const polygons = feature === 'detect_human' && Array.isArray(region) && region.length >= 4
+  const roiPolygons = normalizePolygons(roiPos)
+  const polygons = feature === 'detect_human' && roiPolygons.length === 0 && Array.isArray(region) && region.length >= 4
     ? normalizePolygons(region)
-    : normalizePolygons(roiPos)
+    : roiPolygons
 
   return {
     polygons,
