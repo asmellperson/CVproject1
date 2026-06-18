@@ -328,30 +328,31 @@ export function AlarmsSection() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
                 <TableHead>类型</TableHead>
                 <TableHead>摄像头</TableHead>
                 <TableHead>说明</TableHead>
                 <TableHead>处置状态</TableHead>
                 <TableHead>时间</TableHead>
                 <TableHead>截图</TableHead>
-                <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedAlarms.map((alarm) => (
                 <TableRow key={alarm.id}>
-                  <TableCell className="font-mono text-sm">#{alarm.id}</TableCell>
                   <TableCell>{getAlarmBadge(alarm.event_type)}</TableCell>
                   <TableCell className="max-w-[12rem] truncate">{alarm.camera_name || alarm.camera_no || '-'}</TableCell>
                   <TableCell className="max-w-xs truncate">{alarm.reason || '-'}</TableCell>
                   <TableCell>{getDispositionBadge(alarm.disposition_status || 'pending')}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatTime(alarm.created_at)}</TableCell>
-                  <TableCell>{alarm.image_path || alarm.image_url ? <Badge variant="outline">可查看</Badge> : <Badge variant="secondary">无</Badge>}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedAlarm(alarm)}>
-                      <Eye className="w-4 h-4" />
-                    </Button>
+                    {alarm.image_path || alarm.image_url ? (
+                      <Button variant="outline" size="sm" className="gap-2" onClick={() => setSelectedAlarm(alarm)}>
+                        <Eye className="w-4 h-4" />
+                        可查看
+                      </Button>
+                    ) : (
+                      <Badge variant="secondary">无</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
