@@ -68,6 +68,30 @@ from .utils import ensure_dir
 from .wechat_notifier import WeChatNotifier
 
 
+DEFAULT_RTSP_FFMPEG_OPTIONS = (
+    "rtsp_transport;tcp|"
+    "buffer_size;1048576|"
+    "reorder_queue_size;1024|"
+    "timeout;5000000"
+)
+
+
+def _is_rtsp_source(source) -> bool:
+    return isinstance(source, str) and source.lower().startswith(("rtsp://", "rtsps://"))
+
+
+def _ensure_rtsp_ffmpeg_options() -> None:
+    os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", DEFAULT_RTSP_FFMPEG_OPTIONS)
+    os.environ.setdefault("OPENCV_FFMPEG_READ_ATTEMPTS", "10000")
+
+
+def _open_video_capture(source):
+    if _is_rtsp_source(source):
+        _ensure_rtsp_ffmpeg_options()
+        return cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+    return cv2.VideoCapture(source)
+
+
 # ---------------------------------------------------------------------------
 # 工具类：帧缓冲与摄像头读取
 # ---------------------------------------------------------------------------
@@ -162,7 +186,7 @@ class RTSPReader(threading.Thread):
         source = self._normalize_source(self.source)
 
         while not self.stop_event.is_set():
-            cap = cv2.VideoCapture(source)
+            cap = _open_video_capture(source)
             try:
                 try:
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, self.camera_buffer_size)
