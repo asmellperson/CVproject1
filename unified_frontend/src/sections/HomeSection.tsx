@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
+import { getServiceStatusText } from './HomeSection.status'
 import {
   createAiVisionCamera,
   deleteAiVisionCamera,
@@ -1137,10 +1138,18 @@ function ServiceStatusCard({
 }) {
   const online = Boolean(service?.online)
   const running = isCapabilityRunning(service, featureKey, featureCounts)
+  const hasError = Boolean(service?.error)
   const modelLoaded = isCapabilityModelReady(service, featureKey, featureCounts)
   const cameraCount = getCapabilityCameraCount(service, featureKey, featureCounts)
   const onlineCameras = getCapabilityOnlineCameraCount(service, featureKey, featureCounts)
   const frameAge = service?.last_frame_age_sec
+  const statusText = getServiceStatusText({
+    online,
+    running,
+    hasError,
+    featureKey,
+    cameraCount,
+  })
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
@@ -1148,13 +1157,13 @@ function ServiceStatusCard({
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-[#071d3d] dark:text-slate-100">{displayName}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">
-            {online ? (running ? '正常检测中' : featureKey && cameraCount <= 0 ? '未配置检测摄像头' : featureKey ? '服务在线，能力未启动' : '已连接，未开始检测') : '暂时不可用'}
+            {statusText}
           </div>
         </div>
         <span
           className={cn(
             'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
-            online && running ? 'bg-emerald-500' : online ? 'bg-amber-500' : 'bg-red-500',
+            online && running && !hasError ? 'bg-emerald-500' : online ? 'bg-amber-500' : 'bg-red-500',
           )}
         />
       </div>

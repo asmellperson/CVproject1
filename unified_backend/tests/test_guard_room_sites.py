@@ -78,6 +78,20 @@ def test_guard_site_runtime_summary_counts_running_site_cameras():
     assert summary["pose_enabled"] is True
 
 
+def test_guard_site_runtime_summary_exposes_site_status_errors():
+    sites = {"items": [{"id": 1, "enabled_camera_count": 2}]}
+
+    summary = _guard_site_runtime_summary(
+        sites,
+        {},
+        status_errors={1: "401 Unauthorized"},
+    )
+
+    assert summary["running"] is False
+    assert summary["status_errors"] == {1: "401 Unauthorized"}
+    assert summary["status_error"] == "1 个保安室运行状态获取失败: 1: 401 Unauthorized"
+
+
 def test_guard_alarm_paths_prefers_site_scoped_alarm_endpoints():
     sites = {"items": [{"id": 1}, {"id": 2}]}
 

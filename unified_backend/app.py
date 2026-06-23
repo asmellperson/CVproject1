@@ -475,7 +475,19 @@ def _count_guard_site_cameras(payload: object) -> tuple[int, int]:
     return camera_count, enabled_camera_count
 
 
-def _guard_site_runtime_summary(sites_payload: object, statuses: dict[int, dict[str, Any]]) -> dict[str, Any]:
+def _format_guard_site_status_error(status_errors: dict[int, str]) -> str | None:
+    if not status_errors:
+        return None
+    details = ", ".join(f"{site_id}: {error}" for site_id, error in sorted(status_errors.items()))
+    return f"{len(status_errors)} 个保安室运行状态获取失败: {details}"
+
+
+def _guard_site_runtime_summary(
+    sites_payload: object,
+    statuses: dict[int, dict[str, Any]],
+    *,
+    status_errors: dict[int, str] | None = None,
+) -> dict[str, Any]:
     items = _guard_site_items(sites_payload)
     running_sites: list[int] = []
     online_camera_count = 0
@@ -502,6 +514,7 @@ def _guard_site_runtime_summary(sites_payload: object, statuses: dict[int, dict[
         pose_enabled = pose_enabled or bool(status.get("pose_enabled"))
 
     _camera_count, enabled_camera_count = _count_guard_site_cameras(sites_payload)
+    status_errors = status_errors or {}
     return {
         "running": bool(running_sites),
         "running_sites": running_sites,
@@ -511,6 +524,8 @@ def _guard_site_runtime_summary(sites_payload: object, statuses: dict[int, dict[
         "frame_count": frame_count,
         "updated_at": max(updated_at_values) if updated_at_values else None,
         "pose_enabled": pose_enabled,
+        "status_errors": status_errors,
+        "status_error": _format_guard_site_status_error(status_errors),
     }
 
 
@@ -657,6 +672,7 @@ def create_app() -> FastAPI:
         guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = _get_json(guard_room_url, "/api/sites", request=request)
         guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
         guard_site_statuses: dict[int, dict[str, Any]] = {}
+        guard_site_status_errors: dict[int, str] = {}
         if guard_sites_ok:
             for site in _guard_site_items(guard_sites):
                 try:
@@ -664,11 +680,26 @@ def create_app() -> FastAPI:
                 except (TypeError, ValueError):
                     continue
                 _ok, site_status, _latency, _error = _get_json(guard_room_url, f"/api/sites/{site_id}/status", request=request)
-                if isinstance(site_status, dict):
+                if _ok and isinstance(site_status, dict):
                     guard_site_statuses[site_id] = site_status
-        guard_runtime = _guard_site_runtime_summary(guard_sites, guard_site_statuses) if guard_sites_ok else {}
+                else:
+                    guard_site_status_errors[site_id] = _error or "invalid response"
+        guard_runtime = (
+            _guard_site_runtime_summary(guard_sites, guard_site_statuses, status_errors=guard_site_status_errors)
+            if guard_sites_ok
+            else {}
+        )
         guard_last_frame_ts = _parse_iso_ts(guard_runtime.get("updated_at"))
         guard_running = bool(guard_runtime.get("running")) if guard_sites_ok else (bool(guard_status.get("running")) if isinstance(guard_status, dict) else False)
+        guard_service_error = (
+            guard_health_error
+            if not guard_health_ok
+            else (
+                guard_status_error
+                if guard_status_error and guard_status_error != "401 Unauthorized"
+                else (_guard_sites_error or guard_runtime.get("status_error"))
+            )
+        )
 
         ai_health_ok, ai_health, ai_latency, ai_health_error = _get_json(aivision_url, "/api/v2/runtime/health")
         _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = _get_json(aivision_url, "/api/v2/runtime/status", request=request)
@@ -697,7 +728,7 @@ def create_app() -> FastAPI:
                 guard_room_url,
                 guard_health_ok,
                 guard_latency,
-                guard_health_error if not guard_health_ok else (guard_status_error if guard_status_error and guard_status_error != "401 Unauthorized" else None),
+                guard_service_error,
                 {
                     "running": guard_running,
                     "camera_count": guard_camera_count,
