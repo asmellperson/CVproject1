@@ -14,6 +14,7 @@ models:
   uniform_cls_model: models/uniform_classes.pt
   pose_model_task: models/yolo11n-pose.engine
   detector_conf: 0.25
+  phone_conf: 0.35
   detector_iou: 0.45
   detector_imgsz: 640
   phone_crop_imgsz: 640

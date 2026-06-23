@@ -42,6 +42,7 @@ type AppConfigPayload = {
     uniform_cls_model: string
     pose_model_task: string
     detector_conf: number
+    phone_conf: number
     detector_iou: number
     tracker: string
     device: string
@@ -113,6 +114,7 @@ const defaultConfig: AppConfigPayload = {
     uniform_cls_model: '',
     pose_model_task: '',
     detector_conf: 0.35,
+    phone_conf: 0.35,
     detector_iou: 0.45,
     tracker: 'bytetrack.yaml',
     device: '',
@@ -948,8 +950,11 @@ async function waitUntilRunning(timeoutMs: number) {
               <Field label="运行设备">
                 <Input value={config.models.device} onChange={(e) => setModels({ device: e.target.value })} placeholder="留空为默认；可填 0 / cpu" />
               </Field>
-              <Field label="检测置信度">
+              <Field label="人体检测置信度">
                 <Input type="number" step="0.01" value={config.models.detector_conf} onChange={(e) => setModels({ detector_conf: Number(e.target.value) })} />
+              </Field>
+              <Field label="手机检测置信度">
+                <Input type="number" step="0.01" value={config.models.phone_conf} onChange={(e) => setModels({ phone_conf: Number(e.target.value) })} />
               </Field>
               <Field label="检测 IOU">
                 <Input type="number" step="0.01" value={config.models.detector_iou} onChange={(e) => setModels({ detector_iou: Number(e.target.value) })} />

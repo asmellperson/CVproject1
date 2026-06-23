@@ -75,6 +75,7 @@ class ModelConfig:
         uniform_cls_model:  制服分类模型路径；为空时跳过制服分类步骤。
         pose_model_task:    姿态估计任务标识；为空时跳过姿态估计。
         detector_conf:      检测置信度阈值，低于此值的框被过滤。
+        phone_conf:         手机检测置信度阈值，独立于人体/主检测阈值。
         detector_iou:       NMS IoU 阈值，控制重叠框的合并程度。
         detector_imgsz:     人体检测输入尺寸，越小显存/算力占用越低。
         phone_crop_imgsz:   裁图手机检测输入尺寸。
@@ -90,6 +91,7 @@ class ModelConfig:
     uniform_cls_model: str = ""
     pose_model_task: str = ""
     detector_conf: float = 0.35
+    phone_conf: float = 0.35
     detector_iou: float = 0.45
     detector_imgsz: int = 640
     phone_crop_imgsz: int = 640

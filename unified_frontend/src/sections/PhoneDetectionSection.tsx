@@ -40,6 +40,7 @@ type PhoneConfig = {
     alarm_interval?: number
     CONF_THRESHOLD?: number
     IOU_THR?: number
+    PERSON_CONF_THRESHOLD?: number
     MIN_CONFIRM_SECONDS?: number
     MIN_CONSECUTIVE_HITS?: number
     REQUIRE_PERSON_ASSOCIATION?: boolean
@@ -60,6 +61,7 @@ const defaultForm = {
   cameraName: '',
   roiPos: '[]',
   confidenceThreshold: '0.7',
+  personConfidenceThreshold: '0.3',
   iouThreshold: '0.5',
   alarmInterval: '5.0',
   minConfirmSeconds: '1.2',
@@ -75,6 +77,7 @@ const defaultPhoneConfig: PhoneConfig = {
     cap_interval: 0.1,
     alarm_interval: 5.0,
     CONF_THRESHOLD: 0.7,
+    PERSON_CONF_THRESHOLD: 0.3,
     IOU_THR: 0.5,
     MIN_CONFIRM_SECONDS: 1.2,
     MIN_CONSECUTIVE_HITS: 3,
@@ -97,6 +100,7 @@ function toForm(payload: PhoneConfigResponse) {
     cameraName: payload.shm_name,
     roiPos: formatJson(payload.detect_phone.value.roi_pos),
     confidenceThreshold: String(payload.detect_phone.value.CONF_THRESHOLD ?? 0.7),
+    personConfidenceThreshold: String(payload.detect_phone.value.PERSON_CONF_THRESHOLD ?? 0.3),
     iouThreshold: String(payload.detect_phone.value.IOU_THR ?? 0.5),
     alarmInterval: String(payload.detect_phone.value.alarm_interval ?? 5.0),
     minConfirmSeconds: String(payload.detect_phone.value.MIN_CONFIRM_SECONDS ?? 1.2),
@@ -273,6 +277,7 @@ export function PhoneDetectionSection() {
     }
 
     const confidenceThreshold = Number(form.confidenceThreshold)
+    const personConfidenceThreshold = Number(form.personConfidenceThreshold)
     const iouThreshold = Number(form.iouThreshold)
     const alarmInterval = Number(form.alarmInterval)
     const minConfirmSeconds = Number(form.minConfirmSeconds)
@@ -281,6 +286,7 @@ export function PhoneDetectionSection() {
 
     if (
       !Number.isFinite(confidenceThreshold) ||
+      !Number.isFinite(personConfidenceThreshold) ||
       !Number.isFinite(iouThreshold) ||
       !Number.isFinite(alarmInterval) ||
       !Number.isFinite(minConfirmSeconds) ||
@@ -298,6 +304,7 @@ export function PhoneDetectionSection() {
         ...phoneConfig.value,
         roi_pos: roiPos as number[][],
         CONF_THRESHOLD: confidenceThreshold,
+        PERSON_CONF_THRESHOLD: personConfidenceThreshold,
         IOU_THR: iouThreshold,
         alarm_interval: alarmInterval,
         MIN_CONFIRM_SECONDS: minConfirmSeconds,
@@ -491,7 +498,17 @@ export function PhoneDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="phone-iou">IOU 阈值</Label>
+                    <Label htmlFor="phone-person-confidence">人体关联置信度阈值</Label>
+                    <Input
+                      id="phone-person-confidence"
+                      value={form.personConfidenceThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, personConfidenceThreshold: event.target.value }))}
+                      placeholder="0.3"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-iou">手机 IOU 阈值</Label>
                     <Input
                       id="phone-iou"
                       value={form.iouThreshold}

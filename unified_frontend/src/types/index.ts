@@ -65,6 +65,7 @@ export interface ModelConfig {
   uniform_cls_model: string
   pose_model_task: string
   detector_conf: number
+  phone_conf: number
   detector_iou: number
   tracker: string
   device: string

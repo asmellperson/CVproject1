@@ -1229,8 +1229,7 @@ class GuardRoomRuntime:
         results = detector.predict(
             source=crops,
             classes=[self.cfg.classes.play_phone],
-            # 裁图模式置信度阈值提升（×3.0），降低小图中的误检
-            conf=min(0.9, max(0.10, self.cfg.models.detector_conf * 3.0)),
+            conf=min(0.9, max(0.05, self.cfg.models.phone_conf)),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.phone_crop_imgsz,
             half=self._use_half(),
@@ -1309,7 +1308,7 @@ class GuardRoomRuntime:
         results = detector.predict(
             source=frames,
             classes=[self.cfg.classes.play_phone],
-            conf=max(0.05, self.cfg.models.detector_conf * 1.8),
+            conf=min(0.9, max(0.05, self.cfg.models.phone_conf)),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.phone_full_frame_imgsz,
             half=self._use_half(),
