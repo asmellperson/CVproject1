@@ -44,6 +44,7 @@ type AppConfigPayload = {
     detector_conf: number
     phone_conf: number
     detector_iou: number
+    detector_imgsz: number
     tracker: string
     device: string
     uniform_cls_imgsz: number
@@ -116,6 +117,7 @@ const defaultConfig: AppConfigPayload = {
     detector_conf: 0.35,
     phone_conf: 0.35,
     detector_iou: 0.45,
+    detector_imgsz: 960,
     tracker: 'bytetrack.yaml',
     device: '',
     uniform_cls_imgsz: 224,

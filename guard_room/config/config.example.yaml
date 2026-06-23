@@ -16,7 +16,7 @@ models:
   detector_conf: 0.25
   phone_conf: 0.35
   detector_iou: 0.45
-  detector_imgsz: 640
+  detector_imgsz: 960
   phone_crop_imgsz: 640
   phone_full_frame_imgsz: 960
   pose_imgsz: 640

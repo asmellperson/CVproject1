@@ -93,7 +93,7 @@ class ModelConfig:
     detector_conf: float = 0.35
     phone_conf: float = 0.35
     detector_iou: float = 0.45
-    detector_imgsz: int = 640
+    detector_imgsz: int = 960
     phone_crop_imgsz: int = 640
     phone_full_frame_imgsz: int = 960
     pose_imgsz: int = 640

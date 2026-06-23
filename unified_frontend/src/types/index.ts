@@ -67,6 +67,7 @@ export interface ModelConfig {
   detector_conf: number
   phone_conf: number
   detector_iou: number
+  detector_imgsz: number
   tracker: string
   device: string
   uniform_cls_imgsz: number
