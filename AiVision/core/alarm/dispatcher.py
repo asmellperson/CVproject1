@@ -13,11 +13,13 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import quote
 
 import cv2
 import numpy as np
 
 from core.logger import logger
+from core.settings import settings
 from core.alarm.horn import Horn
 from core.alarm.wechat import WeChatNotifier
 
@@ -157,6 +159,10 @@ class AlarmDispatcher:
             - SQL（violation_writer）对所有已触发告警无条件写入，不受微信/喇叭开关影响。
         """
         alarm = req.alarm_config or {}
+        alarm_record = None
+        wechat_cfg = alarm.get("wechat") or {}
+        wechat_user = (wechat_cfg.get("parm") or {}).get("user", "")
+        should_send_wechat = bool(wechat_cfg.get("enable") and self.wechat is not None and wechat_user)
 
         # ---- 通道 1: 喇叭（同步）----
         horn_cfg = alarm.get("horn") or {}
@@ -171,30 +177,44 @@ class AlarmDispatcher:
                 except Exception as e:
                     logger.warning(f"[Alarm] 喇叭触发失败: {e}")
 
-        # ---- 通道 2: 微信（异步入队）----
-        wechat_cfg = alarm.get("wechat") or {}
-        if wechat_cfg.get("enable") and self.wechat is not None:
-            user = (wechat_cfg.get("parm") or {}).get("user", "")
-            if user:
-                try:
-                    # put_nowait: 队列满时抛 queue.Full，记录日志后丢弃，不阻塞主流程
-                    self._wechat_queue.put_nowait((req, user))
-                except queue.Full:
-                    logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
-
-        # ---- 通道 3: SQL 持久化（无条件写入）----
-        # 只要告警通过冷却检查就落库，与微信/喇叭的 enable 开关无关，
-        # 确保系统有完整的违规记录可供事后审计。
+        # ---- 通道 2: SQL 持久化（无条件写入）----
+        # 微信图文卡片需要 alarm_id；仅微信开启时同步保存，其余场景保留异步批量写入。
         if self.violation_writer is not None:
             try:
-                self.violation_writer.enqueue(
-                    frame=req.frame,
-                    violation_type=req.violation_type,
-                    # camera_key（shm_name）优先；为空时回退到 camera_name
-                    camera_no=req.camera_key or req.camera_name,
-                )
+                if should_send_wechat and hasattr(self.violation_writer, "save_now"):
+                    alarm_record = self.violation_writer.save_now(
+                        frame=req.frame,
+                        violation_type=req.violation_type,
+                        camera_no=req.camera_key or req.camera_name,
+                    )
+                else:
+                    self.violation_writer.enqueue(
+                        frame=req.frame,
+                        violation_type=req.violation_type,
+                        camera_no=req.camera_key or req.camera_name,
+                    )
             except Exception as e:
                 logger.warning(f"[Alarm] SQL 入队失败: {e}")
+
+        # ---- 通道 3: 微信（异步入队）----
+        if should_send_wechat:
+            try:
+                # put_nowait: 队列满时抛 queue.Full，记录日志后丢弃，不阻塞主流程
+                self._wechat_queue.put_nowait((req, wechat_user, alarm_record))
+            except queue.Full:
+                logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
+
+    def _alarm_card_urls(self, alarm_id: object | None) -> tuple[str, str]:
+        if not alarm_id:
+            return "", ""
+        base_url = settings.alarm.wechat_card_base_url.rstrip("/")
+        if not base_url:
+            return "", ""
+        raw_id = str(alarm_id)
+        image_url = f"{base_url}/api/public/aivision/alarms/{quote(raw_id)}/image"
+        detail_id = quote(f"aivision:{raw_id}", safe="")
+        detail_url = f"{base_url}/?page=alarms&alarmId={detail_id}"
+        return image_url, detail_url
 
     def _wechat_loop(self):
         """
@@ -209,7 +229,12 @@ class AlarmDispatcher:
             编码失败或网络异常仅记录警告日志，不中断循环，保证线程持续运行。
         """
         while True:
-            req, user = self._wechat_queue.get()  # 阻塞直到有新任务
+            item = self._wechat_queue.get()  # 阻塞直到有新任务
+            if len(item) == 3:
+                req, user, alarm_record = item
+            else:
+                req, user = item
+                alarm_record = None
 
             if self.wechat is None:
                 continue  # wechat 客户端未注入，跳过（理论上不应发生）
@@ -221,11 +246,14 @@ class AlarmDispatcher:
                     logger.warning(f"[Alarm] 帧编码失败，跳过微信推送: {req.feature_name}")
                     continue
 
+                image_url, detail_url = self._alarm_card_urls(getattr(alarm_record, "id", None))
                 self.wechat.send(
                     feature_name=req.feature_name,
                     camera_name=req.camera_name,
                     image_jpeg_bytes=buffer.tobytes(),
                     recipients=user,
+                    image_url=image_url,
+                    detail_url=detail_url,
                 )
             except Exception as e:
                 logger.warning(f"[Alarm] 微信发送失败: {e}")

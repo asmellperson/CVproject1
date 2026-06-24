@@ -38,7 +38,11 @@ import { alarmVideoUrl } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
 
-export function AlarmsSection() {
+type AlarmsSectionProps = {
+  initialAlarmId?: string
+}
+
+export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -85,6 +89,15 @@ export function AlarmsSection() {
     setDispositionError('')
     setDispositionBusy(null)
   }, [selectedAlarm?.id, selectedAlarm?.disposition_note])
+
+  useEffect(() => {
+    if (!initialAlarmId || selectedAlarm || !alarms.length) return
+    const alarm = alarms.find((item) => {
+      const sourceId = item.source_id || item.id
+      return item.id === initialAlarmId || `${item.source || 'aivision'}:${sourceId}` === initialAlarmId
+    })
+    if (alarm) setSelectedAlarm(alarm)
+  }, [alarms, initialAlarmId, selectedAlarm])
 
   const effectiveTypeFilter =
     typeFilter !== 'all' && allowedAlarmTypes && !allowedAlarmTypes.has(typeFilter) ? 'all' : typeFilter

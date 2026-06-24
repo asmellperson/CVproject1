@@ -1,4 +1,4 @@
-import { getServiceStatusText } from './HomeSection.status'
+import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 
 function assertEqual(actual: unknown, expected: unknown) {
   if (actual !== expected) {
@@ -26,3 +26,8 @@ assertEqual(
   '已连接，未开始检测',
 )
 
+assertEqual(getRecognitionAbilityText({ modelLoaded: true, running: true }), '已启用')
+
+assertEqual(getRecognitionAbilityText({ modelLoaded: true, running: false }), '已就绪')
+
+assertEqual(getRecognitionAbilityText({ modelLoaded: false, running: true }), '待确认')

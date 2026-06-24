@@ -639,7 +639,7 @@ def create_app() -> FastAPI:
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
         public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout"}
-        if request.method == "OPTIONS" or path in public_paths:
+        if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         protected = path.startswith("/api/") or path.startswith("/security-vlm") or path.startswith("/aivision")
         if protected:
@@ -912,6 +912,10 @@ def create_app() -> FastAPI:
             event_types=_parse_event_types(event_types),
         )
         return _build_alarm_statistics(alarms, days=days)
+
+    @app.api_route("/api/public/aivision/{path:path}", methods=["GET", "OPTIONS"])
+    async def proxy_public_aivision_api(path: str, request: Request):
+        return await _proxy(request, aivision_url, f"/api/public/aivision/{path}")
 
     @app.api_route("/api/aivision/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_api(path: str, request: Request):

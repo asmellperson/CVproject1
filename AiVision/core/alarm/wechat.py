@@ -1,6 +1,6 @@
 """
 core/alarm/wechat.py
-企业微信告警发送 — 文本消息 + 图片消息。
+企业微信告警发送 — 默认单条图文卡片消息。
 
 旧代码硬编码了 corpid 和 corpsecret,本次改为从环境变量读取。
 对应环境变量(可选,未配置时仅日志告警):
@@ -38,8 +38,7 @@ class WeChatNotifier:
 
     发送流程（每次 send() 调用）:
         1. _get_token()    — 向企业微信接口换取 access_token（未缓存，每次重新获取）。
-        2. _upload_image() — 将 JPEG 字节流上传为临时素材，换取 media_id。
-        3. send()          — 先发 Markdown 文本告警，再发图片消息（media_id 有效时）。
+        2. send()          — 优先发送单条 news 图文卡片；缺少卡片 URL 时降级为旧文本+图片。
 
     凭据优先级（三选一，从高到低）:
         构造参数 > settings.alarm > 环境变量 WECHAT_CORP_ID / WECHAT_CORP_SECRET / WECHAT_AGENT_ID
@@ -53,12 +52,12 @@ class WeChatNotifier:
         self,
         corp_id: Optional[str] = None,
         corp_secret: Optional[str] = None,
-        agent_id: int = 1000050,
+        agent_id: Optional[int] = None,
     ):
         # 凭据按优先级合并：构造参数 > settings > 环境变量 > 默认值
         self.corp_id = corp_id or settings.alarm.wechat_corp_id or os.environ.get("WECHAT_CORP_ID", "")
         self.corp_secret = corp_secret or settings.alarm.wechat_corp_secret or os.environ.get("WECHAT_CORP_SECRET", "")
-        self.agent_id = int(settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", agent_id))
+        self.agent_id = int(agent_id or settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", 1000050))
 
         self._token: Optional[str] = None  # 预留字段，当前每次 send() 都重新获取
 
@@ -128,6 +127,45 @@ class WeChatNotifier:
             logger.warning(f"[WeChat] 上传图片失败: {e}")
             return None
 
+    def _send_news_card(
+        self,
+        *,
+        token: str,
+        recipients: str,
+        title: str,
+        description: str,
+        detail_url: str,
+        image_url: str,
+    ) -> None:
+        """发送单条企业微信图文消息，缩略图与详情页均使用平台 URL。"""
+        try:
+            resp = requests.post(
+                "https://qyapi.weixin.qq.com/cgi-bin/message/send",
+                params={"access_token": token},
+                json={
+                    "touser": recipients,
+                    "msgtype": "news",
+                    "agentid": self.agent_id,
+                    "news": {
+                        "articles": [
+                            {
+                                "title": title,
+                                "description": description,
+                                "url": detail_url,
+                                "picurl": image_url,
+                            }
+                        ]
+                    },
+                    "safe": 0,
+                },
+                timeout=10,
+            )
+            data = resp.json()
+            if data.get("errcode", 0) != 0:
+                logger.warning(f"[WeChat] 发送图文失败: {data}")
+        except Exception as e:
+            logger.warning(f"[WeChat] 发送图文失败: {e}")
+
     # ------------------------------------------------------------------ #
     #  核心入口                                                             #
     # ------------------------------------------------------------------ #
@@ -138,21 +176,22 @@ class WeChatNotifier:
         camera_name: str,
         image_jpeg_bytes: bytes,
         recipients: str,
+        image_url: str = "",
+        detail_url: str = "",
     ):
-        """
-        向指定接收人发送告警通知（Markdown 文本 + 图片各一条）。
+        """向指定接收人发送告警通知。
 
         发送策略:
-            - 文本消息必发（token 有效即发）。
-            - 图片消息仅在 _upload_image() 成功返回 media_id 后才发，
-              上传失败时降级为纯文本告警，不中断整体流程。
-            - 单条消息失败不影响另一条，两条请求相互独立。
+            - image_url/detail_url 存在时发送单条 news 图文卡片。
+            - URL 缺失时保留旧文本+图片降级路径，避免配置缺失导致报警完全不可见。
 
         Args:
             feature_name    : 功能内部名称，通过 _EVENT_DISPLAY 映射为中文展示名。
             camera_name     : 摄像头展示名称，写入告警文本。
             image_jpeg_bytes: 违规帧的 JPEG 字节流，由 AlarmDispatcher 编码后传入。
             recipients      : 接收人账号，多人用 | 分隔，如 "user1|user2"。
+            image_url       : 企业微信可访问的报警缩略图 URL。
+            detail_url      : 平台报警详情页 URL。
         """
         if not recipients:
             return  # 无接收人，跳过
@@ -162,11 +201,22 @@ class WeChatNotifier:
             logger.info("[WeChat] 未配置企业微信凭据,跳过推送")
             return
 
-        # 上传图片（失败时 media_id 为 None，后续图片消息跳过）
-        media_id = self._upload_image(token, image_jpeg_bytes)
-
         # 将内部功能名映射为用户友好的中文标签；未收录的名称原样展示
         event_label = _EVENT_DISPLAY.get(feature_name, feature_name)
+
+        if image_url and detail_url:
+            self._send_news_card(
+                token=token,
+                recipients=recipients,
+                title=f"{event_label}告警",
+                description=camera_name,
+                detail_url=detail_url,
+                image_url=image_url,
+            )
+            return
+
+        # 上传图片（失败时 media_id 为 None，后续图片消息跳过）
+        media_id = self._upload_image(token, image_jpeg_bytes)
 
         # ---- 消息 1: Markdown 文本告警 ----
         try:

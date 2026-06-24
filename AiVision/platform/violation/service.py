@@ -51,6 +51,30 @@ class AsyncViolationWriter:
             "ts": datetime.datetime.now(),
         })
 
+    def save_now(self, *, frame: np.ndarray, violation_type: int, camera_no: str) -> AiViolationImage | None:
+        """同步保存单条违规记录并返回已入库对象。
+
+        微信图文卡片需要立即拿到 alarm_id 和图片地址，因此不能等待后台批量 flush。
+        失败时返回 None，由调用方决定是否继续其他告警通道。
+        """
+        row = self._save_image({
+            "frame": frame,
+            "violation_type": violation_type,
+            "camera_no": camera_no,
+            "ts": datetime.datetime.now(),
+        })
+        if row is None:
+            return None
+        try:
+            with session_scope() as session:
+                item = AiViolationImage(**row)
+                session.add(item)
+                session.flush()
+                return item
+        except Exception as e:
+            logger.warning(f"[ViolationWriter] 同步提交失败: {e}")
+            return None
+
     # ---------- 生命周期 ----------
 
     def start(self):

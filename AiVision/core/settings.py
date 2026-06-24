@@ -73,6 +73,7 @@ class AlarmSettings(BaseSettings):
     wechat_corp_id: str     = Field("",          alias="WECHAT_CORP_ID")
     wechat_corp_secret: str = Field("",          alias="WECHAT_CORP_SECRET")
     wechat_agent_id: int    = Field(1000050,     alias="WECHAT_AGENT_ID")
+    wechat_card_base_url: str = Field("https://aicv.fudar.com", alias="WECHAT_CARD_BASE_URL")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

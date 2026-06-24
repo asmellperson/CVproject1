@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
         public_paths = {"/api/v2/runtime/health"}
-        if request.method == "OPTIONS" or path in public_paths:
+        if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):
             try:

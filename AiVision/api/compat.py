@@ -353,6 +353,11 @@ def compat_alarm_image(alarm_id: int):
     return alarm_image(alarm_id)
 
 
+@router.get("/api/public/aivision/alarms/{alarm_id}/image")
+def public_aivision_alarm_image(alarm_id: int):
+    return alarm_image(alarm_id)
+
+
 @router.get("/api/aivision/statistics")
 def compat_alarm_statistics(days: int = Query(7, ge=1, le=90)):
     return alarm_statistics(days=days)

@@ -6,6 +6,19 @@ export type ServiceStatusTextInput = {
   cameraCount: number
 }
 
+export type RecognitionAbilityTextInput = {
+  modelLoaded: boolean
+  running: boolean
+}
+
+export function getRecognitionAbilityText({
+  modelLoaded,
+  running,
+}: RecognitionAbilityTextInput) {
+  if (!modelLoaded) return '待确认'
+  return running ? '已启用' : '已就绪'
+}
+
 export function getServiceStatusText({
   online,
   running,
@@ -20,4 +33,3 @@ export function getServiceStatusText({
   if (featureKey) return '服务在线，能力未启动'
   return '已连接，未开始检测'
 }
-

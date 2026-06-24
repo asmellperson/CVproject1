@@ -38,7 +38,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
-import { getServiceStatusText } from './HomeSection.status'
+import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 import {
   createAiVisionCamera,
   deleteAiVisionCamera,
@@ -1176,7 +1176,7 @@ function ServiceStatusCard({
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
           <div className="text-slate-500">识别能力</div>
           <div className={cn('mt-1 font-black', modelLoaded ? 'text-emerald-600' : 'text-amber-600')}>
-            {modelLoaded ? (featureKey ? '已启用' : '已就绪') : '待确认'}
+            {getRecognitionAbilityText({ modelLoaded, running })}
           </div>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">

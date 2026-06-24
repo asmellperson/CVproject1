@@ -37,6 +37,15 @@ const StatisticsSection = lazy(() =>
   import('@/sections/StatisticsSection').then((module) => ({ default: module.StatisticsSection })),
 )
 
+function getInitialPage() {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('page') || 'overview'
+}
+
+function getInitialAlarmId() {
+  return new URLSearchParams(window.location.search).get('alarmId') || ''
+}
+
 function PageLoadingFallback() {
   return (
     <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
@@ -47,7 +56,8 @@ function PageLoadingFallback() {
 
 function App() {
   const { user } = useAuth()
-  const [currentPage, setCurrentPage] = useState('overview')
+  const [currentPage, setCurrentPage] = useState(getInitialPage)
+  const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
@@ -89,7 +99,7 @@ function App() {
       case 'security-vlm':
         return <SecurityVlmSection />
       case 'alarms':
-        return <AlarmsSection />
+        return <AlarmsSection initialAlarmId={initialAlarmId} />
       case 'statistics':
         return <StatisticsSection />
       default:
