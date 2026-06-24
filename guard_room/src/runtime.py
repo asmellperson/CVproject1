@@ -1644,7 +1644,7 @@ class GuardRoomRuntime:
 
         vehicle_roi = self._vehicle_roi_pixels(frame.shape) if self._vehicle_detection_enabled_for_camera(camera_id) else []
         if vehicle_roi:
-            draw_polygon(frame, vehicle_roi, color=(0, 165, 255), thickness=2)
+            draw_polygon(frame, vehicle_roi, "vehicle_roi")
 
         # 顶部状态栏：在线绿底，离线红底，一眼区分摄像头状态
         header_bg = (0, 120, 0) if camera_online else (0, 0, 180)
