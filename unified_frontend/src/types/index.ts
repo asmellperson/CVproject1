@@ -32,6 +32,7 @@ export interface RuleConfig {
   phone_near_person_px: number
   phone_near_head_px: number
   vehicle_near_px?: number
+  vehicle_roi?: [number, number][]
   static_motion_threshold: number
   prone_head_down_ratio_threshold: number
   prone_bbox_height_ratio_threshold: number
@@ -100,6 +101,7 @@ export interface RuntimeConfig {
   max_alarm_history: number
   phone_detect_mode?: string
   enable_vehicle_unattended?: boolean
+  vehicle_camera_id?: string
 }
 
 export interface WechatConfig {
@@ -113,7 +115,6 @@ export interface WechatConfig {
   enable_phone?: boolean
   enable_absent?: boolean
   enable_prone_sleep?: boolean
-  enable_vehicle_unattended?: boolean
 }
 
 export interface AppConfigPayload {

@@ -59,7 +59,7 @@ from .alarms import AlarmManager
 from .behavior import BehaviorEngine, RuleDecision
 from .config import AppConfig
 from .consensus import CameraDecisionBundle, MultiCameraConsensus
-from .drawing import draw_alarm_banner, draw_detection
+from .drawing import draw_alarm_banner, draw_detection, draw_polygon
 from .pose import PoseEstimator
 from .state import AppState
 from .types import Detection
@@ -617,6 +617,7 @@ class GuardRoomRuntime:
                 vehicle_detector_by_camera = {
                     camera_id: YOLO(vehicle_model)
                     for camera_id, _ in camera_sources
+                    if self._vehicle_detection_enabled_for_camera(camera_id)
                 }
 
             phone_mode = str(
@@ -929,7 +930,7 @@ class GuardRoomRuntime:
                             alarm_manager.attach_video(event, vehicle_video_path)
                         if hasattr(self.state, "attach_alarm_video"):
                             self.state.attach_alarm_video(event.event_type, event.frame_index, vehicle_video_path)
-                        if self.wechat_notifier is not None and self.cfg.wechat.enable_vehicle_unattended:
+                        if self.wechat_notifier is not None:
                             self.wechat_notifier.notify_alarm(
                                 frame=result.annotated_frame,
                                 camera_name=f"{self.alarm_camera_name}-{camera_id}",
@@ -987,8 +988,6 @@ class GuardRoomRuntime:
                         elif event_type == "absent" and not wechat_cfg.enable_absent:
                             enabled = False
                         elif event_type == "prone_sleep" and not wechat_cfg.enable_prone_sleep:
-                            enabled = False
-                        elif event_type == "vehicle_unattended" and not wechat_cfg.enable_vehicle_unattended:
                             enabled = False
 
                         if enabled:
@@ -1176,6 +1175,7 @@ class GuardRoomRuntime:
             persons_for_phone_rule = guard_persons  # 裁图模式只对保安做手机规则
 
         vehicles = self._detect_vehicles(vehicle_detector, frame) if vehicle_detector is not None else []
+        vehicles = self._filter_vehicles_by_roi(vehicles, frame.shape)
         pose_features = self._estimate_pose(pose_estimator, frame, guard_persons, timestamp_s)
 
         local_decisions = behavior_engine.update(
@@ -1516,6 +1516,66 @@ class GuardRoomRuntime:
 
         return self._dedup_overlaps(detections)
 
+    def _vehicle_detection_enabled_for_camera(self, camera_id: str) -> bool:
+        """车辆检测仅在配置的单路摄像头上运行。"""
+        configured = str(getattr(self.cfg.runtime, "vehicle_camera_id", "cam1") or "cam1").strip()
+        return camera_id == configured
+
+    def _filter_vehicles_by_roi(
+        self,
+        vehicles: List[Detection],
+        frame_shape: tuple[int, int, int],
+    ) -> List[Detection]:
+        """仅保留车辆检测 ROI 内的车辆；未配置 ROI 时不过滤。"""
+        polygon = self._vehicle_roi_pixels(frame_shape)
+        if len(polygon) < 3:
+            return vehicles
+
+        filtered: List[Detection] = []
+        for vehicle in vehicles:
+            x1, y1, x2, y2 = vehicle.bbox
+            probe = ((x1 + x2) / 2.0, float(y2))
+            if self._point_in_polygon(probe, polygon):
+                filtered.append(vehicle)
+        return filtered
+
+    def _vehicle_roi_pixels(self, frame_shape: tuple[int, int, int]) -> list[tuple[int, int]]:
+        """将归一化车辆 ROI 转换为像素坐标。"""
+        roi = getattr(self.cfg.rules, "vehicle_roi", []) or []
+        if len(roi) < 3:
+            return []
+
+        h, w = frame_shape[:2]
+        points: list[tuple[int, int]] = []
+        for point in roi:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                continue
+            x_raw, y_raw = float(point[0]), float(point[1])
+            if 0.0 <= x_raw <= 1.0 and 0.0 <= y_raw <= 1.0:
+                x = int(round(x_raw * w))
+                y = int(round(y_raw * h))
+            else:
+                x = int(round(x_raw))
+                y = int(round(y_raw))
+            points.append((max(0, min(x, w - 1)), max(0, min(y, h - 1))))
+        return points if len(points) >= 3 else []
+
+    @staticmethod
+    def _point_in_polygon(point: tuple[float, float], polygon: list[tuple[int, int]]) -> bool:
+        """射线法判断点是否在多边形内。"""
+        x, y = point
+        inside = False
+        j = len(polygon) - 1
+        for i, (xi, yi) in enumerate(polygon):
+            xj, yj = polygon[j]
+            intersects = ((yi > y) != (yj > y)) and (
+                x < (xj - xi) * (y - yi) / max(1e-9, yj - yi) + xi
+            )
+            if intersects:
+                inside = not inside
+            j = i
+        return inside
+
     def _estimate_pose(
         self,
         pose_estimator: PoseEstimator,
@@ -1581,6 +1641,10 @@ class GuardRoomRuntime:
 
         for det in vehicles:
             draw_detection(frame, det, f"vehicle {det.conf:.2f}", color=(0, 165, 255))
+
+        vehicle_roi = self._vehicle_roi_pixels(frame.shape) if self._vehicle_detection_enabled_for_camera(camera_id) else []
+        if vehicle_roi:
+            draw_polygon(frame, vehicle_roi, color=(0, 165, 255), thickness=2)
 
         # 顶部状态栏：在线绿底，离线红底，一眼区分摄像头状态
         header_bg = (0, 120, 0) if camera_online else (0, 0, 180)

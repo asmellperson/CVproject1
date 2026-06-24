@@ -39,6 +39,11 @@ rules:
   phone_near_person_px: 250
   phone_near_head_px: 160
   vehicle_near_px: 160
+  vehicle_roi:
+    - [0.0, 0.0]
+    - [1.0, 0.0]
+    - [1.0, 1.0]
+    - [0.0, 1.0]
   static_motion_threshold: 8
   prone_head_down_ratio_threshold: 0.22
   prone_bbox_height_ratio_threshold: 0.18
@@ -70,6 +75,7 @@ runtime:
   share_pose_estimator: true
   phone_detect_mode: guard_crop
   enable_vehicle_unattended: true
+  vehicle_camera_id: cam1
 wechat:
   enable: true
   corpid: 
@@ -81,4 +87,3 @@ wechat:
   enable_phone: true
   enable_absent: true
   enable_prone_sleep: true
-  enable_vehicle_unattended: true

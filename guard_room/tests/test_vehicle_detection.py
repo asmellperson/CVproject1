@@ -26,6 +26,24 @@ def test_site_config_persists_vehicle_detector_model_from_db(tmp_path):
     assert cfg.models.vehicle_detector_model == "models/yolo11n.pt"
 
 
+def test_site_config_persists_vehicle_camera_and_roi_from_db(tmp_path):
+    configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_vehicle_roi.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+
+    site = service.create_site(
+        "车辆 ROI 保安室",
+        config={
+            "runtime": {"vehicle_camera_id": "cam2"},
+            "rules": {"vehicle_roi": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]]},
+        },
+    )
+    cfg = service.build_app_config(site["id"])
+
+    assert cfg.runtime.vehicle_camera_id == "cam2"
+    assert cfg.rules.vehicle_roi == [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]]
+
+
 def test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leaves():
     cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
     cfg.rules.vehicle_near_px = 80
@@ -134,3 +152,23 @@ def test_detect_vehicles_filters_configured_coco_vehicle_classes():
     assert vehicles == [
         Detection(cls_id=cfg.classes.vehicle_car, conf=0.9, bbox=(10, 20, 110, 120), track_id=None)
     ]
+
+
+def test_vehicle_detection_runs_only_on_configured_camera():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.runtime.vehicle_camera_id = "cam2"
+    runtime = GuardRoomRuntime(config=cfg, state=None)
+
+    assert runtime._vehicle_detection_enabled_for_camera("cam1") is False
+    assert runtime._vehicle_detection_enabled_for_camera("cam2") is True
+
+
+def test_filter_vehicles_by_roi_ignores_unrelated_vehicles():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_roi = [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]]
+    runtime = GuardRoomRuntime(config=cfg, state=None)
+
+    inside = Detection(cls_id=cfg.classes.vehicle_car, conf=0.9, bbox=(180, 160, 240, 240), track_id=None)
+    outside = Detection(cls_id=cfg.classes.vehicle_car, conf=0.9, bbox=(10, 10, 80, 80), track_id=None)
+
+    assert runtime._filter_vehicles_by_roi([inside, outside], (400, 400, 3)) == [inside]

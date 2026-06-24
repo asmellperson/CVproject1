@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2 } from 'lucide-react'
+import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   createGuardRoomSiteCamera,
@@ -39,12 +40,15 @@ type AppConfigPayload = {
   }
   models: {
     detector_model: string
+    vehicle_detector_model: string
     uniform_cls_model: string
     pose_model_task: string
     detector_conf: number
     phone_conf: number
+    vehicle_conf: number
     detector_iou: number
     detector_imgsz: number
+    vehicle_imgsz: number
     tracker: string
     device: string
     uniform_cls_imgsz: number
@@ -58,8 +62,11 @@ type AppConfigPayload = {
     absent_seconds: number
     phone_seconds: number
     prone_sleep_seconds: number
+    vehicle_occlusion_seconds: number
     phone_near_person_px: number
     phone_near_head_px: number
+    vehicle_near_px: number
+    vehicle_roi: [number, number][]
     static_motion_threshold: number
     prone_head_down_ratio_threshold: number
     prone_bbox_height_ratio_threshold: number
@@ -74,16 +81,22 @@ type AppConfigPayload = {
     alarm_cooldown_absent: number
     alarm_cooldown_phone: number
     alarm_cooldown_prone_sleep: number
+    alarm_cooldown_vehicle_unattended: number
   }
   classes: {
     person: number
     play_phone: number
+    vehicle_bicycle: number
+    vehicle_car: number
+    vehicle_motorcycle: number
   }
   runtime: {
     show_window: boolean
     debug: boolean
     draw_debug: boolean
     max_alarm_history: number
+    enable_vehicle_unattended: boolean
+    vehicle_camera_id: string
   }
   wechat: {
     enable: boolean
@@ -93,6 +106,9 @@ type AppConfigPayload = {
     alarm_user: string
     camera_name: string
     clip_seconds: number
+    enable_phone: boolean
+    enable_absent: boolean
+    enable_prone_sleep: boolean
   }
 }
 
@@ -112,12 +128,15 @@ const defaultConfig: AppConfigPayload = {
   },
   models: {
     detector_model: 'yolo11n.pt',
+    vehicle_detector_model: 'yolo11n.pt',
     uniform_cls_model: '',
     pose_model_task: '',
     detector_conf: 0.35,
     phone_conf: 0.35,
+    vehicle_conf: 0.35,
     detector_iou: 0.45,
     detector_imgsz: 960,
+    vehicle_imgsz: 960,
     tracker: 'bytetrack.yaml',
     device: '',
     uniform_cls_imgsz: 224,
@@ -131,8 +150,11 @@ const defaultConfig: AppConfigPayload = {
     absent_seconds: 900,
     phone_seconds: 300,
     prone_sleep_seconds: 300,
+    vehicle_occlusion_seconds: 2,
     phone_near_person_px: 220,
     phone_near_head_px: 160,
+    vehicle_near_px: 160,
+    vehicle_roi: [[0, 0], [1, 0], [1, 1], [0, 1]],
     static_motion_threshold: 8.0,
     prone_head_down_ratio_threshold: 0.22,
     prone_bbox_height_ratio_threshold: 0.18,
@@ -147,17 +169,23 @@ const defaultConfig: AppConfigPayload = {
     alarm_cooldown_absent: 120,
     alarm_cooldown_phone: 60,
     alarm_cooldown_prone_sleep: 300,
+    alarm_cooldown_vehicle_unattended: 300,
 
   },
   classes: {
     person: 0,
     play_phone: 1,
+    vehicle_bicycle: 1,
+    vehicle_car: 2,
+    vehicle_motorcycle: 3,
   },
   runtime: {
     show_window: false,
     debug: true,
     draw_debug: false,
     max_alarm_history: 1000,
+    enable_vehicle_unattended: true,
+    vehicle_camera_id: 'cam1',
   },
   wechat: {
     enable: false,
@@ -167,10 +195,23 @@ const defaultConfig: AppConfigPayload = {
     alarm_user: '',
     camera_name: '值班室双摄像头',
     clip_seconds: 5.0,
+    enable_phone: true,
+    enable_absent: true,
+    enable_prone_sleep: true,
   },
 }
 
-function mergeConfig(data: Partial<AppConfigPayload> | null | undefined): AppConfigPayload {
+type AppConfigPatch = {
+  video?: Partial<AppConfigPayload['video']>
+  models?: Partial<AppConfigPayload['models']>
+  room?: Partial<AppConfigPayload['room']>
+  rules?: Partial<AppConfigPayload['rules']>
+  classes?: Partial<AppConfigPayload['classes']>
+  runtime?: Partial<AppConfigPayload['runtime']>
+  wechat?: Partial<AppConfigPayload['wechat']>
+}
+
+function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload {
   return {
     video: { ...defaultConfig.video, ...(data?.video || {}) },
     models: { ...defaultConfig.models, ...(data?.models || {}) },
@@ -185,6 +226,24 @@ function mergeConfig(data: Partial<AppConfigPayload> | null | undefined): AppCon
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message
   return fallback
+}
+
+function formatVehicleRoi(points: [number, number][] | undefined): string {
+  return (points && points.length ? points : defaultConfig.rules.vehicle_roi)
+    .map(([x, y]) => `${x},${y}`)
+    .join('\n')
+}
+
+function parseVehicleRoi(text: string): [number, number][] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [xRaw, yRaw] = line.split(',').map((item) => Number(item.trim()))
+      return [Number.isFinite(xRaw) ? xRaw : 0, Number.isFinite(yRaw) ? yRaw : 0] as [number, number]
+    })
+    .filter(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1)
 }
 
 // ==================== 主组件 ====================
@@ -888,6 +947,47 @@ async function waitUntilRunning(timeoutMs: number) {
                 </div>
               </RuleGroup>
 
+              {/* 车辆无人值守检测 */}
+              <RuleGroup title="车辆后备箱检查" icon={Car} tone="amber">
+                <SliderRow
+                  title="车辆离开确认时间（秒）"
+                  description="车辆连续消失达到该时间后，才认为车辆已离开并结算本次检查。"
+                  value={config.rules.vehicle_occlusion_seconds}
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  onChange={(v) => setRules({ vehicle_occlusion_seconds: v })}
+                  tone="amber"
+                />
+                <SliderRow
+                  title="保安靠近车辆范围（px）"
+                  description="保安人体框靠近车辆框的容差范围。数值越大越容易判定保安已靠近车辆。"
+                  value={config.rules.vehicle_near_px}
+                  min={40}
+                  max={500}
+                  step={10}
+                  onChange={(v) => setRules({ vehicle_near_px: v })}
+                  tone="amber"
+                />
+                <SliderRow
+                  title="车辆无人值守重复报警间隔（秒）"
+                  description="同一类车辆无人值守报警触发后，至少间隔这么久才允许再次推送。"
+                  value={config.rules.alarm_cooldown_vehicle_unattended}
+                  min={30}
+                  max={1800}
+                  step={30}
+                  onChange={(v) => setRules({ alarm_cooldown_vehicle_unattended: v })}
+                  tone="amber"
+                />
+                <Field label="车辆检测 ROI（归一化坐标，每行 x,y）">
+                  <Textarea
+                    className="min-h-28 font-mono text-sm"
+                    value={formatVehicleRoi(config.rules.vehicle_roi)}
+                    onChange={(e) => setRules({ vehicle_roi: parseVehicleRoi(e.target.value) })}
+                  />
+                </Field>
+              </RuleGroup>
+
               {/* 识别稳定性参数 */}
               <RuleGroup title="识别稳定性参数" icon={Settings2} tone="amber">
                 <SliderRow
@@ -940,6 +1040,9 @@ async function waitUntilRunning(timeoutMs: number) {
               <Field label="检测模型">
                 <Input value={config.models.detector_model} onChange={(e) => setModels({ detector_model: e.target.value })} />
               </Field>
+              <Field label="车辆检测模型">
+                <Input value={config.models.vehicle_detector_model} onChange={(e) => setModels({ vehicle_detector_model: e.target.value })} placeholder="例如 yolo11n.pt" />
+              </Field>
               <Field label="制服分类模型">
                 <Input value={config.models.uniform_cls_model} onChange={(e) => setModels({ uniform_cls_model: e.target.value })} placeholder="路径留空则不启用制服分类" />
               </Field>
@@ -958,8 +1061,14 @@ async function waitUntilRunning(timeoutMs: number) {
               <Field label="手机检测置信度">
                 <Input type="number" step="0.01" value={config.models.phone_conf} onChange={(e) => setModels({ phone_conf: Number(e.target.value) })} />
               </Field>
+              <Field label="车辆检测置信度">
+                <Input type="number" step="0.01" value={config.models.vehicle_conf} onChange={(e) => setModels({ vehicle_conf: Number(e.target.value) })} />
+              </Field>
               <Field label="检测 IOU">
                 <Input type="number" step="0.01" value={config.models.detector_iou} onChange={(e) => setModels({ detector_iou: Number(e.target.value) })} />
+              </Field>
+              <Field label="车辆检测输入尺寸">
+                <Input type="number" value={config.models.vehicle_imgsz} onChange={(e) => setModels({ vehicle_imgsz: Number(e.target.value) })} />
               </Field>
               <Field label="制服分类置信度">
                 <Input type="number" step="0.01" value={config.models.uniform_cls_conf} onChange={(e) => setModels({ uniform_cls_conf: Number(e.target.value) })} />
@@ -972,11 +1081,24 @@ async function waitUntilRunning(timeoutMs: number) {
               <Field label="play_phone 类别 ID">
                 <Input type="number" value={config.classes.play_phone} onChange={(e) => setClasses({ play_phone: Number(e.target.value) })} />
               </Field>
+              <Field label="vehicle_bicycle 类别 ID">
+                <Input type="number" value={config.classes.vehicle_bicycle} onChange={(e) => setClasses({ vehicle_bicycle: Number(e.target.value) })} />
+              </Field>
+              <Field label="vehicle_car 类别 ID">
+                <Input type="number" value={config.classes.vehicle_car} onChange={(e) => setClasses({ vehicle_car: Number(e.target.value) })} />
+              </Field>
+              <Field label="vehicle_motorcycle 类别 ID">
+                <Input type="number" value={config.classes.vehicle_motorcycle} onChange={(e) => setClasses({ vehicle_motorcycle: Number(e.target.value) })} />
+              </Field>
 
               {/* 运行时开关 */}
               <div className="md:col-span-2 flex flex-col gap-4">
                 <SwitchRow id="debug" label="调试模式" description="输出更多调试信息" checked={config.runtime.debug} onChange={(checked) => setRuntime({ debug: checked })} />
                 <SwitchRow id="draw_debug" label="叠加调试文字" description="关闭后不再在视频画面左上角绘制调试状态" checked={config.runtime.draw_debug} onChange={(checked) => setRuntime({ draw_debug: checked })} />
+                <SwitchRow id="enable_vehicle_unattended" label="启用车辆后备箱检查" description="只在下方指定摄像头和车辆 ROI 内检测车辆无人值守报警" checked={config.runtime.enable_vehicle_unattended} onChange={(checked) => setRuntime({ enable_vehicle_unattended: checked })} />
+                <Field label="车辆检测摄像头 ID">
+                  <Input value={config.runtime.vehicle_camera_id} onChange={(e) => setRuntime({ vehicle_camera_id: e.target.value })} placeholder="例如 cam1" />
+                </Field>
                 <Field label="最大报警历史">
                   <Input type="number" value={config.runtime.max_alarm_history} onChange={(e) => setRuntime({ max_alarm_history: Number(e.target.value) })} />
                 </Field>

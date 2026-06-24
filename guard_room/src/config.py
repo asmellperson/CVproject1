@@ -19,7 +19,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +137,8 @@ class RuleConfig:
         prone_sleep_seconds:               趴睡特征持续超过此时长（秒）才触发报警。
         phone_near_person_px:              手机框中心到人体框的水平容差（像素）。
         phone_near_head_px:                手机框中心到头部估计点的距离阈值（像素）。
+        vehicle_near_px:                   保安靠近车辆的空间容差（像素）。
+        vehicle_roi:                       车辆检测 ROI，归一化多边形点列表；为空表示全画面。
         static_motion_threshold:           帧间中心点位移低于此值（像素）视为静止。
         prone_head_down_ratio_threshold:   head_down_ratio 超过此值才认定为低头。
         prone_bbox_height_ratio_threshold: 人体框高度/画面高度低于此比例视为水平姿态。
@@ -163,6 +165,7 @@ class RuleConfig:
     phone_near_person_px: int = 220
     phone_near_head_px: int = 160
     vehicle_near_px: int = 160
+    vehicle_roi: list[list[float]] = field(default_factory=list)
 
     # ── 运动量与姿态阈值 ───────────────────────────────────────────────────
     static_motion_threshold: float = 8.0
@@ -224,6 +227,7 @@ class RuntimeConfig:
                               "guard_crop"      —— 仅对识别为保安的区域裁图检测（推荐）；
                               "full_frame_test" —— 对全图检测，用于调试误检问题。
         enable_vehicle_unattended: 是否启用车辆无人值守检测。
+        vehicle_camera_id:  执行车辆检测的单路摄像头 ID，如 "cam1"。
     """
     show_window: bool = False
     debug: bool = True
@@ -234,6 +238,7 @@ class RuntimeConfig:
     share_pose_estimator: bool = True
     phone_detect_mode: str = "guard_crop"
     enable_vehicle_unattended: bool = True
+    vehicle_camera_id: str = "cam1"
 
 
 @dataclass
@@ -254,7 +259,6 @@ class WeChatConfig:
         enable_phone:       是否推送手机报警。
         enable_absent:      是否推送离岗报警。
         enable_prone_sleep: 是否推送趴睡报警。
-        enable_vehicle_unattended: 是否推送车辆无人值守报警。
     """
     enable: bool = False
     corpid: str = ""
@@ -266,7 +270,6 @@ class WeChatConfig:
     enable_phone: bool = True
     enable_absent: bool = True
     enable_prone_sleep: bool = True
-    enable_vehicle_unattended: bool = True
 
 
 # ---------------------------------------------------------------------------
