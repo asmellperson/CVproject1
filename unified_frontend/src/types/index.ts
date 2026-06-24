@@ -1,4 +1,4 @@
-export type AlarmType = 'absent' | 'phone_use' | 'prone_sleep'
+export type AlarmType = 'absent' | 'phone_use' | 'prone_sleep' | 'vehicle_unattended'
 
 export interface Detection {
   cls_id: number
@@ -28,8 +28,10 @@ export interface RuleConfig {
   absent_seconds: number
   phone_seconds: number
   prone_sleep_seconds: number
+  vehicle_occlusion_seconds?: number
   phone_near_person_px: number
   phone_near_head_px: number
+  vehicle_near_px?: number
   static_motion_threshold: number
   prone_head_down_ratio_threshold: number
   prone_bbox_height_ratio_threshold: number
@@ -44,6 +46,7 @@ export interface RuleConfig {
   alarm_cooldown_absent: number
   alarm_cooldown_phone: number
   alarm_cooldown_prone_sleep: number
+  alarm_cooldown_vehicle_unattended?: number
 }
 
 export interface VideoConfig {
@@ -62,12 +65,15 @@ export interface VideoConfig {
 
 export interface ModelConfig {
   detector_model: string
+  vehicle_detector_model?: string
   uniform_cls_model: string
   pose_model_task: string
   detector_conf: number
   phone_conf: number
+  vehicle_conf?: number
   detector_iou: number
   detector_imgsz: number
+  vehicle_imgsz?: number
   tracker: string
   device: string
   uniform_cls_imgsz: number
@@ -82,6 +88,9 @@ export interface RoomConfig {
 export interface ClassConfig {
   person: number
   play_phone: number
+  vehicle_bicycle?: number
+  vehicle_car?: number
+  vehicle_motorcycle?: number
 }
 
 export interface RuntimeConfig {
@@ -90,6 +99,7 @@ export interface RuntimeConfig {
   draw_debug: boolean
   max_alarm_history: number
   phone_detect_mode?: string
+  enable_vehicle_unattended?: boolean
 }
 
 export interface WechatConfig {
@@ -103,6 +113,7 @@ export interface WechatConfig {
   enable_phone?: boolean
   enable_absent?: boolean
   enable_prone_sleep?: boolean
+  enable_vehicle_unattended?: boolean
 }
 
 export interface AppConfigPayload {
@@ -120,14 +131,15 @@ export interface StatisticsSummary {
   absent: number
   phone_use: number
   prone_sleep: number
+  vehicle_unattended?: number
   today: number
   week: number
 }
 
 export interface StatisticsResponse {
   summary: StatisticsSummary
-  hourly: { time: string; absent: number; phone: number; prone_sleep: number }[]
-  weekly: { day: string; absent: number; phone: number; prone_sleep: number }[]
+  hourly: { time: string; absent: number; phone: number; prone_sleep: number; vehicle_unattended?: number }[]
+  weekly: { day: string; absent: number; phone: number; prone_sleep: number; vehicle_unattended?: number }[]
   pie: { name: string; value: number; color: string }[]
 }
 
@@ -148,20 +160,24 @@ export interface BackendStatus {
   frame_url: string
   persons: Detection[]
   phones: Detection[]
+  vehicles?: Detection[]
   pose_features: Record<string, Record<string, number>>
   decisions: {
     absent: boolean
     phone_use: boolean
     prone_sleep: boolean
+    vehicle_unattended?: boolean
   }
   metrics: {
     person_confidence: number
     phone_confidence: number
+    vehicle_confidence?: number
     head_down_ratio: number
   }
   counts: {
     persons: number
     phones: number
+    vehicles?: number
   }
   stream_time_s: number
 }

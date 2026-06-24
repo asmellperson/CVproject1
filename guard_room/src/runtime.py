@@ -65,6 +65,8 @@ from .state import AppState
 from .types import Detection
 from .uniform import UniformClassifier
 from .utils import ensure_dir
+from .vehicle_behavior import VehicleBehaviorEngine
+from .vehicle_episode_recorder import VehicleEpisodeRecorder
 from .wechat_notifier import WeChatNotifier
 
 
@@ -246,22 +248,26 @@ class SingleCameraResult:
         all_persons:     本帧检测到的所有人体目标。
         guard_persons:   经制服识别（含保持窗口）确认为保安的子集。
         phones:          本帧检测到的手机目标（已去重）。
+        vehicles:        本帧检测到的车辆目标（轿车/两轮车等）。
         pose_features:   各 track_id 对应的姿态特征字典。
         local_decisions: 单路摄像头的行为规则判断结果。
         guard_present:   本帧是否有保安在场（guard_persons 非空）。
         guard_confidence:所有保安目标中制服识别置信度的最大值。
         camera_online:   摄像头当前是否在线（读取线程无错误）。
+        vehicle_guard_seen: 当前车辆周期内是否已见保安靠近车辆。
     """
     camera_id: str
     annotated_frame: np.ndarray
     all_persons: List[Detection]
     guard_persons: List[Detection]
     phones: List[Detection]
+    vehicles: List[Detection]
     pose_features: Dict[int, Dict[str, float]]
     local_decisions: Dict[str, RuleDecision]
     guard_present: bool
     guard_confidence: float
     camera_online: bool
+    vehicle_guard_seen: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +411,10 @@ class GuardRoomRuntime:
             fps=self.cfg.video.annotated_video_fps,
             clip_seconds=self.cfg.wechat.clip_seconds,
         )
+        self.vehicle_episode_recorder = VehicleEpisodeRecorder(
+            output_dir=Path(self.cfg.video.output_dir) / "vehicle_clips",
+            fps=self.cfg.video.annotated_video_fps,
+        )
 
         self.uniform_cache = UniformCache(ttl_seconds=0.1)  # 0.1s TTL：约 1~2 帧复用
         self._camera_pool: ThreadPoolExecutor | None = None
@@ -493,6 +503,11 @@ class GuardRoomRuntime:
                 "prone_sleep",
                 getattr(decisions["prone_sleep"], "track_id", None),
             ))
+        if getattr(decisions["vehicle_unattended"], "active", False):
+            active_keys.add(self._active_alarm_key(
+                "vehicle_unattended",
+                getattr(decisions["vehicle_unattended"], "track_id", None),
+            ))
 
         # 仅清除已不再 active 的锁存；active 的保持锁定
         for key in list(self._alarm_latches.keys()):
@@ -575,6 +590,7 @@ class GuardRoomRuntime:
           4. 异常时写入错误状态，finally 中释放所有资源。
         """
         detector_by_camera: Dict[str, YOLO] = {}
+        vehicle_detector_by_camera: Dict[str, YOLO] = {}
         detector_phone = None
         pose_estimator_by_camera: Dict[str, PoseEstimator] = {}
         uniform_classifier = None
@@ -587,14 +603,21 @@ class GuardRoomRuntime:
             self.state.mark_running(True)
 
             camera_sources = self.cfg.camera_sources()
-            if len(camera_sources) < 2:
-                raise RuntimeError("请至少配置两路摄像头，当前需要设置 video.source_cam1 和 video.source_cam2")
+            if len(camera_sources) < 1:
+                raise RuntimeError("请至少配置一路摄像头，当前需要设置 video.source_cam1 或 video.source")
 
             # 每路摄像头独立的人体检测器，保留各自 ByteTrack 状态。
             detector_by_camera = {
                 camera_id: YOLO(self.cfg.models.detector_model)
                 for camera_id, _ in camera_sources
             }
+            vehicle_model = str(getattr(self.cfg.models, "vehicle_detector_model", "") or "").strip()
+            enable_vehicle_unattended = bool(getattr(self.cfg.runtime, "enable_vehicle_unattended", True))
+            if enable_vehicle_unattended and vehicle_model:
+                vehicle_detector_by_camera = {
+                    camera_id: YOLO(vehicle_model)
+                    for camera_id, _ in camera_sources
+                }
 
             phone_mode = str(
                 getattr(self.cfg.runtime, "phone_detect_mode", "guard_crop") or "guard_crop"
@@ -635,6 +658,10 @@ class GuardRoomRuntime:
             # 每路摄像头独立的行为引擎（各自维护跨帧状态，互不干扰）
             behavior_by_camera = {
                 camera_id: BehaviorEngine(self.cfg)
+                for camera_id, _ in camera_sources
+            }
+            vehicle_behavior_by_camera = {
+                camera_id: VehicleBehaviorEngine(self.cfg)
                 for camera_id, _ in camera_sources
             }
 
@@ -693,6 +720,7 @@ class GuardRoomRuntime:
                 "absent": RuleDecision(),
                 "phone": RuleDecision(),
                 "prone_sleep": RuleDecision(),
+                "vehicle_unattended": RuleDecision(),
             }
 
             # 首帧前的默认结果（确保 combined 帧在首次推理前也有内容可显示）
@@ -703,6 +731,7 @@ class GuardRoomRuntime:
                     all_persons=[],
                     guard_persons=[],
                     phones=[],
+                    vehicles=[],
                     pose_features={},
                     local_decisions=false_decisions,
                     guard_present=False,
@@ -777,9 +806,11 @@ class GuardRoomRuntime:
                                 1.0,
                             ),
                             main_detector=detector_by_camera[camera_id],
+                            vehicle_detector=vehicle_detector_by_camera.get(camera_id),
                             phone_detector=detector_phone,
                             pose_estimator=pose_estimator_by_camera[camera_id],
                             behavior_engine=behavior_by_camera[camera_id],
+                            vehicle_behavior_engine=vehicle_behavior_by_camera[camera_id],
                             guard_gate=guard_gate_by_camera[camera_id],
                             uniform_classifier=uniform_classifier,
                             camera_online=(readers[camera_id].error is None),
@@ -794,6 +825,18 @@ class GuardRoomRuntime:
                         for camera_id, future in futures.items()
                     }
 
+                    vehicle_alarm_videos: dict[str, str] = {}
+                    for camera_id, result in last_results.items():
+                        if result.vehicle_guard_seen:
+                            self.vehicle_episode_recorder.cancel(camera_id)
+                        elif result.vehicles:
+                            self.vehicle_episode_recorder.update(camera_id, result.annotated_frame)
+
+                        if result.local_decisions["vehicle_unattended"].active:
+                            video_path = self.vehicle_episode_recorder.finish(camera_id)
+                            if video_path:
+                                vehicle_alarm_videos[camera_id] = video_path
+
                     # 多摄共识：汇聚各路结果，输出全局报警决策
                     last_global_decisions = consensus.update(
                         timestamp_s=timestamp_s,
@@ -804,11 +847,14 @@ class GuardRoomRuntime:
                                 guard_present=result.guard_present,
                                 phone=result.local_decisions["phone"],
                                 prone_sleep=result.local_decisions["prone_sleep"],
+                                vehicle_unattended=result.local_decisions["vehicle_unattended"],
                             )
                             for camera_id, result in last_results.items()
                         },
                     )
                     self._refresh_alarm_latches(last_global_decisions)
+                else:
+                    vehicle_alarm_videos = {}
 
                 # ── 合并画面 & 全局状态面板 ──────────────────────────────
                 ordered_frames = [last_results[camera_id].annotated_frame for camera_id, _ in camera_sources]
@@ -863,12 +909,47 @@ class GuardRoomRuntime:
                     if event is not None:
                         new_alarm_events.append(event)
 
+                vehicle_video_events = set()
+                for camera_id, vehicle_video_path in vehicle_alarm_videos.items():
+                    result = last_results[camera_id]
+                    event = self._emit_alarm_once(
+                        alarm_manager=alarm_manager,
+                        event_type="vehicle_unattended",
+                        frame=result.annotated_frame,
+                        timestamp_s=timestamp_s,
+                        frame_id=frame_id,
+                        track_id=None,
+                        confidence=result.local_decisions["vehicle_unattended"].confidence,
+                        reason=f"{camera_id} {result.local_decisions['vehicle_unattended'].reason}",
+                        cooldown_seconds=self.cfg.rules.alarm_cooldown_vehicle_unattended,
+                    )
+                    if event is not None:
+                        vehicle_video_events.add((event.event_type, event.frame_index))
+                        if hasattr(alarm_manager, "attach_video"):
+                            alarm_manager.attach_video(event, vehicle_video_path)
+                        if hasattr(self.state, "attach_alarm_video"):
+                            self.state.attach_alarm_video(event.event_type, event.frame_index, vehicle_video_path)
+                        if self.wechat_notifier is not None and self.cfg.wechat.enable_vehicle_unattended:
+                            self.wechat_notifier.notify_alarm(
+                                frame=result.annotated_frame,
+                                camera_name=f"{self.alarm_camera_name}-{camera_id}",
+                                event_name=event.event_type,
+                                alarm_user=self.alarm_user,
+                                video_path=vehicle_video_path,
+                            )
+                    else:
+                        path = Path(vehicle_video_path)
+                        if path.exists():
+                            path.unlink()
+
                 # 横幅：仅在 _banner_show_seconds 内显示，之后自动消失
                 visible_alarm = self._banner_alarm if timestamp_s <= self._banner_expire_ts else None
                 draw_alarm_banner(combined, visible_alarm)
 
                 # ── 启动新报警的视频录制任务 ─────────────────────────────
                 for event in new_alarm_events:
+                    if (event.event_type, event.frame_index) in vehicle_video_events:
+                        continue
                     self.alarm_clip_recorder.start_clip(
                         event=event,
                         frame=combined.copy(),
@@ -907,6 +988,8 @@ class GuardRoomRuntime:
                             enabled = False
                         elif event_type == "prone_sleep" and not wechat_cfg.enable_prone_sleep:
                             enabled = False
+                        elif event_type == "vehicle_unattended" and not wechat_cfg.enable_vehicle_unattended:
+                            enabled = False
 
                         if enabled:
                             # 用默认参数捕获 task.event 引用，避免闭包捕获循环变量的经典陷阱
@@ -941,6 +1024,7 @@ class GuardRoomRuntime:
                 combined = stacked_frames
                 merged_persons: List[Detection] = []
                 merged_phones: List[Detection] = []
+                merged_vehicles: List[Detection] = []
                 merged_pose_features: Dict[int, Dict[str, float]] = {}
 
                 for idx, (camera_id, _) in enumerate(camera_sources):
@@ -948,6 +1032,7 @@ class GuardRoomRuntime:
                     # 将各路坐标平移到合并画面中的实际位置
                     merged_persons.extend(self._offset_detections(result.all_persons, y_offset=y_offsets[idx]))
                     merged_phones.extend(self._offset_detections(result.phones, y_offset=y_offsets[idx]))
+                    merged_vehicles.extend(self._offset_detections(result.vehicles, y_offset=y_offsets[idx]))
                     # track_id 加偏移以区分不同摄像头的同号目标
                     merged_pose_features.update(
                         self._merge_pose_features(result.pose_features, camera_index=idx)
@@ -960,6 +1045,7 @@ class GuardRoomRuntime:
                     timestamp_s=timestamp_s,
                     persons=merged_persons,
                     phones=merged_phones,
+                    vehicles=merged_vehicles,
                     pose_features=merged_pose_features,
                     decisions=last_global_decisions,
                     pose_enabled=any(estimator.enabled for estimator in pose_estimator_by_camera.values()),
@@ -980,6 +1066,7 @@ class GuardRoomRuntime:
             self.state.mark_running(False)
             self._stop_event.set()
             self.alarm_clip_recorder.close()
+            self.vehicle_episode_recorder.close()
 
             if out_writer is not None:
                 out_writer.release()
@@ -995,6 +1082,7 @@ class GuardRoomRuntime:
                 uniform_classifier.close()
 
             detector_by_camera.clear()
+            vehicle_detector_by_camera.clear()
             detector_phone = None
             uniform_classifier = None
             if torch.cuda.is_available():
@@ -1019,8 +1107,10 @@ class GuardRoomRuntime:
         fps: float,
         main_detector: YOLO,
         phone_detector: Optional[YOLO],
+        vehicle_detector: Optional[YOLO],
         pose_estimator: PoseEstimator,
         behavior_engine: BehaviorEngine,
+        vehicle_behavior_engine: VehicleBehaviorEngine,
         guard_gate: TrackGuardGate,
         uniform_classifier: UniformClassifier,
         camera_online: bool,
@@ -1032,9 +1122,10 @@ class GuardRoomRuntime:
           1. 人体检测（带跟踪）；
           2. 制服识别（含缓存 + 保持窗口）→ 筛出保安；
           3. 手机检测（裁图模式或全图模式）；
-          4. 姿态估计；
-          5. 行为规则判断；
-          6. 标注帧绘制。
+          4. 车辆检测；
+          5. 姿态估计；
+          6. 行为规则判断；
+          7. 标注帧绘制。
 
         此方法由线程池调用，使用的所有对象（detector / behavior_engine 等）
         均为当前摄像头专属，无跨线程共享，无需加锁。
@@ -1084,6 +1175,7 @@ class GuardRoomRuntime:
             phones = self._detect_phones_in_person_regions(phone_detector or main_detector, frame, guard_persons)
             persons_for_phone_rule = guard_persons  # 裁图模式只对保安做手机规则
 
+        vehicles = self._detect_vehicles(vehicle_detector, frame) if vehicle_detector is not None else []
         pose_features = self._estimate_pose(pose_estimator, frame, guard_persons, timestamp_s)
 
         local_decisions = behavior_engine.update(
@@ -1094,6 +1186,12 @@ class GuardRoomRuntime:
             phones=phones,
             pose_features=pose_features,
         )
+        local_decisions["vehicle_unattended"] = vehicle_behavior_engine.update(
+            timestamp_s=timestamp_s,
+            frame_shape=frame.shape,
+            guards=guard_persons,
+            vehicles=vehicles,
+        )
 
         annotated = frame.copy()
         self._draw_camera(
@@ -1102,6 +1200,7 @@ class GuardRoomRuntime:
             all_persons=all_persons,
             guard_persons=guard_persons,
             phones=phones,
+            vehicles=vehicles,
             pose_features=pose_features,
             guard_confidence=guard_confidence,
             local_decisions=local_decisions,
@@ -1114,11 +1213,13 @@ class GuardRoomRuntime:
             all_persons=all_persons,
             guard_persons=guard_persons,
             phones=phones,
+            vehicles=vehicles,
             pose_features=pose_features,
             local_decisions=local_decisions,
             guard_present=len(guard_persons) > 0,
             guard_confidence=guard_confidence,
             camera_online=camera_online,
+            vehicle_guard_seen=vehicle_behavior_engine.episode.guard_seen_near_vehicle,
         )
 
     # -----------------------------------------------------------------------
@@ -1361,6 +1462,60 @@ class GuardRoomRuntime:
         )
         return result.get("single", [])
 
+    def _detect_vehicles(
+        self,
+        detector: YOLO,
+        frame: np.ndarray,
+    ) -> List[Detection]:
+        """使用 YOLO11/COCO 车辆模型检测轿车和两轮车。"""
+        vehicle_classes = [
+            self.cfg.classes.vehicle_bicycle,
+            self.cfg.classes.vehicle_car,
+            self.cfg.classes.vehicle_motorcycle,
+        ]
+        result = detector.predict(
+            source=frame,
+            classes=vehicle_classes,
+            conf=min(0.9, max(0.05, self.cfg.models.vehicle_conf)),
+            iou=self.cfg.models.detector_iou,
+            imgsz=self.cfg.models.vehicle_imgsz,
+            half=self._use_half(),
+            device=(self.cfg.models.device or None),
+            verbose=False,
+        )[0]
+
+        boxes = result.boxes
+        detections: List[Detection] = []
+        if boxes is None:
+            return detections
+
+        xyxy = boxes.xyxy.cpu().numpy() if boxes.xyxy is not None else []
+        confs = boxes.conf.cpu().numpy() if boxes.conf is not None else []
+        clss = boxes.cls.cpu().numpy().astype(int) if boxes.cls is not None else []
+
+        h, w = frame.shape[:2]
+        for idx, bbox in enumerate(xyxy):
+            cls_id = int(clss[idx])
+            if cls_id not in vehicle_classes:
+                continue
+            x1, y1, x2, y2 = map(int, bbox.tolist())
+            x1 = max(0, min(x1, w - 1))
+            y1 = max(0, min(y1, h - 1))
+            x2 = max(0, min(x2, w - 1))
+            y2 = max(0, min(y2, h - 1))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            detections.append(
+                Detection(
+                    cls_id=cls_id,
+                    conf=float(confs[idx]),
+                    bbox=(x1, y1, x2, y2),
+                    track_id=None,
+                )
+            )
+
+        return self._dedup_overlaps(detections)
+
     def _estimate_pose(
         self,
         pose_estimator: PoseEstimator,
@@ -1392,6 +1547,7 @@ class GuardRoomRuntime:
         all_persons: List[Detection],
         guard_persons: List[Detection],
         phones: List[Detection],
+        vehicles: List[Detection],
         pose_features: Dict[int, Dict[str, float]],
         guard_confidence: float,
         local_decisions: Dict[str, RuleDecision],
@@ -1423,13 +1579,17 @@ class GuardRoomRuntime:
         for det in phones:
             draw_detection(frame, det, f"phone {det.conf:.2f}", color=(255, 0, 255))
 
+        for det in vehicles:
+            draw_detection(frame, det, f"vehicle {det.conf:.2f}", color=(0, 165, 255))
+
         # 顶部状态栏：在线绿底，离线红底，一眼区分摄像头状态
         header_bg = (0, 120, 0) if camera_online else (0, 0, 180)
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), header_bg, -1)
         header = (
             f"{camera_id} | online={camera_online} | "
             f"guards={len(guard_persons)} | guard_conf={guard_confidence:.2f} | "
-            f"phone={local_decisions['phone'].active} | prone={local_decisions['prone_sleep'].active}"
+            f"phone={local_decisions['phone'].active} | prone={local_decisions['prone_sleep'].active} | "
+            f"vehicle={local_decisions['vehicle_unattended'].active}"
         )
         cv2.putText(frame, header, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2)
 
@@ -1444,7 +1604,8 @@ class GuardRoomRuntime:
             f"GLOBAL | t={timestamp_s:.1f}s | "
             f"absent={decisions['absent'].active} | "
             f"phone={decisions['phone'].active} | "
-            f"prone={decisions['prone_sleep'].active}"
+            f"prone={decisions['prone_sleep'].active} | "
+            f"vehicle={decisions['vehicle_unattended'].active}"
         )
         y = frame.shape[0] - 14     # 固定在画面底部上方 14 像素
         cv2.putText(frame, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (0, 180, 255), 2)

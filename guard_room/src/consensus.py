@@ -7,6 +7,7 @@
     absent     —— 所有在线摄像头均未见到保安，且持续超过阈值；
     phone      —— 任意一路摄像头检测到玩手机即报警（任一命中策略）；
     prone_sleep —— 任意一路摄像头检测到趴睡即报警（任一命中策略）。
+    vehicle_unattended —— 任意一路摄像头检测到车辆离开前无人靠近即报警。
 
 离岗裁决采用"持久化保安出现时间戳"策略：
     - 引入 guard_hold_seconds 宽限期，容忍保安短暂走出画面或被遮挡；
@@ -35,12 +36,14 @@ class CameraDecisionBundle:
         guard_present:  本帧是否检测到保安（含制服识别结果）。
         phone:          手机使用规则的判断结果。
         prone_sleep:    趴睡规则的判断结果。
+        vehicle_unattended: 车辆无人值守规则的判断结果。
     """
     camera_id: str
     camera_online: bool
     guard_present: bool
     phone: RuleDecision
     prone_sleep: RuleDecision
+    vehicle_unattended: RuleDecision
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +83,7 @@ class MultiCameraConsensus:
         self.last_guard_seen_ts: Dict[str, float] = {}
         self.last_phone_seen_ts: Dict[str, float] = {}
         self.last_prone_seen_ts: Dict[str, float] = {}
+        self.last_vehicle_seen_ts: Dict[str, float] = {}
 
         # 记录"全部摄像头均未见保安"状态的起始时间戳；None 表示当前有摄像头看到保安
         self.no_guard_started_at: float | None = None
@@ -98,12 +102,13 @@ class MultiCameraConsensus:
 
         Returns:
             规则名 → RuleDecision 的字典，键固定为
-            {"absent", "phone", "prone_sleep"}，未触发时 active=False。
+            {"absent", "phone", "prone_sleep", "vehicle_unattended"}，未触发时 active=False。
         """
         results = {
             "absent": RuleDecision(),
             "phone": RuleDecision(),
             "prone_sleep": RuleDecision(),
+            "vehicle_unattended": RuleDecision(),
         }
 
         # 过滤离线摄像头：离线摄像头不参与任何裁决，避免因断流误判为"无人"
@@ -123,6 +128,8 @@ class MultiCameraConsensus:
                 self.last_phone_seen_ts[cam_id] = timestamp_s
             if bundle.prone_sleep.active:
                 self.last_prone_seen_ts[cam_id] = timestamp_s
+            if bundle.vehicle_unattended.active:
+                self.last_vehicle_seen_ts[cam_id] = timestamp_s
 
         # ── 离岗裁决（"全否"策略 + 宽限期）─────────────────────────────
         # 对每路在线摄像头判断是否仍在宽限期内（最近见到保安 ≤ guard_hold_seconds 前）
@@ -192,6 +199,24 @@ class MultiCameraConsensus:
             results["prone_sleep"] = RuleDecision(
                 active=True,
                 reason=f"{cam_label} 检测到趴睡",
+                confidence=best_conf,
+                track_id=None,
+            )
+
+        # ── 车辆无人值守裁决（"任一命中"策略）─────────────────────────────
+        active_vehicle_cams = [
+            cam_id for cam_id, bundle in online_cameras.items()
+            if bundle.vehicle_unattended.active
+        ]
+        if active_vehicle_cams:
+            best_conf = max(
+                online_cameras[cam_id].vehicle_unattended.confidence
+                for cam_id in active_vehicle_cams
+            )
+            cam_label = "/".join(active_vehicle_cams)
+            results["vehicle_unattended"] = RuleDecision(
+                active=True,
+                reason=f"{cam_label} 检测到车辆无人值守",
                 confidence=best_conf,
                 track_id=None,
             )

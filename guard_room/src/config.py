@@ -72,6 +72,7 @@ class ModelConfig:
 
     Attributes:
         detector_model:     YOLO 检测模型权重路径（.pt），必填。
+        vehicle_detector_model: YOLO11/COCO 车辆检测模型路径；为空时跳过车辆检测。
         uniform_cls_model:  制服分类模型路径；为空时跳过制服分类步骤。
         pose_model_task:    姿态估计任务标识；为空时跳过姿态估计。
         detector_conf:      检测置信度阈值，低于此值的框被过滤。
@@ -88,12 +89,15 @@ class ModelConfig:
         uniform_cls_conf:   制服分类置信度阈值；低于此值不认定为保安制服。
     """
     detector_model: str                 # 必填，无默认值
+    vehicle_detector_model: str = ""
     uniform_cls_model: str = ""
     pose_model_task: str = ""
     detector_conf: float = 0.35
     phone_conf: float = 0.35
+    vehicle_conf: float = 0.35
     detector_iou: float = 0.45
     detector_imgsz: int = 960
+    vehicle_imgsz: int = 960
     phone_crop_imgsz: int = 640
     phone_full_frame_imgsz: int = 960
     pose_imgsz: int = 640
@@ -147,15 +151,18 @@ class RuleConfig:
         alarm_cooldown_absent:             离岗报警的最小触发间隔（秒），默认 120。
         alarm_cooldown_phone:              手机报警的最小触发间隔（秒），默认 60。
         alarm_cooldown_prone_sleep:        趴睡报警的最小触发间隔（秒），默认 300。
+        alarm_cooldown_vehicle_unattended: 车辆无人值守报警的最小触发间隔（秒）。
     """
     # ── 持续时长阈值 ───────────────────────────────────────────────────────
     absent_seconds: int = 900           # 15 分钟无人才报警
     phone_seconds: int = 300            # 玩手机 5 分钟才报警
     prone_sleep_seconds: int = 300      # 趴睡 5 分钟才报警
+    vehicle_occlusion_seconds: float = 2.0  # 车辆连续消失达到该时长后确认离开
 
     # ── 手机空间过滤阈值 ───────────────────────────────────────────────────
     phone_near_person_px: int = 220
     phone_near_head_px: int = 160
+    vehicle_near_px: int = 160
 
     # ── 运动量与姿态阈值 ───────────────────────────────────────────────────
     static_motion_threshold: float = 8.0
@@ -180,6 +187,7 @@ class RuleConfig:
     alarm_cooldown_absent: int = 120        # 离岗：冷却 2 分钟
     alarm_cooldown_phone: int = 60          # 手机：冷却 1 分钟
     alarm_cooldown_prone_sleep: int = 300   # 趴睡：冷却 5 分钟
+    alarm_cooldown_vehicle_unattended: int = 300
 
 
 @dataclass
@@ -191,9 +199,13 @@ class ClassConfig:
     Attributes:
         person:     人体类别 ID。
         play_phone: 玩手机类别 ID。
+        vehicle_*:  YOLO11 COCO 预训练车辆相关类别 ID。
     """
     person: int = 0
     play_phone: int = 1
+    vehicle_bicycle: int = 1
+    vehicle_car: int = 2
+    vehicle_motorcycle: int = 3
 
 
 @dataclass
@@ -211,6 +223,7 @@ class RuntimeConfig:
         phone_detect_mode:  手机检测范围模式：
                               "guard_crop"      —— 仅对识别为保安的区域裁图检测（推荐）；
                               "full_frame_test" —— 对全图检测，用于调试误检问题。
+        enable_vehicle_unattended: 是否启用车辆无人值守检测。
     """
     show_window: bool = False
     debug: bool = True
@@ -220,6 +233,7 @@ class RuntimeConfig:
     share_phone_detector: bool = True
     share_pose_estimator: bool = True
     phone_detect_mode: str = "guard_crop"
+    enable_vehicle_unattended: bool = True
 
 
 @dataclass
@@ -240,6 +254,7 @@ class WeChatConfig:
         enable_phone:       是否推送手机报警。
         enable_absent:      是否推送离岗报警。
         enable_prone_sleep: 是否推送趴睡报警。
+        enable_vehicle_unattended: 是否推送车辆无人值守报警。
     """
     enable: bool = False
     corpid: str = ""
@@ -251,6 +266,7 @@ class WeChatConfig:
     enable_phone: bool = True
     enable_absent: bool = True
     enable_prone_sleep: bool = True
+    enable_vehicle_unattended: bool = True
 
 
 # ---------------------------------------------------------------------------

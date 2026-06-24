@@ -267,6 +267,7 @@ def send_message(
         "absent":      "离岗",
         "phone_use":   "玩手机",
         "prone_sleep": "趴睡",
+        "vehicle_unattended": "车辆无人值守",
     }
     event_name = event_dict.get(data["eventType"], "未知事件")
     camera_name = data["cameraName"]

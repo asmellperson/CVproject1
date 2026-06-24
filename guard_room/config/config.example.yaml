@@ -11,12 +11,15 @@ video:
   camera_buffer_size: 1
 models:
   detector_model: models/person_phone.pt
+  vehicle_detector_model: yolo11n.pt
   uniform_cls_model: models/uniform_classes.pt
   pose_model_task: models/yolo11n-pose.engine
   detector_conf: 0.25
   phone_conf: 0.35
+  vehicle_conf: 0.35
   detector_iou: 0.45
   detector_imgsz: 960
+  vehicle_imgsz: 960
   phone_crop_imgsz: 640
   phone_full_frame_imgsz: 960
   pose_imgsz: 640
@@ -32,8 +35,10 @@ rules:
   absent_seconds: 60
   phone_seconds: 3.7
   prone_sleep_seconds: 300
+  vehicle_occlusion_seconds: 2
   phone_near_person_px: 250
   phone_near_head_px: 160
+  vehicle_near_px: 160
   static_motion_threshold: 8
   prone_head_down_ratio_threshold: 0.22
   prone_bbox_height_ratio_threshold: 0.18
@@ -48,9 +53,13 @@ rules:
   alarm_cooldown_absent: 540
   alarm_cooldown_phone: 1200
   alarm_cooldown_prone_sleep: 300
+  alarm_cooldown_vehicle_unattended: 300
 classes:
   person: 0
   play_phone: 1
+  vehicle_bicycle: 1
+  vehicle_car: 2
+  vehicle_motorcycle: 3
 runtime:
   show_window: false
   debug: true
@@ -60,6 +69,7 @@ runtime:
   share_phone_detector: true
   share_pose_estimator: true
   phone_detect_mode: guard_crop
+  enable_vehicle_unattended: true
 wechat:
   enable: true
   corpid: 
@@ -71,3 +81,4 @@ wechat:
   enable_phone: true
   enable_absent: true
   enable_prone_sleep: true
+  enable_vehicle_unattended: true

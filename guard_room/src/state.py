@@ -76,18 +76,21 @@ class AppState:
         self.latest_detections: dict[str, Any] = {
             "persons": [],
             "phones": [],
+            "vehicles": [],
             "pose_features": {},
             "decisions": {
                 "absent": False,
                 "phone_use": False,
                 "prone_sleep": False,
+                "vehicle_unattended": False,
             },
             "metrics": {
                 "person_confidence": 0.0,
                 "phone_confidence": 0.0,
+                "vehicle_confidence": 0.0,
                 "head_down_ratio": 0.0,
             },
-            "counts": {"persons": 0, "phones": 0},
+            "counts": {"persons": 0, "phones": 0, "vehicles": 0},
         }
 
         # ── 统计缓存（预留，当前未启用 TTL 逻辑）────────────────────────
@@ -174,6 +177,7 @@ class AppState:
         decisions: dict[str, Any],
         pose_enabled: bool,
         jpeg_quality: int = 80,
+        vehicles: list[Detection] | None = None,
     ) -> None:
         """将最新标注帧及检测结果写入共享状态，供推流和状态接口读取。
 
@@ -187,6 +191,7 @@ class AppState:
             timestamp_s:  当前流时间戳（秒，从系统启动计）。
             persons:      本帧所有人体检测结果（合并多路坐标后）。
             phones:       本帧手机检测结果。
+            vehicles:     本帧车辆检测结果。
             pose_features:各 track_id 的姿态特征字典。
             decisions:    多摄共识后的全局行为判断结果。
             pose_enabled: 姿态估计器是否已启用。
@@ -199,10 +204,13 @@ class AppState:
         if not ok:
             return  # 编码失败，保留上一帧，不中断推流
 
+        vehicles = vehicles or []
+
         # 汇总置信度指标，取各类目标中的最大值
         metrics = {
             "person_confidence": max((float(d.conf) for d in persons), default=0.0),
             "phone_confidence": max((float(d.conf) for d in phones), default=0.0),
+            "vehicle_confidence": max((float(d.conf) for d in vehicles), default=0.0),
             "head_down_ratio": max(
                 (float(v.get("head_down_ratio", 0.0)) for v in pose_features.values()),
                 default=0.0,
@@ -218,15 +226,17 @@ class AppState:
             self.latest_detections = {
                 "persons": [self._det_to_dict(d) for d in persons],
                 "phones": [self._det_to_dict(d) for d in phones],
+                "vehicles": [self._det_to_dict(d) for d in vehicles],
                 "pose_features": {str(k): v for k, v in pose_features.items()},
                 "decisions": {
                     # 将 RuleDecision 对象展开为布尔值，便于 JSON 序列化
                     "absent":      bool(getattr(decisions.get("absent"),      "active", False)),
                     "phone_use":   bool(getattr(decisions.get("phone"),       "active", False)),
                     "prone_sleep": bool(getattr(decisions.get("prone_sleep"), "active", False)),
+                    "vehicle_unattended": bool(getattr(decisions.get("vehicle_unattended"), "active", False)),
                 },
                 "metrics": metrics,
-                "counts": {"persons": len(persons), "phones": len(phones)},
+                "counts": {"persons": len(persons), "phones": len(phones), "vehicles": len(vehicles)},
                 "stream_time_s": round(timestamp_s, 2),
             }
 
@@ -378,16 +388,17 @@ class AppState:
             "absent":      sum(1 for a in alarms if a["event_type"] == "absent"),
             "phone_use":   sum(1 for a in alarms if a["event_type"] == "phone_use"),
             "prone_sleep": sum(1 for a in alarms if a["event_type"] == "prone_sleep"),
+            "vehicle_unattended": sum(1 for a in alarms if a["event_type"] == "vehicle_unattended"),
             "today": 0,
             "week": 0,
         }
 
         # 时段分布：按小时（0~23）分桶
-        hourly_map = {h: {"absent": 0, "phone": 0, "prone_sleep": 0} for h in range(24)}
+        hourly_map = {h: {"absent": 0, "phone": 0, "prone_sleep": 0, "vehicle_unattended": 0} for h in range(24)}
 
         # 近 7 天分布：从 6 天前到今天，升序排列
         weekly_keys = [(now - timedelta(days=i)).date() for i in range(6, -1, -1)]
-        weekly_map = {d: {"absent": 0, "phone": 0, "prone_sleep": 0} for d in weekly_keys}
+        weekly_map = {d: {"absent": 0, "phone": 0, "prone_sleep": 0, "vehicle_unattended": 0} for d in weekly_keys}
         weekday_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
         for alarm in alarms:
@@ -399,6 +410,8 @@ class AppState:
 
             # phone_use → phone：统一桶名（与 hourly/weekly 的键对齐）
             bucket_key = "phone" if alarm["event_type"] == "phone_use" else alarm["event_type"]
+            if bucket_key not in hourly_map[created_at.hour]:
+                continue
             hourly_map[created_at.hour][bucket_key] += 1
             if created_at.date() in weekly_map:
                 weekly_map[created_at.date()][bucket_key] += 1
@@ -411,6 +424,7 @@ class AppState:
             {"name": "离岗",   "value": summary["absent"],      "color": "#ef4444"},
             {"name": "玩手机", "value": summary["phone_use"],   "color": "#f97316"},
             {"name": "趴睡",   "value": summary["prone_sleep"], "color": "#eab308"},
+            {"name": "车辆无人值守", "value": summary["vehicle_unattended"], "color": "#06b6d4"},
         ]
 
         return {"summary": summary, "hourly": hourly, "weekly": weekly, "pie": pie}

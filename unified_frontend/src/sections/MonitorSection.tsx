@@ -37,6 +37,8 @@ function alarmText(type?: string) {
       return '玩手机'
     case 'prone_sleep':
       return '趴睡'
+    case 'vehicle_unattended':
+      return '车辆无人值守'
     default:
       return '未知报警'
   }
@@ -50,6 +52,8 @@ function alarmClass(type?: string) {
       return 'bg-orange-500'
     case 'prone_sleep':
       return 'bg-yellow-500'
+    case 'vehicle_unattended':
+      return 'bg-cyan-600'
     default:
       return 'bg-slate-600'
   }
@@ -63,6 +67,8 @@ function AlarmIcon({ type }: { type?: string }) {
       return <Smartphone className="w-5 h-5" />
     case 'prone_sleep':
       return <Coffee className="w-5 h-5" />
+    case 'vehicle_unattended':
+      return <Camera className="w-5 h-5" />
     default:
       return <AlertTriangle className="w-5 h-5" />
   }
@@ -214,7 +220,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
     (
       (lastAlarm.event_type === 'absent' && status?.decisions.absent) ||
       (lastAlarm.event_type === 'phone_use' && status?.decisions.phone_use) ||
-      (lastAlarm.event_type === 'prone_sleep' && status?.decisions.prone_sleep)
+      (lastAlarm.event_type === 'prone_sleep' && status?.decisions.prone_sleep) ||
+      (lastAlarm.event_type === 'vehicle_unattended' && status?.decisions.vehicle_unattended)
     )
       ? lastAlarm
       : null
@@ -432,11 +439,11 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
                 <div>
                   <p className="text-sm text-slate-500">当前状态</p>
                   <p className="text-lg font-semibold">
-                    {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use ? '告警中' : '正常'}
+                    {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use || status?.decisions.vehicle_unattended ? '告警中' : '正常'}
                   </p>
                 </div>
               </div>
-              {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use ? (
+              {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use || status?.decisions.vehicle_unattended ? (
                 <AlertTriangle className="w-5 h-5 text-yellow-500" />
               ) : (
                 <CheckCircle2 className="w-5 h-5 text-green-500" />
