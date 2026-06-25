@@ -35,13 +35,19 @@ def test_site_config_persists_vehicle_camera_and_roi_from_db(tmp_path):
         "车辆 ROI 保安室",
         config={
             "runtime": {"vehicle_camera_id": "cam2"},
-            "rules": {"vehicle_roi": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]]},
+            "rules": {
+                "vehicle_roi": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]],
+                "vehicle_exit_direction": "right",
+                "vehicle_direction_min_delta_ratio": 0.05,
+            },
         },
     )
     cfg = service.build_app_config(site["id"])
 
     assert cfg.runtime.vehicle_camera_id == "cam2"
     assert cfg.rules.vehicle_roi == [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]]
+    assert cfg.rules.vehicle_exit_direction == "right"
+    assert cfg.rules.vehicle_direction_min_delta_ratio == 0.05
 
 
 def test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leaves():
@@ -105,6 +111,147 @@ def test_vehicle_behavior_alarms_when_vehicle_leaves_without_guard_nearby():
     assert decision.active is True
     assert decision.track_id is None
     assert "车辆停留期间未见保安靠近" in decision.reason
+
+
+def test_vehicle_behavior_ignores_vehicle_moving_against_configured_exit_direction():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "right"
+    engine = VehicleBehaviorEngine(cfg)
+
+    entering_start = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(700, 130, 940, 420), track_id=None)
+    entering_end = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(300, 130, 540, 420), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_start],
+    ).active is False
+    assert engine.update(
+        timestamp_s=1.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_end],
+    ).active is False
+
+    assert engine.update(
+        timestamp_s=4.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=6.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is False
+
+
+def test_vehicle_behavior_alarms_for_configured_exit_direction():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "right"
+    cfg.rules.vehicle_near_px = 80
+    engine = VehicleBehaviorEngine(cfg)
+
+    exit_start = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(300, 130, 540, 420), track_id=None)
+    exit_end = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(700, 130, 940, 420), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[exit_start],
+    ).active is False
+    assert engine.update(
+        timestamp_s=1.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[exit_end],
+    ).active is False
+
+    assert engine.update(
+        timestamp_s=4.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=6.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is True
+    assert "车辆停留期间未见保安靠近" in decision.reason
+
+
+def test_vehicle_behavior_uses_vertical_exit_direction_for_gate_top_camera():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "down"
+    engine = VehicleBehaviorEngine(cfg)
+
+    entering_start = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 520, 760, 700), track_id=None)
+    entering_end = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 180, 760, 360), track_id=None)
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_start],
+    ).active is False
+    assert engine.update(
+        timestamp_s=1.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_end],
+    ).active is False
+    assert engine.update(
+        timestamp_s=4.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+    assert engine.update(
+        timestamp_s=6.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    exit_start = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 180, 760, 360), track_id=None)
+    exit_end = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 520, 760, 700), track_id=None)
+    assert engine.update(
+        timestamp_s=10.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[exit_start],
+    ).active is False
+    assert engine.update(
+        timestamp_s=11.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[exit_end],
+    ).active is False
+    assert engine.update(
+        timestamp_s=14.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=16.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is True
 
 
 def test_detect_vehicles_filters_configured_coco_vehicle_classes():

@@ -44,6 +44,8 @@ rules:
     - [1.0, 0.0]
     - [1.0, 1.0]
     - [0.0, 1.0]
+  vehicle_exit_direction: any
+  vehicle_direction_min_delta_ratio: 0.03
   static_motion_threshold: 8
   prone_head_down_ratio_threshold: 0.22
   prone_bbox_height_ratio_threshold: 0.18

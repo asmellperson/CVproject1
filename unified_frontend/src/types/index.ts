@@ -33,6 +33,8 @@ export interface RuleConfig {
   phone_near_head_px: number
   vehicle_near_px?: number
   vehicle_roi?: [number, number][]
+  vehicle_exit_direction?: string
+  vehicle_direction_min_delta_ratio?: number
   static_motion_threshold: number
   prone_head_down_ratio_threshold: number
   prone_bbox_height_ratio_threshold: number

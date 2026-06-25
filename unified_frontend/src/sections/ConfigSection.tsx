@@ -8,9 +8,12 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { GuardRoomVehicleRoiEditor } from '@/components/guard_room/GuardRoomVehicleRoiEditor'
+import { formatVehicleRoiText, parseVehicleRoiText } from '@/components/guard_room/vehicleRoiGeometry'
 import {
   createGuardRoomSiteCamera,
   deleteGuardRoomCamera,
@@ -67,6 +70,8 @@ type AppConfigPayload = {
     phone_near_head_px: number
     vehicle_near_px: number
     vehicle_roi: [number, number][]
+    vehicle_exit_direction: string
+    vehicle_direction_min_delta_ratio: number
     static_motion_threshold: number
     prone_head_down_ratio_threshold: number
     prone_bbox_height_ratio_threshold: number
@@ -155,6 +160,8 @@ const defaultConfig: AppConfigPayload = {
     phone_near_head_px: 160,
     vehicle_near_px: 160,
     vehicle_roi: [[0, 0], [1, 0], [1, 1], [0, 1]],
+    vehicle_exit_direction: 'any',
+    vehicle_direction_min_delta_ratio: 0.03,
     static_motion_threshold: 8.0,
     prone_head_down_ratio_threshold: 0.22,
     prone_bbox_height_ratio_threshold: 0.18,
@@ -226,24 +233,6 @@ function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message
   return fallback
-}
-
-function formatVehicleRoi(points: [number, number][] | undefined): string {
-  return (points && points.length ? points : defaultConfig.rules.vehicle_roi)
-    .map(([x, y]) => `${x},${y}`)
-    .join('\n')
-}
-
-function parseVehicleRoi(text: string): [number, number][] {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [xRaw, yRaw] = line.split(',').map((item) => Number(item.trim()))
-      return [Number.isFinite(xRaw) ? xRaw : 0, Number.isFinite(yRaw) ? yRaw : 0] as [number, number]
-    })
-    .filter(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1)
 }
 
 // ==================== 主组件 ====================
@@ -453,6 +442,22 @@ async function waitUntilRunning(timeoutMs: number) {
     setConfig({ ...config, runtime: { ...config.runtime, ...patch } })
   const setWechat = (patch: Partial<AppConfigPayload['wechat']>) =>
     setConfig({ ...config, wechat: { ...config.wechat, ...patch } })
+  const selectedVehicleCameraId = config.runtime.vehicle_camera_id || 'cam1'
+  const baseVehicleCameraOptions = (site?.cameras || []).map((camera, index) => ({
+    id: `cam${index + 1}`,
+    label: camera.name || `摄像头 ${index + 1}`,
+    enabled: camera.enabled,
+  }))
+  const vehicleCameraOptions = baseVehicleCameraOptions.some((camera) => camera.id === selectedVehicleCameraId)
+    ? baseVehicleCameraOptions
+    : [
+        ...baseVehicleCameraOptions,
+        {
+          id: selectedVehicleCameraId,
+          label: `${selectedVehicleCameraId}（当前配置）`,
+          enabled: true,
+        },
+      ]
 
   return (
     <div className="space-y-6">
@@ -949,6 +954,25 @@ async function waitUntilRunning(timeoutMs: number) {
 
               {/* 车辆无人值守检测 */}
               <RuleGroup title="车辆后备箱检查" icon={Car} tone="amber">
+                <Field label="车辆检测摄像头">
+                  <Select
+                    value={selectedVehicleCameraId}
+                    onValueChange={(value) => setRuntime({ vehicle_camera_id: value })}
+                    disabled={!isAdmin || saving || vehicleCameraOptions.length === 0}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="选择车辆检测摄像头" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vehicleCameraOptions.map((camera) => (
+                        <SelectItem key={camera.id} value={camera.id}>
+                          {camera.id} · {camera.label}{camera.enabled ? '' : '（停用）'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-slate-500">车辆后备箱检查只会在这一台摄像头上运行，保存配置后重启算法生效。</p>
+                </Field>
                 <SliderRow
                   title="车辆离开确认时间（秒）"
                   description="车辆连续消失达到该时间后，才认为车辆已离开并结算本次检查。"
@@ -969,6 +993,33 @@ async function waitUntilRunning(timeoutMs: number) {
                   onChange={(v) => setRules({ vehicle_near_px: v })}
                   tone="amber"
                 />
+                <Field label="出厂车辆方向">
+                  <Select
+                    value={config.rules.vehicle_exit_direction || 'any'}
+                    onValueChange={(value) => setRules({ vehicle_exit_direction: value })}
+                    disabled={!isAdmin || saving}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="选择出厂方向" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">不限制方向</SelectItem>
+                      <SelectItem value="down">画面中向下</SelectItem>
+                      <SelectItem value="up">画面中向上</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-slate-500">门上方摄像头按车辆在画面中的上下移动判断出厂；进厂方向应与这里相反。</p>
+                </Field>
+                <SliderRow
+                  title="方向判定最小位移比例"
+                  description="车辆中心点移动超过画面宽/高的该比例，才认定方向有效。数值越大越不容易受检测框抖动影响。"
+                  value={config.rules.vehicle_direction_min_delta_ratio}
+                  min={0.01}
+                  max={0.2}
+                  step={0.01}
+                  onChange={(v) => setRules({ vehicle_direction_min_delta_ratio: v })}
+                  tone="amber"
+                />
                 <SliderRow
                   title="车辆无人值守重复报警间隔（秒）"
                   description="同一类车辆无人值守报警触发后，至少间隔这么久才允许再次推送。"
@@ -979,11 +1030,27 @@ async function waitUntilRunning(timeoutMs: number) {
                   onChange={(v) => setRules({ alarm_cooldown_vehicle_unattended: v })}
                   tone="amber"
                 />
+                <div className="md:col-span-2">
+                  <GuardRoomVehicleRoiEditor
+                    siteId={site?.id ?? null}
+                    roi={config.rules.vehicle_roi}
+                    fallbackSize={{
+                      width: config.room.frame_width,
+                      height: config.room.frame_height,
+                    }}
+                    disabled={!isAdmin || loading || saving || !site}
+                    saving={saving}
+                    message="车辆 ROI 使用 guard_room 当前保安室画面绘制，并以归一化坐标写入配置。"
+                    onChange={(vehicleRoi) => setRules({ vehicle_roi: vehicleRoi })}
+                    onSave={handleSave}
+                  />
+                </div>
                 <Field label="车辆检测 ROI（归一化坐标，每行 x,y）">
                   <Textarea
                     className="min-h-28 font-mono text-sm"
-                    value={formatVehicleRoi(config.rules.vehicle_roi)}
-                    onChange={(e) => setRules({ vehicle_roi: parseVehicleRoi(e.target.value) })}
+                    value={formatVehicleRoiText(config.rules.vehicle_roi.length ? config.rules.vehicle_roi : defaultConfig.rules.vehicle_roi)}
+                    onChange={(e) => setRules({ vehicle_roi: parseVehicleRoiText(e.target.value) })}
+                    disabled={!isAdmin || saving}
                   />
                 </Field>
               </RuleGroup>
@@ -1096,9 +1163,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 <SwitchRow id="debug" label="调试模式" description="输出更多调试信息" checked={config.runtime.debug} onChange={(checked) => setRuntime({ debug: checked })} />
                 <SwitchRow id="draw_debug" label="叠加调试文字" description="关闭后不再在视频画面左上角绘制调试状态" checked={config.runtime.draw_debug} onChange={(checked) => setRuntime({ draw_debug: checked })} />
                 <SwitchRow id="enable_vehicle_unattended" label="启用车辆后备箱检查" description="只在下方指定摄像头和车辆 ROI 内检测车辆无人值守报警" checked={config.runtime.enable_vehicle_unattended} onChange={(checked) => setRuntime({ enable_vehicle_unattended: checked })} />
-                <Field label="车辆检测摄像头 ID">
-                  <Input value={config.runtime.vehicle_camera_id} onChange={(e) => setRuntime({ vehicle_camera_id: e.target.value })} placeholder="例如 cam1" />
-                </Field>
                 <Field label="最大报警历史">
                   <Input type="number" value={config.runtime.max_alarm_history} onChange={(e) => setRuntime({ max_alarm_history: Number(e.target.value) })} />
                 </Field>

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 
 from .behavior import RuleDecision
 from .config import AppConfig
@@ -19,6 +19,8 @@ class VehicleEpisodeState:
     missing_started_at: float | None = None
     guard_seen_near_vehicle: bool = False
     best_vehicle_conf: float = 0.0
+    first_vehicle_center: Tuple[float, float] | None = None
+    last_vehicle_center: Tuple[float, float] | None = None
 
 
 class VehicleBehaviorEngine:
@@ -61,9 +63,10 @@ class VehicleBehaviorEngine:
         duration_s = max(0.0, self.episode.last_vehicle_seen_ts - self.episode.started_at)
         guard_seen = self.episode.guard_seen_near_vehicle
         conf = max(0.72, min(0.95, self.episode.best_vehicle_conf or 0.72))
+        exit_direction_matched = self._matches_exit_direction(frame_shape)
         self.episode = VehicleEpisodeState()
 
-        if guard_seen:
+        if guard_seen or not exit_direction_matched:
             return RuleDecision()
 
         return RuleDecision(
@@ -84,14 +87,51 @@ class VehicleBehaviorEngine:
                 active=True,
                 started_at=timestamp_s,
                 last_vehicle_seen_ts=timestamp_s,
+                first_vehicle_center=self._representative_vehicle_center(vehicles),
             )
 
         self.episode.last_vehicle_seen_ts = timestamp_s
         self.episode.missing_started_at = None
         self.episode.best_vehicle_conf = max(self.episode.best_vehicle_conf, max((v.conf for v in vehicles), default=0.0))
+        self.episode.last_vehicle_center = self._representative_vehicle_center(vehicles)
 
         if any(self._guard_near_vehicle(guard, vehicle) for guard in guards for vehicle in vehicles):
             self.episode.guard_seen_near_vehicle = True
+
+    def _matches_exit_direction(self, frame_shape: tuple[int, int, int]) -> bool:
+        direction = str(getattr(self.cfg.rules, "vehicle_exit_direction", "any") or "any").strip().lower()
+        if direction in {"", "any", "none", "off"}:
+            return True
+
+        first = self.episode.first_vehicle_center
+        last = self.episode.last_vehicle_center
+        if first is None or last is None:
+            return False
+
+        height, width = frame_shape[:2]
+        min_ratio = float(getattr(self.cfg.rules, "vehicle_direction_min_delta_ratio", 0.03) or 0.03)
+        dx = last[0] - first[0]
+        dy = last[1] - first[1]
+        min_x = max(1.0, width * min_ratio)
+        min_y = max(1.0, height * min_ratio)
+
+        if direction in {"right", "left_to_right", "east"}:
+            return dx >= min_x
+        if direction in {"left", "right_to_left", "west"}:
+            return dx <= -min_x
+        if direction in {"down", "top_to_bottom", "south"}:
+            return dy >= min_y
+        if direction in {"up", "bottom_to_top", "north"}:
+            return dy <= -min_y
+
+        return True
+
+    @staticmethod
+    def _representative_vehicle_center(vehicles: List[Detection]) -> Tuple[float, float] | None:
+        if not vehicles:
+            return None
+        vehicle = max(vehicles, key=lambda det: (det.bbox[2] - det.bbox[0]) * (det.bbox[3] - det.bbox[1]) * max(det.conf, 0.01))
+        return vehicle.center
 
     def _guard_near_vehicle(self, guard: Detection, vehicle: Detection) -> bool:
         gx1, gy1, gx2, gy2 = guard.bbox
