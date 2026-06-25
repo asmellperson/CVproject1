@@ -19,6 +19,7 @@ class VehicleEpisodeState:
     missing_started_at: float | None = None
     guard_seen_near_vehicle: bool = False
     best_vehicle_conf: float = 0.0
+    primary_vehicle_track_id: int | None = None
     first_vehicle_center: Tuple[float, float] | None = None
     last_vehicle_center: Tuple[float, float] | None = None
 
@@ -46,7 +47,7 @@ class VehicleBehaviorEngine:
         vehicles: List[Detection],
     ) -> RuleDecision:
         if vehicles:
-            self._mark_vehicle_present(timestamp_s, guards, vehicles)
+            self._mark_vehicle_present(timestamp_s, frame_shape, guards, vehicles)
             return RuleDecision()
 
         if not self.episode.active:
@@ -79,23 +80,38 @@ class VehicleBehaviorEngine:
     def _mark_vehicle_present(
         self,
         timestamp_s: float,
+        frame_shape: tuple[int, int, int],
         guards: List[Detection],
         vehicles: List[Detection],
     ) -> None:
-        if not self.episode.active:
+        vehicle = self._select_episode_vehicle(vehicles, frame_shape)
+        if vehicle is None:
+            vehicle = self._representative_vehicle(vehicles)
+
+        if not self.episode.active or vehicle is None:
             self.episode = VehicleEpisodeState(
                 active=True,
                 started_at=timestamp_s,
                 last_vehicle_seen_ts=timestamp_s,
-                first_vehicle_center=self._representative_vehicle_center(vehicles),
+                primary_vehicle_track_id=vehicle.track_id if vehicle is not None else None,
+                first_vehicle_center=vehicle.center if vehicle is not None else None,
+            )
+        elif self.episode.active and self._is_unrelated_vehicle(vehicle, frame_shape):
+            self.episode = VehicleEpisodeState(
+                active=True,
+                started_at=timestamp_s,
+                last_vehicle_seen_ts=timestamp_s,
+                primary_vehicle_track_id=vehicle.track_id,
+                first_vehicle_center=vehicle.center,
             )
 
         self.episode.last_vehicle_seen_ts = timestamp_s
         self.episode.missing_started_at = None
-        self.episode.best_vehicle_conf = max(self.episode.best_vehicle_conf, max((v.conf for v in vehicles), default=0.0))
-        self.episode.last_vehicle_center = self._representative_vehicle_center(vehicles)
+        self.episode.best_vehicle_conf = max(self.episode.best_vehicle_conf, vehicle.conf if vehicle is not None else 0.0)
+        self.episode.primary_vehicle_track_id = vehicle.track_id if vehicle is not None else None
+        self.episode.last_vehicle_center = vehicle.center if vehicle is not None else None
 
-        if any(self._guard_near_vehicle(guard, vehicle) for guard in guards for vehicle in vehicles):
+        if vehicle is not None and any(self._guard_near_vehicle(guard, vehicle) for guard in guards):
             self.episode.guard_seen_near_vehicle = True
 
     def _matches_exit_direction(self, frame_shape: tuple[int, int, int]) -> bool:
@@ -127,11 +143,87 @@ class VehicleBehaviorEngine:
         return True
 
     @staticmethod
-    def _representative_vehicle_center(vehicles: List[Detection]) -> Tuple[float, float] | None:
+    def _representative_vehicle(vehicles: List[Detection]) -> Detection | None:
         if not vehicles:
             return None
-        vehicle = max(vehicles, key=lambda det: (det.bbox[2] - det.bbox[0]) * (det.bbox[3] - det.bbox[1]) * max(det.conf, 0.01))
-        return vehicle.center
+        return max(vehicles, key=lambda det: (det.bbox[2] - det.bbox[0]) * (det.bbox[3] - det.bbox[1]) * max(det.conf, 0.01))
+
+    @staticmethod
+    def _representative_vehicle_center(vehicles: List[Detection]) -> Tuple[float, float] | None:
+        vehicle = VehicleBehaviorEngine._representative_vehicle(vehicles)
+        return vehicle.center if vehicle is not None else None
+
+    def _select_episode_vehicle(
+        self,
+        vehicles: List[Detection],
+        frame_shape: tuple[int, int, int],
+    ) -> Detection | None:
+        if not vehicles:
+            return None
+
+        track_id = self.episode.primary_vehicle_track_id
+        if track_id is not None:
+            for vehicle in vehicles:
+                if vehicle.track_id == track_id:
+                    return vehicle
+
+        previous = self.episode.last_vehicle_center
+        if previous is None:
+            return self._representative_vehicle(vehicles)
+
+        max_distance = self._vehicle_association_max_distance(frame_shape)
+        nearest = min(vehicles, key=lambda det: self._center_distance(previous, det.center))
+        if self._center_distance(previous, nearest.center) <= max_distance:
+            return nearest
+
+        return self._representative_vehicle(vehicles)
+
+    def _is_unrelated_vehicle(self, vehicle: Detection, frame_shape: tuple[int, int, int]) -> bool:
+        previous = self.episode.last_vehicle_center
+        if previous is None:
+            return False
+        if self.episode.primary_vehicle_track_id is not None and vehicle.track_id == self.episode.primary_vehicle_track_id:
+            return False
+        if self._center_distance(previous, vehicle.center) <= self._vehicle_association_max_distance(frame_shape):
+            return False
+        return self._moved_against_exit_direction(frame_shape)
+
+    def _moved_against_exit_direction(self, frame_shape: tuple[int, int, int]) -> bool:
+        direction = str(getattr(self.cfg.rules, "vehicle_exit_direction", "any") or "any").strip().lower()
+        if direction in {"", "any", "none", "off"}:
+            return False
+
+        first = self.episode.first_vehicle_center
+        last = self.episode.last_vehicle_center
+        if first is None or last is None:
+            return False
+
+        height, width = frame_shape[:2]
+        min_ratio = float(getattr(self.cfg.rules, "vehicle_direction_min_delta_ratio", 0.03) or 0.03)
+        dx = last[0] - first[0]
+        dy = last[1] - first[1]
+        min_x = max(1.0, width * min_ratio)
+        min_y = max(1.0, height * min_ratio)
+
+        if direction in {"right", "left_to_right", "east"}:
+            return dx <= -min_x
+        if direction in {"left", "right_to_left", "west"}:
+            return dx >= min_x
+        if direction in {"down", "top_to_bottom", "south"}:
+            return dy <= -min_y
+        if direction in {"up", "bottom_to_top", "north"}:
+            return dy >= min_y
+
+        return False
+
+    @staticmethod
+    def _vehicle_association_max_distance(frame_shape: tuple[int, int, int]) -> float:
+        height, width = frame_shape[:2]
+        return max(120.0, min(width, height) * 0.5)
+
+    @staticmethod
+    def _center_distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
     def _guard_near_vehicle(self, guard: Detection, vehicle: Detection) -> bool:
         gx1, gy1, gx2, gy2 = guard.bbox

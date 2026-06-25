@@ -254,6 +254,50 @@ def test_vehicle_behavior_uses_vertical_exit_direction_for_gate_top_camera():
     assert decision.active is True
 
 
+def test_vehicle_behavior_does_not_merge_entering_vehicle_with_unrelated_bottom_detection():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "down"
+    engine = VehicleBehaviorEngine(cfg)
+
+    entering_start = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 520, 760, 700), track_id=None)
+    entering_end = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(480, 160, 760, 340), track_id=None)
+    unrelated_bottom = Detection(cls_id=cfg.classes.vehicle_car, conf=0.9, bbox=(360, 600, 960, 715), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_start],
+    ).active is False
+    assert engine.update(
+        timestamp_s=1.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[entering_end],
+    ).active is False
+    assert engine.update(
+        timestamp_s=2.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[unrelated_bottom],
+    ).active is False
+    assert engine.update(
+        timestamp_s=5.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=7.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is False
+
+
 def test_detect_vehicles_filters_configured_coco_vehicle_classes():
     cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
     runtime = GuardRoomRuntime(config=cfg, state=None)
