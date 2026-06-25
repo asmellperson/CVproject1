@@ -1037,6 +1037,15 @@ class GuardRoomRuntime:
                         self._merge_pose_features(result.pose_features, camera_index=idx)
                     )
 
+                if hasattr(self.state, "update_camera_frames"):
+                    self.state.update_camera_frames(
+                        {
+                            camera_id: last_results[camera_id].annotated_frame
+                            for camera_id, _ in camera_sources
+                        },
+                        jpeg_quality=self.cfg.video.jpeg_quality,
+                    )
+
                 self.state.update_frame(
                     combined,
                     frame_count=frame_id,

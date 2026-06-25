@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car } from 'lucide-react'
+import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car, MousePointer2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { GuardRoomVehicleRoiEditor } from '@/components/guard_room/GuardRoomVehicleRoiEditor'
 import { formatVehicleRoiText, parseVehicleRoiText } from '@/components/guard_room/vehicleRoiGeometry'
@@ -269,6 +269,7 @@ function ConfigSection({
   const [cameraRtsp, setCameraRtsp] = useState('')
   const [cameraBusy, setCameraBusy] = useState(false)
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
+  const [roiDialogOpen, setRoiDialogOpen] = useState(false)
   const [siteName, setSiteName] = useState('')
   const [siteBusy, setSiteBusy] = useState(false)
   const [siteActionError, setSiteActionError] = useState('')
@@ -458,6 +459,8 @@ async function waitUntilRunning(timeoutMs: number) {
           enabled: true,
         },
       ]
+  const selectedVehicleCamera = vehicleCameraOptions.find((camera) => camera.id === selectedVehicleCameraId)
+  const vehicleRoiText = formatVehicleRoiText(config.rules.vehicle_roi.length ? config.rules.vehicle_roi : defaultConfig.rules.vehicle_roi)
 
   return (
     <div className="space-y-6">
@@ -1031,24 +1034,50 @@ async function waitUntilRunning(timeoutMs: number) {
                   tone="amber"
                 />
                 <div className="md:col-span-2">
-                  <GuardRoomVehicleRoiEditor
-                    siteId={site?.id ?? null}
-                    roi={config.rules.vehicle_roi}
-                    fallbackSize={{
-                      width: config.room.frame_width,
-                      height: config.room.frame_height,
-                    }}
-                    disabled={!isAdmin || loading || saving || !site}
-                    saving={saving}
-                    message="车辆 ROI 使用 guard_room 当前保安室画面绘制，并以归一化坐标写入配置。"
-                    onChange={(vehicleRoi) => setRules({ vehicle_roi: vehicleRoi })}
-                    onSave={handleSave}
-                  />
+                  <div className="flex flex-col gap-3 rounded-lg border border-amber-100 bg-amber-50/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-800">车辆检测 ROI</div>
+                      <div className="mt-1 text-xs leading-5 text-slate-500">
+                        当前按 {selectedVehicleCameraId}{selectedVehicleCamera?.label ? ` · ${selectedVehicleCamera.label}` : ''} 的单路画面绘制，已配置 {config.rules.vehicle_roi.length || defaultConfig.rules.vehicle_roi.length} 个顶点。
+                      </div>
+                    </div>
+                    <Dialog open={roiDialogOpen} onOpenChange={setRoiDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2 bg-white" disabled={!isAdmin || loading || saving || !site || !selectedVehicleCameraId}>
+                          <MousePointer2 className="h-4 w-4" />
+                          绘制车辆 ROI
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-h-[92dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-6xl">
+                        <DialogHeader>
+                          <DialogTitle>绘制车辆检测 ROI</DialogTitle>
+                          <DialogDescription>
+                            使用当前车辆检测摄像头的单路画面绘制 ROI，保存配置后重启算法生效。
+                          </DialogDescription>
+                        </DialogHeader>
+                        <GuardRoomVehicleRoiEditor
+                          siteId={site?.id ?? null}
+                          cameraId={selectedVehicleCameraId}
+                          cameraLabel={selectedVehicleCamera?.label}
+                          roi={config.rules.vehicle_roi}
+                          fallbackSize={{
+                            width: config.room.frame_width,
+                            height: config.room.frame_height,
+                          }}
+                          disabled={!isAdmin || loading || saving || !site}
+                          saving={saving}
+                          message="车辆 ROI 使用当前车辆检测摄像头的单路画面绘制，并以归一化坐标写入配置。"
+                          onChange={(vehicleRoi) => setRules({ vehicle_roi: vehicleRoi })}
+                          onSave={handleSave}
+                        />
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
                 <Field label="车辆检测 ROI（归一化坐标，每行 x,y）">
                   <Textarea
                     className="min-h-28 font-mono text-sm"
-                    value={formatVehicleRoiText(config.rules.vehicle_roi.length ? config.rules.vehicle_roi : defaultConfig.rules.vehicle_roi)}
+                    value={vehicleRoiText}
                     onChange={(e) => setRules({ vehicle_roi: parseVehicleRoiText(e.target.value) })}
                     disabled={!isAdmin || saving}
                   />

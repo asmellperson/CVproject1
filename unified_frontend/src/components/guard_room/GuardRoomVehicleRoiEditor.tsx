@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { guardRoomSiteFrameUrl } from '@/lib/api'
+import { guardRoomSiteCameraFrameUrl } from '@/lib/api'
 import {
   clientPointToImagePoint,
   imagePixelsPerRenderedPixel,
@@ -18,6 +17,8 @@ import {
 
 type GuardRoomVehicleRoiEditorProps = {
   siteId: number | null
+  cameraId: string
+  cameraLabel?: string
   roi: VehicleRoiPoint[]
   fallbackSize: Size
   disabled?: boolean
@@ -61,6 +62,8 @@ function rectToPoints(rect: number[]): ImagePoint[] {
 
 export function GuardRoomVehicleRoiEditor({
   siteId,
+  cameraId,
+  cameraLabel,
   roi,
   fallbackSize,
   disabled,
@@ -80,10 +83,9 @@ export function GuardRoomVehicleRoiEditor({
   const [dragPointIndex, setDragPointIndex] = useState<number | null>(null)
 
   const frameUrl = useMemo(() => {
-    if (!siteId) return ''
-    const query = nonce ? `?t=${nonce}` : ''
-    return `${guardRoomSiteFrameUrl(siteId)}${query}`
-  }, [nonce, siteId])
+    if (!siteId || !cameraId) return ''
+    return guardRoomSiteCameraFrameUrl(siteId, cameraId, nonce)
+  }, [cameraId, nonce, siteId])
 
   useEffect(() => {
     const nextSize = safeImageSize({ width: fallbackWidth, height: fallbackHeight })
@@ -118,7 +120,7 @@ export function GuardRoomVehicleRoiEditor({
   }
 
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !siteId) return
+    if (disabled || !siteId || !cameraId) return
     const point = getPoint(event)
     event.currentTarget.setPointerCapture(event.pointerId)
 
@@ -136,7 +138,7 @@ export function GuardRoomVehicleRoiEditor({
   }
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !siteId || !dragStart) return
+    if (disabled || !siteId || !cameraId || !dragStart) return
     const point = getPoint(event)
     if (dragPointIndex !== null) {
       const nextPoints = points.map((existing, index) => (index === dragPointIndex ? point : existing))
@@ -192,112 +194,116 @@ export function GuardRoomVehicleRoiEditor({
   }
 
   return (
-    <Card className="overflow-hidden border-amber-100 bg-white shadow-[0_12px_28px_rgba(245,158,11,0.08)]">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-amber-100 bg-gradient-to-r from-amber-50/70 to-white sm:flex-row sm:items-center">
-        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#10264d]">
+    <div className="space-y-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3 text-lg font-black text-[#10264d]">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-amber-500/20">
             <MousePointer2 className="h-5 w-5" />
           </span>
-          车辆检测 ROI 绘制
-        </CardTitle>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setNonce(Date.now())} disabled={!siteId}>
+          <div>
+            <div>车辆检测 ROI 绘制</div>
+            <div className="mt-1 text-xs font-semibold text-slate-500">
+              {cameraId}{cameraLabel ? ` · ${cameraLabel}` : ''}
+            </div>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => setNonce(Date.now())} disabled={!siteId || !cameraId}>
           <RefreshCw className="h-4 w-4" />
           刷新画面
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-4 bg-amber-50/25 p-4 sm:p-5">
-        <div className="overflow-hidden rounded-xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.16)]">
-          <div className="relative mx-auto max-h-[68vh] w-full">
-            <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm">
-              <Eye className="h-3.5 w-3.5" />
-              保存前预览
-            </div>
-            {frameUrl ? (
-              <img
-                src={frameUrl}
-                alt=""
-                className="block h-auto max-h-[68vh] w-full object-contain"
-                onLoad={(event) => {
-                  const image = event.currentTarget
-                  setImageSize(safeImageSize({
-                    width: image.naturalWidth || fallbackSize.width,
-                    height: image.naturalHeight || fallbackSize.height,
-                  }))
-                }}
-              />
-            ) : (
-              <div className="aspect-video w-full" />
-            )}
-            <svg
-              viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
-              className="absolute inset-0 h-full w-full touch-none"
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerLeave={() => {
-                if (dragPointIndex === null) {
-                  setDragStart(null)
-                  setDraftPoint(null)
-                }
-              }}
-            >
-              {displayPoints.length > 0 ? (
-                <>
-                  {displayPoints.length > 2 ? (
-                    <polygon points={polyline} fill="rgba(245, 158, 11, 0.24)" stroke="rgb(217, 119, 6)" strokeWidth="4" />
-                  ) : (
-                    <polyline points={polyline} fill="none" stroke="rgb(217, 119, 6)" strokeWidth="4" />
-                  )}
-                  {displayPoints.map((point, index) => (
-                    <g key={`${point.x}-${point.y}-${index}`}>
-                      <circle cx={point.x} cy={point.y} r="9" fill="rgb(217, 119, 6)" stroke="white" strokeWidth="3" />
-                      <text x={point.x} y={point.y + 4} textAnchor="middle" fontSize="12" fill="white">
-                        {index + 1}
-                      </text>
-                    </g>
-                  ))}
-                </>
-              ) : null}
-            </svg>
-          </div>
-        </div>
+      </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-white px-4 py-4 shadow-sm">
-          <div className="min-w-0 text-sm text-slate-600">
-            <div>{message || '车辆 ROI 修改后点击保存配置生效。'}</div>
-            <div className="mt-1 font-mono text-xs text-slate-500">
-              {bbox.length === 4 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px² · 顶点数: ${points.length}` : `顶点数: ${points.length}`}
-            </div>
-            {outOfBounds || areaTooSmall ? (
-              <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
-                  {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
-                </div>
-              </div>
+      <div className="overflow-hidden rounded-lg border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.16)]">
+        <div className="relative mx-auto max-h-[70dvh] w-full">
+          <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm">
+            <Eye className="h-3.5 w-3.5" />
+            单路画面
+          </div>
+          {frameUrl ? (
+            <img
+              src={frameUrl}
+              alt=""
+              className="block h-auto max-h-[70dvh] w-full object-contain"
+              onLoad={(event) => {
+                const image = event.currentTarget
+                setImageSize(safeImageSize({
+                  width: image.naturalWidth || fallbackSize.width,
+                  height: image.naturalHeight || fallbackSize.height,
+                }))
+              }}
+            />
+          ) : (
+            <div className="aspect-video w-full" />
+          )}
+          <svg
+            viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+            className="absolute inset-0 h-full w-full touch-none"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={() => {
+              if (dragPointIndex === null) {
+                setDragStart(null)
+                setDraftPoint(null)
+              }
+            }}
+          >
+            {displayPoints.length > 0 ? (
+              <>
+                {displayPoints.length > 2 ? (
+                  <polygon points={polyline} fill="rgba(245, 158, 11, 0.24)" stroke="rgb(217, 119, 6)" strokeWidth="4" />
+                ) : (
+                  <polyline points={polyline} fill="none" stroke="rgb(217, 119, 6)" strokeWidth="4" />
+                )}
+                {displayPoints.map((point, index) => (
+                  <g key={`${point.x}-${point.y}-${index}`}>
+                    <circle cx={point.x} cy={point.y} r="9" fill="rgb(217, 119, 6)" stroke="white" strokeWidth="3" />
+                    <text x={point.x} y={point.y + 4} textAnchor="middle" fontSize="12" fill="white">
+                      {index + 1}
+                    </text>
+                  </g>
+                ))}
+              </>
             ) : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-2" onClick={undo} disabled={disabled || points.length === 0}>
-              <Undo2 className="h-4 w-4" />
-              撤销
-            </Button>
-            <Button variant="outline" className="gap-2" onClick={clear} disabled={disabled || points.length === 0}>
-              <Trash2 className="h-4 w-4" />
-              清空
-            </Button>
-            <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !siteId}>
-              <RotateCcw className="h-4 w-4" />
-              全画面
-            </Button>
-            <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={onSave} disabled={disabled || saving || !canSave}>
-              <Save className="h-4 w-4" />
-              {saving ? '保存中' : '保存ROI'}
-            </Button>
-          </div>
+          </svg>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-4 py-4">
+        <div className="min-w-0 text-sm text-slate-600">
+          <div>{message || '车辆 ROI 修改后点击保存配置生效。'}</div>
+          <div className="mt-1 font-mono text-xs text-slate-500">
+            {bbox.length === 4 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px² · 顶点数: ${points.length}` : `顶点数: ${points.length}`}
+          </div>
+          {outOfBounds || areaTooSmall ? (
+            <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
+                {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2" onClick={undo} disabled={disabled || points.length === 0}>
+            <Undo2 className="h-4 w-4" />
+            撤销
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={clear} disabled={disabled || points.length === 0}>
+            <Trash2 className="h-4 w-4" />
+            清空
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !siteId || !cameraId}>
+            <RotateCcw className="h-4 w-4" />
+            全画面
+          </Button>
+          <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={onSave} disabled={disabled || saving || !canSave || !siteId || !cameraId}>
+            <Save className="h-4 w-4" />
+            {saving ? '保存中' : '保存ROI'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -332,3 +332,7 @@ export const deleteGuardRoomCamera = (cameraId: number) =>
   apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
 
 export const guardRoomSiteFrameUrl = (siteId: number) => `${API_PREFIX}/sites/${siteId}/frame.jpg`
+export const guardRoomSiteCameraFrameUrl = (siteId: number, cameraId: string, nonce?: number) => {
+  const query = nonce ? `?t=${nonce}` : ''
+  return `${API_PREFIX}/sites/${siteId}/cameras/${encodeURIComponent(cameraId)}/frame.jpg${query}`
+}

@@ -55,6 +55,7 @@ class AppState:
         # ── 推流 ──────────────────────────────────────────────────────────
         # 初始化为占位帧，确保流媒体接口在首帧到来前也能返回有效 JPEG
         self.latest_jpeg: bytes = self._build_placeholder("Waiting for stream")
+        self.camera_jpegs: dict[str, bytes] = {}
         self.last_update_ts: Optional[float] = None     # 最近一次帧更新的 wall clock 时间戳
 
         # ── 运行状态 ──────────────────────────────────────────────────────
@@ -240,6 +241,29 @@ class AppState:
                 "stream_time_s": round(timestamp_s, 2),
             }
 
+    def update_camera_frames(
+        self,
+        frames_by_camera: dict[str, np.ndarray],
+        *,
+        jpeg_quality: int = 80,
+    ) -> None:
+        """保存每路摄像头的最新单路 JPEG 帧，供配置页按摄像头绘制 ROI。"""
+        encoded_frames: dict[str, bytes] = {}
+        for camera_id, frame_bgr in frames_by_camera.items():
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                frame_bgr,
+                [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)],
+            )
+            if ok:
+                encoded_frames[str(camera_id)] = encoded.tobytes()
+
+        if not encoded_frames:
+            return
+
+        with self._lock:
+            self.camera_jpegs.update(encoded_frames)
+
     # -----------------------------------------------------------------------
     # 报警管理
     # -----------------------------------------------------------------------
@@ -354,6 +378,13 @@ class AppState:
         """
         with self._lock:
             return self.latest_jpeg
+
+    def get_camera_frame(self, camera_id: str) -> bytes:
+        """返回指定摄像头最新单路 JPEG；尚无画面时返回该摄像头占位帧。"""
+        key = str(camera_id or "").strip()
+        with self._lock:
+            frame = self.camera_jpegs.get(key)
+        return frame if frame is not None else self._build_placeholder(f"Waiting for {key or 'camera'}")
 
     def get_alarms(self, limit: int = 50) -> list[dict[str, Any]]:
         """返回最近 limit 条报警记录（最新在前）。"""

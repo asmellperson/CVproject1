@@ -132,6 +132,9 @@ class GuardRoomRuntimeManager:
     def get_latest_frame(self, site_id: int) -> bytes:
         return self.get_state(site_id).get_latest_frame()
 
+    def get_camera_frame(self, site_id: int, camera_id: str) -> bytes:
+        return self.get_state(site_id).get_camera_frame(camera_id)
+
     def get_alarms(self, site_id: int, limit: int = 50) -> list[dict[str, Any]]:
         return self.get_state(site_id).get_alarms(limit=limit)
 

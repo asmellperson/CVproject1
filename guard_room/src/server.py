@@ -385,6 +385,17 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/sites/{site_id}/cameras/{camera_id}/frame.jpg")
+    def site_camera_frame_jpg(site_id: int, camera_id: str):
+        """返回指定保安室下单路摄像头的最新 JPEG 帧，用于按摄像头绘制 ROI。"""
+        try:
+            return Response(
+                content=site_runtime_manager.get_camera_frame(site_id, camera_id),
+                media_type="image/jpeg",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/sites/{site_id}/stream.mjpg")
     def site_mjpeg_stream(site_id: int):
         """返回指定保安室的 MJPEG 拼接视频流。"""

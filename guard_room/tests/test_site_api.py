@@ -42,6 +42,9 @@ class FakeRuntimeManager:
     def get_latest_frame(self, site_id: int):
         return b"jpeg-bytes"
 
+    def get_camera_frame(self, site_id: int, camera_id: str):
+        return f"{site_id}:{camera_id}:jpeg".encode()
+
     def get_alarms(self, site_id: int, limit: int = 50):
         return [{"id": "alarm-1", "site_id": site_id, "site_name": "测试保安室"}]
 
@@ -117,6 +120,7 @@ def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     restart = _route_endpoint(app, "/api/sites/{site_id}/control/restart", "POST")
     status = _route_endpoint(app, "/api/sites/{site_id}/status", "GET")
     frame = _route_endpoint(app, "/api/sites/{site_id}/frame.jpg", "GET")
+    camera_frame = _route_endpoint(app, "/api/sites/{site_id}/cameras/{camera_id}/frame.jpg", "GET")
     alarms = _route_endpoint(app, "/api/sites/{site_id}/alarms", "GET")
     statistics = _route_endpoint(app, "/api/sites/{site_id}/statistics", "GET")
 
@@ -125,5 +129,6 @@ def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     assert restart(7, _user={"role": "admin"})["restarted"] is True
     assert status(7)["site_name"] == "测试保安室"
     assert frame(7).body == b"jpeg-bytes"
+    assert camera_frame(7, "cam2").body == b"7:cam2:jpeg"
     assert alarms(7)["items"][0]["site_id"] == 7
     assert statistics(7)["summary"]["total"] == 0
