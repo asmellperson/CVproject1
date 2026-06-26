@@ -29,6 +29,10 @@ import type { BackendStatus, GuardRoomSite } from '@/types'
 const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
 
+function withFrameNonce(url: string) {
+  return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`
+}
+
 function alarmText(type?: string) {
   switch (type) {
     case 'absent':
@@ -80,9 +84,10 @@ type MonitorSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   onSelectSite: (siteId: number) => void
+  department?: string
 }
 
-export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite }: MonitorSectionProps) {
+export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, department }: MonitorSectionProps) {
   const { isAdmin } = useAuth()
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,7 +115,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
 
     const fetchStatus = async () => {
       try {
-        const next = await getGuardRoomSiteStatus(site.id)
+        const next = await getGuardRoomSiteStatus(site.id, department)
         if (mounted) {
           setStatus(next)
           setLoading(false)
@@ -129,7 +134,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
       mounted = false
       window.clearInterval(timer)
     }
-  }, [site])
+  }, [department, site])
 
   useEffect(() => {
     if (!site) {
@@ -146,7 +151,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
       const startedAt = performance.now()
       controller = new AbortController()
       try {
-        const response = await fetch(`${guardRoomSiteFrameUrl(site.id)}?t=${Date.now()}`, {
+        const response = await fetch(withFrameNonce(guardRoomSiteFrameUrl(site.id, department)), {
           cache: 'no-store',
           credentials: 'include',
           signal: controller.signal,
@@ -185,7 +190,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
       if (timeoutId) window.clearTimeout(timeoutId)
       revokeFrameUrl()
     }
-  }, [imgKey, revokeFrameUrl, site])
+  }, [department, imgKey, revokeFrameUrl, site])
 
   const handleStartStop = async () => {
     if (!isAdmin || !site) return
@@ -196,7 +201,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
       } else {
         await startGuardRoomSiteRuntime(site.id)
       }
-      setStatus(await getGuardRoomSiteStatus(site.id))
+      setStatus(await getGuardRoomSiteStatus(site.id, department))
       setImgKey((value) => value + 1)
     } finally {
       setBusy(false)
@@ -206,7 +211,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
   const handleRefresh = async () => {
     if (!site) return
     try {
-      setStatus(await getGuardRoomSiteStatus(site.id))
+      setStatus(await getGuardRoomSiteStatus(site.id, department))
       setImgKey((value) => value + 1)
     } catch {
       setImgKey((value) => value + 1)
@@ -320,7 +325,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
             <div className="relative w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
               <img
                 key={imgKey}
-                src={frameSrc || `${guardRoomSiteFrameUrl(site.id)}?t=${Date.now()}`}
+                src={frameSrc || withFrameNonce(guardRoomSiteFrameUrl(site.id, department))}
                 alt={`${site.name}实时监控`}
                 className="block h-auto w-full"
               />

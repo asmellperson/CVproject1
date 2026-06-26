@@ -79,6 +79,7 @@ class SiteCreateRequest(BaseModel):
     """新增保安室/监控区域请求体。"""
 
     name: str
+    department: Optional[str] = None
     enabled: bool = True
     description: Optional[str] = None
     sort_order: Optional[int] = None
@@ -114,6 +115,46 @@ class CameraUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # 工厂函数
 # ---------------------------------------------------------------------------
+
+DEPARTMENT_ALIASES = {
+    "ge": "general_electric",
+    "general-electric": "general_electric",
+    "general electric": "general_electric",
+    "electronics-electrician": "electronics_electrician",
+    "electronics electrician": "electronics_electrician",
+}
+
+
+def _normalize_department(value: object) -> str:
+    department = str(value or "").strip()
+    if not department:
+        return ""
+    return DEPARTMENT_ALIASES.get(department, DEPARTMENT_ALIASES.get(department.lower(), department))
+
+
+def _department_scope(requested_department: str | None, user: object) -> str:
+    requested = _normalize_department(requested_department)
+    if not isinstance(user, dict):
+        return requested
+
+    role = str(user.get("role") or "").strip().lower()
+    if role == "admin":
+        return requested
+
+    user_department = _normalize_department(user.get("department"))
+    if not user_department or user_department == "all":
+        return requested
+    if requested and requested != user_department:
+        raise HTTPException(status_code=403, detail="无权访问该部门保安室")
+    return requested or user_department
+
+
+def _require_site_visible(site_service: GuardRoomService, site_id: int, department: str) -> None:
+    if not department:
+        return
+    site = site_service.get_site(site_id, include_config=False)
+    if site is None or site.get("department") != department:
+        raise HTTPException(status_code=404, detail="保安室不存在")
 
 def _cors_origins() -> list[str]:
     """从环境变量 AUTH_CORS_ORIGINS 读取允许的 CORS 源列表。
@@ -281,9 +322,10 @@ def create_app(
     # ── 保安室/摄像头路由 ────────────────────────────────────────────────
 
     @app.get("/api/sites")
-    def list_sites():
+    def list_sites(department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回保安行为规范检测下的保安室/监控区域列表。"""
-        return {"items": site_service.list_sites(include_cameras=True)}
+        scope = _department_scope(department, _user)
+        return {"items": site_service.list_sites(include_cameras=True, department=scope or None)}
 
     @app.post("/api/sites")
     def create_site(payload: SiteCreateRequest, _user: dict = Depends(require_admin)):
@@ -295,6 +337,7 @@ def create_app(
         try:
             return site_service.create_site(
                 payload.name,
+                department=payload.department,
                 enabled=payload.enabled,
                 description=payload.description,
                 sort_order=payload.sort_order,
@@ -303,8 +346,10 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}")
-    def get_site(site_id: int):
+    def get_site(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回单个保安室详情，包含该保安室下的摄像头列表和配置。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         site = site_service.get_site(site_id)
         if site is None:
             raise HTTPException(status_code=404, detail="保安室不存在")
@@ -329,8 +374,10 @@ def create_app(
         return {"success": True}
 
     @app.get("/api/sites/{site_id}/config")
-    def get_site_config(site_id: int):
+    def get_site_config(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回保安室独立配置。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         cfg_payload = site_service.get_site_config(site_id)
         if cfg_payload is None:
             raise HTTPException(status_code=404, detail="保安室配置不存在")
@@ -346,8 +393,10 @@ def create_app(
         return {"success": True, "config": cfg_payload}
 
     @app.get("/api/sites/{site_id}/status")
-    def get_site_status(site_id: int):
+    def get_site_status(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室的独立运行状态。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return site_runtime_manager.get_status(site_id)
         except ValueError as exc:
@@ -378,16 +427,20 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}/frame.jpg")
-    def site_frame_jpg(site_id: int):
+    def site_frame_jpg(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室拼接后的最新 JPEG 帧。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return Response(content=site_runtime_manager.get_latest_frame(site_id), media_type="image/jpeg")
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}/cameras/{camera_id}/frame.jpg")
-    def site_camera_frame_jpg(site_id: int, camera_id: str):
+    def site_camera_frame_jpg(site_id: int, camera_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室下单路摄像头的最新 JPEG 帧，用于按摄像头绘制 ROI。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return Response(
                 content=site_runtime_manager.get_camera_frame(site_id, camera_id),
@@ -397,8 +450,10 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}/stream.mjpg")
-    def site_mjpeg_stream(site_id: int):
+    def site_mjpeg_stream(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室的 MJPEG 拼接视频流。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             state_for_site = site_runtime_manager.get_state(site_id)
         except ValueError as exc:
@@ -423,16 +478,20 @@ def create_app(
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
     @app.get("/api/sites/{site_id}/alarms")
-    def get_site_alarms(site_id: int, limit: int = 50):
+    def get_site_alarms(site_id: int, limit: int = 50, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室最近报警。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return {"items": site_runtime_manager.get_alarms(site_id, limit=limit)}
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}/alarms/{alarm_id}/image")
-    def get_site_alarm_image(site_id: int, alarm_id: str):
+    def get_site_alarm_image(site_id: int, alarm_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警快照。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             alarm = site_runtime_manager.get_alarm(site_id, alarm_id)
         except ValueError as exc:
@@ -448,8 +507,10 @@ def create_app(
         return FileResponse(str(path), media_type="image/jpeg")
 
     @app.get("/api/sites/{site_id}/alarms/{alarm_id}/video")
-    def get_site_alarm_video(site_id: int, alarm_id: str):
+    def get_site_alarm_video(site_id: int, alarm_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警视频。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             alarm = site_runtime_manager.get_alarm(site_id, alarm_id)
         except ValueError as exc:
@@ -465,16 +526,20 @@ def create_app(
         return FileResponse(str(path), media_type="video/mp4")
 
     @app.get("/api/sites/{site_id}/statistics")
-    def get_site_statistics(site_id: int):
+    def get_site_statistics(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警统计。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return site_runtime_manager.get_statistics(site_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/sites/{site_id}/cameras")
-    def list_site_cameras(site_id: int):
+    def list_site_cameras(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
         """返回指定保安室下的摄像头列表。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         if site_service.get_site(site_id, include_config=False) is None:
             raise HTTPException(status_code=404, detail="保安室不存在")
         return {"items": site_service.list_cameras(site_id)}

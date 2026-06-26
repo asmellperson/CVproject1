@@ -6,7 +6,11 @@ import { ConfigSection } from '@/sections/ConfigSection'
 import { createGuardRoomSite, deleteGuardRoomSite, getGuardRoomSites } from '@/lib/api'
 import type { GuardRoomSite } from '@/types'
 
-export function GuardBehaviorSection() {
+type GuardBehaviorSectionProps = {
+  department?: string
+}
+
+export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) {
   const [sites, setSites] = useState<GuardRoomSite[]>([])
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null)
   const [loadingSites, setLoadingSites] = useState(true)
@@ -18,7 +22,7 @@ export function GuardBehaviorSection() {
   )
 
   const loadSites = async () => {
-    const next = await getGuardRoomSites()
+    const next = await getGuardRoomSites(department)
     setSites(next)
     setSelectedSiteId((current) => {
       if (current && next.some((site) => site.id === current)) return current
@@ -28,7 +32,7 @@ export function GuardBehaviorSection() {
 
   useEffect(() => {
     let mounted = true
-    getGuardRoomSites()
+    getGuardRoomSites(department)
       .then((next) => {
         if (!mounted) return
         setSites(next)
@@ -44,12 +48,12 @@ export function GuardBehaviorSection() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [department])
 
   const handleCreateSite = async (name: string) => {
     setSiteError('')
     try {
-      const created = await createGuardRoomSite({ name })
+      const created = await createGuardRoomSite({ name, department })
       await loadSites()
       setSelectedSiteId(created.id)
       return created
@@ -91,6 +95,7 @@ export function GuardBehaviorSection() {
             selectedSiteId={selectedSiteId}
             loadingSites={loadingSites}
             onSelectSite={setSelectedSiteId}
+            department={department}
           />
         </TabsContent>
 
@@ -102,6 +107,7 @@ export function GuardBehaviorSection() {
             loadingSites={loadingSites}
             siteError={siteError}
             onSelectSite={setSelectedSiteId}
+            department={department}
             onCreateSite={handleCreateSite}
             onDeleteSite={handleDeleteSite}
             onSitesChanged={loadSites}

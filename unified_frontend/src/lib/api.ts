@@ -241,6 +241,23 @@ function eventTypesQuery(eventTypes?: readonly string[] | null) {
   return eventTypes && eventTypes.length > 0 ? `&event_types=${encodeURIComponent(eventTypes.join(','))}` : ''
 }
 
+function queryString(params: Record<string, string | number | undefined | null>) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      query.set(key, String(value))
+    }
+  })
+  const text = query.toString()
+  return text ? `?${text}` : ''
+}
+
+function withQuery(path: string, params: Record<string, string | number | undefined | null>) {
+  const query = queryString(params)
+  if (!query) return path
+  return `${path}${path.includes('?') ? `&${query.slice(1)}` : query}`
+}
+
 export const getAlarms = async (limit = 100, eventTypes?: readonly string[] | null): Promise<AlarmEvent[]> => {
   const data = await apiGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`)
   return Array.isArray(data) ? data : (data?.items || [])
@@ -269,6 +286,7 @@ type GuardRoomCamerasResponse = {
 
 export type CreateGuardRoomSitePayload = {
   name: string
+  department?: string
   enabled?: boolean
   description?: string | null
   sort_order?: number
@@ -285,8 +303,11 @@ export type CreateGuardRoomCameraPayload = {
 
 export type UpdateGuardRoomCameraPayload = Partial<CreateGuardRoomCameraPayload>
 
-export const getGuardRoomSites = async (): Promise<GuardRoomSite[]> => {
-  const data = await apiGet<GuardRoomSitesResponse>('/sites')
+export const guardRoomSitesPath = (department?: string | null) =>
+  withQuery('/sites', { department })
+
+export const getGuardRoomSites = async (department?: string | null): Promise<GuardRoomSite[]> => {
+  const data = await apiGet<GuardRoomSitesResponse>(guardRoomSitesPath(department))
   return data.items || []
 }
 
@@ -299,14 +320,14 @@ export const updateGuardRoomSite = (siteId: number, payload: UpdateGuardRoomSite
 export const deleteGuardRoomSite = (siteId: number) =>
   apiDelete<{ success: boolean }>(`/sites/${siteId}`)
 
-export const getGuardRoomSiteConfig = (siteId: number) =>
-  apiGet<AppConfigPayload>(`/sites/${siteId}/config`)
+export const getGuardRoomSiteConfig = (siteId: number, department?: string | null) =>
+  apiGet<AppConfigPayload>(withQuery(`/sites/${siteId}/config`, { department }))
 
 export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConfigPayload>) =>
   apiPost<{ success: boolean; config: AppConfigPayload }>(`/sites/${siteId}/config`, payload)
 
-export const getGuardRoomSiteStatus = (siteId: number) =>
-  apiGet<BackendStatus>(`/sites/${siteId}/status`)
+export const getGuardRoomSiteStatus = (siteId: number, department?: string | null) =>
+  apiGet<BackendStatus>(withQuery(`/sites/${siteId}/status`, { department }))
 
 export const startGuardRoomSiteRuntime = (siteId: number) =>
   apiPost<ControlResponse>(`/sites/${siteId}/control/start`)
@@ -317,8 +338,8 @@ export const stopGuardRoomSiteRuntime = (siteId: number) =>
 export const restartGuardRoomSiteRuntime = (siteId: number) =>
   apiPost<ControlResponse>(`/sites/${siteId}/control/restart`)
 
-export const getGuardRoomSiteCameras = async (siteId: number): Promise<GuardRoomCamera[]> => {
-  const data = await apiGet<GuardRoomCamerasResponse>(`/sites/${siteId}/cameras`)
+export const getGuardRoomSiteCameras = async (siteId: number, department?: string | null): Promise<GuardRoomCamera[]> => {
+  const data = await apiGet<GuardRoomCamerasResponse>(withQuery(`/sites/${siteId}/cameras`, { department }))
   return data.items || []
 }
 
@@ -331,8 +352,8 @@ export const updateGuardRoomCamera = (cameraId: number, payload: UpdateGuardRoom
 export const deleteGuardRoomCamera = (cameraId: number) =>
   apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
 
-export const guardRoomSiteFrameUrl = (siteId: number) => `${API_PREFIX}/sites/${siteId}/frame.jpg`
-export const guardRoomSiteCameraFrameUrl = (siteId: number, cameraId: string, nonce?: number) => {
-  const query = nonce ? `?t=${nonce}` : ''
-  return `${API_PREFIX}/sites/${siteId}/cameras/${encodeURIComponent(cameraId)}/frame.jpg${query}`
+export const guardRoomSiteFrameUrl = (siteId: number, department?: string | null) =>
+  `${API_PREFIX}${withQuery(`/sites/${siteId}/frame.jpg`, { department })}`
+export const guardRoomSiteCameraFrameUrl = (siteId: number, cameraId: string, nonce?: number, department?: string | null) => {
+  return `${API_PREFIX}${withQuery(`/sites/${siteId}/cameras/${encodeURIComponent(cameraId)}/frame.jpg`, { t: nonce, department })}`
 }

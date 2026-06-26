@@ -22,9 +22,13 @@ class GuardRoomSite(Base):
     """A named guard room / monitoring area under the guard behavior feature."""
 
     __tablename__ = "guard_room_site"
+    __table_args__ = (
+        UniqueConstraint("department", "name", name="uq_guard_room_site_department_name"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False, unique=True, index=True, comment="保安室名称")
+    department = Column(String(100), nullable=False, default="general_electric", index=True, comment="所属部门")
+    name = Column(String(100), nullable=False, index=True, comment="保安室名称")
     enabled = Column(Boolean, nullable=False, default=True, index=True, comment="是否启用")
     sort_order = Column(Integer, nullable=False, default=0, comment="显示排序")
     description = Column(Text, nullable=True, comment="备注")

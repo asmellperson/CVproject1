@@ -78,6 +78,25 @@ def test_site_api_routes_create_site_and_camera(tmp_path):
     assert detail["cameras"][0]["name"] == "门口左侧"
 
 
+def test_site_api_routes_scope_sites_by_department(tmp_path):
+    app = _app(tmp_path)
+
+    create_site = _route_endpoint(app, "/api/sites", "POST")
+    list_sites = _route_endpoint(app, "/api/sites", "GET")
+
+    create_site(
+        SiteCreateRequest(name="通用电气保安室", department="general_electric"),
+        _user={"role": "admin", "department": "all"},
+    )
+    create_site(
+        SiteCreateRequest(name="电子电工保安室", department="electronics_electrician"),
+        _user={"role": "admin", "department": "all"},
+    )
+
+    assert [item["name"] for item in list_sites(department="general_electric")["items"]] == ["通用电气保安室"]
+    assert [item["name"] for item in list_sites(department="electronics_electrician")["items"]] == ["电子电工保安室"]
+
+
 def test_site_api_routes_update_and_delete_camera(tmp_path):
     app = _app(tmp_path)
 

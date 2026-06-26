@@ -1,13 +1,15 @@
 import type { AuthUser } from '@/auth/auth-context'
 import type { NavGroup, NavItem } from '@/lib/nav'
 
-export type Department = 'general_electric' | 'research_institute' | 'all'
+export type Department = 'general_electric' | 'research_institute' | 'electronics_electrician' | 'all'
 export type UserRole = 'admin' | 'viewer'
 export type PageId =
   | 'overview'
   | 'home'
   | 'security-vlm'
   | 'guard-behavior'
+  | 'guard-behavior-general-electric'
+  | 'guard-behavior-electronics-electrician'
   | 'intrusion-detection'
   | 'door-detection'
   | 'face-detection'
@@ -30,8 +32,13 @@ type DepartmentPermission = {
 
 export const departmentPermissions: Record<Exclude<Department, 'all'>, DepartmentPermission> = {
   general_electric: {
-    pages: ['overview', 'security-vlm', 'guard-behavior', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm', 'guard-behavior-general-electric', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
+      'guard-behavior-general-electric': {
+        label: '保安行为规范检测',
+        title: '保安行为规范检测',
+        description: '通用电气保安行为规范监控与配置',
+      },
       'human-detection': {
         label: '后大门异常逗留检测',
         title: '后大门异常逗留检测',
@@ -49,11 +56,23 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
       },
     },
   },
+  electronics_electrician: {
+    pages: ['overview', 'guard-behavior-electronics-electrician', 'alarms', 'statistics'],
+    displayOverrides: {
+      'guard-behavior-electronics-electrician': {
+        label: '保安行为规范检测',
+        title: '保安行为规范检测',
+        description: '电子电工保安行为规范监控与配置',
+      },
+    },
+  },
 }
 
 export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'security-vlm': ['security_vlm_non_compliant', 'security_vlm_error'],
   'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
+  'guard-behavior-general-electric': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
+  'guard-behavior-electronics-electrician': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
   'intrusion-detection': ['blocks'],
   'door-detection': ['detect_door'],
   'face-detection': ['detect_face'],
@@ -69,6 +88,10 @@ const departmentAliases: Record<string, Department> = {
   generalElectric: 'general_electric',
   'general-electric': 'general_electric',
   ge: 'general_electric',
+  electronics_electrician: 'electronics_electrician',
+  'electronics electrician': 'electronics_electrician',
+  electronicsElectrician: 'electronics_electrician',
+  'electronics-electrician': 'electronics_electrician',
   research_institute: 'research_institute',
   'research institute': 'research_institute',
   researchInstitute: 'research_institute',
@@ -88,6 +111,8 @@ const pageIds = new Set<string>([
   'home',
   'security-vlm',
   'guard-behavior',
+  'guard-behavior-general-electric',
+  'guard-behavior-electronics-electrician',
   'intrusion-detection',
   'door-detection',
   'face-detection',

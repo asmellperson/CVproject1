@@ -247,6 +247,11 @@ const adminModuleGroups = [
     pages: departmentPermissions.general_electric.pages,
   },
   {
+    id: 'electronics_electrician',
+    label: '电子电工',
+    pages: departmentPermissions.electronics_electrician.pages,
+  },
+  {
     id: 'research_institute',
     label: '研究院',
     pages: departmentPermissions.research_institute.pages,

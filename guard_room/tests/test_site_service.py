@@ -44,3 +44,17 @@ def test_site_service_limits_site_to_nine_cameras(tmp_path):
 
     with pytest.raises(ValueError, match="最多只能添加 9 路摄像头"):
         service.create_camera(site["id"], name="摄像头10", rtsp_url="rtsp://camera-10")
+
+
+def test_site_service_scopes_sites_by_department(tmp_path):
+    configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_department.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+
+    ge_site = service.create_site("南门保安室", department="general_electric")
+    electronics_site = service.create_site("南门保安室", department="electronics_electrician")
+
+    assert ge_site["department"] == "general_electric"
+    assert electronics_site["department"] == "electronics_electrician"
+    assert [site["id"] for site in service.list_sites(department="general_electric")] == [ge_site["id"]]
+    assert [site["id"] for site in service.list_sites(department="electronics_electrician")] == [electronics_site["id"]]

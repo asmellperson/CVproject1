@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,6 +37,7 @@ import {
 import { alarmVideoUrl } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
+import { buildUrlWithoutAlarmId, findInitialAlarm } from './AlarmsSection.initialAlarm'
 
 type AlarmsSectionProps = {
   initialAlarmId?: string
@@ -53,6 +54,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const [dispositionBusy, setDispositionBusy] = useState<AlarmDispositionStatus | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [alarms, setAlarms] = useState<AlarmEvent[]>([])
+  const initialAlarmOpenedRef = useRef(false)
   const itemsPerPage = 10
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const allowedAlarmTypes = useMemo(
@@ -91,13 +93,23 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   }, [selectedAlarm?.id, selectedAlarm?.disposition_note])
 
   useEffect(() => {
-    if (!initialAlarmId || selectedAlarm || !alarms.length) return
-    const alarm = alarms.find((item) => {
-      const sourceId = item.source_id || item.id
-      return item.id === initialAlarmId || `${item.source || 'aivision'}:${sourceId}` === initialAlarmId
-    })
-    if (alarm) setSelectedAlarm(alarm)
+    if (!initialAlarmId || initialAlarmOpenedRef.current || selectedAlarm || !alarms.length) return
+    const alarm = findInitialAlarm(alarms, initialAlarmId)
+    if (alarm) {
+      initialAlarmOpenedRef.current = true
+      setSelectedAlarm(alarm)
+    }
   }, [alarms, initialAlarmId, selectedAlarm])
+
+  const handleAlarmDialogOpenChange = (open: boolean) => {
+    if (open) return
+    setSelectedAlarm(null)
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('alarmId')) {
+      window.history.replaceState(window.history.state, '', buildUrlWithoutAlarmId(window.location))
+    }
+  }
 
   const effectiveTypeFilter =
     typeFilter !== 'all' && allowedAlarmTypes && !allowedAlarmTypes.has(typeFilter) ? 'all' : typeFilter
@@ -401,7 +413,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedAlarm} onOpenChange={(open) => !open && setSelectedAlarm(null)}>
+      <Dialog open={!!selectedAlarm} onOpenChange={handleAlarmDialogOpenChange}>
         <DialogContent className="max-h-[92dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>报警详情</DialogTitle>

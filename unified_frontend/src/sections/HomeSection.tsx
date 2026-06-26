@@ -67,7 +67,7 @@ const moduleEntries = [
     iconBg: 'from-cyan-50 to-blue-100',
   },
   {
-    id: 'guard-behavior',
+    id: 'guard-behavior-general-electric',
     title: '保安行为规范检测入口',
     icon: ShieldCheck,
     status: '已接入',
@@ -75,6 +75,16 @@ const moduleEntries = [
     glow: 'shadow-blue-500/18',
     iconColor: 'text-blue-600',
     iconBg: 'from-blue-50 to-sky-100',
+  },
+  {
+    id: 'guard-behavior-electronics-electrician',
+    title: '保安行为规范检测入口',
+    icon: ShieldCheck,
+    status: '已接入',
+    accent: 'from-blue-500 to-cyan-600',
+    glow: 'shadow-cyan-500/18',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'intrusion-detection',
@@ -156,6 +166,8 @@ type ModuleStatusSource = {
 const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'security-vlm': { serviceKey: 'security_vlm' },
   'guard-behavior': { serviceKey: 'guard_room' },
+  'guard-behavior-general-electric': { serviceKey: 'guard_room' },
+  'guard-behavior-electronics-electrician': { serviceKey: 'guard_room' },
   'intrusion-detection': { serviceKey: 'aivision', featureKey: 'blocks' },
   'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
@@ -216,6 +228,7 @@ function formatLatestTime(value?: string) {
 
 function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'general_electric') return '通用电气视图'
+  if (department === 'electronics_electrician') return '电子电工视图'
   if (department === 'research_institute') return '研究院视图'
   if (department === 'all') return '全局视图'
   return '权限视图'
@@ -328,6 +341,12 @@ const adminDepartmentGroups = [
     title: '通用电气部',
     description: '安检流程、保安行为、后大门异常逗留等检测能力',
     pages: departmentPermissions.general_electric.pages,
+  },
+  {
+    id: 'electronics_electrician',
+    title: '电子电工',
+    description: '保安行为规范检测能力',
+    pages: departmentPermissions.electronics_electrician.pages,
   },
   {
     id: 'research_institute',

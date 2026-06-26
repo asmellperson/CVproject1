@@ -83,7 +83,11 @@ function App() {
       case 'home':
         return <HomeSection onNavigate={handlePageChange} />
       case 'guard-behavior':
-        return <GuardBehaviorSection />
+        return <GuardBehaviorSection department="general_electric" />
+      case 'guard-behavior-general-electric':
+        return <GuardBehaviorSection department="general_electric" />
+      case 'guard-behavior-electronics-electrician':
+        return <GuardBehaviorSection department="electronics_electrician" />
       case 'intrusion-detection':
         return <IntrusionDetectionSection />
       case 'door-detection':

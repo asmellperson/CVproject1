@@ -99,3 +99,12 @@ def test_guard_alarm_paths_prefers_site_scoped_alarm_endpoints():
         "/api/sites/1/alarms?limit=100",
         "/api/sites/2/alarms?limit=100",
     ]
+
+
+def test_guard_alarm_paths_can_scope_site_endpoints_by_department():
+    sites = {"items": [{"id": 1}, {"id": 2}]}
+
+    assert _guard_alarm_paths(sites, 100, department="electronics_electrician") == [
+        "/api/sites/1/alarms?limit=100&department=electronics_electrician",
+        "/api/sites/2/alarms?limit=100&department=electronics_electrician",
+    ]

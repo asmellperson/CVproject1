@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy import inspect, text
 
 from .config import (
     AppConfig,
@@ -23,6 +24,7 @@ from .orm import GuardRoomCamera, GuardRoomSite, GuardRoomSiteConfig
 
 
 MAX_CAMERAS_PER_SITE = 9
+DEFAULT_DEPARTMENT = "general_electric"
 
 
 class GuardRoomService:
@@ -38,13 +40,18 @@ class GuardRoomService:
     def ensure_schema(self) -> None:
         """Create guard-room tables if they do not already exist."""
         create_all_tables()
+        self._ensure_department_schema()
 
     # ---------- Sites ----------
 
-    def list_sites(self, include_cameras: bool = True) -> list[dict[str, Any]]:
+    def list_sites(self, include_cameras: bool = True, department: str | None = None) -> list[dict[str, Any]]:
         session = get_session()
         try:
-            rows = session.query(GuardRoomSite).order_by(GuardRoomSite.sort_order, GuardRoomSite.id).all()
+            query = session.query(GuardRoomSite)
+            normalized_department = self._normalize_department(department, required=False)
+            if normalized_department:
+                query = query.filter(GuardRoomSite.department == normalized_department)
+            rows = query.order_by(GuardRoomSite.sort_order, GuardRoomSite.id).all()
             return [self._site_to_dict(row, include_cameras=include_cameras) for row in rows]
         finally:
             session.close()
@@ -64,20 +71,23 @@ class GuardRoomService:
         name: str,
         *,
         enabled: bool = True,
+        department: str | None = None,
         description: str | None = None,
         sort_order: int | None = None,
         config: dict[str, Any] | AppConfig | None = None,
     ) -> dict[str, Any]:
         name = self._required_text(name, "保安室名称")
+        department = self._normalize_department(department)
         with session_scope() as session:
-            if session.query(GuardRoomSite).filter_by(name=name).first():
+            if session.query(GuardRoomSite).filter_by(name=name, department=department).first():
                 raise ValueError(f"保安室名称已存在: {name}")
 
             if sort_order is None:
-                sort_order = self._next_site_sort_order(session)
+                sort_order = self._next_site_sort_order(session, department)
 
             site = GuardRoomSite(
                 name=name,
+                department=department,
                 enabled=bool(enabled),
                 description=(description or "").strip() or None,
                 sort_order=int(sort_order),
@@ -105,7 +115,11 @@ class GuardRoomService:
                 name = self._required_text(payload["name"], "保安室名称")
                 duplicate = (
                     session.query(GuardRoomSite)
-                    .filter(GuardRoomSite.name == name, GuardRoomSite.id != site_id)
+                    .filter(
+                        GuardRoomSite.name == name,
+                        GuardRoomSite.department == site.department,
+                        GuardRoomSite.id != site_id,
+                    )
                     .first()
                 )
                 if duplicate:
@@ -396,6 +410,7 @@ class GuardRoomService:
     ) -> dict[str, Any]:
         payload = {
             "id": site.id,
+            "department": site.department or DEFAULT_DEPARTMENT,
             "name": site.name,
             "enabled": bool(site.enabled),
             "sort_order": site.sort_order,
@@ -425,8 +440,11 @@ class GuardRoomService:
         }
 
     @staticmethod
-    def _next_site_sort_order(session) -> int:
-        value = session.query(func.max(GuardRoomSite.sort_order)).scalar()
+    def _next_site_sort_order(session, department: str | None = None) -> int:
+        query = session.query(func.max(GuardRoomSite.sort_order))
+        if department:
+            query = query.filter(GuardRoomSite.department == department)
+        value = query.scalar()
         return int(value or 0) + 1
 
     @staticmethod
@@ -440,6 +458,67 @@ class GuardRoomService:
         if not text:
             raise ValueError(f"{label}不能为空")
         return text
+
+    @staticmethod
+    def _normalize_department(department: str | None, *, required: bool = True) -> str:
+        text_value = str(department or "").strip()
+        if not text_value:
+            if required:
+                return DEFAULT_DEPARTMENT
+            return ""
+        aliases = {
+            "ge": "general_electric",
+            "general-electric": "general_electric",
+            "general electric": "general_electric",
+            "electronics-electrician": "electronics_electrician",
+            "electronics electrician": "electronics_electrician",
+        }
+        return aliases.get(text_value, aliases.get(text_value.lower(), text_value))
+
+    @staticmethod
+    def _ensure_department_schema() -> None:
+        from .db import get_engine
+
+        engine = get_engine()
+        inspector = inspect(engine)
+        if "guard_room_site" not in inspector.get_table_names():
+            return
+
+        columns = {column["name"] for column in inspector.get_columns("guard_room_site")}
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if "department" not in columns:
+                if dialect == "mysql":
+                    conn.execute(text(
+                        "ALTER TABLE guard_room_site "
+                        "ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT 'general_electric' COMMENT '所属部门'"
+                    ))
+                else:
+                    conn.execute(text(
+                        "ALTER TABLE guard_room_site "
+                        "ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT 'general_electric'"
+                    ))
+                conn.execute(text(
+                    "UPDATE guard_room_site SET department = 'general_electric' "
+                    "WHERE department IS NULL OR department = ''"
+                ))
+
+            indexes = inspector.get_indexes("guard_room_site") + inspector.get_unique_constraints("guard_room_site")
+            index_names = {str(index.get("name") or "") for index in indexes}
+            if dialect == "mysql":
+                for index_name in ("name", "ix_guard_room_site_name"):
+                    if index_name in index_names:
+                        try:
+                            conn.execute(text(f"ALTER TABLE guard_room_site DROP INDEX {index_name}"))
+                        except Exception:
+                            pass
+                if "ix_guard_room_site_department" not in index_names:
+                    conn.execute(text("CREATE INDEX ix_guard_room_site_department ON guard_room_site (department)"))
+                if "uq_guard_room_site_department_name" not in index_names:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX uq_guard_room_site_department_name "
+                        "ON guard_room_site (department, name)"
+                    ))
 
 
 guard_room_service = GuardRoomService()

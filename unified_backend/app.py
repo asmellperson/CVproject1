@@ -79,6 +79,19 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "detect_face",
         "detect_phone",
     },
+    "electronics_electrician": {
+        "guard_absent",
+        "guard_phone_use",
+        "guard_prone_sleep",
+    },
+}
+
+DEPARTMENT_ALIASES = {
+    "ge": "general_electric",
+    "general-electric": "general_electric",
+    "general electric": "general_electric",
+    "electronics-electrician": "electronics_electrician",
+    "electronics electrician": "electronics_electrician",
 }
 
 
@@ -88,6 +101,13 @@ def _now() -> float:
 
 def _env_url(name: str, default: str) -> str:
     return os.getenv(name, default).rstrip("/")
+
+
+def _normalize_department(value: object) -> str:
+    department = str(value or "").strip()
+    if not department:
+        return ""
+    return DEPARTMENT_ALIASES.get(department, DEPARTMENT_ALIASES.get(department.lower(), department))
 
 
 def _cors_origins() -> list[str]:
@@ -283,10 +303,24 @@ def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
         return None
     if role != "viewer":
         return set()
-    department = str(user.get("department") or "").strip()
+    department = _normalize_department(user.get("department"))
     if department == "all":
         return None
     return set(DEPARTMENT_EVENT_TYPES.get(department, set()))
+
+
+def _guard_department_for_user(user: dict[str, Any]) -> str | None:
+    role = str(user.get("role") or "").strip().lower()
+    if role == "admin":
+        return None
+    if role != "viewer":
+        return "__none__"
+    department = _normalize_department(user.get("department"))
+    if not department or department == "all":
+        return None
+    if {"guard_absent", "guard_phone_use", "guard_prone_sleep"}.isdisjoint(DEPARTMENT_EVENT_TYPES.get(department, set())):
+        return "__none__"
+    return department
 
 
 def _parse_event_types(raw: str | None) -> set[str] | None:
@@ -338,15 +372,18 @@ def _collect_alarms(
     ai_payload = _get_upstream_json(aivision_url, f"/api/aivision/alarms?limit={upstream_limit}", request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
 
-    guard_sites_payload = _get_upstream_json(guard_room_url, "/api/sites", request)
-    guard_paths = _guard_alarm_paths(guard_sites_payload, upstream_limit)
-    if guard_paths:
-        for path in guard_paths:
-            guard_payload = _get_upstream_json(guard_room_url, path, request)
+    guard_department = _guard_department_for_user(user)
+    if guard_department != "__none__":
+        guard_sites_path = f"/api/sites?department={guard_department}" if guard_department else "/api/sites"
+        guard_sites_payload = _get_upstream_json(guard_room_url, guard_sites_path, request)
+        guard_paths = _guard_alarm_paths(guard_sites_payload, upstream_limit, department=guard_department)
+        if guard_paths:
+            for path in guard_paths:
+                guard_payload = _get_upstream_json(guard_room_url, path, request)
+                alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
+        elif guard_department is None:
+            guard_payload = _get_upstream_json(guard_room_url, f"/api/alarms?limit={upstream_limit}", request)
             alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
-    else:
-        guard_payload = _get_upstream_json(guard_room_url, f"/api/alarms?limit={upstream_limit}", request)
-        alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
 
     vlm_payload = _get_upstream_json(security_vlm_url, f"/api/history?limit={upstream_limit}", request)
     if isinstance(vlm_payload, dict):
@@ -529,14 +566,17 @@ def _guard_site_runtime_summary(
     }
 
 
-def _guard_alarm_paths(sites_payload: object, limit: int) -> list[str]:
+def _guard_alarm_paths(sites_payload: object, limit: int, department: str | None = None) -> list[str]:
     paths: list[str] = []
     for site in _guard_site_items(sites_payload):
         try:
             site_id = int(site.get("id"))
         except (TypeError, ValueError):
             continue
-        paths.append(f"/api/sites/{site_id}/alarms?limit={limit}")
+        path = f"/api/sites/{site_id}/alarms?limit={limit}"
+        if department:
+            path = f"{path}&department={department}"
+        paths.append(path)
     return paths
 
 

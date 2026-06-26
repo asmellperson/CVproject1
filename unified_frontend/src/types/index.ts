@@ -207,6 +207,7 @@ export interface GuardRoomCamera {
 
 export interface GuardRoomSite {
   id: number
+  department: string
   name: string
   enabled: boolean
   sort_order: number

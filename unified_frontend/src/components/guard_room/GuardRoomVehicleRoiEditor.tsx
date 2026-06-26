@@ -17,6 +17,7 @@ import {
 
 type GuardRoomVehicleRoiEditorProps = {
   siteId: number | null
+  department?: string
   cameraId: string
   cameraLabel?: string
   roi: VehicleRoiPoint[]
@@ -62,6 +63,7 @@ function rectToPoints(rect: number[]): ImagePoint[] {
 
 export function GuardRoomVehicleRoiEditor({
   siteId,
+  department,
   cameraId,
   cameraLabel,
   roi,
@@ -84,8 +86,8 @@ export function GuardRoomVehicleRoiEditor({
 
   const frameUrl = useMemo(() => {
     if (!siteId || !cameraId) return ''
-    return guardRoomSiteCameraFrameUrl(siteId, cameraId, nonce)
-  }, [cameraId, nonce, siteId])
+    return guardRoomSiteCameraFrameUrl(siteId, cameraId, nonce, department)
+  }, [cameraId, department, nonce, siteId])
 
   useEffect(() => {
     const nextSize = safeImageSize({ width: fallbackWidth, height: fallbackHeight })

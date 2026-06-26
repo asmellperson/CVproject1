@@ -244,6 +244,7 @@ type ConfigSectionProps = {
   loadingSites: boolean
   siteError?: string
   onSelectSite: (siteId: number) => void
+  department?: string
   onCreateSite: (name: string) => Promise<GuardRoomSite>
   onDeleteSite: (siteId: number) => Promise<void>
   onSitesChanged?: () => void | Promise<void>
@@ -256,6 +257,7 @@ function ConfigSection({
   loadingSites,
   siteError,
   onSelectSite,
+  department,
   onCreateSite,
   onDeleteSite,
   onSitesChanged,
@@ -279,9 +281,9 @@ function ConfigSection({
       setConfig(defaultConfig)
       return
     }
-    const next = await getGuardRoomSiteConfig(site.id)
+    const next = await getGuardRoomSiteConfig(site.id, department)
     setConfig(mergeConfig(next))
-  }, [site])
+  }, [department, site])
 
   useEffect(() => {
     setLoading(true)
@@ -353,7 +355,7 @@ async function waitUntilRunning(timeoutMs: number) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      const s = await getGuardRoomSiteStatus(site.id)
+      const s = await getGuardRoomSiteStatus(site.id, department)
       if (s.running && !s.error) return
     } catch {
       // 重启期间 API 可能短暂不可达，继续等
@@ -1057,6 +1059,7 @@ async function waitUntilRunning(timeoutMs: number) {
                         </DialogHeader>
                         <GuardRoomVehicleRoiEditor
                           siteId={site?.id ?? null}
+                          department={department}
                           cameraId={selectedVehicleCameraId}
                           cameraLabel={selectedVehicleCamera?.label}
                           roi={config.rules.vehicle_roi}
