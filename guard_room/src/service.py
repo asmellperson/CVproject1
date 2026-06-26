@@ -97,6 +97,7 @@ class GuardRoomService:
 
             sections = self._config_sections(config)
             sections["wechat"]["camera_name"] = name
+            session.query(GuardRoomSiteConfig).filter_by(site_id=site.id).delete()
             session.add(GuardRoomSiteConfig(site_id=site.id, **self._sections_to_orm_kwargs(sections)))
             site_id = site.id
 

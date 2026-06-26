@@ -5,7 +5,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import AppConfig
-from src.db import configure_for_tests
+from src.db import configure_for_tests, session_scope
+from src.orm import GuardRoomSiteConfig
 from src.service import GuardRoomService
 
 
@@ -58,3 +59,27 @@ def test_site_service_scopes_sites_by_department(tmp_path):
     assert electronics_site["department"] == "electronics_electrician"
     assert [site["id"] for site in service.list_sites(department="general_electric")] == [ge_site["id"]]
     assert [site["id"] for site in service.list_sites(department="electronics_electrician")] == [electronics_site["id"]]
+
+
+def test_site_service_replaces_orphan_config_when_sqlite_reuses_site_id(tmp_path):
+    configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_orphan_config.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+
+    first_site = service.create_site("临时保安室")
+    first_config = service.get_site_config(first_site["id"])
+    assert first_config is not None
+    service.delete_site(first_site["id"])
+
+    with session_scope() as session:
+        session.add(
+            GuardRoomSiteConfig(
+                site_id=2,
+                **GuardRoomService._sections_to_orm_kwargs(service._config_sections(first_config)),
+            )
+        )
+
+    second_site = service.create_site("电子电工保安室", department="electronics_electrician")
+
+    assert second_site["department"] == "electronics_electrician"
+    assert service.get_site_config(second_site["id"]) is not None
