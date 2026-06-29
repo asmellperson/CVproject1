@@ -141,6 +141,7 @@ class RuleConfig:
         vehicle_roi:                       车辆检测 ROI，归一化多边形点列表；为空表示全画面。
         vehicle_exit_direction:            出厂车辆在画面中的移动方向，any/right/left/down/up。
         vehicle_direction_min_delta_ratio:  方向判定所需最小位移比例，避免抖动误判。
+        vehicle_reassociate_seconds:       已检查车辆断检后允许继承检查状态的时间窗口。
         static_motion_threshold:           帧间中心点位移低于此值（像素）视为静止。
         prone_head_down_ratio_threshold:   head_down_ratio 超过此值才认定为低头。
         prone_bbox_height_ratio_threshold: 人体框高度/画面高度低于此比例视为水平姿态。
@@ -170,6 +171,7 @@ class RuleConfig:
     vehicle_roi: list[list[float]] = field(default_factory=list)
     vehicle_exit_direction: str = "any"
     vehicle_direction_min_delta_ratio: float = 0.03
+    vehicle_reassociate_seconds: float = 10.0
 
     # ── 运动量与姿态阈值 ───────────────────────────────────────────────────
     static_motion_threshold: float = 8.0

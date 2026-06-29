@@ -39,6 +39,7 @@ def test_site_config_persists_vehicle_camera_and_roi_from_db(tmp_path):
                 "vehicle_roi": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]],
                 "vehicle_exit_direction": "right",
                 "vehicle_direction_min_delta_ratio": 0.05,
+                "vehicle_reassociate_seconds": 12,
             },
         },
     )
@@ -48,6 +49,7 @@ def test_site_config_persists_vehicle_camera_and_roi_from_db(tmp_path):
     assert cfg.rules.vehicle_roi == [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]]
     assert cfg.rules.vehicle_exit_direction == "right"
     assert cfg.rules.vehicle_direction_min_delta_ratio == 0.05
+    assert cfg.rules.vehicle_reassociate_seconds == 12
 
 
 def test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leaves():
@@ -78,6 +80,188 @@ def test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leave
         guards=[],
         vehicles=[],
     ).active is False
+
+
+def test_vehicle_behavior_keeps_checked_state_after_short_vehicle_detection_drop():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "right"
+    cfg.rules.vehicle_near_px = 80
+    cfg.rules.vehicle_occlusion_seconds = 2.0
+    engine = VehicleBehaviorEngine(cfg)
+
+    guard = Detection(cls_id=cfg.classes.person, conf=0.92, bbox=(220, 160, 280, 360), track_id=7)
+    checked = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(300, 130, 540, 420), track_id=None)
+    reappeared = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(650, 130, 890, 420), track_id=None)
+    leaving = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(850, 130, 1090, 420), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[guard],
+        vehicles=[checked],
+    ).active is False
+    assert engine.update(
+        timestamp_s=3.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+    assert engine.update(
+        timestamp_s=5.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    assert engine.update(
+        timestamp_s=6.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[reappeared],
+    ).active is False
+    assert engine.update(
+        timestamp_s=7.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[leaving],
+    ).active is False
+    assert engine.update(
+        timestamp_s=9.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=11.4,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is False
+
+
+def test_vehicle_behavior_reassociates_checked_vehicle_that_reappears_along_exit_direction():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "right"
+    cfg.rules.vehicle_near_px = 80
+    cfg.rules.vehicle_occlusion_seconds = 2.0
+    engine = VehicleBehaviorEngine(cfg)
+
+    guard = Detection(cls_id=cfg.classes.person, conf=0.92, bbox=(220, 160, 280, 360), track_id=7)
+    checked = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(300, 130, 540, 420), track_id=None)
+    reappeared = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(900, 130, 1140, 420), track_id=None)
+    leaving = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(980, 130, 1220, 420), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[guard],
+        vehicles=[checked],
+    ).active is False
+    assert engine.update(
+        timestamp_s=3.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+    assert engine.update(
+        timestamp_s=5.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    assert engine.update(
+        timestamp_s=6.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[reappeared],
+    ).active is False
+    assert engine.update(
+        timestamp_s=7.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[leaving],
+    ).active is False
+    assert engine.update(
+        timestamp_s=9.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=11.4,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is False
+
+
+def test_vehicle_behavior_does_not_reuse_checked_state_after_reassociate_window():
+    cfg = AppConfig.from_yaml(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml")
+    cfg.rules.vehicle_exit_direction = "right"
+    cfg.rules.vehicle_near_px = 80
+    cfg.rules.vehicle_occlusion_seconds = 2.0
+    cfg.rules.vehicle_reassociate_seconds = 1.0
+    engine = VehicleBehaviorEngine(cfg)
+
+    guard = Detection(cls_id=cfg.classes.person, conf=0.92, bbox=(220, 160, 280, 360), track_id=7)
+    checked = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(300, 130, 540, 420), track_id=None)
+    reappeared = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(650, 130, 890, 420), track_id=None)
+    leaving = Detection(cls_id=cfg.classes.vehicle_car, conf=0.88, bbox=(850, 130, 1090, 420), track_id=None)
+
+    assert engine.update(
+        timestamp_s=0.0,
+        frame_shape=(720, 1280, 3),
+        guards=[guard],
+        vehicles=[checked],
+    ).active is False
+    assert engine.update(
+        timestamp_s=3.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+    assert engine.update(
+        timestamp_s=5.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    assert engine.update(
+        timestamp_s=7.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[reappeared],
+    ).active is False
+    assert engine.update(
+        timestamp_s=8.0,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[leaving],
+    ).active is False
+    assert engine.update(
+        timestamp_s=10.2,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    ).active is False
+
+    decision = engine.update(
+        timestamp_s=12.4,
+        frame_shape=(720, 1280, 3),
+        guards=[],
+        vehicles=[],
+    )
+
+    assert decision.active is True
+    assert "车辆停留期间未见保安靠近" in decision.reason
 
 
 def test_vehicle_behavior_alarms_when_vehicle_leaves_without_guard_nearby():

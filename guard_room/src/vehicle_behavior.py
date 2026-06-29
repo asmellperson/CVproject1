@@ -24,6 +24,15 @@ class VehicleEpisodeState:
     last_vehicle_center: Tuple[float, float] | None = None
 
 
+@dataclass
+class RecentCheckedVehicleState:
+    """短时保存已由保安检查过的车辆，用于车辆检测断续后的状态继承。"""
+
+    active: bool = False
+    remembered_at: float = 0.0
+    last_vehicle_center: Tuple[float, float] | None = None
+
+
 class VehicleBehaviorEngine:
     """车辆周期内未见保安靠近则报警。
 
@@ -37,6 +46,7 @@ class VehicleBehaviorEngine:
     def __init__(self, config: AppConfig):
         self.cfg = config
         self.episode = VehicleEpisodeState()
+        self.recent_checked_vehicle = RecentCheckedVehicleState()
 
     def update(
         self,
@@ -65,6 +75,8 @@ class VehicleBehaviorEngine:
         guard_seen = self.episode.guard_seen_near_vehicle
         conf = max(0.72, min(0.95, self.episode.best_vehicle_conf or 0.72))
         exit_direction_matched = self._matches_exit_direction(frame_shape)
+        if guard_seen:
+            self._remember_checked_vehicle(timestamp_s)
         self.episode = VehicleEpisodeState()
 
         if guard_seen or not exit_direction_matched:
@@ -89,10 +101,12 @@ class VehicleBehaviorEngine:
             vehicle = self._representative_vehicle(vehicles)
 
         if not self.episode.active or vehicle is None:
+            inherited_guard_seen = self._matches_recent_checked_vehicle(vehicle, timestamp_s, frame_shape)
             self.episode = VehicleEpisodeState(
                 active=True,
                 started_at=timestamp_s,
                 last_vehicle_seen_ts=timestamp_s,
+                guard_seen_near_vehicle=inherited_guard_seen,
                 primary_vehicle_track_id=vehicle.track_id if vehicle is not None else None,
                 first_vehicle_center=vehicle.center if vehicle is not None else None,
             )
@@ -141,6 +155,65 @@ class VehicleBehaviorEngine:
             return dy <= -min_y
 
         return True
+
+    def _remember_checked_vehicle(self, timestamp_s: float) -> None:
+        self.recent_checked_vehicle = RecentCheckedVehicleState(
+            active=True,
+            remembered_at=timestamp_s,
+            last_vehicle_center=self.episode.last_vehicle_center,
+        )
+
+    def _matches_recent_checked_vehicle(
+        self,
+        vehicle: Detection | None,
+        timestamp_s: float,
+        frame_shape: tuple[int, int, int],
+    ) -> bool:
+        if vehicle is None or not self.recent_checked_vehicle.active:
+            return False
+
+        max_age_s = float(getattr(self.cfg.rules, "vehicle_reassociate_seconds", 10.0) or 10.0)
+        if timestamp_s - self.recent_checked_vehicle.remembered_at > max_age_s:
+            self.recent_checked_vehicle = RecentCheckedVehicleState()
+            return False
+
+        previous = self.recent_checked_vehicle.last_vehicle_center
+        if previous is None:
+            return False
+
+        if self._center_distance(previous, vehicle.center) <= self._vehicle_association_max_distance(frame_shape):
+            return True
+
+        return self._continues_exit_direction(previous, vehicle.center, frame_shape)
+
+    def _continues_exit_direction(
+        self,
+        previous: Tuple[float, float],
+        current: Tuple[float, float],
+        frame_shape: tuple[int, int, int],
+    ) -> bool:
+        direction = str(getattr(self.cfg.rules, "vehicle_exit_direction", "any") or "any").strip().lower()
+        if direction in {"", "any", "none", "off"}:
+            return False
+
+        height, width = frame_shape[:2]
+        min_ratio = float(getattr(self.cfg.rules, "vehicle_direction_min_delta_ratio", 0.03) or 0.03)
+        dx = current[0] - previous[0]
+        dy = current[1] - previous[1]
+        min_x = max(1.0, width * min_ratio)
+        min_y = max(1.0, height * min_ratio)
+        cross_axis_limit = self._vehicle_association_max_distance(frame_shape) * 0.5
+
+        if direction in {"right", "left_to_right", "east"}:
+            return dx >= min_x and abs(dy) <= cross_axis_limit
+        if direction in {"left", "right_to_left", "west"}:
+            return dx <= -min_x and abs(dy) <= cross_axis_limit
+        if direction in {"down", "top_to_bottom", "south"}:
+            return dy >= min_y and abs(dx) <= cross_axis_limit
+        if direction in {"up", "bottom_to_top", "north"}:
+            return dy <= -min_y and abs(dx) <= cross_axis_limit
+
+        return False
 
     @staticmethod
     def _representative_vehicle(vehicles: List[Detection]) -> Detection | None:
