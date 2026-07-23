@@ -20,6 +20,16 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -556,13 +566,73 @@ function StatCard({
   )
 }
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50]
+
 function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
+  const [pageSize, setPageSize] = useState(10)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const total = items.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const safePage = Math.min(currentPage, totalPages)
+  const startIndex = (safePage - 1) * pageSize
+  const pageItems = items.slice(startIndex, startIndex + pageSize)
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages))
+  }, [total, pageSize, totalPages])
+
+  const pageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = []
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i += 1) pages.push(i)
+    } else if (safePage <= 4) {
+      for (let i = 1; i <= 5; i += 1) pages.push(i)
+      pages.push('ellipsis')
+      pages.push(totalPages)
+    } else if (safePage >= totalPages - 3) {
+      pages.push(1)
+      pages.push('ellipsis')
+      for (let i = totalPages - 4; i <= totalPages; i += 1) pages.push(i)
+    } else {
+      pages.push(1)
+      pages.push('ellipsis')
+      for (let i = safePage - 1; i <= safePage + 1; i += 1) pages.push(i)
+      pages.push('ellipsis')
+      pages.push(totalPages)
+    }
+    return pages
+  }, [safePage, totalPages])
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-lg">历史判定结果</CardTitle>
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <span>
+            共 {total} 条，第 {total > 0 ? safePage : 0}/{totalPages} 页
+          </span>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => {
+              setPageSize(Number(value))
+              setCurrentPage(1)
+            }}
+          >
+            <SelectTrigger className="h-8 w-[5.5rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size} 条/页
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <Table>
           <TableHeader>
             <TableRow>
@@ -579,7 +649,7 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.slice(0, 100).map((item) => (
+            {pageItems.map((item) => (
               <TableRow key={`${item.session_id}-${item.time}`}>
                 <TableCell className="text-slate-500">{item.time || '-'}</TableCell>
                 <TableCell className="font-mono text-xs">{item.session_id || '-'}</TableCell>
@@ -602,6 +672,55 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
             )}
           </TableBody>
         </Table>
+
+        {totalPages > 1 && (
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }}
+                  aria-disabled={safePage === 1}
+                  className={cn(safePage === 1 && 'pointer-events-none opacity-50')}
+                />
+              </PaginationItem>
+              {pageNumbers.map((page, index) =>
+                page === 'ellipsis' ? (
+                  <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      isActive={page === safePage}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        setCurrentPage(page)
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  }}
+                  aria-disabled={safePage === totalPages}
+                  className={cn(safePage === totalPages && 'pointer-events-none opacity-50')}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        )}
       </CardContent>
     </Card>
   )
