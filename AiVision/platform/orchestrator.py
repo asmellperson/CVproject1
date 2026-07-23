@@ -358,18 +358,23 @@ class Orchestrator:
         raw = frame_reader_registry.latest_frames.get(shm_name)
         raw_updated_at = frame_reader_registry.latest_frame_times.get(shm_name, 0.0)
         raw_is_fresh = raw is not None and raw_updated_at > 0 and now - raw_updated_at <= 10.0
+        annotated_updated_at = 0.0
         if feature and feature in self.consumers:
             consumer = self.consumers[feature]
             annotated = consumer.result_dict.get(shm_name)
-            updated_at = consumer.result_updated_at.get(shm_name, 0.0)
-            if annotated is not None:
-                if raw is None or now - updated_at <= 2.0:
-                    return annotated, updated_at
-        if not raw_is_fresh:
-            return None, raw_updated_at
+            annotated_updated_at = consumer.result_updated_at.get(shm_name, 0.0)
+            annotated_is_fresh = (
+                annotated is not None
+                and annotated_updated_at > 0
+                and now - annotated_updated_at <= 2.0
+            )
+            if annotated_is_fresh:
+                return annotated, annotated_updated_at
+        if raw_is_fresh:
+            return raw, raw_updated_at
         return (
-            raw,
-            raw_updated_at,
+            None,
+            max(raw_updated_at, annotated_updated_at),
         )
 
     def runtime_status(self) -> dict:
