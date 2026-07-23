@@ -1,4 +1,8 @@
-import { buildAiVisionPreviewFrameUrl, scheduleFrameRequestAbort } from './AiVisionMonitor.frame'
+import {
+  buildAiVisionPreviewFrameUrl,
+  readFrameCoordinateSize,
+  scheduleFrameRequestAbort,
+} from './AiVisionMonitor.frame'
 
 function assertEqual(actual: unknown, expected: unknown) {
   if (actual !== expected) {
@@ -10,6 +14,16 @@ assertEqual(
   buildAiVisionPreviewFrameUrl('logistics camera', 'detect_logistics_single_person', 123),
   '/api/aivision/cameras/logistics%20camera/frame.jpg?feature=detect_logistics_single_person&t=123&max_width=960&quality=72',
 )
+
+const frameHeaders = new Headers({
+  'x-frame-width': '1920',
+  'x-frame-height': '1080',
+})
+assertEqual(
+  JSON.stringify(readFrameCoordinateSize(frameHeaders)),
+  JSON.stringify({ width: 1920, height: 1080 }),
+)
+assertEqual(readFrameCoordinateSize(new Headers()), null)
 
 const controller = new AbortController()
 let scheduledDelay = 0

@@ -16,7 +16,9 @@ import { buildAiVisionMonitorOverlay } from './AiVisionMonitor.overlay'
 import {
   buildAiVisionPreviewFrameUrl,
   FRAME_REQUEST_TIMEOUT_MS,
+  readFrameCoordinateSize,
   scheduleFrameRequestAbort,
+  type FrameCoordinateSize,
 } from './AiVisionMonitor.frame'
 
 type AiVisionMonitorProps = {
@@ -39,6 +41,7 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
   const objectUrlRef = useRef<string | null>(null)
+  const frameCoordinateSizeRef = useRef<FrameCoordinateSize | null>(null)
 
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
@@ -154,6 +157,11 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
           throw new Error(`${response.status} ${response.statusText}`)
         }
 
+        const frameCoordinateSize = readFrameCoordinateSize(response.headers)
+        frameCoordinateSizeRef.current = frameCoordinateSize
+        if (frameCoordinateSize) {
+          setImageSize(frameCoordinateSize)
+        }
         const blob = await response.blob()
         if (requestTimeoutId) {
           clearTimeout(requestTimeoutId)
@@ -263,10 +271,13 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
                 className="h-full w-full object-contain"
                 onLoad={(event) => {
                   const image = event.currentTarget
-                  setImageSize({
-                    width: image.naturalWidth || fallbackImageSize.width,
-                    height: image.naturalHeight || fallbackImageSize.height,
-                  })
+                  const frameCoordinateSize = frameCoordinateSizeRef.current
+                  setImageSize(
+                    frameCoordinateSize || {
+                      width: image.naturalWidth || fallbackImageSize.width,
+                      height: image.naturalHeight || fallbackImageSize.height,
+                    },
+                  )
                 }}
                 onError={() => setMessage('画面渲染失败：请刷新后重试。')}
               />

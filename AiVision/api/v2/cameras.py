@@ -153,6 +153,16 @@ def encode_frame_to_jpeg(
     return content
 
 
+def frame_size_headers(frame) -> dict[str, str]:
+    if frame is None:
+        return {}
+    height, width = frame.shape[:2]
+    return {
+        "X-Frame-Width": str(width),
+        "X-Frame-Height": str(height),
+    }
+
+
 @router.get("/{key}/frame.jpg")
 def get_camera_frame_jpg(
     key: str,
@@ -177,4 +187,5 @@ def get_camera_frame_jpg(
             cache_token=(key, feature or "", updated_at),
         ),
         media_type="image/jpeg",
+        headers=frame_size_headers(frame),
     )

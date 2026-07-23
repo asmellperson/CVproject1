@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from api.auth import require_admin, get_current_user
 from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service, get_department_service
-from api.v2.cameras import encode_frame_to_jpeg
+from api.v2.cameras import encode_frame_to_jpeg, frame_size_headers
 from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
 from core.db import session_scope
 from platform.department.service import DepartmentService
@@ -337,6 +337,7 @@ def compat_get_camera_frame_jpg(
             cache_token=(key, feature or "", updated_at),
         ),
         media_type="image/jpeg",
+        headers=frame_size_headers(frame),
     )
 
 
