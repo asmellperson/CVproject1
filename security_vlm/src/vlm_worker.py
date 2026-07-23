@@ -29,6 +29,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -261,13 +262,13 @@ class VLMJudge:
                 {"role": "user",   "content": user_content},
             ]
 
-            # 3) 调 API (兼容老版本 dashscope 不支持 timeout 参数)
+            # 3) 调 API; DashScope 使用 request_timeout 控制 HTTP 请求总超时
             t0 = time.time()
-            try:
-                response = self.MMC.call(model=self.model, messages=messages,
-                                         timeout=self.api_timeout)
-            except TypeError:
-                response = self.MMC.call(model=self.model, messages=messages)
+            response = self.MMC.call(
+                model=self.model,
+                messages=messages,
+                request_timeout=self.api_timeout,
+            )
             latency = time.time() - t0
 
             if response.status_code != 200:
@@ -458,6 +459,18 @@ def cleanup_stale_pending(pending_dir: Path, now_ts: float, queue_timeout: float
         print(f"[vlm] 启动时清理旧 pending 任务 {removed} 个", flush=True)
 
 
+def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
+    """处理一个已入队任务,隔离异常并确保队列完成计数正确。"""
+    queued_item = task_q.get() if item is None else item
+    try:
+        process_one(Path(queued_item))
+    except Exception:
+        print(f"[vlm] worker 任务异常: {queued_item}", file=sys.stderr, flush=True)
+        traceback.print_exc()
+    finally:
+        task_q.task_done()
+
+
 # ---------------------------------------------------------------------------
 # 主程序
 # ---------------------------------------------------------------------------
@@ -642,7 +655,7 @@ def main():
                 p = task_q.get(timeout=0.5)
             except queue.Empty:
                 continue
-            process_one(Path(p))
+            process_queued_item(task_q, process_one, p)
 
     threads = []
     for _ in range(max_concurrent):

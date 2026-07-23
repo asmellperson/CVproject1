@@ -25,6 +25,7 @@ import json
 import os
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Optional
  
 import numpy as np
@@ -35,13 +36,28 @@ import numpy as np
 # ---------------------------------------------------------------------------
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     """
-    原子写 JSON: 先写到同目录下的 .tmp 文件,再用 os.replace 原地替换。
-    os.replace 在同一文件系统内是原子操作,因此读者永远不会看到半截文件。
+    原子写 JSON: 先写到同目录下的唯一临时文件,再用 os.replace 原地替换。
+    同目录确保 replace 原子,唯一文件名允许多个线程/进程安全并发写入。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    tmp_path: Optional[Path] = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
  
  
 def read_json(path: Path, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
