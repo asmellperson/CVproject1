@@ -46,6 +46,17 @@ assertEqual(
 
 assertEqual(
   buildAiVisionMonitorOverlay({
+    feature: 'detect_logistics_single_person',
+    value: { roi_pos: [[[10, 20], [110, 20], [110, 120], [10, 120]]] },
+  }),
+  {
+    polygons: [],
+    lines: [],
+  },
+)
+
+assertEqual(
+  buildAiVisionMonitorOverlay({
     feature: 'blocks',
     value: { line_points: [[0.25, 0.5], [0.75, 0.5]] },
     imageSize: { width: 800, height: 600 },
