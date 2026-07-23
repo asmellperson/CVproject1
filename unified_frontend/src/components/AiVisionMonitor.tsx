@@ -6,7 +6,6 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  aiVisionFrameUrl,
   getAiVisionCameraKey,
   getAiVisionCameras,
   getAiVisionFeatureConfig,
@@ -14,6 +13,11 @@ import {
   type AiVisionCamera,
 } from '@/lib/aivision'
 import { buildAiVisionMonitorOverlay } from './AiVisionMonitor.overlay'
+import {
+  buildAiVisionPreviewFrameUrl,
+  FRAME_REQUEST_TIMEOUT_MS,
+  scheduleFrameRequestAbort,
+} from './AiVisionMonitor.frame'
 
 type AiVisionMonitorProps = {
   title: string
@@ -22,7 +26,6 @@ type AiVisionMonitorProps = {
 }
 
 const FRAME_REFRESH_MS = 200
-const PREVIEW_QUALITY = 72
 const fallbackImageSize = { width: 1920, height: 1080 }
 
 export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorProps) {
@@ -132,16 +135,16 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
 
     let cancelled = false
     let timeoutId: number | undefined
+    let requestTimeoutId: ReturnType<typeof setTimeout> | undefined
     let controller: AbortController | null = null
 
     const loadFrame = async () => {
       const startedAt = performance.now()
       controller = new AbortController()
+      requestTimeoutId = scheduleFrameRequestAbort(controller, FRAME_REQUEST_TIMEOUT_MS)
       try {
         const response = await fetch(
-          aiVisionFrameUrl(selectedCamera, feature, Date.now(), {
-            quality: PREVIEW_QUALITY,
-          }),
+          buildAiVisionPreviewFrameUrl(selectedCamera, feature, Date.now()),
           { cache: 'no-store', credentials: 'include', signal: controller.signal },
         )
         if (response.status === 401) {
@@ -152,6 +155,10 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
         }
 
         const blob = await response.blob()
+        if (requestTimeoutId) {
+          clearTimeout(requestTimeoutId)
+          requestTimeoutId = undefined
+        }
         if (cancelled) return
 
         const nextFrameSrc = URL.createObjectURL(blob)
@@ -159,11 +166,17 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
         objectUrlRef.current = nextFrameSrc
         setFrameSrc(nextFrameSrc)
         setMessage('实时画面已连接。')
-      } catch (error) {
-        if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
+      } catch {
+        if (!cancelled) {
+          revokeFrameUrl()
+          setFrameSrc('')
           setMessage('画面读取失败：请确认 AiVision 后端已启动、摄像头运行中，并且该检测功能已启用。')
         }
       } finally {
+        if (requestTimeoutId) {
+          clearTimeout(requestTimeoutId)
+          requestTimeoutId = undefined
+        }
         if (!cancelled) {
           const elapsed = performance.now() - startedAt
           timeoutId = window.setTimeout(loadFrame, Math.max(0, FRAME_REFRESH_MS - elapsed))
@@ -179,6 +192,7 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
       cancelled = true
       controller?.abort()
       if (timeoutId) window.clearTimeout(timeoutId)
+      if (requestTimeoutId) clearTimeout(requestTimeoutId)
       revokeFrameUrl()
     }
   }, [feature, isPageVisible, revokeFrameUrl, selectedCamera])
