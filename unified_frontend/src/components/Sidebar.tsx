@@ -243,13 +243,23 @@ export function Sidebar({
 const adminModuleGroups = [
   {
     id: 'general_electric',
-    label: '通用电气部',
+    label: '通用电气事业部',
     pages: departmentPermissions.general_electric.pages,
   },
   {
     id: 'electronics_electrician',
-    label: '电子电工',
+    label: '电子电工事业部',
     pages: departmentPermissions.electronics_electrician.pages,
+  },
+  {
+    id: 'electrical_components',
+    label: '电气部件事业部',
+    pages: departmentPermissions.electrical_components.pages,
+  },
+  {
+    id: 'precious_metal_recycling',
+    label: '贵金属回收事业部',
+    pages: departmentPermissions.precious_metal_recycling.pages,
   },
   {
     id: 'research_institute',
@@ -267,14 +277,14 @@ function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermissi
 
   const moduleItemsById = new Map(modules.items.map((item) => [item.id, item]))
   const groupedIds = new Set<string>()
-  const children = adminModuleGroups.flatMap((group) => {
+  const children = adminModuleGroups.map((group) => {
     const items = group.pages.flatMap((pageId) => {
       const item = moduleItemsById.get(pageId)
       if (!item) return []
       groupedIds.add(item.id)
       return [item]
     })
-    return items.length ? [{ id: group.id, label: group.label, items }] : []
+    return { id: group.id, label: group.label, items }
   })
   const sharedItems = modules.items.filter((item) => !groupedIds.has(item.id))
   if (sharedItems.length) {

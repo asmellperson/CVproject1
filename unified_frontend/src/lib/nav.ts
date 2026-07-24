@@ -47,6 +47,7 @@ export const navGroups: NavGroup[] = [
       { id: 'face-detection', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
       { id: 'human-detection', label: '人员逗留检测', icon: Clock3, description: '人体逗留监控与配置入口' },
       { id: 'logistics-single-person-detection', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-electronics-electrician-detection', label: '物流通道单人检测', icon: UsersRound, description: '电子电工物流通道单人监控与配置入口' },
       { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
       
     ],

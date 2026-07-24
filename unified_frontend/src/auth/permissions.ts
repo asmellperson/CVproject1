@@ -1,7 +1,7 @@
 import type { AuthUser } from '@/auth/auth-context'
 import type { NavGroup, NavItem } from '@/lib/nav'
 
-export type Department = 'general_electric' | 'research_institute' | 'electronics_electrician' | 'all'
+export type Department = 'general_electric' | 'research_institute' | 'electronics_electrician' | 'electrical_components' | 'precious_metal_recycling' | 'all'
 export type UserRole = 'admin' | 'viewer'
 export type PageId =
   | 'overview'
@@ -15,6 +15,7 @@ export type PageId =
   | 'face-detection'
   | 'human-detection'
   | 'logistics-single-person-detection'
+  | 'logistics-single-person-electronics-electrician-detection'
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
@@ -57,14 +58,25 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electronics_electrician: {
-    pages: ['overview', 'guard-behavior-electronics-electrician', 'alarms', 'statistics'],
+    pages: ['overview', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-electronics-electrician': {
         label: '保安行为规范检测',
         title: '保安行为规范检测',
         description: '电子电工保安行为规范监控与配置',
       },
+      'logistics-single-person-electronics-electrician-detection': {
+        label: '物流通道单人检测',
+        title: '物流通道单人检测（电子电工）',
+        description: '电子电工物流通道单人监控与配置入口',
+      },
     },
+  },
+  electrical_components: {
+    pages: [],
+  },
+  precious_metal_recycling: {
+    pages: [],
   },
 }
 
@@ -78,6 +90,7 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'face-detection': ['detect_face'],
   'human-detection': ['detect_human'],
   'logistics-single-person-detection': ['detect_logistics_single_person'],
+  'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person_electronics_electrician'],
   'phone-detection': ['detect_phone'],
 }
 
@@ -97,6 +110,16 @@ const departmentAliases: Record<string, Department> = {
   researchInstitute: 'research_institute',
   'research-institute': 'research_institute',
   ri: 'research_institute',
+  electrical_components: 'electrical_components',
+  'electrical components': 'electrical_components',
+  electricalComponents: 'electrical_components',
+  'electrical-components': 'electrical_components',
+  ec: 'electrical_components',
+  precious_metal_recycling: 'precious_metal_recycling',
+  'precious metal recycling': 'precious_metal_recycling',
+  preciousMetalRecycling: 'precious_metal_recycling',
+  'precious-metal-recycling': 'precious_metal_recycling',
+  pmr: 'precious_metal_recycling',
 }
 
 const roleAliases: Record<string, UserRole> = {
@@ -118,6 +141,7 @@ const pageIds = new Set<string>([
   'face-detection',
   'human-detection',
   'logistics-single-person-detection',
+  'logistics-single-person-electronics-electrician-detection',
   'phone-detection',
   'alarms',
   'statistics',

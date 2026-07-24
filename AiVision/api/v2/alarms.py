@@ -23,6 +23,7 @@ _TYPE_META = {
     4: {"event_type": "detect_face", "label": "人脸检测", "color": "#8b5cf6"},
     5: {"event_type": "detect_human", "label": "人体逗留", "color": "#2563eb"},
     6: {"event_type": "detect_logistics_single_person", "label": "物流通道单人检测", "color": "#0f766e"},
+    7: {"event_type": "detect_logistics_single_person_electronics_electrician", "label": "物流通道单人检测（电子电工）", "color": "#0f766e"},
 }
 _DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64748b"}
 

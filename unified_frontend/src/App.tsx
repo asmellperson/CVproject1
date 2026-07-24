@@ -26,6 +26,9 @@ const HumanDetectionSection = lazy(() =>
 const LogisticsSinglePersonDetectionSection = lazy(() =>
   import('@/sections/LogisticsSinglePersonDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonDetectionSection })),
 )
+const LogisticsSinglePersonElectronicsElectricianDetectionSection = lazy(() =>
+  import('@/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonElectronicsElectricianDetectionSection })),
+)
 const PhoneDetectionSection = lazy(() =>
   import('@/sections/PhoneDetectionSection').then((module) => ({ default: module.PhoneDetectionSection })),
 )
@@ -98,6 +101,8 @@ function App() {
         return <HumanDetectionSection />
       case 'logistics-single-person-detection':
         return <LogisticsSinglePersonDetectionSection />
+      case 'logistics-single-person-electronics-electrician-detection':
+        return <LogisticsSinglePersonElectronicsElectricianDetectionSection />
       case 'phone-detection':
         return <PhoneDetectionSection />
       case 'security-vlm':

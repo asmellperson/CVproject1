@@ -137,6 +137,16 @@ const moduleEntries = [
     iconBg: 'from-teal-50 to-cyan-100',
   },
   {
+    id: 'logistics-single-person-electronics-electrician-detection',
+    title: '物流通道单人检测入口（电子电工）',
+    icon: UsersRound,
+    status: '已接入',
+    accent: 'from-teal-500 to-cyan-600',
+    glow: 'shadow-teal-500/16',
+    iconColor: 'text-teal-700',
+    iconBg: 'from-teal-50 to-cyan-100',
+  },
+  {
     id: 'phone-detection',
     title: '手机使用检测入口',
     icon: Smartphone,
@@ -173,6 +183,7 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
   'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
+  'logistics-single-person-electronics-electrician-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electronics_electrician' },
   'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
 }
 
@@ -196,6 +207,7 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_face: '人脸检测',
   detect_human: '人员逗留',
   detect_logistics_single_person: '物流单人',
+  detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
   detect_phone: '手机使用',
 }
 
@@ -239,7 +251,7 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
 }
 
 function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCounts {
-  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone']
+  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_logistics_single_person_electronics_electrician', 'detect_phone']
   return features.reduce<FeatureCameraCounts>((acc, feature) => {
     const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
     acc[feature] = {
