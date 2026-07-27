@@ -16,6 +16,7 @@ envs:
 # ---- 运行时目录(共享内存 + 状态文件) ----
 runtime:
   dir: /dev/shm/security_vlm_runtime
+  camera_root: /dev/shm/security_vlm_runtime/cameras
   camera_fps_hint: 10
 
 # ---- 子进程轮询间隔 ----
@@ -32,6 +33,8 @@ web:
 # ---- 视频源 ----
 data:
   input_video:
+  # 安检模块独立维护的多摄像头注册表
+  camera_registry_path: data/config/cameras.json
   # ROI 配置持久化目录
   staff_identity_dir: /usr/zyy/SecurityDutyDetect/security_vlm/data/annotations/staff_rois
 

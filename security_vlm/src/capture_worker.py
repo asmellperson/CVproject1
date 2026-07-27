@@ -123,7 +123,7 @@ def probe_video_shape(source: str, runner=None) -> tuple[int, int, int]:
         width = int(streams[0].get("width", 0)) if streams else 0
         height = int(streams[0].get("height", 0)) if streams else 0
     except (OSError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"ffprobe 获取视频分辨率失败: {exc}") from exc
+        raise RuntimeError("ffprobe 获取视频分辨率失败") from exc
     if width <= 0 or height <= 0:
         raise RuntimeError("ffprobe 未返回有效分辨率")
     return height, width, 3

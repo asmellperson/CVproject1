@@ -27,7 +27,7 @@ ROI 热加载:
 import argparse
 import asyncio
 import json
-import os
+import logging
 import subprocess
 import sys
 import time
@@ -46,6 +46,11 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore  # noqa: E402
 from roi_geometry import bbox_belongs_to_roi  # noqa: E402
+from camera_registry import CameraRegistry  # noqa: E402
+from camera_runtime import CameraRuntimeManager, CameraRuntimePaths  # noqa: E402
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -69,246 +74,344 @@ class ROIRequest(BaseModel):
     staff_rois: Dict[str, List[float]]
 
 
+class CameraCreateRequest(BaseModel):
+    name: str
+    rtsp_url: str
+
+
+class CameraUpdateRequest(BaseModel):
+    name: str | None = None
+    rtsp_url: str | None = None
+
+
+class CameraTestRequest(BaseModel):
+    rtsp_url: str
+
+
+def probe_camera(rtsp_url: str) -> Dict[str, Any]:
+    """用 ffprobe 检查 RTSP 视频流，错误信息不回显包含凭据的地址。"""
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-rtsp_transport",
+        "tcp",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name,width,height",
+        "-of",
+        "json",
+        str(rtsp_url),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        streams = (json.loads(result.stdout or "{}").get("streams") or [])
+        stream = streams[0] if streams else {}
+        width = int(stream.get("width", 0))
+        height = int(stream.get("height", 0))
+        codec_name = str(stream.get("codec_name", "") or "")
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise RuntimeError("无法连接摄像头或读取视频信息") from exc
+    if width <= 0 or height <= 0 or not codec_name:
+        raise RuntimeError("摄像头未返回有效视频流")
+    return {
+        "codec_name": codec_name,
+        "width": width,
+        "height": height,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 业务服务: 管理 worker 子进程、读写共享状态、处理 ROI 持久化与缓存
 # ---------------------------------------------------------------------------
 class AppService:
-    """
-    封装主进程所有状态管理与业务逻辑。
-    包括：
-        - 子进程生命周期管理
-        - FrameHubReader 懒加载
-        - ROI 配置的读写与缓存（带 mtime 检测）
-        - 聚合各 worker 状态供前端 /health 接口使用
-    """
-    def __init__(self, config_path: Path):
-        self.config_path = config_path
+    """摄像头注册、进程组、ROI、共享状态和画面读取的业务门面。"""
+
+    def __init__(
+        self,
+        config_path: Path,
+        *,
+        registry: CameraRegistry | None = None,
+        runtime_manager: CameraRuntimeManager | None = None,
+        probe_func=probe_camera,
+        offload_sync: bool = True,
+    ):
+        self.config_path = Path(config_path)
         self.project_root = Path(__file__).resolve().parent.parent
-        self.cfg = load_yaml(config_path)
-
-        # /dev/shm 共享目录
+        self.cfg = load_yaml(self.config_path)
         self.runtime_dir = Path(self.cfg["runtime"]["dir"]).resolve()
+        self.camera_root = Path(
+            self.cfg["runtime"].get(
+                "camera_root",
+                self.runtime_dir / "cameras",
+            )
+        ).resolve()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.store = ResultStore(self.runtime_dir)  # # 用于从共享内存读取各 worker 最新状态的存储对象
+        self.global_store = ResultStore(self.runtime_dir)
+        self.store = self.global_store
 
-        # 子进程句柄,键为 worker 名称，值为 subprocess.Popen 对象
-        self.procs: Dict[str, subprocess.Popen] = {}
+        data_cfg = self.cfg.setdefault("data", {})
+        registry_path = resolve_path(
+            str(data_cfg.get("camera_registry_path", "data/config/cameras.json")),
+            self.project_root,
+        )
+        self.registry = registry or CameraRegistry(registry_path)
+        self.staff_dir = resolve_path(
+            str(data_cfg["staff_identity_dir"]),
+            self.project_root,
+        )
+        self.staff_dir.mkdir(parents=True, exist_ok=True)
+        self.registry.migrate_legacy(self.cfg, self.staff_dir)
 
-        # ROI 持久化路径
-        staff_dir = Path(self.cfg["data"]["staff_identity_dir"])
-        staff_dir.mkdir(parents=True, exist_ok=True)
-        self.video_id = str(self.cfg["data"].get("video_id", "stream"))
-        self.roi_json_path = staff_dir / f"{self.video_id}_staff_rois.json"
-
-        # FrameHubReader 懒加载 (capture 启动后才能打开)
-        self._frame_hub: FrameHubReader | None = None
-
-        # ROI 缓存，用于 MJPEG 渲染时高频读取，通过 mtime 判断是否需重新加载
-        self._roi_cache: Dict[str, List[float]] | None = None
-        self._roi_cache_mtime = 0.0
-
-    def is_running(self) -> bool:
-        """只要有 worker 进程存活，就认为检测功能处于开启状态。"""
-        return any(p.poll() is None for p in self.procs.values())
-
-    def _clear_frame_hub(self):
-        """worker 停止/重启后丢弃旧 reader，避免继续读旧共享内存句柄。"""
-        self._frame_hub = None
+        self.runtime_manager = runtime_manager or CameraRuntimeManager(
+            base_cfg=self.cfg,
+            project_root=self.project_root,
+            base_config_path=self.config_path,
+            camera_provider=self.registry.list,
+        )
+        self.probe_func = probe_func
+        self.offload_sync = offload_sync
+        self._frame_hubs: Dict[str, FrameHubReader] = {}
+        self._roi_caches: Dict[str, tuple[float, Dict[str, List[float]]]] = {}
 
     def mark_stopped(self):
-        """标记检测功能为关闭状态，不启动 worker。"""
-        now = time.time()
-        self.store.write("runtime_control", {
-            "enabled": False,
-            "message": "stopped",
-            "ts": now,
-        })
-        for key in ("capture_status", "tracker_status", "session_status", "vlm_status"):
-            self.store.write(key, {"ok": False, "message": "stopped", "ts": now})
+        self.global_store.write(
+            "runtime_control",
+            {"enabled": False, "message": "stopped", "ts": time.time()},
+        )
 
-    # ---- FrameHub 懒加载 ----
-    def get_frame_hub(self):
-        """
-        获取 FrameHubReader 实例。
-        若 capture 尚未启动（共享内存文件未就绪）则返回 None；
-        一旦成功打开则缓存复用。
-        """
-        if self._frame_hub is not None:
-            return self._frame_hub
+    def shutdown(self) -> None:
+        self.runtime_manager.shutdown()
+        self._frame_hubs.clear()
+
+    def camera_runtime_dir(self, camera_id: str) -> Path:
+        return CameraRuntimePaths(
+            self.runtime_dir,
+            camera_id,
+            camera_root_dir=self.camera_root,
+        ).runtime_dir
+
+    def camera_store(self, camera_id: str) -> ResultStore:
+        return ResultStore(self.camera_runtime_dir(camera_id))
+
+    def get_frame_hub(self, camera_id: str):
+        if camera_id in self._frame_hubs:
+            return self._frame_hubs[camera_id]
         try:
-            # 等待超时设为 1 秒，若共享内存未就绪会抛异常
-            self._frame_hub = FrameHubReader(self.runtime_dir, wait_timeout_sec=1.0)
-            return self._frame_hub
-        except Exception:
+            hub = FrameHubReader(
+                self.camera_runtime_dir(camera_id),
+                wait_timeout_sec=1.0,
+            )
+            self._frame_hubs[camera_id] = hub
+            return hub
+        except Exception as exc:
+            LOGGER.debug("摄像头 %s 的 FrameHub 尚未就绪: %s", camera_id, exc)
             return None
 
-    # ---- ROI 读写 ----
-    def _roi_load(self) -> Dict[str, List[float]]:
-        """
-        从 JSON 文件读取 ROI 配置，若读取失败或文件不存在，
-        则回退到配置文件中的 staff_rois。
-        返回格式：{ 工位名: [x1,y1,x2,y2] }
-        """
-        if self.roi_json_path.exists():
+    def roi_path(self, camera_id: str) -> Path:
+        return self.staff_dir / f"{camera_id}_staff_rois.json"
+
+    def load_rois(self, camera_id: str) -> Dict[str, List[float]]:
+        path = self.roi_path(camera_id)
+        if path.exists():
             try:
-                raw = json.loads(self.roi_json_path.read_text(encoding="utf-8"))
+                raw = json.loads(path.read_text(encoding="utf-8"))
                 rois = raw.get("staff_rois", {})
                 if isinstance(rois, dict):
-                    # 确保坐标值为浮点数列表且长度至少为4
                     return {
                         str(k): [float(v[0]), float(v[1]), float(v[2]), float(v[3])]
                         for k, v in rois.items()
                         if isinstance(v, list) and len(v) >= 4
                     }
-            except Exception:
-                pass
-        # 回退到配置文件
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                LOGGER.warning("读取摄像头 %s 的 ROI 失败: %s", camera_id, exc)
         return dict(self.cfg.get("staff_rois", {}) or {})
 
-    def _roi_save(self, rois: Dict[str, List[float]]):
-        """
-        前端保存 ROI 时调用：将 ROI 字典写入 JSON 文件。
-        session_worker 通过监控该文件的 mtime 自动热加载，无需重启。
-        """
-        # 归一化坐标：保留两位小数，只取前四个值
+    def save_rois(
+        self,
+        camera_id: str,
+        rois: Dict[str, List[float]],
+    ) -> Dict[str, List[float]]:
+        camera = self.registry.get(camera_id)
+        if camera is None:
+            raise KeyError(camera_id)
         normalized = {}
         for k, v in rois.items():
             if isinstance(v, list) and len(v) >= 4:
                 normalized[str(k)] = [round(float(x), 2) for x in v[:4]]
         payload = {
-            "video_id": self.video_id,
-            "video_path": str(self.cfg["data"]["input_video"]),
+            "camera_id": camera_id,
+            "camera_name": camera["name"],
             "roi_method": "frontend_canvas",
             "staff_rois": normalized,
         }
-        self.roi_json_path.write_text(
+        path = self.roi_path(camera_id)
+        path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._roi_caches.pop(camera_id, None)
+        return normalized
 
-    def get_rois_cached(self) -> Dict[str, List[float]]:
-        """
-        带 mtime【modification time（文件最后修改时间）】 缓存的 ROI 读取。
-        用于 MJPEG 渲染等高频调用，避免频繁读取磁盘。
-        """
+    def get_rois_cached(self, camera_id: str) -> Dict[str, List[float]]:
+        path = self.roi_path(camera_id)
         try:
-            if self.roi_json_path.exists():
-                # 记录文件的最后修改时间
-                mtime = self.roi_json_path.stat().st_mtime
-                # 若文件未修改且缓存存在，直接返回缓存
-                if self._roi_cache is not None and mtime == self._roi_cache_mtime:
-                    return self._roi_cache
-                # 否则重新加载并更新缓存
-                self._roi_cache = self._roi_load()
-                self._roi_cache_mtime = mtime
-                return self._roi_cache
-        except Exception:
-            pass
-        return self._roi_cache if self._roi_cache is not None else self._roi_load()
+            mtime = path.stat().st_mtime if path.exists() else -1.0
+            cached = self._roi_caches.get(camera_id)
+            if cached is not None and cached[0] == mtime:
+                return cached[1]
+            rois = self.load_rois(camera_id)
+            self._roi_caches[camera_id] = (mtime, rois)
+            return rois
+        except OSError as exc:
+            LOGGER.warning("检查摄像头 %s 的 ROI 缓存失败: %s", camera_id, exc)
+            return self.load_rois(camera_id)
 
-    # ---- worker 子进程管理 ----
-    def start_workers(self):
-        """
-        按依赖顺序启动 4 个 worker 子进程：
-            capture  → detector → session → vlm
-        每个进程启动后休眠 0.3 秒，避免同时抢占资源。
-        """
-        if self.is_running():
-            return
-        self._clear_frame_hub()
-        worker_py = str(self.cfg["envs"]["worker_python"])
-        scripts = [
-            ("capture",  "capture_worker.py"),    # 必须先起 (产出 FrameHub)
-            ("detector", "detector_worker.py"),   # 依赖 capture
-            ("session",  "session_worker.py"),    # 依赖 detector
-            ("vlm",      "vlm_worker.py"),        # 独立, 扫文件队列
-        ]
-        env = os.environ.copy()
-        for name, script in scripts:
-            path = self.project_root / "src" / script
-            print(f"[main] 启动 {name}: {path}", flush=True)
-            # 启动一个子进程来运行worker程序
-            self.procs[name] = subprocess.Popen(
-                [worker_py, str(path), "--config", str(self.config_path)],    # 要执行的命令和参数
-                cwd=str(self.project_root),    # 在那个文件夹里运行
-                env=env,                       # 环境变量设置
-            )
-            time.sleep(0.3)  # 给前一个 worker 一点启动时间
-        self.store.write("runtime_control", {
-            "enabled": True,
-            "message": "running",
-            "ts": time.time(),
+    def get_camera_state(self, camera_id: str) -> Dict[str, Any]:
+        camera = self.registry.get(camera_id)
+        if camera is None:
+            raise KeyError(camera_id)
+        process_status = self.runtime_manager.status(camera_id)
+        running = bool(process_status["running"])
+        store = self.camera_store(camera_id)
+        stopped_status = {"ok": False, "message": "stopped", "ts": time.time()}
+        session = store.read("session_latest", {}) or {}
+        public = self.registry.public(camera)
+        public.update({
+            "running": running,
+            "desired_running": process_status["desired_running"],
+            "workers": process_status["workers"],
+            "last_error": process_status["last_error"],
+            "restart_at": process_status["restart_at"],
+            "capture": (
+                store.read("capture_status", {}) or {}
+                if running else stopped_status
+            ),
+            "detector": (
+                store.read("tracker_status", {}) or {}
+                if running else stopped_status
+            ),
+            "session": session if running else stopped_status,
+            "staff_rois": session.get("staff_rois") or self.load_rois(camera_id),
         })
+        return public
+
+    def get_state(self) -> Dict[str, Any]:
+        self.runtime_manager.reconcile()
+        cameras = [
+            self.get_camera_state(camera["camera_id"])
+            for camera in self.registry.list()
+        ]
+        history = (
+            self.global_store.read("vlm_history", {}) or {}
+        ).get("items", [])
+        vlm = self.global_store.read("vlm_status", {}) or {}
+        if hasattr(self.runtime_manager, "vlm_status"):
+            vlm_runtime = self.runtime_manager.vlm_status()
+        else:
+            vlm_runtime = {
+                "running": any(camera["running"] for camera in cameras),
+                "desired_running": any(camera["running"] for camera in cameras),
+                "restart_at": None,
+                "restart_attempts": 0,
+                "last_error": "",
+            }
+        vlm = {**vlm, **vlm_runtime}
+        if vlm_runtime["desired_running"] and not vlm_runtime["running"]:
+            vlm.update({
+                "ok": False,
+                "message": (
+                    vlm_runtime["last_error"]
+                    or "VLM worker 正在等待自动重启"
+                ),
+                "degraded": True,
+            })
+        elif vlm_runtime["running"]:
+            vlm["degraded"] = False
+        state = {
+            "running": any(camera["running"] for camera in cameras),
+            "ts": time.time(),
+            "cameras": cameras,
+            "vlm": vlm,
+            "stats": self.global_store.read("vlm_latest_stats", {}) or {},
+            "history": history[:200],
+        }
+        default_id = self.default_camera_id()
+        if default_id is not None:
+            default = next(
+                camera for camera in cameras if camera["camera_id"] == default_id
+            )
+            state.update({
+                "capture": default["capture"],
+                "detector": default["detector"],
+                "session": default["session"],
+                "staff_rois": default["staff_rois"],
+            })
+        return state
+
+    def default_camera_id(self) -> str | None:
+        cameras = self.registry.list()
+        if not cameras:
+            return None
+        legacy = next(
+            (
+                camera
+                for camera in cameras
+                if camera["camera_id"] == "legacy-default"
+            ),
+            None,
+        )
+        return str((legacy or cameras[0])["camera_id"])
+
+    def start_workers(self):
+        camera_id = self.default_camera_id()
+        return (
+            self.runtime_manager.start(camera_id)
+            if camera_id is not None
+            else {"ok": False, "message": "尚未添加摄像头"}
+        )
 
     def stop_workers(self):
-        """
-        反向终止子进程，顺序为 vlm → session → detector → capture。
-        先尝试 SIGTERM 优雅退出，等待最多 10 秒，若未退出则 kill。
-        """
-        order = ["vlm", "session", "detector", "capture"]
-        for name in order:
-            p = self.procs.get(name)
-            # 如果进程不存在或已经退出，跳过
-            if p is None or p.poll() is not None:
-                continue
-            print(f"[main] 终止 {name}...", flush=True)
-            try:
-                p.terminate()    # 让它结束
-            except Exception:
-                pass
-        for name in order:
-            p = self.procs.get(name)
-            if p is None:
-                continue
-            try:
-                p.wait(timeout=10)
-            except Exception:
-                try:
-                    p.kill()
-                except Exception:
-                    pass
-        self.procs.clear()
-        self._clear_frame_hub()
-        now = time.time()
-        self.store.write("runtime_control", {
-            "enabled": False,
-            "message": "stopped",
-            "ts": now,
-        })
-        for key in ("capture_status", "tracker_status", "session_status", "vlm_status"):
-            self.store.write(key, {"ok": False, "message": "stopped", "ts": now})
+        return self.runtime_manager.stop_all()
 
-    # ---- 聚合状态供前端轮询 ----
-    def get_state(self) -> Dict[str, Any]:
-        """
-        从 ResultStore 读取各 worker 的最新状态，整合为一个大字典返回。
-        供 /health 接口使用。
-        """
-        capture     = self.store.read("capture_status", {}) or {}
-        detector    = self.store.read("tracker_status", {}) or {}
-        sess_latest = self.store.read("session_latest", {}) or {}
-        vlm_status  = self.store.read("vlm_status", {}) or {}
-        vlm_stats   = self.store.read("vlm_latest_stats", {}) or {}
-        history     = (self.store.read("vlm_history", {}) or {}).get("items", [])
-        running = self.is_running()
-        stopped_status = {"ok": False, "message": "stopped", "ts": time.time()}
-        return {
-            "running": running,
-            "ts":      time.time(),
-            "capture": capture if running else stopped_status,
-            "detector": detector if running else stopped_status,
-            "session": sess_latest if running else stopped_status,
-            "vlm":     vlm_status if running else stopped_status,
-            "stats":   vlm_stats,
-            "history": history[:200],    # 限制最多返回200条历史记录，避免数据量过大
-            "staff_rois": sess_latest.get("staff_rois") or self._roi_load(),
-        }
+    def is_running(self) -> bool:
+        return any(
+            self.runtime_manager.is_running(camera["camera_id"])
+            for camera in self.registry.list()
+        )
+
+    def _roi_load(self) -> Dict[str, List[float]]:
+        camera_id = self.default_camera_id()
+        return self.load_rois(camera_id) if camera_id is not None else {}
+
+    def _roi_save(self, rois: Dict[str, List[float]]):
+        camera_id = self.default_camera_id()
+        if camera_id is None:
+            raise KeyError("尚未添加摄像头")
+        return self.save_rois(camera_id, rois)
 
 
 # ---------------------------------------------------------------------------
 # MJPEG 渲染辅助: 在 frame 上叠加 ROI / 人体框 / 统计 banner
 # ---------------------------------------------------------------------------
-def _overlay_on_frame(frame, service: "AppService"):
+def _overlay_on_frame(
+    frame,
+    service: "AppService",
+    camera_id: str = "legacy-default",
+):
     """
     用于 /video/rule 流。frame 此时已经被缩放到 max_side=960,
     所以 ROI / 人体框需要按比例缩放后再画。
@@ -320,12 +423,22 @@ def _overlay_on_frame(frame, service: "AppService"):
     """
     try:
         # 读取最新状态
-        sess_latest = service.store.read("session_latest", {}) or {}
-        tracker     = service.store.read("tracker_latest", {}) or {}
-        vlm_stats   = service.store.read("vlm_latest_stats", {}) or {}
+        camera_store = (
+            service.camera_store(camera_id)
+            if hasattr(service, "camera_store")
+            else service.store
+        )
+        global_store = getattr(service, "global_store", service.store)
+        sess_latest = camera_store.read("session_latest", {}) or {}
+        tracker = camera_store.read("tracker_latest", {}) or {}
+        vlm_stats = global_store.read("vlm_latest_stats", {}) or {}
 
         # ROI 直接从配置文件读
-        rois = service.get_rois_cached()
+        rois = (
+            service.get_rois_cached(camera_id)
+            if hasattr(service, "camera_store")
+            else service.get_rois_cached()
+        )
         per_roi = sess_latest.get("per_roi") or {}
         tracks = tracker.get("tracks") or []
         enter_overlap_ratio = min(
@@ -400,21 +513,30 @@ def _overlay_on_frame(frame, service: "AppService"):
                   f"queue={vlm_stats.get('queue', 0)}")
         cv2.putText(frame, header, (14, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.66, (255, 240, 120), 2)
-    except Exception:
+    except Exception as exc:
         # 渲染失败不要把整路 MJPEG 流弄崩
-        pass
+        LOGGER.warning("摄像头 %s 的规则画面叠加失败: %s", camera_id, exc)
     return frame
 
 
 # ---------------------------------------------------------------------------
 # 创建 FastAPI app
 # ---------------------------------------------------------------------------
-def create_app(config_path: Path) -> FastAPI:
+def create_app(
+    config_path: Path,
+    *,
+    service: AppService | None = None,
+) -> FastAPI:
     """
     工厂函数，创建并配置 FastAPI 应用。
     包含生命周期管理、路由注册、MJPEG 流生成器等。
     """
-    service = AppService(config_path)
+    service = service or AppService(config_path)
+
+    async def run_blocking(func, *args, **kwargs):
+        if service.offload_sync:
+            return await asyncio.to_thread(func, *args, **kwargs)
+        return func(*args, **kwargs)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -427,7 +549,7 @@ def create_app(config_path: Path) -> FastAPI:
         try:
             yield
         finally:
-            service.stop_workers()
+            service.shutdown()
 
     app = FastAPI(title="Security VLM Inspection", lifespan=lifespan)
     # 允许跨域请求，便于前端开发
@@ -454,28 +576,194 @@ def create_app(config_path: Path) -> FastAPI:
     @app.get("/health")
     async def health():
         """前端每 2s 轮询, 拿全量状态（所有 worker + 历史 + 统计）"""
-        return JSONResponse(service.get_state())
+        return JSONResponse(await run_blocking(service.get_state))
 
     @app.get("/api/history")
-    async def history(limit: int = 100):
+    async def history(limit: int = 100, camera_id: str | None = None):
         """仅返回历史记录和统计信息，用于前端展示历史列表"""
-        st = service.get_state()
+        st = await run_blocking(service.get_state)
+        items = st.get("history", [])
+        if camera_id is not None:
+            if service.registry.get(camera_id) is None:
+                raise HTTPException(status_code=404, detail="摄像头不存在")
+            items = [
+                item for item in items
+                if str(item.get("camera_id")) == camera_id
+            ]
         return JSONResponse({
             "date":  time.strftime("%Y-%m-%d", time.localtime()),
             "stats": st.get("stats", {}),
-            "history": st.get("history", [])[:max(1, int(limit))],
+            "history": items[:max(1, int(limit))],
+        })
+
+    def require_camera(camera_id: str) -> Dict[str, Any]:
+        camera = service.registry.get(camera_id)
+        if camera is None:
+            raise HTTPException(status_code=404, detail="摄像头不存在")
+        return camera
+
+    # ---- 摄像头管理 ----
+    @app.get("/api/cameras")
+    async def list_cameras():
+        state = await run_blocking(service.get_state)
+        return JSONResponse({"cameras": state["cameras"]})
+
+    @app.get("/api/cameras/{camera_id}")
+    async def get_camera(camera_id: str):
+        require_camera(camera_id)
+        state = await run_blocking(service.get_camera_state, camera_id)
+        return JSONResponse({"camera": state})
+
+    @app.post("/api/cameras")
+    async def create_camera(req: CameraCreateRequest):
+        try:
+            camera = await run_blocking(
+                service.registry.create,
+                req.name,
+                req.rtsp_url,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(
+            {"ok": True, "camera": service.registry.public(camera)},
+            status_code=201,
+        )
+
+    @app.put("/api/cameras/{camera_id}")
+    async def update_camera(camera_id: str, req: CameraUpdateRequest):
+        require_camera(camera_id)
+        status = await run_blocking(
+            service.runtime_manager.status,
+            camera_id,
+        )
+        if status.get("desired_running"):
+            raise HTTPException(
+                status_code=409,
+                detail="请先关闭摄像头检测再修改配置",
+            )
+        try:
+            camera = await run_blocking(
+                service.registry.update,
+                camera_id,
+                name=req.name,
+                rtsp_url=req.rtsp_url,
+            )
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(
+            {"ok": True, "camera": service.registry.public(camera)}
+        )
+
+    @app.delete("/api/cameras/{camera_id}")
+    async def delete_camera(camera_id: str):
+        require_camera(camera_id)
+        status = await run_blocking(
+            service.runtime_manager.status,
+            camera_id,
+        )
+        if status.get("desired_running"):
+            raise HTTPException(
+                status_code=409,
+                detail="请先关闭摄像头检测再删除",
+            )
+        camera = await run_blocking(service.registry.delete, camera_id)
+        service._frame_hubs.pop(camera_id, None)
+        service._roi_caches.pop(camera_id, None)
+        return JSONResponse(
+            {"ok": True, "camera": service.registry.public(camera)}
+        )
+
+    @app.post("/api/cameras/test")
+    async def test_camera(req: CameraTestRequest):
+        try:
+            rtsp_url = service.registry.validate_rtsp_url(req.rtsp_url)
+            details = await run_blocking(service.probe_func, rtsp_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            LOGGER.warning("摄像头连通性测试失败: %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail="无法连接摄像头或读取视频信息",
+            ) from exc
+        return JSONResponse({"ok": True, **details})
+
+    @app.post("/api/cameras/{camera_id}/control/start")
+    async def start_camera(camera_id: str):
+        require_camera(camera_id)
+        result = await run_blocking(service.runtime_manager.start, camera_id)
+        return JSONResponse(result, status_code=200 if result["ok"] else 500)
+
+    @app.post("/api/cameras/{camera_id}/control/stop")
+    async def stop_camera(camera_id: str):
+        require_camera(camera_id)
+        result = await run_blocking(service.runtime_manager.stop, camera_id)
+        service._frame_hubs.pop(camera_id, None)
+        return JSONResponse(result, status_code=200 if result["ok"] else 500)
+
+    @app.post("/api/cameras/{camera_id}/control/restart")
+    async def restart_camera(camera_id: str):
+        require_camera(camera_id)
+        service._frame_hubs.pop(camera_id, None)
+        result = await run_blocking(
+            service.runtime_manager.restart,
+            camera_id,
+        )
+        return JSONResponse(result, status_code=200 if result["ok"] else 500)
+
+    @app.post("/api/cameras/control/start-all")
+    async def start_all_cameras():
+        result = await run_blocking(service.runtime_manager.start_all)
+        return JSONResponse(result, status_code=200 if result["ok"] else 207)
+
+    @app.post("/api/cameras/control/stop-all")
+    async def stop_all_cameras():
+        result = await run_blocking(service.runtime_manager.stop_all)
+        service._frame_hubs.clear()
+        return JSONResponse(result, status_code=200 if result["ok"] else 207)
+
+    @app.get("/api/cameras/{camera_id}/rois")
+    async def get_camera_rois(camera_id: str):
+        require_camera(camera_id)
+        rois = await run_blocking(service.load_rois, camera_id)
+        return JSONResponse({
+            "staff_rois": rois,
+            "available_slots": list(rois.keys())
+            or list(service.cfg.get("staff_rois", {}).keys()),
+            "camera_id": camera_id,
+        })
+
+    @app.post("/api/cameras/{camera_id}/rois")
+    async def save_camera_rois(camera_id: str, req: ROIRequest):
+        require_camera(camera_id)
+        try:
+            rois = await run_blocking(
+                service.save_rois,
+                camera_id,
+                req.staff_rois,
+            )
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({
+            "ok": True,
+            "staff_rois": rois,
+            "available_slots": list(rois.keys()),
+            "camera_id": camera_id,
         })
 
     # ---- ROI 接口 ----
     @app.get("/api/rois")
     async def get_rois():
         """获取当前 ROI 配置，供前端画布展示"""
-        rois = service._roi_load()
+        camera_id = service.default_camera_id()
+        if camera_id is None:
+            raise HTTPException(status_code=404, detail="尚未添加摄像头")
+        rois = await run_blocking(service._roi_load)
         return JSONResponse({
             "staff_rois":      rois,
             "available_slots": list(rois.keys())
                               or list(service.cfg.get("staff_rois", {}).keys()),
-            "video_id":        service.video_id,
+            "video_id":        camera_id,
         })
 
     @app.post("/api/rois")
@@ -483,37 +771,51 @@ def create_app(config_path: Path) -> FastAPI:
         """前端绘制完 ROI 后调用此接口保存，session_worker 将自动热加载"""
         if not isinstance(req.staff_rois, dict):
             raise HTTPException(status_code=400, detail="staff_rois must be dict")
-        service._roi_save(req.staff_rois)
-        rois = service._roi_load()
+        await run_blocking(service._roi_save, req.staff_rois)
+        rois = await run_blocking(service._roi_load)
+        camera_id = service.default_camera_id()
         return JSONResponse({
             "ok": True,
             "staff_rois":      rois,
             "available_slots": list(rois.keys()),
-            "video_id":        service.video_id,
+            "video_id":        camera_id,
         })
 
     # ---- 检测总开关 ----
     @app.post("/api/control/start")
     async def control_start():
         """开启安检流程规范检测。已开启时幂等，不重复拉起 worker。"""
-        service.start_workers()
-        return JSONResponse({"success": True, "running": True})
+        result = await run_blocking(service.start_workers)
+        return JSONResponse({
+            "success": bool(result.get("ok")),
+            "running": bool(result.get("running")),
+            **result,
+        })
 
     @app.post("/api/control/stop")
     async def control_stop():
         """关闭安检流程规范检测，终止所有 worker，避免继续产生 VLM 调用费用。"""
-        service.stop_workers()
-        return JSONResponse({"success": True, "running": False})
+        result = await run_blocking(service.stop_workers)
+        return JSONResponse({"success": result["ok"], "running": False, **result})
 
     @app.post("/api/control/restart")
     async def control_restart():
         """重启安检流程规范检测。"""
-        service.stop_workers()
-        service.start_workers()
-        return JSONResponse({"success": True, "running": True})
+        camera_id = service.default_camera_id()
+        if camera_id is None:
+            raise HTTPException(status_code=404, detail="尚未添加摄像头")
+        result = await run_blocking(
+            service.runtime_manager.restart,
+            camera_id,
+        )
+        return JSONResponse({
+            "success": result["ok"],
+            "running": result["running"],
+            **result,
+        })
 
     # ---- MJPEG 流生成器 ----
-    async def _mjpeg(kind: str):
+    async def _mjpeg(camera_id: str, kind: str):
         """
         MJPEG 流生成器，统一限速 6fps，长边最大 960，JPEG 质量可配置。
         kind 参数：
@@ -535,7 +837,7 @@ def create_app(config_path: Path) -> FastAPI:
                 await asyncio.sleep(0.005)
                 continue
 
-            hub = service.get_frame_hub()
+            hub = service.get_frame_hub(camera_id)
             if hub is None:
                 # capture 还没起来, 慢一点轮询
                 await asyncio.sleep(0.2)
@@ -557,7 +859,7 @@ def create_app(config_path: Path) -> FastAPI:
                     frame = cv2.resize(frame, (int(w * s), int(h * s)))
 
                 if kind == "rule":
-                    frame = _overlay_on_frame(frame, service)
+                    frame = _overlay_on_frame(frame, service, camera_id)
 
                 ok, buf = cv2.imencode(
                     ".jpg", frame,
@@ -578,8 +880,18 @@ def create_app(config_path: Path) -> FastAPI:
                     + data + b"\r\n"
                 )
             except Exception as e:
-                print(f"[mjpeg] {kind} error: {e}", flush=True)
+                print(f"[mjpeg] {camera_id}/{kind} error: {e}", flush=True)
                 await asyncio.sleep(0.1)
+
+    @app.get("/video/{camera_id}/{kind}")
+    async def camera_video(camera_id: str, kind: str):
+        require_camera(camera_id)
+        if kind not in {"original", "rule"}:
+            raise HTTPException(status_code=404, detail="invalid kind")
+        return StreamingResponse(
+            _mjpeg(camera_id, kind),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
 
     @app.get("/video/{kind}")
     async def video(kind: str):
@@ -589,8 +901,11 @@ def create_app(config_path: Path) -> FastAPI:
         if kind not in {"original", "rule"}:
             return JSONResponse({"ok": False, "message": "invalid kind"},
                                 status_code=404)
+        camera_id = service.default_camera_id()
+        if camera_id is None:
+            raise HTTPException(status_code=404, detail="尚未添加摄像头")
         return StreamingResponse(
-            _mjpeg(kind),
+            _mjpeg(camera_id, kind),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 

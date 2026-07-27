@@ -1,4 +1,5 @@
 import queue
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -58,3 +59,38 @@ def test_vlm_judge_passes_request_timeout(tmp_path):
     assert result["compliant"] is True
     assert calls[0]["request_timeout"] == 45.0
     assert "timeout" not in calls[0]
+
+
+def test_budget_guard_restores_same_day_and_persists_each_consumption():
+    today = vlm_worker.datetime.now().strftime("%Y-%m-%d")
+    persisted = []
+    budget = vlm_worker.BudgetGuard(
+        daily_limit=10,
+        est_cost_per_call=0.5,
+        initial_state={
+            "date": today,
+            "call_count": 3,
+            "spent_yuan": 1.5,
+        },
+        on_change=persisted.append,
+    )
+
+    assert budget.try_consume() is True
+    assert budget.snapshot()["call_count"] == 4
+    assert budget.snapshot()["spent_yuan"] == 2.0
+    assert persisted[-1]["call_count"] == 4
+
+
+def test_budget_persistence_snapshots_never_move_backwards_under_concurrency():
+    persisted = []
+    budget = vlm_worker.BudgetGuard(
+        daily_limit=100,
+        est_cost_per_call=0.5,
+        on_change=lambda snapshot: persisted.append(snapshot["call_count"]),
+    )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _index: budget.try_consume(), range(20)))
+
+    assert all(results)
+    assert persisted == list(range(1, 21))

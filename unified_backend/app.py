@@ -333,6 +333,12 @@ def _guard_department_for_user(user: dict[str, Any]) -> str | None:
     return department
 
 
+def _can_mutate_security_vlm(user: dict[str, Any], method: str) -> bool:
+    if str(method).upper() in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    return str(user.get("role") or "").strip().lower() == "admin"
+
+
 def _parse_event_types(raw: str | None) -> set[str] | None:
     if not raw:
         return None
@@ -697,6 +703,17 @@ def create_app() -> FastAPI:
                 request.state.user = get_current_user_from_request(request)
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
+            if (
+                path.startswith("/security-vlm")
+                and not _can_mutate_security_vlm(
+                    request.state.user,
+                    request.method,
+                )
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "仅管理员可以修改安检模块配置或运行状态"},
+                )
         return await call_next(request)
 
     @app.get("/")

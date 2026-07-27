@@ -4,11 +4,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from unified_backend.app import (
+    _can_mutate_security_vlm,
     _count_guard_site_cameras,
     _guard_alarm_paths,
     _guard_site_runtime_summary,
     _normalize_guard_alarm,
 )
+
+
+def test_security_vlm_viewer_can_read_but_cannot_mutate():
+    viewer = {"role": "viewer"}
+    admin = {"role": "admin"}
+
+    assert _can_mutate_security_vlm(viewer, "GET") is True
+    assert _can_mutate_security_vlm(viewer, "POST") is False
+    assert _can_mutate_security_vlm(viewer, "DELETE") is False
+    assert _can_mutate_security_vlm(admin, "POST") is True
 
 
 def test_count_guard_site_cameras_counts_nested_site_cameras():

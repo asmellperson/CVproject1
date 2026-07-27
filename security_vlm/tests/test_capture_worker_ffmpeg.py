@@ -2,6 +2,7 @@ from pathlib import Path
 import inspect
 import io
 import json
+import subprocess
 import sys
 import unittest
 
@@ -129,6 +130,17 @@ class ProbeTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "有效分辨率"):
             capture_worker.probe_video_shape("video.mp4", runner=runner)
+
+    def test_probe_failure_does_not_expose_rtsp_credentials(self):
+        secret_url = "rtsp://admin:super-secret@camera/stream"
+
+        def runner(command, **_kwargs):
+            raise subprocess.CalledProcessError(1, command)
+
+        with self.assertRaises(RuntimeError) as raised:
+            capture_worker.probe_video_shape(secret_url, runner=runner)
+
+        self.assertNotIn("super-secret", str(raised.exception))
 
 
 class FakeProcess:

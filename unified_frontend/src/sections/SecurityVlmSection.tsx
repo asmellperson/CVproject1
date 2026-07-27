@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleDollarSign,
+  Columns2,
   Clock3,
   Crosshair,
   FileCheck2,
@@ -20,6 +21,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { SecurityCameraBar } from '@/components/security-vlm/SecurityCameraBar'
+import { SecurityCameraDialog } from '@/components/security-vlm/SecurityCameraDialog'
+import { SecurityVideoPanel } from '@/components/security-vlm/SecurityVideoPanel'
 import {
   Pagination,
   PaginationContent,
@@ -34,12 +38,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import {
+  controlSecurityVlmCamera,
+  createSecurityVlmCamera,
+  deleteSecurityVlmCamera,
   getSecurityVlmHealth,
-  getSecurityVlmRois,
-  saveSecurityVlmRois,
-  securityVlmVideoUrl,
-  startSecurityVlmRuntime,
-  stopSecurityVlmRuntime,
+  getSecurityVlmCameraRois,
+  saveSecurityVlmCameraRois,
+  securityVlmCameraVideoUrl,
+  startAllSecurityVlmCameras,
+  stopAllSecurityVlmCameras,
+  testSecurityVlmCamera,
+  updateSecurityVlmCamera,
+  type SecurityVlmCamera,
   type SecurityVlmHealth,
   type SecurityVlmHistoryItem,
 } from '@/lib/security-vlm'
@@ -95,7 +105,14 @@ export function SecurityVlmSection() {
   const [message, setMessage] = useState('正在连接安检流程规范检测服务...')
   const [controlMessage, setControlMessage] = useState('')
   const [controlBusy, setControlBusy] = useState(false)
+  const [busyCameraId, setBusyCameraId] = useState<string | null>(null)
   const [videoNonce, setVideoNonce] = useState(Date.now())
+  const [selectedCameraId, setSelectedCameraId] = useState<string>()
+  const [secondaryCameraId, setSecondaryCameraId] = useState<string>()
+  const [dualView, setDualView] = useState(false)
+  const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
+  const [editingCamera, setEditingCamera] = useState<SecurityVlmCamera | null>(null)
+  const [cameraDialogKey, setCameraDialogKey] = useState(0)
   const [rois, setRois] = useState<Record<string, number[]>>({})
   const [slotNames, setSlotNames] = useState<string[]>([])
   const [currentRoi, setCurrentRoi] = useState<string | null>(null)
@@ -110,37 +127,54 @@ export function SecurityVlmSection() {
 
   const stats = health?.stats || {}
   const history = health?.history || []
-  const sourceWidth = Number(health?.capture?.width || 0)
-  const sourceHeight = Number(health?.capture?.height || 0)
+  const cameras = health?.cameras || []
+  const selectedCamera = cameras.find((camera) => camera.camera_id === selectedCameraId)
+  const sourceWidth = Number(selectedCamera?.capture?.width || 0)
+  const sourceHeight = Number(selectedCamera?.capture?.height || 0)
   const runtimeRunning = Boolean(health?.running)
+  const vlmDegraded = Boolean(health?.vlm?.degraded)
 
   const activeVideoUrl = useMemo(() => {
-    if (activeTab === 'roi') return securityVlmVideoUrl('original', videoNonce)
-    return securityVlmVideoUrl('rule', videoNonce)
-  }, [activeTab, videoNonce])
+    if (!selectedCameraId) return ''
+    return securityVlmCameraVideoUrl(
+      selectedCameraId,
+      activeTab === 'roi' ? 'original' : 'rule',
+      videoNonce,
+    )
+  }, [activeTab, selectedCameraId, videoNonce])
 
   const loadHealth = async () => {
     const next = await getSecurityVlmHealth()
     setHealth(next)
+    const nextCameras = next.cameras || []
+    setSelectedCameraId((previous) => (
+      previous && nextCameras.some((camera) => camera.camera_id === previous)
+        ? previous
+        : nextCameras[0]?.camera_id
+    ))
+    setSecondaryCameraId((previous) => {
+      if (previous && nextCameras.some((camera) => camera.camera_id === previous)) return previous
+      return nextCameras.find((camera) => camera.camera_id !== nextCameras[0]?.camera_id)?.camera_id
+    })
     setMessage('服务已连接')
   }
 
-  const handleToggleRuntime = async () => {
+  const handleAllCameras = async (action: 'start' | 'stop') => {
     if (!isAdmin) {
       setControlMessage('当前账号为 viewer，只能查看运行状态。')
       return
     }
     setControlBusy(true)
-    setControlMessage(runtimeRunning ? '正在关闭检测...' : '正在开启检测...')
+    setControlMessage(action === 'stop' ? '正在关闭全部检测...' : '正在开启全部检测...')
     try {
-      if (runtimeRunning) {
-        await stopSecurityVlmRuntime()
+      if (action === 'stop') {
+        await stopAllSecurityVlmCameras()
         setVideoNonce(Date.now())
-        setControlMessage('检测已关闭，VLM 不会继续产生新的调用费用。')
+        setControlMessage('全部检测已关闭，VLM 不会继续产生新的调用费用。')
       } else {
-        await startSecurityVlmRuntime()
+        await startAllSecurityVlmCameras()
         setVideoNonce(Date.now())
-        setControlMessage('检测已开启。')
+        setControlMessage('已提交全部摄像头启动。')
       }
       await loadHealth()
     } catch (error) {
@@ -148,14 +182,6 @@ export function SecurityVlmSection() {
     } finally {
       setControlBusy(false)
     }
-  }
-
-  const loadRois = async () => {
-    const data = await getSecurityVlmRois()
-    const names = data.available_slots?.length ? data.available_slots : Object.keys(data.staff_rois || {})
-    setRois(data.staff_rois || {})
-    setSlotNames(names)
-    setCurrentRoi((prev) => (prev && names.includes(prev) ? prev : names[0] || null))
   }
 
   useEffect(() => {
@@ -166,6 +192,17 @@ export function SecurityVlmSection() {
         const next = await getSecurityVlmHealth()
         if (mounted) {
           setHealth(next)
+          const nextCameras = next.cameras || []
+          setSelectedCameraId((previous) => (
+            previous && nextCameras.some((camera) => camera.camera_id === previous)
+              ? previous
+              : nextCameras[0]?.camera_id
+          ))
+          setSecondaryCameraId((previous) => (
+            previous && nextCameras.some((camera) => camera.camera_id === previous)
+              ? previous
+              : nextCameras[1]?.camera_id
+          ))
           setMessage('服务已连接')
         }
       } catch (error) {
@@ -187,12 +224,22 @@ export function SecurityVlmSection() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'roi') {
-      loadRois().catch((error) => {
+    if (activeTab !== 'roi' || !selectedCameraId) return
+    getSecurityVlmCameraRois(selectedCameraId)
+      .then((data) => {
+        const names = data.available_slots?.length
+          ? data.available_slots
+          : Object.keys(data.staff_rois || {})
+        setRois(data.staff_rois || {})
+        setSlotNames(names)
+        setCurrentRoi((previous) => (
+          previous && names.includes(previous) ? previous : names[0] || null
+        ))
+      })
+      .catch((error) => {
         setRoiMessage(`ROI 读取失败：${error instanceof Error ? error.message : String(error)}`)
       })
-    }
-  }, [activeTab])
+  }, [activeTab, selectedCameraId])
 
   useEffect(() => {
     const onResize = () => {
@@ -318,9 +365,13 @@ export function SecurityVlmSection() {
       setRoiMessage('当前账号为 viewer，只能查看 ROI。')
       return
     }
+    if (!selectedCameraId) {
+      setRoiMessage('请先选择摄像头。')
+      return
+    }
     setSavingRoi(true)
     try {
-      const data = await saveSecurityVlmRois(rois)
+      const data = await saveSecurityVlmCameraRois(selectedCameraId, rois)
       const names = data.available_slots?.length ? data.available_slots : Object.keys(data.staff_rois || {})
       setRois(data.staff_rois || rois)
       setSlotNames(names)
@@ -331,6 +382,67 @@ export function SecurityVlmSection() {
     } finally {
       setSavingRoi(false)
     }
+  }
+
+  const handleToggleCamera = async (camera: SecurityVlmCamera) => {
+    if (!isAdmin) return
+    const shouldStop = Boolean(camera.desired_running)
+    setBusyCameraId(camera.camera_id)
+    setControlMessage(`${shouldStop ? '正在关闭' : '正在开启'} ${camera.name}...`)
+    try {
+      await controlSecurityVlmCamera(camera.camera_id, shouldStop ? 'stop' : 'start')
+      setVideoNonce(Date.now())
+      await loadHealth()
+      setControlMessage(`${camera.name} 已${shouldStop ? '关闭' : '开启'}。`)
+    } catch (error) {
+      setControlMessage(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBusyCameraId(null)
+    }
+  }
+
+  const handleRestartCamera = async (camera: SecurityVlmCamera) => {
+    if (!isAdmin) return
+    setBusyCameraId(camera.camera_id)
+    setControlMessage(`正在重启 ${camera.name}...`)
+    try {
+      await controlSecurityVlmCamera(camera.camera_id, 'restart')
+      setVideoNonce(Date.now())
+      await loadHealth()
+      setControlMessage(`${camera.name} 已重启。`)
+    } catch (error) {
+      setControlMessage(`重启失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBusyCameraId(null)
+    }
+  }
+
+  const openCameraDialog = (camera: SecurityVlmCamera | null) => {
+    setEditingCamera(camera)
+    setCameraDialogKey((value) => value + 1)
+    setCameraDialogOpen(true)
+  }
+
+  const closeCameraDialog = () => {
+    setCameraDialogOpen(false)
+    setEditingCamera(null)
+  }
+
+  const saveCamera = async (name: string, rtspUrl: string) => {
+    if (editingCamera) {
+      await updateSecurityVlmCamera(editingCamera.camera_id, name, rtspUrl)
+    } else {
+      await createSecurityVlmCamera(name, rtspUrl)
+    }
+    await loadHealth()
+    closeCameraDialog()
+  }
+
+  const deleteCamera = async () => {
+    if (!editingCamera) return
+    await deleteSecurityVlmCamera(editingCamera.camera_id)
+    await loadHealth()
+    closeCameraDialog()
   }
 
   const renderRoiBoxes = () => {
@@ -384,15 +496,41 @@ export function SecurityVlmSection() {
               <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
               {runtimeRunning ? '检测开启' : '检测关闭'}
             </Badge>
+            {vlmDegraded && (
+              <Badge className="gap-2 bg-amber-500">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                VLM 重启中
+              </Badge>
+            )}
             <Button
-              variant={runtimeRunning ? 'destructive' : 'default'}
+              variant="default"
               size="sm"
               className="gap-2"
-              onClick={handleToggleRuntime}
-              disabled={!isAdmin || controlBusy}
+              onClick={() => void handleAllCameras('start')}
+              disabled={!isAdmin || controlBusy || cameras.length === 0}
             >
-              {runtimeRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {controlBusy ? '处理中' : runtimeRunning ? '关闭功能' : '开启功能'}
+              <Play className="h-4 w-4" />
+              {controlBusy ? '处理中' : '全部开启'}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="gap-2"
+              onClick={() => void handleAllCameras('stop')}
+              disabled={!isAdmin || controlBusy || cameras.length === 0}
+            >
+              <Pause className="h-4 w-4" />
+              全部关闭
+            </Button>
+            <Button
+              variant={dualView ? 'default' : 'outline'}
+              size="sm"
+              className="gap-2"
+              disabled={cameras.length < 2 || activeTab === 'roi'}
+              onClick={() => setDualView((value) => !value)}
+            >
+              <Columns2 className="h-4 w-4" />
+              {dualView ? '单画面' : '双画面'}
             </Button>
             <Button
               variant="outline"
@@ -409,6 +547,18 @@ export function SecurityVlmSection() {
           </div>
         </div>
 
+        <SecurityCameraBar
+          cameras={cameras}
+          selectedId={selectedCameraId}
+          isAdmin={isAdmin}
+          busyId={busyCameraId}
+          onSelect={setSelectedCameraId}
+          onToggle={(camera) => void handleToggleCamera(camera)}
+          onRestart={(camera) => void handleRestartCamera(camera)}
+          onEdit={(camera) => openCameraDialog(camera)}
+          onAdd={() => openCameraDialog(null)}
+        />
+
         <TabsContent value="dashboard" className="space-y-6">
           <Card className="overflow-hidden">
             <CardHeader className="flex flex-col gap-3 border-b bg-slate-50 lg:flex-row lg:items-center lg:justify-between">
@@ -417,22 +567,27 @@ export function SecurityVlmSection() {
                 <p className="mt-1 text-sm text-slate-500">{controlMessage || message}</p>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="aspect-video w-full bg-slate-950">
-                {runtimeRunning ? (
-                  <img src={activeVideoUrl} alt="安检流程规范检测实时画面" className="h-full w-full object-contain" />
-                ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-slate-300">
-                    <Pause className="h-10 w-10" />
-                    <div className="text-base font-semibold">检测功能已关闭</div>
-                    <div className="text-sm text-slate-400">开启功能后恢复摄像头画面和 VLM 判定</div>
-                  </div>
+            <CardContent className="p-3">
+              <div className={cn('grid gap-3', dualView && 'lg:grid-cols-2')}>
+                <SecurityVideoPanel
+                  cameras={cameras}
+                  cameraId={selectedCameraId}
+                  nonce={videoNonce}
+                  onCameraChange={setSelectedCameraId}
+                />
+                {dualView && (
+                  <SecurityVideoPanel
+                    cameras={cameras}
+                    cameraId={secondaryCameraId}
+                    nonce={videoNonce}
+                    onCameraChange={setSecondaryCameraId}
+                  />
                 )}
               </div>
             </CardContent>
           </Card>
 
-          <HistoryTable items={history} />
+          <HistoryTable items={history} cameras={cameras} />
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
             <StatCard title="总 session" value={formatNumber(stats.total)} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
@@ -453,6 +608,18 @@ export function SecurityVlmSection() {
                 <p className="mt-1 text-sm text-slate-500">拖拽画出安检员与被检人所在工位区域，保存后由后端自动热加载。</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Select value={selectedCameraId} onValueChange={setSelectedCameraId}>
+                  <SelectTrigger className="h-8 w-48">
+                    <SelectValue placeholder="选择摄像头" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cameras.map((camera) => (
+                      <SelectItem key={camera.camera_id} value={camera.camera_id}>
+                        {camera.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" size="sm" className="gap-2" onClick={handleAddRoi}>
                   <Plus className="h-4 w-4" />
                   新增
@@ -469,40 +636,48 @@ export function SecurityVlmSection() {
             </CardHeader>
             <CardContent className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
               <div ref={stageRef} className="relative overflow-hidden rounded-lg bg-slate-950">
-                <img
-                  ref={imageRef}
-                  src={activeVideoUrl}
-                  alt="ROI 绘制画面"
-                  className="w-full select-none object-contain"
-                  draggable={false}
-                  onLoad={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    setImageSize({ width: rect.width, height: rect.height })
-                  }}
-                />
-                <div
-                  className="absolute inset-0 cursor-crosshair touch-none"
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={() => {
-                    setDrawing(false)
-                    setDraftRect(null)
-                  }}
-                >
-                  {renderRoiBoxes()}
-                  {draftRect && (
-                    <div
-                      className="pointer-events-none absolute rounded-md border-2 border-blue-500 bg-blue-500/20"
-                      style={{
-                        left: draftRect.left,
-                        top: draftRect.top,
-                        width: draftRect.width,
-                        height: draftRect.height,
+                {selectedCamera?.running ? (
+                  <>
+                    <img
+                      ref={imageRef}
+                      src={activeVideoUrl}
+                      alt={`${selectedCamera.name} ROI 绘制画面`}
+                      className="w-full select-none object-contain"
+                      draggable={false}
+                      onLoad={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        setImageSize({ width: rect.width, height: rect.height })
                       }}
                     />
-                  )}
-                </div>
+                    <div
+                      className="absolute inset-0 cursor-crosshair touch-none"
+                      onPointerDown={handlePointerDown}
+                      onPointerMove={handlePointerMove}
+                      onPointerUp={handlePointerUp}
+                      onPointerCancel={() => {
+                        setDrawing(false)
+                        setDraftRect(null)
+                      }}
+                    >
+                      {renderRoiBoxes()}
+                      {draftRect && (
+                        <div
+                          className="pointer-events-none absolute rounded-md border-2 border-blue-500 bg-blue-500/20"
+                          style={{
+                            left: draftRect.left,
+                            top: draftRect.top,
+                            width: draftRect.width,
+                            height: draftRect.height,
+                          }}
+                        />
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex aspect-video items-center justify-center text-sm text-slate-400">
+                    请先选择并开启摄像头，再绘制 ROI
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -538,6 +713,19 @@ export function SecurityVlmSection() {
           </Card>
         </TabsContent>
       </Tabs>
+      {cameraDialogOpen && (
+        <SecurityCameraDialog
+          key={`${editingCamera?.camera_id || 'new'}-${cameraDialogKey}`}
+          camera={editingCamera}
+          onClose={closeCameraDialog}
+          onSave={saveCamera}
+          onTest={async (rtspUrl) => {
+            const result = await testSecurityVlmCamera(rtspUrl)
+            return `连接成功：${result.codec_name.toUpperCase()} ${result.width}×${result.height}`
+          }}
+          onDelete={editingCamera ? deleteCamera : undefined}
+        />
+      )}
     </div>
   )
 }
@@ -568,19 +756,25 @@ function StatCard({
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
+function HistoryTable({
+  items,
+  cameras,
+}: {
+  items: SecurityVlmHistoryItem[]
+  cameras: SecurityVlmCamera[]
+}) {
   const [pageSize, setPageSize] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const [cameraFilter, setCameraFilter] = useState('all')
 
-  const total = items.length
+  const filteredItems = cameraFilter === 'all'
+    ? items
+    : items.filter((item) => item.camera_id === cameraFilter)
+  const total = filteredItems.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const safePage = Math.min(currentPage, totalPages)
   const startIndex = (safePage - 1) * pageSize
-  const pageItems = items.slice(startIndex, startIndex + pageSize)
-
-  useEffect(() => {
-    setCurrentPage((prev) => Math.min(prev, totalPages))
-  }, [total, pageSize, totalPages])
+  const pageItems = filteredItems.slice(startIndex, startIndex + pageSize)
 
   const pageNumbers = useMemo(() => {
     const pages: (number | 'ellipsis')[] = []
@@ -609,6 +803,25 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-lg">历史判定结果</CardTitle>
         <div className="flex items-center gap-3 text-sm text-slate-500">
+          <Select
+            value={cameraFilter}
+            onValueChange={(value) => {
+              setCameraFilter(value)
+              setCurrentPage(1)
+            }}
+          >
+            <SelectTrigger className="h-8 w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部摄像头</SelectItem>
+              {cameras.map((camera) => (
+                <SelectItem key={camera.camera_id} value={camera.camera_id}>
+                  {camera.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <span>
             共 {total} 条，第 {total > 0 ? safePage : 0}/{totalPages} 页
           </span>
@@ -637,6 +850,7 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>时间</TableHead>
+              <TableHead>摄像头</TableHead>
               <TableHead>Session</TableHead>
               <TableHead>工位</TableHead>
               <TableHead>时长</TableHead>
@@ -650,8 +864,9 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
           </TableHeader>
           <TableBody>
             {pageItems.map((item) => (
-              <TableRow key={`${item.session_id}-${item.time}`}>
+              <TableRow key={`${item.camera_id}-${item.session_id}-${item.time}`}>
                 <TableCell className="text-slate-500">{item.time || '-'}</TableCell>
+                <TableCell>{item.camera_name || cameras.find((camera) => camera.camera_id === item.camera_id)?.name || '-'}</TableCell>
                 <TableCell className="font-mono text-xs">{item.session_id || '-'}</TableCell>
                 <TableCell>{item.roi_name || '-'}</TableCell>
                 <TableCell>{item.duration_sec ?? 0}s</TableCell>
@@ -663,9 +878,9 @@ function HistoryTable({ items }: { items: SecurityVlmHistoryItem[] }) {
                 <TableCell className="max-w-md whitespace-normal">{item.reason || item.error || '-'}</TableCell>
               </TableRow>
             ))}
-            {items.length === 0 && (
+            {filteredItems.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-slate-500">
+                <TableCell colSpan={11} className="py-10 text-center text-slate-500">
                   暂无历史判定结果
                 </TableCell>
               </TableRow>

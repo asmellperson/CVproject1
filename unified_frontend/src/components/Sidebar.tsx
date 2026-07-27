@@ -34,18 +34,13 @@ export function Sidebar({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(adminModuleGroups.map((group) => group.id).concat('shared')))
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
 
-  useEffect(() => {
-    const activeGroup = visibleNavGroups
+  const activeChildGroupId = useMemo(
+    () => visibleNavGroups
       .flatMap((group) => group.children || [])
       .find((child) => child.items.some((item) => item.id === currentPage))
-    if (!activeGroup) return
-    setExpandedGroups((prev) => {
-      if (prev.has(activeGroup.id)) return prev
-      const next = new Set(prev)
-      next.add(activeGroup.id)
-      return next
-    })
-  }, [currentPage, visibleNavGroups])
+      ?.id,
+    [currentPage, visibleNavGroups],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -152,7 +147,7 @@ export function Sidebar({
                 />
               ))}
               {group.children?.map((child) => {
-                const expanded = compact || expandedGroups.has(child.id)
+                const expanded = compact || expandedGroups.has(child.id) || activeChildGroupId === child.id
                 return (
                 <div key={child.id} className={cn(!compact && 'pt-2')}>
                   {!compact && (

@@ -183,6 +183,11 @@ class PairSessionManager:
 
     def __init__(self, cfg, pending_dir):
         s = cfg["session"]
+        data_cfg = cfg.get("data", {}) or {}
+        self.camera_id = str(data_cfg.get("video_id", "stream") or "stream")
+        self.camera_name = str(
+            data_cfg.get("camera_name", self.camera_id) or self.camera_id
+        )
 
         # 启动相关
         self.start_hold = int(s.get("pair_start_hold_frames", 8))
@@ -433,16 +438,23 @@ class PairSessionManager:
         if len(sess.keyframes) < 2:
             return  # 太少帧不送 VLM,直接丢
         path = self.pending_dir / f"{sess.session_id}.pkl"
-        with open(path, "wb") as f:
-            pickle.dump({
-                "session_id": sess.session_id,
-                "roi_name": sess.roi_name,
-                "roi_box": sess.roi_box,
-                "start_ts": sess.start_ts,
-                "end_ts": sess.end_ts,
-                "enqueue_ts": time.time(),
-                "keyframes": sess.keyframes,
-            }, f)
+        temp_path = path.with_suffix(".pkl.tmp")
+        try:
+            with open(temp_path, "wb") as f:
+                pickle.dump({
+                    "session_id": sess.session_id,
+                    "camera_id": self.camera_id,
+                    "camera_name": self.camera_name,
+                    "roi_name": sess.roi_name,
+                    "roi_box": sess.roi_box,
+                    "start_ts": sess.start_ts,
+                    "end_ts": sess.end_ts,
+                    "enqueue_ts": time.time(),
+                    "keyframes": sess.keyframes,
+                }, f)
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
         print(f"[session] 落盘 {sess.session_id}, {len(sess.keyframes)} 帧, "
               f"时长 {sess.end_ts - sess.start_ts:.1f}s", flush=True)
 
@@ -500,7 +512,9 @@ class PairSessionManager:
 
                     self.session_id += 1
                     sess = PairSession(
-                        session_id=f"{name}_{int(now)}_{self.session_id}",
+                        session_id=(
+                            f"{self.camera_id}_{time.time_ns()}_{self.session_id}"
+                        ),
                         roi_name=name,
                         roi_box=list(roi),
                         init_track_a=pair[0],
