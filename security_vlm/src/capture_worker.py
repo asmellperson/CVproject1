@@ -71,7 +71,9 @@ def build_ffmpeg_command(source: str, target_fps: float) -> list[str]:
     """构造稳定解码 HEVC RTSP 的 FFmpeg rawvideo 命令。"""
     command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
     if _is_rtsp_source(source):
-        command.extend(["-rtsp_transport", "tcp", "-rw_timeout", "5000000"])
+        # 部分生产服务器的 FFmpeg 不支持 rw_timeout；强制传入会让
+        # FFmpeg 在解析参数时立即退出，表现为 capture 永远拿不到首帧。
+        command.extend(["-rtsp_transport", "tcp"])
     command.extend([
         "-i", str(source),
         "-an",

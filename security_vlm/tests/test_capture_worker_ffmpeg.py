@@ -51,7 +51,7 @@ class FfmpegCommandTests(unittest.TestCase):
 
         self.assertIn("-rtsp_transport", command)
         self.assertIn("tcp", command)
-        self.assertIn("-rw_timeout", command)
+        self.assertNotIn("-rw_timeout", command)
         self.assertIn("fps=10", command)
         self.assertIn("bgr24", command)
         self.assertEqual(command[-2:], ["rawvideo", "pipe:1"])
