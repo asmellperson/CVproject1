@@ -59,6 +59,11 @@ yolo:
 
 # ---- Session 管理 ----
 session:
+  # 人体框中心进入 ROI，或人体框与 ROI 重叠率达到 30%，可启动候选会话。
+  roi_enter_overlap_ratio: 0.30
+  # 会话启动后放宽到 10%，配合 fingerprint_lost_seconds 防止边缘抖动。
+  roi_hold_overlap_ratio: 0.10
+
   # 每个 ROI 独立计数
   min_persons_to_start: 2
   start_hold_frames: 15       # 连续 15 帧(≈0.5s @30fps)ROI 内 ≥2 人 → session 开始

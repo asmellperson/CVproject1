@@ -27,6 +27,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore
+from roi_geometry import bbox_belongs_to_roi
 
 
 _STOP = threading.Event()
@@ -62,12 +63,6 @@ def bbox_iou(a, b):
         return 0.0
     ua = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
     return inter / max(ua, 1e-6)
-
-
-def point_in_roi(pt, roi):
-    x, y = pt
-    x1, y1, x2, y2 = roi
-    return x1 <= x <= x2 and y1 <= y <= y2
 
 
 def bbox_size(box):
@@ -211,11 +206,43 @@ class PairSessionManager:
         self.interact_motion_min = float(s.get("interact_motion_min_pixels", 8.0))
         # ↑ 至少一方在最近 1 秒有 N 像素以上的位移 → 视为"有动作"
 
+        # ROI 成员判定：进入严格、活动会话保持宽松，避免边缘抖动。
+        self.roi_enter_overlap_ratio = min(
+            1.0,
+            max(0.0, float(s.get("roi_enter_overlap_ratio", 0.30))),
+        )
+        self.roi_hold_overlap_ratio = min(
+            1.0,
+            max(0.0, float(s.get("roi_hold_overlap_ratio", 0.10))),
+        )
+        if self.roi_hold_overlap_ratio > self.roi_enter_overlap_ratio:
+            raise ValueError(
+                "session.roi_hold_overlap_ratio 不能大于 "
+                "session.roi_enter_overlap_ratio"
+            )
+
         self.pending_dir = Path(pending_dir)
         self.pending_dir.mkdir(parents=True, exist_ok=True)
 
         self.roi_states: Dict[str, RoiState] = {}
         self.session_id = 0
+
+    def _tracks_for_roi(self, tracks, roi, active: bool):
+        """按进入/保持阈值返回当前 ROI 的人体轨迹。"""
+        threshold = (
+            self.roi_hold_overlap_ratio
+            if active
+            else self.roi_enter_overlap_ratio
+        )
+        return [
+            track
+            for track in tracks
+            if bbox_belongs_to_roi(
+                [track["x1"], track["y1"], track["x2"], track["y2"]],
+                roi,
+                threshold,
+            )
+        ]
 
     # ---------------------------------------------------------------------------------
     # 1) 更新 track 历史（用于交互检测）
@@ -430,12 +457,12 @@ class PairSessionManager:
                 self.roi_states[name] = RoiState(name)
             st = self.roi_states[name]
 
-            # 8.1 过滤 ROI 内 tracks
-            tracks_in_roi = []
-            for t in tracks:
-                cx, cy = bbox_center([t["x1"], t["y1"], t["x2"], t["y2"]])
-                if point_in_roi((cx, cy), roi):
-                    tracks_in_roi.append(t)
+            # 8.1 新会话使用进入阈值，活动会话使用更宽松的保持阈值。
+            tracks_in_roi = self._tracks_for_roi(
+                tracks,
+                roi,
+                active=st.active is not None,
+            )
 
             # 8.2 更新 track 历史
             self._update_track_hist(st, tracks_in_roi)
@@ -602,11 +629,11 @@ def main():
                 for name, st in manager.roi_states.items():
                     per_roi[name] = {
                         "active_session_id": st.active.session_id if st.active else None,
-                        "persons_in_roi": sum(
-                            1 for t in tracks
-                            if point_in_roi(bbox_center([t["x1"], t["y1"], t["x2"], t["y2"]]),
-                                            rois.get(name, [0, 0, 0, 0]))
-                        ),
+                        "persons_in_roi": len(manager._tracks_for_roi(
+                            tracks,
+                            rois.get(name, [0, 0, 0, 0]),
+                            active=False,
+                        )),
                     }
                 store.write("session_latest", {
                     "ok": True,

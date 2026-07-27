@@ -45,6 +45,7 @@ from pydantic import BaseModel
 # 把 src/ 加入 import 路径, 让 frame_hub 能被找到
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore  # noqa: E402
+from roi_geometry import bbox_belongs_to_roi  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +328,18 @@ def _overlay_on_frame(frame, service: "AppService"):
         rois = service.get_rois_cached()
         per_roi = sess_latest.get("per_roi") or {}
         tracks = tracker.get("tracks") or []
+        enter_overlap_ratio = min(
+            1.0,
+            max(
+                0.0,
+                float(
+                    service.cfg.get("session", {}).get(
+                        "roi_enter_overlap_ratio",
+                        0.30,
+                    )
+                ),
+            ),
+        )
 
         # 计算 frame 已经被缩放的比例（原始尺寸来自 tracker 元数据）
         orig_meta = tracker.get("frame_meta") or {}
@@ -360,12 +373,24 @@ def _overlay_on_frame(frame, service: "AppService"):
 
         # 2) 画 YOLO 人体框
         for t in tracks:
-            x1 = int(float(t["x1"]) * sx); y1 = int(float(t["y1"]) * sy)
-            x2 = int(float(t["x2"]) * sx); y2 = int(float(t["y2"]) * sy)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            person_box = [
+                float(t["x1"]),
+                float(t["y1"]),
+                float(t["x2"]),
+                float(t["y2"]),
+            ]
+            belongs_to_roi = any(
+                bbox_belongs_to_roi(person_box, roi, enter_overlap_ratio)
+                for roi in rois.values()
+            )
+            color = (0, 255, 0) if belongs_to_roi else (128, 128, 128)
+            thickness = 2 if belongs_to_roi else 1
+            x1 = int(person_box[0] * sx); y1 = int(person_box[1] * sy)
+            x2 = int(person_box[2] * sx); y2 = int(person_box[3] * sy)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             cv2.putText(frame, f"id={t.get('track_id', '-')}",
                         (x1, max(16, y1 - 4)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
         # 3) 顶部统计 banner
         header = (f"total={vlm_stats.get('total', 0)} "
