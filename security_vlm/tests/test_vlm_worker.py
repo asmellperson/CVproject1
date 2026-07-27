@@ -28,6 +28,27 @@ def test_process_queued_item_contains_task_exception(capsys):
     assert "broken task" in capsys.readouterr().err
 
 
+def test_draw_text_falls_back_when_configured_font_cannot_be_opened(monkeypatch):
+    original_truetype = vlm_worker.ImageFont.truetype
+
+    def unavailable_file_font(font, *args, **kwargs):
+        if isinstance(font, (str, Path)):
+            raise OSError("cannot open resource")
+        return original_truetype(font, *args, **kwargs)
+
+    monkeypatch.setattr(vlm_worker.ImageFont, "truetype", unavailable_file_font)
+    image = np.zeros((90, 480, 3), dtype=np.uint8)
+
+    rendered = vlm_worker._draw_text_pil(
+        image,
+        "session-1 [不合规：安检流程未完成]",
+        (10, 8),
+    )
+
+    assert rendered.shape == image.shape
+    assert rendered.dtype == image.dtype
+
+
 def test_vlm_judge_passes_request_timeout(tmp_path):
     calls = []
 

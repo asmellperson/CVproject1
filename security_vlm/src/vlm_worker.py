@@ -490,16 +490,44 @@ class MultiCameraPendingScanner(threading.Thread):
 # ---------------------------------------------------------------------------
 # 关键帧拼图 (横向 N 张 + 顶部状态 banner)
 # ---------------------------------------------------------------------------
+_FONT_CANDIDATES = (
+    os.environ.get("SECURITY_VLM_FONT_PATH", "").strip(),
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
+_FONT_FALLBACK_WARNED = False
+
+
+def _load_banner_font(font_size: int):
+    global _FONT_FALLBACK_WARNED
+    errors = []
+    for font_path in _FONT_CANDIDATES:
+        if not font_path:
+            continue
+        try:
+            return ImageFont.truetype(font_path, font_size)
+        except (OSError, ValueError) as exc:
+            errors.append(f"{font_path}: {exc}")
+
+    if not _FONT_FALLBACK_WARNED:
+        print(
+            "[vlm] 未找到可用的横幅字体，已降级为 Pillow 默认字体；"
+            f"可通过 SECURITY_VLM_FONT_PATH 指定字体。尝试结果: {'; '.join(errors)}",
+            file=sys.stderr,
+            flush=True,
+        )
+        _FONT_FALLBACK_WARNED = True
+    return ImageFont.load_default()
+
+
 def _draw_text_pil(img_bgr, text, xy, font_size=24, color=(255, 255, 255)):
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(img_rgb)
     draw = ImageDraw.Draw(pil_img)
 
-    font_path = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"
-    if font_path:
-        font = ImageFont.truetype(font_path, font_size)
-    else:
-        font = ImageFont.load_default()
+    font = _load_banner_font(font_size)
 
     # OpenCV 是 BGR，这里转成 RGB
     rgb_color = (color[2], color[1], color[0])

@@ -26,7 +26,7 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from frame_hub import FrameHubReader, ResultStore
+from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
 from roi_geometry import bbox_belongs_to_roi
 
 
@@ -584,7 +584,10 @@ def main():
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
-    hub = FrameHubReader(runtime_dir)
+    hub = FrameHubReader(
+        runtime_dir,
+        wait_timeout_sec=framehub_wait_timeout(cfg),
+    )
     manager = PairSessionManager(cfg, cfg["session"]["pending_queue_dir"])
 
     last_status_ts = 0.0

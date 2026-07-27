@@ -38,7 +38,7 @@ from typing import Any, Dict, List
 import yaml
  
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from frame_hub import FrameHubReader, ResultStore  # noqa: E402
+from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout  # noqa: E402
  
  
 # ---------------------------------------------------------------------------
@@ -100,7 +100,10 @@ def main():
     # 等 FrameHub (capture_worker) 就绪 ---------------------------------
     print("[detector] 等待 FrameHub 就绪...", flush=True)
     try:
-        hub = FrameHubReader(runtime_dir, wait_timeout_sec=30.0)
+        hub = FrameHubReader(
+            runtime_dir,
+            wait_timeout_sec=framehub_wait_timeout(cfg),
+        )
     except Exception as e:
         store.write(status_key, {"ok": False, "message": f"framehub_timeout: {e}",
                                  "ts": time.time()})

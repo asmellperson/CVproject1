@@ -217,6 +217,12 @@ class FrameHubReader:
         """
         meta = meta or self.get_latest_meta()
         return np.asarray(self.buffers[int(meta["slot_idx"])]).copy()
+
+
+def framehub_wait_timeout(cfg: Dict[str, Any]) -> float:
+    """返回下游 worker 等待 capture 首帧的统一超时时间。"""
+    runtime_cfg = cfg.get("runtime", {}) or {}
+    return max(1.0, float(runtime_cfg.get("framehub_wait_timeout_sec", 30.0)))
  
  
 # ---------------------------------------------------------------------------

@@ -8,6 +8,13 @@ import session_worker
 import vlm_worker
 
 
+def test_session_framehub_wait_timeout_covers_slow_rtsp_startup():
+    assert session_worker.framehub_wait_timeout({}) == 30.0
+    assert session_worker.framehub_wait_timeout({
+        "runtime": {"framehub_wait_timeout_sec": 45},
+    }) == 45.0
+
+
 def test_finalized_session_contains_camera_identity(tmp_path):
     cfg = {
         "data": {
