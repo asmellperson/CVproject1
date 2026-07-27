@@ -16,6 +16,8 @@ export type PageId =
   | 'human-detection'
   | 'logistics-single-person-detection'
   | 'logistics-single-person-electronics-electrician-detection'
+  | 'logistics-single-person-electrical-components-detection'
+  | 'logistics-single-person-precious-metal-recycling-detection'
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
@@ -73,10 +75,24 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electrical_components: {
-    pages: [],
+    pages: ['overview', 'logistics-single-person-electrical-components-detection', 'alarms', 'statistics'],
+    displayOverrides: {
+      'logistics-single-person-electrical-components-detection': {
+        label: '物流通道单人检测',
+        title: '物流通道单人检测（电气部件）',
+        description: '电气部件物流通道单人监控与配置入口',
+      },
+    },
   },
   precious_metal_recycling: {
-    pages: [],
+    pages: ['overview', 'logistics-single-person-precious-metal-recycling-detection', 'alarms', 'statistics'],
+    displayOverrides: {
+      'logistics-single-person-precious-metal-recycling-detection': {
+        label: '物流通道单人检测',
+        title: '物流通道单人检测（贵金属回收）',
+        description: '贵金属回收物流通道单人监控与配置入口',
+      },
+    },
   },
 }
 
@@ -91,6 +107,8 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'human-detection': ['detect_human'],
   'logistics-single-person-detection': ['detect_logistics_single_person'],
   'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person_electronics_electrician'],
+  'logistics-single-person-electrical-components-detection': ['detect_logistics_single_person_electrical_components'],
+  'logistics-single-person-precious-metal-recycling-detection': ['detect_logistics_single_person_precious_metal_recycling'],
   'phone-detection': ['detect_phone'],
 }
 
@@ -142,6 +160,8 @@ const pageIds = new Set<string>([
   'human-detection',
   'logistics-single-person-detection',
   'logistics-single-person-electronics-electrician-detection',
+  'logistics-single-person-electrical-components-detection',
+  'logistics-single-person-precious-metal-recycling-detection',
   'phone-detection',
   'alarms',
   'statistics',

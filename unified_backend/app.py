@@ -84,6 +84,12 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "guard_phone_use",
         "guard_prone_sleep",
     },
+    "electrical_components": {
+        "detect_logistics_single_person_electrical_components",
+    },
+    "precious_metal_recycling": {
+        "detect_logistics_single_person_precious_metal_recycling",
+    },
 }
 
 DEPARTMENT_ALIASES = {
@@ -92,6 +98,10 @@ DEPARTMENT_ALIASES = {
     "general electric": "general_electric",
     "electronics-electrician": "electronics_electrician",
     "electronics electrician": "electronics_electrician",
+    "electrical-components": "electrical_components",
+    "electrical components": "electrical_components",
+    "precious-metal-recycling": "precious_metal_recycling",
+    "precious metal recycling": "precious_metal_recycling",
 }
 
 

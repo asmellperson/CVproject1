@@ -83,7 +83,10 @@ export function buildAiVisionMonitorOverlay({
   const region = configValue.region
   const roiPos = configValue.roi_pos
   const roiPolygons = normalizePolygons(roiPos)
-  const polygons = feature === 'detect_logistics_single_person' || feature === 'detect_logistics_single_person_electronics_electrician'
+  const polygons = feature === 'detect_logistics_single_person'
+    || feature === 'detect_logistics_single_person_electronics_electrician'
+    || feature === 'detect_logistics_single_person_electrical_components'
+    || feature === 'detect_logistics_single_person_precious_metal_recycling'
     ? []
     : feature === 'detect_human' && roiPolygons.length === 0 && Array.isArray(region) && region.length >= 4
       ? normalizePolygons(region)

@@ -147,6 +147,26 @@ const moduleEntries = [
     iconBg: 'from-teal-50 to-cyan-100',
   },
   {
+    id: 'logistics-single-person-electrical-components-detection',
+    title: '物流通道单人检测入口（电气部件）',
+    icon: UsersRound,
+    status: '已接入',
+    accent: 'from-teal-500 to-cyan-600',
+    glow: 'shadow-teal-500/16',
+    iconColor: 'text-teal-700',
+    iconBg: 'from-teal-50 to-cyan-100',
+  },
+  {
+    id: 'logistics-single-person-precious-metal-recycling-detection',
+    title: '物流通道单人检测入口（贵金属回收）',
+    icon: UsersRound,
+    status: '已接入',
+    accent: 'from-teal-500 to-cyan-600',
+    glow: 'shadow-teal-500/16',
+    iconColor: 'text-teal-700',
+    iconBg: 'from-teal-50 to-cyan-100',
+  },
+  {
     id: 'phone-detection',
     title: '手机使用检测入口',
     icon: Smartphone,
@@ -184,6 +204,8 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
   'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
   'logistics-single-person-electronics-electrician-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electronics_electrician' },
+  'logistics-single-person-electrical-components-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electrical_components' },
+  'logistics-single-person-precious-metal-recycling-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_precious_metal_recycling' },
   'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
 }
 
@@ -208,6 +230,8 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_human: '人员逗留',
   detect_logistics_single_person: '物流单人',
   detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
+  detect_logistics_single_person_electrical_components: '物流单人（电气部件）',
+  detect_logistics_single_person_precious_metal_recycling: '物流单人（贵金属回收）',
   detect_phone: '手机使用',
 }
 
@@ -241,6 +265,8 @@ function formatLatestTime(value?: string) {
 function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'general_electric') return '通用电气视图'
   if (department === 'electronics_electrician') return '电子电工视图'
+  if (department === 'electrical_components') return '电气部件视图'
+  if (department === 'precious_metal_recycling') return '贵金属回收视图'
   if (department === 'research_institute') return '研究院视图'
   if (department === 'all') return '全局视图'
   return '权限视图'
@@ -251,7 +277,7 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
 }
 
 function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCounts {
-  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_logistics_single_person_electronics_electrician', 'detect_phone']
+  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_logistics_single_person_electronics_electrician', 'detect_logistics_single_person_electrical_components', 'detect_logistics_single_person_precious_metal_recycling', 'detect_phone']
   return features.reduce<FeatureCameraCounts>((acc, feature) => {
     const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
     acc[feature] = {
@@ -359,6 +385,18 @@ const adminDepartmentGroups = [
     title: '电子电工',
     description: '保安行为规范检测能力',
     pages: departmentPermissions.electronics_electrician.pages,
+  },
+  {
+    id: 'electrical_components',
+    title: '电气部件事业部',
+    description: '物流通道单人检测能力',
+    pages: departmentPermissions.electrical_components.pages,
+  },
+  {
+    id: 'precious_metal_recycling',
+    title: '贵金属回收事业部',
+    description: '物流通道单人检测能力',
+    pages: departmentPermissions.precious_metal_recycling.pages,
   },
   {
     id: 'research_institute',

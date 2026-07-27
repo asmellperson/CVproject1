@@ -34,6 +34,8 @@ _LEGACY_FEATURE_MAP = {
     "human": "detect_human",
     "logistics_single_person": "detect_logistics_single_person",
     "logistics_single_person_electronics_electrician": "detect_logistics_single_person_electronics_electrician",
+    "logistics_single_person_electrical_components": "detect_logistics_single_person_electrical_components",
+    "logistics_single_person_precious_metal_recycling": "detect_logistics_single_person_precious_metal_recycling",
 }
 
 
@@ -271,6 +273,36 @@ def put_logistics_single_person_electronics_electrician_config(
     feature_service=Depends(get_feature_config_service),
 ):
     return _put_legacy_config("logistics_single_person_electronics_electrician", shm_name, payload, feature_service)
+
+
+@router.get("/api/ai/logistics-single-person-electrical-components-config/{shm_name}")
+def get_logistics_single_person_electrical_components_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
+    return _get_legacy_config("logistics_single_person_electrical_components", shm_name, feature_service)
+
+
+@router.put("/api/ai/logistics-single-person-electrical-components-config/{shm_name}")
+def put_logistics_single_person_electrical_components_config(
+    shm_name: str,
+    payload: dict[str, Any],
+    _user: dict = Depends(require_admin),
+    feature_service=Depends(get_feature_config_service),
+):
+    return _put_legacy_config("logistics_single_person_electrical_components", shm_name, payload, feature_service)
+
+
+@router.get("/api/ai/logistics-single-person-precious-metal-recycling-config/{shm_name}")
+def get_logistics_single_person_precious_metal_recycling_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
+    return _get_legacy_config("logistics_single_person_precious_metal_recycling", shm_name, feature_service)
+
+
+@router.put("/api/ai/logistics-single-person-precious-metal-recycling-config/{shm_name}")
+def put_logistics_single_person_precious_metal_recycling_config(
+    shm_name: str,
+    payload: dict[str, Any],
+    _user: dict = Depends(require_admin),
+    feature_service=Depends(get_feature_config_service),
+):
+    return _put_legacy_config("logistics_single_person_precious_metal_recycling", shm_name, payload, feature_service)
 
 
 # ----- 旧 camera 路径 -----

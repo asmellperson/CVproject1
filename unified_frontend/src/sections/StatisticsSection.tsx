@@ -44,6 +44,8 @@ type TrendRow = {
   detect_face?: number
   detect_logistics_single_person?: number
   detect_logistics_single_person_electronics_electrician?: number
+  detect_logistics_single_person_electrical_components?: number
+  detect_logistics_single_person_precious_metal_recycling?: number
   guard_absent?: number
   guard_phone_use?: number
   guard_prone_sleep?: number
@@ -84,6 +86,8 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'detect_human', name: '人体逗留', value: 0, color: '#2563eb' },
   { event_type: 'detect_logistics_single_person', name: '物流通道单人', value: 0, color: '#0f766e' },
   { event_type: 'detect_logistics_single_person_electronics_electrician', name: '物流通道单人（电子电工）', value: 0, color: '#0f766e' },
+  { event_type: 'detect_logistics_single_person_electrical_components', name: '物流通道单人（电气部件）', value: 0, color: '#0f766e' },
+  { event_type: 'detect_logistics_single_person_precious_metal_recycling', name: '物流通道单人（贵金属回收）', value: 0, color: '#0f766e' },
   { event_type: 'guard_absent', name: '保安离岗', value: 0, color: '#dc2626' },
   { event_type: 'guard_phone_use', name: '保安玩手机', value: 0, color: '#ea580c' },
   { event_type: 'guard_prone_sleep', name: '保安趴睡', value: 0, color: '#ca8a04' },
@@ -117,6 +121,8 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     detect_human: toNumber(row?.detect_human),
     detect_logistics_single_person: toNumber(row?.detect_logistics_single_person),
     detect_logistics_single_person_electronics_electrician: toNumber(row?.detect_logistics_single_person_electronics_electrician),
+    detect_logistics_single_person_electrical_components: toNumber(row?.detect_logistics_single_person_electrical_components),
+    detect_logistics_single_person_precious_metal_recycling: toNumber(row?.detect_logistics_single_person_precious_metal_recycling),
     guard_absent: toNumber(row?.guard_absent),
     guard_phone_use: toNumber(row?.guard_phone_use),
     guard_prone_sleep: toNumber(row?.guard_prone_sleep),

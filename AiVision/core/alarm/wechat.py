@@ -30,6 +30,8 @@ _EVENT_DISPLAY = {
     "detect_human":  "人员逗留",
     "detect_logistics_single_person": "物流通道单人异常",
     "detect_logistics_single_person_electronics_electrician": "物流通道单人异常（电子电工）",
+    "detect_logistics_single_person_electrical_components": "物流通道单人异常（电气部件）",
+    "detect_logistics_single_person_precious_metal_recycling": "物流通道单人异常（贵金属回收）",
 }
 
 
