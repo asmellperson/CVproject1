@@ -235,7 +235,9 @@ class Orchestrator:
 
         # 功能层面: 解析 "{feature}_{action}"
         # 形如 blocks_enabled / detect_face_config_updated
-        for fname in all_specs():
+        # 功能名可能存在前缀关系（例如 detect_logistics_single_person 与其
+        # 各事业部变体），必须优先匹配最长名称，避免事件被短名称截获。
+        for fname in sorted(all_specs(), key=len, reverse=True):
             if change.startswith(f"{fname}_"):
                 action = change[len(fname) + 1:]
                 consumer = self.consumers.get(fname)
