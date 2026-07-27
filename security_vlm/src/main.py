@@ -614,6 +614,17 @@ def create_app(
         state = await run_blocking(service.get_camera_state, camera_id)
         return JSONResponse({"camera": state})
 
+    @app.get("/api/cameras/{camera_id}/credentials")
+    async def get_camera_credentials(camera_id: str):
+        camera = require_camera(camera_id)
+        return JSONResponse({
+            "camera": {
+                "camera_id": camera["camera_id"],
+                "name": camera["name"],
+                "rtsp_url": camera["rtsp_url"],
+            },
+        })
+
     @app.post("/api/cameras")
     async def create_camera(req: CameraCreateRequest):
         try:

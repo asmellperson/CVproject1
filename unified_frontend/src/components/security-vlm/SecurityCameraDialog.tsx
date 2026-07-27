@@ -28,10 +28,8 @@ export function SecurityCameraDialog({
   onDelete,
 }: Props) {
   const [name, setName] = useState(camera?.name || '')
-  const [rtspUrl, setRtspUrl] = useState('')
-  const [message, setMessage] = useState(
-    camera ? 'RTSP 地址留空表示保留原地址。' : '',
-  )
+  const [rtspUrl, setRtspUrl] = useState(camera?.rtsp_url || '')
+  const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
   const run = async (operation: () => Promise<void>) => {
@@ -66,11 +64,11 @@ export function SecurityCameraDialog({
             <Label htmlFor="security-camera-rtsp">RTSP 地址</Label>
             <Input
               id="security-camera-rtsp"
-              type="password"
+              type="text"
               autoComplete="off"
               value={rtspUrl}
               onChange={(event) => setRtspUrl(event.target.value)}
-              placeholder={camera ? '留空保留原地址' : 'rtsp://用户名:密码@地址/stream'}
+              placeholder="rtsp://用户名:密码@地址/stream"
             />
           </div>
           {message && <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{message}</p>}

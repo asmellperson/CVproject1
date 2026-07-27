@@ -125,6 +125,16 @@ async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
         camera_id = camera["camera_id"]
         assert camera["rtsp_url"] == "rtsp://***:***@camera-a/stream"
         assert "secret" not in (await client.get("/api/cameras")).text
+        credentials_response = await client.get(
+            f"/api/cameras/{camera_id}/credentials"
+        )
+        assert credentials_response.status_code == 200
+        assert credentials_response.json()["camera"]["rtsp_url"] == (
+            "rtsp://admin:secret@camera-a/stream"
+        )
+        assert (
+            await client.get("/api/cameras/missing/credentials")
+        ).status_code == 404
 
         assert (await client.put(
             f"/api/cameras/{camera_id}",

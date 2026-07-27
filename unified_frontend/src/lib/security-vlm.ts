@@ -99,6 +99,11 @@ export type SecurityVlmCamera = {
   staff_rois?: Record<string, number[]>
 }
 
+export type SecurityVlmCameraCredentials = Pick<
+  SecurityVlmCamera,
+  'camera_id' | 'name' | 'rtsp_url'
+>
+
 export type SecurityVlmHealth = {
   running?: boolean
   ts?: number
@@ -140,6 +145,11 @@ export const getSecurityVlmHistory = (limit = 100, cameraId?: string) => {
 
 export const getSecurityVlmCameras = () =>
   securityVlmGet<{ cameras: SecurityVlmCamera[] }>('/api/cameras')
+
+export const getSecurityVlmCameraCredentials = (cameraId: string) =>
+  securityVlmGet<{ camera: SecurityVlmCameraCredentials }>(
+    `/api/cameras/${encodeURIComponent(cameraId)}/credentials`,
+  )
 
 export const createSecurityVlmCamera = (name: string, rtspUrl: string) =>
   securityVlmPost<{ ok: boolean; camera: SecurityVlmCamera }>('/api/cameras', {

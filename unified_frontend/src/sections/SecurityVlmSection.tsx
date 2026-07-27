@@ -9,9 +9,9 @@ import {
   Crosshair,
   FileCheck2,
   Layers3,
-  Pause,
-  Play,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Save,
   Trash2,
@@ -41,6 +41,7 @@ import {
   controlSecurityVlmCamera,
   createSecurityVlmCamera,
   deleteSecurityVlmCamera,
+  getSecurityVlmCameraCredentials,
   getSecurityVlmHealth,
   getSecurityVlmCameraRois,
   saveSecurityVlmCameraRois,
@@ -417,10 +418,27 @@ export function SecurityVlmSection() {
     }
   }
 
-  const openCameraDialog = (camera: SecurityVlmCamera | null) => {
-    setEditingCamera(camera)
-    setCameraDialogKey((value) => value + 1)
-    setCameraDialogOpen(true)
+  const openCameraDialog = async (camera: SecurityVlmCamera | null) => {
+    if (!camera) {
+      setEditingCamera(null)
+      setCameraDialogKey((value) => value + 1)
+      setCameraDialogOpen(true)
+      return
+    }
+
+    setBusyCameraId(camera.camera_id)
+    try {
+      const details = await getSecurityVlmCameraCredentials(camera.camera_id)
+      setEditingCamera({ ...camera, ...details.camera })
+      setCameraDialogKey((value) => value + 1)
+      setCameraDialogOpen(true)
+    } catch (error) {
+      setControlMessage(
+        `摄像头编辑信息读取失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      setBusyCameraId(null)
+    }
   }
 
   const closeCameraDialog = () => {
@@ -509,7 +527,7 @@ export function SecurityVlmSection() {
               onClick={() => void handleAllCameras('start')}
               disabled={!isAdmin || controlBusy || cameras.length === 0}
             >
-              <Play className="h-4 w-4" />
+              <Power className="h-4 w-4" />
               {controlBusy ? '处理中' : '全部开启'}
             </Button>
             <Button
@@ -519,7 +537,7 @@ export function SecurityVlmSection() {
               onClick={() => void handleAllCameras('stop')}
               disabled={!isAdmin || controlBusy || cameras.length === 0}
             >
-              <Pause className="h-4 w-4" />
+              <PowerOff className="h-4 w-4" />
               全部关闭
             </Button>
             <Button
@@ -555,8 +573,8 @@ export function SecurityVlmSection() {
           onSelect={setSelectedCameraId}
           onToggle={(camera) => void handleToggleCamera(camera)}
           onRestart={(camera) => void handleRestartCamera(camera)}
-          onEdit={(camera) => openCameraDialog(camera)}
-          onAdd={() => openCameraDialog(null)}
+          onEdit={(camera) => void openCameraDialog(camera)}
+          onAdd={() => void openCameraDialog(null)}
         />
 
         <TabsContent value="dashboard" className="space-y-6">

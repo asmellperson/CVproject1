@@ -339,6 +339,22 @@ def _can_mutate_security_vlm(user: dict[str, Any], method: str) -> bool:
     return str(user.get("role") or "").strip().lower() == "admin"
 
 
+def _can_access_security_vlm(
+    user: dict[str, Any],
+    method: str,
+    path: str,
+) -> bool:
+    role = str(user.get("role") or "").strip().lower()
+    normalized_path = str(path).rstrip("/")
+    credentials_path = (
+        normalized_path.startswith("/security-vlm/api/cameras/")
+        and normalized_path.endswith("/credentials")
+    )
+    if credentials_path:
+        return role == "admin"
+    return _can_mutate_security_vlm(user, method)
+
+
 def _parse_event_types(raw: str | None) -> set[str] | None:
     if not raw:
         return None
@@ -705,14 +721,20 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
             if (
                 path.startswith("/security-vlm")
-                and not _can_mutate_security_vlm(
+                and not _can_access_security_vlm(
                     request.state.user,
                     request.method,
+                    path,
                 )
             ):
                 return JSONResponse(
                     status_code=403,
-                    content={"detail": "仅管理员可以修改安检模块配置或运行状态"},
+                    content={
+                        "detail": (
+                            "仅管理员可以修改安检模块配置"
+                            "或读取摄像头连接信息"
+                        )
+                    },
                 )
         return await call_next(request)
 

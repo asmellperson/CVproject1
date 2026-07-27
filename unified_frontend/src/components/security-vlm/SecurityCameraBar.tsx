@@ -1,4 +1,4 @@
-import { Camera, Pencil, Play, Plus, RefreshCw, Square, VideoOff } from 'lucide-react'
+import { Camera, Pencil, Plus, Power, PowerOff, RotateCw, VideoOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -50,7 +50,6 @@ export function SecurityCameraBar({
                 <Camera className="h-4 w-4 shrink-0 text-slate-500" />
                 <span className="truncate font-semibold text-slate-900">{camera.name}</span>
               </div>
-              <p className="mt-1 truncate text-xs text-slate-500">{camera.rtsp_url}</p>
             </div>
             <Badge
               variant={camera.running ? 'default' : 'secondary'}
@@ -81,23 +80,23 @@ export function SecurityCameraBar({
                   className="h-8 w-8"
                   disabled={busyId === camera.camera_id}
                   onClick={() => onToggle(camera)}
-                  title={camera.desired_running ? '取消运行/重启' : '开启摄像头'}
+                  title={camera.desired_running ? '关闭摄像头' : '开启摄像头'}
                 >
-                  {camera.desired_running ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {camera.desired_running
+                    ? <PowerOff className="h-4 w-4" />
+                    : <Power className="h-4 w-4" />}
                 </Button>
-                {camera.running && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    disabled={busyId === camera.camera_id}
-                    onClick={() => onRestart(camera)}
-                    title="重启摄像头"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  disabled={!camera.running || busyId === camera.camera_id}
+                  onClick={() => onRestart(camera)}
+                  title="重启摄像头"
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
                 <Button
                   type="button"
                   size="icon"
