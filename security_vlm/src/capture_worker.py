@@ -3,9 +3,9 @@
 capture_worker.py —— RTSP 视频采集子进程
 ================================================================================
 职责:
-    1. 从配置里指定的 RTSP 地址拉流 (cv2.VideoCapture + ffmpeg)
+    1. 从配置里指定的 RTSP 地址拉流 (FFmpeg TCP rawvideo)
     2. 用一个后台线程持续读帧,主线程负责限频写到 FrameHub
-    3. 自动检测断流并重连 (50 次连读失败 或 5 秒拿不到帧)
+    3. 自动检测断流并重连
     4. 周期性把状态 (fps、frame_id、分辨率) 写到 capture_status.json
 
 输出:
@@ -13,7 +13,7 @@ capture_worker.py —— RTSP 视频采集子进程
     - /dev/shm/.../capture_status.json (心跳)
 
 为什么把读流放到独立线程:
-    OpenCV 的 cap.read() 对 RTSP 是阻塞的,且 ffmpeg 内部有 jitter buffer。
+    FFmpeg 的 rawvideo 管道读取对 RTSP 是阻塞的。
     用独立线程不停地 drain,保证主线程拿到的永远是「最新一帧」而不是积压帧。
 
 为什么主循环还要再限频:
@@ -22,34 +22,22 @@ capture_worker.py —— RTSP 视频采集子进程
 ================================================================================
 """
 import argparse
-import os
+import json
 import signal
+import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict
 
-import cv2
+import numpy as np
 import yaml
 
 # 让本目录下的 frame_hub.py 可被 import
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from frame_hub import FrameHubWriter, ResultStore  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# 关键: 在 import cv2 后立刻设置 ffmpeg 选项 (OpenCV 通过环境变量传给 ffmpeg)
-#   - rtsp_transport=tcp   走 TCP, 海康/大华摄像头默认走这个更稳定
-#   - buffer_size=1MB      ffmpeg 内部缓冲, 防止丢包
-#   - reorder_queue_size   重排队列 (UDP 时才用)
-#   - timeout=5s           连接 + 读超时
-# ---------------------------------------------------------------------------
-os.environ.setdefault(
-    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-    "rtsp_transport;tcp|buffer_size;1048576|reorder_queue_size;1024|timeout;5000000",
-)
-os.environ.setdefault("OPENCV_FFMPEG_READ_ATTEMPTS", "10000")
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +63,72 @@ def resolve_path(p: str, base: Path) -> Path:
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
 
 
+def _is_rtsp_source(source: str) -> bool:
+    return str(source).lower().startswith(("rtsp://", "rtsps://"))
+
+
+def build_ffmpeg_command(source: str, target_fps: float) -> list[str]:
+    """构造稳定解码 HEVC RTSP 的 FFmpeg rawvideo 命令。"""
+    command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
+    if _is_rtsp_source(source):
+        command.extend(["-rtsp_transport", "tcp", "-rw_timeout", "5000000"])
+    command.extend([
+        "-i", str(source),
+        "-an",
+        "-vf", f"fps={max(1.0, float(target_fps)):g}",
+        "-pix_fmt", "bgr24",
+        "-f", "rawvideo",
+        "pipe:1",
+    ])
+    return command
+
+
+def read_exact(stream, size: int) -> bytes | None:
+    """从管道读取恰好 size 字节；提前 EOF 时返回 None。"""
+    remaining = int(size)
+    chunks = bytearray()
+    while remaining > 0:
+        try:
+            chunk = stream.read(remaining)
+        except (OSError, ValueError):
+            return None
+        if not chunk:
+            return None
+        chunks.extend(chunk)
+        remaining -= len(chunk)
+    return bytes(chunks)
+
+
+def probe_video_shape(source: str, runner=None) -> tuple[int, int, int]:
+    """使用 ffprobe 获取视频尺寸，返回 (height, width, channels)。"""
+    command = ["ffprobe", "-v", "error"]
+    if _is_rtsp_source(source):
+        command.extend(["-rtsp_transport", "tcp"])
+    command.extend([
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "json",
+        str(source),
+    ])
+    run = runner or subprocess.run
+    try:
+        result = run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        streams = (json.loads(result.stdout or "{}").get("streams") or [])
+        width = int(streams[0].get("width", 0)) if streams else 0
+        height = int(streams[0].get("height", 0)) if streams else 0
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"ffprobe 获取视频分辨率失败: {exc}") from exc
+    if width <= 0 or height <= 0:
+        raise RuntimeError("ffprobe 未返回有效分辨率")
+    return height, width, 3
+
+
 # 全局停止信号 (SIGINT/SIGTERM 触发)
 _STOP = threading.Event()
 
@@ -88,18 +142,31 @@ def _signal_handler(signum, frame):
 # ---------------------------------------------------------------------------
 class RtspCapture:
     """
-    后台线程不断 cap.read(),把最新一帧用锁保护起来。
+    后台线程从 FFmpeg rawvideo 管道读取完整 BGR 帧,把最新一帧用锁保护起来。
     主线程通过 read() 拿当前最新帧 + frame_id。
 
     断流策略:
-        - 单次 read 失败计数累加
-        - 累计 50 次失败 或 5 秒没拿到新帧 → release + 重新 open
+        - FFmpeg 退出、EOF 或读到不完整帧时关闭旧进程
+        - 等待 1 秒后重新拉起 FFmpeg
     """
 
-    def __init__(self, source: str, log_prefix: str = "[capture]"):
+    def __init__(
+        self,
+        source: str,
+        target_fps: float = 10.0,
+        log_prefix: str = "[capture]",
+        process_factory=None,
+        probe_runner=None,
+        sleep_fn=None,
+    ):
         self.source = str(source)
+        self.target_fps = max(1.0, float(target_fps))
         self.log_prefix = log_prefix
-        self.cap = None
+        self.process = None
+        self.frame_shape: tuple[int, int, int] | None = None
+        self._process_factory = process_factory or subprocess.Popen
+        self._probe_runner = probe_runner
+        self._sleep = sleep_fn or time.sleep
         self.lock = threading.Lock()
         self.frame = None              # 最新一帧 (BGR ndarray)
         self.frame_id = 0              # 单调递增的帧序号
@@ -108,56 +175,126 @@ class RtspCapture:
         self.thread = None
 
     def _open(self) -> bool:
-        """打开 RTSP 并把内部缓冲调到 1,降低延迟"""
-        cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+        """探测分辨率并启动 FFmpeg rawvideo 子进程。"""
         try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:
-            pass
-        if not cap.isOpened():
-            print(f"{self.log_prefix} 打开失败: {self.source}", flush=True)
+            if self.frame_shape is None:
+                self.frame_shape = probe_video_shape(
+                    self.source,
+                    runner=self._probe_runner,
+                )
+            command = build_ffmpeg_command(self.source, self.target_fps)
+            self.process = self._process_factory(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=10**8,
+            )
+            if self.process.stdout is None:
+                raise RuntimeError("FFmpeg stdout 管道不可用")
+            threading.Thread(
+                target=self._drain_stderr,
+                args=(self.process,),
+                daemon=True,
+            ).start()
+            self.last_ok_ts = time.time()
+            height, width, _ = self.frame_shape
+            print(
+                f"{self.log_prefix} FFmpeg 已启动，视频尺寸 {width}x{height}，"
+                f"目标帧率 {self.target_fps:g}",
+                flush=True,
+            )
+            return True
+        except Exception as exc:
+            self._close_process()
+            print(
+                f"{self.log_prefix} FFmpeg 启动失败: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
             return False
-        self.cap = cap
-        self.last_ok_ts = time.time()
-        return True
+
+    def _drain_stderr(self, process) -> None:
+        """消费 FFmpeg stderr，避免管道写满，并隐藏 RTSP 凭据。"""
+        if process.stderr is None:
+            return
+        while True:
+            raw_line = process.stderr.readline()
+            if not raw_line:
+                return
+            message = raw_line.decode("utf-8", errors="replace").strip()
+            if message:
+                print(
+                    f"{self.log_prefix} ffmpeg: "
+                    f"{message.replace(self.source, '<redacted>')}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    def _read_one_frame(self):
+        """从当前 FFmpeg 管道读取并复制一帧 BGR 图像。"""
+        process = self.process
+        if process is None or process.stdout is None or self.frame_shape is None:
+            return None
+        frame_size = int(np.prod(self.frame_shape))
+        raw = read_exact(process.stdout, frame_size)
+        if raw is None:
+            return None
+        return np.frombuffer(raw, dtype=np.uint8).reshape(self.frame_shape).copy()
+
+    def _close_process(self) -> None:
+        """终止并回收当前 FFmpeg 子进程及其管道。"""
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        for pipe_name in ("stdout", "stderr"):
+            pipe = getattr(process, pipe_name, None)
+            close = getattr(pipe, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except OSError:
+                    pass
 
     def start(self):
         if not self._open():
-            raise RuntimeError(f"无法打开视频源: {self.source}")
+            raise RuntimeError("无法通过 FFmpeg 打开视频源")
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
         return self
 
     def _loop(self):
         """后台线程主循环"""
-        consecutive_fail = 0
         while not self.stop_flag:
-            # 上次重连失败后 cap=None,这里再尝试 open
-            if self.cap is None:
+            # 上次进程退出后重新拉起 FFmpeg。
+            if self.process is None:
                 if not self._open():
-                    time.sleep(1.0)
+                    self._sleep(1.0)
                     continue
 
-            ok, frame = self.cap.read()
-            if not ok or frame is None:
-                consecutive_fail += 1
-                # 触发重连的两个条件: 累计失败 50 次 OR 5 秒没拿到帧
-                if consecutive_fail >= 50 or (time.time() - self.last_ok_ts) > 5.0:
-                    print(f"{self.log_prefix} 读帧连续失败 {consecutive_fail} 次,重连...",
-                          flush=True)
-                    try:
-                        self.cap.release()
-                    except Exception:
-                        pass
-                    self.cap = None
-                    consecutive_fail = 0
-                    time.sleep(1.0)
-                else:
-                    time.sleep(0.02)
+            frame = self._read_one_frame()
+            if frame is None:
+                if not self.stop_flag:
+                    print(
+                        f"{self.log_prefix} FFmpeg 视频流中断，准备重连...",
+                        flush=True,
+                    )
+                self._close_process()
+                if not self.stop_flag:
+                    self._sleep(1.0)
                 continue
 
             # 成功读到一帧 → 更新最新帧 (写者短临界区)
-            consecutive_fail = 0
             self.last_ok_ts = time.time()
             with self.lock:
                 self.frame = frame
@@ -182,13 +319,9 @@ class RtspCapture:
 
     def release(self):
         self.stop_flag = True
+        self._close_process()
         if self.thread is not None:
             self.thread.join(timeout=1.5)
-        if self.cap is not None:
-            try:
-                self.cap.release()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +358,11 @@ def main():
 
     # 启动 RTSP 拉流 -----------------------------------------------------
     try:
-        capture = RtspCapture(source, log_prefix="[capture]")
+        capture = RtspCapture(
+            source,
+            target_fps=target_fps,
+            log_prefix="[capture]",
+        )
         capture.start()
     except Exception as e:
         status_store.write(status_key, {"ok": False, "message": f"open_failed: {e}",
