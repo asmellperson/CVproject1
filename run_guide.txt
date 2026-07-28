@@ -4,6 +4,39 @@
 apt update
 apt install -y tmux
 
+推荐：统一管理五个服务
+========================================
+以下命令都在项目根目录执行：
+
+cd /srv/Fuda_CVPreject
+
+# 启动五个服务（已有同名 tmux 会话时会跳过，不影响正在运行的服务）
+bash scripts/start.sh
+
+# 查看五个服务的 tmux、端口和健康状态
+bash scripts/status.sh
+
+# 停止五个服务（执行时需要输入 yes 确认）
+bash scripts/stop.sh
+
+# 停止五个服务且不再询问
+bash scripts/stop.sh -y
+
+# 强制重启五个服务
+bash scripts/start.sh --force
+
+统一启动后会创建以下五个 tmux 会话：
+- unified_frontend：前端，端口 3000
+- unified_backend：统一后端，端口 5000
+- guard_room：保安行为规范检测，端口 5001
+- aivision：AiVision，端口 7862
+- security_vlm：安全生产 VLM，端口 8000
+
+首次启动时，如果 scripts/auth_secret 不存在，脚本会提示输入 yes 后生成。
+后续启动会继续复用该文件，并把同一个 AUTH_SECRET 注入
+unified_backend、guard_room 和 aivision，避免点击子系统后登录失效。
+不要分别为这三个后端配置不同的 AUTH_SECRET。
+
 退出窗口（启动了窗口后要按这个退出窗口）
 ################
 Ctrl + B
@@ -27,6 +60,8 @@ tmux kill-session -t aivision
 tmux kill-session -t security_vlm
 ****************************************
 
+以下为单独启动某个服务的排障备用方式，正常运行优先使用 scripts/start.sh。
+
 1、启动unified_frontend:
 tmux new -s unified_frontend
 cd unified_frontend
@@ -47,12 +82,13 @@ export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
 python run_server.py --host 127.0.0.1 --port 5001
 如需临时改端口：python run_server.py --port <guard_room调试端口>
 
-4、启动AiVision
+4、启动AiVision（内部服务，默认 7862）
 tmux new -s aivision
+conda activate aivision (AiVision使用的是aivision的conda环境，python 3.11)
 cd AiVision
 export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
-uv run main.py --host 127.0.0.1 --port 7862
-如需临时改端口：uv run main.py --port <AiVision调试端口>
+python main.py --host 127.0.0.1 --port 7862
+如需临时改端口：python main.py --port <AiVision调试端口>
 
 5、启动security_vlm:
 tmux new -s security_vlm
@@ -68,7 +104,7 @@ tmux ls
 
 
 
-uv run AiVision/main.py --port <端口>
+python AiVision/main.py --port <端口>
 python security_vlm/src/main.py --config configs/config.yaml --port <端口>
 npm run dev -- --port <端口>
 
@@ -99,33 +135,3 @@ npm run dev -- --port <端口>
   "role": "viewer"
 
   admin 可修改配置、启停算法、录屏；viewer 只能查看。
-
-
-
-
-
-# 1. 先加载 nvm
-source ~/.nvm/nvm.sh
-
-# 2. 使用你之前装好的 Node 20
-nvm use 20
-
-# 3. 看 npm 全局目录
-npm prefix -g
-echo "$(npm prefix -g)/bin"
-
-# 4. 确认 PATH 是否包含 npm 全局 bin
-echo $PATH | tr ':' '\n' | grep "$(npm prefix -g)/bin" || echo "PATH里没有npm全局bin"
-
-# 5. 重新安装 Codex
-npm i -g @openai/codex@latest
-
-# 6. 刷新命令缓存
-hash -r
-
-# 7. 检查
-which codex
-codex --version
-
-# 8. 启动
-codex
