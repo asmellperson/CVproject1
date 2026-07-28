@@ -2,8 +2,8 @@
 # =============================================================================
 # 福达视觉平台 - 冷启动脚本
 # -----------------------------------------------------------------------------
-# 作用：用 tmux 后台启动 4 个子服务：guard_room / aivision / security_vlm /
-#       unified_frontend，并做端口健康检查。
+# 作用：用 tmux 后台启动 5 个子服务：guard_room / aivision / security_vlm /
+#       unified_backend / unified_frontend，并做端口健康检查。
 #
 # 用法：
 #   bash scripts/cold_start.sh                  # 安全模式：已存在会话则跳过
@@ -20,7 +20,7 @@
 #
 # AUTH_SECRET 管理：
 #   首次运行会在 scripts/auth_secret 生成 64 字符 hex 密钥（权限 600）。
-#   只注入到 guard_room / aivision 两个服务的 tmux 环境。
+#   注入到 unified_backend / guard_room / aivision 三个服务的 tmux 环境。
 #   要刷新密钥：删除 scripts/auth_secret 后重新启动（会踢下线所有用户）。
 #   跨服务器迁移：scp scripts/auth_secret 到目标机以保持登录态。
 #
@@ -142,7 +142,7 @@ conda_env_exists() {
 # ---- AUTH_SECRET 管理 ------------------------------------------------------
 # 读取或首次生成共享 auth 密钥；写入 scripts/auth_secret（权限 600）。
 # 首次生成会踢下线所有现有用户，因此默认弹出确认；--yes 跳过。
-# 仅注入到 guard_room 与 aivision 的 tmux 环境。
+# 注入到 unified_backend、guard_room 与 aivision 的 tmux 环境。
 AUTH_SECRET=""
 AUTH_SECRET_SOURCE=""    # reuse | new
 AUTH_SECRET_FP=""        # sha256 前 8 位
@@ -229,7 +229,7 @@ detect_tmux_env_support() {
 # 判断某服务是否需要 AUTH_SECRET 注入
 needs_auth_secret() {
   case "$1" in
-    guard_room|aivision) return 0 ;;
+    unified_backend|guard_room|aivision) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -238,6 +238,7 @@ needs_auth_secret() {
 NVM_SH_PATH="$(detect_nvm_sh || true)"
 CONDA_SH_PATH="$(detect_conda_sh || true)"
 UV_BIN_PATH="$(detect_uv_bin || true)"
+UNIFIED_BACKEND_PYTHON="${UNIFIED_BACKEND_PYTHON:-$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)}"
 NODE_VERSION="${NODE_VERSION:-20}"
 GUARD_ROOM_ENV="${GUARD_ROOM_ENV:-guard_room}"
 SECURITY_VLM_ENV="${SECURITY_VLM_ENV:-security_vlm}"
@@ -246,6 +247,7 @@ SECURITY_VLM_ENV="${SECURITY_VLM_ENV:-security_vlm}"
 WAIT_GUARD_ROOM="${WAIT_GUARD_ROOM:-15}"
 WAIT_AIVISION="${WAIT_AIVISION:-30}"
 WAIT_SECURITY_VLM="${WAIT_SECURITY_VLM:-60}"
+WAIT_UNIFIED_BACKEND="${WAIT_UNIFIED_BACKEND:-15}"
 WAIT_UNIFIED_FRONTEND="${WAIT_UNIFIED_FRONTEND:-15}"
 
 # node 运行时探测：先 nvm 后系统 node
@@ -266,9 +268,9 @@ fi
 SERVICES=()
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$GUARD_ROOM_ENV" "$CONDA_SH_PATH"; then
-  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room| /root/miniconda3/envs/${GUARD_ROOM_ENV}/bin/python run_server.py |5000|${WAIT_GUARD_ROOM}")
+  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|/root/miniconda3/envs/${GUARD_ROOM_ENV}/bin/python run_server.py --host 127.0.0.1 --port 5001|5001|${WAIT_GUARD_ROOM}")
 else
-  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|__DEP_MISSING__|5000|${WAIT_GUARD_ROOM}")
+  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|__DEP_MISSING__|5001|${WAIT_GUARD_ROOM}")
 fi
 
 if [[ -n "$UV_BIN_PATH" ]]; then
@@ -282,6 +284,12 @@ if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$SECURITY_VLM_ENV" "$CONDA_SH_
   SERVICES+=("security_vlm|${PROJECT_ROOT}/security_vlm|source ${CONDA_SH_PATH} && conda activate ${SECURITY_VLM_ENV} && python src/main.py --config configs/config.yaml|8000|${WAIT_SECURITY_VLM}")
 else
   SERVICES+=("security_vlm|${PROJECT_ROOT}/security_vlm|__DEP_MISSING__|8000|${WAIT_SECURITY_VLM}")
+fi
+
+if [[ -n "$UNIFIED_BACKEND_PYTHON" ]]; then
+  SERVICES+=("unified_backend|${PROJECT_ROOT}|${UNIFIED_BACKEND_PYTHON} -m unified_backend.run_server --host 127.0.0.1 --port 5000|5000|${WAIT_UNIFIED_BACKEND}")
+else
+  SERVICES+=("unified_backend|${PROJECT_ROOT}|__DEP_MISSING__|5000|${WAIT_UNIFIED_BACKEND}")
 fi
 
 if [[ "$NODE_RUNTIME_TYPE" == "nvm" ]]; then
@@ -317,9 +325,10 @@ wait_port() {
 #     skip                 不做 health 探测（端口监听即视为 READY）
 # 注意: health_url 用 127.0.0.1，避免走外部 DNS / 防火墙
 SERVICES_HEALTH=(
-  "guard_room|http://127.0.0.1:5000/api/health|json:ready=true"
+  "guard_room|http://127.0.0.1:5001/api/health|json:ready=true"
   "aivision|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
   "security_vlm|http://127.0.0.1:8000/health|json:running=true"
+  "unified_backend|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|http://127.0.0.1:3000/|http2xx"
 )
 
@@ -559,6 +568,11 @@ suggest_dep_fix() {
         hint "  pip install -r ${workdir}/requirements.txt"
       fi
       ;;
+    unified_backend)
+      hint "未找到可用 Python。请安装 Python 3，并执行："
+      hint "  python3 -m pip install -r ${workdir}/unified_backend/requirements.txt"
+      hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_PYTHON=/path/to/python"
+      ;;
     unified_frontend)
       hint "既无 nvm，系统 node 版本也不匹配（需要 v${NODE_VERSION}）。任选其一："
       hint "  A) 装 nvm: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"
@@ -655,7 +669,7 @@ start_one() {
   local tmux_new_args=(-d -s "$name" -c "$workdir")
   local cmd_to_send="$cmd"
 
-  # 仅对 guard_room / aivision 注入 AUTH_SECRET
+  # 对签发或校验 JWT 的三个服务注入同一份 AUTH_SECRET
   if needs_auth_secret "$name"; then
     if [[ -z "$AUTH_SECRET" ]]; then
       err "${name} 需要 AUTH_SECRET 但未初始化（内部错误）"
@@ -760,10 +774,15 @@ main() {
   else
     miss "  UV_BIN       = 未找到（aivision 将跳过）"
   fi
+  if [[ -n "$UNIFIED_BACKEND_PYTHON" ]]; then
+    ok "  BACKEND_PY   = ${UNIFIED_BACKEND_PYTHON}"
+  else
+    miss "  BACKEND_PY   = 未找到（unified_backend 将跳过）"
+  fi
   log "  NODE_VERSION = ${NODE_VERSION}"
   log "  GUARD_ROOM_ENV   = ${GUARD_ROOM_ENV}"
   log "  SECURITY_VLM_ENV = ${SECURITY_VLM_ENV}"
-  log "  健康检查上限(秒) guard=${WAIT_GUARD_ROOM} ai=${WAIT_AIVISION} vlm=${WAIT_SECURITY_VLM} fe=${WAIT_UNIFIED_FRONTEND}"
+  log "  健康检查上限(秒) guard=${WAIT_GUARD_ROOM} ai=${WAIT_AIVISION} vlm=${WAIT_SECURITY_VLM} backend=${WAIT_UNIFIED_BACKEND} fe=${WAIT_UNIFIED_FRONTEND}"
 
   # AUTH_SECRET 状态
   if [[ "$AUTH_SECRET_SOURCE" == "reuse" ]]; then

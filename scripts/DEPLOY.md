@@ -53,6 +53,15 @@ conda activate security_vlm
 pip install -r /srv/Fuda_CVPreject/security_vlm/requirements.txt
 ```
 
+### 2.4 安装 `unified_backend` 依赖
+
+```bash
+python3 -m pip install -r /srv/Fuda_CVPreject/unified_backend/requirements.txt
+```
+
+如需使用虚拟环境中的 Python，在 `scripts/cold_start.env` 中设置
+`UNIFIED_BACKEND_PYTHON=/path/to/python`。
+
 ## 3. Python：uv（AiVision 用）
 
 ```bash
@@ -126,7 +135,8 @@ scp <老机器>:/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml \
 
 ## 6.5 AUTH_SECRET 管理
 
-`guard_room` 和 `aivision` 共用一个 JWT 签名密钥 `AUTH_SECRET`，由冷启动脚本统一管理：
+`unified_backend`、`guard_room` 和 `aivision` 共用一个 JWT 签名密钥
+`AUTH_SECRET`，由冷启动脚本统一管理：
 
 | 项 | 说明 |
 |---|------|
@@ -134,7 +144,7 @@ scp <老机器>:/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml \
 | 文件权限 | `-rw-------`（600，仅 owner 可读） |
 | 密钥长度 | 64 字符 hex（32 字节熵） |
 | 生成方式 | `openssl rand -hex 32`，缺则降级为 `python3 secrets.token_hex(32)` 或 `/dev/urandom` |
-| 注入范围 | 仅 `guard_room` 和 `aivision` 两个 tmux 会话；前端和 VLM 不注入 |
+| 注入范围 | `unified_backend`、`guard_room` 和 `aivision` 三个 tmux 会话；前端和 VLM 不注入 |
 | 注入方式 | tmux ≥ 3.2 用 `new -e KEY=VAL`，否则降级为 `export` prepend；自动判定 |
 
 ### 首次启动
@@ -182,6 +192,9 @@ bash scripts/cold_start.sh    # 会再次弹出确认提示
 ### 验证注入是否正确
 
 ```bash
+# unified_backend 应有
+tmux show-environment -t unified_backend AUTH_SECRET
+
 # guard_room 应有
 tmux show-environment -t guard_room AUTH_SECRET
 
@@ -232,9 +245,10 @@ bash scripts/cold_start.sh --force   # 全部重启
 
 | 服务 | Health URL | 判定规则 | 就绪条件 |
 |------|-----------|---------|---------|
-| guard_room | `GET /api/health` | `json:ready=true` | runtime 运行中且无错误 |
+| guard_room（5001） | `GET /api/health` | `json:ready=true` | runtime 运行中且无错误 |
 | aivision | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
 | security_vlm | `GET /health` | `json:running=true` | 服务主循环已启动 |
+| unified_backend（5000） | `GET /api/health` | `json:status=ok` | 统一 API 服务已启动 |
 | unified_frontend | `GET /` | `http2xx` | HTTP 200 即可 |
 
 ### 三种启动状态

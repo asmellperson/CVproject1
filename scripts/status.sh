@@ -2,7 +2,7 @@
 # =============================================================================
 # 福达视觉平台 - 服务状态查询脚本
 # -----------------------------------------------------------------------------
-# 作用：查询 4 个子服务的 tmux 会话状态、端口监听、health 就绪状态、PID。
+# 作用：查询 5 个子服务的 tmux 会话状态、端口监听、health 就绪状态、PID。
 # 用法：bash scripts/cold_status.sh
 # 只读：不修改任何状态。
 # =============================================================================
@@ -15,9 +15,10 @@ set -u
 #   json:KEY=VAL    JSON 响应中 KEY 字段等于 VAL
 #   skip            不做 health 探测
 SERVICES=(
-  "guard_room|5000|http://127.0.0.1:5000/api/health|json:ready=true"
+  "guard_room|5001|http://127.0.0.1:5001/api/health|json:ready=true"
   "aivision|7862|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
   "security_vlm|8000|http://127.0.0.1:8000/health|json:running=true"
+  "unified_backend|5000|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|3000|http://127.0.0.1:3000/|http2xx"
 )
 

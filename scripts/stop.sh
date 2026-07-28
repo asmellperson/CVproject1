@@ -2,9 +2,9 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：kill 4 个子服务的 tmux 会话。
+# 作用：kill 5 个子服务的 tmux 会话。
 # 用法：
-#   bash scripts/cold_stop.sh            # 关停全部 4 个
+#   bash scripts/cold_stop.sh            # 关停全部 5 个
 #   bash scripts/cold_stop.sh -y         # 跳过确认，直接关停
 # 注意：这是破坏性操作，会让线上服务下线。
 #
@@ -16,7 +16,7 @@
 
 set -u
 
-SERVICES=(unified_frontend security_vlm aivision guard_room)
+SERVICES=(unified_frontend unified_backend security_vlm aivision guard_room)
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
