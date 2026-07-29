@@ -447,15 +447,14 @@ def _validate_manifest(manifest: list[dict]) -> None:
         relative_path = entry.get("path")
         digest = entry.get("sha256")
         size = entry.get("size")
-        if (
-            scope not in {"data", "results"}
-            or not isinstance(relative_path, str)
-            or not isinstance(digest, str)
-            or len(digest) != 64
-            or not isinstance(size, int)
-            or size < 0
-        ):
-            raise RuntimeError("事业部迁移记录格式无效")
+        if not isinstance(scope, str) or scope not in {"data", "results"}:
+            raise RuntimeError("事业部迁移记录格式无效: scope 无效")
+        if not isinstance(relative_path, str):
+            raise RuntimeError("事业部迁移记录格式无效: path 必须是字符串")
+        if not isinstance(digest, str) or len(digest) != 64:
+            raise RuntimeError("事业部迁移记录格式无效: sha256 无效")
+        if type(size) is not int or size < 0:
+            raise RuntimeError("事业部迁移记录格式无效: size 无效")
         relative = PurePosixPath(relative_path)
         if (
             relative.is_absolute()

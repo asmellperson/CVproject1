@@ -480,6 +480,24 @@ def test_marker_rejects_non_string_camera_id_with_runtime_error(tmp_path):
         _migrate(manager, source)
 
 
+@pytest.mark.parametrize("invalid_scope", [[], {}])
+def test_marker_rejects_non_string_manifest_scope_with_runtime_error(
+    tmp_path,
+    invalid_scope,
+):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    marker_path = general.data_dir / ".migration-v2.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["files"][0]["scope"] = invalid_scope
+    _write_json(marker_path, marker)
+
+    with pytest.raises(RuntimeError, match="scope"):
+        _migrate(manager, source)
+
+
 @pytest.mark.parametrize("failure_index", range(6))
 def test_migration_resumes_after_each_target_replace_failure(
     tmp_path,
