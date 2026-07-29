@@ -80,17 +80,30 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "detect_phone",
     },
     "electronics_electrician": {
+        "security_vlm_non_compliant",
+        "security_vlm_error",
         "guard_absent",
         "guard_phone_use",
         "guard_prone_sleep",
     },
     "electrical_components": {
+        "security_vlm_non_compliant",
+        "security_vlm_error",
         "detect_logistics_single_person_electrical_components",
     },
     "precious_metal_recycling": {
+        "security_vlm_non_compliant",
+        "security_vlm_error",
         "detect_logistics_single_person_precious_metal_recycling",
     },
 }
+
+SECURITY_VLM_DEPARTMENTS = (
+    "general_electric",
+    "electronics_electrician",
+    "electrical_components",
+    "precious_metal_recycling",
+)
 
 DEPARTMENT_ALIASES = {
     "ge": "general_electric",
@@ -284,20 +297,24 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_security_vlm_alarm(item: dict[str, Any]) -> dict[str, Any] | None:
+def _normalize_security_vlm_alarm(
+    item: dict[str, Any],
+    department: str,
+) -> dict[str, Any] | None:
     status = str(item.get("status") or "")
     if status not in {"non_compliant", "error"}:
         return None
     source_id = str(item.get("session_id") or f"{item.get('roi_name') or 'security_vlm'}:{item.get('time') or int(_now())}")
     event_type = "security_vlm_error" if status == "error" else "security_vlm_non_compliant"
     return {
-        "id": f"security_vlm:{source_id}",
+        "id": f"security_vlm:{department}:{source_id}",
         "source": "security_vlm",
         "source_id": source_id,
+        "department": department,
         "event_type": event_type,
         "event_label": "安检判定错误" if status == "error" else "安检流程不规范",
-        "camera_no": item.get("roi_name") or "security_vlm",
-        "camera_name": item.get("roi_name") or "安检流程规范检测",
+        "camera_no": item.get("camera_id") or item.get("roi_name") or "security_vlm",
+        "camera_name": item.get("camera_name") or item.get("roi_name") or "安检流程规范检测",
         "reason": item.get("error") or item.get("reason") or "安检流程规范检测判定异常",
         "confidence": 1,
         "created_at": item.get("time"),
@@ -339,6 +356,18 @@ def _can_mutate_security_vlm(user: dict[str, Any], method: str) -> bool:
     return str(user.get("role") or "").strip().lower() == "admin"
 
 
+def _security_vlm_departments_for_user(
+    user: dict[str, Any],
+) -> list[str]:
+    role = str(user.get("role") or "").strip().lower()
+    department = _normalize_department(user.get("department"))
+    if role == "admin" or department == "all":
+        return list(SECURITY_VLM_DEPARTMENTS)
+    if role == "viewer" and department in SECURITY_VLM_DEPARTMENTS:
+        return [department]
+    return []
+
+
 def _can_access_security_vlm(
     user: dict[str, Any],
     method: str,
@@ -346,13 +375,25 @@ def _can_access_security_vlm(
 ) -> bool:
     role = str(user.get("role") or "").strip().lower()
     normalized_path = str(path).rstrip("/")
-    credentials_path = (
-        normalized_path.startswith("/security-vlm/api/cameras/")
-        and normalized_path.endswith("/credentials")
-    )
-    if credentials_path:
+    if normalized_path.endswith("/credentials"):
         return role == "admin"
-    return _can_mutate_security_vlm(user, method)
+    if not _can_mutate_security_vlm(user, method):
+        return False
+    if role == "admin":
+        return True
+    if role != "viewer":
+        return False
+
+    department = _normalize_department(user.get("department"))
+    if department == "all":
+        return True
+    prefix = "/security-vlm/api/departments/"
+    if normalized_path.startswith(prefix):
+        requested = normalized_path[len(prefix):].split("/", 1)[0]
+        return requested == department and requested in SECURITY_VLM_DEPARTMENTS
+
+    # 旧接口只代表通用电气，保留通用电气 viewer 的只读兼容。
+    return department == "general_electric"
 
 
 def _parse_event_types(raw: str | None) -> set[str] | None:
@@ -417,12 +458,21 @@ def _collect_alarms(
             guard_payload = _get_upstream_json(guard_room_url, f"/api/alarms?limit={upstream_limit}", request)
             alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
 
-    vlm_payload = _get_upstream_json(security_vlm_url, f"/api/history?limit={upstream_limit}", request)
-    if isinstance(vlm_payload, dict):
-        for item in _items_from_payload(vlm_payload.get("history")):
-            alarm = _normalize_security_vlm_alarm(item)
-            if alarm:
-                alarms.append(alarm)
+    for department in _security_vlm_departments_for_user(user):
+        vlm_path = (
+            f"/api/departments/{department}/history"
+            f"?limit={upstream_limit}"
+        )
+        vlm_payload = _get_upstream_json(
+            security_vlm_url,
+            vlm_path,
+            request,
+        )
+        if isinstance(vlm_payload, dict):
+            for item in _items_from_payload(vlm_payload.get("history")):
+                alarm = _normalize_security_vlm_alarm(item, department)
+                if alarm:
+                    alarms.append(alarm)
 
     disposition_map = {
         str(item.get("alarm_id")): item

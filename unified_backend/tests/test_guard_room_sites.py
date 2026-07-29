@@ -10,6 +10,8 @@ from unified_backend.app import (
     _guard_alarm_paths,
     _guard_site_runtime_summary,
     _normalize_guard_alarm,
+    _normalize_security_vlm_alarm,
+    _security_vlm_departments_for_user,
 )
 
 
@@ -24,9 +26,12 @@ def test_security_vlm_viewer_can_read_but_cannot_mutate():
 
 
 def test_security_vlm_credentials_are_admin_only():
-    viewer = {"role": "viewer"}
+    viewer = {"role": "viewer", "department": "electronics_electrician"}
     admin = {"role": "admin"}
-    path = "/security-vlm/api/cameras/camera-a/credentials"
+    path = (
+        "/security-vlm/api/departments/electronics_electrician/"
+        "cameras/camera-a/credentials"
+    )
 
     assert _can_access_security_vlm(viewer, "GET", path) is False
     assert _can_access_security_vlm(viewer, "GET", f"{path}/") is False
@@ -34,8 +39,61 @@ def test_security_vlm_credentials_are_admin_only():
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/cameras",
+        "/security-vlm/api/departments/electronics_electrician/cameras",
     ) is True
+
+
+def test_security_vlm_viewer_can_only_read_own_department():
+    viewer = {"role": "viewer", "department": "electronics_electrician"}
+
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/departments/electronics_electrician/history",
+    ) is True
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/departments/electrical_components/history",
+    ) is False
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/history",
+    ) is False
+    assert _can_access_security_vlm(
+        viewer,
+        "POST",
+        "/security-vlm/api/departments/electronics_electrician/cameras",
+    ) is False
+
+
+def test_security_vlm_alarm_sources_are_department_scoped():
+    viewer = {"role": "viewer", "department": "electrical_components"}
+    admin = {"role": "admin", "department": "all"}
+
+    assert _security_vlm_departments_for_user(viewer) == [
+        "electrical_components"
+    ]
+    assert _security_vlm_departments_for_user(admin) == [
+        "general_electric",
+        "electronics_electrician",
+        "electrical_components",
+        "precious_metal_recycling",
+    ]
+    alarm = _normalize_security_vlm_alarm(
+        {
+            "session_id": "same-session",
+            "status": "non_compliant",
+            "camera_id": "same-camera",
+        },
+        "electrical_components",
+    )
+    assert alarm is not None
+    assert alarm["id"] == (
+        "security_vlm:electrical_components:same-session"
+    )
+    assert alarm["department"] == "electrical_components"
 
 
 def test_count_guard_site_cameras_counts_nested_site_cameras():

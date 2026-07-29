@@ -1,8 +1,13 @@
 import { Pause } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { securityVlmCameraVideoUrl, type SecurityVlmCamera } from '@/lib/security-vlm'
+import {
+  securityVlmCameraVideoUrl,
+  type SecurityVlmCamera,
+  type SecurityVlmDepartment,
+} from '@/lib/security-vlm'
 
 type Props = {
+  department: SecurityVlmDepartment
   cameras: SecurityVlmCamera[]
   cameraId?: string
   kind?: 'original' | 'rule'
@@ -13,6 +18,7 @@ type Props = {
 }
 
 export function SecurityVideoPanel({
+  department,
   cameras,
   cameraId,
   kind = 'rule',
@@ -45,7 +51,12 @@ export function SecurityVideoPanel({
         {camera?.running ? (
           <img
             ref={imageRef}
-            src={securityVlmCameraVideoUrl(camera.camera_id, kind, nonce)}
+            src={securityVlmCameraVideoUrl(
+              department,
+              camera.camera_id,
+              kind,
+              nonce,
+            )}
             alt={`${camera.name}实时画面`}
             className="h-full w-full select-none object-contain"
             draggable={false}

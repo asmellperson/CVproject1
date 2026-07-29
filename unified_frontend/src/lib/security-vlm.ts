@@ -46,6 +46,15 @@ const securityVlmPut = <T>(path: string, body?: unknown, init?: RequestInit) =>
 const securityVlmDelete = <T>(path: string, init?: RequestInit) =>
   securityVlmRequest<T>('DELETE', path, undefined, init)
 
+export type SecurityVlmDepartment =
+  | 'general_electric'
+  | 'electronics_electrician'
+  | 'electrical_components'
+  | 'precious_metal_recycling'
+
+const departmentApi = (department: SecurityVlmDepartment) =>
+  `/api/departments/${encodeURIComponent(department)}`
+
 export type SecurityVlmWorkerStatus = {
   ok?: boolean
   width?: number
@@ -141,70 +150,106 @@ export type SecurityVlmControlResponse = {
   results?: Record<string, SecurityVlmControlResponse>
 }
 
-export const getSecurityVlmHealth = () => securityVlmGet<SecurityVlmHealth>('/health')
+export const getSecurityVlmHealth = (department: SecurityVlmDepartment) =>
+  securityVlmGet<SecurityVlmHealth>(`${departmentApi(department)}/health`)
 
-export const getSecurityVlmHistory = (limit = 100, cameraId?: string) => {
+export const getSecurityVlmHistory = (
+  department: SecurityVlmDepartment,
+  limit = 100,
+  cameraId?: string,
+) => {
   const query = new URLSearchParams({ limit: String(limit) })
   if (cameraId) query.set('camera_id', cameraId)
-  return securityVlmGet<{ date?: string; stats?: SecurityVlmStats; history?: SecurityVlmHistoryItem[] }>(`/api/history?${query}`)
+  return securityVlmGet<{ date?: string; stats?: SecurityVlmStats; history?: SecurityVlmHistoryItem[] }>(
+    `${departmentApi(department)}/history?${query}`,
+  )
 }
 
-export const getSecurityVlmCameras = () =>
-  securityVlmGet<{ cameras: SecurityVlmCamera[] }>('/api/cameras')
-
-export const getSecurityVlmCameraCredentials = (cameraId: string) =>
-  securityVlmGet<{ camera: SecurityVlmCameraCredentials }>(
-    `/api/cameras/${encodeURIComponent(cameraId)}/credentials`,
+export const getSecurityVlmCameras = (department: SecurityVlmDepartment) =>
+  securityVlmGet<{ cameras: SecurityVlmCamera[] }>(
+    `${departmentApi(department)}/cameras`,
   )
 
-export const createSecurityVlmCamera = (name: string, rtspUrl: string) =>
-  securityVlmPost<{ ok: boolean; camera: SecurityVlmCamera }>('/api/cameras', {
-    name,
-    rtsp_url: rtspUrl,
-  })
+export const getSecurityVlmCameraCredentials = (
+  department: SecurityVlmDepartment,
+  cameraId: string,
+) =>
+  securityVlmGet<{ camera: SecurityVlmCameraCredentials }>(
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/credentials`,
+  )
 
-export const updateSecurityVlmCamera = (cameraId: string, name: string, rtspUrl: string) =>
-  securityVlmPut<{ ok: boolean; camera: SecurityVlmCamera }>(
-    `/api/cameras/${encodeURIComponent(cameraId)}`,
+export const createSecurityVlmCamera = (
+  department: SecurityVlmDepartment,
+  name: string,
+  rtspUrl: string,
+) =>
+  securityVlmPost<{ ok: boolean; camera: SecurityVlmCamera }>(
+    `${departmentApi(department)}/cameras`,
     { name, rtsp_url: rtspUrl },
   )
 
-export const deleteSecurityVlmCamera = (cameraId: string) =>
-  securityVlmDelete<{ ok: boolean; camera: SecurityVlmCamera }>(
-    `/api/cameras/${encodeURIComponent(cameraId)}`,
+export const updateSecurityVlmCamera = (
+  department: SecurityVlmDepartment,
+  cameraId: string,
+  name: string,
+  rtspUrl: string,
+) =>
+  securityVlmPut<{ ok: boolean; camera: SecurityVlmCamera }>(
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}`,
+    { name, rtsp_url: rtspUrl },
   )
 
-export const testSecurityVlmCamera = (rtspUrl: string) =>
+export const deleteSecurityVlmCamera = (
+  department: SecurityVlmDepartment,
+  cameraId: string,
+) =>
+  securityVlmDelete<{ ok: boolean; camera: SecurityVlmCamera }>(
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}`,
+  )
+
+export const testSecurityVlmCamera = (
+  department: SecurityVlmDepartment,
+  rtspUrl: string,
+) =>
   securityVlmPost<{ ok: boolean; codec_name: string; width: number; height: number }>(
-    '/api/cameras/test',
+    `${departmentApi(department)}/cameras/test`,
     { rtsp_url: rtspUrl },
   )
 
 export const controlSecurityVlmCamera = (
+  department: SecurityVlmDepartment,
   cameraId: string,
   action: 'start' | 'stop' | 'restart',
 ) =>
   securityVlmPost<SecurityVlmControlResponse>(
-    `/api/cameras/${encodeURIComponent(cameraId)}/control/${action}`,
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/control/${action}`,
   )
 
-export const startAllSecurityVlmCameras = () =>
-  securityVlmPost<SecurityVlmControlResponse>('/api/cameras/control/start-all')
+export const startAllSecurityVlmCameras = (department: SecurityVlmDepartment) =>
+  securityVlmPost<SecurityVlmControlResponse>(
+    `${departmentApi(department)}/cameras/control/start-all`,
+  )
 
-export const stopAllSecurityVlmCameras = () =>
-  securityVlmPost<SecurityVlmControlResponse>('/api/cameras/control/stop-all')
+export const stopAllSecurityVlmCameras = (department: SecurityVlmDepartment) =>
+  securityVlmPost<SecurityVlmControlResponse>(
+    `${departmentApi(department)}/cameras/control/stop-all`,
+  )
 
-export const getSecurityVlmCameraRois = (cameraId: string) =>
+export const getSecurityVlmCameraRois = (
+  department: SecurityVlmDepartment,
+  cameraId: string,
+) =>
   securityVlmGet<SecurityVlmRoisResponse>(
-    `/api/cameras/${encodeURIComponent(cameraId)}/rois`,
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/rois`,
   )
 
 export const saveSecurityVlmCameraRois = (
+  department: SecurityVlmDepartment,
   cameraId: string,
   staffRois: Record<string, SecurityVlmRoiPolygon>,
 ) =>
   securityVlmPost<SecurityVlmRoisResponse>(
-    `/api/cameras/${encodeURIComponent(cameraId)}/rois`,
+    `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/rois`,
     { staff_rois: staffRois },
   )
 
@@ -225,8 +270,9 @@ export const securityVlmVideoUrl = (kind: 'original' | 'rule', nonce?: number) =
   `/security-vlm/video/${kind}${nonce ? `?t=${nonce}` : ''}`
 
 export const securityVlmCameraVideoUrl = (
+  department: SecurityVlmDepartment,
   cameraId: string,
   kind: 'original' | 'rule',
   nonce?: number,
 ) =>
-  `/security-vlm/video/${encodeURIComponent(cameraId)}/${kind}${nonce ? `?t=${nonce}` : ''}`
+  `/security-vlm${departmentApi(department)}/video/${encodeURIComponent(cameraId)}/${kind}${nonce ? `?t=${nonce}` : ''}`

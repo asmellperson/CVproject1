@@ -7,6 +7,10 @@ export type PageId =
   | 'overview'
   | 'home'
   | 'security-vlm'
+  | 'security-vlm-general-electric'
+  | 'security-vlm-electronics-electrician'
+  | 'security-vlm-electrical-components'
+  | 'security-vlm-precious-metal-recycling'
   | 'guard-behavior'
   | 'guard-behavior-general-electric'
   | 'guard-behavior-electronics-electrician'
@@ -35,7 +39,7 @@ type DepartmentPermission = {
 
 export const departmentPermissions: Record<Exclude<Department, 'all'>, DepartmentPermission> = {
   general_electric: {
-    pages: ['overview', 'security-vlm', 'guard-behavior-general-electric', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-general-electric', 'guard-behavior-general-electric', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-general-electric': {
         label: '保安行为规范检测',
@@ -60,7 +64,7 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electronics_electrician: {
-    pages: ['overview', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-electronics-electrician': {
         label: '保安行为规范检测',
@@ -75,7 +79,7 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electrical_components: {
-    pages: ['overview', 'logistics-single-person-electrical-components-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electrical-components', 'logistics-single-person-electrical-components-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'logistics-single-person-electrical-components-detection': {
         label: '物流通道单人检测',
@@ -85,7 +89,7 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   precious_metal_recycling: {
-    pages: ['overview', 'logistics-single-person-precious-metal-recycling-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-precious-metal-recycling', 'logistics-single-person-precious-metal-recycling-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'logistics-single-person-precious-metal-recycling-detection': {
         label: '物流通道单人检测',
@@ -98,6 +102,10 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
 
 export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'security-vlm': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'security-vlm-general-electric': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'security-vlm-electronics-electrician': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'security-vlm-electrical-components': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'security-vlm-precious-metal-recycling': ['security_vlm_non_compliant', 'security_vlm_error'],
   'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
   'guard-behavior-general-electric': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
   'guard-behavior-electronics-electrician': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
@@ -151,6 +159,10 @@ const pageIds = new Set<string>([
   'overview',
   'home',
   'security-vlm',
+  'security-vlm-general-electric',
+  'security-vlm-electronics-electrician',
+  'security-vlm-electrical-components',
+  'security-vlm-precious-metal-recycling',
   'guard-behavior',
   'guard-behavior-general-electric',
   'guard-behavior-electronics-electrician',

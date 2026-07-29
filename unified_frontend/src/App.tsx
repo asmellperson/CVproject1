@@ -116,7 +116,14 @@ function App() {
       case 'phone-detection':
         return <PhoneDetectionSection />
       case 'security-vlm':
-        return <SecurityVlmSection />
+      case 'security-vlm-general-electric':
+        return <SecurityVlmSection department="general_electric" />
+      case 'security-vlm-electronics-electrician':
+        return <SecurityVlmSection department="electronics_electrician" />
+      case 'security-vlm-electrical-components':
+        return <SecurityVlmSection department="electrical_components" />
+      case 'security-vlm-precious-metal-recycling':
+        return <SecurityVlmSection department="precious_metal_recycling" />
       case 'alarms':
         return <AlarmsSection initialAlarmId={initialAlarmId} />
       case 'statistics':

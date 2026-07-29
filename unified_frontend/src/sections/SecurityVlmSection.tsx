@@ -51,6 +51,7 @@ import {
   testSecurityVlmCamera,
   updateSecurityVlmCamera,
   type SecurityVlmCamera,
+  type SecurityVlmDepartment,
   type SecurityVlmHealth,
   type SecurityVlmHistoryItem,
   type SecurityVlmRoiMap,
@@ -61,6 +62,7 @@ import {
 import { useAuth } from '@/auth/useAuth'
 
 const POLL_MS = 2000
+const DRAG_THRESHOLD_PX = 8
 const ROI_COLORS = ['#2563eb', '#059669', '#d97706', '#db2777', '#7c3aed', '#0891b2']
 
 type RoiDraftRect = {
@@ -152,7 +154,18 @@ function formatRoi(points: SecurityVlmRoiPolygon) {
   return points.map(([x, y]) => `(${x}, ${y})`).join(', ')
 }
 
-export function SecurityVlmSection() {
+const DEPARTMENT_LABELS: Record<SecurityVlmDepartment, string> = {
+  general_electric: '通用电气事业部',
+  electronics_electrician: '电子电工事业部',
+  electrical_components: '电气部件事业部',
+  precious_metal_recycling: '贵金属回收事业部',
+}
+
+export function SecurityVlmSection({
+  department,
+}: {
+  department: SecurityVlmDepartment
+}) {
   const { isAdmin } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [health, setHealth] = useState<SecurityVlmHealth | null>(null)
@@ -174,6 +187,7 @@ export function SecurityVlmSection() {
   const [savingRoi, setSavingRoi] = useState(false)
   const [draftRect, setDraftRect] = useState<RoiDraftRect | null>(null)
   const [drawing, setDrawing] = useState(false)
+  const [dragPointIndex, setDragPointIndex] = useState<number | null>(null)
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
   const startPointRef = useRef<{ rx: number; ry: number; ix: number; iy: number } | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -191,14 +205,15 @@ export function SecurityVlmSection() {
   const activeVideoUrl = useMemo(() => {
     if (!selectedCameraId) return ''
     return securityVlmCameraVideoUrl(
+      department,
       selectedCameraId,
       activeTab === 'roi' ? 'original' : 'rule',
       videoNonce,
     )
-  }, [activeTab, selectedCameraId, videoNonce])
+  }, [activeTab, department, selectedCameraId, videoNonce])
 
   const loadHealth = async () => {
-    const next = await getSecurityVlmHealth()
+    const next = await getSecurityVlmHealth(department)
     setHealth(next)
     const nextCameras = next.cameras || []
     setSelectedCameraId((previous) => (
@@ -222,11 +237,11 @@ export function SecurityVlmSection() {
     setControlMessage(action === 'stop' ? '正在关闭全部检测...' : '正在开启全部检测...')
     try {
       if (action === 'stop') {
-        await stopAllSecurityVlmCameras()
+        await stopAllSecurityVlmCameras(department)
         setVideoNonce(Date.now())
         setControlMessage('全部检测已关闭，VLM 不会继续产生新的调用费用。')
       } else {
-        await startAllSecurityVlmCameras()
+        await startAllSecurityVlmCameras(department)
         setVideoNonce(Date.now())
         setControlMessage('已提交全部摄像头启动。')
       }
@@ -243,7 +258,7 @@ export function SecurityVlmSection() {
 
     const load = async () => {
       try {
-        const next = await getSecurityVlmHealth()
+        const next = await getSecurityVlmHealth(department)
         if (mounted) {
           setHealth(next)
           const nextCameras = next.cameras || []
@@ -275,11 +290,11 @@ export function SecurityVlmSection() {
       mounted = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [department])
 
   useEffect(() => {
     if (activeTab !== 'roi' || !selectedCameraId) return
-    getSecurityVlmCameraRois(selectedCameraId)
+    getSecurityVlmCameraRois(department, selectedCameraId)
       .then((data) => {
         const names = data.available_slots?.length
           ? data.available_slots
@@ -293,7 +308,7 @@ export function SecurityVlmSection() {
       .catch((error) => {
         setRoiMessage(`ROI 读取失败：${error instanceof Error ? error.message : String(error)}`)
       })
-  }, [activeTab, selectedCameraId])
+  }, [activeTab, department, selectedCameraId])
 
   useEffect(() => {
     const onResize = () => {
@@ -340,6 +355,10 @@ export function SecurityVlmSection() {
   }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isAdmin) {
+      setRoiMessage('当前账号为 viewer，只能查看 ROI。')
+      return
+    }
     if (!currentRoi) {
       setRoiMessage('请先新增或选择一个 ROI。')
       return
@@ -349,6 +368,19 @@ export function SecurityVlmSection() {
     event.currentTarget.setPointerCapture(event.pointerId)
     startPointRef.current = point
     setDrawing(true)
+    const metrics = imageMetrics()
+    const activePoints = rois[currentRoi] || []
+    const nearestIndex = metrics
+      ? activePoints.findIndex(([x, y]) => Math.hypot(
+        metrics.left + (x / metrics.sourceWidth) * metrics.width - point.rx,
+        metrics.top + (y / metrics.sourceHeight) * metrics.height - point.ry,
+      ) <= 10)
+      : -1
+    if (nearestIndex >= 0) {
+      setDragPointIndex(nearestIndex)
+      setDraftRect(null)
+      return
+    }
     setDraftRect({
       left: point.rx,
       top: point.ry,
@@ -365,6 +397,17 @@ export function SecurityVlmSection() {
     if (!drawing || !startPointRef.current) return
     const point = toImagePoint(event.clientX, event.clientY)
     if (!point) return
+    if (dragPointIndex !== null && currentRoi) {
+      setRois((prev) => ({
+        ...prev,
+        [currentRoi]: (prev[currentRoi] || []).map((existing, index) => (
+          index === dragPointIndex
+            ? [Math.round(point.ix), Math.round(point.iy)]
+            : existing
+        )),
+      }))
+      return
+    }
     const start = startPointRef.current
     setDraftRect({
       left: Math.min(start.rx, point.rx),
@@ -379,19 +422,44 @@ export function SecurityVlmSection() {
   }
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawing || !draftRect || !currentRoi) return
+    if (!drawing || !currentRoi) return
     event.currentTarget.releasePointerCapture(event.pointerId)
     setDrawing(false)
+    if (dragPointIndex !== null) {
+      setDragPointIndex(null)
+      setDraftRect(null)
+      startPointRef.current = null
+      setRoiMessage('顶点位置已调整。')
+      return
+    }
+    if (!draftRect) return
 
-    const x1 = Math.min(draftRect.sx, draftRect.ex)
-    const y1 = Math.min(draftRect.sy, draftRect.ey)
-    const x2 = Math.max(draftRect.sx, draftRect.ex)
-    const y2 = Math.max(draftRect.sy, draftRect.ey)
-    if (Math.abs(x2 - x1) >= 4 && Math.abs(y2 - y1) >= 4) {
+    const start = startPointRef.current
+    const end = toImagePoint(event.clientX, event.clientY)
+    if (start && end && Math.hypot(
+      end.rx - start.rx,
+      end.ry - start.ry,
+    ) >= DRAG_THRESHOLD_PX) {
       setRois((prev) => ({
         ...prev,
-        [currentRoi]: rectangleToPolygon([x1, y1, x2, y2]),
+        [currentRoi]: rectangleToPolygon([
+          start.ix,
+          start.iy,
+          end.ix,
+          end.iy,
+        ]),
       }))
+      setRoiMessage('已拖拽生成区域；继续拖拽可重新绘制。')
+    } else if (start) {
+      const point: SecurityVlmRoiPoint = [
+        Math.round(start.ix),
+        Math.round(start.iy),
+      ]
+      setRois((prev) => ({
+        ...prev,
+        [currentRoi]: [...(prev[currentRoi] || []), point],
+      }))
+      setRoiMessage('已添加顶点；至少点击 3 个点后可保存。')
     }
     setDraftRect(null)
     startPointRef.current = null
@@ -401,7 +469,7 @@ export function SecurityVlmSection() {
     const name = nextRoiName(slotNames)
     setSlotNames((prev) => [...prev, name])
     setCurrentRoi(name)
-    setRoiMessage(`已新增 ${name}，请在画面中拖拽绘制区域。`)
+    setRoiMessage(`已新增 ${name}，可点击添加顶点，也可拖拽绘制区域。`)
   }
 
   const handleDeleteRoi = () => {
@@ -426,9 +494,20 @@ export function SecurityVlmSection() {
       setRoiMessage('请先选择摄像头。')
       return
     }
+    const incomplete = slotNames.find(
+      (name) => !rois[name] || rois[name].length < 3,
+    )
+    if (incomplete) {
+      setRoiMessage(`${incomplete} 至少需要 3 个顶点。`)
+      return
+    }
     setSavingRoi(true)
     try {
-      const data = await saveSecurityVlmCameraRois(selectedCameraId, rois)
+      const data = await saveSecurityVlmCameraRois(
+        department,
+        selectedCameraId,
+        rois,
+      )
       const names = data.available_slots?.length ? data.available_slots : Object.keys(data.staff_rois || {})
       setRois(normalizeRois(data.staff_rois))
       setSlotNames(names)
@@ -447,7 +526,11 @@ export function SecurityVlmSection() {
     setBusyCameraId(camera.camera_id)
     setControlMessage(`${shouldStop ? '正在关闭' : '正在开启'} ${camera.name}...`)
     try {
-      await controlSecurityVlmCamera(camera.camera_id, shouldStop ? 'stop' : 'start')
+      await controlSecurityVlmCamera(
+        department,
+        camera.camera_id,
+        shouldStop ? 'stop' : 'start',
+      )
       setVideoNonce(Date.now())
       await loadHealth()
       setControlMessage(`${camera.name} 已${shouldStop ? '关闭' : '开启'}。`)
@@ -463,7 +546,11 @@ export function SecurityVlmSection() {
     setBusyCameraId(camera.camera_id)
     setControlMessage(`正在重启 ${camera.name}...`)
     try {
-      await controlSecurityVlmCamera(camera.camera_id, 'restart')
+      await controlSecurityVlmCamera(
+        department,
+        camera.camera_id,
+        'restart',
+      )
       setVideoNonce(Date.now())
       await loadHealth()
       setControlMessage(`${camera.name} 已重启。`)
@@ -484,7 +571,10 @@ export function SecurityVlmSection() {
 
     setBusyCameraId(camera.camera_id)
     try {
-      const details = await getSecurityVlmCameraCredentials(camera.camera_id)
+      const details = await getSecurityVlmCameraCredentials(
+        department,
+        camera.camera_id,
+      )
       setEditingCamera({ ...camera, ...details.camera })
       setCameraDialogKey((value) => value + 1)
       setCameraDialogOpen(true)
@@ -504,9 +594,14 @@ export function SecurityVlmSection() {
 
   const saveCamera = async (name: string, rtspUrl: string) => {
     if (editingCamera) {
-      await updateSecurityVlmCamera(editingCamera.camera_id, name, rtspUrl)
+      await updateSecurityVlmCamera(
+        department,
+        editingCamera.camera_id,
+        name,
+        rtspUrl,
+      )
     } else {
-      await createSecurityVlmCamera(name, rtspUrl)
+      await createSecurityVlmCamera(department, name, rtspUrl)
     }
     await loadHealth()
     closeCameraDialog()
@@ -514,7 +609,7 @@ export function SecurityVlmSection() {
 
   const deleteCamera = async () => {
     if (!editingCamera) return
-    await deleteSecurityVlmCamera(editingCamera.camera_id)
+    await deleteSecurityVlmCamera(department, editingCamera.camera_id)
     await loadHealth()
     closeCameraDialog()
   }
@@ -525,7 +620,7 @@ export function SecurityVlmSection() {
 
     const polygons = slotNames.flatMap((name, index) => {
       const roi = rois[name]
-      if (!roi || roi.length < 3) return []
+      if (!roi || roi.length === 0) return []
       const color = ROI_COLORS[index % ROI_COLORS.length]
       const points = roi.map(([x, y]) => [
         metrics.left + (x / metrics.sourceWidth) * metrics.width,
@@ -547,15 +642,38 @@ export function SecurityVlmSection() {
           className="pointer-events-none absolute inset-0 h-full w-full"
         >
           {polygons.map(({ name, color, points }) => (
-            <polygon
-              key={name}
-              points={points.map(([x, y]) => `${x},${y}`).join(' ')}
-              fill={color}
-              fillOpacity={0.2}
-              stroke={color}
-              strokeWidth={currentRoi === name ? 3 : 2}
-              vectorEffect="non-scaling-stroke"
-            />
+            <g key={name}>
+              {points.length >= 3 ? (
+                <polygon
+                  points={points.map(([x, y]) => `${x},${y}`).join(' ')}
+                  fill={color}
+                  fillOpacity={0.2}
+                  stroke={color}
+                  strokeWidth={currentRoi === name ? 3 : 2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : points.length >= 2 ? (
+                <polyline
+                  points={points.map(([x, y]) => `${x},${y}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={3}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
+              {currentRoi === name && points.map(([x, y], index) => (
+                <circle
+                  key={`${name}-${index}`}
+                  cx={x}
+                  cy={y}
+                  r={4}
+                  fill="white"
+                  stroke={color}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+            </g>
           ))}
         </svg>
         {polygons.map(({ name, labelX, labelY }) => (
@@ -587,7 +705,9 @@ export function SecurityVlmSection() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold text-slate-900">安检流程规范检测</h2>
+            <h2 className="text-2xl font-bold text-slate-900">
+              安检流程规范检测 · {DEPARTMENT_LABELS[department]}
+            </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
@@ -668,6 +788,7 @@ export function SecurityVlmSection() {
             <CardContent className="p-3">
               <div className={cn('grid gap-3', dualView && 'lg:grid-cols-2')}>
                 <SecurityVideoPanel
+                  department={department}
                   cameras={cameras}
                   cameraId={selectedCameraId}
                   nonce={videoNonce}
@@ -675,6 +796,7 @@ export function SecurityVlmSection() {
                 />
                 {dualView && (
                   <SecurityVideoPanel
+                    department={department}
                     cameras={cameras}
                     cameraId={secondaryCameraId}
                     nonce={videoNonce}
@@ -703,7 +825,9 @@ export function SecurityVlmSection() {
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg">工位 ROI 绘制</CardTitle>
-                <p className="mt-1 text-sm text-slate-500">拖拽画出安检员与被检人所在工位区域，保存后由后端自动热加载。</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  点击可逐点绘制区域，拖拽可快速绘制四边区域，保存后自动热加载。
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Select value={selectedCameraId} onValueChange={setSelectedCameraId}>
@@ -718,11 +842,11 @@ export function SecurityVlmSection() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" size="sm" className="gap-2" onClick={handleAddRoi}>
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleAddRoi} disabled={!isAdmin}>
                   <Plus className="h-4 w-4" />
                   新增
                 </Button>
-                <Button variant="outline" size="sm" className="gap-2" onClick={handleDeleteRoi} disabled={!currentRoi}>
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleDeleteRoi} disabled={!isAdmin || !currentRoi}>
                   <Trash2 className="h-4 w-4" />
                   删除
                 </Button>
@@ -754,7 +878,9 @@ export function SecurityVlmSection() {
                       onPointerUp={handlePointerUp}
                       onPointerCancel={() => {
                         setDrawing(false)
+                        setDragPointIndex(null)
                         setDraftRect(null)
+                        startPointRef.current = null
                       }}
                     >
                       {renderRoiPolygons()}
@@ -818,7 +944,7 @@ export function SecurityVlmSection() {
           onClose={closeCameraDialog}
           onSave={saveCamera}
           onTest={async (rtspUrl) => {
-            const result = await testSecurityVlmCamera(rtspUrl)
+            const result = await testSecurityVlmCamera(department, rtspUrl)
             return `连接成功：${result.codec_name.toUpperCase()} ${result.width}×${result.height}`
           }}
           onDelete={editingCamera ? deleteCamera : undefined}

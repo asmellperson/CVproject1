@@ -873,7 +873,13 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (ValueError, TypeError, OverflowError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse({"ok": True, "department": department, "camera_id": camera_id, "staff_rois": rois})
+        return JSONResponse({
+            "ok": True,
+            "department": department,
+            "camera_id": camera_id,
+            "staff_rois": rois,
+            "available_slots": list(rois),
+        })
 
     @app.get("/api/departments/{department}/state")
     @app.get("/api/departments/{department}/health")

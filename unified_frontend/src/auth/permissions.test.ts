@@ -28,6 +28,14 @@ if (!departmentPermissions.electronics_electrician.pages.includes('guard-behavio
   throw new Error('expected electronics department permissions to include its guard behavior page')
 }
 
+if (!hasPageAccess(electronicsUser, 'security-vlm-electronics-electrician')) {
+  throw new Error('expected electronics department to access its security VLM page')
+}
+
+if (hasPageAccess(electronicsUser, 'security-vlm-general-electric')) {
+  throw new Error('expected electronics department to be isolated from general electric security VLM page')
+}
+
 if (alarmEventTypesByPage['guard-behavior-electronics-electrician']?.join(',') !== 'guard_absent,guard_phone_use,guard_prone_sleep') {
   throw new Error('expected electronics guard page to map to guard alarm event types')
 }
@@ -56,6 +64,14 @@ if (getUserDepartment(preciousMetalRecyclingUser) !== 'precious_metal_recycling'
 
 if (!hasPageAccess(electricalComponentsUser, 'logistics-single-person-electrical-components-detection')) {
   throw new Error('expected electrical components department to access its logistics single person page')
+}
+
+if (!hasPageAccess(electricalComponentsUser, 'security-vlm-electrical-components')) {
+  throw new Error('expected electrical components department to access its security VLM page')
+}
+
+if (!hasPageAccess(preciousMetalRecyclingUser, 'security-vlm-precious-metal-recycling')) {
+  throw new Error('expected precious metal recycling department to access its security VLM page')
 }
 
 if (!hasPageAccess(preciousMetalRecyclingUser, 'logistics-single-person-precious-metal-recycling-detection')) {

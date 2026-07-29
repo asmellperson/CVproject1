@@ -57,7 +57,37 @@ interface HomeSectionProps {
 
 const moduleEntries = [
   {
-    id: 'security-vlm',
+    id: 'security-vlm-general-electric',
+    title: '安检流程规范检测入口',
+    icon: ShieldAlert,
+    status: '已接入',
+    accent: 'from-cyan-500 to-blue-500',
+    glow: 'shadow-cyan-500/16',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
+  },
+  {
+    id: 'security-vlm-electronics-electrician',
+    title: '安检流程规范检测入口',
+    icon: ShieldAlert,
+    status: '已接入',
+    accent: 'from-cyan-500 to-blue-500',
+    glow: 'shadow-cyan-500/16',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
+  },
+  {
+    id: 'security-vlm-electrical-components',
+    title: '安检流程规范检测入口',
+    icon: ShieldAlert,
+    status: '已接入',
+    accent: 'from-cyan-500 to-blue-500',
+    glow: 'shadow-cyan-500/16',
+    iconColor: 'text-cyan-700',
+    iconBg: 'from-cyan-50 to-blue-100',
+  },
+  {
+    id: 'security-vlm-precious-metal-recycling',
     title: '安检流程规范检测入口',
     icon: ShieldAlert,
     status: '已接入',
@@ -194,7 +224,10 @@ type ModuleStatusSource = {
 }
 
 const moduleStatusSources: Record<string, ModuleStatusSource> = {
-  'security-vlm': { serviceKey: 'security_vlm' },
+  'security-vlm-general-electric': { serviceKey: 'security_vlm' },
+  'security-vlm-electronics-electrician': { serviceKey: 'security_vlm' },
+  'security-vlm-electrical-components': { serviceKey: 'security_vlm' },
+  'security-vlm-precious-metal-recycling': { serviceKey: 'security_vlm' },
   'guard-behavior': { serviceKey: 'guard_room' },
   'guard-behavior-general-electric': { serviceKey: 'guard_room' },
   'guard-behavior-electronics-electrician': { serviceKey: 'guard_room' },
