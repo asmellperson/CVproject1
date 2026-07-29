@@ -1,4 +1,6 @@
 import json
+import multiprocessing
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -7,6 +9,29 @@ try:
     import camera_registry
 except ModuleNotFoundError:
     camera_registry = None
+
+
+def _process_create_cameras(registry_path, start_event, results, prefix):
+    registry = camera_registry.CameraRegistry(registry_path)
+    original_read = registry._read_unlocked
+
+    def slow_read():
+        payload = original_read()
+        time.sleep(0.1)
+        return payload
+
+    registry._read_unlocked = slow_read
+    start_event.wait()
+    for index in range(3):
+        try:
+            registry.create(
+                f"{prefix} {index}",
+                f"rtsp://{prefix.lower()}-{index}/stream",
+            )
+        except ValueError:
+            results.put("full")
+        else:
+            results.put("created")
 
 
 def test_camera_registry_module_exists():
@@ -79,6 +104,69 @@ def test_concurrent_creates_keep_registry_json_valid(tmp_path):
     assert registry_path.stat().st_mode & 0o777 == 0o600
 
 
+def test_two_registry_instances_do_not_lose_concurrent_creates(tmp_path):
+    registry_path = tmp_path / "cameras.json"
+    registries = [
+        camera_registry.CameraRegistry(registry_path),
+        camera_registry.CameraRegistry(registry_path),
+    ]
+    for registry in registries:
+        original_read = registry._read_unlocked
+
+        def slow_read(original_read=original_read):
+            payload = original_read()
+            time.sleep(0.05)
+            return payload
+
+        registry._read_unlocked = slow_read
+
+    def create_pair(item):
+        registry, prefix = item
+        return [
+            registry.create(
+                f"{prefix} {index}",
+                f"rtsp://{prefix.lower()}-{index}/stream",
+            )
+            for index in range(2)
+        ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                create_pair,
+                zip(registries, ("InstanceA", "InstanceB")),
+            )
+        )
+
+    assert sum(len(items) for items in results) == 4
+    assert len(camera_registry.CameraRegistry(registry_path).list()) == 4
+
+
+def test_two_processes_share_capacity_without_lost_creates(tmp_path):
+    registry_path = tmp_path / "cameras.json"
+    context = multiprocessing.get_context("fork")
+    start_event = context.Event()
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_process_create_cameras,
+            args=(registry_path, start_event, results, prefix),
+        )
+        for prefix in ("ProcessA", "ProcessB")
+    ]
+    for process in processes:
+        process.start()
+    start_event.set()
+    outcomes = [results.get(timeout=5) for _index in range(6)]
+    for process in processes:
+        process.join(timeout=5)
+        assert process.exitcode == 0
+
+    assert outcomes.count("created") == 4
+    assert outcomes.count("full") == 2
+    assert len(camera_registry.CameraRegistry(registry_path).list()) == 4
+
+
 def test_registry_rejects_more_than_four_cameras(tmp_path):
     registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
     for index in range(4):
@@ -133,6 +221,31 @@ def test_registry_rejects_malformed_camera_records(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="格式"):
+        camera_registry.CameraRegistry(registry_path).list()
+
+
+@pytest.mark.parametrize("camera_id", [123, "../escape", "camera/id", "camera id"])
+def test_registry_rejects_unsafe_persisted_camera_ids(tmp_path, camera_id):
+    registry_path = tmp_path / "cameras.json"
+    camera = {
+        "camera_id": camera_id,
+        "name": "Camera A",
+        "rtsp_url": "rtsp://camera-a/stream",
+        "created_at": 1.0,
+        "updated_at": 1.0,
+    }
+    registry_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "department": "general_electric",
+                "cameras": [camera],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="camera_id"):
         camera_registry.CameraRegistry(registry_path).list()
 
 

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from camera_registry import CameraRegistry
 from departments import require_department
@@ -17,6 +18,7 @@ from frame_hub import ResultStore
 
 GENERAL_ELECTRIC = "general_electric"
 MIGRATION_MARKER = ".migration-v2.json"
+MIGRATION_JOURNAL = ".migration-v2.in-progress.json"
 PERSISTENT_RUNTIME_FILES = (
     "vlm_state.json",
     "vlm_history.json",
@@ -103,11 +105,13 @@ def migrate_general_electric(
     """把旧全局持久数据一次性迁移到通用电气工作区。"""
     workspace = manager.get(GENERAL_ELECTRIC)
     marker_path = workspace.data_dir / MIGRATION_MARKER
+    journal_path = workspace.data_dir / MIGRATION_JOURNAL
     if marker_path.exists():
-        _validate_migration_marker(marker_path)
+        _validate_completed_migration(marker_path, workspace)
+        journal_path.unlink(missing_ok=True)
         return False
 
-    if workspace.registry.list():
+    if not journal_path.exists() and workspace.registry.list():
         raise RuntimeError("通用电气目标注册表非空，拒绝覆盖未标记数据")
 
     cameras = _load_legacy_cameras(Path(legacy_registry_path))
@@ -116,50 +120,90 @@ def migrate_general_electric(
         "department": GENERAL_ELECTRIC,
         "cameras": cameras,
     }
-    staged_files: list[tuple[Path, Path]] = []
+    staged_files: list[tuple[Path, Path, dict]] = []
     try:
+        registry_target = workspace.registry.path
+        registry_staged = _stage_validated_registry(
+            registry_payload,
+            registry_target,
+        )
         staged_files.append(
             (
-                _stage_validated_registry(
-                    registry_payload,
-                    workspace.registry.path,
+                registry_staged,
+                registry_target,
+                _manifest_entry(
+                    registry_staged,
+                    scope="data",
+                    relative_path="cameras.json",
                 ),
-                workspace.registry.path,
             )
         )
 
         legacy_roi_dir = Path(legacy_roi_dir)
         for camera in cameras:
-            camera_id = str(camera.get("camera_id", ""))
+            try:
+                camera_id = CameraRegistry.validate_camera_id(
+                    camera.get("camera_id")
+                )
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"旧摄像头 camera_id 无效: {camera.get('camera_id')!r}"
+                ) from exc
             roi_name = f"{camera_id}_staff_rois.json"
-            if not camera_id or Path(roi_name).name != roi_name:
-                raise RuntimeError(f"旧摄像头 ID 无效: {camera_id!r}")
             source = legacy_roi_dir / roi_name
             if source.is_file():
                 target = workspace.roi_dir / roi_name
-                staged_files.append((_stage_json_copy(source, target), target))
+                staged = _stage_json_copy(source, target)
+                staged_files.append(
+                    (
+                        staged,
+                        target,
+                        _manifest_entry(
+                            staged,
+                            scope="data",
+                            relative_path=f"rois/{roi_name}",
+                        ),
+                    )
+                )
 
         legacy_runtime_dir = Path(legacy_runtime_dir)
         for name in PERSISTENT_RUNTIME_FILES:
             source = legacy_runtime_dir / name
             if source.is_file():
                 target = workspace.runtime_dir / name
-                staged_files.append((_stage_json_copy(source, target), target))
+                staged = _stage_json_copy(source, target)
+                staged_files.append(
+                    (
+                        staged,
+                        target,
+                        _manifest_entry(
+                            staged,
+                            scope="runtime",
+                            relative_path=name,
+                        ),
+                    )
+                )
 
-        for temp_path, target in staged_files:
-            temp_path.replace(target)
+        manifest = [entry for _staged, _target, entry in staged_files]
+        journal = _migration_record("in_progress", manifest)
+        if journal_path.exists():
+            existing_journal = _read_migration_record(
+                journal_path,
+                expected_state="in_progress",
+            )
+            if existing_journal["files"] != manifest:
+                raise RuntimeError("事业部迁移 journal 与当前源文件不一致")
+        else:
+            _write_json_atomically(journal_path, journal, mode=0o600)
 
-        _write_json_atomically(
-            marker_path,
-            {
-                "version": 2,
-                "department": GENERAL_ELECTRIC,
-                "completed_at": time.time(),
-            },
-            mode=0o600,
-        )
+        for temp_path, target, _entry in staged_files:
+            _replace_staged_file(temp_path, target)
+
+        _validate_manifest_targets(manifest, workspace)
+        _write_complete_marker(marker_path, manifest)
+        journal_path.unlink(missing_ok=True)
     finally:
-        for temp_path, _target in staged_files:
+        for temp_path, _target, _entry in staged_files:
             temp_path.unlink(missing_ok=True)
     return True
 
@@ -189,10 +233,11 @@ def _stage_validated_registry(payload: dict, target: Path) -> Path:
             encoding="utf-8",
         )
         os.chmod(temp_path, 0o600)
-        CameraRegistry(
+        registry = CameraRegistry(
             temp_path,
             department=GENERAL_ELECTRIC,
-        ).list()
+        )
+        registry._read_unlocked()
         return temp_path
     except Exception:
         temp_path.unlink(missing_ok=True)
@@ -234,17 +279,165 @@ def _write_json_atomically(
         temp_path.unlink(missing_ok=True)
 
 
-def _validate_migration_marker(path: Path) -> None:
+def _manifest_entry(
+    path: Path,
+    *,
+    scope: str,
+    relative_path: str,
+) -> dict:
+    return {
+        "scope": scope,
+        "path": relative_path,
+        "sha256": _sha256(path),
+        "size": path.stat().st_size,
+    }
+
+
+def _migration_record(state: str, manifest: list[dict]) -> dict:
+    timestamp_key = "completed_at" if state == "complete" else "started_at"
+    return {
+        "version": 2,
+        "department": GENERAL_ELECTRIC,
+        "state": state,
+        "files": manifest,
+        timestamp_key: time.time(),
+    }
+
+
+def _read_migration_record(path: Path, *, expected_state: str) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"事业部迁移标记读取失败: {exc}") from exc
+        raise RuntimeError(f"事业部迁移记录读取失败: {exc}") from exc
     if (
         not isinstance(payload, dict)
         or payload.get("version") != 2
         or payload.get("department") != GENERAL_ELECTRIC
+        or payload.get("state") != expected_state
+        or not isinstance(payload.get("files"), list)
     ):
-        raise RuntimeError("事业部迁移标记格式无效")
+        raise RuntimeError("事业部迁移记录格式无效")
+    _validate_manifest(payload["files"])
+    return payload
+
+
+def _validate_completed_migration(
+    marker_path: Path,
+    workspace: DepartmentWorkspace,
+) -> None:
+    marker = _read_migration_record(
+        marker_path,
+        expected_state="complete",
+    )
+    _validate_manifest_targets(marker["files"], workspace)
+
+
+def _validate_manifest(manifest: list[dict]) -> None:
+    seen: set[tuple[str, str]] = set()
+    has_registry = False
+    for entry in manifest:
+        if not isinstance(entry, dict):
+            raise RuntimeError("事业部迁移记录格式无效")
+        scope = entry.get("scope")
+        relative_path = entry.get("path")
+        digest = entry.get("sha256")
+        size = entry.get("size")
+        if (
+            scope not in {"data", "runtime"}
+            or not isinstance(relative_path, str)
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or not isinstance(size, int)
+            or size < 0
+        ):
+            raise RuntimeError("事业部迁移记录格式无效")
+        relative = PurePosixPath(relative_path)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or relative_path != relative.as_posix()
+        ):
+            raise RuntimeError("事业部迁移记录路径无效")
+        key = (scope, relative_path)
+        if key in seen or not _is_allowed_manifest_target(scope, relative_path):
+            raise RuntimeError("事业部迁移记录路径无效")
+        seen.add(key)
+        has_registry = has_registry or key == ("data", "cameras.json")
+    if not has_registry:
+        raise RuntimeError("事业部迁移记录完整性无效: 缺少 cameras.json")
+
+
+def _is_allowed_manifest_target(scope: str, relative_path: str) -> bool:
+    if scope == "runtime":
+        return relative_path in PERSISTENT_RUNTIME_FILES
+    if relative_path == "cameras.json":
+        return True
+    relative = PurePosixPath(relative_path)
+    if len(relative.parts) != 2 or relative.parts[0] != "rois":
+        return False
+    suffix = "_staff_rois.json"
+    if not relative.name.endswith(suffix):
+        return False
+    camera_id = relative.name[:-len(suffix)]
+    try:
+        CameraRegistry.validate_camera_id(camera_id)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_manifest_targets(
+    manifest: list[dict],
+    workspace: DepartmentWorkspace,
+) -> None:
+    _validate_manifest(manifest)
+    for entry in manifest:
+        target = _manifest_target(entry, workspace)
+        if (
+            not target.is_file()
+            or target.stat().st_size != entry["size"]
+            or _sha256(target) != entry["sha256"]
+        ):
+            raise RuntimeError(
+                f"事业部迁移完整性校验失败: {entry['scope']}:{entry['path']}"
+            )
+        try:
+            if entry["scope"] == "data" and entry["path"] == "cameras.json":
+                CameraRegistry(
+                    target,
+                    department=GENERAL_ELECTRIC,
+                ).list()
+            else:
+                json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, RuntimeError) as exc:
+            raise RuntimeError(
+                f"事业部迁移完整性校验失败: {entry['scope']}:{entry['path']}"
+            ) from exc
+
+
+def _manifest_target(entry: dict, workspace: DepartmentWorkspace) -> Path:
+    root = workspace.data_dir if entry["scope"] == "data" else workspace.runtime_dir
+    return root.joinpath(*PurePosixPath(entry["path"]).parts)
+
+
+def _replace_staged_file(staged_path: Path, target: Path) -> None:
+    staged_path.replace(target)
+
+
+def _write_complete_marker(marker_path: Path, manifest: list[dict]) -> None:
+    _write_json_atomically(
+        marker_path,
+        _migration_record("complete", manifest),
+        mode=0o600,
+    )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _temp_sibling(target: Path) -> Path:

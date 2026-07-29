@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+import department_workspace
 from department_workspace import (
     DepartmentWorkspaceManager,
     migrate_general_electric,
@@ -22,6 +23,38 @@ def _legacy_camera(camera_id="legacy-camera"):
         "created_at": 1.0,
         "updated_at": 1.0,
     }
+
+
+def _migration_source(tmp_path):
+    legacy_registry = tmp_path / "legacy" / "cameras.json"
+    legacy_roi_dir = tmp_path / "legacy" / "rois"
+    legacy_runtime_dir = tmp_path / "legacy" / "runtime"
+    _write_json(
+        legacy_registry,
+        {"version": 1, "cameras": [_legacy_camera()]},
+    )
+    _write_json(
+        legacy_roi_dir / "legacy-camera_staff_rois.json",
+        {"staff_rois": {"工位": [1, 2, 3, 4]}},
+    )
+    for name in (
+        "vlm_state.json",
+        "vlm_history.json",
+        "vlm_latest_stats.json",
+        "vlm_budget.json",
+    ):
+        _write_json(legacy_runtime_dir / name, {"source": name})
+    return legacy_registry, legacy_roi_dir, legacy_runtime_dir
+
+
+def _migrate(manager, source):
+    legacy_registry, legacy_roi_dir, legacy_runtime_dir = source
+    return migrate_general_electric(
+        manager,
+        legacy_registry_path=legacy_registry,
+        legacy_roi_dir=legacy_roi_dir,
+        legacy_runtime_dir=legacy_runtime_dir,
+    )
 
 
 def test_requires_known_non_empty_department():
@@ -198,6 +231,111 @@ def test_migration_validates_all_json_before_replacing_targets(tmp_path):
     assert general.registry.list() == []
     assert not (general.data_dir / ".migration-v2.json").exists()
     assert not (general.runtime_dir / "vlm_history.json").exists()
+
+
+@pytest.mark.parametrize(
+    "target_name",
+    ["cameras.json", "vlm_history.json"],
+)
+def test_completed_marker_rejects_missing_or_changed_target(tmp_path, target_name):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    marker = json.loads(
+        (general.data_dir / ".migration-v2.json").read_text(encoding="utf-8")
+    )
+    assert marker["state"] == "complete"
+    assert marker["files"]
+    assert all(item["sha256"] for item in marker["files"])
+
+    if target_name == "cameras.json":
+        general.registry.path.unlink()
+    else:
+        _write_json(general.runtime_dir / target_name, {"tampered": True})
+
+    with pytest.raises(RuntimeError, match="完整性"):
+        _migrate(manager, source)
+
+
+@pytest.mark.parametrize("failure_index", range(6))
+def test_migration_resumes_after_each_target_replace_failure(
+    tmp_path,
+    monkeypatch,
+    failure_index,
+):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    original_replace = department_workspace._replace_staged_file
+    call_count = 0
+
+    def fail_once(staged_path, target):
+        nonlocal call_count
+        current = call_count
+        call_count += 1
+        if current == failure_index:
+            raise OSError(f"injected replace failure {failure_index}")
+        return original_replace(staged_path, target)
+
+    monkeypatch.setattr(
+        department_workspace,
+        "_replace_staged_file",
+        fail_once,
+    )
+    with pytest.raises(OSError, match="injected"):
+        _migrate(manager, source)
+
+    general = manager.get("general_electric")
+    journal = general.data_dir / ".migration-v2.in-progress.json"
+    assert journal.is_file()
+    assert not (general.data_dir / ".migration-v2.json").exists()
+
+    monkeypatch.setattr(
+        department_workspace,
+        "_replace_staged_file",
+        original_replace,
+    )
+    assert _migrate(manager, source) is True
+    assert _migrate(manager, source) is False
+    assert not journal.exists()
+    assert len(general.registry.list()) == 1
+    assert source[0].exists()
+
+
+def test_migration_resumes_after_complete_marker_write_failure(
+    tmp_path,
+    monkeypatch,
+):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    original_write_marker = department_workspace._write_complete_marker
+
+    def fail_marker(*args, **kwargs):
+        raise OSError("injected marker failure")
+
+    monkeypatch.setattr(
+        department_workspace,
+        "_write_complete_marker",
+        fail_marker,
+    )
+    with pytest.raises(OSError, match="marker"):
+        _migrate(manager, source)
+
+    general = manager.get("general_electric")
+    journal = general.data_dir / ".migration-v2.in-progress.json"
+    assert journal.is_file()
+    assert not (general.data_dir / ".migration-v2.json").exists()
+
+    monkeypatch.setattr(
+        department_workspace,
+        "_write_complete_marker",
+        original_write_marker,
+    )
+    assert _migrate(manager, source) is True
+    assert _migrate(manager, source) is False
+    assert not journal.exists()
+    assert len(general.registry.list()) == 1
+    assert source[0].exists()
 
 
 def test_corrupt_general_registry_does_not_break_other_department(tmp_path):
