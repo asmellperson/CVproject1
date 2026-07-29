@@ -1,7 +1,13 @@
 import json
+import multiprocessing
+import shutil
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+import camera_registry
 import department_workspace
 from department_workspace import (
     DepartmentWorkspaceManager,
@@ -57,6 +63,31 @@ def _migrate(manager, source):
     )
 
 
+def _process_migrate(
+    data_root,
+    runtime_root,
+    source,
+    start_event,
+    results,
+):
+    original_load = department_workspace._load_legacy_cameras
+
+    def slow_load(path):
+        cameras = original_load(path)
+        time.sleep(0.1)
+        return cameras
+
+    department_workspace._load_legacy_cameras = slow_load
+    manager = DepartmentWorkspaceManager(data_root, runtime_root)
+    start_event.wait()
+    try:
+        migrated = _migrate(manager, source)
+    except Exception as exc:
+        results.put(("error", type(exc).__name__, str(exc)))
+    else:
+        results.put(("ok", migrated))
+
+
 def test_requires_known_non_empty_department():
     for department in SECURITY_DEPARTMENTS:
         assert require_department(department) == department
@@ -81,6 +112,7 @@ def test_manager_creates_four_isolated_empty_workspaces(tmp_path):
     assert len({workspace.roi_dir for workspace in workspaces}) == 4
     assert len({workspace.camera_runtime_dir for workspace in workspaces}) == 4
     assert len({workspace.archive_dir for workspace in workspaces}) == 4
+    assert len({workspace.results_dir for workspace in workspaces}) == 4
 
     for workspace in workspaces:
         assert workspace.department in SECURITY_DEPARTMENTS
@@ -89,9 +121,12 @@ def test_manager_creates_four_isolated_empty_workspaces(tmp_path):
         assert workspace.roi_dir.is_dir()
         assert workspace.camera_runtime_dir.is_dir()
         assert workspace.archive_dir.is_dir()
+        assert workspace.results_dir.is_dir()
         assert workspace.registry.path.is_file()
         assert workspace.registry.list() == []
-        assert workspace.result_store.runtime_dir == workspace.runtime_dir
+        assert workspace.result_store.runtime_dir == workspace.results_dir
+        assert workspace.results_dir.parent == workspace.data_dir
+        assert workspace.results_dir != workspace.runtime_dir
         payload = json.loads(workspace.registry.path.read_text(encoding="utf-8"))
         assert payload == {
             "version": 2,
@@ -160,13 +195,14 @@ def test_legacy_data_migrates_only_to_general_electric_and_is_idempotent(tmp_pat
     ).read_text(encoding="utf-8")
 
     for name in persistent_names:
-        assert json.loads((general.runtime_dir / name).read_text(encoding="utf-8")) == {
+        assert json.loads((general.results_dir / name).read_text(encoding="utf-8")) == {
             "source": name
         }
     assert not (general.runtime_dir / "frame_meta.json").exists()
     assert not (general.runtime_dir / "capture_status.json").exists()
     assert not (general.runtime_dir / "vlm_status.json").exists()
     assert not (general.runtime_dir / "session_pending.json").exists()
+    assert not any((general.runtime_dir / name).exists() for name in persistent_names)
 
     for department in SECURITY_DEPARTMENTS:
         if department != "general_electric":
@@ -230,7 +266,7 @@ def test_migration_validates_all_json_before_replacing_targets(tmp_path):
     general = manager.get("general_electric")
     assert general.registry.list() == []
     assert not (general.data_dir / ".migration-v2.json").exists()
-    assert not (general.runtime_dir / "vlm_history.json").exists()
+    assert not (general.results_dir / "vlm_history.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -253,7 +289,7 @@ def test_completed_marker_rejects_missing_target(tmp_path, target_name):
     if target_name == "cameras.json":
         general.registry.path.unlink()
     else:
-        (general.runtime_dir / target_name).unlink()
+        (general.results_dir / target_name).unlink()
 
     with pytest.raises(RuntimeError, match="完整性"):
         _migrate(manager, source)
@@ -283,11 +319,11 @@ def test_completed_migration_allows_worker_json_updates(tmp_path):
     assert _migrate(manager, source) is True
     general = manager.get("general_electric")
     _write_json(
-        general.runtime_dir / "vlm_history.json",
+        general.results_dir / "vlm_history.json",
         {"items": [{"camera_id": "legacy-camera", "result": "updated"}]},
     )
     _write_json(
-        general.runtime_dir / "vlm_latest_stats.json",
+        general.results_dir / "vlm_latest_stats.json",
         {"total": 42, "updated": True},
     )
 
@@ -316,6 +352,132 @@ def test_completed_migration_allows_roi_removal_and_camera_archive(tmp_path):
     _write_json(archived_camera / "camera.json", {"camera_id": "legacy-camera"})
 
     assert _migrate(manager, source) is False
+
+
+def test_completed_marker_never_recreates_missing_registry(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    general.registry.create("后来新增", "rtsp://later-camera/stream")
+    general.registry.delete("legacy-camera")
+    _write_json(
+        general.archive_dir / "legacy-camera" / "camera.json",
+        {"camera_id": "legacy-camera"},
+    )
+    general.registry.path.unlink()
+
+    with pytest.raises(RuntimeError, match="cameras.json.*缺失"):
+        _migrate(manager, source)
+    assert not general.registry.path.exists()
+
+
+def test_completed_migration_survives_volatile_runtime_cleanup(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    (general.runtime_dir / "frame_meta.json").write_text("{}", encoding="utf-8")
+    shutil.rmtree(general.runtime_dir)
+
+    assert _migrate(manager, source) is False
+    restored = manager.get("general_electric")
+    assert restored.runtime_dir.is_dir()
+    assert not (restored.runtime_dir / "frame_meta.json").exists()
+    assert (restored.results_dir / "vlm_history.json").is_file()
+
+
+def test_migration_and_other_registry_create_do_not_overwrite_each_other(
+    tmp_path,
+    monkeypatch,
+):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    workspace = manager.get("general_electric")
+    other_registry = camera_registry.CameraRegistry(
+        workspace.registry.path,
+        department="general_electric",
+    )
+    replace_started = threading.Event()
+    allow_replace = threading.Event()
+    original_replace = department_workspace._replace_staged_file
+
+    def pause_registry_replace(staged_path, target):
+        if target == workspace.registry.path:
+            replace_started.set()
+            assert allow_replace.wait(timeout=5)
+        return original_replace(staged_path, target)
+
+    monkeypatch.setattr(
+        department_workspace,
+        "_replace_staged_file",
+        pause_registry_replace,
+    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        migration_future = executor.submit(_migrate, manager, source)
+        assert replace_started.wait(timeout=5)
+        create_future = executor.submit(
+            other_registry.create,
+            "并发新增",
+            "rtsp://concurrent-camera/stream",
+        )
+        time.sleep(0.05)
+        allow_replace.set()
+        assert migration_future.result(timeout=5) is True
+        created = create_future.result(timeout=5)
+
+    assert workspace.registry.get(created["camera_id"]) is not None
+    assert {camera["name"] for camera in workspace.registry.list()} == {
+        "旧摄像头",
+        "并发新增",
+    }
+
+
+def test_two_processes_migrate_only_once(tmp_path):
+    data_root = tmp_path / "data"
+    runtime_root = tmp_path / "runtime"
+    source = _migration_source(tmp_path)
+    context = multiprocessing.get_context("fork")
+    start_event = context.Event()
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_process_migrate,
+            args=(
+                data_root,
+                runtime_root,
+                source,
+                start_event,
+                results,
+            ),
+        )
+        for _index in range(2)
+    ]
+    for process in processes:
+        process.start()
+    start_event.set()
+    outcomes = [results.get(timeout=10) for _index in range(2)]
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    assert sorted(outcomes) == [("ok", False), ("ok", True)]
+    manager = DepartmentWorkspaceManager(data_root, runtime_root)
+    assert len(manager.get("general_electric").registry.list()) == 1
+
+
+def test_marker_rejects_non_string_camera_id_with_runtime_error(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    marker_path = general.data_dir / ".migration-v2.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["migrated_camera_ids"] = [{"bad": True}]
+    _write_json(marker_path, marker)
+
+    with pytest.raises(RuntimeError, match="camera_id"):
+        _migrate(manager, source)
 
 
 @pytest.mark.parametrize("failure_index", range(6))

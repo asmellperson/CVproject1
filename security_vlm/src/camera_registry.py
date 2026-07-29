@@ -18,12 +18,30 @@ from urllib.parse import urlsplit
 from departments import require_department
 
 
+CAMERA_ID_PATTERN = re.compile(
+    r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
+)
+
+
+def validate_camera_id(camera_id: str) -> str:
+    """校验可安全用于路径片段的摄像头 ID。"""
+    if (
+        not isinstance(camera_id, str)
+        or CAMERA_ID_PATTERN.fullmatch(camera_id) is None
+    ):
+        raise ValueError(
+            "camera_id 必须以字母或数字开头和结尾，"
+            "中间只能包含字母、数字、点、下划线和连字符"
+        )
+    return camera_id
+
+
 class CameraRegistry:
     """以 JSON 文件持久化安检模块独立维护的摄像头。"""
 
     VERSION = 2
     MAX_CAMERAS = 4
-    CAMERA_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
+    CAMERA_ID_PATTERN = CAMERA_ID_PATTERN
 
     def __init__(
         self,
@@ -37,19 +55,19 @@ class CameraRegistry:
 
     def initialize(self) -> None:
         """在注册表不存在时原子创建空的 v2 注册表。"""
-        with self._file_lock(exclusive=True):
+        with self.lock(exclusive=True):
             if self.path.exists():
                 self._read_unlocked()
                 return
             self._write_unlocked(self._empty_payload())
 
     def list(self) -> list[dict]:
-        with self._file_lock(exclusive=False):
+        with self.lock(exclusive=False):
             return copy.deepcopy(self._read_unlocked()["cameras"])
 
     def get(self, camera_id: str) -> dict | None:
         wanted = self.validate_camera_id(camera_id)
-        with self._file_lock(exclusive=False):
+        with self.lock(exclusive=False):
             for camera in self._read_unlocked()["cameras"]:
                 if camera["camera_id"] == wanted:
                     return copy.deepcopy(camera)
@@ -58,7 +76,7 @@ class CameraRegistry:
     def create(self, name: str, rtsp_url: str) -> dict:
         normalized_name = self._validate_name(name)
         normalized_url = self._validate_rtsp_url(rtsp_url)
-        with self._file_lock(exclusive=True):
+        with self.lock(exclusive=True):
             payload = self._read_unlocked()
             if len(payload["cameras"]) >= self.MAX_CAMERAS:
                 raise ValueError(f"最多只能添加 {self.MAX_CAMERAS} 台摄像头")
@@ -82,7 +100,7 @@ class CameraRegistry:
         name: str | None = None,
         rtsp_url: str | None = None,
     ) -> dict:
-        with self._file_lock(exclusive=True):
+        with self.lock(exclusive=True):
             payload = self._read_unlocked()
             camera = self._find_unlocked(payload["cameras"], camera_id)
             if name is not None:
@@ -100,7 +118,7 @@ class CameraRegistry:
             return copy.deepcopy(camera)
 
     def delete(self, camera_id: str) -> dict:
-        with self._file_lock(exclusive=True):
+        with self.lock(exclusive=True):
             payload = self._read_unlocked()
             camera = self._find_unlocked(payload["cameras"], camera_id)
             payload["cameras"] = [
@@ -122,21 +140,13 @@ class CameraRegistry:
     def validate_rtsp_url(cls, rtsp_url: str) -> str:
         return cls._validate_rtsp_url(rtsp_url)
 
-    @classmethod
-    def validate_camera_id(cls, camera_id: str) -> str:
-        if (
-            not isinstance(camera_id, str)
-            or not camera_id
-            or cls.CAMERA_ID_PATTERN.fullmatch(camera_id) is None
-        ):
-            raise ValueError(
-                "camera_id 只能包含字母、数字、点、下划线和连字符"
-            )
-        return camera_id
+    @staticmethod
+    def validate_camera_id(camera_id: str) -> str:
+        return validate_camera_id(camera_id)
 
     def migrate_legacy(self, cfg: dict, staff_dir: Path) -> dict | None:
         """首次升级时把旧单路配置迁移为固定 ID 的摄像头记录。"""
-        with self._file_lock(exclusive=True):
+        with self.lock(exclusive=True):
             if self.department != "general_electric":
                 raise ValueError("旧单路配置只能迁移到通用电气事业部")
             if self.path.exists():
@@ -290,7 +300,7 @@ class CameraRegistry:
         raise KeyError(f"摄像头不存在: {wanted}")
 
     @contextmanager
-    def _file_lock(self, *, exclusive: bool):
+    def lock(self, *, exclusive: bool):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             descriptor = os.open(

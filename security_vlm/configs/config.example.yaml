@@ -13,7 +13,7 @@ envs:
   # 安装好后用 `which python` 替换下面这行
   worker_python: /root/miniconda3/envs/security_vlm/bin/python
 
-# ---- 运行时目录(共享内存 + 状态文件) ----
+# ---- 易失运行时目录(共享帧、心跳、pending；允许主机重启后清空) ----
 runtime:
   dir: /dev/shm/security_vlm_runtime
   camera_root: /dev/shm/security_vlm_runtime/cameras
@@ -23,7 +23,9 @@ runtime:
 
 # ---- 安检事业部隔离工作区 ----
 departments:
+  # 摄像头、ROI、归档和 VLM 结果等持久数据
   data_root: data/departments
+  # 摄像头共享帧、心跳和 pending 等易失运行数据
   runtime_root: /dev/shm/security_vlm_runtime/departments
   max_cameras_per_department: 4
 

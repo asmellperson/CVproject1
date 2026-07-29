@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import shutil
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -19,7 +21,8 @@ from frame_hub import ResultStore
 GENERAL_ELECTRIC = "general_electric"
 MIGRATION_MARKER = ".migration-v2.json"
 MIGRATION_JOURNAL = ".migration-v2.in-progress.json"
-PERSISTENT_RUNTIME_FILES = (
+MIGRATION_LOCK = ".migration-v2.lock"
+PERSISTENT_RESULT_FILES = (
     "vlm_state.json",
     "vlm_history.json",
     "vlm_latest_stats.json",
@@ -38,6 +41,7 @@ class DepartmentWorkspace:
     roi_dir: Path
     camera_runtime_dir: Path
     archive_dir: Path
+    results_dir: Path
     result_store: ResultStore
 
 
@@ -55,12 +59,14 @@ class DepartmentWorkspaceManager:
         roi_dir = data_dir / "rois"
         camera_runtime_dir = runtime_dir / "cameras"
         archive_dir = data_dir / "archive"
+        results_dir = data_dir / "results"
         for path in (
             data_dir,
             runtime_dir,
             roi_dir,
             camera_runtime_dir,
             archive_dir,
+            results_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +74,11 @@ class DepartmentWorkspaceManager:
             data_dir / "cameras.json",
             department=department,
         )
+        marker_path = data_dir / MIGRATION_MARKER
+        if marker_path.exists() and not registry.path.is_file():
+            raise RuntimeError(
+                f"事业部迁移完整性校验失败: cameras.json 缺失 ({department})"
+            )
         registry.initialize()
         return DepartmentWorkspace(
             department=department,
@@ -77,7 +88,8 @@ class DepartmentWorkspaceManager:
             roi_dir=roi_dir,
             camera_runtime_dir=camera_runtime_dir,
             archive_dir=archive_dir,
-            result_store=ResultStore(runtime_dir),
+            results_dir=results_dir,
+            result_store=ResultStore(results_dir),
         )
 
     def migrate_general_electric(
@@ -103,7 +115,26 @@ def migrate_general_electric(
     legacy_runtime_dir: Path,
 ) -> bool:
     """把旧全局持久数据一次性迁移到通用电气工作区。"""
-    workspace = manager.get(GENERAL_ELECTRIC)
+    data_dir = manager.data_root / GENERAL_ELECTRIC
+    data_dir.mkdir(parents=True, exist_ok=True)
+    with _migration_lock(data_dir):
+        workspace = manager.get(GENERAL_ELECTRIC)
+        with workspace.registry.lock(exclusive=True):
+            return _migrate_general_electric_locked(
+                workspace,
+                legacy_registry_path=legacy_registry_path,
+                legacy_roi_dir=legacy_roi_dir,
+                legacy_runtime_dir=legacy_runtime_dir,
+            )
+
+
+def _migrate_general_electric_locked(
+    workspace: DepartmentWorkspace,
+    *,
+    legacy_registry_path: Path,
+    legacy_roi_dir: Path,
+    legacy_runtime_dir: Path,
+) -> bool:
     marker_path = workspace.data_dir / MIGRATION_MARKER
     journal_path = workspace.data_dir / MIGRATION_JOURNAL
     if marker_path.exists():
@@ -111,7 +142,10 @@ def migrate_general_electric(
         journal_path.unlink(missing_ok=True)
         return False
 
-    if not journal_path.exists() and workspace.registry.list():
+    if (
+        not journal_path.exists()
+        and workspace.registry._read_unlocked()["cameras"]
+    ):
         raise RuntimeError("通用电气目标注册表非空，拒绝覆盖未标记数据")
 
     cameras = _load_legacy_cameras(Path(legacy_registry_path))
@@ -163,10 +197,10 @@ def migrate_general_electric(
                 )
 
         legacy_runtime_dir = Path(legacy_runtime_dir)
-        for name in PERSISTENT_RUNTIME_FILES:
+        for name in PERSISTENT_RESULT_FILES:
             source = legacy_runtime_dir / name
             if source.is_file():
-                target = workspace.runtime_dir / name
+                target = workspace.results_dir / name
                 staged = _stage_json_copy(source, target)
                 staged_files.append(
                     (
@@ -174,7 +208,7 @@ def migrate_general_electric(
                         target,
                         _manifest_entry(
                             staged,
-                            scope="runtime",
+                            scope="results",
                             relative_path=name,
                         ),
                     )
@@ -356,13 +390,14 @@ def _validate_completed_migration(
 
 
 def _validate_migrated_camera_ids(camera_ids: list[str]) -> None:
-    if len(camera_ids) != len(set(camera_ids)):
-        raise RuntimeError("事业部迁移记录 camera_id 重复")
+    validated: list[str] = []
     try:
         for camera_id in camera_ids:
-            CameraRegistry.validate_camera_id(camera_id)
+            validated.append(CameraRegistry.validate_camera_id(camera_id))
     except ValueError as exc:
         raise RuntimeError("事业部迁移记录 camera_id 无效") from exc
+    if len(validated) != len(set(validated)):
+        raise RuntimeError("事业部迁移记录 camera_id 重复")
 
 
 def _validate_completed_targets(
@@ -374,7 +409,7 @@ def _validate_completed_targets(
     try:
         active_camera_ids = {
             camera["camera_id"]
-            for camera in workspace.registry.list()
+            for camera in workspace.registry._read_unlocked()["cameras"]
         }
     except (KeyError, RuntimeError) as exc:
         raise RuntimeError("事业部迁移完整性校验失败: cameras.json") from exc
@@ -387,18 +422,18 @@ def _validate_completed_targets(
             )
 
     for entry in manifest:
-        if entry["scope"] != "runtime":
+        if entry["scope"] != "results":
             continue
         target = _manifest_target(entry, workspace)
         if not target.is_file():
             raise RuntimeError(
-                f"事业部迁移完整性校验失败: runtime:{entry['path']}"
+                f"事业部迁移完整性校验失败: results:{entry['path']}"
             )
         try:
             json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(
-                f"事业部迁移完整性校验失败: runtime:{entry['path']}"
+                f"事业部迁移完整性校验失败: results:{entry['path']}"
             ) from exc
 
 
@@ -413,7 +448,7 @@ def _validate_manifest(manifest: list[dict]) -> None:
         digest = entry.get("sha256")
         size = entry.get("size")
         if (
-            scope not in {"data", "runtime"}
+            scope not in {"data", "results"}
             or not isinstance(relative_path, str)
             or not isinstance(digest, str)
             or len(digest) != 64
@@ -438,8 +473,8 @@ def _validate_manifest(manifest: list[dict]) -> None:
 
 
 def _is_allowed_manifest_target(scope: str, relative_path: str) -> bool:
-    if scope == "runtime":
-        return relative_path in PERSISTENT_RUNTIME_FILES
+    if scope == "results":
+        return relative_path in PERSISTENT_RESULT_FILES
     if relative_path == "cameras.json":
         return True
     relative = PurePosixPath(relative_path)
@@ -473,10 +508,7 @@ def _validate_manifest_targets(
             )
         try:
             if entry["scope"] == "data" and entry["path"] == "cameras.json":
-                CameraRegistry(
-                    target,
-                    department=GENERAL_ELECTRIC,
-                ).list()
+                workspace.registry._read_unlocked()
             else:
                 json.loads(target.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, RuntimeError) as exc:
@@ -486,7 +518,7 @@ def _validate_manifest_targets(
 
 
 def _manifest_target(entry: dict, workspace: DepartmentWorkspace) -> Path:
-    root = workspace.data_dir if entry["scope"] == "data" else workspace.runtime_dir
+    root = workspace.data_dir if entry["scope"] == "data" else workspace.results_dir
     return root.joinpath(*PurePosixPath(entry["path"]).parts)
 
 
@@ -516,6 +548,23 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+@contextmanager
+def _migration_lock(data_dir: Path):
+    lock_path = Path(data_dir) / MIGRATION_LOCK
+    descriptor = os.open(
+        lock_path,
+        os.O_CREAT | os.O_RDWR,
+        0o600,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def _temp_sibling(target: Path) -> Path:

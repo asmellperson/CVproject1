@@ -224,7 +224,23 @@ def test_registry_rejects_malformed_camera_records(tmp_path):
         camera_registry.CameraRegistry(registry_path).list()
 
 
-@pytest.mark.parametrize("camera_id", [123, "../escape", "camera/id", "camera id"])
+@pytest.mark.parametrize(
+    "camera_id",
+    [
+        123,
+        ".",
+        "..",
+        "../escape",
+        "camera/id",
+        "camera id",
+        "_leading",
+        "trailing_",
+        "-leading",
+        "trailing-",
+        ".leading",
+        "trailing.",
+    ],
+)
 def test_registry_rejects_unsafe_persisted_camera_ids(tmp_path, camera_id):
     registry_path = tmp_path / "cameras.json"
     camera = {
@@ -247,6 +263,10 @@ def test_registry_rejects_unsafe_persisted_camera_ids(tmp_path, camera_id):
 
     with pytest.raises(RuntimeError, match="camera_id"):
         camera_registry.CameraRegistry(registry_path).list()
+
+
+def test_public_camera_id_validator_accepts_safe_identifier():
+    assert camera_registry.validate_camera_id("A.camera_1-test") == "A.camera_1-test"
 
 
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
