@@ -18,6 +18,7 @@ def test_session_framehub_wait_timeout_covers_slow_rtsp_startup():
 def test_finalized_session_contains_camera_identity(tmp_path):
     cfg = {
         "data": {
+            "department": "electronics_electrician",
             "video_id": "camera-a",
             "camera_name": "安检工位一号",
         },
@@ -45,6 +46,7 @@ def test_finalized_session_contains_camera_identity(tmp_path):
     manager._finalize(session)
 
     payload = pickle.loads((tmp_path / "session-1.pkl").read_bytes())
+    assert payload["department"] == "electronics_electrician"
     assert payload["camera_id"] == "camera-a"
     assert payload["camera_name"] == "安检工位一号"
     assert list(tmp_path.glob("*.tmp")) == []
@@ -124,3 +126,94 @@ def test_preexisting_processing_tasks_are_marked_for_crash_recovery(tmp_path):
 
     assert marked == 1
     assert (processing / "camera-a__session.pkl.recovered").exists()
+
+
+def test_pending_payload_without_department_defaults_to_general_electric():
+    assert vlm_worker.payload_department({}) == "general_electric"
+    assert (
+        vlm_worker.payload_department({"department": "electrical_components"})
+        == "electrical_components"
+    )
+
+
+def test_scanner_discovers_new_department_and_legacy_pending_paths(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    legacy_task = runtime_root / "cameras" / "legacy-camera" / "pending" / "old.pkl"
+    general_task = (
+        runtime_root
+        / "departments"
+        / "general_electric"
+        / "cameras"
+        / "shared-camera"
+        / "pending"
+        / "general.pkl"
+    )
+    electronics_task = (
+        runtime_root
+        / "departments"
+        / "electronics_electrician"
+        / "cameras"
+        / "shared-camera"
+        / "pending"
+        / "electronics.pkl"
+    )
+    for task in (legacy_task, general_task, electronics_task):
+        _write_pending(task)
+    task_q = queue.Queue()
+    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
+
+    scanner.scan_once()
+
+    queued = [task_q.get_nowait() for _ in range(3)]
+    assert {path.name.rsplit("__", 1)[-1] for path in queued} == {
+        "old.pkl",
+        "general.pkl",
+        "electronics.pkl",
+    }
+    general_claim = next(path for path in queued if path.name.endswith("general.pkl"))
+    electronics_claim = next(
+        path for path in queued if path.name.endswith("electronics.pkl")
+    )
+    legacy_claim = next(path for path in queued if path.name.endswith("old.pkl"))
+    assert general_claim.parent == (
+        runtime_root / "departments" / "general_electric" / "global" / "processing"
+    )
+    assert electronics_claim.parent == (
+        runtime_root
+        / "departments"
+        / "electronics_electrician"
+        / "global"
+        / "processing"
+    )
+    assert legacy_claim.parent == runtime_root / "global" / "processing"
+
+
+def test_department_processing_collision_stays_in_department(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    pending_task = (
+        runtime_root
+        / "departments"
+        / "general_electric"
+        / "cameras"
+        / "shared-camera"
+        / "pending"
+        / "same.pkl"
+    )
+    processing_dir = (
+        runtime_root
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+    )
+    existing_task = processing_dir / "shared-camera__same.pkl"
+    _write_pending(pending_task)
+    _write_pending(existing_task)
+    task_q = queue.Queue()
+    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
+
+    scanner.scan_once()
+
+    queued = [task_q.get_nowait() for _ in range(2)]
+    assert all(path.parent == processing_dir for path in queued)
+    assert list((runtime_root / "global" / "processing").glob("*.pkl")) == []

@@ -17,6 +17,8 @@ envs:
 runtime:
   dir: /dev/shm/security_vlm_runtime
   camera_root: /dev/shm/security_vlm_runtime/cameras
+  # 所有事业部合计允许同时处于运行/重试状态的摄像头实例数。
+  max_running_cameras: 16
   camera_fps_hint: 10
   # 覆盖 RTSP 探测 + HEVC 首帧建立时间，避免下游 worker 提前退出。
   framehub_wait_timeout_sec: 30

@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import re
 import subprocess
 import threading
 import time
@@ -16,8 +15,9 @@ from typing import Callable
 
 import yaml
 
+from camera_registry import validate_camera_id
+from departments import require_department
 
-_SAFE_CAMERA_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _WORKER_SCRIPTS = (
     ("capture", "capture_worker.py"),
     ("detector", "detector_worker.py"),
@@ -33,22 +33,36 @@ class CameraRuntimePaths:
     """一台摄像头独占的运行时路径。"""
 
     base_runtime_dir: Path
+    department: str
     camera_id: str
-    camera_root_dir: Path | None = None
 
     def __post_init__(self) -> None:
-        camera_id = str(self.camera_id)
-        if not camera_id or not _SAFE_CAMERA_ID.fullmatch(camera_id):
-            raise ValueError(f"无效 camera_id: {camera_id!r}")
         object.__setattr__(self, "base_runtime_dir", Path(self.base_runtime_dir))
-        object.__setattr__(self, "camera_id", camera_id)
-        if self.camera_root_dir is not None:
-            object.__setattr__(self, "camera_root_dir", Path(self.camera_root_dir))
+        object.__setattr__(
+            self,
+            "department",
+            require_department(self.department),
+        )
+        object.__setattr__(
+            self,
+            "camera_id",
+            validate_camera_id(self.camera_id),
+        )
+
+    @property
+    def departments_root(self) -> Path:
+        if self.base_runtime_dir.name == "departments":
+            return self.base_runtime_dir
+        return self.base_runtime_dir / "departments"
 
     @property
     def runtime_dir(self) -> Path:
-        camera_root = self.camera_root_dir or self.base_runtime_dir / "cameras"
-        return camera_root / self.camera_id
+        return (
+            self.departments_root
+            / self.department
+            / "cameras"
+            / self.camera_id
+        )
 
     @property
     def pending_dir(self) -> Path:
@@ -70,6 +84,7 @@ def build_camera_config(
     runtime_cfg = snapshot.setdefault("runtime", {})
     session_cfg = snapshot.setdefault("session", {})
 
+    data_cfg["department"] = paths.department
     data_cfg["input_video"] = camera["rtsp_url"]
     data_cfg["video_id"] = camera["camera_id"]
     data_cfg["camera_name"] = camera["name"]
@@ -98,6 +113,7 @@ def write_camera_config(snapshot: dict, path: Path) -> None:
 class CameraRuntime:
     """一台摄像头的期望状态和子进程句柄。"""
 
+    department: str
     camera_id: str
     config_path: Path
     desired_running: bool = False
@@ -116,7 +132,7 @@ class CameraRuntimeManager:
         base_cfg: dict,
         project_root: Path,
         base_config_path: Path,
-        camera_provider: Callable[[], list[dict]],
+        camera_provider: Callable[[str], list[dict]],
         popen_factory: Callable = subprocess.Popen,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.time,
@@ -131,13 +147,20 @@ class CameraRuntimeManager:
         self.sleep = sleep
         self.clock = clock
         self.base_runtime_dir = Path(self.base_cfg["runtime"]["dir"]).resolve()
-        self.camera_root = Path(
-            self.base_cfg["runtime"].get(
-                "camera_root",
-                self.base_runtime_dir / "cameras",
-            )
-        ).resolve()
-        self.runtimes: dict[str, CameraRuntime] = {}
+        configured_departments_root = (
+            self.base_cfg.get("departments", {}) or {}
+        ).get("runtime_root")
+        self.departments_root = (
+            Path(configured_departments_root).resolve()
+            if configured_departments_root
+            else self.base_runtime_dir / "departments"
+        )
+        self.max_running_cameras = int(
+            self.base_cfg["runtime"].get("max_running_cameras", 16)
+        )
+        if self.max_running_cameras <= 0:
+            raise ValueError("runtime.max_running_cameras 必须是正整数")
+        self.runtimes: dict[tuple[str, str], CameraRuntime] = {}
         self.vlm_process: subprocess.Popen | None = None
         self.vlm_restart_attempts = 0
         self.vlm_restart_at: float | None = None
@@ -154,20 +177,48 @@ class CameraRuntimeManager:
             )
             self._monitor_thread.start()
 
-    def start(self, camera_id: str) -> dict:
+    def start(self, department: str, camera_id: str) -> dict:
+        department = require_department(department)
+        camera_id = validate_camera_id(camera_id)
         with self._lock:
-            camera = self._get_camera(camera_id)
+            camera = self._get_camera(department, camera_id)
             if camera is None:
                 return {
                     "ok": False,
-                    "camera_id": str(camera_id),
+                    "department": department,
+                    "camera_id": camera_id,
                     "message": "摄像头不存在",
                 }
-            paths = self._paths(camera["camera_id"])
-            runtime = self.runtimes.setdefault(
-                camera["camera_id"],
-                CameraRuntime(camera["camera_id"], paths.config_path),
-            )
+            key = (department, camera_id)
+            paths = self._paths(department, camera_id)
+            runtime = self.runtimes.get(key)
+            if runtime is None:
+                if self._active_runtime_count() >= self.max_running_cameras:
+                    return {
+                        "ok": False,
+                        "department": department,
+                        "camera_id": camera_id,
+                        "running": False,
+                        "desired_running": False,
+                        "message": (
+                            "运行实例已达到总上限 "
+                            f"{self.max_running_cameras}"
+                        ),
+                    }
+                runtime = CameraRuntime(
+                    department,
+                    camera_id,
+                    paths.config_path,
+                )
+                self.runtimes[key] = runtime
+            elif not runtime.desired_running and (
+                self._active_runtime_count() >= self.max_running_cameras
+            ):
+                return self._result(
+                    runtime,
+                    False,
+                    f"运行实例已达到总上限 {self.max_running_cameras}",
+                )
             runtime.desired_running = True
             runtime.restart_attempts = 0
             runtime.restart_at = None
@@ -187,23 +238,35 @@ class CameraRuntimeManager:
                 runtime.last_error = str(exc)
                 self._terminate_runtime_processes(runtime)
                 self._schedule_restart(runtime)
-                LOGGER.exception("启动摄像头 %s 的 worker 失败", camera["camera_id"])
+                LOGGER.exception(
+                    "启动事业部 %s 摄像头 %s 的 worker 失败",
+                    department,
+                    camera_id,
+                )
                 return self._result(runtime, False, runtime.last_error)
 
-    def stop(self, camera_id: str) -> dict:
+    def stop(self, department: str, camera_id: str) -> dict:
+        department = require_department(department)
+        camera_id = validate_camera_id(camera_id)
         with self._lock:
-            runtime = self.runtimes.get(str(camera_id))
+            key = (department, camera_id)
+            runtime = self.runtimes.get(key)
             if runtime is None:
-                camera = self._get_camera(camera_id)
+                camera = self._get_camera(department, camera_id)
                 if camera is None:
                     return {
                         "ok": False,
-                        "camera_id": str(camera_id),
+                        "department": department,
+                        "camera_id": camera_id,
                         "message": "摄像头不存在",
                     }
-                paths = self._paths(camera["camera_id"])
-                runtime = CameraRuntime(camera["camera_id"], paths.config_path)
-                self.runtimes[camera["camera_id"]] = runtime
+                paths = self._paths(department, camera_id)
+                runtime = CameraRuntime(
+                    department,
+                    camera_id,
+                    paths.config_path,
+                )
+                self.runtimes[key] = runtime
             runtime.desired_running = False
             runtime.restart_at = None
             runtime.restart_attempts = 0
@@ -212,48 +275,63 @@ class CameraRuntimeManager:
                 self._stop_vlm()
             return self._result(runtime, True, "stopped")
 
-    def restart(self, camera_id: str) -> dict:
+    def restart(self, department: str, camera_id: str) -> dict:
         with self._lock:
-            stopped = self.stop(camera_id)
+            stopped = self.stop(department, camera_id)
             if not stopped["ok"]:
                 return stopped
-            return self.start(camera_id)
+            return self.start(department, camera_id)
 
-    def start_all(self) -> dict:
+    def start_all(self, department: str) -> dict:
+        department = require_department(department)
         results = {}
-        for camera in self.camera_provider():
+        for camera in self.camera_provider(department):
             camera_id = str(camera["camera_id"])
-            results[camera_id] = self.start(camera_id)
+            results[camera_id] = self.start(department, camera_id)
         return {
             "ok": all(result["ok"] for result in results.values()),
+            "department": department,
             "results": results,
         }
 
-    def stop_all(self) -> dict:
+    def stop_all(self, department: str) -> dict:
+        department = require_department(department)
         with self._lock:
             camera_ids = {
-                str(camera["camera_id"]) for camera in self.camera_provider()
-            } | set(self.runtimes)
-        results = {camera_id: self.stop(camera_id) for camera_id in camera_ids}
-        with self._lock:
-            self._stop_vlm()
+                str(camera["camera_id"])
+                for camera in self.camera_provider(department)
+            } | {
+                camera_id
+                for runtime_department, camera_id in self.runtimes
+                if runtime_department == department
+            }
+        results = {
+            camera_id: self.stop(department, camera_id)
+            for camera_id in camera_ids
+        }
         return {
             "ok": all(result["ok"] for result in results.values()),
+            "department": department,
             "results": results,
         }
 
-    def is_running(self, camera_id: str) -> bool:
+    def is_running(self, department: str, camera_id: str) -> bool:
+        department = require_department(department)
+        camera_id = validate_camera_id(camera_id)
         with self._lock:
-            runtime = self.runtimes.get(str(camera_id))
+            runtime = self.runtimes.get((department, camera_id))
             return bool(runtime and self._runtime_is_running(runtime))
 
-    def status(self, camera_id: str) -> dict:
+    def status(self, department: str, camera_id: str) -> dict:
+        department = require_department(department)
+        camera_id = validate_camera_id(camera_id)
         self.reconcile()
         with self._lock:
-            runtime = self.runtimes.get(str(camera_id))
+            runtime = self.runtimes.get((department, camera_id))
             if runtime is None:
                 return {
-                    "camera_id": str(camera_id),
+                    "department": department,
+                    "camera_id": camera_id,
                     "desired_running": False,
                     "running": False,
                     "workers": {},
@@ -261,6 +339,7 @@ class CameraRuntimeManager:
                     "restart_at": None,
                 }
             return {
+                "department": runtime.department,
                 "camera_id": runtime.camera_id,
                 "desired_running": runtime.desired_running,
                 "running": self._runtime_is_running(runtime),
@@ -296,13 +375,19 @@ class CameraRuntimeManager:
                 if runtime.restart_at is not None:
                     if now < runtime.restart_at:
                         continue
-                    camera = self._get_camera(runtime.camera_id)
+                    camera = self._get_camera(
+                        runtime.department,
+                        runtime.camera_id,
+                    )
                     if camera is None:
                         runtime.desired_running = False
                         runtime.last_error = "摄像头已删除"
                         runtime.restart_at = None
                         continue
-                    paths = self._paths(runtime.camera_id)
+                    paths = self._paths(
+                        runtime.department,
+                        runtime.camera_id,
+                    )
                     try:
                         runtime.restart_at = None
                         self._start_runtime(runtime, camera, paths)
@@ -312,7 +397,8 @@ class CameraRuntimeManager:
                         self._terminate_runtime_processes(runtime)
                         self._schedule_restart(runtime)
                         LOGGER.exception(
-                            "自动重启摄像头 %s 的 worker 失败",
+                            "自动重启事业部 %s 摄像头 %s 的 worker 失败",
+                            runtime.department,
                             runtime.camera_id,
                         )
                     continue
@@ -336,7 +422,12 @@ class CameraRuntimeManager:
         self._monitor_stop.set()
         if self._monitor_thread is not None:
             self._monitor_thread.join(timeout=self._monitor_interval_sec + 1.0)
-        self.stop_all()
+        with self._lock:
+            runtime_keys = list(self.runtimes)
+        for department, camera_id in runtime_keys:
+            self.stop(department, camera_id)
+        with self._lock:
+            self._stop_vlm()
 
     def _start_runtime(
         self,
@@ -390,7 +481,7 @@ class CameraRuntimeManager:
             "--config",
             str(self.base_config_path),
             "--camera-root",
-            str(self.camera_root),
+            str(self._pending_scan_root()),
         ]
         try:
             self.vlm_process = self.popen_factory(
@@ -486,34 +577,53 @@ class CameraRuntimeManager:
             for runtime in self.runtimes.values()
         )
 
+    def _active_runtime_count(self) -> int:
+        return sum(
+            1
+            for runtime in self.runtimes.values()
+            if runtime.desired_running
+        )
+
     @staticmethod
     def _runtime_is_running(runtime: CameraRuntime) -> bool:
         return len(runtime.processes) == len(_WORKER_SCRIPTS) and all(
             process.poll() is None for process in runtime.processes.values()
         )
 
-    def _get_camera(self, camera_id: str) -> dict | None:
-        wanted = str(camera_id)
+    def _get_camera(self, department: str, camera_id: str) -> dict | None:
+        wanted = validate_camera_id(camera_id)
         return next(
             (
                 camera
-                for camera in self.camera_provider()
+                for camera in self.camera_provider(department)
                 if str(camera.get("camera_id")) == wanted
             ),
             None,
         )
 
-    def _paths(self, camera_id: str) -> CameraRuntimePaths:
+    def _paths(
+        self,
+        department: str,
+        camera_id: str,
+    ) -> CameraRuntimePaths:
         return CameraRuntimePaths(
-            self.base_runtime_dir,
+            self.departments_root,
+            department,
             camera_id,
-            camera_root_dir=self.camera_root,
         )
+
+    def _pending_scan_root(self) -> Path:
+        try:
+            self.departments_root.relative_to(self.base_runtime_dir)
+        except ValueError:
+            return self.departments_root
+        return self.base_runtime_dir
 
     @staticmethod
     def _result(runtime: CameraRuntime, ok: bool, message: str) -> dict:
         return {
             "ok": ok,
+            "department": runtime.department,
             "camera_id": runtime.camera_id,
             "running": CameraRuntimeManager._runtime_is_running(runtime),
             "desired_running": runtime.desired_running,

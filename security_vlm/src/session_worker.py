@@ -28,6 +28,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
+from departments import SECURITY_DEPARTMENTS, require_department
 from roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
@@ -248,6 +249,9 @@ class PairSessionManager:
     def __init__(self, cfg, pending_dir):
         s = cfg["session"]
         data_cfg = cfg.get("data", {}) or {}
+        self.department = require_department(
+            data_cfg.get("department", SECURITY_DEPARTMENTS[0])
+        )
         self.camera_id = str(data_cfg.get("video_id", "stream") or "stream")
         self.camera_name = str(
             data_cfg.get("camera_name", self.camera_id) or self.camera_id
@@ -533,6 +537,7 @@ class PairSessionManager:
             with open(temp_path, "wb") as f:
                 pickle.dump({
                     "session_id": sess.session_id,
+                    "department": self.department,
                     "camera_id": self.camera_id,
                     "camera_name": self.camera_name,
                     "roi_name": sess.roi_name,

@@ -75,11 +75,14 @@ def test_vlm_judge_passes_request_timeout(tmp_path):
         "security_staff_1",
         [0, 0, 10, 10],
         [np.zeros((10, 10, 3), dtype=np.uint8)],
+        department="electrical_components",
     )
 
     assert result["compliant"] is True
     assert calls[0]["request_timeout"] == 45.0
     assert "timeout" not in calls[0]
+    image_uri = calls[0]["messages"][1]["content"][0]["image"]
+    assert "/electrical_components/" in image_uri
 
 
 def test_budget_guard_restores_same_day_and_persists_each_consumption():

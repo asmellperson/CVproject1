@@ -43,6 +43,7 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from departments import SECURITY_DEPARTMENTS, require_department  # noqa: E402
 from frame_hub import ResultStore  # noqa: E402
 
 
@@ -65,6 +66,13 @@ def load_yaml(path: Path) -> Dict[str, Any]:
 def resolve_path(p: str, base: Path) -> Path:
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
+
+
+def payload_department(payload: dict) -> str:
+    """兼容旧 pending；缺少事业部时归入通用电气。"""
+    return require_department(
+        payload.get("department", SECURITY_DEPARTMENTS[0])
+    )
 
 
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -248,9 +256,17 @@ class VLMJudge:
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
         dashscope.api_key = self.api_key
 
-    def _save_frame(self, frame: np.ndarray, session_id: str, idx: int) -> str:
+    def _save_frame(
+        self,
+        frame: np.ndarray,
+        session_id: str,
+        idx: int,
+        department: str,
+    ) -> str:
         """临时 jpg, dashscope 用 file:// 协议读"""
-        path = self.tmp_dir / f"{session_id}_{idx}.jpg"
+        department_dir = self.tmp_dir / require_department(department)
+        department_dir.mkdir(parents=True, exist_ok=True)
+        path = department_dir / f"{session_id}_{idx}.jpg"
         h, w = frame.shape[:2]
         if max(h, w) > self.image_max_side:
             s = self.image_max_side / max(h, w)
@@ -264,6 +280,8 @@ class VLMJudge:
         roi_name: str,
         roi_box: List[float],
         keyframes: List[np.ndarray],
+        *,
+        department: str = SECURITY_DEPARTMENTS[0],
     ) -> Dict[str, Any]:
         """
         返回 dict:
@@ -279,7 +297,9 @@ class VLMJudge:
         try:
             # 1) 关键帧 → 临时 jpg
             for i, fr in enumerate(keyframes):
-                paths.append(self._save_frame(fr, session_id, i))
+                paths.append(
+                    self._save_frame(fr, session_id, i, department)
+                )
 
             # 2) 组装 messages: 多张图 + 一段 prompt
             user_content = [{"image": f"file://{p}"} for p in paths]
@@ -416,7 +436,13 @@ class MultiCameraPendingScanner(threading.Thread):
         self.processing_dir = (
             Path(processing_dir)
             if processing_dir is not None
-            else self.camera_root.parent / "global" / "processing"
+            else (
+                self.camera_root.parent
+                if self.camera_root.name == "cameras"
+                else self.camera_root
+            )
+            / "global"
+            / "processing"
         )
         self.processing_dir.mkdir(parents=True, exist_ok=True)
         self.q = q
@@ -425,16 +451,57 @@ class MultiCameraPendingScanner(threading.Thread):
         self._camera_cursor = 0
         self._stop_event = threading.Event()
 
-    def scan_once(self) -> None:
-        pending_dirs = sorted(
-            path
-            for path in self.camera_root.glob("*/pending")
-            if path.is_dir()
+    def pending_dirs(self) -> list[Path]:
+        patterns = (
+            "*/pending",
+            "cameras/*/pending",
+            "*/cameras/*/pending",
+            "departments/*/cameras/*/pending",
         )
+        return sorted({
+            path
+            for pattern in patterns
+            for path in self.camera_root.glob(pattern)
+            if path.is_dir()
+        })
+
+    def processing_dirs(self, pending_dirs: list[Path] | None = None) -> list[Path]:
+        discovered = {self.processing_dir}
+        for pending_dir in pending_dirs or self.pending_dirs():
+            discovered.add(self._processing_dir_for(pending_dir))
+        for pattern in (
+            "global/processing",
+            "*/global/processing",
+            "departments/*/global/processing",
+        ):
+            discovered.update(
+                path
+                for path in self.camera_root.glob(pattern)
+                if path.is_dir()
+            )
+        return sorted(discovered)
+
+    def _processing_dir_for(self, pending_dir: Path) -> Path:
+        camera_root = pending_dir.parent.parent
+        department_root = camera_root.parent
+        if (
+            camera_root.name == "cameras"
+            and department_root.name in SECURITY_DEPARTMENTS
+        ):
+            return department_root / "global" / "processing"
+        return self.processing_dir
+
+    def scan_once(self) -> None:
+        pending_dirs = self.pending_dirs()
+        processing_dirs = self.processing_dirs(pending_dirs)
         existing = {
             str(path.resolve())
             for path in (
-                list(self.processing_dir.glob("*.pkl"))
+                [
+                    processing_path
+                    for processing_dir in processing_dirs
+                    for processing_path in processing_dir.glob("*.pkl")
+                ]
                 + [
                     pending_path
                     for pending_dir in pending_dirs
@@ -443,11 +510,12 @@ class MultiCameraPendingScanner(threading.Thread):
             )
         }
         self.seen.intersection_update(existing)
-        for path in sorted(self.processing_dir.glob("*.pkl")):
-            identity = str(path.resolve())
-            if identity not in self.seen:
-                self.seen.add(identity)
-                self.q.put(path)
+        for processing_dir in processing_dirs:
+            for path in sorted(processing_dir.glob("*.pkl")):
+                identity = str(path.resolve())
+                if identity not in self.seen:
+                    self.seen.add(identity)
+                    self.q.put(path)
 
         if not pending_dirs:
             return
@@ -461,9 +529,11 @@ class MultiCameraPendingScanner(threading.Thread):
                 if identity in self.seen:
                     continue
                 camera_id = pending_dir.parent.name
-                claimed_path = self.processing_dir / f"{camera_id}__{path.name}"
+                processing_dir = self._processing_dir_for(pending_dir)
+                processing_dir.mkdir(parents=True, exist_ok=True)
+                claimed_path = processing_dir / f"{camera_id}__{path.name}"
                 if claimed_path.exists():
-                    claimed_path = self.processing_dir / (
+                    claimed_path = processing_dir / (
                         f"{camera_id}__{time.time_ns()}__{path.name}"
                     )
                 try:
@@ -695,7 +765,13 @@ def main():
         else None
     )
     processing_dir = (
-        camera_root.parent / "global" / "processing"
+        (
+            camera_root.parent
+            if camera_root is not None and camera_root.name == "cameras"
+            else camera_root
+        )
+        / "global"
+        / "processing"
         if camera_root is not None
         else None
     )
@@ -706,14 +782,26 @@ def main():
     else:
         camera_root.mkdir(parents=True, exist_ok=True)
     tmp_dir = runtime_dir / "vlm_tmp"
+    task_q: queue.Queue = queue.Queue()
+    scanner = (
+        MultiCameraPendingScanner(
+            camera_root,
+            task_q,
+            poll_sec=0.5,
+            processing_dir=processing_dir,
+        )
+        if camera_root is not None
+        else PendingScanner(pending_dir, task_q, poll_sec=0.5)
+    )
 
     # 仅清理真正超时的任务，重启前未完成且仍有效的任务继续处理。
     startup_ts = time.time()
     if camera_root is not None:
         migrate_legacy_pending(pending_dir, processing_dir)
-        mark_recovered_processing(processing_dir)
+        for discovered_processing_dir in scanner.processing_dirs():
+            mark_recovered_processing(discovered_processing_dir)
     cleanup_dirs = (
-        list(camera_root.glob("*/pending"))
+        scanner.pending_dirs()
         if camera_root is not None
         else [pending_dir]
     )
@@ -739,17 +827,6 @@ def main():
     signal.signal(signal.SIGTERM, _signal_handler)
 
     # 任务队列 + 扫描线程
-    task_q: queue.Queue = queue.Queue()
-    scanner = (
-        MultiCameraPendingScanner(
-            camera_root,
-            task_q,
-            poll_sec=0.5,
-            processing_dir=processing_dir,
-        )
-        if camera_root is not None
-        else PendingScanner(pending_dir, task_q, poll_sec=0.5)
-    )
     scanner.start()
 
     # 历史持久保留；当日统计在 VLM 重启后从状态文件恢复。
@@ -833,6 +910,7 @@ def main():
             return
 
         session_id = str(payload["session_id"])
+        department = payload_department(payload)
         camera_id = str(payload.get("camera_id", "legacy-default"))
         camera_name = str(payload.get("camera_name", camera_id))
         roi_name   = str(payload.get("roi_name", ""))
@@ -885,7 +963,13 @@ def main():
             started_marker.touch(exist_ok=True)
             print(f"[vlm] 开始判定 {session_id} (等待 {waited:.1f}s, "
                   f"{len(keyframes)} 帧)", flush=True)
-            result = judge.judge(session_id, roi_name, roi_box, keyframes)
+            result = judge.judge(
+                session_id,
+                roi_name,
+                roi_box,
+                keyframes,
+                department=department,
+            )
         else:
             result = record.get("result") or {}
             print(f"[vlm] 恢复已完成任务 {session_id}，跳过重复 VLM 调用", flush=True)
@@ -907,6 +991,7 @@ def main():
                      - float(payload.get("start_ts", time.time()))
             record = {
                 "session_id": session_id,
+                "department": department,
                 "camera_id": camera_id,
                 "camera_name": camera_name,
                 "roi_name": roi_name,
@@ -940,7 +1025,8 @@ def main():
                 })
                 counts_date[0] = current_date
             already_recorded = any(
-                item.get("camera_id") == camera_id
+                item.get("department", SECURITY_DEPARTMENTS[0]) == department
+                and item.get("camera_id") == camera_id
                 and item.get("session_id") == session_id
                 for item in history
             )
@@ -954,6 +1040,7 @@ def main():
                 history.appendleft({
                     "time": record["time"],
                     "session_id": session_id,
+                    "department": department,
                     "camera_id": camera_id,
                     "camera_name": camera_name,
                     "roi_name": roi_name,

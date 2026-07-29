@@ -14,30 +14,40 @@ class FakeRuntimeManager:
         self.running = set()
         self.shutdown_called = False
 
-    def start(self, camera_id):
+    @staticmethod
+    def _require_general(department):
+        assert department == "general_electric"
+
+    def start(self, department, camera_id):
+        self._require_general(department)
         self.running.add(camera_id)
-        return self._result(camera_id, True, "running")
+        return self._result(department, camera_id, True, "running")
 
-    def stop(self, camera_id):
+    def stop(self, department, camera_id):
+        self._require_general(department)
         self.running.discard(camera_id)
-        return self._result(camera_id, True, "stopped")
+        return self._result(department, camera_id, True, "stopped")
 
-    def restart(self, camera_id):
-        return self.start(camera_id)
+    def restart(self, department, camera_id):
+        return self.start(department, camera_id)
 
-    def start_all(self):
+    def start_all(self, department):
+        self._require_general(department)
         return {"ok": True, "results": {}}
 
-    def stop_all(self):
+    def stop_all(self, department):
+        self._require_general(department)
         self.running.clear()
         return {"ok": True, "results": {}}
 
-    def is_running(self, camera_id):
+    def is_running(self, department, camera_id):
+        self._require_general(department)
         return camera_id in self.running
 
-    def status(self, camera_id):
-        running = self.is_running(camera_id)
+    def status(self, department, camera_id):
+        running = self.is_running(department, camera_id)
         return {
+            "department": department,
             "camera_id": camera_id,
             "running": running,
             "desired_running": running,
@@ -57,12 +67,13 @@ class FakeRuntimeManager:
         self.shutdown_called = True
         self.running.clear()
 
-    def _result(self, camera_id, ok, message):
+    def _result(self, department, camera_id, ok, message):
         return {
             "ok": ok,
+            "department": department,
             "camera_id": camera_id,
-            "running": self.is_running(camera_id),
-            "desired_running": self.is_running(camera_id),
+            "running": self.is_running(department, camera_id),
+            "desired_running": self.is_running(department, camera_id),
             "message": message,
         }
 

@@ -54,6 +54,7 @@ from roi_geometry import (  # noqa: E402
 )
 from camera_registry import CameraRegistry  # noqa: E402
 from camera_runtime import CameraRuntimeManager, CameraRuntimePaths  # noqa: E402
+from department_workspace import GENERAL_ELECTRIC  # noqa: E402
 
 
 LOGGER = logging.getLogger(__name__)
@@ -170,6 +171,14 @@ class AppService:
                 self.runtime_dir / "cameras",
             )
         ).resolve()
+        departments_runtime_root = (
+            self.cfg.get("departments", {}) or {}
+        ).get("runtime_root")
+        self.departments_runtime_root = (
+            Path(departments_runtime_root).resolve()
+            if departments_runtime_root
+            else self.runtime_dir / "departments"
+        )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.global_store = ResultStore(self.runtime_dir)
         self.store = self.global_store
@@ -191,7 +200,11 @@ class AppService:
             base_cfg=self.cfg,
             project_root=self.project_root,
             base_config_path=self.config_path,
-            camera_provider=self.registry.list,
+            camera_provider=lambda department: (
+                self.registry.list()
+                if department == GENERAL_ELECTRIC
+                else []
+            ),
         )
         self.probe_func = probe_func
         self.offload_sync = offload_sync
@@ -213,9 +226,9 @@ class AppService:
 
     def camera_runtime_dir(self, camera_id: str) -> Path:
         return CameraRuntimePaths(
-            self.runtime_dir,
+            self.departments_runtime_root,
+            GENERAL_ELECTRIC,
             camera_id,
-            camera_root_dir=self.camera_root,
         ).runtime_dir
 
     def camera_store(self, camera_id: str) -> ResultStore:
@@ -360,7 +373,10 @@ class AppService:
         camera = self.registry.get(camera_id)
         if camera is None:
             raise KeyError(camera_id)
-        process_status = self.runtime_manager.status(camera_id)
+        process_status = self.runtime_manager.status(
+            GENERAL_ELECTRIC,
+            camera_id,
+        )
         running = bool(process_status["running"])
         store = self.camera_store(camera_id)
         stopped_status = {"ok": False, "message": "stopped", "ts": time.time()}
@@ -455,17 +471,20 @@ class AppService:
     def start_workers(self):
         camera_id = self.default_camera_id()
         return (
-            self.runtime_manager.start(camera_id)
+            self.runtime_manager.start(GENERAL_ELECTRIC, camera_id)
             if camera_id is not None
             else {"ok": False, "message": "尚未添加摄像头"}
         )
 
     def stop_workers(self):
-        return self.runtime_manager.stop_all()
+        return self.runtime_manager.stop_all(GENERAL_ELECTRIC)
 
     def is_running(self) -> bool:
         return any(
-            self.runtime_manager.is_running(camera["camera_id"])
+            self.runtime_manager.is_running(
+                GENERAL_ELECTRIC,
+                camera["camera_id"],
+            )
             for camera in self.registry.list()
         )
 
@@ -749,6 +768,7 @@ def create_app(
         require_camera(camera_id)
         status = await run_blocking(
             service.runtime_manager.status,
+            GENERAL_ELECTRIC,
             camera_id,
         )
         if status.get("desired_running"):
@@ -774,6 +794,7 @@ def create_app(
         require_camera(camera_id)
         status = await run_blocking(
             service.runtime_manager.status,
+            GENERAL_ELECTRIC,
             camera_id,
         )
         if status.get("desired_running"):
@@ -806,13 +827,21 @@ def create_app(
     @app.post("/api/cameras/{camera_id}/control/start")
     async def start_camera(camera_id: str):
         require_camera(camera_id)
-        result = await run_blocking(service.runtime_manager.start, camera_id)
+        result = await run_blocking(
+            service.runtime_manager.start,
+            GENERAL_ELECTRIC,
+            camera_id,
+        )
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
     @app.post("/api/cameras/{camera_id}/control/stop")
     async def stop_camera(camera_id: str):
         require_camera(camera_id)
-        result = await run_blocking(service.runtime_manager.stop, camera_id)
+        result = await run_blocking(
+            service.runtime_manager.stop,
+            GENERAL_ELECTRIC,
+            camera_id,
+        )
         service._frame_hubs.pop(camera_id, None)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
@@ -822,18 +851,25 @@ def create_app(
         service._frame_hubs.pop(camera_id, None)
         result = await run_blocking(
             service.runtime_manager.restart,
+            GENERAL_ELECTRIC,
             camera_id,
         )
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
     @app.post("/api/cameras/control/start-all")
     async def start_all_cameras():
-        result = await run_blocking(service.runtime_manager.start_all)
+        result = await run_blocking(
+            service.runtime_manager.start_all,
+            GENERAL_ELECTRIC,
+        )
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
     @app.post("/api/cameras/control/stop-all")
     async def stop_all_cameras():
-        result = await run_blocking(service.runtime_manager.stop_all)
+        result = await run_blocking(
+            service.runtime_manager.stop_all,
+            GENERAL_ELECTRIC,
+        )
         service._frame_hubs.clear()
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
@@ -926,6 +962,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="尚未添加摄像头")
         result = await run_blocking(
             service.runtime_manager.restart,
+            GENERAL_ELECTRIC,
             camera_id,
         )
         return JSONResponse({
