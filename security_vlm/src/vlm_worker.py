@@ -1925,6 +1925,50 @@ def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
         task_q.task_done()
 
 
+def run_task_worker(
+    task_q,
+    process_one,
+    stop_event: threading.Event,
+    *,
+    poll_sec: float = 0.5,
+) -> None:
+    """使用独立停止事件消费任务；全局进程信号不直接终止 worker。"""
+    while not stop_event.is_set():
+        try:
+            item = task_q.get(timeout=poll_sec)
+        except queue.Empty:
+            continue
+        process_queued_item(task_q, process_one, item)
+
+
+def shutdown_task_workers(
+    scanner: threading.Thread,
+    task_q,
+    worker_stop: threading.Event,
+    workers: list[threading.Thread],
+    *,
+    drain_timeout_sec: float = 120.0,
+    poll_sec: float = 0.5,
+    worker_join_timeout_sec: float = 1.0,
+) -> bool:
+    """停止唯一生产者后有界排空队列，再通知并等待 worker 退出。"""
+    scanner.stop()
+    scanner.join()
+
+    deadline = time.monotonic() + max(0.0, float(drain_timeout_sec))
+    while task_q.unfinished_tasks > 0:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(max(0.001, float(poll_sec)), remaining))
+
+    drained = task_q.unfinished_tasks == 0
+    worker_stop.set()
+    for worker in workers:
+        worker.join(timeout=max(0.0, float(worker_join_timeout_sec)))
+    return drained and all(not worker.is_alive() for worker in workers)
+
+
 def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
     if isinstance(task_q, DepartmentFairTaskQueue):
         return task_q.department_counts()
@@ -2066,15 +2110,6 @@ def main():
             raise TypeError("VLM 任务队列只接受 PendingTask")
         processor.process(task)
 
-    # ---- worker 池 ----
-    def worker_loop():
-        while not _STOP.is_set() or not task_q.empty():
-            try:
-                p = task_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            process_queued_item(task_q, process_one, p)
-
     def write_statuses(ok: bool, message: str) -> None:
         queue_sizes = queued_department_counts(task_q)
         for department in SECURITY_DEPARTMENTS:
@@ -2086,9 +2121,14 @@ def main():
                 "queue": queue_sizes[department],
             })
 
+    worker_stop = threading.Event()
     threads = []
     for _ in range(max_concurrent):
-        t = threading.Thread(target=worker_loop, daemon=True)
+        t = threading.Thread(
+            target=run_task_worker,
+            args=(task_q, process_one, worker_stop),
+            daemon=True,
+        )
         t.start()
         threads.append(t)
 
@@ -2110,20 +2150,21 @@ def main():
         print(f"[vlm] 主循环异常: {e}", flush=True)
         write_statuses(False, str(e))
     finally:
-        # 停止扫描后让 worker 继续取队列，并等待排队及执行中的任务完成。
+        # 先确保扫描生产者停止，再让 worker 排空所有已认领任务。
         print("[vlm] 退出中, 等待队列清空...", flush=True)
-        scanner.stop()
-        scanner.join(timeout=2.0)
-        t0 = time.time()
-        while task_q.unfinished_tasks > 0 and time.time() - t0 < 120:
-            time.sleep(0.5)
-        for thread in threads:
-            thread.join(timeout=1.0)
+        drained = shutdown_task_workers(
+            scanner,
+            task_q,
+            worker_stop,
+            threads,
+        )
         if task_q.unfinished_tasks > 0:
             print(
                 f"[vlm] 排空超时，保留 {task_q.unfinished_tasks} 个任务供下次恢复",
                 flush=True,
             )
+        elif not drained:
+            print("[vlm] worker 未能在关闭期限内全部退出", flush=True)
         write_stats_and_history()
         write_statuses(False, "stopped")
 

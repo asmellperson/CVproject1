@@ -117,6 +117,133 @@ def test_process_queued_item_contains_task_exception(capsys):
     assert "broken task" in capsys.readouterr().err
 
 
+def test_shutdown_drains_task_put_after_global_stop_during_scanner_scan(tmp_path):
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    late_task = vlm_worker.PendingTask(
+        "general_electric",
+        "camera-late",
+        tmp_path / "late.pkl",
+    )
+    scan_started = threading.Event()
+    allow_late_put = threading.Event()
+    worker_stop = threading.Event()
+    processed = []
+    worker_stop_states = []
+
+    class DelayedScanner(threading.Thread):
+        def run(self):
+            scan_started.set()
+            assert allow_late_put.wait(timeout=2)
+            task_q.put(late_task)
+
+        def stop(self):
+            allow_late_put.set()
+
+    def process_one(task):
+        worker_stop_states.append(worker_stop.is_set())
+        processed.append(task)
+
+    scanner = DelayedScanner()
+    workers = [
+        threading.Thread(
+            target=vlm_worker.run_task_worker,
+            args=(task_q, process_one, worker_stop),
+            kwargs={"poll_sec": 0.01},
+        )
+        for _index in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    scanner.start()
+    assert scan_started.wait(timeout=2)
+
+    try:
+        vlm_worker._STOP.set()
+        drained = vlm_worker.shutdown_task_workers(
+            scanner,
+            task_q,
+            worker_stop,
+            workers,
+            drain_timeout_sec=2,
+            poll_sec=0.01,
+        )
+    finally:
+        vlm_worker._STOP.clear()
+        allow_late_put.set()
+        scanner.join(timeout=2)
+        worker_stop.set()
+        for worker in workers:
+            worker.join(timeout=2)
+
+    assert drained is True
+    assert processed == [late_task]
+    assert worker_stop_states == [False]
+    assert task_q.unfinished_tasks == 0
+    assert task_q.empty() is True
+    assert all(not worker.is_alive() for worker in workers)
+
+
+def test_shutdown_timeout_leaves_in_progress_task_for_recovery(tmp_path):
+    task_path = tmp_path / "global" / "processing" / "camera-a" / "slow.pkl"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_bytes(b"recoverable")
+    task = vlm_worker.PendingTask(
+        "general_electric",
+        "camera-a",
+        task_path,
+    )
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    task_q.put(task)
+    process_started = threading.Event()
+    release_process = threading.Event()
+    scanner_stopped = threading.Event()
+    worker_stop = threading.Event()
+
+    class IdleScanner(threading.Thread):
+        def run(self):
+            scanner_stopped.wait()
+
+        def stop(self):
+            scanner_stopped.set()
+
+    def process_one(_task):
+        process_started.set()
+        assert release_process.wait(timeout=2)
+
+    scanner = IdleScanner()
+    worker = threading.Thread(
+        target=vlm_worker.run_task_worker,
+        args=(task_q, process_one, worker_stop),
+        kwargs={"poll_sec": 0.01},
+    )
+    scanner.start()
+    worker.start()
+    assert process_started.wait(timeout=2)
+
+    try:
+        drained = vlm_worker.shutdown_task_workers(
+            scanner,
+            task_q,
+            worker_stop,
+            [worker],
+            drain_timeout_sec=0.01,
+            poll_sec=0.005,
+            worker_join_timeout_sec=0.01,
+        )
+        assert drained is False
+        assert task_path.read_bytes() == b"recoverable"
+        assert task_q.unfinished_tasks == 1
+    finally:
+        release_process.set()
+        worker_stop.set()
+        worker.join(timeout=2)
+        scanner_stopped.set()
+        scanner.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert task_q.unfinished_tasks == 0
+
+
 def test_draw_text_falls_back_when_configured_font_cannot_be_opened(monkeypatch):
     original_truetype = vlm_worker.ImageFont.truetype
 
