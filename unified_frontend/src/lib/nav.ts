@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  UserCog,
   UsersRound,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -63,6 +64,13 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'alarms', label: '报警记录', icon: Bell, description: '告警事件列表' },
       { id: 'statistics', label: '统计分析', icon: BarChart3, description: '指标与趋势' },
+    ],
+  },
+  {
+    id: 'system',
+    label: '系统管理',
+    items: [
+      { id: 'user-management', label: '用户管理', icon: UserCog, description: '添加用户、分配角色与事业部、管理账号状态' },
     ],
   },
 ]

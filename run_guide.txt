@@ -112,30 +112,28 @@ python AiVision/main.py --port <端口>
 python security_vlm/src/main.py --config configs/config.yaml --port <端口>
 npm run dev -- --port <端口>
 
-如何添加新工号
+如何管理用户
 
-  编辑：
+  使用管理员账号登录前端，在左侧“系统管理”中进入“用户管理”。
 
-  /usr/zyy/Fuda_CVPreject_V3/auth/auth_users.json
+  管理员可以：
+  - 添加管理员或指定事业部的普通用户；
+  - 修改用户姓名、角色和事业部；
+  - 启用或禁用用户；
+  - 重置用户密码；
+  - 永久删除用户。
 
-  追加：
+  第一次启动新版统一后端时，系统会自动把现有
+  auth/auth_users.json 中的全部账号迁移到：
 
-  {
-    "employee_id": "10003",
-    "name": "新用户",
-    "role": "viewer",
-    "enabled": true
+  /srv/Fuda_CVPreject/runtime/auth/auth_users.db
 
-  AUTH_DEFAULT_PASSWORD='新密码'
+  迁移只执行一次。完成后登录和用户管理只读写数据库，
+  不再通过修改 auth/auth_users.json 添加用户。
 
-  如何区分 admin 和 viewer
+  备份用户数据库：
 
-  在 auth_users.json 里改 role：
+  cp runtime/auth/auth_users.db \
+    "runtime/auth/auth_users.db.backup-$(date +%Y%m%d-%H%M%S)"
 
-  "role": "admin"
-
-  或：
-
-  "role": "viewer"
-
-  admin 可修改配置、启停算法、录屏；viewer 只能查看。
+  数据库文件位于 runtime/ 目录，不会提交到 Git。

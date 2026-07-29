@@ -3,7 +3,20 @@ import {
   departmentPermissions,
   getUserDepartment,
   hasPageAccess,
+  type PageId,
 } from './permissions'
+
+const userManagementPage: PageId = 'user-management'
+const adminUser = {
+  employee_id: 'admin',
+  name: '管理员',
+  role: 'admin',
+  department: 'all',
+}
+
+if (!hasPageAccess(adminUser, userManagementPage)) {
+  throw new Error('expected administrators to access user management')
+}
 
 const electronicsUser = {
   employee_id: 'u1',
@@ -22,6 +35,10 @@ if (!hasPageAccess(electronicsUser, 'guard-behavior-electronics-electrician')) {
 
 if (hasPageAccess(electronicsUser, 'guard-behavior-general-electric')) {
   throw new Error('expected electronics department to be isolated from general electric guard behavior page')
+}
+
+if (hasPageAccess(electronicsUser, userManagementPage)) {
+  throw new Error('expected viewers to be isolated from user management')
 }
 
 if (!departmentPermissions.electronics_electrician.pages.includes('guard-behavior-electronics-electrician')) {

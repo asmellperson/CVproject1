@@ -31,12 +31,23 @@ from auth.auth import (  # noqa: E402
     AuthError,
     ChangePasswordRequest,
     LoginRequest,
+    UserConflictError,
+    UserNotFoundError,
+    UserStoreError,
+    UserValidationError,
     change_own_password,
     clear_auth_cookie,
+    create_auth_user,
     create_token,
+    delete_auth_user,
     get_current_user,
     get_current_user_from_request,
+    get_user_store,
+    list_auth_users,
+    require_admin,
+    reset_auth_user_password,
     set_auth_cookie,
+    update_auth_user,
     verify_login,
 )
 from unified_backend.alarm_dispositions import AlarmDispositionStore  # noqa: E402
@@ -53,6 +64,37 @@ class AlarmDispositionUpdateRequest(BaseModel):
     alarm_id: str
     status: str
     note: str = ""
+
+
+class AdminUserCreateRequest(BaseModel):
+    employee_id: str
+    name: str
+    role: str
+    department: str | None = None
+    password: str
+
+
+class AdminUserUpdateRequest(BaseModel):
+    name: str
+    role: str
+    department: str | None = None
+    enabled: bool
+
+
+class AdminUserPasswordResetRequest(BaseModel):
+    new_password: str
+
+
+def _raise_user_management_http_error(exc: UserStoreError) -> None:
+    if isinstance(exc, UserNotFoundError):
+        status_code = 404
+    elif isinstance(exc, UserConflictError):
+        status_code = 409
+    elif isinstance(exc, UserValidationError):
+        status_code = 400
+    else:
+        status_code = 500
+    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 ALARM_TYPE_META: dict[str, dict[str, str]] = {
@@ -741,6 +783,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        get_user_store().initialize()
         proxy_client = AsyncProxyClient(ProxySettings.from_env())
         app.state.proxy_client = proxy_client
         try:
@@ -999,6 +1042,81 @@ def create_app() -> FastAPI:
         except AuthError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"success": True, "user": updated_user}
+
+    @app.get("/api/admin/users")
+    def admin_list_users(admin: dict = Depends(require_admin)):
+        del admin
+        try:
+            return {"items": list_auth_users()}
+        except UserStoreError as exc:
+            _raise_user_management_http_error(exc)
+
+    @app.post("/api/admin/users")
+    def admin_create_user(
+        payload: AdminUserCreateRequest,
+        admin: dict = Depends(require_admin),
+    ):
+        del admin
+        try:
+            user = create_auth_user(
+                employee_id=payload.employee_id,
+                name=payload.name,
+                role=payload.role,
+                department=payload.department,
+                password=payload.password,
+            )
+            return {"success": True, "user": user}
+        except UserStoreError as exc:
+            _raise_user_management_http_error(exc)
+
+    @app.patch("/api/admin/users/{employee_id}")
+    def admin_update_user(
+        employee_id: str,
+        payload: AdminUserUpdateRequest,
+        admin: dict = Depends(require_admin),
+    ):
+        try:
+            user = update_auth_user(
+                employee_id,
+                actor_employee_id=str(admin.get("employee_id", "")),
+                name=payload.name,
+                role=payload.role,
+                department=payload.department,
+                enabled=payload.enabled,
+            )
+            return {"success": True, "user": user}
+        except UserStoreError as exc:
+            _raise_user_management_http_error(exc)
+
+    @app.post("/api/admin/users/{employee_id}/reset-password")
+    def admin_reset_user_password(
+        employee_id: str,
+        payload: AdminUserPasswordResetRequest,
+        admin: dict = Depends(require_admin),
+    ):
+        del admin
+        try:
+            user = reset_auth_user_password(
+                employee_id,
+                new_password=payload.new_password,
+            )
+            return {"success": True, "user": user}
+        except UserStoreError as exc:
+            _raise_user_management_http_error(exc)
+
+    @app.delete("/api/admin/users/{employee_id}")
+    def admin_delete_user(
+        employee_id: str,
+        admin: dict = Depends(require_admin),
+    ):
+        try:
+            delete_auth_user(
+                employee_id,
+                actor_employee_id=str(admin.get("employee_id", "")),
+            )
+            return {"success": True}
+        except UserStoreError as exc:
+            _raise_user_management_http_error(exc)
 
     @app.get("/api/alarm-dispositions")
     def get_alarm_dispositions():

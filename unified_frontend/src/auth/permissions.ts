@@ -25,6 +25,7 @@ export type PageId =
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
+  | 'user-management'
 
 type PageDisplayOverride = {
   label?: string
@@ -177,6 +178,7 @@ const pageIds = new Set<string>([
   'phone-detection',
   'alarms',
   'statistics',
+  'user-management',
 ])
 
 function normalizePageId(pageId: string): PageId | null {
