@@ -6,17 +6,17 @@
 #       unified_backend / unified_frontend，并做端口健康检查。
 #
 # 用法：
-#   bash scripts/cold_start.sh                  # 安全模式：已存在会话则跳过
-#   bash scripts/cold_start.sh --force          # 强制：先 kill 旧会话再启动
-#   bash scripts/cold_start.sh --no-check       # 跳过端口健康检查
-#   bash scripts/cold_start.sh --skip-precheck  # 跳过启动前配置文件检查
-#   bash scripts/cold_start.sh --yes            # 非交互：跳过首次生成 AUTH_SECRET 的确认
-#   bash scripts/cold_start.sh -h               # 帮助
+#   bash scripts/start.sh                  # 安全模式：已存在会话则跳过
+#   bash scripts/start.sh --force          # 强制：先 kill 旧会话再启动
+#   bash scripts/start.sh --no-check       # 跳过端口健康检查
+#   bash scripts/start.sh --skip-precheck  # 跳过启动前配置文件检查
+#   bash scripts/start.sh --yes            # 非交互：跳过首次生成 AUTH_SECRET 的确认
+#   bash scripts/start.sh -h               # 帮助
 #
 # 多服务器适配：
 #   脚本会自动探测 nvm / 系统 node / conda / uv 的路径。
-#   探测不到时，可创建 scripts/cold_start.env 手动指定，示例见
-#   scripts/cold_start.env.example。
+#   如需覆盖自动探测，可复制 scripts/start.env.example 为
+#   scripts/cold_start.env 后手动指定。
 #
 # AUTH_SECRET 管理：
 #   首次运行会在 scripts/auth_secret 生成 64 字符 hex 密钥（权限 600）。
@@ -139,6 +139,8 @@ conda_env_exists() {
   echo "$output" | awk '{print $1}' | grep -qx "$env_name"
 }
 
+source "$SCRIPT_DIR/lib/unified_backend_runtime.sh"
+
 # ---- AUTH_SECRET 管理 ------------------------------------------------------
 # 读取或首次生成共享 auth 密钥；写入 scripts/auth_secret（权限 600）。
 # 首次生成会踢下线所有现有用户，因此默认弹出确认；--yes 跳过。
@@ -238,7 +240,14 @@ needs_auth_secret() {
 NVM_SH_PATH="$(detect_nvm_sh || true)"
 CONDA_SH_PATH="$(detect_conda_sh || true)"
 UV_BIN_PATH="$(detect_uv_bin || true)"
-UNIFIED_BACKEND_PYTHON="${UNIFIED_BACKEND_PYTHON:-$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)}"
+UNIFIED_BACKEND_ENV="${UNIFIED_BACKEND_ENV:-unified_backend}"
+UNIFIED_BACKEND_PYTHON="${UNIFIED_BACKEND_PYTHON:-}"
+SYSTEM_PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
+  "$UNIFIED_BACKEND_PYTHON" \
+  "$CONDA_SH_PATH" \
+  "$UNIFIED_BACKEND_ENV" \
+  "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
 GUARD_ROOM_ENV="${GUARD_ROOM_ENV:-guard_room}"
 SECURITY_VLM_ENV="${SECURITY_VLM_ENV:-security_vlm}"
@@ -286,8 +295,8 @@ else
   SERVICES+=("security_vlm|${PROJECT_ROOT}/security_vlm|__DEP_MISSING__|8000|${WAIT_SECURITY_VLM}")
 fi
 
-if [[ -n "$UNIFIED_BACKEND_PYTHON" ]]; then
-  SERVICES+=("unified_backend|${PROJECT_ROOT}|${UNIFIED_BACKEND_PYTHON} -m unified_backend.run_server --host 127.0.0.1 --port 5000|5000|${WAIT_UNIFIED_BACKEND}")
+if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
+  SERVICES+=("unified_backend|${PROJECT_ROOT}|${UNIFIED_BACKEND_RUNTIME} -m unified_backend.run_server --host 127.0.0.1 --port 5000|5000|${WAIT_UNIFIED_BACKEND}")
 else
   SERVICES+=("unified_backend|${PROJECT_ROOT}|__DEP_MISSING__|5000|${WAIT_UNIFIED_BACKEND}")
 fi
@@ -569,9 +578,10 @@ suggest_dep_fix() {
       fi
       ;;
     unified_backend)
-      hint "未找到可用 Python。请安装 Python 3，并执行："
-      hint "  python3 -m pip install -r ${workdir}/unified_backend/requirements.txt"
-      hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_PYTHON=/path/to/python"
+      hint "未找到 unified_backend Conda 环境或可用 Python。建议执行："
+      hint "  conda create -n ${UNIFIED_BACKEND_ENV} python=3.11 -y"
+      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
+      hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_ENV 或 UNIFIED_BACKEND_PYTHON"
       ;;
     unified_frontend)
       hint "既无 nvm，系统 node 版本也不匹配（需要 v${NODE_VERSION}）。任选其一："
@@ -774,12 +784,13 @@ main() {
   else
     miss "  UV_BIN       = 未找到（aivision 将跳过）"
   fi
-  if [[ -n "$UNIFIED_BACKEND_PYTHON" ]]; then
-    ok "  BACKEND_PY   = ${UNIFIED_BACKEND_PYTHON}"
+  if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
+    ok "  BACKEND_CMD  = ${UNIFIED_BACKEND_RUNTIME}"
   else
-    miss "  BACKEND_PY   = 未找到（unified_backend 将跳过）"
+    miss "  BACKEND_CMD  = 未找到（unified_backend 将跳过）"
   fi
   log "  NODE_VERSION = ${NODE_VERSION}"
+  log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
   log "  GUARD_ROOM_ENV   = ${GUARD_ROOM_ENV}"
   log "  SECURITY_VLM_ENV = ${SECURITY_VLM_ENV}"
   log "  健康检查上限(秒) guard=${WAIT_GUARD_ROOM} ai=${WAIT_AIVISION} vlm=${WAIT_SECURITY_VLM} backend=${WAIT_UNIFIED_BACKEND} fe=${WAIT_UNIFIED_FRONTEND}"
@@ -804,10 +815,10 @@ main() {
   fi
 
   # 提示如何覆盖
-  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UV_BIN_PATH" ]]; then
+  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UV_BIN_PATH" || -z "$UNIFIED_BACKEND_RUNTIME" ]]; then
     echo
     warn "部分依赖未探测到，对应服务将跳过。"
-    warn "如需手动指定路径，请创建 scripts/cold_start.env，参考 scripts/cold_start.env.example"
+    warn "如需手动指定路径，请复制 scripts/start.env.example 为 scripts/cold_start.env"
   fi
 
   local total=0 ready_cnt=0 fail_cnt=0 dep_cnt=0 skip_cnt=0 degraded_cnt=0

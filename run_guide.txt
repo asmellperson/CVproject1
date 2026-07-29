@@ -13,6 +13,9 @@ cd /srv/Fuda_CVPreject
 # 启动五个服务（已有同名 tmux 会话时会跳过，不影响正在运行的服务）
 bash scripts/start.sh
 
+# 统一后端会自动优先使用名为 unified_backend 的 Conda 环境。
+# 目标服务器已有该环境时无需修改任何项目配置文件。
+
 # 查看五个服务的 tmux、端口和健康状态
 bash scripts/status.sh
 
@@ -70,6 +73,7 @@ npm run dev
 
 2、启动unified_backend（统一后端，固定对外 5000）:
 tmux new -s unified_backend
+conda activate unified_backend
 export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
 python -m unified_backend.run_server
 如需临时改端口：python -m unified_backend.run_server --port <统一后端调试端口>
