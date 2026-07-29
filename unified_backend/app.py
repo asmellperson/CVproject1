@@ -10,9 +10,10 @@ import os
 import sys
 import time
 from collections import Counter, defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urljoin
 
 import requests
@@ -20,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
@@ -38,6 +40,13 @@ from auth.auth import (  # noqa: E402
     verify_login,
 )
 from unified_backend.alarm_dispositions import AlarmDispositionStore  # noqa: E402
+from unified_backend.proxy import (  # noqa: E402
+    AsyncProxyClient,
+    ProxyRequestError,
+    ProxySettings,
+    filtered_response_headers,
+    stream_response_bytes,
+)
 
 
 class AlarmDispositionUpdateRequest(BaseModel):
@@ -141,31 +150,9 @@ def _cors_origins() -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _filtered_headers(headers: requests.structures.CaseInsensitiveDict) -> dict[str, str]:
-    excluded = {"content-length", "transfer-encoding", "connection", "content-encoding"}
-    return {key: value for key, value in headers.items() if key.lower() not in excluded}
-
-
 def _request_headers(request: Request) -> dict[str, str]:
-    excluded = {"host", "content-length", "connection"}
+    excluded = {"host", "content-length", "connection", "transfer-encoding"}
     return {key: value for key, value in request.headers.items() if key.lower() not in excluded}
-
-
-def _stream_response(upstream: requests.Response) -> StreamingResponse:
-    def chunks() -> Iterable[bytes]:
-        try:
-            for chunk in upstream.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
-
-    return StreamingResponse(
-        chunks(),
-        status_code=upstream.status_code,
-        headers=_filtered_headers(upstream.headers),
-        media_type=upstream.headers.get("content-type"),
-    )
 
 
 def _get_json(
@@ -725,20 +712,24 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
     url = urljoin(f"{base_url}/", upstream_path.lstrip("/")) + query
     body = await request.body()
     try:
-        upstream = requests.request(
+        upstream = await request.app.state.proxy_client.send(
             method=request.method,
             url=url,
-            params=None,
-            data=body if body else None,
+            body=body,
             headers=_request_headers(request),
-            cookies=request.cookies,
-            stream=True,
-            timeout=(5, None),
         )
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"upstream unavailable: {base_url}") from exc
+    except ProxyRequestError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
 
-    return _stream_response(upstream)
+    return StreamingResponse(
+        stream_response_bytes(upstream),
+        status_code=upstream.status_code,
+        headers=filtered_response_headers(upstream.headers),
+        background=BackgroundTask(upstream.aclose),
+    )
 
 
 def create_app() -> FastAPI:
@@ -748,7 +739,20 @@ def create_app() -> FastAPI:
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
 
-    app = FastAPI(title="Fuda Unified Backend", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        proxy_client = AsyncProxyClient(ProxySettings.from_env())
+        app.state.proxy_client = proxy_client
+        try:
+            yield
+        finally:
+            await proxy_client.close()
+
+    app = FastAPI(
+        title="Fuda Unified Backend",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
