@@ -244,6 +244,40 @@ def test_shutdown_timeout_leaves_in_progress_task_for_recovery(tmp_path):
     assert task_q.unfinished_tasks == 0
 
 
+def test_shutdown_returns_when_scanner_does_not_exit():
+    release_scanner = threading.Event()
+
+    class StuckScanner(threading.Thread):
+        def run(self):
+            release_scanner.wait()
+
+        def stop(self):
+            pass
+
+    scanner = StuckScanner()
+    scanner.start()
+    try:
+        result = vlm_worker.shutdown_task_workers(
+            scanner,
+            vlm_worker.DepartmentFairTaskQueue(),
+            threading.Event(),
+            [],
+            drain_timeout_sec=0.01,
+            scanner_join_timeout_sec=0.01,
+        )
+        assert result is False
+        assert scanner.is_alive()
+    finally:
+        release_scanner.set()
+        scanner.join(timeout=2)
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_vlm_max_concurrent_must_be_positive(value):
+    with pytest.raises(ValueError, match="正整数"):
+        vlm_worker.vlm_max_concurrent({"max_concurrent": value})
+
+
 def test_draw_text_falls_back_when_configured_font_cannot_be_opened(monkeypatch):
     original_truetype = vlm_worker.ImageFont.truetype
 

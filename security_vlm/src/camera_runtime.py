@@ -16,7 +16,7 @@ from typing import Callable
 import yaml
 
 from camera_registry import validate_camera_id
-from departments import require_department
+from departments import SECURITY_DEPARTMENTS, require_department
 
 _WORKER_SCRIPTS = (
     ("capture", "capture_worker.py"),
@@ -184,6 +184,9 @@ class CameraRuntimeManager:
         self.vlm_restart_at: float | None = None
         self.vlm_last_error = ""
         self._lock = threading.RLock()
+        self._department_gates = {
+            department: threading.RLock() for department in SECURITY_DEPARTMENTS
+        }
         self._shutting_down = False
         self._monitor_interval_sec = max(0.1, float(monitor_interval_sec))
         self._monitor_stop = threading.Event()
@@ -199,84 +202,108 @@ class CameraRuntimeManager:
     def start(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
-        with self._lock:
-            if self._shutting_down:
-                return {
-                    "ok": False,
-                    "department": department,
-                    "camera_id": camera_id,
-                    "running": False,
-                    "desired_running": False,
-                    "message": "运行时正在关闭，拒绝启动摄像头",
-                }
-            camera = self._get_camera(department, camera_id)
-            if camera is None:
-                return {
-                    "ok": False,
-                    "department": department,
-                    "camera_id": camera_id,
-                    "message": "摄像头不存在",
-                }
-            key = (department, camera_id)
-            paths = self._paths(department, camera_id)
-            runtime = self.runtimes.get(key)
-            if runtime is None:
-                if self._active_runtime_count() >= self.max_running_cameras:
+        with self._department_gates[department]:
+            with self._lock:
+                if self._shutting_down:
                     return {
                         "ok": False,
                         "department": department,
                         "camera_id": camera_id,
                         "running": False,
                         "desired_running": False,
-                        "message": (
-                            "运行实例已达到总上限 "
-                            f"{self.max_running_cameras}"
-                        ),
+                        "message": "运行时正在关闭，拒绝启动摄像头",
                     }
-                runtime = CameraRuntime(
-                    department,
-                    camera_id,
-                    paths.config_path,
-                )
-                self.runtimes[key] = runtime
-            elif not runtime.desired_running and (
-                self._active_runtime_count() >= self.max_running_cameras
-            ):
-                return self._result(
-                    runtime,
-                    False,
-                    f"运行实例已达到总上限 {self.max_running_cameras}",
-                )
-            runtime.desired_running = True
-            runtime.restart_attempts = 0
-            runtime.restart_at = None
-            if self._runtime_is_running(runtime):
-                return self._result(runtime, True, "already running")
-            try:
-                self._start_runtime(runtime, camera, paths)
-                vlm_running = self._ensure_vlm()
-                result = self._result(
-                    runtime,
-                    vlm_running,
-                    "running" if vlm_running else "摄像头已运行，VLM 正在重试",
-                )
-                result["degraded"] = not vlm_running
-                return result
-            except Exception as exc:
-                runtime.last_error = str(exc)
-                self._terminate_runtime_processes(runtime)
-                self._schedule_restart(runtime)
-                LOGGER.exception(
-                    "启动事业部 %s 摄像头 %s 的 worker 失败",
-                    department,
-                    camera_id,
-                )
-                return self._result(runtime, False, runtime.last_error)
+                camera = self._get_camera(department, camera_id)
+                if camera is None:
+                    return {
+                        "ok": False,
+                        "department": department,
+                        "camera_id": camera_id,
+                        "message": "摄像头不存在",
+                    }
+                key = (department, camera_id)
+                paths = self._paths(department, camera_id)
+                runtime = self.runtimes.get(key)
+                if runtime is None:
+                    if self._active_runtime_count() >= self.max_running_cameras:
+                        return {
+                            "ok": False,
+                            "department": department,
+                            "camera_id": camera_id,
+                            "running": False,
+                            "desired_running": False,
+                            "message": (
+                                "运行实例已达到总上限 "
+                                f"{self.max_running_cameras}"
+                            ),
+                        }
+                    runtime = CameraRuntime(
+                        department,
+                        camera_id,
+                        paths.config_path,
+                    )
+                    self.runtimes[key] = runtime
+                elif not runtime.desired_running and (
+                    self._active_runtime_count() >= self.max_running_cameras
+                ):
+                    return self._result(
+                        runtime,
+                        False,
+                        f"运行实例已达到总上限 {self.max_running_cameras}",
+                    )
+                runtime.desired_running = True
+                runtime.restart_attempts = 0
+                runtime.restart_at = None
+                if self._runtime_is_running(runtime):
+                    return self._result(runtime, True, "already running")
+                stale_processes = self._detach_runtime_processes(runtime)
+
+            # 旧进程组可能等待数十秒，绝不能占用跨事业部全局锁。
+            self._terminate_processes(stale_processes)
+
+            failed_processes = {}
+            with self._lock:
+                if self._shutting_down or not runtime.desired_running:
+                    runtime.desired_running = False
+                    return self._result(
+                        runtime,
+                        False,
+                        "运行时正在关闭，拒绝启动摄像头",
+                    )
+                try:
+                    self._start_runtime(runtime, camera, paths)
+                    vlm_running = self._ensure_vlm()
+                    result = self._result(
+                        runtime,
+                        vlm_running,
+                        (
+                            "running"
+                            if vlm_running
+                            else "摄像头已运行，VLM 正在重试"
+                        ),
+                    )
+                    result["degraded"] = not vlm_running
+                except Exception as exc:
+                    runtime.last_error = str(exc)
+                    failed_processes = self._detach_runtime_processes(runtime)
+                    self._schedule_restart(runtime)
+                    LOGGER.exception(
+                        "启动事业部 %s 摄像头 %s 的 worker 失败",
+                        department,
+                        camera_id,
+                    )
+                    result = self._result(
+                        runtime,
+                        False,
+                        runtime.last_error,
+                    )
+            self._terminate_processes(failed_processes)
+            return result
 
     def stop(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
-        with self._lock:
+        with self._department_gates[department], self._lock:
             key = (department, camera_id)
             runtime = self.runtimes.get(key)
             if runtime is None:
@@ -298,13 +325,20 @@ class CameraRuntimeManager:
             runtime.desired_running = False
             runtime.restart_at = None
             runtime.restart_attempts = 0
-            self._terminate_runtime_processes(runtime)
+            processes = self._detach_runtime_processes(runtime)
             if not self._has_active_camera():
-                self._stop_vlm()
-            return self._result(runtime, True, "stopped")
+                vlm = self._detach_vlm()
+            else:
+                vlm = None
+            result = self._result(runtime, True, "stopped")
+        self._terminate_processes(processes)
+        if vlm is not None:
+            self._terminate_process(vlm, "vlm", timeout=125.0)
+        return result
 
     def restart(self, department: str, camera_id: str) -> dict:
-        with self._lock:
+        department = require_department(department)
+        with self._department_gates[department]:
             stopped = self.stop(department, camera_id)
             if not stopped["ok"]:
                 return stopped
@@ -312,44 +346,50 @@ class CameraRuntimeManager:
 
     def start_all(self, department: str) -> dict:
         department = require_department(department)
-        with self._lock:
-            if self._shutting_down:
-                return {
-                    "ok": False,
-                    "department": department,
-                    "message": "运行时正在关闭，拒绝全部启动",
-                    "results": {},
-                }
-            results = {}
-            for camera in self.camera_provider(department):
-                camera_id = str(camera["camera_id"])
-                results[camera_id] = self.start(department, camera_id)
-            return {
-                "ok": all(result["ok"] for result in results.values()),
-                "department": department,
-                "results": results,
+        with self._department_gates[department]:
+            with self._lock:
+                if self._shutting_down:
+                    return {
+                        "ok": False,
+                        "department": department,
+                        "message": "运行时正在关闭，拒绝全部启动",
+                        "results": {},
+                    }
+                cameras = list(self.camera_provider(department))
+            results = {
+                str(camera["camera_id"]): self.start(
+                    department,
+                    str(camera["camera_id"]),
+                )
+                for camera in cameras
             }
+        return {
+            "ok": all(result["ok"] for result in results.values()),
+            "department": department,
+            "results": results,
+        }
 
     def stop_all(self, department: str) -> dict:
         department = require_department(department)
-        with self._lock:
-            camera_ids = {
-                str(camera["camera_id"])
-                for camera in self.camera_provider(department)
-            } | {
-                camera_id
-                for runtime_department, camera_id in self.runtimes
-                if runtime_department == department
-            }
+        with self._department_gates[department]:
+            with self._lock:
+                camera_ids = {
+                    str(camera["camera_id"])
+                    for camera in self.camera_provider(department)
+                } | {
+                    camera_id
+                    for runtime_department, camera_id in self.runtimes
+                    if runtime_department == department
+                }
             results = {
                 camera_id: self.stop(department, camera_id)
                 for camera_id in camera_ids
             }
-            return {
-                "ok": all(result["ok"] for result in results.values()),
-                "department": department,
-                "results": results,
-            }
+        return {
+            "ok": all(result["ok"] for result in results.values()),
+            "department": department,
+            "results": results,
+        }
 
     def is_running(self, department: str, camera_id: str) -> bool:
         department = require_department(department)
@@ -361,7 +401,6 @@ class CameraRuntimeManager:
     def status(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
-        self.reconcile()
         with self._lock:
             runtime = self.runtimes.get((department, camera_id))
             if runtime is None:
@@ -403,6 +442,8 @@ class CameraRuntimeManager:
 
     def reconcile(self) -> None:
         """检测意外退出，并按有界退避重启完整摄像头进程组。"""
+        process_groups = []
+        vlm_to_stop = None
         with self._lock:
             if self._shutting_down:
                 return
@@ -432,7 +473,9 @@ class CameraRuntimeManager:
                         self._ensure_vlm()
                     except Exception as exc:
                         runtime.last_error = str(exc)
-                        self._terminate_runtime_processes(runtime)
+                        process_groups.append(
+                            self._detach_runtime_processes(runtime)
+                        )
                         self._schedule_restart(runtime)
                         LOGGER.exception(
                             "自动重启事业部 %s 摄像头 %s 的 worker 失败",
@@ -448,13 +491,20 @@ class CameraRuntimeManager:
                         if process.poll() is not None
                     ]
                     runtime.last_error = f"worker 意外退出: {', '.join(exited)}"
-                    self._terminate_runtime_processes(runtime)
+                    process_groups.append(
+                        self._detach_runtime_processes(runtime)
+                    )
                     self._schedule_restart(runtime)
 
             if self._has_active_camera():
                 self._ensure_vlm()
             else:
-                self._stop_vlm()
+                vlm_to_stop = self._detach_vlm()
+
+        for processes in process_groups:
+            self._terminate_processes(processes)
+        if vlm_to_stop is not None:
+            self._terminate_process(vlm_to_stop, "vlm", timeout=125.0)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -463,10 +513,16 @@ class CameraRuntimeManager:
         if self._monitor_thread is not None:
             self._monitor_thread.join(timeout=self._monitor_interval_sec + 1.0)
         with self._lock:
-            runtime_keys = list(self.runtimes)
-            for department, camera_id in runtime_keys:
-                self.stop(department, camera_id)
-            self._stop_vlm()
+            process_groups = []
+            for runtime in self.runtimes.values():
+                runtime.desired_running = False
+                runtime.restart_at = None
+                process_groups.append(self._detach_runtime_processes(runtime))
+            vlm = self._detach_vlm()
+        for processes in process_groups:
+            self._terminate_processes(processes)
+        if vlm is not None:
+            self._terminate_process(vlm, "vlm", timeout=125.0)
 
     def _start_runtime(
         self,
@@ -475,7 +531,7 @@ class CameraRuntimeManager:
         paths: CameraRuntimePaths,
     ) -> None:
         if runtime.processes:
-            self._terminate_runtime_processes(runtime)
+            raise RuntimeError("旧摄像头进程组尚未摘取")
         snapshot = build_camera_config(self.base_cfg, camera, paths)
         write_camera_config(snapshot, paths.config_path)
         runtime.config_path = paths.config_path
@@ -556,12 +612,29 @@ class CameraRuntimeManager:
         self.vlm_restart_attempts = 0
         self.vlm_last_error = ""
 
-    def _terminate_runtime_processes(self, runtime: CameraRuntime) -> None:
+    def _detach_vlm(self):
+        process = self.vlm_process
+        self.vlm_process = None
+        self.vlm_restart_at = None
+        self.vlm_restart_attempts = 0
+        self.vlm_last_error = ""
+        return process
+
+    @staticmethod
+    def _terminate_processes(processes: dict[str, subprocess.Popen]) -> None:
         for name in _STOP_ORDER:
-            process = runtime.processes.get(name)
+            process = processes.get(name)
             if process is not None:
-                self._terminate_process(process, name)
-        runtime.processes.clear()
+                CameraRuntimeManager._terminate_process(process, name)
+
+    @staticmethod
+    def _detach_runtime_processes(runtime: CameraRuntime) -> dict[str, subprocess.Popen]:
+        processes = runtime.processes
+        runtime.processes = {}
+        return processes
+
+    def _terminate_runtime_processes(self, runtime: CameraRuntime) -> None:
+        self._terminate_processes(self._detach_runtime_processes(runtime))
 
     @staticmethod
     def _terminate_process(

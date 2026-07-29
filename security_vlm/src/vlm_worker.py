@@ -1080,6 +1080,8 @@ class DepartmentPendingScanner(threading.Thread):
         pending_dir: Path,
         legacy: bool,
     ) -> PendingTask | None:
+        if self._stop_event.is_set():
+            return None
         source = next(iter(sorted(pending_dir.glob("*.pkl"))), None)
         if source is None:
             return None
@@ -1102,6 +1104,9 @@ class DepartmentPendingScanner(threading.Thread):
         try:
             source.replace(target)
         except FileNotFoundError:
+            return None
+        if self._stop_event.is_set():
+            # 已认领的任务留在 processing，供下次启动恢复；绝不在 stop 后入队。
             return None
         return PendingTask(department, camera_id, target, legacy=legacy)
 
@@ -1163,6 +1168,8 @@ class DepartmentPendingScanner(threading.Thread):
         return None
 
     def scan_once(self) -> None:
+        if self._stop_event.is_set():
+            return
         self._cleanup_unknown_departments()
         self.seen.intersection_update(self._all_existing_paths())
         offset = self._department_cursor % len(SECURITY_DEPARTMENTS)
@@ -1172,13 +1179,20 @@ class DepartmentPendingScanner(threading.Thread):
         )
         self._department_cursor = (offset + 1) % len(SECURITY_DEPARTMENTS)
         for department in departments:
+            if self._stop_event.is_set():
+                return
             task = self._next_candidate(department)
             if task is None:
                 continue
             identity = self._identity(task.path)
             if identity in self.seen:
                 continue
+            if self._stop_event.is_set():
+                return
             self.seen.add(identity)
+            if self._stop_event.is_set():
+                self.seen.discard(identity)
+                return
             self.q.put(task)
 
     def run(self) -> None:
@@ -1477,6 +1491,10 @@ class DepartmentResultStores:
         return self._stores[require_department(department)]
 
 
+class DepartmentWorkspaceStateError(RuntimeError):
+    """单事业部持久状态损坏，必须保留任务以避免数据丢失。"""
+
+
 class DepartmentAccumulator:
     """单事业部历史和当日统计的线程安全累计器。"""
 
@@ -1486,17 +1504,29 @@ class DepartmentAccumulator:
         store: ResultStore,
         *,
         max_history: int,
+        budget_snapshot=None,
     ):
         self.department = require_department(department)
         self.store = store
         self.max_history = max(1, int(max_history))
+        self._budget_snapshot = budget_snapshot
         self._lock = threading.RLock()
-        existing_state = self.store.read("vlm_state", {}) or {}
+        self.disabled = False
+        existing_state = self._strict_read("vlm_state")
+        existing_state = existing_state or {}
         existing_history = existing_state.get("history")
+        if existing_history is not None and not isinstance(
+            existing_history,
+            list,
+        ):
+            self._mark_disabled("vlm_state.history 必须是列表")
+            existing_history = None
         if not isinstance(existing_history, list):
-            existing_history = (
-                self.store.read("vlm_history", {}) or {}
-            ).get("items", [])
+            history_payload = self._strict_read("vlm_history") or {}
+            existing_history = history_payload.get("items", [])
+            if not isinstance(existing_history, list):
+                self._mark_disabled("vlm_history.items 必须是列表")
+                existing_history = []
         self.history = deque(
             [
                 item
@@ -1507,24 +1537,68 @@ class DepartmentAccumulator:
             maxlen=self.max_history,
         )
         today = datetime.now().strftime("%Y-%m-%d")
-        existing_stats = self.store.read("vlm_latest_stats", {}) or {}
+        existing_stats = self._strict_read("vlm_latest_stats") or {}
         state_counts = existing_state.get("counts")
-        restored = state_counts if isinstance(state_counts, dict) else existing_stats
+        if state_counts is not None and not isinstance(state_counts, dict):
+            self._mark_disabled("vlm_state.counts 必须是对象")
+            state_counts = None
+        restored = (
+            state_counts if isinstance(state_counts, dict) else existing_stats
+        )
         restored_date = str(
             existing_state.get("date", existing_stats.get("date", ""))
         )
-        self.counts = {
-            "compliant": int(restored.get("compliant", 0))
-            if restored_date == today
-            else 0,
-            "non_compliant": int(restored.get("non_compliant", 0))
-            if restored_date == today
-            else 0,
-            "error": int(restored.get("error", 0))
-            if restored_date == today
-            else 0,
-        }
+        try:
+            self.counts = {
+                "compliant": int(restored.get("compliant", 0))
+                if restored_date == today
+                else 0,
+                "non_compliant": int(restored.get("non_compliant", 0))
+                if restored_date == today
+                else 0,
+                "error": int(restored.get("error", 0))
+                if restored_date == today
+                else 0,
+            }
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._mark_disabled(f"统计计数无效: {exc}")
+            self.counts = {
+                "compliant": 0,
+                "non_compliant": 0,
+                "error": 0,
+            }
         self.date = today
+
+    def _mark_disabled(self, message: str) -> None:
+        self.disabled = True
+        try:
+            self.store.write("workspace_error", {
+                "department": self.department,
+                "message": message,
+                "ts": time.time(),
+            })
+        except OSError:
+            print(
+                f"[vlm] 写入事业部 {self.department} 状态损坏标记失败",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    def _strict_read(self, key: str) -> dict | None:
+        """不把损坏状态静默降级为默认值，避免覆盖原始证据。"""
+        path = self.store._path(key)
+        if not path.exists():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError("JSON 顶层必须为对象")
+            return value
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            self._mark_disabled(
+                f"{key} 状态损坏，已隔离该事业部累计器: {exc}"
+            )
+            return None
 
     def _roll_date(self) -> str:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -1543,6 +1617,10 @@ class DepartmentAccumulator:
         *,
         queue_size: int = 0,
     ) -> bool:
+        if self.disabled:
+            raise DepartmentWorkspaceStateError(
+                f"{self.department} 结果状态损坏，任务保留等待修复"
+            )
         if record.get("department") != self.department:
             raise ValueError("结果事业部与累计器不一致")
         camera_id = validate_camera_id(record.get("camera_id"))
@@ -1590,6 +1668,10 @@ class DepartmentAccumulator:
 
     def write(self, *, queue_size: int = 0) -> None:
         with self._lock:
+            if self.disabled:
+                raise DepartmentWorkspaceStateError(
+                    f"{self.department} 结果状态损坏，拒绝覆盖"
+                )
             current_date = self._roll_date()
             history = list(self.history)
             total = self.counts["compliant"] + self.counts["non_compliant"]
@@ -1607,6 +1689,8 @@ class DepartmentAccumulator:
                 ),
                 "queue": max(0, int(queue_size)),
             }
+            if self._budget_snapshot is not None:
+                stats["budget"] = self._budget_snapshot()
             self.store.write("vlm_state", {
                 "department": self.department,
                 "date": current_date,
@@ -1625,12 +1709,14 @@ class DepartmentAccumulators:
         stores: DepartmentResultStores,
         *,
         max_history: int,
+        budget_snapshot=None,
     ):
         self._items = {
             department: DepartmentAccumulator(
                 department,
                 stores.get(department),
                 max_history=max_history,
+                budget_snapshot=budget_snapshot,
             )
             for department in SECURITY_DEPARTMENTS
         }
@@ -1641,7 +1727,19 @@ class DepartmentAccumulators:
     def write_all(self, queue_sizes: dict[str, int] | None = None) -> None:
         sizes = queue_sizes or {}
         for department, accumulator in self._items.items():
-            accumulator.write(queue_size=sizes.get(department, 0))
+            if accumulator.disabled:
+                continue
+            try:
+                accumulator.write(queue_size=sizes.get(department, 0))
+            except (
+                OSError,
+                TypeError,
+                ValueError,
+                DepartmentWorkspaceStateError,
+            ) as exc:
+                accumulator._mark_disabled(
+                    f"累计状态写入失败，已隔离: {exc}"
+                )
 
 
 class _TaskLockEntry:
@@ -1766,14 +1864,13 @@ class PendingTaskProcessor:
         if result_path.exists():
             try:
                 record = json.loads(result_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError, TypeError) as exc:
-                discard_invalid_pending_task(task, exc)
+                if not isinstance(record, dict):
+                    raise ValueError("completion JSON 顶层必须为对象")
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                print(f"[vlm] completion 记录损坏，保留任务等待人工处理: {exc}", file=sys.stderr, flush=True)
                 return False
             if not self._completion_matches(record, payload):
-                discard_invalid_pending_task(
-                    task,
-                    ValueError("completion record 复合身份不匹配"),
-                )
+                print("[vlm] completion record 复合身份不匹配，保留任务和标记", file=sys.stderr, flush=True)
                 return False
 
         waited = now_ts - payload["enqueue_ts"]
@@ -1950,10 +2047,11 @@ def shutdown_task_workers(
     drain_timeout_sec: float = 120.0,
     poll_sec: float = 0.5,
     worker_join_timeout_sec: float = 1.0,
+    scanner_join_timeout_sec: float = 2.0,
 ) -> bool:
     """停止唯一生产者后有界排空队列，再通知并等待 worker 退出。"""
     scanner.stop()
-    scanner.join()
+    scanner.join(timeout=max(0.0, float(scanner_join_timeout_sec)))
 
     deadline = time.monotonic() + max(0.0, float(drain_timeout_sec))
     while task_q.unfinished_tasks > 0:
@@ -1966,7 +2064,11 @@ def shutdown_task_workers(
     worker_stop.set()
     for worker in workers:
         worker.join(timeout=max(0.0, float(worker_join_timeout_sec)))
-    return drained and all(not worker.is_alive() for worker in workers)
+    return (
+        drained
+        and not scanner.is_alive()
+        and all(not worker.is_alive() for worker in workers)
+    )
 
 
 def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
@@ -1978,6 +2080,13 @@ def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
             if isinstance(item, PendingTask):
                 counts[item.department] += 1
     return counts
+
+
+def vlm_max_concurrent(vlm_cfg: dict) -> int:
+    value = int(vlm_cfg.get("max_concurrent", 3))
+    if value <= 0:
+        raise ValueError("vlm.max_concurrent 必须是正整数")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -2018,7 +2127,7 @@ def main():
     out_cfg = cfg["output"]
     status_key      = str(vlm_cfg.get("status_key", "vlm_status"))
     queue_timeout   = float(vlm_cfg.get("queue_timeout_sec", 60))
-    max_concurrent  = int(vlm_cfg.get("max_concurrent", 3))
+    max_concurrent  = vlm_max_concurrent(vlm_cfg)
     scheduling = str(
         vlm_cfg.get("scheduling", "department_round_robin")
     )
@@ -2086,6 +2195,7 @@ def main():
     accumulators = DepartmentAccumulators(
         stores,
         max_history=max_history,
+        budget_snapshot=budget.snapshot,
     )
     processor = PendingTaskProcessor(
         stores=stores,

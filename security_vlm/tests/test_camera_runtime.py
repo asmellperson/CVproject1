@@ -511,14 +511,14 @@ def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
     manager.start(GENERAL, "camera-a")
     entered = threading.Event()
     release = threading.Event()
-    original_terminate = manager._terminate_runtime_processes
+    original_terminate = manager._terminate_processes
 
-    def blocked_terminate(runtime):
+    def blocked_terminate(processes):
         entered.set()
         assert release.wait(timeout=2)
-        original_terminate(runtime)
+        original_terminate(processes)
 
-    manager._terminate_runtime_processes = blocked_terminate
+    manager._terminate_processes = blocked_terminate
     shutdown_thread = threading.Thread(target=manager.shutdown)
     concurrent = {}
     start_thread = threading.Thread(
@@ -539,3 +539,79 @@ def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
     assert future["ok"] is False
     assert "关闭" in concurrent["message"]
     assert all(not runtime.desired_running for runtime in manager.runtimes.values())
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
+    manager, events, _clock = make_manager(
+        tmp_path,
+        {
+            GENERAL: [
+                {
+                    "camera_id": "camera-a",
+                    "name": "A",
+                    "rtsp_url": "rtsp://a/stream",
+                },
+            ],
+            ELECTRONICS: [
+                {
+                    "camera_id": "camera-b",
+                    "name": "B",
+                    "rtsp_url": "rtsp://b/stream",
+                },
+            ],
+        },
+    )
+    wait_entered = threading.Event()
+    release_wait = threading.Event()
+
+    class SlowProcess(FakeProcess):
+        def terminate(self):
+            self.events.append(("terminate", self.name))
+
+        def wait(self, timeout=None):
+            wait_entered.set()
+            assert release_wait.wait(timeout=2)
+            self.returncode = 0
+            return self.returncode
+
+    manager.runtimes[(GENERAL, "camera-a")] = camera_runtime.CameraRuntime(
+        GENERAL,
+        "camera-a",
+        tmp_path / "camera-a.yaml",
+        desired_running=True,
+        processes={"capture": SlowProcess("camera-a:capture", events)},
+    )
+    manager.runtimes[(ELECTRONICS, "camera-b")] = camera_runtime.CameraRuntime(
+        ELECTRONICS,
+        "camera-b",
+        tmp_path / "camera-b.yaml",
+        desired_running=True,
+        processes={
+            name: FakeProcess(f"camera-b:{name}", events)
+            for name in ("capture", "detector", "session")
+        },
+    )
+    stop_thread = threading.Thread(
+        target=manager.stop,
+        args=(GENERAL, "camera-a"),
+    )
+    stop_thread.start()
+    assert wait_entered.wait(timeout=2)
+
+    probe_done = threading.Event()
+    probe_result = []
+
+    def probe_other_department():
+        probe_result.append(manager.is_running(ELECTRONICS, "camera-b"))
+        probe_done.set()
+
+    probe_thread = threading.Thread(target=probe_other_department)
+    probe_thread.start()
+    assert probe_done.wait(timeout=0.2)
+    assert probe_result == [True]
+
+    release_wait.set()
+    stop_thread.join(timeout=2)
+    probe_thread.join(timeout=2)
+    assert not stop_thread.is_alive()

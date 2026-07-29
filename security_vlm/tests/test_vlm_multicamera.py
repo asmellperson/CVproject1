@@ -914,4 +914,133 @@ def test_completion_record_identity_mismatch_is_rejected_without_vlm_call(tmp_pa
         now_ts=103.0,
     ) is False
     assert calls == []
-    assert not task_path.exists()
+    assert task_path.exists()
+    assert result_path.exists()
+
+
+def test_corrupt_completion_preserves_task_markers_and_result(tmp_path):
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
+    task_path = (
+        tmp_path
+        / "runtime"
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a"
+        / "task.pkl"
+    )
+    _write_full_pending(
+        task_path,
+        department="general_electric",
+        camera_id="camera-a",
+    )
+    started = task_path.with_suffix(".pkl.started")
+    recovered = task_path.with_suffix(".pkl.recovered")
+    started.touch()
+    recovered.touch()
+    result_path = (
+        stores.results_dir("general_electric")
+        / "camera-a"
+        / "camera-a_123_1.json"
+    )
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text("{broken", encoding="utf-8")
+    calls = []
+    processor = vlm_worker.PendingTaskProcessor(
+        stores=stores,
+        accumulators=accumulators,
+        judge=SimpleNamespace(judge=lambda *_a, **_k: calls.append(True)),
+        queue_timeout=60,
+    )
+
+    assert processor.process(
+        vlm_worker.PendingTask(
+            "general_electric",
+            "camera-a",
+            task_path,
+        ),
+        now_ts=103.0,
+    ) is False
+    assert calls == []
+    assert task_path.exists()
+    assert started.exists()
+    assert recovered.exists()
+    assert result_path.read_text(encoding="utf-8") == "{broken"
+
+
+@pytest.mark.parametrize("corrupt_payload", ["{broken", "[]"])
+def test_corrupt_department_state_is_isolated_and_preserved(
+    tmp_path,
+    corrupt_payload,
+):
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    corrupt_store = stores.get("general_electric")
+    state_path = corrupt_store._path("vlm_state")
+    state_path.write_text(corrupt_payload, encoding="utf-8")
+    budget = {
+        "date": "2026-07-29",
+        "call_count": 3,
+        "spent_yuan": 0.15,
+    }
+
+    accumulators = vlm_worker.DepartmentAccumulators(
+        stores,
+        max_history=10,
+        budget_snapshot=lambda: dict(budget),
+    )
+    accumulators.write_all()
+
+    assert state_path.read_text(encoding="utf-8") == corrupt_payload
+    assert accumulators.get("general_electric").disabled is True
+    assert corrupt_store.read("workspace_error")["department"] == (
+        "general_electric"
+    )
+
+    good = accumulators.get("electronics_electrician")
+    assert good.record({
+        "department": "electronics_electrician",
+        "camera_id": "camera-a",
+        "session_id": "session-a",
+        "result": {"compliant": True},
+    })
+    good_stats = stores.get("electronics_electrician").read(
+        "vlm_latest_stats"
+    )
+    assert good_stats["compliant"] == 1
+    assert good_stats["budget"] == budget
+
+    task_path = (
+        tmp_path
+        / "runtime"
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a"
+        / "task.pkl"
+    )
+    _write_full_pending(
+        task_path,
+        department="general_electric",
+        camera_id="camera-a",
+    )
+    processor = vlm_worker.PendingTaskProcessor(
+        stores=stores,
+        accumulators=accumulators,
+        judge=SimpleNamespace(
+            judge=lambda *_a, **_k: {"compliant": True}
+        ),
+        queue_timeout=60,
+    )
+    with pytest.raises(vlm_worker.DepartmentWorkspaceStateError):
+        processor.process(
+            vlm_worker.PendingTask(
+                "general_electric",
+                "camera-a",
+                task_path,
+            ),
+            now_ts=103.0,
+        )
+    assert task_path.exists()
