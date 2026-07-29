@@ -9,32 +9,19 @@ platform/camera/runtime.py
     - 自动重启(冷却 + 最大次数)
 """
 from __future__ import annotations
+
 import datetime
-import os
 import subprocess as sp
 import time
 from collections import deque
-from contextlib import contextmanager
-from multiprocessing import Process, Event, shared_memory
+from multiprocessing import Event, Process, shared_memory
 
 import cv2
 import numpy as np
 
 from core.logger import logger
 
-
-@contextmanager
-def _suppress_native_stderr():
-    """Suppress C/C++ library stderr output during short probe calls."""
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    saved_stderr_fd = os.dup(2)
-    try:
-        os.dup2(devnull_fd, 2)
-        yield
-    finally:
-        os.dup2(saved_stderr_fd, 2)
-        os.close(saved_stderr_fd)
-        os.close(devnull_fd)
+from .probe import CameraProbeError, probe_video_shape
 
 
 class CameraRuntime:
@@ -76,27 +63,14 @@ class CameraRuntime:
             self.ready_event = Event()
 
     def _probe_size(self):
-        """通过 OpenCV 临时连接拿分辨率"""
-        cap = None
+        """通过隔离的 ffprobe 子进程获取视频分辨率。"""
         try:
-            with _suppress_native_stderr():
-                cap = cv2.VideoCapture(self.url)
-                opened = cap.isOpened()
-            if not opened:
-                raise RuntimeError("无法打开 RTSP 流")
-            with _suppress_native_stderr():
-                ret, frame = cap.read()
-            if not ret:
-                raise RuntimeError("无法读取第一帧")
-            self.height, self.width, self.channels = frame.shape
-            self.shape = frame.shape
-        except Exception as e:
-            logger.warning(f"[Camera:{self.name}] 获取分辨率失败: {e}")
+            self.shape = probe_video_shape(self.url)
+            self.height, self.width, self.channels = self.shape
+        except CameraProbeError as exc:
+            logger.warning(f"[Camera:{self.name}] 获取分辨率失败: {exc}")
             self.status = False
-            self.msg = f"[{self.name}] 获取分辨率异常: {e}"
-        finally:
-            if cap is not None:
-                cap.release()
+            self.msg = f"[{self.name}] 获取分辨率异常: {exc}"
 
     # ---------- 生命周期 ----------
 

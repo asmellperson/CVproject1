@@ -46,7 +46,8 @@ AiVision API 主进程以退出码 139 终止。Python 异常处理无法捕获�
 
 新增 `AiVision/platform/camera/probe.py`，提供单一职责的同步探测函数：
 
-1. 使用参数数组调用 `ffprobe`，不经过 shell。
+1. 使用参数数组调用 `ffprobe`，不经过 shell，并与实际采集一致地强制使用
+   RTSP TCP 传输。
 2. 请求第一个视频流的 `width` 和 `height`，输出 JSON。
 3. 使用模块级统一超时常量限制外部命令执行时间。
 4. 校验进程退出码、JSON 结构以及宽高为正整数。

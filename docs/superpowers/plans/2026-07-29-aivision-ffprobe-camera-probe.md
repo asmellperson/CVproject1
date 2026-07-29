@@ -6,7 +6,7 @@
 
 **Architecture:** A focused `platform.camera.probe` module owns external process execution, JSON parsing, timeout handling, and credential-safe errors. `CameraRuntime` consumes only its `(height, width, channels)` result and converts expected probe failures into the existing per-camera unavailable state; capture-process frame handling continues to use OpenCV.
 
-**Tech Stack:** Python 3.10, `subprocess`, `ffprobe`, pytest, existing AiVision `uv` environment
+**Tech Stack:** Python 3.10, `subprocess`, `ffprobe`, pytest, existing Conda environment
 
 ---
 
@@ -75,6 +75,8 @@ def test_probe_video_shape_uses_bounded_ffprobe_command(monkeypatch):
         "ffprobe",
         "-v",
         "error",
+        "-rtsp_transport",
+        "tcp",
         "-select_streams",
         "v:0",
         "-show_entries",
@@ -161,7 +163,7 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev pytest tests/test_camera_probe.py -q
+conda run -n aivision python -m pytest tests/test_camera_probe.py -q
 ```
 
 Expected: tests fail with `platform.camera.probe API is missing`.
@@ -200,6 +202,8 @@ def probe_video_shape(
         "ffprobe",
         "-v",
         "error",
+        "-rtsp_transport",
+        "tcp",
         "-select_streams",
         "v:0",
         "-show_entries",
@@ -263,7 +267,7 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev pytest tests/test_camera_probe.py -q
+conda run -n aivision python -m pytest tests/test_camera_probe.py -q
 ```
 
 Expected: all adapter tests pass.
@@ -326,7 +330,7 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev pytest \
+conda run -n aivision python -m pytest \
   tests/test_camera_probe.py::test_camera_runtime_probe_failure_does_not_call_opencv \
   -q
 ```
@@ -365,7 +369,7 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev pytest tests/test_camera_probe.py -q
+conda run -n aivision python -m pytest tests/test_camera_probe.py -q
 ```
 
 Expected: all probe and CameraRuntime tests pass.
@@ -384,13 +388,17 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev ruff check \
+conda run -n aivision python -m ruff check \
   platform/camera/probe.py \
-  platform/camera/runtime.py \
   tests/test_camera_probe.py
+conda run -n aivision python -m ruff check \
+  --select I \
+  platform/camera/runtime.py
 ```
 
-Expected: exit 0 with no lint errors.
+Expected: exit 0 with no lint errors. `runtime.py` is limited to import-order
+validation because the unchanged capture loop contains pre-existing broad-exception
+and timezone warnings outside this fix's scope.
 
 - [ ] **Step 2: Run Python compile validation**
 
@@ -398,7 +406,7 @@ Run:
 
 ```bash
 cd AiVision
-uv run python -m py_compile \
+conda run -n aivision python -m py_compile \
   platform/camera/probe.py \
   platform/camera/runtime.py \
   tests/test_camera_probe.py
@@ -412,7 +420,13 @@ Run:
 
 ```bash
 cd AiVision
-uv run --extra dev pytest -q
+MYSQL_DB_URL=127.0.0.1 \
+MYSQL_DB_USER=test \
+MYSQL_DB_PASSWORD=test \
+MYSQL_DB_NAME=aivision_test \
+DATA_PATH=/tmp/aivision-test-data \
+SQL_ENABLE=false \
+conda run -n aivision python -m pytest -q
 ```
 
 Expected: all AiVision tests pass.
