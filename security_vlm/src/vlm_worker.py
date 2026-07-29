@@ -133,6 +133,149 @@ class PendingTask:
         object.__setattr__(self, "path", Path(self.path))
 
 
+class DepartmentFairTaskQueue:
+    """在 worker 取任务时按事业部、摄像头两级轮询的线程安全队列。"""
+
+    def __init__(self) -> None:
+        self.maxsize = 0
+        self._condition = threading.Condition()
+        self._queues: dict[str, dict[str, deque]] = {
+            department: {} for department in SECURITY_DEPARTMENTS
+        }
+        self._camera_order: dict[str, list[str]] = {
+            department: [] for department in SECURITY_DEPARTMENTS
+        }
+        self._last_camera: dict[str, str | None] = {
+            department: None for department in SECURITY_DEPARTMENTS
+        }
+        self._department_cursor = 0
+        self._qsize = 0
+        self._unfinished_tasks = 0
+
+    def put(
+        self,
+        item: PendingTask,
+        block: bool = True,
+        timeout: float | None = None,
+    ) -> None:
+        del block, timeout
+        if not isinstance(item, PendingTask):
+            raise TypeError("DepartmentFairTaskQueue 只接受 PendingTask")
+        with self._condition:
+            department_queues = self._queues[item.department]
+            camera_queue = department_queues.get(item.camera_id)
+            if camera_queue is None:
+                camera_queue = deque()
+                department_queues[item.camera_id] = camera_queue
+                self._camera_order[item.department].append(item.camera_id)
+            camera_queue.append(item)
+            self._qsize += 1
+            self._unfinished_tasks += 1
+            self._condition.notify()
+
+    def put_nowait(self, item: PendingTask) -> None:
+        self.put(item, block=False)
+
+    def get(
+        self,
+        block: bool = True,
+        timeout: float | None = None,
+    ) -> PendingTask:
+        if timeout is not None and timeout < 0:
+            raise ValueError("'timeout' must be a non-negative number")
+        deadline = (
+            None if timeout is None else time.monotonic() + float(timeout)
+        )
+        with self._condition:
+            while self._qsize == 0:
+                if not block:
+                    raise queue.Empty
+                if deadline is None:
+                    self._condition.wait()
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise queue.Empty
+                self._condition.wait(remaining)
+            department = self._select_department()
+            camera_id = self._select_camera(department)
+            item = self._queues[department][camera_id].popleft()
+            self._last_camera[department] = camera_id
+            self._qsize -= 1
+            return item
+
+    def get_nowait(self) -> PendingTask:
+        return self.get(block=False)
+
+    def _select_department(self) -> str:
+        department_count = len(SECURITY_DEPARTMENTS)
+        for offset in range(department_count):
+            index = (self._department_cursor + offset) % department_count
+            department = SECURITY_DEPARTMENTS[index]
+            if any(self._queues[department].values()):
+                self._department_cursor = (index + 1) % department_count
+                return department
+        raise queue.Empty
+
+    def _select_camera(self, department: str) -> str:
+        order = self._camera_order[department]
+        last_camera = self._last_camera[department]
+        start = (
+            (order.index(last_camera) + 1) % len(order)
+            if last_camera in order
+            else 0
+        )
+        for offset in range(len(order)):
+            camera_id = order[(start + offset) % len(order)]
+            if self._queues[department][camera_id]:
+                return camera_id
+        raise queue.Empty
+
+    def task_done(self) -> None:
+        with self._condition:
+            if self._unfinished_tasks <= 0:
+                raise ValueError("task_done() called too many times")
+            self._unfinished_tasks -= 1
+            if self._unfinished_tasks == 0:
+                self._condition.notify_all()
+
+    def join(self) -> None:
+        with self._condition:
+            while self._unfinished_tasks:
+                self._condition.wait()
+
+    @property
+    def unfinished_tasks(self) -> int:
+        with self._condition:
+            return self._unfinished_tasks
+
+    def qsize(self) -> int:
+        with self._condition:
+            return self._qsize
+
+    def empty(self) -> bool:
+        return self.qsize() == 0
+
+    def full(self) -> bool:
+        return False
+
+    def has_queued(self, department: str, camera_id: str) -> bool:
+        department = require_department(department)
+        camera_id = validate_camera_id(camera_id)
+        with self._condition:
+            return bool(self._queues[department].get(camera_id))
+
+    def department_counts(self) -> dict[str, int]:
+        with self._condition:
+            return {
+                department: sum(
+                    len(camera_queue)
+                    for camera_queue in department_queues.values()
+                )
+                for department, department_queues in self._queues.items()
+            }
+
+
 def payload_department(payload: dict) -> str:
     """兼容旧 pending；缺少事业部时归入通用电气。"""
     return require_department(
@@ -744,12 +887,10 @@ class DepartmentPendingScanner(threading.Thread):
         self.poll_sec = poll_sec
         self.seen: set[str] = set()
         self._department_cursor = 0
-        self._camera_cursors = {
-            department: 0 for department in SECURITY_DEPARTMENTS
+        self._last_scanned_camera: dict[str, str | None] = {
+            department: None for department in SECURITY_DEPARTMENTS
         }
-        self._processing_cursors = {
-            department: 0 for department in SECURITY_DEPARTMENTS
-        }
+        self._source_cursors: dict[tuple[str, str], bool] = {}
         self._stop_event = threading.Event()
 
     def pending_dirs(self) -> list[Path]:
@@ -841,10 +982,10 @@ class DepartmentPendingScanner(threading.Thread):
             pass
         return PendingTask(department, camera_id, path, legacy=legacy)
 
-    def _existing_task(
+    def _existing_tasks_by_camera(
         self,
         department: str,
-    ) -> PendingTask | None:
+    ) -> dict[str, PendingTask]:
         processing_dir = (
             self.departments_root / department / "global" / "processing"
         )
@@ -886,17 +1027,13 @@ class DepartmentPendingScanner(threading.Thread):
                 for path in sorted(legacy_processing.glob("*.pkl"))
                 if self._identity(path) not in self.seen
             )
-        if not tasks:
-            return None
         tasks_by_camera: dict[str, list[PendingTask]] = {}
         for task in tasks:
             tasks_by_camera.setdefault(task.camera_id, []).append(task)
-        camera_ids = sorted(tasks_by_camera)
-        cursor = self._processing_cursors[department] % len(camera_ids)
-        self._processing_cursors[department] = (
-            cursor + 1
-        ) % len(camera_ids)
-        return tasks_by_camera[camera_ids[cursor]][0]
+        return {
+            camera_id: camera_tasks[0]
+            for camera_id, camera_tasks in tasks_by_camera.items()
+        }
 
     def _pending_camera_dirs(self, department: str) -> list[tuple[Path, bool]]:
         directories = [
@@ -921,44 +1058,108 @@ class DepartmentPendingScanner(threading.Thread):
             )
         return directories
 
-    def _claim_pending(self, department: str) -> PendingTask | None:
-        pending_dirs = self._pending_camera_dirs(department)
-        if not pending_dirs:
-            return None
-        cursor = self._camera_cursors[department] % len(pending_dirs)
-        ordered = pending_dirs[cursor:] + pending_dirs[:cursor]
-        self._camera_cursors[department] = (cursor + 1) % len(pending_dirs)
-        for pending_dir, legacy in ordered:
+    def _pending_candidates_by_camera(
+        self,
+        department: str,
+    ) -> dict[str, tuple[Path, bool]]:
+        candidates = {}
+        for pending_dir, legacy in self._pending_camera_dirs(department):
             try:
                 camera_id = validate_camera_id(pending_dir.parent.name)
             except ValueError as exc:
                 for invalid_path in pending_dir.glob("*.pkl"):
                     discard_invalid_pending_task(invalid_path, exc)
                 continue
-            source = next(iter(sorted(pending_dir.glob("*.pkl"))), None)
-            if source is None:
-                continue
-            processing_dir = (
-                (
-                    self.legacy_camera_root.parent
-                    if legacy and self.legacy_camera_root is not None
-                    else self.departments_root / department
-                )
-                / "global"
-                / "processing"
-                / camera_id
+            candidates.setdefault(camera_id, (pending_dir, legacy))
+        return candidates
+
+    def _claim_pending_dir(
+        self,
+        department: str,
+        camera_id: str,
+        pending_dir: Path,
+        legacy: bool,
+    ) -> PendingTask | None:
+        source = next(iter(sorted(pending_dir.glob("*.pkl"))), None)
+        if source is None:
+            return None
+        processing_dir = (
+            (
+                self.legacy_camera_root.parent
+                if legacy and self.legacy_camera_root is not None
+                else self.departments_root / department
             )
-            processing_dir.mkdir(parents=True, exist_ok=True)
-            target = processing_dir / source.name
-            if target.exists():
-                target = processing_dir / (
-                    f"{source.stem}.{time.time_ns()}{source.suffix}"
-                )
-            try:
-                source.replace(target)
-            except FileNotFoundError:
-                continue
-            return PendingTask(department, camera_id, target, legacy=legacy)
+            / "global"
+            / "processing"
+            / camera_id
+        )
+        processing_dir.mkdir(parents=True, exist_ok=True)
+        target = processing_dir / source.name
+        if target.exists():
+            target = processing_dir / (
+                f"{source.stem}.{time.time_ns()}{source.suffix}"
+            )
+        try:
+            source.replace(target)
+        except FileNotFoundError:
+            return None
+        return PendingTask(department, camera_id, target, legacy=legacy)
+
+    def _has_prefetched_task(self, department: str, camera_id: str) -> bool:
+        has_queued = getattr(self.q, "has_queued", None)
+        return bool(
+            callable(has_queued)
+            and has_queued(department, camera_id)
+        )
+
+    def _next_candidate(self, department: str) -> PendingTask | None:
+        recovered = self._existing_tasks_by_camera(department)
+        pending = self._pending_candidates_by_camera(department)
+        camera_ids = sorted(set(recovered) | set(pending))
+        camera_ids = [
+            camera_id
+            for camera_id in camera_ids
+            if not self._has_prefetched_task(department, camera_id)
+        ]
+        if not camera_ids:
+            return None
+        last_camera = self._last_scanned_camera[department]
+        start = (
+            (camera_ids.index(last_camera) + 1) % len(camera_ids)
+            if last_camera in camera_ids
+            else next(
+                (
+                    index
+                    for index, camera_id in enumerate(camera_ids)
+                    if last_camera is not None and camera_id > last_camera
+                ),
+                0,
+            )
+        )
+        camera_id = camera_ids[start]
+        self._last_scanned_camera[department] = camera_id
+
+        recovered_task = recovered.get(camera_id)
+        pending_candidate = pending.get(camera_id)
+        source_key = (department, camera_id)
+        prefer_pending = self._source_cursors.get(source_key, False)
+        self._source_cursors[source_key] = not prefer_pending
+        if prefer_pending and pending_candidate is not None:
+            task = self._claim_pending_dir(
+                department,
+                camera_id,
+                *pending_candidate,
+            )
+            if task is not None:
+                return task
+        if recovered_task is not None:
+            return recovered_task
+        if pending_candidate is not None:
+            return self._claim_pending_dir(
+                department,
+                camera_id,
+                *pending_candidate,
+            )
         return None
 
     def scan_once(self) -> None:
@@ -971,9 +1172,7 @@ class DepartmentPendingScanner(threading.Thread):
         )
         self._department_cursor = (offset + 1) % len(SECURITY_DEPARTMENTS)
         for department in departments:
-            task = self._existing_task(department)
-            if task is None:
-                task = self._claim_pending(department)
+            task = self._next_candidate(department)
             if task is None:
                 continue
             identity = self._identity(task.path)
@@ -1727,6 +1926,8 @@ def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
 
 
 def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
+    if isinstance(task_q, DepartmentFairTaskQueue):
+        return task_q.department_counts()
     counts = {department: 0 for department in SECURITY_DEPARTMENTS}
     with task_q.mutex:
         for item in task_q.queue:
@@ -1800,7 +2001,7 @@ def main():
     camera_root.mkdir(parents=True, exist_ok=True)
     paths.departments_root.mkdir(parents=True, exist_ok=True)
     tmp_dir = runtime_dir / "vlm_tmp"
-    task_q: queue.Queue = queue.Queue()
+    task_q = DepartmentFairTaskQueue()
     scanner = DepartmentPendingScanner(
         paths.departments_root,
         task_q,

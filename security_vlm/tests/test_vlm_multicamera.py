@@ -540,6 +540,118 @@ def test_recovered_processing_round_robins_cameras_within_department(tmp_path):
     ] == ["camera-a", "camera-b"]
 
 
+def test_worker_get_fairly_selects_late_department_after_general_backlog(
+    tmp_path,
+):
+    departments_root = tmp_path / "departments"
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    scanner = vlm_worker.DepartmentPendingScanner(departments_root, task_q)
+    for camera_id in ("camera-a", "camera-b", "camera-c"):
+        _write_full_pending(
+            departments_root
+            / "general_electric"
+            / "cameras"
+            / camera_id
+            / "pending"
+            / "task.pkl",
+            department="general_electric",
+            camera_id=camera_id,
+        )
+    scanner.scan_once()
+    scanner.scan_once()
+    scanner.scan_once()
+    assert vlm_worker.queued_department_counts(task_q)[
+        "general_electric"
+    ] == 3
+
+    assert task_q.get().department == "general_electric"
+    task_q.task_done()
+    _write_full_pending(
+        departments_root
+        / "electronics_electrician"
+        / "cameras"
+        / "camera-ee"
+        / "pending"
+        / "task.pkl",
+        department="electronics_electrician",
+        camera_id="camera-ee",
+    )
+    scanner.scan_once()
+    counts = vlm_worker.queued_department_counts(task_q)
+    assert counts["general_electric"] == 2
+    assert counts["electronics_electrician"] == 1
+
+    selected = task_q.get()
+
+    assert selected.department == "electronics_electrician"
+    task_q.task_done()
+
+
+def test_worker_get_fairly_selects_late_camera_after_camera_backlog(tmp_path):
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    for index in range(4):
+        task_q.put(vlm_worker.PendingTask(
+            "general_electric",
+            "camera-a",
+            tmp_path / f"camera-a-{index}.pkl",
+        ))
+
+    assert task_q.get().camera_id == "camera-a"
+    task_q.task_done()
+    task_q.put(vlm_worker.PendingTask(
+        "general_electric",
+        "camera-b",
+        tmp_path / "camera-b.pkl",
+    ))
+
+    selected = task_q.get()
+
+    assert selected.camera_id == "camera-b"
+    task_q.task_done()
+
+
+def test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera(
+    tmp_path,
+):
+    departments_root = tmp_path / "departments"
+    processing_root = (
+        departments_root
+        / "general_electric"
+        / "global"
+        / "processing"
+    )
+    for task_name in ("1.pkl", "2.pkl", "3.pkl"):
+        _write_full_pending(
+            processing_root / "camera-a" / task_name,
+            department="general_electric",
+            camera_id="camera-a",
+        )
+    pending_b = _write_full_pending(
+        departments_root
+        / "general_electric"
+        / "cameras"
+        / "camera-b"
+        / "pending"
+        / "pending.pkl",
+        department="general_electric",
+        camera_id="camera-b",
+    )
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    scanner = vlm_worker.DepartmentPendingScanner(departments_root, task_q)
+
+    scanner.scan_once()
+    scanner.scan_once()
+    scanner.scan_once()
+
+    assert task_q.qsize() == 2
+    first = task_q.get()
+    second = task_q.get()
+    assert [first.camera_id, second.camera_id] == ["camera-a", "camera-b"]
+    assert not pending_b.exists()
+    task_q.task_done()
+    task_q.task_done()
+
+
 def test_new_processing_identity_requires_matching_department_and_camera(tmp_path):
     task = vlm_worker.PendingTask(
         "general_electric",

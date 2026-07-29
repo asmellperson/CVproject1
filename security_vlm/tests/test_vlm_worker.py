@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import vlm_worker
 
 
@@ -46,6 +47,53 @@ def test_pending_task_lock_entries_release_after_all_waiters_exit():
     assert not second_thread.is_alive()
     assert second_entered.is_set()
     assert processor._task_locks == {}
+
+
+def test_department_fair_queue_concurrent_semantics_and_counts(tmp_path):
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    tasks = [
+        vlm_worker.PendingTask(
+            (
+                "general_electric"
+                if index % 2 == 0
+                else "electronics_electrician"
+            ),
+            f"camera-{index % 3}",
+            tmp_path / f"{index}.pkl",
+        )
+        for index in range(30)
+    ]
+    consumed = []
+
+    def producer():
+        for task in tasks:
+            task_q.put(task)
+
+    def consumer():
+        for _index in range(len(tasks)):
+            consumed.append(task_q.get(timeout=2))
+            task_q.task_done()
+
+    producer_thread = threading.Thread(target=producer)
+    consumer_thread = threading.Thread(target=consumer)
+    consumer_thread.start()
+    producer_thread.start()
+    producer_thread.join(timeout=2)
+    consumer_thread.join(timeout=2)
+
+    assert not producer_thread.is_alive()
+    assert not consumer_thread.is_alive()
+    assert {task.path for task in consumed} == {task.path for task in tasks}
+    assert task_q.unfinished_tasks == 0
+    assert task_q.qsize() == 0
+    assert task_q.empty() is True
+    assert vlm_worker.queued_department_counts(task_q) == {
+        department: 0 for department in vlm_worker.SECURITY_DEPARTMENTS
+    }
+    with pytest.raises(queue.Empty):
+        task_q.get(timeout=0.01)
+    with pytest.raises(ValueError, match="task_done"):
+        task_q.task_done()
 
 
 def test_process_queued_item_contains_task_exception(capsys):
