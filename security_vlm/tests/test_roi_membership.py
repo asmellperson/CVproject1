@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -60,6 +61,12 @@ def test_normalize_roi_points_rejects_malformed_values(values, error):
         roi_geometry.normalize_roi_points(values)
 
 
+@pytest.mark.parametrize("value", [True, "12.5", 10**400])
+def test_normalize_roi_points_only_accepts_finite_json_numbers(value):
+    with pytest.raises(ValueError, match="数字|有限"):
+        roi_geometry.normalize_roi_points([[0, 0], [value, 0], [0, 20]])
+
+
 def test_validate_rois_normalizes_and_rejects_invalid_geometry():
     assert roi_geometry.validate_rois(
         {"工位 A": [10, 20, 80, 70]},
@@ -90,6 +97,88 @@ def test_validate_rois_normalizes_and_rejects_invalid_geometry():
                 height=80,
                 min_area=100,
             )
+
+
+@pytest.mark.parametrize(
+    "points, message",
+    [
+        (
+            [[0, 0], [50, 0], [50, 50], [0, 0]],
+            "重复",
+        ),
+        (
+            [[0, 0], [50, 50], [0, 50], [50, 0]],
+            "自相交",
+        ),
+        (
+            [[0, 0], [50, 0], [50, 50], [25, 0], [0, 50]],
+            "自相交",
+        ),
+        (
+            [[0, 0], [10, 0], [10.004, 0.004], [0, 10]],
+            "重复",
+        ),
+        (
+            [[0, 0], [10, 0], [5, 0]],
+            "重叠",
+        ),
+        (
+            [[0, 0], [0.004, 0], [0, 0.004]],
+            "唯一",
+        ),
+    ],
+)
+def test_validate_rois_rejects_non_simple_or_rounded_duplicate_polygons(
+    points,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        roi_geometry.validate_rois(
+            {"问题工位": points},
+            width=100,
+            height=100,
+            min_area=0,
+        )
+
+
+def test_validate_rois_checks_area_after_rounding_final_coordinates():
+    with pytest.raises(ValueError, match="面积"):
+        roi_geometry.validate_rois(
+            {"舍入后太小": [[0, 0], [10.004, 0], [0, 10.004]]},
+            width=100,
+            height=100,
+            min_area=50.02,
+        )
+
+
+def test_validate_rois_rejects_vertex_count_over_configured_limit():
+    polygon = [
+        [
+            50 + 40 * math.cos(2 * math.pi * index / 65),
+            50 + 40 * math.sin(2 * math.pi * index / 65),
+        ]
+        for index in range(65)
+    ]
+
+    with pytest.raises(ValueError, match="64"):
+        roi_geometry.validate_rois(
+            {"超限工位": polygon},
+            width=100,
+            height=100,
+            min_area=0,
+            max_vertices=64,
+        )
+
+
+def test_validate_rois_returns_rounded_persistence_points():
+    assert roi_geometry.validate_rois(
+        {"工位": [[0.004, 0.004], [20.006, 0.004], [0.004, 20.006]]},
+        width=100,
+        height=100,
+        min_area=1,
+    ) == {
+        "工位": [[0.0, 0.0], [20.01, 0.0], [0.0, 20.01]]
+    }
 
 
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
@@ -214,6 +303,72 @@ def test_session_worker_reload_preserves_all_polygon_vertices(tmp_path):
     assert mtime == path.stat().st_mtime
 
 
+def test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg(
+    tmp_path,
+    capsys,
+):
+    path = tmp_path / "camera_staff_rois.json"
+    old_kept = [[1.0, 1.0], [40.0, 1.0], [1.0, 40.0]]
+    old_deleted = [[50.0, 50.0], [90.0, 50.0], [50.0, 90.0]]
+    path.write_text(
+        json.dumps(
+            {
+                "staff_rois": {
+                    "保留旧值": [[0, 0], [True, 10], [10, 0]],
+                    "合法新值": [[2, 2], [60, 2], [2, 60]],
+                    "新增坏值": [[0, 0], [10, 0]],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rois, mtime = session_worker.reload_rois(
+        path,
+        {"保留旧值": old_kept, "已删除": old_deleted},
+        0.0,
+    )
+
+    assert rois == {
+        "保留旧值": old_kept,
+        "合法新值": [[2.0, 2.0], [60.0, 2.0], [2.0, 60.0]],
+    }
+    assert mtime == path.stat().st_mtime
+    assert "保留旧值" in capsys.readouterr().out
+
+
+def test_session_worker_default_roi_normalization_ignores_only_bad_items(capsys):
+    rois = session_worker._normalize_roi_mapping(
+        {
+            "合法": [0, 0, 20, 20],
+            "坏值": [[0, 0], [10, 0]],
+            "超大": [[0, 0], [10**400, 0], [0, 10]],
+        }
+    )
+
+    assert rois == {
+        "合法": [[0.0, 0.0], [20.0, 0.0], [20.0, 20.0], [0.0, 20.0]]
+    }
+    output = capsys.readouterr().out
+    assert "坏值" in output
+    assert "超大" in output
+
+
+def test_session_worker_reload_keeps_whole_cache_for_invalid_json_structure(
+    tmp_path,
+    capsys,
+):
+    path = tmp_path / "camera_staff_rois.json"
+    path.write_text("[]", encoding="utf-8")
+    cached = {"稳定工位": [[0.0, 0.0], [20.0, 0.0], [0.0, 20.0]]}
+
+    rois, mtime = session_worker.reload_rois(path, cached, 0.0)
+
+    assert rois == cached
+    assert mtime == 0.0
+    assert "热加载失败" in capsys.readouterr().out
+
+
 def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch):
     manager = session_worker.PairSessionManager(
         {
@@ -240,6 +395,41 @@ def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch)
 
     assert manager.roi_states["A"].active is not None
     assert manager.roi_states["A"].active.roi_box == [5.0, 5.0, 90.0, 95.0]
+
+
+def test_deleted_roi_cancels_active_session_without_pending_task(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    manager = session_worker.PairSessionManager(
+        {
+            "session": {
+                "pair_start_hold_frames": 1,
+                "roi_enter_overlap_ratio": 0.30,
+                "roi_hold_overlap_ratio": 0.10,
+            },
+        },
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_find_interacting_pair",
+        lambda _state, _tracks: (1, 2),
+    )
+    tracks = [
+        {"track_id": 1, "x1": 10, "y1": 10, "x2": 30, "y2": 50},
+        {"track_id": 2, "x1": 35, "y1": 10, "x2": 55, "y2": 50},
+    ]
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    manager.step(frame, tracks, {"会删除": [0, 0, 80, 80]})
+    manager.roi_states["会删除"].active.keyframes.extend([frame, frame])
+
+    manager.step(frame, tracks, {})
+
+    assert "会删除" not in manager.roi_states
+    assert list(tmp_path.iterdir()) == []
+    assert "取消" in capsys.readouterr().out
 
 
 def test_session_manager_rejects_hold_threshold_above_enter_threshold(tmp_path):
@@ -295,12 +485,18 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
                     [0, 0],
                     [100, 0],
                     [0, 100],
-                ]
+                ],
+                "security_staff_2": [
+                    [190, 90],
+                    [200, 90],
+                    [200, 100],
+                ],
             }
 
     rectangle_colors = []
     filled_polygons = []
     outlined_polygons = []
+    blend_calls = []
 
     def record_rectangle(image, point1, point2, color, thickness):
         del point1, point2, thickness
@@ -317,9 +513,15 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
         outlined_polygons.extend(polygon.copy() for polygon in polygons)
         return image
 
+    def record_add_weighted(source1, alpha, source2, beta, gamma, destination):
+        del source1, alpha, source2, beta, gamma
+        blend_calls.append(destination)
+        return destination
+
     monkeypatch.setattr(security_main.cv2, "rectangle", record_rectangle)
     monkeypatch.setattr(security_main.cv2, "fillPoly", record_fill_poly)
     monkeypatch.setattr(security_main.cv2, "polylines", record_polylines)
+    monkeypatch.setattr(security_main.cv2, "addWeighted", record_add_weighted)
 
     security_main._overlay_on_frame(
         np.zeros((100, 200, 3), dtype=np.uint8),
@@ -327,10 +529,13 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
     )
 
     assert [polygon.tolist() for polygon in filled_polygons] == [
-        [[0, 0], [100, 0], [0, 100]]
+        [[0, 0], [100, 0], [0, 100]],
+        [[190, 90], [200, 90], [200, 100]],
     ]
     assert [polygon.tolist() for polygon in outlined_polygons] == [
-        [[0, 0], [100, 0], [0, 100]]
+        [[0, 0], [100, 0], [0, 100]],
+        [[190, 90], [200, 90], [200, 100]],
     ]
+    assert len(blend_calls) == 1
     assert rectangle_colors.count((0, 255, 0)) == 1
     assert rectangle_colors.count((128, 128, 128)) == 1

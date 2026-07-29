@@ -80,7 +80,7 @@ def make_service(tmp_path, *, input_video=""):
             "staff_identity_dir": str(tmp_path / "staff_rois"),
         },
         "staff_rois": {"security_staff_1": [1, 2, 3, 4]},
-        "roi": {"min_area_px": 100},
+        "roi": {"min_area_px": 100, "max_vertices": 64},
         "session": {},
         "vlm": {},
         "output": {},
@@ -283,7 +283,7 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
 async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_path):
     service, _runtime_manager = make_service(tmp_path)
     app = main.create_app(service.config_path, service=service)
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         camera_id = (await client.post(
             "/api/cameras",
@@ -298,14 +298,34 @@ async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_p
         assert missing_dimensions.status_code == 409
         assert "启动摄像头" in missing_dimensions.json()["detail"]
 
-        set_capture_dimensions(service, camera_id, width=float("inf"))
-        invalid_dimensions = await client.post(
-            endpoint,
-            json={"staff_rois": {"工位": [10, 10, 50, 50]}},
-        )
-        assert invalid_dimensions.status_code == 409
+        invalid_capture_statuses = [
+            {"ok": 1, "width": 200, "height": 100},
+            {"ok": True, "width": "200", "height": 100},
+            {"ok": True, "width": True, "height": 100},
+            {"ok": True, "width": 10**400, "height": 100},
+            {"ok": True, "width": float("inf"), "height": 100},
+        ]
+        for status in invalid_capture_statuses:
+            service.camera_store(camera_id).write("capture_status", status)
+            invalid_dimensions = await client.post(
+                endpoint,
+                json={"staff_rois": {"工位": [10, 10, 50, 50]}},
+            )
+            assert invalid_dimensions.status_code == 409, status
 
         set_capture_dimensions(service, camera_id)
+        invalid_coordinates = [
+            [True, 10, 50, 50],
+            ["10", 10, 50, 50],
+            [[0, 0], [10**400, 0], [0, 50]],
+        ]
+        for coordinates in invalid_coordinates:
+            invalid_number = await client.post(
+                endpoint,
+                json={"staff_rois": {"数值错误": coordinates}},
+            )
+            assert invalid_number.status_code == 400, coordinates
+
         out_of_bounds = await client.post(
             endpoint,
             json={"staff_rois": {"越界工位": [[0, 0], [201, 0], [0, 50]]}},
@@ -328,6 +348,17 @@ async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_p
         )
         assert too_few_points.status_code == 400
         assert "少点工位" in too_few_points.json()["detail"]
+
+        rounded_duplicate = await client.post(
+            endpoint,
+            json={
+                "staff_rois": {
+                    "舍入重复": [[0, 0], [50, 0], [50.004, 0.004], [0, 50]]
+                }
+            },
+        )
+        assert rounded_duplicate.status_code == 400
+        assert "重复" in rounded_duplicate.json()["detail"]
 
 
 @pytest.mark.asyncio

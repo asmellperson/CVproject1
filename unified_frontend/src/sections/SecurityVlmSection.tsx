@@ -53,6 +53,10 @@ import {
   type SecurityVlmCamera,
   type SecurityVlmHealth,
   type SecurityVlmHistoryItem,
+  type SecurityVlmRoiMap,
+  type SecurityVlmRoiPoint,
+  type SecurityVlmRoiPolygon,
+  type SecurityVlmRoiValue,
 } from '@/lib/security-vlm'
 import { useAuth } from '@/auth/useAuth'
 
@@ -95,8 +99,57 @@ function nextRoiName(names: string[]) {
   return `security_staff_${index}`
 }
 
-function normalizeRoi(values: number[]) {
-  return values.slice(0, 4).map((value) => Math.round(Number(value) || 0))
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function normalizeRoi(values: SecurityVlmRoiValue): SecurityVlmRoiPolygon | null {
+  const entries: unknown[] = values
+  if (entries.length === 4 && entries.every(isFiniteNumber)) {
+    const [rawX1, rawY1, rawX2, rawY2] = entries
+    const x1 = Math.min(rawX1, rawX2)
+    const y1 = Math.min(rawY1, rawY2)
+    const x2 = Math.max(rawX1, rawX2)
+    const y2 = Math.max(rawY1, rawY2)
+    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+  }
+  if (entries.length < 3) return null
+
+  const points: SecurityVlmRoiPoint[] = []
+  for (const entry of entries) {
+    if (
+      !Array.isArray(entry)
+      || entry.length !== 2
+      || !isFiniteNumber(entry[0])
+      || !isFiniteNumber(entry[1])
+    ) {
+      return null
+    }
+    points.push([entry[0], entry[1]])
+  }
+  return points
+}
+
+function normalizeRois(values?: SecurityVlmRoiMap) {
+  const normalized: Record<string, SecurityVlmRoiPolygon> = {}
+  for (const [name, roi] of Object.entries(values || {})) {
+    const polygon = normalizeRoi(roi)
+    if (polygon) normalized[name] = polygon
+  }
+  return normalized
+}
+
+function rectangleToPolygon(values: [number, number, number, number]) {
+  const [rawX1, rawY1, rawX2, rawY2] = values
+  const x1 = Math.round(Math.min(rawX1, rawX2))
+  const y1 = Math.round(Math.min(rawY1, rawY2))
+  const x2 = Math.round(Math.max(rawX1, rawX2))
+  const y2 = Math.round(Math.max(rawY1, rawY2))
+  return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]] satisfies SecurityVlmRoiPolygon
+}
+
+function formatRoi(points: SecurityVlmRoiPolygon) {
+  return points.map(([x, y]) => `(${x}, ${y})`).join(', ')
 }
 
 export function SecurityVlmSection() {
@@ -114,7 +167,7 @@ export function SecurityVlmSection() {
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [editingCamera, setEditingCamera] = useState<SecurityVlmCamera | null>(null)
   const [cameraDialogKey, setCameraDialogKey] = useState(0)
-  const [rois, setRois] = useState<Record<string, number[]>>({})
+  const [rois, setRois] = useState<Record<string, SecurityVlmRoiPolygon>>({})
   const [slotNames, setSlotNames] = useState<string[]>([])
   const [currentRoi, setCurrentRoi] = useState<string | null>(null)
   const [roiMessage, setRoiMessage] = useState('')
@@ -231,7 +284,7 @@ export function SecurityVlmSection() {
         const names = data.available_slots?.length
           ? data.available_slots
           : Object.keys(data.staff_rois || {})
-        setRois(data.staff_rois || {})
+        setRois(normalizeRois(data.staff_rois))
         setSlotNames(names)
         setCurrentRoi((previous) => (
           previous && names.includes(previous) ? previous : names[0] || null
@@ -335,7 +388,10 @@ export function SecurityVlmSection() {
     const x2 = Math.max(draftRect.sx, draftRect.ex)
     const y2 = Math.max(draftRect.sy, draftRect.ey)
     if (Math.abs(x2 - x1) >= 4 && Math.abs(y2 - y1) >= 4) {
-      setRois((prev) => ({ ...prev, [currentRoi]: normalizeRoi([x1, y1, x2, y2]) }))
+      setRois((prev) => ({
+        ...prev,
+        [currentRoi]: rectangleToPolygon([x1, y1, x2, y2]),
+      }))
     }
     setDraftRect(null)
     startPointRef.current = null
@@ -374,7 +430,7 @@ export function SecurityVlmSection() {
     try {
       const data = await saveSecurityVlmCameraRois(selectedCameraId, rois)
       const names = data.available_slots?.length ? data.available_slots : Object.keys(data.staff_rois || {})
-      setRois(data.staff_rois || rois)
+      setRois(normalizeRois(data.staff_rois))
       setSlotNames(names)
       setCurrentRoi((prev) => (prev && names.includes(prev) ? prev : names[0] || null))
       setRoiMessage('ROI 已保存，后端会自动热加载。')
@@ -463,32 +519,56 @@ export function SecurityVlmSection() {
     closeCameraDialog()
   }
 
-  const renderRoiBoxes = () => {
+  const renderRoiPolygons = () => {
     const metrics = imageMetrics()
     if (!metrics || !imageSize.width || !imageSize.height) return null
 
-    return slotNames.map((name, index) => {
+    const polygons = slotNames.flatMap((name, index) => {
       const roi = rois[name]
-      if (!roi || roi.length < 4) return null
-      const [x1, y1, x2, y2] = roi
+      if (!roi || roi.length < 3) return []
       const color = ROI_COLORS[index % ROI_COLORS.length]
-      const left = metrics.left + (Math.min(x1, x2) / metrics.sourceWidth) * metrics.width
-      const top = metrics.top + (Math.min(y1, y2) / metrics.sourceHeight) * metrics.height
-      const width = (Math.abs(x2 - x1) / metrics.sourceWidth) * metrics.width
-      const height = (Math.abs(y2 - y1) / metrics.sourceHeight) * metrics.height
+      const points = roi.map(([x, y]) => [
+        metrics.left + (x / metrics.sourceWidth) * metrics.width,
+        metrics.top + (y / metrics.sourceHeight) * metrics.height,
+      ] satisfies SecurityVlmRoiPoint)
+      return [{
+        name,
+        color,
+        points,
+        labelX: Math.min(...points.map(([x]) => x)),
+        labelY: Math.min(...points.map(([, y]) => y)),
+      }]
+    })
 
-      return (
-        <div
-          key={name}
-          className="pointer-events-none absolute rounded-md border-2"
-          style={{ left, top, width, height, borderColor: color, backgroundColor: `${color}33` }}
+    return (
+      <>
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full"
         >
-          <span className="absolute left-1.5 top-1.5 rounded-full bg-white/95 px-2 py-0.5 text-xs font-semibold text-slate-900 shadow-sm">
+          {polygons.map(({ name, color, points }) => (
+            <polygon
+              key={name}
+              points={points.map(([x, y]) => `${x},${y}`).join(' ')}
+              fill={color}
+              fillOpacity={0.2}
+              stroke={color}
+              strokeWidth={currentRoi === name ? 3 : 2}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </svg>
+        {polygons.map(({ name, labelX, labelY }) => (
+          <span
+            key={`${name}-label`}
+            className="pointer-events-none absolute rounded-full bg-white/95 px-2 py-0.5 text-xs font-semibold text-slate-900 shadow-sm"
+            style={{ left: labelX + 6, top: labelY + 6 }}
+          >
             {name}
           </span>
-        </div>
-      )
-    })
+        ))}
+      </>
+    )
   }
 
   return (
@@ -677,7 +757,7 @@ export function SecurityVlmSection() {
                         setDraftRect(null)
                       }}
                     >
-                      {renderRoiBoxes()}
+                      {renderRoiPolygons()}
                       {draftRect && (
                         <div
                           className="pointer-events-none absolute rounded-md border-2 border-blue-500 bg-blue-500/20"
@@ -717,7 +797,7 @@ export function SecurityVlmSection() {
                         <span className="h-4 w-4 rounded" style={{ backgroundColor: color }} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-semibold text-slate-900">{name}</span>
-                          <span className="block truncate text-xs text-slate-500">{roi ? `[${normalizeRoi(roi).join(', ')}]` : '未设置'}</span>
+                          <span className="block truncate text-xs text-slate-500">{roi ? formatRoi(roi) : '未设置'}</span>
                         </span>
                       </button>
                     )

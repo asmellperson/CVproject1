@@ -57,6 +57,7 @@ staff_rois:
 # ---- ROI 服务端校验 ----
 roi:
   min_area_px: 2500
+  max_vertices: 64
 
 # ---- YOLO 检测 + ByteTrack ----
 yolo:

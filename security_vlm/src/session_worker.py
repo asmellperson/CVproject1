@@ -28,7 +28,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
-from roi_geometry import bbox_belongs_to_roi, normalize_roi_points, roi_bounds
+from roi_geometry import (
+    bbox_belongs_to_normalized_roi,
+    normalize_roi_points,
+    roi_bounds,
+)
 
 
 _STOP = threading.Event()
@@ -38,17 +42,29 @@ def _signal_handler(signum, frame):
     _STOP.set()
 
 
-def _normalize_roi_mapping(rois) -> Dict[str, List[List[float]]]:
-    """规范化 ROI 字典；无效项会带名称报错，避免静默截断顶点。"""
+def _normalize_roi_mapping(
+    rois,
+    previous: Optional[Dict[str, List[List[float]]]] = None,
+) -> Dict[str, List[List[float]]]:
+    """逐项规范化 ROI；坏项保留同名旧值或忽略。"""
     if not isinstance(rois, dict):
         raise ValueError("staff_rois 必须是字典")
+    last_known_good = previous or {}
     normalized = {}
     for name, values in rois.items():
         roi_name = str(name)
         try:
             normalized[roi_name] = normalize_roi_points(values)
-        except ValueError as exc:
-            raise ValueError(f"ROI '{roi_name}': {exc}") from exc
+        except (TypeError, ValueError, OverflowError) as exc:
+            if roi_name in last_known_good:
+                normalized[roi_name] = last_known_good[roi_name]
+                action = "保留 last-known-good"
+            else:
+                action = "忽略新坏项"
+            print(
+                f"[session] ROI '{roi_name}' 无效，{action}: {exc}",
+                flush=True,
+            )
     return normalized
 
 
@@ -66,8 +82,19 @@ def reload_rois(
         if mtime == roi_mtime:
             return roi_cache, roi_mtime
         raw = json.loads(path.read_text(encoding="utf-8"))
-        normalized = _normalize_roi_mapping(raw.get("staff_rois", {}))
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        if not isinstance(raw, dict):
+            raise ValueError("ROI 文件顶层必须是 JSON 对象")
+        normalized = _normalize_roi_mapping(
+            raw.get("staff_rois", {}),
+            roi_cache,
+        )
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        json.JSONDecodeError,
+    ) as exc:
         print(f"[session] 热加载失败: {exc}", flush=True)
         return roi_cache, roi_mtime
     print(f"[session] 热加载 ROI: {list(normalized.keys())}", flush=True)
@@ -271,6 +298,18 @@ class PairSessionManager:
 
     def _tracks_for_roi(self, tracks, roi, active: bool):
         """按进入/保持阈值返回当前 ROI 的人体轨迹。"""
+        try:
+            polygon = (
+                roi
+                if (
+                    isinstance(roi, list)
+                    and len(roi) >= 3
+                    and all(isinstance(point, list) and len(point) == 2 for point in roi)
+                )
+                else normalize_roi_points(roi)
+            )
+        except (TypeError, ValueError, OverflowError):
+            return []
         threshold = (
             self.roi_hold_overlap_ratio
             if active
@@ -279,12 +318,26 @@ class PairSessionManager:
         return [
             track
             for track in tracks
-            if bbox_belongs_to_roi(
+            if bbox_belongs_to_normalized_roi(
                 [track["x1"], track["y1"], track["x2"], track["y2"]],
-                roi,
+                polygon,
                 threshold,
             )
         ]
+
+    def _reconcile_rois(self, rois) -> None:
+        """移除已删除 ROI 的状态；活动会话直接取消且不进入 VLM 队列。"""
+        removed_names = set(self.roi_states) - set(rois)
+        for name in sorted(removed_names):
+            state = self.roi_states.pop(name)
+            if state.active is not None:
+                print(
+                    f"[session] ROI '{name}' 已删除，取消活动会话 "
+                    f"{state.active.session_id}（不入 pending/VLM）",
+                    flush=True,
+                )
+            else:
+                print(f"[session] ROI '{name}' 已删除，清理状态", flush=True)
 
     # ---------------------------------------------------------------------------------
     # 1) 更新 track 历史（用于交互检测）
@@ -500,6 +553,7 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     def step(self, frame, tracks, rois):
         now = time.time()
+        self._reconcile_rois(rois)
 
         for name, roi in rois.items():
             if name not in self.roi_states:
@@ -672,7 +726,8 @@ def main():
             now = time.time()
             if now - last_status_ts > 1.0:
                 per_roi = {}
-                for name, st in manager.roi_states.items():
+                for name in rois:
+                    st = manager.roi_states[name]
                     per_roi[name] = {
                         "active_session_id": st.active.session_id if st.active else None,
                         "persons_in_roi": len(manager._tracks_for_roi(

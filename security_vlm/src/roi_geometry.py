@@ -7,6 +7,8 @@ from typing import Any
 
 Point = list[float]
 Polygon = list[Point]
+ROI_COORD_DECIMALS = 2
+DEFAULT_MAX_VERTICES = 64
 
 
 def _is_sequence(value: Any) -> bool:
@@ -14,9 +16,11 @@ def _is_sequence(value: Any) -> bool:
 
 
 def _finite_float(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("坐标必须是 JSON 数字")
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("坐标必须是数字") from exc
     if not math.isfinite(result):
         raise ValueError("坐标必须是有限值")
@@ -109,16 +113,9 @@ def _point_on_segment(
     )
 
 
-def point_in_polygon(point: Any, roi: Any) -> bool:
-    """判断点是否在多边形内部；位于边界上的点也视为内部。"""
-    try:
-        if not _is_sequence(point) or len(point) != 2:
-            return False
-        px, py = _finite_float(point[0]), _finite_float(point[1])
-        polygon = normalize_roi_points(roi)
-    except ValueError:
-        return False
-
+def point_in_normalized_polygon(point: Sequence[float], polygon: Polygon) -> bool:
+    """判断点是否在已标准化多边形内部；边界点也视为内部。"""
+    px, py = point
     inside = False
     for index, start in enumerate(polygon):
         end = polygon[(index + 1) % len(polygon)]
@@ -131,6 +128,18 @@ def point_in_polygon(point: Any, roi: Any) -> bool:
         if crossing_x > px:
             inside = not inside
     return inside
+
+
+def point_in_polygon(point: Any, roi: Any) -> bool:
+    """判断点是否在多边形内部；位于边界上的点也视为内部。"""
+    try:
+        if not _is_sequence(point) or len(point) != 2:
+            return False
+        px, py = _finite_float(point[0]), _finite_float(point[1])
+        polygon = normalize_roi_points(roi)
+    except ValueError:
+        return False
+    return point_in_normalized_polygon((px, py), polygon)
 
 
 def _clip_polygon_to_rect(
@@ -210,13 +219,9 @@ def _area_of_normalized_polygon(polygon: Polygon) -> float:
     return abs(signed_twice_area) / 2.0
 
 
-def bbox_roi_overlap_ratio(person_box, roi) -> float:
-    """计算 person_box 与 ROI 交集面积占 person_box 面积的比例。"""
+def bbox_roi_overlap_ratio_normalized(person_box, polygon: Polygon) -> float:
+    """计算人体框与已标准化 ROI 的交叠率。"""
     box = _normalize_rect(person_box)
-    try:
-        polygon = normalize_roi_points(roi)
-    except ValueError:
-        return 0.0
     if box is None:
         return 0.0
 
@@ -226,16 +231,25 @@ def bbox_roi_overlap_ratio(person_box, roi) -> float:
         return 0.0
 
     clipped = _clip_polygon_to_rect(polygon, box)
-    return _area_of_normalized_polygon(clipped) / box_area
+    return min(1.0, _area_of_normalized_polygon(clipped) / box_area)
 
 
-def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
-    """中心点在 ROI 内或人体框重叠率达到阈值时，判定属于 ROI。"""
-    box = _normalize_rect(person_box)
+def bbox_roi_overlap_ratio(person_box, roi) -> float:
+    """计算 person_box 与 ROI 交集面积占 person_box 面积的比例。"""
     try:
         polygon = normalize_roi_points(roi)
     except ValueError:
-        return False
+        return 0.0
+    return bbox_roi_overlap_ratio_normalized(person_box, polygon)
+
+
+def bbox_belongs_to_normalized_roi(
+    person_box,
+    polygon: Polygon,
+    min_overlap_ratio: float,
+) -> bool:
+    """使用已标准化 ROI 执行中心点或交叠率归属判定。"""
+    box = _normalize_rect(person_box)
     if box is None:
         return False
 
@@ -249,7 +263,7 @@ def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
 
     center_x = (bx1 + bx2) / 2.0
     center_y = (by1 + by2) / 2.0
-    if point_in_polygon([center_x, center_y], polygon):
+    if point_in_normalized_polygon((center_x, center_y), polygon):
         return True
 
     try:
@@ -259,8 +273,130 @@ def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
     if not math.isfinite(threshold):
         return False
     threshold = min(1.0, max(0.0, threshold))
-    overlap_ratio = bbox_roi_overlap_ratio(box, polygon)
+    overlap_ratio = bbox_roi_overlap_ratio_normalized(box, polygon)
     return overlap_ratio > 0.0 and overlap_ratio >= threshold
+
+
+def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
+    """中心点在 ROI 内或人体框重叠率达到阈值时，判定属于 ROI。"""
+    try:
+        polygon = normalize_roi_points(roi)
+    except ValueError:
+        return False
+    return bbox_belongs_to_normalized_roi(
+        person_box,
+        polygon,
+        min_overlap_ratio,
+    )
+
+
+def _cross(start: Point, end: Point, point: Point) -> float:
+    return (
+        (end[0] - start[0]) * (point[1] - start[1])
+        - (end[1] - start[1]) * (point[0] - start[0])
+    )
+
+
+def _segments_intersect_or_touch(
+    first_start: Point,
+    first_end: Point,
+    second_start: Point,
+    second_end: Point,
+) -> bool:
+    crosses = (
+        _cross(first_start, first_end, second_start),
+        _cross(first_start, first_end, second_end),
+        _cross(second_start, second_end, first_start),
+        _cross(second_start, second_end, first_end),
+    )
+    tolerance = 1e-9 * max(
+        1.0,
+        *(abs(value) for point in (
+            first_start,
+            first_end,
+            second_start,
+            second_end,
+        ) for value in point),
+    )
+    if abs(crosses[0]) <= tolerance and _point_on_segment(
+        second_start,
+        first_start,
+        first_end,
+    ):
+        return True
+    if abs(crosses[1]) <= tolerance and _point_on_segment(
+        second_end,
+        first_start,
+        first_end,
+    ):
+        return True
+    if abs(crosses[2]) <= tolerance and _point_on_segment(
+        first_start,
+        second_start,
+        second_end,
+    ):
+        return True
+    if abs(crosses[3]) <= tolerance and _point_on_segment(
+        first_end,
+        second_start,
+        second_end,
+    ):
+        return True
+    return (
+        (crosses[0] > tolerance and crosses[1] < -tolerance)
+        or (crosses[0] < -tolerance and crosses[1] > tolerance)
+    ) and (
+        (crosses[2] > tolerance and crosses[3] < -tolerance)
+        or (crosses[2] < -tolerance and crosses[3] > tolerance)
+    )
+
+
+def _validate_simple_polygon(name: str, points: Polygon) -> None:
+    unique_points = {tuple(point) for point in points}
+    if len(unique_points) < 3:
+        raise ValueError(f"ROI '{name}': 舍入后少于 3 个唯一顶点")
+    if len(unique_points) != len(points):
+        raise ValueError(
+            f"ROI '{name}': 存在重复顶点或零长度边，首尾重复也不允许"
+        )
+
+    edge_count = len(points)
+    for index, current in enumerate(points):
+        previous = points[index - 1]
+        following = points[(index + 1) % edge_count]
+        tolerance = 1e-9 * max(
+            1.0,
+            *(abs(value) for point in (
+                previous,
+                current,
+                following,
+            ) for value in point),
+        )
+        if abs(_cross(previous, current, following)) <= tolerance and (
+            _point_on_segment(following, previous, current)
+            or _point_on_segment(previous, current, following)
+        ):
+            raise ValueError(f"ROI '{name}': 相邻边重叠")
+
+    for first_index in range(edge_count):
+        first_start = points[first_index]
+        first_end = points[(first_index + 1) % edge_count]
+        for second_index in range(first_index + 1, edge_count):
+            if second_index == first_index + 1:
+                continue
+            if first_index == 0 and second_index == edge_count - 1:
+                continue
+            second_start = points[second_index]
+            second_end = points[(second_index + 1) % edge_count]
+            if _segments_intersect_or_touch(
+                first_start,
+                first_end,
+                second_start,
+                second_end,
+            ):
+                raise ValueError(
+                    f"ROI '{name}': 非相邻边自相交或接触"
+                )
 
 
 def validate_rois(
@@ -268,6 +404,7 @@ def validate_rois(
     width: Any,
     height: Any,
     min_area: Any,
+    max_vertices: Any = DEFAULT_MAX_VERTICES,
 ) -> dict[str, Polygon]:
     """校验并规范化一组命名 ROI。"""
     if not isinstance(rois, Mapping):
@@ -282,6 +419,12 @@ def validate_rois(
         raise ValueError("画面宽高必须大于 0")
     if minimum_area < 0:
         raise ValueError("ROI 最小面积不能小于 0")
+    if (
+        isinstance(max_vertices, bool)
+        or not isinstance(max_vertices, int)
+        or max_vertices < 3
+    ):
+        raise ValueError("ROI 最大顶点数必须是大于等于 3 的整数")
 
     normalized: dict[str, Polygon] = {}
     for raw_name, values in rois.items():
@@ -289,10 +432,22 @@ def validate_rois(
         display_name = name or "<空名称>"
         if not name:
             raise ValueError(f"ROI '{display_name}': 名称不能为空")
+        if _is_sequence(values) and len(values) > max_vertices:
+            raise ValueError(
+                f"ROI '{display_name}': 顶点数 {len(values)} 超过限制 "
+                f"{max_vertices}"
+            )
         try:
-            points = normalize_roi_points(values)
+            raw_points = normalize_roi_points(values)
         except ValueError as exc:
             raise ValueError(f"ROI '{display_name}': {exc}") from exc
+        points = [
+            [
+                round(point[0], ROI_COORD_DECIMALS),
+                round(point[1], ROI_COORD_DECIMALS),
+            ]
+            for point in raw_points
+        ]
 
         if any(
             x < 0 or x > frame_width or y < 0 or y > frame_height
@@ -302,6 +457,7 @@ def validate_rois(
                 f"ROI '{display_name}': 顶点超出画面范围 "
                 f"0..{frame_width:g} x 0..{frame_height:g}"
             )
+        _validate_simple_polygon(display_name, points)
         area = _area_of_normalized_polygon(points)
         if area < minimum_area:
             raise ValueError(

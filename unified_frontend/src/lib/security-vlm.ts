@@ -83,6 +83,12 @@ export type SecurityVlmHistoryItem = {
   error?: string
 }
 
+export type SecurityVlmRoiPoint = [number, number]
+export type SecurityVlmRoiPolygon = SecurityVlmRoiPoint[]
+export type SecurityVlmLegacyRoiRect = [number, number, number, number]
+export type SecurityVlmRoiValue = SecurityVlmRoiPolygon | SecurityVlmLegacyRoiRect
+export type SecurityVlmRoiMap = Record<string, SecurityVlmRoiValue>
+
 export type SecurityVlmCamera = {
   camera_id: string
   name: string
@@ -96,7 +102,7 @@ export type SecurityVlmCamera = {
   capture?: SecurityVlmWorkerStatus
   detector?: SecurityVlmWorkerStatus
   session?: SecurityVlmWorkerStatus
-  staff_rois?: Record<string, number[]>
+  staff_rois?: SecurityVlmRoiMap
 }
 
 export type SecurityVlmCameraCredentials = Pick<
@@ -113,12 +119,12 @@ export type SecurityVlmHealth = {
   vlm?: SecurityVlmWorkerStatus
   stats?: SecurityVlmStats
   history?: SecurityVlmHistoryItem[]
-  staff_rois?: Record<string, number[]>
+  staff_rois?: SecurityVlmRoiMap
   cameras?: SecurityVlmCamera[]
 }
 
 export type SecurityVlmRoisResponse = {
-  staff_rois: Record<string, number[]>
+  staff_rois: SecurityVlmRoiMap
   available_slots: string[]
   video_id?: string
   camera_id?: string
@@ -195,7 +201,7 @@ export const getSecurityVlmCameraRois = (cameraId: string) =>
 
 export const saveSecurityVlmCameraRois = (
   cameraId: string,
-  staffRois: Record<string, number[]>,
+  staffRois: Record<string, SecurityVlmRoiPolygon>,
 ) =>
   securityVlmPost<SecurityVlmRoisResponse>(
     `/api/cameras/${encodeURIComponent(cameraId)}/rois`,
@@ -204,7 +210,9 @@ export const saveSecurityVlmCameraRois = (
 
 export const getSecurityVlmRois = () => securityVlmGet<SecurityVlmRoisResponse>('/api/rois')
 
-export const saveSecurityVlmRois = (staff_rois: Record<string, number[]>) =>
+export const saveSecurityVlmRois = (
+  staff_rois: Record<string, SecurityVlmRoiPolygon>,
+) =>
   securityVlmPost<SecurityVlmRoisResponse>('/api/rois', { staff_rois })
 
 export const startSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/start')

@@ -48,7 +48,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore  # noqa: E402
 from roi_geometry import (  # noqa: E402
-    bbox_belongs_to_roi,
+    bbox_belongs_to_normalized_roi,
     normalize_roi_points,
     validate_rois,
 )
@@ -251,7 +251,7 @@ class AppService:
             roi_name = str(name)
             try:
                 normalized[roi_name] = normalize_roi_points(values)
-            except ValueError as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 LOGGER.warning(
                     "忽略摄像头 %s 的无效 ROI '%s': %s",
                     camera_id,
@@ -278,16 +278,27 @@ class AppService:
 
     def capture_dimensions(self, camera_id: str) -> tuple[float, float]:
         status = self.camera_store(camera_id).read("capture_status", {}) or {}
+        width_value = status.get("width", 0)
+        height_value = status.get("height", 0)
+        if (
+            status.get("ok") is not True
+            or isinstance(width_value, bool)
+            or isinstance(height_value, bool)
+            or not isinstance(width_value, (int, float))
+            or not isinstance(height_value, (int, float))
+        ):
+            raise CaptureDimensionsUnavailable(
+                "无法取得有效画面尺寸，请先连接并启动摄像头"
+            )
         try:
-            width = float(status.get("width", 0))
-            height = float(status.get("height", 0))
-        except (TypeError, ValueError) as exc:
+            width = float(width_value)
+            height = float(height_value)
+        except (TypeError, ValueError, OverflowError) as exc:
             raise CaptureDimensionsUnavailable(
                 "无法取得有效画面尺寸，请先连接并启动摄像头"
             ) from exc
         if (
-            not status.get("ok")
-            or not math.isfinite(width)
+            not math.isfinite(width)
             or not math.isfinite(height)
             or width <= 0
             or height <= 0
@@ -306,17 +317,14 @@ class AppService:
         if camera is None:
             raise KeyError(camera_id)
         width, height = self.capture_dimensions(camera_id)
-        min_area = float(
-            (self.cfg.get("roi", {}) or {}).get("min_area_px", 2500)
+        roi_cfg = self.cfg.get("roi", {}) or {}
+        normalized = validate_rois(
+            rois,
+            width,
+            height,
+            roi_cfg.get("min_area_px", 2500),
+            max_vertices=roi_cfg.get("max_vertices", 64),
         )
-        validated = validate_rois(rois, width, height, min_area)
-        normalized = {
-            name: [
-                [round(point[0], 2), round(point[1], 2)]
-                for point in points
-            ]
-            for name, points in validated.items()
-        }
         payload = {
             "camera_id": camera_id,
             "camera_name": camera["name"],
@@ -534,11 +542,14 @@ def _overlay_on_frame(
         palette = [(59, 130, 246), (16, 185, 129), (245, 158, 11),
                    (236, 72, 153), (168, 85, 247)]
 
-        # 1) 画 ROI 多边形 + 工位名 + 是否处于 session 的标识
+        # 1) 先在同一透明层填充全部 ROI，再统一混合并画边界/标签。
+        normalized_rois = {}
+        draw_items = []
+        roi_overlay = frame.copy()
         for idx, (name, roi) in enumerate(sorted(rois.items())):
             try:
                 points = normalize_roi_points(roi)
-            except ValueError as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 LOGGER.warning(
                     "摄像头 %s 的 ROI '%s' 无法叠加: %s",
                     camera_id,
@@ -556,11 +567,14 @@ def _overlay_on_frame(
             x1 = int(scaled_points[:, 0].min())
             y1 = int(scaled_points[:, 1].min())
             color = palette[idx % len(palette)]
-            overlay = frame.copy()
-            cv2.fillPoly(overlay, [scaled_points], color)
-            cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
-            cv2.polylines(frame, [scaled_points], True, color, 2)
+            cv2.fillPoly(roi_overlay, [scaled_points], color)
+            normalized_rois[name] = points
+            draw_items.append((name, scaled_points, x1, y1, color))
 
+        if draw_items:
+            cv2.addWeighted(roi_overlay, 0.18, frame, 0.82, 0, frame)
+        for name, scaled_points, x1, y1, color in draw_items:
+            cv2.polylines(frame, [scaled_points], True, color, 2)
             info = per_roi.get(name, {})
             active = info.get("active_session_id")
             badge = "SESSION" if active else "idle"
@@ -579,8 +593,12 @@ def _overlay_on_frame(
                 float(t["y2"]),
             ]
             belongs_to_roi = any(
-                bbox_belongs_to_roi(person_box, roi, enter_overlap_ratio)
-                for roi in rois.values()
+                bbox_belongs_to_normalized_roi(
+                    person_box,
+                    roi,
+                    enter_overlap_ratio,
+                )
+                for roi in normalized_rois.values()
             )
             color = (0, 255, 0) if belongs_to_roi else (128, 128, 128)
             thickness = 2 if belongs_to_roi else 1
@@ -841,7 +859,7 @@ def create_app(
             )
         except CaptureDimensionsUnavailable as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({
             "ok": True,
@@ -872,7 +890,7 @@ def create_app(
             await run_blocking(service._roi_save, req.staff_rois)
         except CaptureDimensionsUnavailable as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         rois = await run_blocking(service._roi_load)
         camera_id = service.default_camera_id()
