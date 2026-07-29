@@ -3,6 +3,7 @@ import queue
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 import session_worker
 import vlm_worker
@@ -217,3 +218,106 @@ def test_department_processing_collision_stays_in_department(tmp_path):
     queued = [task_q.get_nowait() for _ in range(2)]
     assert all(path.parent == processing_dir for path in queued)
     assert list((runtime_root / "global" / "processing").glob("*.pkl")) == []
+
+
+def test_scanner_does_not_claim_unknown_department_pending(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    unknown_task = (
+        runtime_root
+        / "departments"
+        / "unknown_department"
+        / "cameras"
+        / "camera-a"
+        / "pending"
+        / "task.pkl"
+    )
+    _write_pending(unknown_task)
+    task_q = queue.Queue()
+    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
+
+    scanner.scan_once()
+
+    assert task_q.empty()
+    assert unknown_task.exists()
+
+
+def test_department_pending_requires_explicit_matching_payload_department(tmp_path):
+    processing_dir = (
+        tmp_path
+        / "runtime"
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+    )
+    task = processing_dir / "camera-a__task.pkl"
+
+    with pytest.raises(ValueError, match="缺少 department"):
+        vlm_worker.validate_pending_payload_department({}, task)
+    with pytest.raises(ValueError, match="不一致"):
+        vlm_worker.validate_pending_payload_department(
+            {"department": "electronics_electrician"},
+            task,
+        )
+    assert (
+        vlm_worker.validate_pending_payload_department(
+            {"department": "general_electric"},
+            task,
+        )
+        == "general_electric"
+    )
+
+
+def test_legacy_processing_without_department_defaults_to_general_electric(tmp_path):
+    task = (
+        tmp_path
+        / "runtime"
+        / "global"
+        / "processing"
+        / "legacy-camera__task.pkl"
+    )
+
+    assert vlm_worker.validate_pending_payload_department({}, task) == (
+        "general_electric"
+    )
+    single_queue_task = tmp_path / "runtime" / "session_pending" / "task.pkl"
+    assert vlm_worker.validate_pending_payload_department(
+        {},
+        single_queue_task,
+    ) == "general_electric"
+
+
+def test_same_named_tasks_in_two_departments_do_not_collide(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    departments = ("general_electric", "electronics_electrician")
+    for department in departments:
+        task = (
+            runtime_root
+            / "departments"
+            / department
+            / "cameras"
+            / "shared-camera"
+            / "pending"
+            / "same.pkl"
+        )
+        task.parent.mkdir(parents=True, exist_ok=True)
+        task.write_bytes(
+            pickle.dumps({
+                "department": department,
+                "enqueue_ts": 100.0,
+            })
+        )
+    task_q = queue.Queue()
+    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
+
+    scanner.scan_once()
+
+    queued = [task_q.get_nowait() for _ in range(2)]
+    assert {path.parents[2].name for path in queued} == set(departments)
+    assert {
+        vlm_worker.validate_pending_payload_department(
+            pickle.loads(path.read_bytes()),
+            path,
+        )
+        for path in queued
+    } == set(departments)

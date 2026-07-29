@@ -75,6 +75,80 @@ def payload_department(payload: dict) -> str:
     )
 
 
+def pending_directory_origin(pending_dir: Path) -> tuple[str, bool]:
+    """返回 pending 来源事业部及其是否属于新版事业部目录。"""
+    path = Path(pending_dir)
+    cameras_dir = path.parent.parent
+    if path.name != "pending" or cameras_dir.name != "cameras":
+        raise ValueError(f"无效 pending 目录结构: {path}")
+    department_dir = cameras_dir.parent
+    if department_dir.parent.name == "departments":
+        return require_department(department_dir.name), True
+    return SECURITY_DEPARTMENTS[0], False
+
+
+def processing_directory_origin(processing_dir: Path) -> tuple[str, bool]:
+    """从持久化 processing 路径恢复任务来源事业部。"""
+    path = Path(processing_dir)
+    if path.name != "processing" or path.parent.name != "global":
+        raise ValueError(f"无效 processing 目录结构: {path}")
+    department_dir = path.parent.parent
+    if department_dir.parent.name == "departments":
+        return require_department(department_dir.name), True
+    return SECURITY_DEPARTMENTS[0], False
+
+
+def validate_pending_payload_department(payload: dict, task_path: Path) -> str:
+    """以 processing 路径为准校验 payload 事业部，兼容旧全局任务。"""
+    if not isinstance(payload, dict):
+        raise ValueError("pending payload 必须是字典")
+    task_parent = Path(task_path).parent
+    if (
+        task_parent.name != "processing"
+        or task_parent.parent.name != "global"
+    ):
+        return payload_department(payload)
+    source_department, department_scoped = processing_directory_origin(
+        task_parent
+    )
+    if not department_scoped:
+        return payload_department(payload)
+    if "department" not in payload:
+        raise ValueError(
+            f"新版 pending payload 缺少 department: {task_path}"
+        )
+    declared_department = require_department(payload["department"])
+    if declared_department != source_department:
+        raise ValueError(
+            "pending payload department 与来源事业部不一致: "
+            f"来源 {source_department}, payload {declared_department}"
+        )
+    return source_department
+
+
+def discard_invalid_pending_task(task_path: Path, reason: Exception) -> None:
+    """删除无法安全归属的任务及恢复标记，避免重启后无限重试。"""
+    path = Path(task_path)
+    print(
+        f"[vlm] 拒绝无效 pending 任务 {path}: {reason}",
+        file=sys.stderr,
+        flush=True,
+    )
+    for target in (
+        path,
+        path.with_suffix(f"{path.suffix}.started"),
+        path.with_suffix(f"{path.suffix}.recovered"),
+    ):
+        try:
+            target.unlink(missing_ok=True)
+        except OSError as exc:
+            print(
+                f"[vlm] 清理无效任务失败 {target}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -450,46 +524,74 @@ class MultiCameraPendingScanner(threading.Thread):
         self.seen: set[str] = set()
         self._camera_cursor = 0
         self._stop_event = threading.Event()
+        self._invalid_source_warnings: set[str] = set()
 
     def pending_dirs(self) -> list[Path]:
-        patterns = (
-            "*/pending",
-            "cameras/*/pending",
-            "*/cameras/*/pending",
-            "departments/*/cameras/*/pending",
-        )
-        return sorted({
+        if self.camera_root.name == "cameras":
+            patterns = ("*/pending",)
+        elif self.camera_root.name == "departments":
+            patterns = ("*/cameras/*/pending",)
+        else:
+            patterns = (
+                "cameras/*/pending",
+                "departments/*/cameras/*/pending",
+            )
+        candidates = {
             path
             for pattern in patterns
             for path in self.camera_root.glob(pattern)
             if path.is_dir()
-        })
+        }
+        accepted = []
+        for path in sorted(candidates):
+            try:
+                pending_directory_origin(path)
+            except ValueError as exc:
+                self._warn_invalid_source(path, exc)
+                continue
+            accepted.append(path)
+        return accepted
 
     def processing_dirs(self, pending_dirs: list[Path] | None = None) -> list[Path]:
         discovered = {self.processing_dir}
         for pending_dir in pending_dirs or self.pending_dirs():
             discovered.add(self._processing_dir_for(pending_dir))
-        for pattern in (
-            "global/processing",
-            "*/global/processing",
-            "departments/*/global/processing",
-        ):
-            discovered.update(
-                path
-                for path in self.camera_root.glob(pattern)
-                if path.is_dir()
-            )
+        patterns = ["global/processing"]
+        if self.camera_root.name == "departments":
+            patterns.append("*/global/processing")
+        elif self.camera_root.name != "cameras":
+            patterns.append("departments/*/global/processing")
+        for pattern in patterns:
+            for path in self.camera_root.glob(pattern):
+                if not path.is_dir():
+                    continue
+                try:
+                    processing_directory_origin(path)
+                except ValueError as exc:
+                    self._warn_invalid_source(path, exc)
+                    continue
+                discovered.add(path)
         return sorted(discovered)
 
     def _processing_dir_for(self, pending_dir: Path) -> Path:
-        camera_root = pending_dir.parent.parent
-        department_root = camera_root.parent
-        if (
-            camera_root.name == "cameras"
-            and department_root.name in SECURITY_DEPARTMENTS
-        ):
+        department, department_scoped = pending_directory_origin(pending_dir)
+        if department_scoped:
+            department_root = pending_dir.parent.parent.parent
+            if department_root.name != department:
+                raise ValueError("pending 来源事业部路径不一致")
             return department_root / "global" / "processing"
         return self.processing_dir
+
+    def _warn_invalid_source(self, path: Path, exc: Exception) -> None:
+        identity = str(Path(path).absolute())
+        if identity in self._invalid_source_warnings:
+            return
+        self._invalid_source_warnings.add(identity)
+        print(
+            f"[vlm-scan] 忽略无效事业部目录 {path}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def scan_once(self) -> None:
         pending_dirs = self.pending_dirs()
@@ -903,14 +1005,19 @@ def main():
                 payload = pickle.load(f)
         except Exception as e:
             print(f"[vlm] 读 pickle 失败 {pkl_path}: {e}", flush=True)
-            try:
-                pkl_path.unlink()
-            except Exception:
-                pass
+            discard_invalid_pending_task(pkl_path, e)
+            return
+
+        try:
+            department = validate_pending_payload_department(
+                payload,
+                pkl_path,
+            )
+        except (TypeError, ValueError) as exc:
+            discard_invalid_pending_task(pkl_path, exc)
             return
 
         session_id = str(payload["session_id"])
-        department = payload_department(payload)
         camera_id = str(payload.get("camera_id", "legacy-default"))
         camera_name = str(payload.get("camera_name", camera_id))
         roi_name   = str(payload.get("roi_name", ""))

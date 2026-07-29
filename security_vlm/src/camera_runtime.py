@@ -56,10 +56,13 @@ class CameraRuntimePaths:
         return self.base_runtime_dir / "departments"
 
     @property
+    def department_runtime_dir(self) -> Path:
+        return self.departments_root / self.department
+
+    @property
     def runtime_dir(self) -> Path:
         return (
-            self.departments_root
-            / self.department
+            self.department_runtime_dir
             / "cameras"
             / self.camera_id
         )
@@ -89,6 +92,7 @@ def build_camera_config(
     data_cfg["video_id"] = camera["camera_id"]
     data_cfg["camera_name"] = camera["name"]
     runtime_cfg["dir"] = str(paths.runtime_dir)
+    runtime_cfg["department_dir"] = str(paths.department_runtime_dir)
     session_cfg["pending_queue_dir"] = str(paths.pending_dir)
     return snapshot
 

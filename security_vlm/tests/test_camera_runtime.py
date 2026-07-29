@@ -34,6 +34,9 @@ def test_camera_runtime_paths_are_scoped_by_camera(tmp_path):
         / "cameras"
         / "camera-a"
     )
+    assert paths.department_runtime_dir == (
+        tmp_path / "runtime" / "departments" / GENERAL
+    )
     assert paths.pending_dir == paths.runtime_dir / "pending"
     assert paths.config_path == paths.runtime_dir / "worker_config.yaml"
 
@@ -77,6 +80,9 @@ def test_build_camera_config_is_isolated_from_base_config(tmp_path):
     assert snapshot["data"]["video_id"] == camera["camera_id"]
     assert snapshot["data"]["camera_name"] == camera["name"]
     assert snapshot["runtime"]["dir"] == str(paths.runtime_dir)
+    assert snapshot["runtime"]["department_dir"] == str(
+        paths.department_runtime_dir
+    )
     assert snapshot["session"]["pending_queue_dir"] == str(paths.pending_dir)
     snapshot["data"]["video_id"] = "changed"
     assert base_cfg["data"]["video_id"] == "legacy"
