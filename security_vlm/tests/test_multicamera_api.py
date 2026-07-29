@@ -126,6 +126,56 @@ def set_capture_dimensions(service, camera_id, width=200, height=100):
     )
 
 
+def test_app_service_resolves_department_roots_and_reads_general_results(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = tmp_path / "security_vlm"
+    fake_main = project_root / "src" / "main.py"
+    fake_main.parent.mkdir(parents=True)
+    monkeypatch.setattr(main, "__file__", str(fake_main))
+    config = {
+        "envs": {"worker_python": "/env/bin/python"},
+        "runtime": {"dir": "runtime"},
+        "departments": {
+            "runtime_root": "runtime/custom/departments",
+            "data_root": "data/custom/departments",
+        },
+        "data": {
+            "camera_registry_path": "data/config/cameras.json",
+            "staff_identity_dir": "data/annotations/staff_rois",
+        },
+        "session": {},
+    }
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
+
+    service = main.AppService(
+        config_path,
+        registry=registry,
+        runtime_manager=FakeRuntimeManager(),
+        offload_sync=False,
+    )
+
+    assert service.runtime_dir == (project_root / "runtime").resolve()
+    assert service.departments_runtime_root == (
+        project_root / "runtime" / "custom" / "departments"
+    ).resolve()
+    assert service.departments_data_root == (
+        project_root / "data" / "custom" / "departments"
+    ).resolve()
+    assert service.global_store.runtime_dir == (
+        service.departments_data_root / "general_electric" / "results"
+    )
+    assert service.camera_runtime_dir("camera-a") == (
+        service.departments_runtime_root
+        / "general_electric"
+        / "cameras"
+        / "camera-a"
+    )
+
+
 @pytest.mark.asyncio
 async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
     service, runtime_manager = make_service(tmp_path)

@@ -1,10 +1,51 @@
 import queue
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import vlm_worker
+
+
+def test_pending_task_lock_entries_release_after_all_waiters_exit():
+    processor = vlm_worker.PendingTaskProcessor(
+        stores=None,
+        accumulators=None,
+        judge=None,
+        queue_timeout=1,
+    )
+    key = ("general_electric", "camera-a", "session-a")
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+
+    def first():
+        with processor._hold_task_lock(key):
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+
+    def second():
+        assert first_entered.wait(timeout=2)
+        with processor._hold_task_lock(key):
+            second_entered.set()
+
+    first_thread = threading.Thread(target=first)
+    second_thread = threading.Thread(target=second)
+    first_thread.start()
+    second_thread.start()
+    assert first_entered.wait(timeout=2)
+    assert not second_entered.wait(timeout=0.05)
+    assert len(processor._task_locks) == 1
+
+    release_first.set()
+    first_thread.join(timeout=2)
+    second_thread.join(timeout=2)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert second_entered.is_set()
+    assert processor._task_locks == {}
 
 
 def test_process_queued_item_contains_task_exception(capsys):

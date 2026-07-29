@@ -127,6 +127,8 @@ vlm:
   queue_timeout_sec: 60
   # 同时最多几个 session 并发送 VLM(防止突发 RTSP 大量 session 堆积)
   max_concurrent: 3
+  # 先按事业部、再按事业部内摄像头公平轮询。
+  scheduling: department_round_robin
   # API 调用超时
   api_timeout_sec: 45
   # 图像缩放上限(长边)

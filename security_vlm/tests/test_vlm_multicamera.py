@@ -1,6 +1,9 @@
+import json
 import pickle
 import queue
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -220,7 +223,7 @@ def test_department_processing_collision_stays_in_department(tmp_path):
     assert list((runtime_root / "global" / "processing").glob("*.pkl")) == []
 
 
-def test_scanner_does_not_claim_unknown_department_pending(tmp_path):
+def test_scanner_rejects_and_cleans_unknown_department_pending(tmp_path):
     runtime_root = tmp_path / "runtime"
     unknown_task = (
         runtime_root
@@ -238,7 +241,7 @@ def test_scanner_does_not_claim_unknown_department_pending(tmp_path):
     scanner.scan_once()
 
     assert task_q.empty()
-    assert unknown_task.exists()
+    assert not unknown_task.exists()
 
 
 def test_department_pending_requires_explicit_matching_payload_department(tmp_path):
@@ -407,3 +410,396 @@ def test_invalid_pending_load_cleans_task_and_markers_before_processing(
     assert not task.exists()
     assert not started.exists()
     assert not recovered.exists()
+
+
+def _write_full_pending(path: Path, *, department: str, camera_id: str, **overrides):
+    payload = _valid_department_payload(
+        department=department,
+        camera_id=camera_id,
+        session_id=f"{camera_id}_123_1",
+        **overrides,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pickle.dumps(payload))
+    return path
+
+
+def test_department_scanner_is_fair_across_departments_and_cameras(tmp_path):
+    departments_root = tmp_path / "custom" / "departments"
+    for camera_id, task_names in {
+        "ge-a": ("1.pkl", "2.pkl"),
+        "ge-b": ("1.pkl", "2.pkl"),
+    }.items():
+        for task_name in task_names:
+            _write_full_pending(
+                departments_root
+                / "general_electric"
+                / "cameras"
+                / camera_id
+                / "pending"
+                / task_name,
+                department="general_electric",
+                camera_id=camera_id,
+            )
+    _write_full_pending(
+        departments_root
+        / "electronics_electrician"
+        / "cameras"
+        / "ee-a"
+        / "pending"
+        / "1.pkl",
+        department="electronics_electrician",
+        camera_id="ee-a",
+    )
+    task_q = queue.Queue()
+    scanner = vlm_worker.DepartmentPendingScanner(
+        departments_root,
+        task_q,
+    )
+
+    scanner.scan_once()
+    first = task_q.get_nowait()
+    second = task_q.get_nowait()
+    scanner.scan_once()
+    third = task_q.get_nowait()
+
+    assert [first.department, second.department] == [
+        "general_electric",
+        "electronics_electrician",
+    ]
+    assert {first.camera_id, third.camera_id} == {"ge-a", "ge-b"}
+    assert first.path.parent == (
+        departments_root
+        / first.department
+        / "global"
+        / "processing"
+        / first.camera_id
+    )
+
+
+def test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy(tmp_path):
+    departments_root = tmp_path / "custom" / "departments"
+    valid = _write_full_pending(
+        departments_root
+        / "general_electric"
+        / "cameras"
+        / "camera-a"
+        / "pending"
+        / "valid.pkl",
+        department="general_electric",
+        camera_id="camera-a",
+    )
+    decoy = _write_full_pending(
+        departments_root
+        / "nested"
+        / "departments"
+        / "general_electric"
+        / "cameras"
+        / "camera-b"
+        / "pending"
+        / "decoy.pkl",
+        department="general_electric",
+        camera_id="camera-b",
+    )
+    task_q = queue.Queue()
+    scanner = vlm_worker.DepartmentPendingScanner(departments_root, task_q)
+
+    scanner.scan_once()
+
+    claimed = task_q.get_nowait()
+    assert claimed.camera_id == "camera-a"
+    assert not valid.exists()
+    assert decoy.exists()
+    assert task_q.empty()
+
+
+def test_recovered_processing_round_robins_cameras_within_department(tmp_path):
+    departments_root = tmp_path / "departments"
+    processing_root = (
+        departments_root
+        / "general_electric"
+        / "global"
+        / "processing"
+    )
+    for camera_id in ("camera-a", "camera-b"):
+        for task_name in ("1.pkl", "2.pkl"):
+            _write_full_pending(
+                processing_root / camera_id / task_name,
+                department="general_electric",
+                camera_id=camera_id,
+            )
+    task_q = queue.Queue()
+    scanner = vlm_worker.DepartmentPendingScanner(departments_root, task_q)
+
+    scanner.scan_once()
+    scanner.scan_once()
+
+    assert [
+        task_q.get_nowait().camera_id,
+        task_q.get_nowait().camera_id,
+    ] == ["camera-a", "camera-b"]
+
+
+def test_new_processing_identity_requires_matching_department_and_camera(tmp_path):
+    task = vlm_worker.PendingTask(
+        "general_electric",
+        "camera-a",
+        tmp_path
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a"
+        / "task.pkl",
+    )
+
+    with pytest.raises(ValueError, match="camera_id"):
+        vlm_worker.normalize_pending_payload(
+            _valid_department_payload(camera_id="camera-b"),
+            task,
+        )
+    with pytest.raises(ValueError, match="department"):
+        vlm_worker.normalize_pending_payload(
+            _valid_department_payload(department="electronics_electrician"),
+            task,
+        )
+
+
+def test_legacy_task_rejects_explicit_non_general_department(tmp_path):
+    task = vlm_worker.PendingTask(
+        "general_electric",
+        "legacy-camera",
+        tmp_path / "runtime" / "global" / "processing" / "legacy.pkl",
+        legacy=True,
+    )
+
+    with pytest.raises(ValueError, match="旧版"):
+        vlm_worker.normalize_pending_payload(
+            _valid_department_payload(
+                department="electronics_electrician",
+                camera_id="legacy-camera",
+            ),
+            task,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("camera_id", "../camera"),
+        ("session_id", "bad\x00session"),
+        ("session_id", "s" * 193),
+    ],
+)
+def test_invalid_task_identifiers_are_rejected_and_cleaned(
+    tmp_path,
+    field,
+    value,
+):
+    task_path = (
+        tmp_path
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a"
+        / "task.pkl"
+    )
+    task = vlm_worker.PendingTask("general_electric", "camera-a", task_path)
+    payload = _valid_department_payload(**{field: value})
+    task_path.parent.mkdir(parents=True)
+    task_path.write_bytes(pickle.dumps(payload))
+
+    assert vlm_worker.load_validated_pending_task(task) is None
+    assert not task_path.exists()
+
+
+def test_department_results_accumulators_are_fully_isolated(tmp_path):
+    stores = vlm_worker.DepartmentResultStores(tmp_path)
+    accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    accumulators.get("general_electric").record({
+        "department": "general_electric",
+        "camera_id": "shared-camera",
+        "session_id": "shared-session",
+        "time": today,
+        "duration_sec": 1.0,
+        "result": {"compliant": True},
+    })
+    accumulators.get("electronics_electrician").record({
+        "department": "electronics_electrician",
+        "camera_id": "shared-camera",
+        "session_id": "shared-session",
+        "time": today,
+        "duration_sec": 1.0,
+        "result": {"compliant": False, "reason": "x"},
+    })
+
+    general_history = stores.get("general_electric").read("vlm_history")["items"]
+    electronics_history = stores.get(
+        "electronics_electrician"
+    ).read("vlm_history")["items"]
+    assert {item["department"] for item in general_history} == {
+        "general_electric"
+    }
+    assert {item["department"] for item in electronics_history} == {
+        "electronics_electrician"
+    }
+    assert stores.get("general_electric").read("vlm_latest_stats")[
+        "compliant"
+    ] == 1
+    assert stores.get("electronics_electrician").read("vlm_latest_stats")[
+        "non_compliant"
+    ] == 1
+    assert stores.results_dir("general_electric") != stores.results_dir(
+        "electronics_electrician"
+    )
+    assert stores.budget_store.runtime_dir == tmp_path / "_shared"
+
+
+def test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root(
+    tmp_path,
+):
+    project_root = tmp_path / "security_vlm"
+    cfg = {
+        "runtime": {
+            "dir": "runtime",
+            "camera_root": "runtime/legacy-cameras",
+        },
+        "departments": {
+            "runtime_root": "runtime/custom/departments",
+            "data_root": "data/custom/departments",
+        },
+    }
+
+    paths = vlm_worker.VLMWorkerPaths.from_config(cfg, project_root)
+
+    assert paths.runtime_dir == (project_root / "runtime").resolve()
+    assert paths.departments_root == (
+        project_root / "runtime" / "custom" / "departments"
+    ).resolve()
+    assert paths.legacy_camera_root == (
+        project_root / "runtime" / "legacy-cameras"
+    ).resolve()
+    assert paths.data_root == (
+        project_root / "data" / "custom" / "departments"
+    ).resolve()
+
+
+def test_real_claim_process_partition_clip_history_stats_and_cleanup(
+    tmp_path,
+    monkeypatch,
+):
+    departments_root = tmp_path / "runtime" / "departments"
+    pending = _write_full_pending(
+        departments_root
+        / "electrical_components"
+        / "cameras"
+        / "camera-a"
+        / "pending"
+        / "task.pkl",
+        department="electrical_components",
+        camera_id="camera-a",
+        keyframes=[np.zeros((4, 4, 3), dtype=np.uint8)] * 2,
+    )
+    task_q = queue.Queue()
+    scanner = vlm_worker.DepartmentPendingScanner(departments_root, task_q)
+    scanner.scan_once()
+    task = task_q.get_nowait()
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
+    judge = SimpleNamespace(
+        judge=lambda *_args, **_kwargs: {
+            "compliant": False,
+            "reason": "未执行安检",
+        }
+    )
+    saved_clips = []
+    monkeypatch.setattr(
+        vlm_worker,
+        "save_clip",
+        lambda _frames, _result, session_id, out_dir: saved_clips.append(
+            out_dir / f"{session_id}.jpg"
+        ),
+    )
+    processor = vlm_worker.PendingTaskProcessor(
+        stores=stores,
+        accumulators=accumulators,
+        judge=judge,
+        queue_timeout=60,
+        save_clip_only_non_compliant=True,
+    )
+
+    assert processor.process(task, now_ts=103.0) is True
+
+    result_path = (
+        stores.results_dir("electrical_components")
+        / "camera-a"
+        / "camera-a_123_1.json"
+    )
+    assert json.loads(result_path.read_text())["department"] == (
+        "electrical_components"
+    )
+    assert saved_clips == [
+        stores.results_dir("electrical_components")
+        / "clips"
+        / "camera-a"
+        / "camera-a_123_1.jpg"
+    ]
+    assert stores.get("electrical_components").read("vlm_history")["items"]
+    assert stores.get("electrical_components").read("vlm_latest_stats")[
+        "non_compliant"
+    ] == 1
+    assert not pending.exists()
+    assert not task.path.exists()
+
+
+def test_completion_record_identity_mismatch_is_rejected_without_vlm_call(tmp_path):
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
+    task_path = (
+        tmp_path
+        / "runtime"
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a"
+        / "task.pkl"
+    )
+    _write_full_pending(
+        task_path,
+        department="general_electric",
+        camera_id="camera-a",
+    )
+    result_path = (
+        stores.results_dir("general_electric")
+        / "camera-a"
+        / "camera-a_123_1.json"
+    )
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(json.dumps({
+        "department": "electronics_electrician",
+        "camera_id": "camera-a",
+        "session_id": "camera-a_123_1",
+        "result": {"compliant": True},
+    }))
+    calls = []
+    processor = vlm_worker.PendingTaskProcessor(
+        stores=stores,
+        accumulators=accumulators,
+        judge=SimpleNamespace(judge=lambda *_a, **_k: calls.append(True)),
+        queue_timeout=60,
+    )
+
+    assert processor.process(
+        vlm_worker.PendingTask(
+            "general_electric",
+            "camera-a",
+            task_path,
+        ),
+        now_ts=103.0,
+    ) is False
+    assert calls == []
+    assert not task_path.exists()

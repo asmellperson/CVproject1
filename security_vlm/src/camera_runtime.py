@@ -28,16 +28,26 @@ _RESTART_BACKOFF_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
 LOGGER = logging.getLogger(__name__)
 
 
+def resolve_path(path: str | Path, project_root: Path) -> Path:
+    """所有配置路径统一相对 security_vlm 项目根解析。"""
+    candidate = Path(path)
+    return (
+        candidate.resolve()
+        if candidate.is_absolute()
+        else (Path(project_root) / candidate).resolve()
+    )
+
+
 @dataclass(frozen=True)
 class CameraRuntimePaths:
     """一台摄像头独占的运行时路径。"""
 
-    base_runtime_dir: Path
+    departments_root: Path
     department: str
     camera_id: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "base_runtime_dir", Path(self.base_runtime_dir))
+        object.__setattr__(self, "departments_root", Path(self.departments_root))
         object.__setattr__(
             self,
             "department",
@@ -48,12 +58,6 @@ class CameraRuntimePaths:
             "camera_id",
             validate_camera_id(self.camera_id),
         )
-
-    @property
-    def departments_root(self) -> Path:
-        if self.base_runtime_dir.name == "departments":
-            return self.base_runtime_dir
-        return self.base_runtime_dir / "departments"
 
     @property
     def department_runtime_dir(self) -> Path:
@@ -144,18 +148,28 @@ class CameraRuntimeManager:
         monitor_interval_sec: float = 1.0,
     ):
         self.base_cfg = copy.deepcopy(base_cfg)
-        self.project_root = Path(project_root)
-        self.base_config_path = Path(base_config_path)
+        self.project_root = Path(project_root).resolve()
+        self.base_config_path = resolve_path(base_config_path, self.project_root)
         self.camera_provider = camera_provider
         self.popen_factory = popen_factory
         self.sleep = sleep
         self.clock = clock
-        self.base_runtime_dir = Path(self.base_cfg["runtime"]["dir"]).resolve()
+        self.base_runtime_dir = resolve_path(
+            self.base_cfg["runtime"]["dir"],
+            self.project_root,
+        )
+        self.legacy_camera_root = resolve_path(
+            self.base_cfg["runtime"].get(
+                "camera_root",
+                self.base_runtime_dir / "cameras",
+            ),
+            self.project_root,
+        )
         configured_departments_root = (
             self.base_cfg.get("departments", {}) or {}
         ).get("runtime_root")
         self.departments_root = (
-            Path(configured_departments_root).resolve()
+            resolve_path(configured_departments_root, self.project_root)
             if configured_departments_root
             else self.base_runtime_dir / "departments"
         )
@@ -170,6 +184,7 @@ class CameraRuntimeManager:
         self.vlm_restart_at: float | None = None
         self.vlm_last_error = ""
         self._lock = threading.RLock()
+        self._shutting_down = False
         self._monitor_interval_sec = max(0.1, float(monitor_interval_sec))
         self._monitor_stop = threading.Event()
         self._monitor_thread: threading.Thread | None = None
@@ -185,6 +200,15 @@ class CameraRuntimeManager:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
         with self._lock:
+            if self._shutting_down:
+                return {
+                    "ok": False,
+                    "department": department,
+                    "camera_id": camera_id,
+                    "running": False,
+                    "desired_running": False,
+                    "message": "运行时正在关闭，拒绝启动摄像头",
+                }
             camera = self._get_camera(department, camera_id)
             if camera is None:
                 return {
@@ -288,15 +312,23 @@ class CameraRuntimeManager:
 
     def start_all(self, department: str) -> dict:
         department = require_department(department)
-        results = {}
-        for camera in self.camera_provider(department):
-            camera_id = str(camera["camera_id"])
-            results[camera_id] = self.start(department, camera_id)
-        return {
-            "ok": all(result["ok"] for result in results.values()),
-            "department": department,
-            "results": results,
-        }
+        with self._lock:
+            if self._shutting_down:
+                return {
+                    "ok": False,
+                    "department": department,
+                    "message": "运行时正在关闭，拒绝全部启动",
+                    "results": {},
+                }
+            results = {}
+            for camera in self.camera_provider(department):
+                camera_id = str(camera["camera_id"])
+                results[camera_id] = self.start(department, camera_id)
+            return {
+                "ok": all(result["ok"] for result in results.values()),
+                "department": department,
+                "results": results,
+            }
 
     def stop_all(self, department: str) -> dict:
         department = require_department(department)
@@ -309,15 +341,15 @@ class CameraRuntimeManager:
                 for runtime_department, camera_id in self.runtimes
                 if runtime_department == department
             }
-        results = {
-            camera_id: self.stop(department, camera_id)
-            for camera_id in camera_ids
-        }
-        return {
-            "ok": all(result["ok"] for result in results.values()),
-            "department": department,
-            "results": results,
-        }
+            results = {
+                camera_id: self.stop(department, camera_id)
+                for camera_id in camera_ids
+            }
+            return {
+                "ok": all(result["ok"] for result in results.values()),
+                "department": department,
+                "results": results,
+            }
 
     def is_running(self, department: str, camera_id: str) -> bool:
         department = require_department(department)
@@ -372,6 +404,8 @@ class CameraRuntimeManager:
     def reconcile(self) -> None:
         """检测意外退出，并按有界退避重启完整摄像头进程组。"""
         with self._lock:
+            if self._shutting_down:
+                return
             now = self.clock()
             for runtime in list(self.runtimes.values()):
                 if not runtime.desired_running:
@@ -423,14 +457,15 @@ class CameraRuntimeManager:
                 self._stop_vlm()
 
     def shutdown(self) -> None:
-        self._monitor_stop.set()
+        with self._lock:
+            self._shutting_down = True
+            self._monitor_stop.set()
         if self._monitor_thread is not None:
             self._monitor_thread.join(timeout=self._monitor_interval_sec + 1.0)
         with self._lock:
             runtime_keys = list(self.runtimes)
-        for department, camera_id in runtime_keys:
-            self.stop(department, camera_id)
-        with self._lock:
+            for department, camera_id in runtime_keys:
+                self.stop(department, camera_id)
             self._stop_vlm()
 
     def _start_runtime(
@@ -484,8 +519,10 @@ class CameraRuntimeManager:
             str(self.project_root / "src" / "vlm_worker.py"),
             "--config",
             str(self.base_config_path),
+            "--departments-root",
+            str(self.departments_root),
             "--camera-root",
-            str(self._pending_scan_root()),
+            str(self.legacy_camera_root),
         ]
         try:
             self.vlm_process = self.popen_factory(
@@ -615,13 +652,6 @@ class CameraRuntimeManager:
             department,
             camera_id,
         )
-
-    def _pending_scan_root(self) -> Path:
-        try:
-            self.departments_root.relative_to(self.base_runtime_dir)
-        except ValueError:
-            return self.departments_root
-        return self.base_runtime_dir
 
     @staticmethod
     def _result(runtime: CameraRuntime, ok: bool, message: str) -> dict:

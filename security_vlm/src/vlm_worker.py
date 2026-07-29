@@ -3,21 +3,23 @@
 vlm_worker.py —— Qwen-VL 合规判定子进程
 ================================================================================
 职责:
-    1. 启动时清理 pending_queue_dir 里残留的过期 .pkl
-    2. 后台 PendingScanner 线程持续扫描该目录, 把新出现的 .pkl 路径丢进队列
-    3. N 个 worker 线程并发处理: 取出 .pkl → 调 Qwen-VL → 解析 → 落盘
-    4. 不合规会额外保存关键帧拼图到 clips_dir
-    5. 维护一个内存 history (deque) + 累计计数, 写到 vlm_history.json /
-       vlm_latest_stats.json 供前端读
+    1. 按事业部、摄像头公平扫描 pending，并原子认领到 processing
+    2. N 个 worker 线程并发处理 PendingTask，校验路径与 payload 复合身份
+    3. 调 Qwen-VL、解析结果，并写入对应事业部的持久结果分区
+    4. 不合规关键帧、历史、统计和状态均按事业部隔离
 
 成本守护:
     BudgetGuard 按"次"扣预算 (estimated_cost_per_call), 超过 daily_limit 拒调。
-    日期变更时自动归零。
+    日期变更时自动归零，预算状态保存在 data_root/_shared。
 
 输出:
-    - {results_dir}/<session_id>.json     (每个 session 一个详细结果)
-    - {clips_dir}/<session_id>.jpg        (不合规的关键帧拼图)
-    - vlm_status.json / vlm_latest_stats.json / vlm_history.json
+    - {data_root}/{department}/results/{camera_id}/{session_id}.json
+    - {data_root}/{department}/results/clips/{camera_id}/{session_id}.jpg
+    - {data_root}/{department}/results/vlm_state.json
+    - {data_root}/{department}/results/vlm_status.json
+    - {data_root}/{department}/results/vlm_latest_stats.json
+    - {data_root}/{department}/results/vlm_history.json
+    - {data_root}/_shared/vlm_budget.json
 ================================================================================
 """
 import argparse
@@ -34,6 +36,8 @@ import time
 import traceback
 import uuid
 from collections import deque
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -45,6 +49,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from departments import SECURITY_DEPARTMENTS, require_department  # noqa: E402
+from camera_registry import validate_camera_id  # noqa: E402
 from frame_hub import ResultStore  # noqa: E402
 
 
@@ -67,6 +72,65 @@ def load_yaml(path: Path) -> Dict[str, Any]:
 def resolve_path(p: str, base: Path) -> Path:
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
+
+
+@dataclass(frozen=True)
+class VLMWorkerPaths:
+    runtime_dir: Path
+    departments_root: Path
+    legacy_camera_root: Path
+    data_root: Path
+
+    @classmethod
+    def from_config(
+        cls,
+        cfg: dict,
+        project_root: Path,
+        *,
+        departments_root: str | Path | None = None,
+        legacy_camera_root: str | Path | None = None,
+    ) -> "VLMWorkerPaths":
+        base = Path(project_root)
+        runtime_cfg = cfg.get("runtime", {}) or {}
+        departments_cfg = cfg.get("departments", {}) or {}
+        runtime_dir = resolve_path(runtime_cfg["dir"], base)
+        configured_departments = (
+            departments_root
+            if departments_root is not None
+            else departments_cfg.get(
+                "runtime_root",
+                runtime_dir / "departments",
+            )
+        )
+        configured_legacy = (
+            legacy_camera_root
+            if legacy_camera_root is not None
+            else runtime_cfg.get("camera_root", runtime_dir / "cameras")
+        )
+        return cls(
+            runtime_dir=runtime_dir,
+            departments_root=resolve_path(str(configured_departments), base),
+            legacy_camera_root=resolve_path(str(configured_legacy), base),
+            data_root=resolve_path(
+                str(departments_cfg.get("data_root", "data/departments")),
+                base,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class PendingTask:
+    """已由目录结构认证的待处理任务身份。"""
+
+    department: str
+    camera_id: str
+    path: Path
+    legacy: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "department", require_department(self.department))
+        object.__setattr__(self, "camera_id", validate_camera_id(self.camera_id))
+        object.__setattr__(self, "path", Path(self.path))
 
 
 def payload_department(payload: dict) -> str:
@@ -127,9 +191,12 @@ def validate_pending_payload_department(payload: dict, task_path: Path) -> str:
     return source_department
 
 
-def discard_invalid_pending_task(task_path: Path, reason: Exception) -> None:
+def discard_invalid_pending_task(
+    task_path: Path | PendingTask,
+    reason: Exception,
+) -> None:
     """删除无法安全归属的任务及恢复标记，避免重启后无限重试。"""
-    path = Path(task_path)
+    path = task_path.path if isinstance(task_path, PendingTask) else Path(task_path)
     print(
         f"[vlm] 拒绝无效 pending 任务 {path}: {reason}",
         file=sys.stderr,
@@ -179,19 +246,63 @@ def _safe_pending_identifier(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"pending payload 缺少有效 {field_name}")
     identifier = value.strip()
-    if identifier in {".", ".."} or Path(identifier).name != identifier:
-        raise ValueError(f"pending payload {field_name} 不能包含路径片段")
+    if (
+        len(identifier) > 192
+        or identifier in {".", ".."}
+        or Path(identifier).name != identifier
+        or any(
+            character == "\x00"
+            or ord(character) < 32
+            or ord(character) == 127
+            for character in identifier
+        )
+        or any(
+            not (
+                character.isascii()
+                and (
+                    character.isalnum()
+                    or character in "._-"
+                )
+            )
+            for character in identifier
+        )
+    ):
+        raise ValueError(
+            f"pending payload {field_name} 必须是最多 192 字符的路径安全标识"
+        )
     return identifier
 
 
 def normalize_pending_payload(
     payload: dict,
-    task_path: Path,
+    task_path: Path | PendingTask,
     *,
     now_ts: float | None = None,
 ) -> dict:
     """校验并规范化 process_one 后续会使用的 pending 字段。"""
-    department = validate_pending_payload_department(payload, task_path)
+    trusted_task = task_path if isinstance(task_path, PendingTask) else None
+    path = trusted_task.path if trusted_task is not None else Path(task_path)
+    if not isinstance(payload, dict):
+        raise ValueError("pending payload 必须是字典")
+    if trusted_task is not None:
+        if trusted_task.legacy:
+            if (
+                "department" in payload
+                and require_department(payload["department"])
+                != SECURITY_DEPARTMENTS[0]
+            ):
+                raise ValueError("旧版 pending 任务只能归属 general_electric")
+            department = SECURITY_DEPARTMENTS[0]
+        else:
+            if "department" not in payload:
+                raise ValueError("新版 pending payload 缺少 department")
+            department = require_department(payload["department"])
+            if department != trusted_task.department:
+                raise ValueError(
+                    "pending payload department 与来源路径不一致"
+                )
+    else:
+        department = validate_pending_payload_department(payload, path)
     if "session_id" not in payload:
         raise ValueError("pending payload 缺少 session_id")
     current_ts = time.time() if now_ts is None else float(now_ts)
@@ -201,10 +312,15 @@ def normalize_pending_payload(
         payload["session_id"],
         "session_id",
     )
-    normalized["camera_id"] = _safe_pending_identifier(
-        payload.get("camera_id", "legacy-default"),
-        "camera_id",
+    declared_camera_id = validate_camera_id(
+        payload.get(
+            "camera_id",
+            trusted_task.camera_id if trusted_task is not None else "legacy-default",
+        )
     )
+    if trusted_task is not None and declared_camera_id != trusted_task.camera_id:
+        raise ValueError("pending payload camera_id 与来源路径不一致")
+    normalized["camera_id"] = declared_camera_id
     normalized["camera_name"] = str(
         payload.get("camera_name", normalized["camera_id"])
     )
@@ -244,13 +360,15 @@ def normalize_pending_payload(
     return normalized
 
 
-def load_validated_pending_task(task_path: Path) -> dict | None:
+def load_validated_pending_task(
+    task_path: Path | PendingTask,
+) -> dict | None:
     """读取并校验 pending；坏任务立即丢弃，调用方必须在 None 时早退。"""
-    path = Path(task_path)
+    path = task_path.path if isinstance(task_path, PendingTask) else Path(task_path)
     try:
         with path.open("rb") as file:
             payload = pickle.load(file)
-        return normalize_pending_payload(payload, path)
+        return normalize_pending_payload(payload, task_path)
     except Exception as exc:
         # pickle 反序列化可能传播导入/属性等多种异常；统一记录并丢弃，
         # 防止 processing 中的坏文件在每次重启后再次进入队列。
@@ -604,6 +722,282 @@ class PendingScanner(threading.Thread):
         self._stop_event.set()
 
 
+class DepartmentPendingScanner(threading.Thread):
+    """按事业部、再按摄像头轮询，并原子认领到无歧义 processing 路径。"""
+
+    def __init__(
+        self,
+        departments_root: Path,
+        q: queue.Queue,
+        poll_sec: float = 0.5,
+        *,
+        legacy_camera_root: Path | None = None,
+    ):
+        super().__init__(daemon=True)
+        self.departments_root = Path(departments_root)
+        self.legacy_camera_root = (
+            Path(legacy_camera_root)
+            if legacy_camera_root is not None
+            else None
+        )
+        self.q = q
+        self.poll_sec = poll_sec
+        self.seen: set[str] = set()
+        self._department_cursor = 0
+        self._camera_cursors = {
+            department: 0 for department in SECURITY_DEPARTMENTS
+        }
+        self._processing_cursors = {
+            department: 0 for department in SECURITY_DEPARTMENTS
+        }
+        self._stop_event = threading.Event()
+
+    def pending_dirs(self) -> list[Path]:
+        directories = []
+        for department in SECURITY_DEPARTMENTS:
+            cameras_dir = self.departments_root / department / "cameras"
+            directories.extend(
+                path
+                for path in sorted(cameras_dir.glob("*/pending"))
+                if path.is_dir()
+            )
+        if self.legacy_camera_root is not None:
+            directories.extend(
+                path
+                for path in sorted(self.legacy_camera_root.glob("*/pending"))
+                if path.is_dir()
+            )
+        return directories
+
+    def processing_dirs(self) -> list[Path]:
+        directories = [
+            self.departments_root / department / "global" / "processing"
+            for department in SECURITY_DEPARTMENTS
+        ]
+        if self.legacy_camera_root is not None:
+            directories.append(
+                self.legacy_camera_root.parent / "global" / "processing"
+            )
+        return directories
+
+    @staticmethod
+    def _identity(path: Path) -> str:
+        return str(path.resolve())
+
+    def _all_existing_paths(self) -> set[str]:
+        paths = {
+            self._identity(path)
+            for pending_dir in self.pending_dirs()
+            for path in pending_dir.glob("*.pkl")
+        }
+        for processing_dir in self.processing_dirs():
+            paths.update(
+                self._identity(path)
+                for path in processing_dir.glob("*.pkl")
+            )
+            paths.update(
+                self._identity(path)
+                for path in processing_dir.glob("*/*.pkl")
+            )
+        return paths
+
+    def _cleanup_unknown_departments(self) -> None:
+        if not self.departments_root.is_dir():
+            return
+        for department_dir in self.departments_root.iterdir():
+            if (
+                not department_dir.is_dir()
+                or department_dir.name in SECURITY_DEPARTMENTS
+            ):
+                continue
+            reason = ValueError(
+                f"未知安检事业部: {department_dir.name}"
+            )
+            for task_path in department_dir.glob(
+                "cameras/*/pending/*.pkl"
+            ):
+                discard_invalid_pending_task(task_path, reason)
+            for task_path in department_dir.glob(
+                "global/processing/**/*.pkl"
+            ):
+                discard_invalid_pending_task(task_path, reason)
+
+    def _flat_processing_task(
+        self,
+        department: str,
+        path: Path,
+        *,
+        legacy: bool,
+    ) -> PendingTask:
+        camera_id = "legacy-default"
+        try:
+            with path.open("rb") as file:
+                payload = pickle.load(file)
+            declared = validate_camera_id(payload.get("camera_id", camera_id))
+            if legacy or path.name.startswith(f"{declared}__"):
+                camera_id = declared
+        except Exception:
+            # 坏任务仍需入队，由统一校验路径负责记录并清理。
+            pass
+        return PendingTask(department, camera_id, path, legacy=legacy)
+
+    def _existing_task(
+        self,
+        department: str,
+    ) -> PendingTask | None:
+        processing_dir = (
+            self.departments_root / department / "global" / "processing"
+        )
+        tasks = []
+        for path in sorted(processing_dir.glob("*/*.pkl")):
+            if self._identity(path) in self.seen:
+                continue
+            try:
+                tasks.append(PendingTask(
+                    department,
+                    path.parent.name,
+                    path,
+                ))
+            except ValueError as exc:
+                discard_invalid_pending_task(path, exc)
+        tasks.extend(
+            self._flat_processing_task(department, path, legacy=False)
+            for path in sorted(processing_dir.glob("*.pkl"))
+            if self._identity(path) not in self.seen
+        )
+        if department == SECURITY_DEPARTMENTS[0] and self.legacy_camera_root is not None:
+            legacy_processing = (
+                self.legacy_camera_root.parent / "global" / "processing"
+            )
+            for path in sorted(legacy_processing.glob("*/*.pkl")):
+                if self._identity(path) in self.seen:
+                    continue
+                try:
+                    tasks.append(PendingTask(
+                        department,
+                        path.parent.name,
+                        path,
+                        legacy=True,
+                    ))
+                except ValueError as exc:
+                    discard_invalid_pending_task(path, exc)
+            tasks.extend(
+                self._flat_processing_task(department, path, legacy=True)
+                for path in sorted(legacy_processing.glob("*.pkl"))
+                if self._identity(path) not in self.seen
+            )
+        if not tasks:
+            return None
+        tasks_by_camera: dict[str, list[PendingTask]] = {}
+        for task in tasks:
+            tasks_by_camera.setdefault(task.camera_id, []).append(task)
+        camera_ids = sorted(tasks_by_camera)
+        cursor = self._processing_cursors[department] % len(camera_ids)
+        self._processing_cursors[department] = (
+            cursor + 1
+        ) % len(camera_ids)
+        return tasks_by_camera[camera_ids[cursor]][0]
+
+    def _pending_camera_dirs(self, department: str) -> list[tuple[Path, bool]]:
+        directories = [
+            (path, False)
+            for path in sorted(
+                (
+                    self.departments_root
+                    / department
+                    / "cameras"
+                ).glob("*/pending")
+            )
+            if path.is_dir() and any(path.glob("*.pkl"))
+        ]
+        if (
+            department == SECURITY_DEPARTMENTS[0]
+            and self.legacy_camera_root is not None
+        ):
+            directories.extend(
+                (path, True)
+                for path in sorted(self.legacy_camera_root.glob("*/pending"))
+                if path.is_dir() and any(path.glob("*.pkl"))
+            )
+        return directories
+
+    def _claim_pending(self, department: str) -> PendingTask | None:
+        pending_dirs = self._pending_camera_dirs(department)
+        if not pending_dirs:
+            return None
+        cursor = self._camera_cursors[department] % len(pending_dirs)
+        ordered = pending_dirs[cursor:] + pending_dirs[:cursor]
+        self._camera_cursors[department] = (cursor + 1) % len(pending_dirs)
+        for pending_dir, legacy in ordered:
+            try:
+                camera_id = validate_camera_id(pending_dir.parent.name)
+            except ValueError as exc:
+                for invalid_path in pending_dir.glob("*.pkl"):
+                    discard_invalid_pending_task(invalid_path, exc)
+                continue
+            source = next(iter(sorted(pending_dir.glob("*.pkl"))), None)
+            if source is None:
+                continue
+            processing_dir = (
+                (
+                    self.legacy_camera_root.parent
+                    if legacy and self.legacy_camera_root is not None
+                    else self.departments_root / department
+                )
+                / "global"
+                / "processing"
+                / camera_id
+            )
+            processing_dir.mkdir(parents=True, exist_ok=True)
+            target = processing_dir / source.name
+            if target.exists():
+                target = processing_dir / (
+                    f"{source.stem}.{time.time_ns()}{source.suffix}"
+                )
+            try:
+                source.replace(target)
+            except FileNotFoundError:
+                continue
+            return PendingTask(department, camera_id, target, legacy=legacy)
+        return None
+
+    def scan_once(self) -> None:
+        self._cleanup_unknown_departments()
+        self.seen.intersection_update(self._all_existing_paths())
+        offset = self._department_cursor % len(SECURITY_DEPARTMENTS)
+        departments = (
+            list(SECURITY_DEPARTMENTS[offset:])
+            + list(SECURITY_DEPARTMENTS[:offset])
+        )
+        self._department_cursor = (offset + 1) % len(SECURITY_DEPARTMENTS)
+        for department in departments:
+            task = self._existing_task(department)
+            if task is None:
+                task = self._claim_pending(department)
+            if task is None:
+                continue
+            identity = self._identity(task.path)
+            if identity in self.seen:
+                continue
+            self.seen.add(identity)
+            self.q.put(task)
+
+    def run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self.scan_once()
+            except Exception as exc:
+                print(
+                    f"[vlm-scan] 事业部公平扫描异常: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            self._stop_event.wait(self.poll_sec)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+
 class MultiCameraPendingScanner(threading.Thread):
     """以轮询顺序扫描所有摄像头的 pending 队列。"""
 
@@ -657,6 +1051,8 @@ class MultiCameraPendingScanner(threading.Thread):
                 pending_directory_origin(path)
             except ValueError as exc:
                 self._warn_invalid_source(path, exc)
+                for task_path in path.glob("*.pkl"):
+                    discard_invalid_pending_task(task_path, exc)
                 continue
             accepted.append(path)
         return accepted
@@ -860,6 +1256,394 @@ def save_clip(keyframes: List[np.ndarray], result: Dict[str, Any],
     cv2.imwrite(str(out_dir / f"{session_id}.jpg"), out,
                 [cv2.IMWRITE_JPEG_QUALITY, 85])
 
+
+class DepartmentResultStores:
+    """四事业部持久结果仓库，以及唯一的共享预算仓库。"""
+
+    def __init__(self, data_root: Path):
+        self.data_root = Path(data_root).resolve()
+        self._stores = {
+            department: ResultStore(self.results_dir(department))
+            for department in SECURITY_DEPARTMENTS
+        }
+        self.budget_store = ResultStore(self.data_root / "_shared")
+
+    def results_dir(self, department: str) -> Path:
+        return self.data_root / require_department(department) / "results"
+
+    def clips_dir(self, department: str) -> Path:
+        return self.results_dir(department) / "clips"
+
+    def get(self, department: str) -> ResultStore:
+        return self._stores[require_department(department)]
+
+
+class DepartmentAccumulator:
+    """单事业部历史和当日统计的线程安全累计器。"""
+
+    def __init__(
+        self,
+        department: str,
+        store: ResultStore,
+        *,
+        max_history: int,
+    ):
+        self.department = require_department(department)
+        self.store = store
+        self.max_history = max(1, int(max_history))
+        self._lock = threading.RLock()
+        existing_state = self.store.read("vlm_state", {}) or {}
+        existing_history = existing_state.get("history")
+        if not isinstance(existing_history, list):
+            existing_history = (
+                self.store.read("vlm_history", {}) or {}
+            ).get("items", [])
+        self.history = deque(
+            [
+                item
+                for item in existing_history
+                if isinstance(item, dict)
+                and item.get("department", self.department) == self.department
+            ],
+            maxlen=self.max_history,
+        )
+        today = datetime.now().strftime("%Y-%m-%d")
+        existing_stats = self.store.read("vlm_latest_stats", {}) or {}
+        state_counts = existing_state.get("counts")
+        restored = state_counts if isinstance(state_counts, dict) else existing_stats
+        restored_date = str(
+            existing_state.get("date", existing_stats.get("date", ""))
+        )
+        self.counts = {
+            "compliant": int(restored.get("compliant", 0))
+            if restored_date == today
+            else 0,
+            "non_compliant": int(restored.get("non_compliant", 0))
+            if restored_date == today
+            else 0,
+            "error": int(restored.get("error", 0))
+            if restored_date == today
+            else 0,
+        }
+        self.date = today
+
+    def _roll_date(self) -> str:
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today != self.date:
+            self.counts = {
+                "compliant": 0,
+                "non_compliant": 0,
+                "error": 0,
+            }
+            self.date = today
+        return today
+
+    def record(
+        self,
+        record: dict,
+        *,
+        queue_size: int = 0,
+    ) -> bool:
+        if record.get("department") != self.department:
+            raise ValueError("结果事业部与累计器不一致")
+        camera_id = validate_camera_id(record.get("camera_id"))
+        session_id = _safe_pending_identifier(
+            record.get("session_id"),
+            "session_id",
+        )
+        result = record.get("result") or {}
+        with self._lock:
+            self._roll_date()
+            duplicate = any(
+                item.get("camera_id") == camera_id
+                and item.get("session_id") == session_id
+                for item in self.history
+            )
+            if not duplicate:
+                status = (
+                    "error"
+                    if "error" in result
+                    else (
+                        "compliant"
+                        if result.get("compliant")
+                        else "non_compliant"
+                    )
+                )
+                self.counts[status] += 1
+                self.history.appendleft({
+                    "time": record.get("time", ""),
+                    "session_id": session_id,
+                    "department": self.department,
+                    "camera_id": camera_id,
+                    "camera_name": record.get("camera_name", camera_id),
+                    "roi_name": record.get("roi_name", ""),
+                    "duration_sec": record.get("duration_sec", 0),
+                    "status": status,
+                    "upper_checked": result.get("upper_checked"),
+                    "middle_checked": result.get("middle_checked"),
+                    "lower_checked": result.get("lower_checked"),
+                    "arms_open": result.get("arms_open"),
+                    "reason": result.get("reason", ""),
+                    "error": result.get("error"),
+                })
+            self.write(queue_size=queue_size)
+            return not duplicate
+
+    def write(self, *, queue_size: int = 0) -> None:
+        with self._lock:
+            current_date = self._roll_date()
+            history = list(self.history)
+            total = self.counts["compliant"] + self.counts["non_compliant"]
+            stats = {
+                "department": self.department,
+                "date": current_date,
+                "ts": time.time(),
+                "total": total,
+                "calls": sum(self.counts.values()),
+                **self.counts,
+                "rate": (
+                    round(self.counts["compliant"] / total * 100.0, 2)
+                    if total
+                    else 0.0
+                ),
+                "queue": max(0, int(queue_size)),
+            }
+            self.store.write("vlm_state", {
+                "department": self.department,
+                "date": current_date,
+                "counts": dict(self.counts),
+                "history": history,
+            })
+            self.store.write("vlm_history", {"items": history})
+            self.store.write("vlm_latest_stats", stats)
+
+
+class DepartmentAccumulators:
+    """为四个事业部持有独立累计器。"""
+
+    def __init__(
+        self,
+        stores: DepartmentResultStores,
+        *,
+        max_history: int,
+    ):
+        self._items = {
+            department: DepartmentAccumulator(
+                department,
+                stores.get(department),
+                max_history=max_history,
+            )
+            for department in SECURITY_DEPARTMENTS
+        }
+
+    def get(self, department: str) -> DepartmentAccumulator:
+        return self._items[require_department(department)]
+
+    def write_all(self, queue_sizes: dict[str, int] | None = None) -> None:
+        sizes = queue_sizes or {}
+        for department, accumulator in self._items.items():
+            accumulator.write(queue_size=sizes.get(department, 0))
+
+
+class _TaskLockEntry:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.users = 0
+
+
+class PendingTaskProcessor:
+    """一个可测试的认领任务处理单元，负责校验、判定、持久化和清理。"""
+
+    def __init__(
+        self,
+        *,
+        stores: DepartmentResultStores,
+        accumulators: DepartmentAccumulators,
+        judge,
+        queue_timeout: float,
+        save_clip_only_non_compliant: bool = True,
+    ):
+        self.stores = stores
+        self.accumulators = accumulators
+        self.judge = judge
+        self.queue_timeout = float(queue_timeout)
+        self.save_clip_only_non_compliant = bool(
+            save_clip_only_non_compliant
+        )
+        self._locks_guard = threading.Lock()
+        self._task_locks: dict[
+            tuple[str, str, str],
+            _TaskLockEntry,
+        ] = {}
+
+    @contextmanager
+    def _hold_task_lock(self, task_key: tuple[str, str, str]):
+        with self._locks_guard:
+            entry = self._task_locks.get(task_key)
+            if entry is None:
+                entry = _TaskLockEntry()
+                self._task_locks[task_key] = entry
+            entry.users += 1
+        try:
+            entry.lock.acquire()
+            try:
+                yield
+            finally:
+                entry.lock.release()
+        finally:
+            with self._locks_guard:
+                entry.users -= 1
+                if (
+                    entry.users == 0
+                    and self._task_locks.get(task_key) is entry
+                ):
+                    del self._task_locks[task_key]
+
+    @staticmethod
+    def _cleanup(task: PendingTask) -> None:
+        for target in (
+            task.path,
+            task.path.with_suffix(f"{task.path.suffix}.started"),
+            task.path.with_suffix(f"{task.path.suffix}.recovered"),
+        ):
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc:
+                print(
+                    f"[vlm] 清理完成任务失败 {target}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    @staticmethod
+    def _completion_matches(record: dict, payload: dict) -> bool:
+        return all(
+            record.get(field) == payload[field]
+            for field in ("department", "camera_id", "session_id")
+        )
+
+    def process(
+        self,
+        task: PendingTask,
+        *,
+        now_ts: float | None = None,
+    ) -> bool:
+        payload = load_validated_pending_task(task)
+        if payload is None:
+            return False
+        task_key = (
+            payload["department"],
+            payload["camera_id"],
+            payload["session_id"],
+        )
+        with self._hold_task_lock(task_key):
+            return self._process_locked(
+                task,
+                payload,
+                time.time() if now_ts is None else float(now_ts),
+            )
+
+    def _process_locked(
+        self,
+        task: PendingTask,
+        payload: dict,
+        now_ts: float,
+    ) -> bool:
+        department = payload["department"]
+        camera_id = payload["camera_id"]
+        session_id = payload["session_id"]
+        result_path = (
+            self.stores.results_dir(department)
+            / camera_id
+            / f"{session_id}.json"
+        )
+        started_marker = task.path.with_suffix(
+            f"{task.path.suffix}.started"
+        )
+        recovered_marker = task.path.with_suffix(
+            f"{task.path.suffix}.recovered"
+        )
+        record = None
+        if result_path.exists():
+            try:
+                record = json.loads(result_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, TypeError) as exc:
+                discard_invalid_pending_task(task, exc)
+                return False
+            if not self._completion_matches(record, payload):
+                discard_invalid_pending_task(
+                    task,
+                    ValueError("completion record 复合身份不匹配"),
+                )
+                return False
+
+        waited = now_ts - payload["enqueue_ts"]
+        if (
+            record is None
+            and waited > self.queue_timeout
+            and not started_marker.exists()
+            and not recovered_marker.exists()
+        ):
+            self._cleanup(task)
+            return False
+
+        if record is None:
+            if started_marker.exists():
+                result = {
+                    "error": (
+                        "VLM 进程在判定期间异常中断；"
+                        "为避免重复调用和重复计费，本任务未自动重试"
+                    )
+                }
+            else:
+                started_marker.parent.mkdir(parents=True, exist_ok=True)
+                started_marker.touch(exist_ok=True)
+                result = self.judge.judge(
+                    session_id,
+                    payload["roi_name"],
+                    payload["roi_box"],
+                    payload["keyframes"],
+                    department=department,
+                )
+            duration = payload["end_ts"] - payload["start_ts"]
+            record = {
+                "session_id": session_id,
+                "department": department,
+                "camera_id": camera_id,
+                "camera_name": payload["camera_name"],
+                "roi_name": payload["roi_name"],
+                "start_ts": payload["start_ts"],
+                "end_ts": payload["end_ts"],
+                "duration_sec": round(duration, 2),
+                "n_keyframes": len(payload["keyframes"]),
+                "result": result,
+                "judged_ts": now_ts,
+                "time": datetime.fromtimestamp(
+                    payload["end_ts"]
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            atomic_write_json(result_path, record)
+        else:
+            result = record.get("result") or {}
+
+        if (
+            "error" not in result
+            and (
+                not self.save_clip_only_non_compliant
+                or not result.get("compliant")
+            )
+        ):
+            save_clip(
+                payload["keyframes"],
+                result,
+                session_id,
+                self.stores.clips_dir(department) / camera_id,
+            )
+        self.accumulators.get(department).record(record)
+        self._cleanup(task)
+        return True
+
+
 # ---------------------------------------------------------------------------
 # 启动时清理过期 / 残留任务
 # ---------------------------------------------------------------------------
@@ -921,6 +1705,12 @@ def mark_recovered_processing(processing_dir: Path) -> int:
         if not started.exists() and not marker.exists():
             marker.touch()
             marked += 1
+    for task_path in Path(processing_dir).glob("*/*.pkl"):
+        started = task_path.with_suffix(f"{task_path.suffix}.started")
+        marker = task_path.with_suffix(f"{task_path.suffix}.recovered")
+        if not started.exists() and not marker.exists():
+            marker.touch()
+            marked += 1
     return marked
 
 
@@ -928,12 +1718,21 @@ def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
     """处理一个已入队任务,隔离异常并确保队列完成计数正确。"""
     queued_item = task_q.get() if item is None else item
     try:
-        process_one(Path(queued_item))
+        process_one(queued_item)
     except Exception:
         print(f"[vlm] worker 任务异常: {queued_item}", file=sys.stderr, flush=True)
         traceback.print_exc()
     finally:
         task_q.task_done()
+
+
+def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
+    counts = {department: 0 for department in SECURITY_DEPARTMENTS}
+    with task_q.mutex:
+        for item in task_q.queue:
+            if isinstance(item, PendingTask):
+                counts[item.department] += 1
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -946,7 +1745,12 @@ def main():
     parser.add_argument(
         "--camera-root",
         type=str,
-        help="多摄像头运行目录；设置后扫描 <camera_id>/pending",
+        help="旧版摄像头根目录；兼容扫描 <camera_id>/pending",
+    )
+    parser.add_argument(
+        "--departments-root",
+        type=str,
+        help="精确的事业部运行根目录",
     )
     args = parser.parse_args()
 
@@ -954,75 +1758,71 @@ def main():
     config_path = resolve_path(args.config, project_root)
     cfg = load_yaml(config_path)
 
-    runtime_dir = Path(cfg["runtime"]["dir"]).resolve()
-    store = ResultStore(runtime_dir)
+    paths = VLMWorkerPaths.from_config(
+        cfg,
+        project_root,
+        departments_root=args.departments_root,
+        legacy_camera_root=args.camera_root,
+    )
+    runtime_dir = paths.runtime_dir
+    stores = DepartmentResultStores(paths.data_root)
+    # 旧固定 API 在 Task5 前只读取 GE 分区；该别名不参与其他事业部写入。
+    store = stores.get(SECURITY_DEPARTMENTS[0])
 
     vlm_cfg = cfg["vlm"]
     out_cfg = cfg["output"]
     status_key      = str(vlm_cfg.get("status_key", "vlm_status"))
     queue_timeout   = float(vlm_cfg.get("queue_timeout_sec", 60))
     max_concurrent  = int(vlm_cfg.get("max_concurrent", 3))
+    scheduling = str(
+        vlm_cfg.get("scheduling", "department_round_robin")
+    )
+    if scheduling != "department_round_robin":
+        raise ValueError(
+            "vlm.scheduling 仅支持 department_round_robin"
+        )
 
-    results_dir = resolve_path(out_cfg["results_dir"], project_root)
-    clips_dir   = resolve_path(out_cfg["clips_dir"], project_root)
     save_only_non = bool(out_cfg.get("save_clip_only_non_compliant", True))
     max_history   = int(out_cfg.get("max_history_items", 300))
-    results_dir.mkdir(parents=True, exist_ok=True)
-    clips_dir.mkdir(parents=True, exist_ok=True)
 
-    camera_root = (
-        Path(args.camera_root).resolve()
-        if args.camera_root
-        else None
+    camera_root = paths.legacy_camera_root
+    processing_dir = camera_root.parent / "global" / "processing"
+    pending_dir = resolve_path(
+        str(
+            cfg["session"].get(
+                "pending_queue_dir",
+                runtime_dir / "session_pending",
+            )
+        ),
+        project_root,
     )
-    processing_dir = (
-        (
-            camera_root.parent
-            if camera_root is not None and camera_root.name == "cameras"
-            else camera_root
-        )
-        / "global"
-        / "processing"
-        if camera_root is not None
-        else None
-    )
-    pending_dir = Path(cfg["session"].get(
-        "pending_queue_dir", str(runtime_dir / "session_pending"))).resolve()
-    if camera_root is None:
-        pending_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        camera_root.mkdir(parents=True, exist_ok=True)
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    camera_root.mkdir(parents=True, exist_ok=True)
+    paths.departments_root.mkdir(parents=True, exist_ok=True)
     tmp_dir = runtime_dir / "vlm_tmp"
     task_q: queue.Queue = queue.Queue()
-    scanner = (
-        MultiCameraPendingScanner(
-            camera_root,
-            task_q,
-            poll_sec=0.5,
-            processing_dir=processing_dir,
-        )
-        if camera_root is not None
-        else PendingScanner(pending_dir, task_q, poll_sec=0.5)
+    scanner = DepartmentPendingScanner(
+        paths.departments_root,
+        task_q,
+        poll_sec=0.5,
+        legacy_camera_root=camera_root,
     )
 
     # 仅清理真正超时的任务，重启前未完成且仍有效的任务继续处理。
     startup_ts = time.time()
-    if camera_root is not None:
-        migrate_legacy_pending(pending_dir, processing_dir)
-        for discovered_processing_dir in scanner.processing_dirs():
-            mark_recovered_processing(discovered_processing_dir)
-    cleanup_dirs = (
-        scanner.pending_dirs()
-        if camera_root is not None
-        else [pending_dir]
-    )
+    migrate_legacy_pending(pending_dir, processing_dir)
+    for discovered_processing_dir in scanner.processing_dirs():
+        mark_recovered_processing(discovered_processing_dir)
+    cleanup_dirs = scanner.pending_dirs()
     for cleanup_dir in cleanup_dirs:
         cleanup_stale_pending(cleanup_dir, startup_ts, queue_timeout)
 
     existing_state = store.read("vlm_state", {}) or {}
     existing_stats = store.read("vlm_latest_stats", {}) or {}
     budget_state = (
-        store.read("vlm_budget", {})
+        stores.budget_store.read("vlm_budget", {})
+        # Task1 曾把旧全局预算迁入 GE；这里只做一次兼容恢复来源。
+        or store.read("vlm_budget", {})
         or existing_state.get("budget", {})
         or existing_stats.get("budget", {})
     )
@@ -1030,9 +1830,25 @@ def main():
         daily_limit=float(cfg["budget"]["daily_limit_yuan"]),
         est_cost_per_call=float(cfg["budget"]["estimated_cost_per_call"]),
         initial_state=budget_state,
-        on_change=lambda snapshot: store.write("vlm_budget", snapshot),
+        on_change=lambda snapshot: stores.budget_store.write(
+            "vlm_budget",
+            snapshot,
+        ),
     )
+    # 将 Task1 迁入 GE 的旧预算状态一次性固化为明确的全局共享状态。
+    stores.budget_store.write("vlm_budget", budget.snapshot())
     judge = VLMJudge(cfg, budget, tmp_dir)
+    accumulators = DepartmentAccumulators(
+        stores,
+        max_history=max_history,
+    )
+    processor = PendingTaskProcessor(
+        stores=stores,
+        accumulators=accumulators,
+        judge=judge,
+        queue_timeout=queue_timeout,
+        save_clip_only_non_compliant=save_only_non,
+    )
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -1040,232 +1856,14 @@ def main():
     # 任务队列 + 扫描线程
     scanner.start()
 
-    # 历史持久保留；当日统计在 VLM 重启后从状态文件恢复。
-    existing_history = existing_state.get("history")
-    if not isinstance(existing_history, list):
-        existing_history = (
-            store.read("vlm_history", {}) or {}
-        ).get("items", [])
-    history: deque = deque(existing_history, maxlen=max_history)
-    today = datetime.now().strftime("%Y-%m-%d")
-    restored_counts = existing_state.get("counts", {})
-    if not isinstance(restored_counts, dict):
-        restored_counts = existing_stats
-    restore_counts = (
-        str(existing_state.get(
-            "date",
-            existing_stats.get("date", budget_state.get("date", "")),
-        )) == today
-    )
-    counts = {
-        "compliant": int(restored_counts.get("compliant", 0)) if restore_counts else 0,
-        "non_compliant": (
-            int(restored_counts.get("non_compliant", 0)) if restore_counts else 0
-        ),
-        "error": int(restored_counts.get("error", 0)) if restore_counts else 0,
-    }
-    counts_date = [today]
-    state_lock = threading.RLock()
+    def write_stats_and_history() -> None:
+        """持久化四个事业部各自的统计和历史。"""
+        accumulators.write_all(queued_department_counts(task_q))
 
-    def write_stats_and_history():
-        """把累计统计 + 历史写到磁盘, 供 web 读取"""
-        with state_lock:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            if counts_date[0] != current_date:
-                counts.update({
-                    "compliant": 0,
-                    "non_compliant": 0,
-                    "error": 0,
-                })
-                counts_date[0] = current_date
-            total = counts["compliant"] + counts["non_compliant"]
-            rate = (
-                round((counts["compliant"] / total) * 100.0, 2)
-                if total > 0 else 0.0
-            )
-            budget_snapshot = budget.snapshot()
-            history_snapshot = list(history)
-            stats_snapshot = {
-                "date": current_date,
-                "ts": time.time(),
-                "total": total,
-                "compliant": counts["compliant"],
-                "non_compliant": counts["non_compliant"],
-                "error": counts["error"],
-                "rate": rate,
-                "queue": task_q.qsize(),
-                "budget": budget_snapshot,
-            }
-            # canonical 状态先原子落盘；派生文件即使中途失败也可在重启后重建。
-            store.write("vlm_state", {
-                "date": current_date,
-                "counts": dict(counts),
-                "history": history_snapshot,
-                "budget": budget_snapshot,
-            })
-            store.write("vlm_history", {"items": history_snapshot})
-            store.write("vlm_latest_stats", stats_snapshot)
-
-    # ---- 单个任务的处理流程 ----
-    def process_one(pkl_path: Path):
-        # 1) 读取并完成全部字段校验；坏任务已清理，禁止进入 judge/结果逻辑。
-        payload = load_validated_pending_task(pkl_path)
-        if payload is None:
-            return
-
-        department = payload["department"]
-        session_id = payload["session_id"]
-        camera_id = payload["camera_id"]
-        camera_name = payload["camera_name"]
-        roi_name = payload["roi_name"]
-        roi_box = payload["roi_box"]
-        enq_ts = payload["enqueue_ts"]
-        keyframes = payload["keyframes"]
-        camera_results_dir = results_dir / camera_id
-        result_path = camera_results_dir / f"{session_id}.json"
-        started_marker = pkl_path.with_suffix(f"{pkl_path.suffix}.started")
-        recovered_marker = pkl_path.with_suffix(f"{pkl_path.suffix}.recovered")
-
-        # 稳定结果文件是 completion marker。崩溃恢复时先复用结果，禁止重复调 VLM。
-        record = None
-        if result_path.exists():
-            try:
-                record = json.loads(result_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                print(
-                    f"[vlm] 完成标记损坏，保留任务等待人工处理 {result_path}: {exc}",
-                    flush=True,
-                )
-                return
-
-        # 2) 排队过久直接丢
-        waited = time.time() - enq_ts
-        if (
-            record is None
-            and waited > queue_timeout
-            and not started_marker.exists()
-            and not recovered_marker.exists()
-        ):
-            print(f"[vlm] 丢弃过期任务 {session_id} waited={waited:.1f}s", flush=True)
-            try:
-                pkl_path.unlink()
-            except Exception:
-                pass
-            return
-
-        if record is None and started_marker.exists():
-            # SIGKILL 窗口无法确认上游是否已完成。保守地不自动重调，避免重复计费。
-            result = {
-                "error": (
-                    "VLM 进程在判定期间异常中断；为避免重复调用和重复计费，"
-                    "本任务未自动重试"
-                ),
-            }
-            print(f"[vlm] {session_id} 为未确认的中断任务，不重复调用", flush=True)
-        elif record is None:
-            # 在外部调用前写 started marker；进程异常退出后任务可跨 TTL 恢复。
-            started_marker.touch(exist_ok=True)
-            print(f"[vlm] 开始判定 {session_id} (等待 {waited:.1f}s, "
-                  f"{len(keyframes)} 帧)", flush=True)
-            result = judge.judge(
-                session_id,
-                roi_name,
-                roi_box,
-                keyframes,
-                department=department,
-            )
-        else:
-            result = record.get("result") or {}
-            print(f"[vlm] 恢复已完成任务 {session_id}，跳过重复 VLM 调用", flush=True)
-
-        # 5) 控制台日志
-        if "error" in result:
-            print(f"[vlm] ❌ {session_id} ERROR: {result['error']}", flush=True)
-        else:
-            tag = "✅合规" if result.get("compliant") else "❌不合规"
-            print(f"[vlm] {tag} {session_id}  "
-                  f"U={result.get('upper_checked')} M={result.get('middle_checked')} "
-                  f"L={result.get('lower_checked')} A={result.get('arms_open')} "
-                  f"conf={result.get('confidence')} lat={result.get('_latency_sec')}s",
-                  flush=True)
-
-        # 6) 写 results/<session_id>.json
-        if record is None:
-            duration = payload["end_ts"] - payload["start_ts"]
-            record = {
-                "session_id": session_id,
-                "department": department,
-                "camera_id": camera_id,
-                "camera_name": camera_name,
-                "roi_name": roi_name,
-                "start_ts": payload.get("start_ts"),
-                "end_ts": payload.get("end_ts"),
-                "duration_sec": round(duration, 2),
-                "n_keyframes": len(keyframes),
-                "result": result,
-                "judged_ts": time.time(),
-                "time": datetime.fromtimestamp(
-                    payload["end_ts"]
-                ).strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            atomic_write_json(result_path, record)
-
-        # 7) 不合规保存关键帧拼图
-        if "error" not in result:
-            if not result.get("compliant") and save_only_non:
-                save_clip(keyframes, result, session_id, clips_dir / camera_id)
-            elif not save_only_non:
-                save_clip(keyframes, result, session_id, clips_dir / camera_id)
-
-        # 8) 写历史 (deque, 头插, 最新在前)
-        with state_lock:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            if counts_date[0] != current_date:
-                counts.update({
-                    "compliant": 0,
-                    "non_compliant": 0,
-                    "error": 0,
-                })
-                counts_date[0] = current_date
-            already_recorded = any(
-                item.get("department", SECURITY_DEPARTMENTS[0]) == department
-                and item.get("camera_id") == camera_id
-                and item.get("session_id") == session_id
-                for item in history
-            )
-            if not already_recorded:
-                if "error" in result:
-                    counts["error"] += 1
-                elif result.get("compliant"):
-                    counts["compliant"] += 1
-                else:
-                    counts["non_compliant"] += 1
-                history.appendleft({
-                    "time": record["time"],
-                    "session_id": session_id,
-                    "department": department,
-                    "camera_id": camera_id,
-                    "camera_name": camera_name,
-                    "roi_name": roi_name,
-                    "duration_sec": record["duration_sec"],
-                    "status": ("compliant" if result.get("compliant")
-                               else ("error" if "error" in result else "non_compliant")),
-                    "upper_checked": result.get("upper_checked"),
-                    "middle_checked": result.get("middle_checked"),
-                    "lower_checked": result.get("lower_checked"),
-                    "arms_open": result.get("arms_open"),
-                    "reason": result.get("reason", ""),
-                    "error": result.get("error"),
-                })
-        write_stats_and_history()
-
-        # 9) 删除 pickle
-        try:
-            pkl_path.unlink()
-            started_marker.unlink(missing_ok=True)
-            recovered_marker.unlink(missing_ok=True)
-        except OSError as exc:
-            print(f"[vlm] 清理完成任务失败 {pkl_path}: {exc}", flush=True)
+    def process_one(task: PendingTask) -> None:
+        if not isinstance(task, PendingTask):
+            raise TypeError("VLM 任务队列只接受 PendingTask")
+        processor.process(task)
 
     # ---- worker 池 ----
     def worker_loop():
@@ -1276,15 +1874,26 @@ def main():
                 continue
             process_queued_item(task_q, process_one, p)
 
+    def write_statuses(ok: bool, message: str) -> None:
+        queue_sizes = queued_department_counts(task_q)
+        for department in SECURITY_DEPARTMENTS:
+            stores.get(department).write(status_key, {
+                "ok": ok,
+                "department": department,
+                "message": message,
+                "ts": time.time(),
+                "queue": queue_sizes[department],
+            })
+
     threads = []
     for _ in range(max_concurrent):
         t = threading.Thread(target=worker_loop, daemon=True)
         t.start()
         threads.append(t)
 
-    store.write(status_key, {"ok": True, "message": "running", "ts": time.time()})
+    write_statuses(True, "running")
     write_stats_and_history()
-    watched_path = camera_root if camera_root is not None else pending_dir
+    watched_path = paths.departments_root
     print(
         f"[vlm] 就绪, 并发 {max_concurrent}, 开始监听 {watched_path}",
         flush=True,
@@ -1294,15 +1903,11 @@ def main():
     try:
         while not _STOP.is_set():
             write_stats_and_history()
-            store.write(status_key, {
-                "ok": True, "ts": time.time(),
-                "queue":  task_q.qsize(),
-                "budget": budget.snapshot(),
-            })
+            write_statuses(True, "running")
             time.sleep(2.0)
     except Exception as e:
         print(f"[vlm] 主循环异常: {e}", flush=True)
-        store.write(status_key, {"ok": False, "message": str(e), "ts": time.time()})
+        write_statuses(False, str(e))
     finally:
         # 停止扫描后让 worker 继续取队列，并等待排队及执行中的任务完成。
         print("[vlm] 退出中, 等待队列清空...", flush=True)
@@ -1319,7 +1924,7 @@ def main():
                 flush=True,
             )
         write_stats_and_history()
-        store.write(status_key, {"ok": False, "message": "stopped", "ts": time.time()})
+        write_statuses(False, "stopped")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import stat
+import threading
 from pathlib import Path
 
 import pytest
@@ -20,32 +21,34 @@ def test_camera_runtime_module_exists():
 
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_camera_runtime_paths_are_scoped_by_camera(tmp_path):
+    departments_root = tmp_path / "runtime" / "custom" / "departments"
     paths = camera_runtime.CameraRuntimePaths(
-        tmp_path / "runtime",
+        departments_root,
         GENERAL,
         "camera-a",
     )
 
     assert paths.runtime_dir == (
-        tmp_path
-        / "runtime"
-        / "departments"
+        departments_root
         / GENERAL
         / "cameras"
         / "camera-a"
     )
     assert paths.department_runtime_dir == (
-        tmp_path / "runtime" / "departments" / GENERAL
+        departments_root / GENERAL
     )
     assert paths.pending_dir == paths.runtime_dir / "pending"
     assert paths.config_path == paths.runtime_dir / "worker_config.yaml"
 
-    custom_paths = camera_runtime.CameraRuntimePaths(
-        tmp_path / "runtime" / "departments",
+    exact_root = tmp_path / "runtime" / "custom"
+    exact_paths = camera_runtime.CameraRuntimePaths(
+        exact_root,
         GENERAL,
         "camera-a",
     )
-    assert custom_paths.runtime_dir == paths.runtime_dir
+    assert exact_paths.runtime_dir == (
+        exact_root / GENERAL / "cameras" / "camera-a"
+    )
 
 
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
@@ -404,3 +407,135 @@ def test_manager_rejects_unknown_department_and_unsafe_camera_id(tmp_path):
     for camera_id in (".", "..", "../camera-a"):
         with pytest.raises(ValueError, match="camera_id"):
             manager.status(GENERAL, camera_id)
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
+    project_root = tmp_path / "security_vlm"
+    base_cfg = {
+        "envs": {"worker_python": "/env/bin/python"},
+        "runtime": {
+            "dir": "runtime",
+            "camera_root": "runtime/legacy-cameras",
+            "max_running_cameras": 16,
+        },
+        "departments": {"runtime_root": "runtime/custom/departments"},
+        "data": {},
+        "session": {},
+    }
+    manager = camera_runtime.CameraRuntimeManager(
+        base_cfg=base_cfg,
+        project_root=project_root,
+        base_config_path=project_root / "config.yaml",
+        camera_provider=lambda _department: [],
+        start_monitor=False,
+    )
+
+    assert manager.base_runtime_dir == (project_root / "runtime").resolve()
+    assert manager.legacy_camera_root == (
+        project_root / "runtime" / "legacy-cameras"
+    ).resolve()
+    assert manager.departments_root == (
+        project_root / "runtime" / "custom" / "departments"
+    ).resolve()
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_vlm_command_passes_exact_department_and_legacy_roots(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+    ]
+    manager, events, _clock = make_manager(tmp_path, cameras)
+
+    assert manager.start(GENERAL, "camera-a")["ok"] is True
+
+    vlm_command = next(
+        event[2]
+        for event in events
+        if event[0] == "start" and event[1] == "global:vlm_worker"
+    )
+    assert vlm_command[vlm_command.index("--departments-root") + 1] == str(
+        manager.departments_root
+    )
+    assert vlm_command[vlm_command.index("--camera-root") + 1] == str(
+        manager.legacy_camera_root
+    )
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_stop_all_linearizes_against_concurrent_start(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+        {"camera_id": "camera-b", "name": "B", "rtsp_url": "rtsp://b/stream"},
+    ]
+    manager, _events, _clock = make_manager(tmp_path, cameras)
+    manager.start(GENERAL, "camera-a")
+    original_stop = manager.stop
+    stop_entered = threading.Event()
+    allow_stop = threading.Event()
+
+    def blocked_stop(department, camera_id):
+        stop_entered.set()
+        assert allow_stop.wait(timeout=2)
+        return original_stop(department, camera_id)
+
+    manager.stop = blocked_stop
+    stop_thread = threading.Thread(target=manager.stop_all, args=(GENERAL,))
+    start_result = {}
+    start_thread = threading.Thread(
+        target=lambda: start_result.update(manager.start(GENERAL, "camera-b"))
+    )
+
+    stop_thread.start()
+    assert stop_entered.wait(timeout=2)
+    start_thread.start()
+    allow_stop.set()
+    stop_thread.join(timeout=2)
+    start_thread.join(timeout=2)
+
+    assert not stop_thread.is_alive()
+    assert not start_thread.is_alive()
+    assert manager.is_running(GENERAL, "camera-a") is False
+    # start 要么在线性化点前完成并被 stop_all 停止，要么在线性化点后成功。
+    if start_result["ok"]:
+        assert manager.is_running(GENERAL, "camera-b") is True
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+        {"camera_id": "camera-b", "name": "B", "rtsp_url": "rtsp://b/stream"},
+    ]
+    manager, _events, _clock = make_manager(tmp_path, cameras)
+    manager.start(GENERAL, "camera-a")
+    entered = threading.Event()
+    release = threading.Event()
+    original_terminate = manager._terminate_runtime_processes
+
+    def blocked_terminate(runtime):
+        entered.set()
+        assert release.wait(timeout=2)
+        original_terminate(runtime)
+
+    manager._terminate_runtime_processes = blocked_terminate
+    shutdown_thread = threading.Thread(target=manager.shutdown)
+    concurrent = {}
+    start_thread = threading.Thread(
+        target=lambda: concurrent.update(manager.start(GENERAL, "camera-b"))
+    )
+    shutdown_thread.start()
+    assert entered.wait(timeout=2)
+
+    start_thread.start()
+    release.set()
+    shutdown_thread.join(timeout=2)
+    start_thread.join(timeout=2)
+    future = manager.start(GENERAL, "camera-b")
+
+    assert not shutdown_thread.is_alive()
+    assert not start_thread.is_alive()
+    assert concurrent["ok"] is False
+    assert future["ok"] is False
+    assert "关闭" in concurrent["message"]
+    assert all(not runtime.desired_running for runtime in manager.runtimes.values())

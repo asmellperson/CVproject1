@@ -164,23 +164,41 @@ class AppService:
         self.config_path = Path(config_path)
         self.project_root = Path(__file__).resolve().parent.parent
         self.cfg = load_yaml(self.config_path)
-        self.runtime_dir = Path(self.cfg["runtime"]["dir"]).resolve()
-        self.camera_root = Path(
-            self.cfg["runtime"].get(
-                "camera_root",
-                self.runtime_dir / "cameras",
-            )
-        ).resolve()
+        self.runtime_dir = resolve_path(
+            str(self.cfg["runtime"]["dir"]),
+            self.project_root,
+        )
+        self.camera_root = resolve_path(
+            str(
+                self.cfg["runtime"].get(
+                    "camera_root",
+                    self.runtime_dir / "cameras",
+                )
+            ),
+            self.project_root,
+        )
+        departments_cfg = self.cfg.get("departments", {}) or {}
         departments_runtime_root = (
-            self.cfg.get("departments", {}) or {}
-        ).get("runtime_root")
+            departments_cfg.get("runtime_root")
+        )
         self.departments_runtime_root = (
-            Path(departments_runtime_root).resolve()
+            resolve_path(str(departments_runtime_root), self.project_root)
             if departments_runtime_root
             else self.runtime_dir / "departments"
         )
+        departments_data_root = departments_cfg.get(
+            "data_root",
+            "data/departments",
+        )
+        self.departments_data_root = resolve_path(
+            str(departments_data_root),
+            self.project_root,
+        )
+        self.general_results_dir = (
+            self.departments_data_root / GENERAL_ELECTRIC / "results"
+        )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.global_store = ResultStore(self.runtime_dir)
+        self.global_store = ResultStore(self.general_results_dir)
         self.store = self.global_store
 
         data_cfg = self.cfg.setdefault("data", {})
