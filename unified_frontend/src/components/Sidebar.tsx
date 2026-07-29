@@ -168,7 +168,7 @@ export function Sidebar({
                       className={cn(
                         'mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-lg font-black tracking-[0] transition',
                         childActive
-                          ? 'bg-blue-50/90 text-blue-700 shadow-[0_6px_16px_rgba(37,99,235,0.10)] ring-1 ring-inset ring-blue-200 dark:bg-blue-950/55 dark:text-blue-100 dark:ring-blue-800/80'
+                          ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_12px_26px_rgba(0,27,67,0.22)] dark:from-blue-600 dark:to-cyan-500 dark:shadow-blue-950/35'
                           : 'text-[#09265a] hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60',
                       )}
                       aria-expanded={expanded}
@@ -176,7 +176,7 @@ export function Sidebar({
                       <ChevronRight
                         className={cn(
                           'h-4 w-4 shrink-0 transition-transform',
-                          childActive ? 'text-blue-500 dark:text-blue-300' : 'text-slate-400',
+                          childActive ? 'text-blue-100 dark:text-white' : 'text-slate-400',
                           expanded && 'rotate-90',
                         )}
                       />
@@ -324,7 +324,7 @@ function SidebarNavButton({
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         compact && 'justify-center px-0',
         active
-          ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_12px_26px_rgba(0,27,67,0.22)] dark:from-blue-600 dark:to-cyan-500 dark:shadow-blue-950/35'
+          ? 'bg-blue-50/90 text-blue-700 shadow-[0_6px_16px_rgba(37,99,235,0.10)] ring-1 ring-inset ring-blue-200 dark:bg-blue-950/55 dark:text-blue-100 dark:ring-blue-800/80'
           : 'text-[#40557a] hover:bg-white hover:text-[#09265a] hover:shadow-[0_8px_20px_rgba(31,58,97,0.08)] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white',
       )}
     >
