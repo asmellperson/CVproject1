@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import subprocess
 import sys
 import time
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import cv2
+import numpy as np
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,7 +47,11 @@ from pydantic import BaseModel
 # 把 src/ 加入 import 路径, 让 frame_hub 能被找到
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore  # noqa: E402
-from roi_geometry import bbox_belongs_to_roi  # noqa: E402
+from roi_geometry import (  # noqa: E402
+    bbox_belongs_to_roi,
+    normalize_roi_points,
+    validate_rois,
+)
 from camera_registry import CameraRegistry  # noqa: E402
 from camera_runtime import CameraRuntimeManager, CameraRuntimePaths  # noqa: E402
 
@@ -70,8 +76,9 @@ def resolve_path(p: str, base: Path) -> Path:
 # Pydantic 模型定义
 # ---------------------------------------------------------------------------
 class ROIRequest(BaseModel):
-    """前端传来的 ROI 数据格式，一个字典，键为工位名，值为 [x1,y1,x2,y2] 坐标列表"""
-    staff_rois: Dict[str, List[float]]
+    """同时接收旧矩形和多边形 ROI，具体几何约束由服务端校验。"""
+
+    staff_rois: Dict[str, Any]
 
 
 class CameraCreateRequest(BaseModel):
@@ -86,6 +93,10 @@ class CameraUpdateRequest(BaseModel):
 
 class CameraTestRequest(BaseModel):
     rtsp_url: str
+
+
+class CaptureDimensionsUnavailable(RuntimeError):
+    """摄像头尚未产生可用于 ROI 校验的原始画面尺寸。"""
 
 
 def probe_camera(rtsp_url: str) -> Dict[str, Any]:
@@ -185,7 +196,10 @@ class AppService:
         self.probe_func = probe_func
         self.offload_sync = offload_sync
         self._frame_hubs: Dict[str, FrameHubReader] = {}
-        self._roi_caches: Dict[str, tuple[float, Dict[str, List[float]]]] = {}
+        self._roi_caches: Dict[
+            str,
+            tuple[float, Dict[str, List[List[float]]]],
+        ] = {}
 
     def mark_stopped(self):
         self.global_store.write(
@@ -224,34 +238,85 @@ class AppService:
     def roi_path(self, camera_id: str) -> Path:
         return self.staff_dir / f"{camera_id}_staff_rois.json"
 
-    def load_rois(self, camera_id: str) -> Dict[str, List[float]]:
+    def _normalize_rois_for_read(
+        self,
+        camera_id: str,
+        rois: Any,
+    ) -> Dict[str, List[List[float]]]:
+        if not isinstance(rois, dict):
+            LOGGER.warning("摄像头 %s 的 staff_rois 不是字典", camera_id)
+            return {}
+        normalized = {}
+        for name, values in rois.items():
+            roi_name = str(name)
+            try:
+                normalized[roi_name] = normalize_roi_points(values)
+            except ValueError as exc:
+                LOGGER.warning(
+                    "忽略摄像头 %s 的无效 ROI '%s': %s",
+                    camera_id,
+                    roi_name,
+                    exc,
+                )
+        return normalized
+
+    def load_rois(self, camera_id: str) -> Dict[str, List[List[float]]]:
         path = self.roi_path(camera_id)
         if path.exists():
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
-                rois = raw.get("staff_rois", {})
-                if isinstance(rois, dict):
-                    return {
-                        str(k): [float(v[0]), float(v[1]), float(v[2]), float(v[3])]
-                        for k, v in rois.items()
-                        if isinstance(v, list) and len(v) >= 4
-                    }
+                return self._normalize_rois_for_read(
+                    camera_id,
+                    raw.get("staff_rois", {}),
+                )
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 LOGGER.warning("读取摄像头 %s 的 ROI 失败: %s", camera_id, exc)
-        return dict(self.cfg.get("staff_rois", {}) or {})
+        return self._normalize_rois_for_read(
+            camera_id,
+            self.cfg.get("staff_rois", {}) or {},
+        )
+
+    def capture_dimensions(self, camera_id: str) -> tuple[float, float]:
+        status = self.camera_store(camera_id).read("capture_status", {}) or {}
+        try:
+            width = float(status.get("width", 0))
+            height = float(status.get("height", 0))
+        except (TypeError, ValueError) as exc:
+            raise CaptureDimensionsUnavailable(
+                "无法取得有效画面尺寸，请先连接并启动摄像头"
+            ) from exc
+        if (
+            not status.get("ok")
+            or not math.isfinite(width)
+            or not math.isfinite(height)
+            or width <= 0
+            or height <= 0
+        ):
+            raise CaptureDimensionsUnavailable(
+                "无法取得有效画面尺寸，请先连接并启动摄像头"
+            )
+        return width, height
 
     def save_rois(
         self,
         camera_id: str,
-        rois: Dict[str, List[float]],
-    ) -> Dict[str, List[float]]:
+        rois: Dict[str, Any],
+    ) -> Dict[str, List[List[float]]]:
         camera = self.registry.get(camera_id)
         if camera is None:
             raise KeyError(camera_id)
-        normalized = {}
-        for k, v in rois.items():
-            if isinstance(v, list) and len(v) >= 4:
-                normalized[str(k)] = [round(float(x), 2) for x in v[:4]]
+        width, height = self.capture_dimensions(camera_id)
+        min_area = float(
+            (self.cfg.get("roi", {}) or {}).get("min_area_px", 2500)
+        )
+        validated = validate_rois(rois, width, height, min_area)
+        normalized = {
+            name: [
+                [round(point[0], 2), round(point[1], 2)]
+                for point in points
+            ]
+            for name, points in validated.items()
+        }
         payload = {
             "camera_id": camera_id,
             "camera_name": camera["name"],
@@ -266,7 +331,10 @@ class AppService:
         self._roi_caches.pop(camera_id, None)
         return normalized
 
-    def get_rois_cached(self, camera_id: str) -> Dict[str, List[float]]:
+    def get_rois_cached(
+        self,
+        camera_id: str,
+    ) -> Dict[str, List[List[float]]]:
         path = self.roi_path(camera_id)
         try:
             mtime = path.stat().st_mtime if path.exists() else -1.0
@@ -393,11 +461,11 @@ class AppService:
             for camera in self.registry.list()
         )
 
-    def _roi_load(self) -> Dict[str, List[float]]:
+    def _roi_load(self) -> Dict[str, List[List[float]]]:
         camera_id = self.default_camera_id()
         return self.load_rois(camera_id) if camera_id is not None else {}
 
-    def _roi_save(self, rois: Dict[str, List[float]]):
+    def _roi_save(self, rois: Dict[str, Any]):
         camera_id = self.default_camera_id()
         if camera_id is None:
             raise KeyError("尚未添加摄像头")
@@ -466,14 +534,32 @@ def _overlay_on_frame(
         palette = [(59, 130, 246), (16, 185, 129), (245, 158, 11),
                    (236, 72, 153), (168, 85, 247)]
 
-        # 1) 画 ROI 框 + 工位名 + 是否处于 session 的 标识
+        # 1) 画 ROI 多边形 + 工位名 + 是否处于 session 的标识
         for idx, (name, roi) in enumerate(sorted(rois.items())):
-            if not roi or len(roi) < 4:
+            try:
+                points = normalize_roi_points(roi)
+            except ValueError as exc:
+                LOGGER.warning(
+                    "摄像头 %s 的 ROI '%s' 无法叠加: %s",
+                    camera_id,
+                    name,
+                    exc,
+                )
                 continue
-            x1 = int(roi[0] * sx); y1 = int(roi[1] * sy)
-            x2 = int(roi[2] * sx); y2 = int(roi[3] * sy)
+            scaled_points = np.asarray(
+                [
+                    [int(round(x * sx)), int(round(y * sy))]
+                    for x, y in points
+                ],
+                dtype=np.int32,
+            )
+            x1 = int(scaled_points[:, 0].min())
+            y1 = int(scaled_points[:, 1].min())
             color = palette[idx % len(palette)]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            overlay = frame.copy()
+            cv2.fillPoly(overlay, [scaled_points], color)
+            cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
+            cv2.polylines(frame, [scaled_points], True, color, 2)
 
             info = per_roi.get(name, {})
             active = info.get("active_session_id")
@@ -753,6 +839,8 @@ def create_app(
                 camera_id,
                 req.staff_rois,
             )
+        except CaptureDimensionsUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({
@@ -780,9 +868,12 @@ def create_app(
     @app.post("/api/rois")
     async def save_rois(req: ROIRequest):
         """前端绘制完 ROI 后调用此接口保存，session_worker 将自动热加载"""
-        if not isinstance(req.staff_rois, dict):
-            raise HTTPException(status_code=400, detail="staff_rois must be dict")
-        await run_blocking(service._roi_save, req.staff_rois)
+        try:
+            await run_blocking(service._roi_save, req.staff_rois)
+        except CaptureDimensionsUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         rois = await run_blocking(service._roi_load)
         camera_id = service.default_camera_id()
         return JSONResponse({

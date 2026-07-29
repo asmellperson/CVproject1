@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 
@@ -18,6 +19,77 @@ import main as security_main
 
 def test_roi_geometry_module_exists():
     assert roi_geometry is not None, "shared roi_geometry module is required"
+
+
+def test_legacy_rectangle_is_normalized_to_four_polygon_points():
+    assert roi_geometry.normalize_roi_points([100, 80, 20, 10]) == [
+        [20.0, 10.0],
+        [100.0, 10.0],
+        [100.0, 80.0],
+        [20.0, 80.0],
+    ]
+
+
+def test_polygon_normalization_area_and_bounds():
+    polygon = [[0, 0], [80, 0], [100, 30], [40, 90], [0, 50]]
+
+    normalized = roi_geometry.normalize_roi_points(polygon)
+
+    assert normalized == [
+        [0.0, 0.0],
+        [80.0, 0.0],
+        [100.0, 30.0],
+        [40.0, 90.0],
+        [0.0, 50.0],
+    ]
+    assert roi_geometry.polygon_area(normalized) == pytest.approx(6100.0)
+    assert roi_geometry.roi_bounds(normalized) == [0.0, 0.0, 100.0, 90.0]
+
+
+@pytest.mark.parametrize(
+    "values, error",
+    [
+        ([[0, 0], [10, 0]], "至少 3 个点"),
+        ([[0, 0], [10], [0, 10]], "坐标"),
+        ([[0, 0], [float("nan"), 0], [0, 10]], "有限"),
+        ([[0, 0], [float("inf"), 0], [0, 10]], "有限"),
+    ],
+)
+def test_normalize_roi_points_rejects_malformed_values(values, error):
+    with pytest.raises(ValueError, match=error):
+        roi_geometry.normalize_roi_points(values)
+
+
+def test_validate_rois_normalizes_and_rejects_invalid_geometry():
+    assert roi_geometry.validate_rois(
+        {"工位 A": [10, 20, 80, 70]},
+        width=100,
+        height=80,
+        min_area=100,
+    ) == {
+        "工位 A": [
+            [10.0, 20.0],
+            [80.0, 20.0],
+            [80.0, 70.0],
+            [10.0, 70.0],
+        ]
+    }
+
+    invalid_cases = [
+        ({"": [[0, 0], [20, 0], [0, 20]]}, "名称不能为空"),
+        ({"少点": [[0, 0], [20, 0]]}, "少点.*至少 3 个点"),
+        ({"非有限": [[0, 0], [float("nan"), 0], [0, 20]]}, "非有限.*有限"),
+        ({"越界": [[0, 0], [101, 0], [0, 20]]}, "越界.*画面范围"),
+        ({"太小": [[0, 0], [5, 0], [0, 5]]}, "太小.*面积"),
+    ]
+    for rois, message in invalid_cases:
+        with pytest.raises(ValueError, match=message):
+            roi_geometry.validate_rois(
+                rois,
+                width=100,
+                height=80,
+                min_area=100,
+            )
 
 
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
@@ -66,6 +138,43 @@ def test_reversed_coordinates_are_normalized():
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
 
 
+def test_convex_polygon_membership_does_not_use_its_bounding_rectangle():
+    triangle = [[0, 0], [100, 0], [0, 100]]
+
+    assert roi_geometry.point_in_polygon([50, 50], triangle)
+    assert roi_geometry.point_in_polygon([100, 0], triangle)
+    assert not roi_geometry.bbox_belongs_to_roi(
+        [70, 70, 90, 90],
+        triangle,
+        0.01,
+    )
+    assert roi_geometry.bbox_roi_overlap_ratio(
+        [80, 0, 120, 40],
+        triangle,
+    ) == pytest.approx(0.125)
+    assert roi_geometry.bbox_belongs_to_roi(
+        [80, 0, 120, 40],
+        triangle,
+        0.125,
+    )
+
+
+def test_concave_polygon_membership_and_overlap_are_exact():
+    concave = [[0, 0], [100, 0], [100, 40], [40, 40], [40, 100], [0, 100]]
+
+    assert roi_geometry.point_in_polygon([40, 70], concave)
+    assert not roi_geometry.point_in_polygon([70, 70], concave)
+    assert not roi_geometry.bbox_belongs_to_roi(
+        [50, 50, 90, 90],
+        concave,
+        0.01,
+    )
+    assert roi_geometry.bbox_roi_overlap_ratio(
+        [30, 50, 70, 90],
+        concave,
+    ) == pytest.approx(0.25)
+
+
 def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
     manager = session_worker.PairSessionManager(
         {
@@ -87,6 +196,50 @@ def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
 
     assert manager._tracks_for_roi([edge_track], roi, active=False) == []
     assert manager._tracks_for_roi([edge_track], roi, active=True) == [edge_track]
+
+
+def test_session_worker_reload_preserves_all_polygon_vertices(tmp_path):
+    path = tmp_path / "camera_staff_rois.json"
+    polygon = [[1, 2], [90, 3], [80, 70], [20, 90], [3, 50]]
+    path.write_text(
+        json.dumps({"staff_rois": {"多边形工位": polygon}}),
+        encoding="utf-8",
+    )
+
+    rois, mtime = session_worker.reload_rois(path, {}, 0.0)
+
+    assert rois == {
+        "多边形工位": [[float(x), float(y)] for x, y in polygon]
+    }
+    assert mtime == path.stat().st_mtime
+
+
+def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch):
+    manager = session_worker.PairSessionManager(
+        {
+            "session": {
+                "pair_start_hold_frames": 1,
+                "roi_enter_overlap_ratio": 0.30,
+                "roi_hold_overlap_ratio": 0.10,
+            },
+        },
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_find_interacting_pair",
+        lambda _state, _tracks: (1, 2),
+    )
+    polygon = [[5, 5], [90, 10], [75, 95], [10, 70]]
+    tracks = [
+        {"track_id": 1, "x1": 10, "y1": 10, "x2": 30, "y2": 50},
+        {"track_id": 2, "x1": 35, "y1": 10, "x2": 55, "y2": 50},
+    ]
+
+    manager.step(np.zeros((100, 100, 3), dtype=np.uint8), tracks, {"A": polygon})
+
+    assert manager.roi_states["A"].active is not None
+    assert manager.roi_states["A"].active.roi_box == [5.0, 5.0, 90.0, 95.0]
 
 
 def test_session_manager_rejects_hold_threshold_above_enter_threshold(tmp_path):
@@ -111,10 +264,10 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
                 "tracks": [
                     {
                         "track_id": 1,
-                        "x1": 70,
-                        "y1": 0,
-                        "x2": 170,
-                        "y2": 100,
+                        "x1": 20,
+                        "y1": 20,
+                        "x2": 80,
+                        "y2": 80,
                     },
                     {
                         "track_id": 2,
@@ -137,21 +290,47 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
 
         @staticmethod
         def get_rois_cached():
-            return {"security_staff_1": [0, 0, 100, 100]}
+            return {
+                "security_staff_1": [
+                    [0, 0],
+                    [100, 0],
+                    [0, 100],
+                ]
+            }
 
     rectangle_colors = []
+    filled_polygons = []
+    outlined_polygons = []
 
     def record_rectangle(image, point1, point2, color, thickness):
         del point1, point2, thickness
         rectangle_colors.append(color)
         return image
 
+    def record_fill_poly(image, polygons, color):
+        del color
+        filled_polygons.extend(polygon.copy() for polygon in polygons)
+        return image
+
+    def record_polylines(image, polygons, closed, color, thickness):
+        del closed, color, thickness
+        outlined_polygons.extend(polygon.copy() for polygon in polygons)
+        return image
+
     monkeypatch.setattr(security_main.cv2, "rectangle", record_rectangle)
+    monkeypatch.setattr(security_main.cv2, "fillPoly", record_fill_poly)
+    monkeypatch.setattr(security_main.cv2, "polylines", record_polylines)
 
     security_main._overlay_on_frame(
         np.zeros((100, 200, 3), dtype=np.uint8),
         FakeService(),
     )
 
+    assert [polygon.tolist() for polygon in filled_polygons] == [
+        [[0, 0], [100, 0], [0, 100]]
+    ]
+    assert [polygon.tolist() for polygon in outlined_polygons] == [
+        [[0, 0], [100, 0], [0, 100]]
+    ]
     assert rectangle_colors.count((0, 255, 0)) == 1
     assert rectangle_colors.count((128, 128, 128)) == 1

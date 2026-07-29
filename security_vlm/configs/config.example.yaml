@@ -54,6 +54,10 @@ staff_rois:
   security_staff_2: [690, 95, 985, 565]
   security_staff_3: [995, 95, 1215, 520]
 
+# ---- ROI 服务端校验 ----
+roi:
+  min_area_px: 2500
+
 # ---- YOLO 检测 + ByteTrack ----
 yolo:
   model: yolo11s.pt

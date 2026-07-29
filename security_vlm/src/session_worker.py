@@ -11,6 +11,7 @@ session_worker.py —— 指纹锁定 + 交互检测版
 ================================================================================
 """
 import argparse
+import json
 import pickle
 import signal
 import sys
@@ -27,7 +28,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
-from roi_geometry import bbox_belongs_to_roi
+from roi_geometry import bbox_belongs_to_roi, normalize_roi_points, roi_bounds
 
 
 _STOP = threading.Event()
@@ -35,6 +36,42 @@ _STOP = threading.Event()
 
 def _signal_handler(signum, frame):
     _STOP.set()
+
+
+def _normalize_roi_mapping(rois) -> Dict[str, List[List[float]]]:
+    """规范化 ROI 字典；无效项会带名称报错，避免静默截断顶点。"""
+    if not isinstance(rois, dict):
+        raise ValueError("staff_rois 必须是字典")
+    normalized = {}
+    for name, values in rois.items():
+        roi_name = str(name)
+        try:
+            normalized[roi_name] = normalize_roi_points(values)
+        except ValueError as exc:
+            raise ValueError(f"ROI '{roi_name}': {exc}") from exc
+    return normalized
+
+
+def reload_rois(
+    roi_path: Path,
+    roi_cache: Dict[str, List[List[float]]],
+    roi_mtime: float,
+) -> Tuple[Dict[str, List[List[float]]], float]:
+    """按 mtime 热加载 ROI，并保留多边形的全部顶点。"""
+    path = Path(roi_path)
+    if not path.exists():
+        return roi_cache, roi_mtime
+    try:
+        mtime = path.stat().st_mtime
+        if mtime == roi_mtime:
+            return roi_cache, roi_mtime
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        normalized = _normalize_roi_mapping(raw.get("staff_rois", {}))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"[session] 热加载失败: {exc}", flush=True)
+        return roi_cache, roi_mtime
+    print(f"[session] 热加载 ROI: {list(normalized.keys())}", flush=True)
+    return normalized, mtime
 
 
 # =====================================================================================
@@ -516,7 +553,7 @@ class PairSessionManager:
                             f"{self.camera_id}_{time.time_ns()}_{self.session_id}"
                         ),
                         roi_name=name,
-                        roi_box=list(roi),
+                        roi_box=roi_bounds(roi),
                         init_track_a=pair[0],
                         init_track_b=pair[1],
                         fp_a=fp_a,
@@ -594,29 +631,16 @@ def main():
     last_frame_id = -1
 
     # 热加载 ROI（mtime 检测）
-    from pathlib import Path as P
-    roi_path = P(cfg["data"]["staff_identity_dir"]) / f"{cfg['data']['video_id']}_staff_rois.json"
-    roi_cache = dict(cfg.get("staff_rois") or {})
+    roi_path = (
+        Path(cfg["data"]["staff_identity_dir"])
+        / f"{cfg['data']['video_id']}_staff_rois.json"
+    )
+    try:
+        roi_cache = _normalize_roi_mapping(cfg.get("staff_rois") or {})
+    except ValueError as exc:
+        print(f"[session] 默认 ROI 配置无效: {exc}", flush=True)
+        roi_cache = {}
     roi_mtime = 0.0
-
-    def reload_rois():
-        nonlocal roi_cache, roi_mtime
-        if not roi_path.exists():
-            return roi_cache
-        try:
-            mt = roi_path.stat().st_mtime
-            if mt != roi_mtime:
-                import json as _json
-                raw = _json.loads(roi_path.read_text(encoding="utf-8"))
-                rois = raw.get("staff_rois", {})
-                roi_cache = {k: [float(x) for x in v[:4]]
-                             for k, v in rois.items()
-                             if isinstance(v, list) and len(v) >= 4}
-                roi_mtime = mt
-                print(f"[session] 热加载 ROI: {list(roi_cache.keys())}", flush=True)
-        except Exception as e:
-            print(f"[session] 热加载失败: {e}", flush=True)
-        return roi_cache
 
     while not _STOP.is_set():
         try:
@@ -634,7 +658,12 @@ def main():
 
             frame = hub.read_frame(meta)
             tracks = tracker_data.get("tracks", []) or []
-            rois = reload_rois()
+            roi_cache, roi_mtime = reload_rois(
+                roi_path,
+                roi_cache,
+                roi_mtime,
+            )
+            rois = roi_cache
 
             manager.step(frame, tracks, rois)
             last_frame_id = frame_id
@@ -648,7 +677,7 @@ def main():
                         "active_session_id": st.active.session_id if st.active else None,
                         "persons_in_roi": len(manager._tracks_for_roi(
                             tracks,
-                            rois.get(name, [0, 0, 0, 0]),
+                            rois.get(name, []),
                             active=False,
                         )),
                     }

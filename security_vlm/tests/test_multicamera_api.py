@@ -80,6 +80,7 @@ def make_service(tmp_path, *, input_video=""):
             "staff_identity_dir": str(tmp_path / "staff_rois"),
         },
         "staff_rois": {"security_staff_1": [1, 2, 3, 4]},
+        "roi": {"min_area_px": 100},
         "session": {},
         "vlm": {},
         "output": {},
@@ -105,6 +106,13 @@ def make_service(tmp_path, *, input_video=""):
         offload_sync=False,
     )
     return service, runtime_manager
+
+
+def set_capture_dimensions(service, camera_id, width=200, height=100):
+    service.camera_store(camera_id).write(
+        "capture_status",
+        {"ok": True, "width": width, "height": height},
+    )
 
 
 @pytest.mark.asyncio
@@ -209,18 +217,52 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
             "/api/cameras",
             json={"name": "B", "rtsp_url": "rtsp://camera-b/stream"},
         )).json()["camera"]
+        set_capture_dimensions(service, camera_a["camera_id"])
 
         saved = await client.post(
             f"/api/cameras/{camera_a['camera_id']}/rois",
             json={"staff_rois": {"工位 1": [10, 20, 30, 40]}},
         )
         assert saved.status_code == 200
+        rectangle = [
+            [10.0, 20.0],
+            [30.0, 20.0],
+            [30.0, 40.0],
+            [10.0, 40.0],
+        ]
         assert (await client.get(
             f"/api/cameras/{camera_a['camera_id']}/rois"
-        )).json()["staff_rois"] == {"工位 1": [10.0, 20.0, 30.0, 40.0]}
+        )).json()["staff_rois"] == {"工位 1": rectangle}
         assert (await client.get(
             f"/api/cameras/{camera_b['camera_id']}/rois"
-        )).json()["staff_rois"] == {"security_staff_1": [1, 2, 3, 4]}
+        )).json()["staff_rois"] == {
+            "security_staff_1": [
+                [1.0, 2.0],
+                [3.0, 2.0],
+                [3.0, 4.0],
+                [1.0, 4.0],
+            ]
+        }
+
+        polygon = [[5, 5], [150, 5], [180, 50], [100, 90], [10, 80]]
+        polygon_saved = await client.post(
+            f"/api/cameras/{camera_a['camera_id']}/rois",
+            json={"staff_rois": {"多边形工位": polygon}},
+        )
+        assert polygon_saved.status_code == 200
+        assert polygon_saved.json()["staff_rois"] == {
+            "多边形工位": [[float(x), float(y)] for x, y in polygon]
+        }
+        assert (await client.get(
+            f"/api/cameras/{camera_b['camera_id']}/rois"
+        )).json()["staff_rois"] == {
+            "security_staff_1": [
+                [1.0, 2.0],
+                [3.0, 2.0],
+                [3.0, 4.0],
+                [1.0, 4.0],
+            ]
+        }
 
         service.global_store.write(
             "vlm_history",
@@ -235,6 +277,57 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
             f"/api/history?camera_id={camera_a['camera_id']}"
         )).json()["history"]
         assert [item["session_id"] for item in history] == ["a1"]
+
+
+@pytest.mark.asyncio
+async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_path):
+    service, _runtime_manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        camera_id = (await client.post(
+            "/api/cameras",
+            json={"name": "A", "rtsp_url": "rtsp://camera-a/stream"},
+        )).json()["camera"]["camera_id"]
+        endpoint = f"/api/cameras/{camera_id}/rois"
+
+        missing_dimensions = await client.post(
+            endpoint,
+            json={"staff_rois": {"工位": [10, 10, 50, 50]}},
+        )
+        assert missing_dimensions.status_code == 409
+        assert "启动摄像头" in missing_dimensions.json()["detail"]
+
+        set_capture_dimensions(service, camera_id, width=float("inf"))
+        invalid_dimensions = await client.post(
+            endpoint,
+            json={"staff_rois": {"工位": [10, 10, 50, 50]}},
+        )
+        assert invalid_dimensions.status_code == 409
+
+        set_capture_dimensions(service, camera_id)
+        out_of_bounds = await client.post(
+            endpoint,
+            json={"staff_rois": {"越界工位": [[0, 0], [201, 0], [0, 50]]}},
+        )
+        assert out_of_bounds.status_code == 400
+        assert "越界工位" in out_of_bounds.json()["detail"]
+        assert "画面范围" in out_of_bounds.json()["detail"]
+
+        too_small = await client.post(
+            endpoint,
+            json={"staff_rois": {"小工位": [[0, 0], [5, 0], [0, 5]]}},
+        )
+        assert too_small.status_code == 400
+        assert "小工位" in too_small.json()["detail"]
+        assert "面积" in too_small.json()["detail"]
+
+        too_few_points = await client.post(
+            endpoint,
+            json={"staff_rois": {"少点工位": [[0, 0], [20, 0]]}},
+        )
+        assert too_few_points.status_code == 400
+        assert "少点工位" in too_few_points.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -255,7 +348,12 @@ async def test_legacy_config_migrates_camera_and_roi_aliases(tmp_path):
         cameras = (await client.get("/api/cameras")).json()["cameras"]
         assert cameras[0]["camera_id"] == "legacy-default"
         assert (await client.get("/api/rois")).json()["staff_rois"] == {
-            "旧工位": [5.0, 6.0, 7.0, 8.0]
+            "旧工位": [
+                [5.0, 6.0],
+                [7.0, 6.0],
+                [7.0, 8.0],
+                [5.0, 8.0],
+            ]
         }
         paths = set(app.openapi()["paths"])
         assert "/video/{kind}" in paths
