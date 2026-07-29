@@ -237,7 +237,7 @@ def test_migration_validates_all_json_before_replacing_targets(tmp_path):
     "target_name",
     ["cameras.json", "vlm_history.json"],
 )
-def test_completed_marker_rejects_missing_or_changed_target(tmp_path, target_name):
+def test_completed_marker_rejects_missing_target(tmp_path, target_name):
     manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
     source = _migration_source(tmp_path)
     assert _migrate(manager, source) is True
@@ -248,14 +248,74 @@ def test_completed_marker_rejects_missing_or_changed_target(tmp_path, target_nam
     assert marker["state"] == "complete"
     assert marker["files"]
     assert all(item["sha256"] for item in marker["files"])
+    assert marker["migrated_camera_ids"] == ["legacy-camera"]
 
     if target_name == "cameras.json":
         general.registry.path.unlink()
     else:
-        _write_json(general.runtime_dir / target_name, {"tampered": True})
+        (general.runtime_dir / target_name).unlink()
 
     with pytest.raises(RuntimeError, match="完整性"):
         _migrate(manager, source)
+
+
+def test_completed_migration_allows_camera_create_and_update(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+
+    created = general.registry.create("新增摄像头", "rtsp://new-camera/stream")
+    general.registry.update(
+        "legacy-camera",
+        name="迁入摄像头已改名",
+        rtsp_url="rtsp://legacy-camera/new-stream",
+    )
+
+    assert _migrate(manager, source) is False
+    assert general.registry.get(created["camera_id"]) is not None
+    assert general.registry.get("legacy-camera")["name"] == "迁入摄像头已改名"
+
+
+def test_completed_migration_allows_worker_json_updates(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    _write_json(
+        general.runtime_dir / "vlm_history.json",
+        {"items": [{"camera_id": "legacy-camera", "result": "updated"}]},
+    )
+    _write_json(
+        general.runtime_dir / "vlm_latest_stats.json",
+        {"total": 42, "updated": True},
+    )
+
+    assert _migrate(manager, source) is False
+
+
+def test_completed_migration_rejects_empty_active_registry(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    general.registry.delete("legacy-camera")
+
+    with pytest.raises(RuntimeError, match="完整性"):
+        _migrate(manager, source)
+
+
+def test_completed_migration_allows_roi_removal_and_camera_archive(tmp_path):
+    manager = DepartmentWorkspaceManager(tmp_path / "data", tmp_path / "runtime")
+    source = _migration_source(tmp_path)
+    assert _migrate(manager, source) is True
+    general = manager.get("general_electric")
+    (general.roi_dir / "legacy-camera_staff_rois.json").unlink()
+    general.registry.delete("legacy-camera")
+    archived_camera = general.archive_dir / "legacy-camera"
+    _write_json(archived_camera / "camera.json", {"camera_id": "legacy-camera"})
+
+    assert _migrate(manager, source) is False
 
 
 @pytest.mark.parametrize("failure_index", range(6))
