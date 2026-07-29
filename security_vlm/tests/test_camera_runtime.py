@@ -615,3 +615,59 @@ def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
     stop_thread.join(timeout=2)
     probe_thread.join(timeout=2)
     assert not stop_thread.is_alive()
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_reconcile_waits_for_old_group_before_same_camera_restart(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+    ]
+    manager, events, _clock = make_manager(tmp_path, cameras)
+    wait_entered = threading.Event()
+    release_wait = threading.Event()
+
+    class SlowProcess(FakeProcess):
+        def terminate(self):
+            self.events.append(("terminate", self.name))
+
+        def wait(self, timeout=None):
+            wait_entered.set()
+            assert release_wait.wait(timeout=2)
+            self.returncode = 0
+            return self.returncode
+
+    failed_detector = FakeProcess("old:detector", events)
+    failed_detector.returncode = 1
+    runtime = camera_runtime.CameraRuntime(
+        GENERAL,
+        "camera-a",
+        tmp_path / "camera-a.yaml",
+        desired_running=True,
+        processes={
+            "capture": SlowProcess("old:capture", events),
+            "detector": failed_detector,
+            "session": FakeProcess("old:session", events),
+        },
+    )
+    manager.runtimes[(GENERAL, "camera-a")] = runtime
+    reconcile_thread = threading.Thread(target=manager.reconcile)
+    start_result = {}
+    start_thread = threading.Thread(
+        target=lambda: start_result.update(
+            manager.start(GENERAL, "camera-a")
+        )
+    )
+
+    reconcile_thread.start()
+    assert wait_entered.wait(timeout=2)
+    starts_before = len([event for event in events if event[0] == "start"])
+    start_thread.start()
+    assert start_thread.is_alive()
+    assert len([event for event in events if event[0] == "start"]) == starts_before
+
+    release_wait.set()
+    reconcile_thread.join(timeout=2)
+    start_thread.join(timeout=2)
+    assert not reconcile_thread.is_alive()
+    assert not start_thread.is_alive()
+    assert start_result["ok"] is True

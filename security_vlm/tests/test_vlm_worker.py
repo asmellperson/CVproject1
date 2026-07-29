@@ -278,6 +278,32 @@ def test_vlm_max_concurrent_must_be_positive(value):
         vlm_worker.vlm_max_concurrent({"max_concurrent": value})
 
 
+def test_strict_state_reader_rejects_non_object_without_overwriting(tmp_path):
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    store = stores.get("general_electric")
+    state_path = store._path("vlm_state")
+    state_path.write_text("[]", encoding="utf-8")
+
+    assert vlm_worker.read_strict_result_object(store, "vlm_state") == {}
+    assert state_path.read_text(encoding="utf-8") == "[]"
+
+
+def test_corrupt_shared_budget_is_quarantined_before_reinitialization(tmp_path):
+    stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
+    budget_path = stores.budget_store._path("vlm_budget")
+    budget_path.write_text("[]", encoding="utf-8")
+
+    assert vlm_worker.read_strict_result_object(
+        stores.budget_store,
+        "vlm_budget",
+        quarantine_corrupt=True,
+    ) == {}
+    assert not budget_path.exists()
+    backups = list(budget_path.parent.glob("vlm_budget.corrupt.*.json"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "[]"
+
+
 def test_draw_text_falls_back_when_configured_font_cannot_be_opened(monkeypatch):
     original_truetype = vlm_worker.ImageFont.truetype
 

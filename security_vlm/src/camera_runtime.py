@@ -442,67 +442,83 @@ class CameraRuntimeManager:
 
     def reconcile(self) -> None:
         """检测意外退出，并按有界退避重启完整摄像头进程组。"""
-        process_groups = []
+        now = self.clock()
+        for department in SECURITY_DEPARTMENTS:
+            process_groups = []
+            with self._department_gates[department]:
+                with self._lock:
+                    if self._shutting_down:
+                        return
+                    department_runtimes = [
+                        runtime
+                        for runtime in self.runtimes.values()
+                        if runtime.department == department
+                    ]
+                    for runtime in department_runtimes:
+                        if not runtime.desired_running:
+                            continue
+                        if runtime.restart_at is not None:
+                            if now < runtime.restart_at:
+                                continue
+                            camera = self._get_camera(
+                                runtime.department,
+                                runtime.camera_id,
+                            )
+                            if camera is None:
+                                runtime.desired_running = False
+                                runtime.last_error = "摄像头已删除"
+                                runtime.restart_at = None
+                                continue
+                            paths = self._paths(
+                                runtime.department,
+                                runtime.camera_id,
+                            )
+                            try:
+                                runtime.restart_at = None
+                                self._start_runtime(runtime, camera, paths)
+                                self._ensure_vlm()
+                            except Exception as exc:
+                                runtime.last_error = str(exc)
+                                process_groups.append(
+                                    self._detach_runtime_processes(runtime)
+                                )
+                                self._schedule_restart(runtime)
+                                LOGGER.exception(
+                                    "自动重启事业部 %s 摄像头 %s 的 worker 失败",
+                                    runtime.department,
+                                    runtime.camera_id,
+                                )
+                            continue
+
+                        if (
+                            runtime.processes
+                            and not self._runtime_is_running(runtime)
+                        ):
+                            exited = [
+                                name
+                                for name, process in runtime.processes.items()
+                                if process.poll() is not None
+                            ]
+                            runtime.last_error = (
+                                f"worker 意外退出: {', '.join(exited)}"
+                            )
+                            process_groups.append(
+                                self._detach_runtime_processes(runtime)
+                            )
+                            self._schedule_restart(runtime)
+
+                # 同事业部 gate 保持到旧进程完全退出，禁止新旧组重叠。
+                for processes in process_groups:
+                    self._terminate_processes(processes)
+
         vlm_to_stop = None
         with self._lock:
             if self._shutting_down:
                 return
-            now = self.clock()
-            for runtime in list(self.runtimes.values()):
-                if not runtime.desired_running:
-                    continue
-                if runtime.restart_at is not None:
-                    if now < runtime.restart_at:
-                        continue
-                    camera = self._get_camera(
-                        runtime.department,
-                        runtime.camera_id,
-                    )
-                    if camera is None:
-                        runtime.desired_running = False
-                        runtime.last_error = "摄像头已删除"
-                        runtime.restart_at = None
-                        continue
-                    paths = self._paths(
-                        runtime.department,
-                        runtime.camera_id,
-                    )
-                    try:
-                        runtime.restart_at = None
-                        self._start_runtime(runtime, camera, paths)
-                        self._ensure_vlm()
-                    except Exception as exc:
-                        runtime.last_error = str(exc)
-                        process_groups.append(
-                            self._detach_runtime_processes(runtime)
-                        )
-                        self._schedule_restart(runtime)
-                        LOGGER.exception(
-                            "自动重启事业部 %s 摄像头 %s 的 worker 失败",
-                            runtime.department,
-                            runtime.camera_id,
-                        )
-                    continue
-
-                if runtime.processes and not self._runtime_is_running(runtime):
-                    exited = [
-                        name
-                        for name, process in runtime.processes.items()
-                        if process.poll() is not None
-                    ]
-                    runtime.last_error = f"worker 意外退出: {', '.join(exited)}"
-                    process_groups.append(
-                        self._detach_runtime_processes(runtime)
-                    )
-                    self._schedule_restart(runtime)
-
             if self._has_active_camera():
                 self._ensure_vlm()
             else:
                 vlm_to_stop = self._detach_vlm()
-
-        for processes in process_groups:
-            self._terminate_processes(processes)
         if vlm_to_stop is not None:
             self._terminate_process(vlm_to_stop, "vlm", timeout=125.0)
 

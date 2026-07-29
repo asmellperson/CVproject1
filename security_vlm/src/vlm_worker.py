@@ -1491,6 +1491,40 @@ class DepartmentResultStores:
         return self._stores[require_department(department)]
 
 
+def read_strict_result_object(
+    store: ResultStore,
+    key: str,
+    *,
+    quarantine_corrupt: bool = False,
+) -> dict:
+    """严格读取状态对象；共享状态损坏时可保留证据后重新初始化。"""
+    path = store._path(key)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("JSON 顶层必须为对象")
+        return payload
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        print(
+            f"[vlm] 状态文件损坏 {path}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        if quarantine_corrupt:
+            backup = path.with_name(
+                f"{path.stem}.corrupt.{time.time_ns()}{path.suffix}"
+            )
+            try:
+                path.replace(backup)
+            except OSError as move_exc:
+                raise RuntimeError(
+                    f"无法隔离损坏的共享状态文件 {path}"
+                ) from move_exc
+        return {}
+
+
 class DepartmentWorkspaceStateError(RuntimeError):
     """单事业部持久状态损坏，必须保留任务以避免数据丢失。"""
 
@@ -2171,14 +2205,24 @@ def main():
     for cleanup_dir in cleanup_dirs:
         cleanup_stale_pending(cleanup_dir, startup_ts, queue_timeout)
 
-    existing_state = store.read("vlm_state", {}) or {}
-    existing_stats = store.read("vlm_latest_stats", {}) or {}
+    existing_state = read_strict_result_object(store, "vlm_state")
+    existing_stats = read_strict_result_object(store, "vlm_latest_stats")
+    embedded_state_budget = existing_state.get("budget", {})
+    if not isinstance(embedded_state_budget, dict):
+        embedded_state_budget = {}
+    embedded_stats_budget = existing_stats.get("budget", {})
+    if not isinstance(embedded_stats_budget, dict):
+        embedded_stats_budget = {}
     budget_state = (
-        stores.budget_store.read("vlm_budget", {})
+        read_strict_result_object(
+            stores.budget_store,
+            "vlm_budget",
+            quarantine_corrupt=True,
+        )
         # Task1 曾把旧全局预算迁入 GE；这里只做一次兼容恢复来源。
-        or store.read("vlm_budget", {})
-        or existing_state.get("budget", {})
-        or existing_stats.get("budget", {})
+        or read_strict_result_object(store, "vlm_budget")
+        or embedded_state_budget
+        or embedded_stats_budget
     )
     budget = BudgetGuard(
         daily_limit=float(cfg["budget"]["daily_limit_yuan"]),
