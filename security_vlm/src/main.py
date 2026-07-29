@@ -29,6 +29,7 @@ import asyncio
 import json
 import logging
 import math
+import shutil
 import subprocess
 import sys
 import time
@@ -54,7 +55,11 @@ from roi_geometry import (  # noqa: E402
 )
 from camera_registry import CameraRegistry  # noqa: E402
 from camera_runtime import CameraRuntimeManager, CameraRuntimePaths  # noqa: E402
-from department_workspace import GENERAL_ELECTRIC  # noqa: E402
+from department_workspace import (  # noqa: E402
+    DepartmentWorkspaceManager,
+    GENERAL_ELECTRIC,
+)
+from departments import SECURITY_DEPARTMENTS, require_department  # noqa: E402
 
 
 LOGGER = logging.getLogger(__name__)
@@ -194,43 +199,63 @@ class AppService:
             str(departments_data_root),
             self.project_root,
         )
-        self.general_results_dir = (
-            self.departments_data_root / GENERAL_ELECTRIC / "results"
+        self.workspace_manager = DepartmentWorkspaceManager(
+            self.departments_data_root, self.departments_runtime_root
         )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.global_store = ResultStore(self.general_results_dir)
-        self.store = self.global_store
-
         data_cfg = self.cfg.setdefault("data", {})
         registry_path = resolve_path(
             str(data_cfg.get("camera_registry_path", "data/config/cameras.json")),
             self.project_root,
         )
+        self._injected_registry = registry
         self.registry = registry or CameraRegistry(registry_path)
         self.staff_dir = resolve_path(
             str(data_cfg["staff_identity_dir"]),
             self.project_root,
         )
         self.staff_dir.mkdir(parents=True, exist_ok=True)
-        self.registry.migrate_legacy(self.cfg, self.staff_dir)
+        if registry is None:
+            self.registry.migrate_legacy(self.cfg, self.staff_dir)
+            self.workspace_manager.migrate_general_electric(
+                legacy_registry_path=registry_path,
+                legacy_roi_dir=self.staff_dir,
+                legacy_runtime_dir=self.runtime_dir,
+            )
+            # 所有旧兼容入口也必须使用迁移后的 GE 注册表。
+            self.registry = self.workspace_manager.get(
+                GENERAL_ELECTRIC
+            ).registry
+        else:
+            # Keep the old single-camera fixture behavior without attempting
+            # to migrate arbitrary injected temporary registry files.
+            self.registry.migrate_legacy(self.cfg, self.staff_dir)
+        self.global_store = self.workspace(GENERAL_ELECTRIC).result_store
+        self.store = self.global_store
 
         self.runtime_manager = runtime_manager or CameraRuntimeManager(
             base_cfg=self.cfg,
             project_root=self.project_root,
             base_config_path=self.config_path,
-            camera_provider=lambda department: (
-                self.registry.list()
-                if department == GENERAL_ELECTRIC
-                else []
-            ),
+            camera_provider=lambda department: self.workspace(department).registry.list(),
         )
         self.probe_func = probe_func
         self.offload_sync = offload_sync
-        self._frame_hubs: Dict[str, FrameHubReader] = {}
+        self._frame_hubs: Dict[tuple[str, str], FrameHubReader] = {}
         self._roi_caches: Dict[
-            str,
+            tuple[str, str],
             tuple[float, Dict[str, List[List[float]]]],
         ] = {}
+
+    def workspace(self, department: str):
+        """返回部门专属工作区；显式注入的 registry 只替换 GE 以兼容测试。"""
+        department = require_department(department)
+        workspace = self.workspace_manager.get(department)
+        if department == GENERAL_ELECTRIC and self._injected_registry is not None:
+            # Tests may provide a registry outside the configured data root.
+            from dataclasses import replace
+            return replace(workspace, registry=self._injected_registry)
+        return workspace
 
     def mark_stopped(self):
         self.global_store.write(
@@ -242,32 +267,31 @@ class AppService:
         self.runtime_manager.shutdown()
         self._frame_hubs.clear()
 
-    def camera_runtime_dir(self, camera_id: str) -> Path:
-        return CameraRuntimePaths(
-            self.departments_runtime_root,
-            GENERAL_ELECTRIC,
-            camera_id,
-        ).runtime_dir
+    def camera_runtime_dir(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Path:
+        return CameraRuntimePaths(self.departments_runtime_root, department, camera_id).runtime_dir
 
-    def camera_store(self, camera_id: str) -> ResultStore:
-        return ResultStore(self.camera_runtime_dir(camera_id))
+    def camera_store(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> ResultStore:
+        return ResultStore(self.camera_runtime_dir(camera_id, department))
 
-    def get_frame_hub(self, camera_id: str):
-        if camera_id in self._frame_hubs:
-            return self._frame_hubs[camera_id]
+    def get_frame_hub(self, camera_id: str, department: str = GENERAL_ELECTRIC):
+        key = (require_department(department), camera_id)
+        if key in self._frame_hubs:
+            return self._frame_hubs[key]
         try:
             hub = FrameHubReader(
-                self.camera_runtime_dir(camera_id),
+                self.camera_runtime_dir(camera_id, department),
                 wait_timeout_sec=1.0,
             )
-            self._frame_hubs[camera_id] = hub
+            self._frame_hubs[key] = hub
             return hub
         except Exception as exc:
             LOGGER.debug("摄像头 %s 的 FrameHub 尚未就绪: %s", camera_id, exc)
             return None
 
-    def roi_path(self, camera_id: str) -> Path:
-        return self.staff_dir / f"{camera_id}_staff_rois.json"
+    def roi_path(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Path:
+        if department == GENERAL_ELECTRIC and self._injected_registry is not None:
+            return self.staff_dir / f"{camera_id}_staff_rois.json"
+        return self.workspace(department).roi_dir / f"{camera_id}_staff_rois.json"
 
     def _normalize_rois_for_read(
         self,
@@ -291,8 +315,8 @@ class AppService:
                 )
         return normalized
 
-    def load_rois(self, camera_id: str) -> Dict[str, List[List[float]]]:
-        path = self.roi_path(camera_id)
+    def load_rois(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Dict[str, List[List[float]]]:
+        path = self.roi_path(camera_id, department)
         if path.exists():
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
@@ -304,11 +328,15 @@ class AppService:
                 LOGGER.warning("读取摄像头 %s 的 ROI 失败: %s", camera_id, exc)
         return self._normalize_rois_for_read(
             camera_id,
-            self.cfg.get("staff_rois", {}) or {},
+            (
+                self.cfg.get("staff_rois", {}) or {}
+                if department == GENERAL_ELECTRIC
+                else {}
+            ),
         )
 
-    def capture_dimensions(self, camera_id: str) -> tuple[float, float]:
-        status = self.camera_store(camera_id).read("capture_status", {}) or {}
+    def capture_dimensions(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> tuple[float, float]:
+        status = self.camera_store(camera_id, department).read("capture_status", {}) or {}
         width_value = status.get("width", 0)
         height_value = status.get("height", 0)
         if (
@@ -341,13 +369,12 @@ class AppService:
 
     def save_rois(
         self,
-        camera_id: str,
-        rois: Dict[str, Any],
+        camera_id: str, rois: Dict[str, Any], department: str = GENERAL_ELECTRIC,
     ) -> Dict[str, List[List[float]]]:
-        camera = self.registry.get(camera_id)
+        camera = self.workspace(department).registry.get(camera_id)
         if camera is None:
             raise KeyError(camera_id)
-        width, height = self.capture_dimensions(camera_id)
+        width, height = self.capture_dimensions(camera_id, department)
         roi_cfg = self.cfg.get("roi", {}) or {}
         normalized = validate_rois(
             rois,
@@ -362,44 +389,46 @@ class AppService:
             "roi_method": "frontend_canvas",
             "staff_rois": normalized,
         }
-        path = self.roi_path(camera_id)
+        path = self.roi_path(camera_id, department)
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        self._roi_caches.pop(camera_id, None)
+        self._roi_caches.pop((department, camera_id), None)
         return normalized
 
     def get_rois_cached(
         self,
-        camera_id: str,
+        camera_id: str, department: str = GENERAL_ELECTRIC,
     ) -> Dict[str, List[List[float]]]:
-        path = self.roi_path(camera_id)
+        path = self.roi_path(camera_id, department)
         try:
             mtime = path.stat().st_mtime if path.exists() else -1.0
-            cached = self._roi_caches.get(camera_id)
+            key = (department, camera_id)
+            cached = self._roi_caches.get(key)
             if cached is not None and cached[0] == mtime:
                 return cached[1]
-            rois = self.load_rois(camera_id)
-            self._roi_caches[camera_id] = (mtime, rois)
+            rois = self.load_rois(camera_id, department)
+            self._roi_caches[key] = (mtime, rois)
             return rois
         except OSError as exc:
             LOGGER.warning("检查摄像头 %s 的 ROI 缓存失败: %s", camera_id, exc)
-            return self.load_rois(camera_id)
+            return self.load_rois(camera_id, department)
 
-    def get_camera_state(self, camera_id: str) -> Dict[str, Any]:
-        camera = self.registry.get(camera_id)
+    def get_camera_state(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Dict[str, Any]:
+        workspace = self.workspace(department)
+        camera = workspace.registry.get(camera_id)
         if camera is None:
             raise KeyError(camera_id)
         process_status = self.runtime_manager.status(
-            GENERAL_ELECTRIC,
+            department,
             camera_id,
         )
         running = bool(process_status["running"])
-        store = self.camera_store(camera_id)
+        store = self.camera_store(camera_id, department)
         stopped_status = {"ok": False, "message": "stopped", "ts": time.time()}
         session = store.read("session_latest", {}) or {}
-        public = self.registry.public(camera)
+        public = workspace.registry.public(camera)
         public.update({
             "running": running,
             "desired_running": process_status["desired_running"],
@@ -415,20 +444,21 @@ class AppService:
                 if running else stopped_status
             ),
             "session": session if running else stopped_status,
-            "staff_rois": session.get("staff_rois") or self.load_rois(camera_id),
+            "staff_rois": session.get("staff_rois") or self.load_rois(camera_id, department),
         })
         return public
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self, department: str = GENERAL_ELECTRIC) -> Dict[str, Any]:
+        workspace = self.workspace(department)
         self.runtime_manager.reconcile()
         cameras = [
-            self.get_camera_state(camera["camera_id"])
-            for camera in self.registry.list()
+            self.get_camera_state(camera["camera_id"], department)
+            for camera in workspace.registry.list()
         ]
         history = (
-            self.global_store.read("vlm_history", {}) or {}
+            workspace.result_store.read("vlm_history", {}) or {}
         ).get("items", [])
-        vlm = self.global_store.read("vlm_status", {}) or {}
+        vlm = workspace.result_store.read("vlm_status", {}) or {}
         if hasattr(self.runtime_manager, "vlm_status"):
             vlm_runtime = self.runtime_manager.vlm_status()
         else:
@@ -452,14 +482,15 @@ class AppService:
         elif vlm_runtime["running"]:
             vlm["degraded"] = False
         state = {
+            "department": department,
             "running": any(camera["running"] for camera in cameras),
             "ts": time.time(),
             "cameras": cameras,
             "vlm": vlm,
-            "stats": self.global_store.read("vlm_latest_stats", {}) or {},
+            "stats": workspace.result_store.read("vlm_latest_stats", {}) or {},
             "history": history[:200],
         }
-        default_id = self.default_camera_id()
+        default_id = self.default_camera_id(department)
         if default_id is not None:
             default = next(
                 camera for camera in cameras if camera["camera_id"] == default_id
@@ -472,8 +503,8 @@ class AppService:
             })
         return state
 
-    def default_camera_id(self) -> str | None:
-        cameras = self.registry.list()
+    def default_camera_id(self, department: str = GENERAL_ELECTRIC) -> str | None:
+        cameras = self.workspace(department).registry.list()
         if not cameras:
             return None
         legacy = next(
@@ -485,6 +516,29 @@ class AppService:
             None,
         )
         return str((legacy or cameras[0])["camera_id"])
+
+    def delete_camera(self, department: str, camera_id: str) -> dict:
+        """Stop first, then preserve ROI and volatile camera runtime under archive."""
+        workspace = self.workspace(department)
+        camera = workspace.registry.get(camera_id)
+        if camera is None:
+            raise KeyError(camera_id)
+        stopped = self.runtime_manager.stop(department, camera_id)
+        if not stopped.get("ok"):
+            raise RuntimeError(stopped.get("message", "停止摄像头失败"))
+        archive = workspace.archive_dir / camera_id / str(int(time.time() * 1000))
+        archive.mkdir(parents=True, exist_ok=False)
+        for source in (self.roi_path(camera_id, department), self.camera_runtime_dir(camera_id, department)):
+            if source.exists():
+                target = archive / source.name
+                try:
+                    shutil.move(str(source), str(target))
+                except OSError as exc:
+                    raise RuntimeError(f"归档摄像头数据失败: {source}") from exc
+        deleted = workspace.registry.delete(camera_id)
+        self._frame_hubs.pop((department, camera_id), None)
+        self._roi_caches.pop((department, camera_id), None)
+        return deleted
 
     def start_workers(self):
         camera_id = self.default_camera_id()
@@ -524,6 +578,7 @@ def _overlay_on_frame(
     frame,
     service: "AppService",
     camera_id: str = "legacy-default",
+    department: str = GENERAL_ELECTRIC,
 ):
     """
     用于 /video/rule 流。frame 此时已经被缩放到 max_side=960,
@@ -537,18 +592,22 @@ def _overlay_on_frame(
     try:
         # 读取最新状态
         camera_store = (
-            service.camera_store(camera_id)
+            service.camera_store(camera_id, department)
             if hasattr(service, "camera_store")
             else service.store
         )
-        global_store = getattr(service, "global_store", service.store)
+        global_store = (
+            service.workspace(department).result_store
+            if hasattr(service, "workspace")
+            else getattr(service, "global_store", service.store)
+        )
         sess_latest = camera_store.read("session_latest", {}) or {}
         tracker = camera_store.read("tracker_latest", {}) or {}
         vlm_stats = global_store.read("vlm_latest_stats", {}) or {}
 
         # ROI 直接从配置文件读
         rois = (
-            service.get_rois_cached(camera_id)
+            service.get_rois_cached(camera_id, department)
             if hasattr(service, "camera_store")
             else service.get_rois_cached()
         )
@@ -702,6 +761,136 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def mark_legacy_routes_deprecated(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path in {"/health", "/api/history", "/api/state"} or path.startswith("/api/cameras") or path.startswith("/api/rois") or path.startswith("/api/control") or path.startswith("/video"):
+            response.headers["Deprecation"] = "true"
+        return response
+
+    def department_or_400(department: str) -> str:
+        try:
+            return require_department(department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def department_camera(department: str, camera_id: str) -> dict:
+        department = department_or_400(department)
+        camera = service.workspace(department).registry.get(camera_id)
+        if camera is None:
+            raise HTTPException(status_code=404, detail="摄像头不存在")
+        return camera
+
+    # Canonical department APIs.  Legacy endpoints below intentionally remain GE-only.
+    @app.get("/api/departments/{department}/cameras")
+    async def department_cameras(department: str):
+        department = department_or_400(department)
+        state = await run_blocking(service.get_state, department)
+        return JSONResponse({"department": department, "cameras": state["cameras"]})
+
+    @app.post("/api/departments/{department}/cameras")
+    async def department_create_camera(department: str, req: CameraCreateRequest):
+        department = department_or_400(department)
+        registry = service.workspace(department).registry
+        try:
+            camera = await run_blocking(registry.create, req.name, req.rtsp_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"ok": True, "camera": registry.public(camera)}, status_code=201)
+
+    @app.get("/api/departments/{department}/cameras/{camera_id}")
+    async def department_get_camera(department: str, camera_id: str):
+        department_camera(department, camera_id)
+        return JSONResponse({"camera": await run_blocking(service.get_camera_state, camera_id, department)})
+
+    @app.put("/api/departments/{department}/cameras/{camera_id}")
+    async def department_update_camera(department: str, camera_id: str, req: CameraUpdateRequest):
+        department_camera(department, camera_id)
+        status = await run_blocking(service.runtime_manager.status, department, camera_id)
+        if status.get("desired_running"):
+            raise HTTPException(status_code=409, detail="请先关闭摄像头检测再修改配置")
+        try:
+            camera = await run_blocking(service.workspace(department).registry.update, camera_id, name=req.name, rtsp_url=req.rtsp_url)
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
+
+    @app.delete("/api/departments/{department}/cameras/{camera_id}")
+    async def department_delete_camera(department: str, camera_id: str):
+        department_camera(department, camera_id)
+        try:
+            camera = await run_blocking(service.delete_camera, department, camera_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
+
+    @app.get("/api/departments/{department}/cameras/{camera_id}/credentials")
+    async def department_credentials(department: str, camera_id: str):
+        camera = department_camera(department, camera_id)
+        return JSONResponse({"camera": {key: camera[key] for key in ("camera_id", "name", "rtsp_url")}})
+
+    @app.post("/api/departments/{department}/cameras/test")
+    async def department_test_camera(department: str, req: CameraTestRequest):
+        department_or_400(department)
+        try:
+            details = await run_blocking(service.probe_func, CameraRegistry.validate_rtsp_url(req.rtsp_url))
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail="无法连接摄像头或读取视频信息") from exc
+        return JSONResponse({"ok": True, **details})
+
+    @app.post("/api/departments/{department}/cameras/{camera_id}/control/{action}")
+    async def department_camera_control(department: str, camera_id: str, action: str):
+        department_camera(department, camera_id)
+        if action not in {"start", "stop", "restart"}:
+            raise HTTPException(status_code=404, detail="invalid action")
+        result = await run_blocking(getattr(service.runtime_manager, action), department, camera_id)
+        service._frame_hubs.pop((department, camera_id), None)
+        return JSONResponse(result, status_code=200 if result["ok"] else 500)
+
+    @app.post("/api/departments/{department}/cameras/control/{action}")
+    async def department_all_control(department: str, action: str):
+        department_or_400(department)
+        if action not in {"start-all", "stop-all"}:
+            raise HTTPException(status_code=404, detail="invalid action")
+        method = service.runtime_manager.start_all if action == "start-all" else service.runtime_manager.stop_all
+        result = await run_blocking(method, department)
+        return JSONResponse(result, status_code=200 if result["ok"] else 207)
+
+    @app.get("/api/departments/{department}/cameras/{camera_id}/rois")
+    async def department_get_rois(department: str, camera_id: str):
+        department_camera(department, camera_id)
+        rois = await run_blocking(service.load_rois, camera_id, department)
+        return JSONResponse({"department": department, "camera_id": camera_id, "staff_rois": rois, "available_slots": list(rois)})
+
+    @app.put("/api/departments/{department}/cameras/{camera_id}/rois")
+    @app.post("/api/departments/{department}/cameras/{camera_id}/rois")
+    async def department_save_rois(department: str, camera_id: str, req: ROIRequest):
+        department_camera(department, camera_id)
+        try:
+            rois = await run_blocking(service.save_rois, camera_id, req.staff_rois, department)
+        except CaptureDimensionsUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"ok": True, "department": department, "camera_id": camera_id, "staff_rois": rois})
+
+    @app.get("/api/departments/{department}/state")
+    @app.get("/api/departments/{department}/health")
+    async def department_state(department: str):
+        department = department_or_400(department)
+        return JSONResponse(await run_blocking(service.get_state, department))
+
+    @app.get("/api/departments/{department}/history")
+    async def department_history(department: str, limit: int = 100, camera_id: str | None = None):
+        department = department_or_400(department)
+        state = await run_blocking(service.get_state, department)
+        items = state["history"]
+        if camera_id is not None:
+            department_camera(department, camera_id)
+            items = [item for item in items if str(item.get("camera_id")) == camera_id]
+        return JSONResponse({"date": time.strftime("%Y-%m-%d"), "stats": state["stats"], "history": items[:max(1, limit)]})
+
     # ---- 基础信息 ----
     @app.get("/")
     async def root():
@@ -716,8 +905,30 @@ def create_app(
     # ---- 数据接口 ----
     @app.get("/health")
     async def health():
-        """前端每 2s 轮询, 拿全量状态（所有 worker + 历史 + 统计）"""
-        return JSONResponse(await run_blocking(service.get_state))
+        """保留 GE 兼容状态，并附带四事业部不含历史的健康摘要。"""
+        general_state = await run_blocking(
+            service.get_state,
+            GENERAL_ELECTRIC,
+        )
+        summaries = {}
+        for department in SECURITY_DEPARTMENTS:
+            state = (
+                general_state
+                if department == GENERAL_ELECTRIC
+                else await run_blocking(service.get_state, department)
+            )
+            cameras = state.get("cameras", [])
+            summaries[department] = {
+                "department": department,
+                "running": bool(state.get("running")),
+                "camera_count": len(cameras),
+                "online_camera_count": sum(
+                    1 for camera in cameras if camera.get("running")
+                ),
+                "vlm": state.get("vlm", {}),
+            }
+        general_state["departments"] = summaries
+        return JSONResponse(general_state)
 
     @app.get("/api/history")
     async def history(limit: int = 100, camera_id: str | None = None):
@@ -820,9 +1031,14 @@ def create_app(
                 status_code=409,
                 detail="请先关闭摄像头检测再删除",
             )
-        camera = await run_blocking(service.registry.delete, camera_id)
-        service._frame_hubs.pop(camera_id, None)
-        service._roi_caches.pop(camera_id, None)
+        try:
+            camera = await run_blocking(
+                service.delete_camera,
+                GENERAL_ELECTRIC,
+                camera_id,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         return JSONResponse(
             {"ok": True, "camera": service.registry.public(camera)}
         )
@@ -860,13 +1076,13 @@ def create_app(
             GENERAL_ELECTRIC,
             camera_id,
         )
-        service._frame_hubs.pop(camera_id, None)
+        service._frame_hubs.pop((GENERAL_ELECTRIC, camera_id), None)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
     @app.post("/api/cameras/{camera_id}/control/restart")
     async def restart_camera(camera_id: str):
         require_camera(camera_id)
-        service._frame_hubs.pop(camera_id, None)
+        service._frame_hubs.pop((GENERAL_ELECTRIC, camera_id), None)
         result = await run_blocking(
             service.runtime_manager.restart,
             GENERAL_ELECTRIC,
@@ -888,7 +1104,12 @@ def create_app(
             service.runtime_manager.stop_all,
             GENERAL_ELECTRIC,
         )
-        service._frame_hubs.clear()
+        for key in [
+            key
+            for key in service._frame_hubs
+            if key[0] == GENERAL_ELECTRIC
+        ]:
+            service._frame_hubs.pop(key, None)
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
     @app.get("/api/cameras/{camera_id}/rois")
@@ -990,7 +1211,11 @@ def create_app(
         })
 
     # ---- MJPEG 流生成器 ----
-    async def _mjpeg(camera_id: str, kind: str):
+    async def _mjpeg(
+        camera_id: str,
+        kind: str,
+        department: str = GENERAL_ELECTRIC,
+    ):
         """
         MJPEG 流生成器，统一限速 6fps，长边最大 960，JPEG 质量可配置。
         kind 参数：
@@ -1012,7 +1237,7 @@ def create_app(
                 await asyncio.sleep(0.005)
                 continue
 
-            hub = service.get_frame_hub(camera_id)
+            hub = service.get_frame_hub(camera_id, department)
             if hub is None:
                 # capture 还没起来, 慢一点轮询
                 await asyncio.sleep(0.2)
@@ -1034,7 +1259,12 @@ def create_app(
                     frame = cv2.resize(frame, (int(w * s), int(h * s)))
 
                 if kind == "rule":
-                    frame = _overlay_on_frame(frame, service, camera_id)
+                    frame = _overlay_on_frame(
+                        frame,
+                        service,
+                        camera_id,
+                        department,
+                    )
 
                 ok, buf = cv2.imencode(
                     ".jpg", frame,
@@ -1065,6 +1295,22 @@ def create_app(
             raise HTTPException(status_code=404, detail="invalid kind")
         return StreamingResponse(
             _mjpeg(camera_id, kind),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
+
+    @app.get(
+        "/api/departments/{department}/video/{camera_id}/{kind}"
+    )
+    async def department_camera_video(
+        department: str,
+        camera_id: str,
+        kind: str,
+    ):
+        department_camera(department, camera_id)
+        if kind not in {"original", "rule"}:
+            raise HTTPException(status_code=404, detail="invalid kind")
+        return StreamingResponse(
+            _mjpeg(camera_id, kind, department),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 

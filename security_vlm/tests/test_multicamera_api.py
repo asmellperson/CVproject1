@@ -14,35 +14,28 @@ class FakeRuntimeManager:
         self.running = set()
         self.shutdown_called = False
 
-    @staticmethod
-    def _require_general(department):
-        assert department == "general_electric"
-
     def start(self, department, camera_id):
-        self._require_general(department)
-        self.running.add(camera_id)
+        self.running.add((department, camera_id))
         return self._result(department, camera_id, True, "running")
 
     def stop(self, department, camera_id):
-        self._require_general(department)
-        self.running.discard(camera_id)
+        self.running.discard((department, camera_id))
         return self._result(department, camera_id, True, "stopped")
 
     def restart(self, department, camera_id):
         return self.start(department, camera_id)
 
     def start_all(self, department):
-        self._require_general(department)
         return {"ok": True, "results": {}}
 
     def stop_all(self, department):
-        self._require_general(department)
-        self.running.clear()
+        self.running = {
+            key for key in self.running if key[0] != department
+        }
         return {"ok": True, "results": {}}
 
     def is_running(self, department, camera_id):
-        self._require_general(department)
-        return camera_id in self.running
+        return (department, camera_id) in self.running
 
     def status(self, department, camera_id):
         running = self.is_running(department, camera_id)
@@ -83,6 +76,10 @@ def make_service(tmp_path, *, input_video=""):
         "project": {"root": str(tmp_path)},
         "envs": {"worker_python": "/env/bin/python"},
         "runtime": {"dir": str(tmp_path / "runtime")},
+        "departments": {
+            "data_root": str(tmp_path / "departments"),
+            "runtime_root": str(tmp_path / "runtime" / "departments"),
+        },
         "web": {},
         "data": {
             "input_video": input_video,
@@ -119,11 +116,45 @@ def make_service(tmp_path, *, input_video=""):
     return service, runtime_manager
 
 
-def set_capture_dimensions(service, camera_id, width=200, height=100):
-    service.camera_store(camera_id).write(
+def set_capture_dimensions(
+    service,
+    camera_id,
+    width=200,
+    height=100,
+    department=main.GENERAL_ELECTRIC,
+):
+    service.camera_store(camera_id, department).write(
         "capture_status",
         {"ok": True, "width": width, "height": height},
     )
+
+
+@pytest.mark.asyncio
+async def test_department_cameras_are_isolated_and_legacy_is_deprecated(tmp_path):
+    service, _runtime_manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+    transport = httpx.ASGITransport(app=app)
+    base = "/api/departments"
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for department in (
+            "general_electric", "electronics_electrician",
+            "electrical_components", "precious_metal_recycling",
+        ):
+            response = await client.get(f"{base}/{department}/cameras")
+            assert response.status_code == 200
+        created = await client.post(
+            f"{base}/electronics_electrician/cameras",
+            json={"name": "same", "rtsp_url": "rtsp://camera-a/stream"},
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["camera"]["camera_id"]
+        assert (await client.get(
+            f"{base}/general_electric/cameras/{camera_id}"
+        )).status_code == 404
+        legacy = await client.get("/api/cameras")
+        assert legacy.headers["Deprecation"] == "true"
+        assert legacy.json()["cameras"] == []
+        assert (await client.get(f"{base}/unknown/cameras")).status_code == 400
 
 
 def test_app_service_resolves_department_roots_and_reads_general_results(
@@ -212,7 +243,7 @@ async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
         assert (await client.post(
             f"/api/cameras/{camera_id}/control/start"
         )).status_code == 200
-        assert camera_id in runtime_manager.running
+        assert (main.GENERAL_ELECTRIC, camera_id) in runtime_manager.running
         assert (await client.put(
             f"/api/cameras/{camera_id}",
             json={"name": "运行中不可改"},
@@ -222,6 +253,138 @@ async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
         await client.post(f"/api/cameras/{camera_id}/control/stop")
         assert (await client.delete(f"/api/cameras/{camera_id}")).status_code == 200
         assert (await client.get(f"/api/cameras/{camera_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_department_capacity_same_id_roi_history_and_delete_are_isolated(
+    tmp_path,
+    monkeypatch,
+):
+    service, runtime_manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+    transport = httpx.ASGITransport(app=app)
+    base = "/api/departments"
+    electronics = "electronics_electrician"
+    components = "electrical_components"
+
+    # 摄像头 ID 只需在事业部内唯一；相同 ID 在不同事业部也必须互不影响。
+    fixed_uuid = camera_registry.uuid.UUID(
+        "00000000-0000-0000-0000-000000000001"
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        with monkeypatch.context() as patch:
+            patch.setattr(camera_registry.uuid, "uuid4", lambda: fixed_uuid)
+            electronics_camera = (await client.post(
+                f"{base}/{electronics}/cameras",
+                json={
+                    "name": "共享名称",
+                    "rtsp_url": "rtsp://electronics/stream",
+                },
+            )).json()["camera"]
+            components_camera = (await client.post(
+                f"{base}/{components}/cameras",
+                json={
+                    "name": "共享名称",
+                    "rtsp_url": "rtsp://components/stream",
+                },
+            )).json()["camera"]
+        camera_id = electronics_camera["camera_id"]
+        assert camera_id == components_camera["camera_id"] == str(fixed_uuid)
+
+        for index in range(3):
+            response = await client.post(
+                f"{base}/{electronics}/cameras",
+                json={
+                    "name": f"电子电工-{index}",
+                    "rtsp_url": f"rtsp://electronics-{index}/stream",
+                },
+            )
+            assert response.status_code == 201
+        assert (await client.post(
+            f"{base}/{electronics}/cameras",
+            json={"name": "第五台", "rtsp_url": "rtsp://electronics-5/stream"},
+        )).status_code == 400
+        assert len((await client.get(
+            f"{base}/{components}/cameras"
+        )).json()["cameras"]) == 1
+
+        set_capture_dimensions(
+            service,
+            camera_id,
+            department=electronics,
+        )
+        polygon = [[10, 10], [150, 10], [170, 70], [20, 80]]
+        saved = await client.put(
+            f"{base}/{electronics}/cameras/{camera_id}/rois",
+            json={"staff_rois": {"电子电工区域": polygon}},
+        )
+        assert saved.status_code == 200
+        assert (await client.get(
+            f"{base}/{components}/cameras/{camera_id}/rois"
+        )).json()["staff_rois"] == {}
+
+        service.workspace(electronics).result_store.write(
+            "vlm_history",
+            {"items": [{"camera_id": camera_id, "session_id": "electronics-1"}]},
+        )
+        service.workspace(electronics).result_store.write(
+            "vlm_latest_stats",
+            {"total": 1, "non_compliant": 1},
+        )
+        service.workspace(components).result_store.write(
+            "vlm_history",
+            {"items": [{"camera_id": camera_id, "session_id": "components-1"}]},
+        )
+        electronics_history = (await client.get(
+            f"{base}/{electronics}/history"
+        )).json()
+        components_history = (await client.get(
+            f"{base}/{components}/history"
+        )).json()
+        assert [item["session_id"] for item in electronics_history["history"]] == [
+            "electronics-1"
+        ]
+        assert [item["session_id"] for item in components_history["history"]] == [
+            "components-1"
+        ]
+        assert electronics_history["stats"]["non_compliant"] == 1
+        assert components_history["stats"] == {}
+
+        assert (await client.post(
+            f"{base}/{electronics}/cameras/{camera_id}/control/start"
+        )).status_code == 200
+        assert (electronics, camera_id) in runtime_manager.running
+        assert (components, camera_id) not in runtime_manager.running
+
+        runtime_marker = service.camera_runtime_dir(camera_id, electronics)
+        runtime_marker.mkdir(parents=True, exist_ok=True)
+        (runtime_marker / "marker.json").write_text("{}", encoding="utf-8")
+        deleted = await client.delete(
+            f"{base}/{electronics}/cameras/{camera_id}"
+        )
+        assert deleted.status_code == 200
+        assert (electronics, camera_id) not in runtime_manager.running
+        assert (await client.get(
+            f"{base}/{electronics}/cameras/{camera_id}"
+        )).status_code == 404
+        assert (await client.get(
+            f"{base}/{components}/cameras/{camera_id}"
+        )).status_code == 200
+        assert (await client.get(
+            f"{base}/{electronics}/history"
+        )).json()["history"][0]["session_id"] == "electronics-1"
+
+        archives = list(
+            (service.workspace(electronics).archive_dir / camera_id).iterdir()
+        )
+        assert len(archives) == 1
+        archived_names = {path.name for path in archives[0].iterdir()}
+        assert f"{camera_id}_staff_rois.json" in archived_names
+        assert camera_id in archived_names
+
+        assert (await client.get(
+            f"{base}/{components}/video/{camera_id}/invalid"
+        )).status_code == 404
 
 
 @pytest.mark.asyncio
