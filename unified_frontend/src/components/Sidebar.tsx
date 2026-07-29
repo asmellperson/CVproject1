@@ -147,6 +147,7 @@ export function Sidebar({
                 />
               ))}
               {group.children?.map((child) => {
+                const childActive = activeChildGroupId === child.id
                 const expanded = compact || expandedGroups.has(child.id) || activeChildGroupId === child.id
                 return (
                 <div key={child.id} className={cn(!compact && 'pt-2')}>
@@ -164,10 +165,21 @@ export function Sidebar({
                           return next
                         })
                       }}
-                      className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-lg font-black tracking-[0] text-[#09265a] transition hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60"
+                      className={cn(
+                        'mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-lg font-black tracking-[0] transition',
+                        childActive
+                          ? 'bg-blue-50/90 text-blue-700 shadow-[0_6px_16px_rgba(37,99,235,0.10)] ring-1 ring-inset ring-blue-200 dark:bg-blue-950/55 dark:text-blue-100 dark:ring-blue-800/80'
+                          : 'text-[#09265a] hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60',
+                      )}
                       aria-expanded={expanded}
                     >
-                      <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', expanded && 'rotate-90')} />
+                      <ChevronRight
+                        className={cn(
+                          'h-4 w-4 shrink-0 transition-transform',
+                          childActive ? 'text-blue-500 dark:text-blue-300' : 'text-slate-400',
+                          expanded && 'rotate-90',
+                        )}
+                      />
                       <span className="truncate">{child.label}</span>
                     </button>
                   )}
