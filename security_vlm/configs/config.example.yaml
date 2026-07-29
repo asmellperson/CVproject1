@@ -21,6 +21,12 @@ runtime:
   # 覆盖 RTSP 探测 + HEVC 首帧建立时间，避免下游 worker 提前退出。
   framehub_wait_timeout_sec: 30
 
+# ---- 安检事业部隔离工作区 ----
+departments:
+  data_root: data/departments
+  runtime_root: /dev/shm/security_vlm_runtime/departments
+  max_cameras_per_department: 4
+
 # ---- 子进程轮询间隔 ----
 workers:
   poll_interval_sec: 0.01

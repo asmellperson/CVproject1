@@ -72,7 +72,8 @@ def test_concurrent_creates_keep_registry_json_valid(tmp_path):
         created = list(executor.map(create, range(4)))
 
     payload = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert payload["version"] == 1
+    assert payload["version"] == 2
+    assert payload["department"] == "general_electric"
     assert len(payload["cameras"]) == 4
     assert len({item["camera_id"] for item in created}) == 4
     assert registry_path.stat().st_mode & 0o777 == 0o600
@@ -85,6 +86,54 @@ def test_registry_rejects_more_than_four_cameras(tmp_path):
 
     with pytest.raises(ValueError, match="4"):
         registry.create("Camera 5", "rtsp://camera-5/stream")
+
+
+def test_registry_persists_department_and_rejects_mismatch(tmp_path):
+    registry_path = tmp_path / "cameras.json"
+    registry = camera_registry.CameraRegistry(
+        registry_path,
+        department="electrical_components",
+    )
+    registry.create("Camera A", "rtsp://camera-a/stream")
+
+    payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert payload["version"] == 2
+    assert payload["department"] == "electrical_components"
+
+    mismatched = camera_registry.CameraRegistry(
+        registry_path,
+        department="precious_metal_recycling",
+    )
+    with pytest.raises(RuntimeError, match="事业部"):
+        mismatched.list()
+
+
+def test_registry_rejects_v1_file_even_for_default_department(tmp_path):
+    registry_path = tmp_path / "cameras.json"
+    registry_path.write_text(
+        json.dumps({"version": 1, "cameras": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="格式"):
+        camera_registry.CameraRegistry(registry_path).list()
+
+
+def test_registry_rejects_malformed_camera_records(tmp_path):
+    registry_path = tmp_path / "cameras.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "department": "general_electric",
+                "cameras": [{"broken": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="格式"):
+        camera_registry.CameraRegistry(registry_path).list()
 
 
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
@@ -110,6 +159,9 @@ def test_legacy_migration_is_idempotent_and_copies_roi(tmp_path):
     assert first["camera_id"] == "legacy-default"
     assert second is None
     assert len(registry.list()) == 1
+    payload = json.loads(registry.path.read_text(encoding="utf-8"))
+    assert payload["version"] == 2
+    assert payload["department"] == "general_electric"
     migrated_roi = staff_dir / "legacy-default_staff_rois.json"
     assert migrated_roi.read_text(encoding="utf-8") == legacy_roi.read_text(encoding="utf-8")
     assert legacy_roi.exists()
