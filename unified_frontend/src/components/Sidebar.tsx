@@ -164,7 +164,7 @@ export function Sidebar({
                           return next
                         })
                       }}
-                      className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-base font-black tracking-[0] text-[#09265a] transition hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60"
+                      className="mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-lg font-black tracking-[0] text-[#09265a] transition hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60"
                       aria-expanded={expanded}
                     >
                       <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', expanded && 'rotate-90')} />
