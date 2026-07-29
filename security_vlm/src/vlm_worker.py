@@ -22,6 +22,7 @@ vlm_worker.py —— Qwen-VL 合规判定子进程
 """
 import argparse
 import json
+import math
 import os
 import pickle
 import queue
@@ -147,6 +148,114 @@ def discard_invalid_pending_task(task_path: Path, reason: Exception) -> None:
                 file=sys.stderr,
                 flush=True,
             )
+
+
+def _finite_pending_timestamp(
+    payload: dict,
+    field_name: str,
+    default: float,
+) -> float:
+    raw_value = payload.get(field_name, default)
+    if isinstance(raw_value, bool):
+        raise TypeError(f"pending payload {field_name} 必须是有限数字")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"pending payload {field_name} 无法转换为数字"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(f"pending payload {field_name} 必须是有限数字")
+    try:
+        datetime.fromtimestamp(value)
+    except (OSError, OverflowError, ValueError) as exc:
+        raise ValueError(
+            f"pending payload {field_name} 超出时间戳范围"
+        ) from exc
+    return value
+
+
+def _safe_pending_identifier(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"pending payload 缺少有效 {field_name}")
+    identifier = value.strip()
+    if identifier in {".", ".."} or Path(identifier).name != identifier:
+        raise ValueError(f"pending payload {field_name} 不能包含路径片段")
+    return identifier
+
+
+def normalize_pending_payload(
+    payload: dict,
+    task_path: Path,
+    *,
+    now_ts: float | None = None,
+) -> dict:
+    """校验并规范化 process_one 后续会使用的 pending 字段。"""
+    department = validate_pending_payload_department(payload, task_path)
+    if "session_id" not in payload:
+        raise ValueError("pending payload 缺少 session_id")
+    current_ts = time.time() if now_ts is None else float(now_ts)
+    normalized = dict(payload)
+    normalized["department"] = department
+    normalized["session_id"] = _safe_pending_identifier(
+        payload["session_id"],
+        "session_id",
+    )
+    normalized["camera_id"] = _safe_pending_identifier(
+        payload.get("camera_id", "legacy-default"),
+        "camera_id",
+    )
+    normalized["camera_name"] = str(
+        payload.get("camera_name", normalized["camera_id"])
+    )
+    normalized["roi_name"] = str(payload.get("roi_name", ""))
+
+    roi_box = payload.get("roi_box")
+    if roi_box is None:
+        normalized["roi_box"] = []
+    elif isinstance(roi_box, (list, tuple)):
+        normalized["roi_box"] = list(roi_box)
+    else:
+        raise TypeError("pending payload roi_box 必须是列表")
+
+    keyframes = payload.get("keyframes")
+    if keyframes is None:
+        normalized["keyframes"] = []
+    elif isinstance(keyframes, (list, tuple)):
+        normalized["keyframes"] = list(keyframes)
+    else:
+        raise TypeError("pending payload keyframes 必须是列表")
+
+    normalized["enqueue_ts"] = _finite_pending_timestamp(
+        payload,
+        "enqueue_ts",
+        current_ts,
+    )
+    normalized["start_ts"] = _finite_pending_timestamp(
+        payload,
+        "start_ts",
+        current_ts,
+    )
+    normalized["end_ts"] = _finite_pending_timestamp(
+        payload,
+        "end_ts",
+        current_ts,
+    )
+    return normalized
+
+
+def load_validated_pending_task(task_path: Path) -> dict | None:
+    """读取并校验 pending；坏任务立即丢弃，调用方必须在 None 时早退。"""
+    path = Path(task_path)
+    try:
+        with path.open("rb") as file:
+            payload = pickle.load(file)
+        return normalize_pending_payload(payload, path)
+    except Exception as exc:
+        # pickle 反序列化可能传播导入/属性等多种异常；统一记录并丢弃，
+        # 防止 processing 中的坏文件在每次重启后再次进入队列。
+        discard_invalid_pending_task(path, exc)
+        return None
 
 
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -999,31 +1108,19 @@ def main():
 
     # ---- 单个任务的处理流程 ----
     def process_one(pkl_path: Path):
-        # 1) 读 pickle
-        try:
-            with open(pkl_path, "rb") as f:
-                payload = pickle.load(f)
-        except Exception as e:
-            print(f"[vlm] 读 pickle 失败 {pkl_path}: {e}", flush=True)
-            discard_invalid_pending_task(pkl_path, e)
+        # 1) 读取并完成全部字段校验；坏任务已清理，禁止进入 judge/结果逻辑。
+        payload = load_validated_pending_task(pkl_path)
+        if payload is None:
             return
 
-        try:
-            department = validate_pending_payload_department(
-                payload,
-                pkl_path,
-            )
-        except (TypeError, ValueError) as exc:
-            discard_invalid_pending_task(pkl_path, exc)
-            return
-
-        session_id = str(payload["session_id"])
-        camera_id = str(payload.get("camera_id", "legacy-default"))
-        camera_name = str(payload.get("camera_name", camera_id))
-        roi_name   = str(payload.get("roi_name", ""))
-        roi_box    = payload.get("roi_box") or []
-        enq_ts     = float(payload.get("enqueue_ts", time.time()))
-        keyframes  = payload.get("keyframes") or []
+        department = payload["department"]
+        session_id = payload["session_id"]
+        camera_id = payload["camera_id"]
+        camera_name = payload["camera_name"]
+        roi_name = payload["roi_name"]
+        roi_box = payload["roi_box"]
+        enq_ts = payload["enqueue_ts"]
+        keyframes = payload["keyframes"]
         camera_results_dir = results_dir / camera_id
         result_path = camera_results_dir / f"{session_id}.json"
         started_marker = pkl_path.with_suffix(f"{pkl_path.suffix}.started")
@@ -1094,8 +1191,7 @@ def main():
 
         # 6) 写 results/<session_id>.json
         if record is None:
-            duration = float(payload.get("end_ts", time.time())) \
-                     - float(payload.get("start_ts", time.time()))
+            duration = payload["end_ts"] - payload["start_ts"]
             record = {
                 "session_id": session_id,
                 "department": department,
@@ -1109,7 +1205,7 @@ def main():
                 "result": result,
                 "judged_ts": time.time(),
                 "time": datetime.fromtimestamp(
-                    payload.get("end_ts", time.time())
+                    payload["end_ts"]
                 ).strftime("%Y-%m-%d %H:%M:%S"),
             }
             atomic_write_json(result_path, record)

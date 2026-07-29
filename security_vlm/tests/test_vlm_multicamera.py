@@ -321,3 +321,89 @@ def test_same_named_tasks_in_two_departments_do_not_collide(tmp_path):
         )
         for path in queued
     } == set(departments)
+
+
+def _valid_department_payload(**overrides):
+    payload = {
+        "department": "general_electric",
+        "session_id": "camera-a_123_1",
+        "camera_id": "camera-a",
+        "camera_name": "A",
+        "roi_name": "roi-a",
+        "roi_box": [0, 0, 10, 10],
+        "start_ts": 100.0,
+        "end_ts": 101.0,
+        "enqueue_ts": 102.0,
+        "keyframes": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _general_processing_task(tmp_path):
+    return (
+        tmp_path
+        / "runtime"
+        / "departments"
+        / "general_electric"
+        / "global"
+        / "processing"
+        / "camera-a__task.pkl"
+    )
+
+
+def test_pending_parser_rejects_missing_session_id(tmp_path):
+    payload = _valid_department_payload()
+    payload.pop("session_id")
+
+    with pytest.raises(ValueError, match="session_id"):
+        vlm_worker.normalize_pending_payload(
+            payload,
+            _general_processing_task(tmp_path),
+        )
+
+
+@pytest.mark.parametrize(
+    "enqueue_ts",
+    ["not-a-number", float("inf"), 10 ** 400],
+)
+def test_pending_parser_rejects_invalid_enqueue_timestamp(
+    tmp_path,
+    enqueue_ts,
+):
+    with pytest.raises(
+        (TypeError, ValueError, OverflowError),
+        match="enqueue_ts",
+    ):
+        vlm_worker.normalize_pending_payload(
+            _valid_department_payload(enqueue_ts=enqueue_ts),
+            _general_processing_task(tmp_path),
+        )
+
+
+def test_invalid_pending_load_cleans_task_and_markers_before_processing(
+    tmp_path,
+):
+    task = _general_processing_task(tmp_path)
+    task.parent.mkdir(parents=True, exist_ok=True)
+    invalid_payload = _valid_department_payload()
+    invalid_payload.pop("session_id")
+    task.write_bytes(pickle.dumps(invalid_payload))
+    started = task.with_suffix(f"{task.suffix}.started")
+    recovered = task.with_suffix(f"{task.suffix}.recovered")
+    started.touch()
+    recovered.touch()
+    results_dir = tmp_path / "results"
+    judge_called = False
+
+    payload = vlm_worker.load_validated_pending_task(task)
+    if payload is not None:
+        judge_called = True
+        results_dir.mkdir()
+
+    assert payload is None
+    assert judge_called is False
+    assert not results_dir.exists()
+    assert not task.exists()
+    assert not started.exists()
+    assert not recovered.exists()
