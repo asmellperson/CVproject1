@@ -240,6 +240,12 @@ config.prod.yml
 **/.claude/
 
 # ======================
+# Local agent workspaces
+# ======================
+.worktrees/
+.superpowers/
+
+# ======================
 # Node dependencies
 # 注意：同时忽略目录、文件、软链接形式的 node_modules
 # ======================
