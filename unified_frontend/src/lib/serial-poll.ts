@@ -116,6 +116,9 @@ export function createSerialPoller(options: {
       runRound()
     },
     setPaused(nextPaused) {
+      if (paused === nextPaused) {
+        return
+      }
       paused = nextPaused
       if (paused) {
         clearNextTimer()

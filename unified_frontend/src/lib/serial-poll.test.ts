@@ -119,6 +119,11 @@ async function testSerialExecutionAndSettledScheduling() {
   await flushAsyncWork()
   assertNumbers(timers.pendingDelays(), [3000], 'the next round is scheduled after settlement')
 
+  timers.advanceBy(1000)
+  poller.setPaused(false)
+  assertEqual(attempts.length, 1, 'repeated setPaused(false) does not run while already active')
+  assertNumbers(timers.pendingDelays(), [2000], 'repeated setPaused(false) preserves the interval')
+
   poller.runNow()
   assertEqual(attempts.length, 2, 'runNow starts immediately while idle')
   assertNumbers(timers.pendingDelays(), [8000], 'runNow replaces the scheduled next round')
