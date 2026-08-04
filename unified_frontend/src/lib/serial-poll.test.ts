@@ -107,6 +107,8 @@ function assertNumbers(actual: number[], expected: number[], message: string) {
 async function flushAsyncWork() {
   await Promise.resolve()
   await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 async function testSerialExecutionAndSettledScheduling() {
@@ -279,11 +281,162 @@ async function testPauseResumeAndStopCleanup() {
   assertEqual(attempts.length, 3, 'a stopped poller does not continue scheduling')
 }
 
+async function testResumeDuringInFlightRunsImmediatelyAfterSettlement() {
+  const timers = new FakeTimers()
+  const attempts: Array<{ completion: Deferred; signal: AbortSignal }> = []
+  const poller = createSerialPoller({
+    task: (signal) => {
+      const completion = deferred()
+      attempts.push({ completion, signal })
+      return completion.promise
+    },
+    intervalMs: 3000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.setPaused(true)
+  poller.setPaused(false)
+  assertEqual(attempts.length, 1, 'resume does not overlap an in-flight task')
+  assertNumbers(timers.pendingDelays(), [8000], 'resume keeps only the active request timeout')
+
+  attempts[0].completion.resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'resume runs immediately after the in-flight task settles')
+  assertNumbers(timers.pendingDelays(), [8000], 'immediate resume does not wait for an interval')
+
+  attempts[1].completion.resolve()
+  await flushAsyncWork()
+  poller.stop()
+}
+
+async function testResumeDuringTimedOutRoundRunsImmediatelyAfterSettlement() {
+  const timers = new FakeTimers()
+  const signals: AbortSignal[] = []
+  const errors: unknown[] = []
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  const poller = createSerialPoller({
+    task: (signal) => {
+      signals.push(signal)
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      return new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('request aborted')), {
+          once: true,
+        })
+      }).finally(() => {
+        activeTasks -= 1
+      })
+    },
+    intervalMs: 3000,
+    timeoutMs: 8000,
+    onError: (error) => errors.push(error),
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.setPaused(true)
+  poller.setPaused(false)
+  assertEqual(signals.length, 1, 'resume does not overlap the round waiting to time out')
+
+  timers.advanceBy(8000)
+  assertEqual(signals[0].aborted, true, 'the in-flight round is aborted at its timeout')
+  assertEqual(signals.length, 1, 'the replacement waits for timeout settlement')
+  await flushAsyncWork()
+
+  assertEqual(signals.length, 2, 'timeout settlement immediately runs the pending resume')
+  assertEqual(maxActiveTasks, 1, 'timeout recovery never overlaps tasks')
+  assertEqual(activeTasks, 1, 'only the replacement task remains active')
+  assertEqual(errors.length, 0, 'the timeout abort is not reported as a real error')
+  assertNumbers(timers.pendingDelays(), [8000], 'timeout recovery does not wait for an interval')
+
+  poller.stop()
+  await flushAsyncWork()
+  assertEqual(errors.length, 0, 'stopping the replacement task does not report an error')
+}
+
+async function testPauseClearsPendingResume() {
+  const timers = new FakeTimers()
+  const attempts: Deferred[] = []
+  const poller = createSerialPoller({
+    task: () => {
+      const completion = deferred()
+      attempts.push(completion)
+      return completion.promise
+    },
+    intervalMs: 3000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.setPaused(true)
+  poller.setPaused(false)
+  poller.setPaused(true)
+  attempts[0].resolve()
+  await flushAsyncWork()
+
+  assertEqual(attempts.length, 1, 'pausing again clears the pending immediate resume')
+  assertEqual(timers.pendingCount(), 0, 'settlement while paused leaves no timers')
+
+  poller.setPaused(false)
+  assertEqual(attempts.length, 2, 'a later resume still starts normally')
+  attempts[1].resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'the cleared resume does not leak into a later round')
+  assertNumbers(timers.pendingDelays(), [3000], 'the later round returns to interval scheduling')
+  poller.stop()
+}
+
+async function testStopClearsPendingResume() {
+  const timers = new FakeTimers()
+  const attempts: Array<{ completion: Deferred; signal: AbortSignal }> = []
+  const poller = createSerialPoller({
+    task: (signal) => {
+      const completion = deferred()
+      attempts.push({ completion, signal })
+      return completion.promise
+    },
+    intervalMs: 3000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.setPaused(true)
+  poller.setPaused(false)
+  poller.stop()
+  assertEqual(attempts[0].signal.aborted, true, 'stop aborts the task with a pending resume')
+
+  attempts[0].completion.resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 1, 'stop prevents a pending immediate run after settlement')
+  assertEqual(timers.pendingCount(), 0, 'stop leaves no pending timers after settlement')
+
+  poller.start()
+  assertEqual(attempts.length, 2, 'the stopped poller can start cleanly later')
+  attempts[1].completion.resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'the stopped resume intent does not leak across restart')
+  assertNumbers(timers.pendingDelays(), [3000], 'restart uses normal interval scheduling')
+  poller.stop()
+}
+
 async function main() {
   await testSerialExecutionAndSettledScheduling()
   await testTimeoutAbortsWithoutReportingAnError()
   await testRealErrorsAreReportedOnce()
   await testPauseResumeAndStopCleanup()
+  await testResumeDuringInFlightRunsImmediatelyAfterSettlement()
+  await testResumeDuringTimedOutRoundRunsImmediatelyAfterSettlement()
+  await testPauseClearsPendingResume()
+  await testStopClearsPendingResume()
   console.log('serial poll tests passed')
 }
 

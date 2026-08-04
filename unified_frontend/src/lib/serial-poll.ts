@@ -25,6 +25,7 @@ export function createSerialPoller(options: {
   let started = false
   let paused = false
   let inFlight = false
+  let pendingImmediateRun = false
   let nextTimer: PollTimerHandle | undefined
   let requestTimer: PollTimerHandle | undefined
   let activeController: AbortController | undefined
@@ -92,7 +93,13 @@ export function createSerialPoller(options: {
           activeController = undefined
         }
         inFlight = false
-        scheduleNext()
+        const shouldRunImmediately = pendingImmediateRun && started && !paused
+        pendingImmediateRun = false
+        if (shouldRunImmediately) {
+          runRound()
+        } else {
+          scheduleNext()
+        }
       }
     })()
   }
@@ -107,6 +114,7 @@ export function createSerialPoller(options: {
     },
     stop() {
       started = false
+      pendingImmediateRun = false
       clearNextTimer()
       clearRequestTimer()
       activeController?.abort()
@@ -121,7 +129,12 @@ export function createSerialPoller(options: {
       }
       paused = nextPaused
       if (paused) {
+        pendingImmediateRun = false
         clearNextTimer()
+        return
+      }
+      if (inFlight) {
+        pendingImmediateRun = true
         return
       }
       runRound()

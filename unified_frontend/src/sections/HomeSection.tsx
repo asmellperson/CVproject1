@@ -911,7 +911,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
               </div>
               <div>
                 <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">平台汇总</h3>
-                <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">每 10 秒自动刷新</p>
+                <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">平台状态 30 秒 · 摄像头 10 秒刷新</p>
               </div>
             </div>
             <div className="mt-5 grid grid-cols-2 gap-3">
