@@ -166,7 +166,9 @@ export type PlatformStatus = {
   }
 }
 
-export const getPlatformStatus = () => apiGet<PlatformStatus>('/platform/status')
+export const PLATFORM_STATUS_POLL_INTERVAL_MS = 30_000
+export const PLATFORM_STATUS_REQUEST_TIMEOUT_MS = 8_000
+export const getPlatformStatus = (init?: RequestInit) => apiGet<PlatformStatus>('/platform/status', init)
 
 // api.ts
 export type AlarmEvent = {

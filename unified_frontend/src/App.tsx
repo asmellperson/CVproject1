@@ -5,6 +5,7 @@ import { HomeSection } from '@/sections/HomeSection'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { usePlatformStatus } from '@/hooks/use-platform-status'
 import { useAuth } from '@/auth/useAuth'
 import { hasPageAccess } from '@/auth/permissions'
 
@@ -68,6 +69,7 @@ function PageLoadingFallback() {
 
 function App() {
   const { user } = useAuth()
+  const platformStatus = usePlatformStatus()
   const [currentPage, setCurrentPage] = useState(getInitialPage)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -147,6 +149,7 @@ function App() {
       />
 
       <Sidebar
+        platformStatus={platformStatus}
         currentPage={activePage}
         onPageChange={handlePageChange}
         collapsed={sidebarCollapsed}

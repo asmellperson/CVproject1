@@ -2,11 +2,12 @@ import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
 import { departmentPermissions, filterNavGroupsByPermission } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronRight, ChevronsLeft, X } from 'lucide-react'
-import { getPlatformStatus, type PlatformStatus } from '@/lib/api'
+import type { PlatformStatus } from '@/lib/api'
 
 interface SidebarProps {
+  platformStatus: PlatformStatus | null
   currentPage: string
   onPageChange: (page: string) => void
   collapsed: boolean
@@ -17,6 +18,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  platformStatus,
   currentPage,
   onPageChange,
   collapsed,
@@ -32,7 +34,6 @@ export function Sidebar({
     [isAdmin, user],
   )
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(adminModuleGroups.map((group) => group.id).concat('shared')))
-  const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
 
   const activeChildGroupId = useMemo(
     () => visibleNavGroups
@@ -41,26 +42,6 @@ export function Sidebar({
       ?.id,
     [currentPage, visibleNavGroups],
   )
-
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      try {
-        const status = await getPlatformStatus()
-        if (!cancelled) setPlatformStatus(status)
-      } catch {
-        if (!cancelled) setPlatformStatus(null)
-      }
-    }
-
-    load()
-    const timer = window.setInterval(load, 10000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [])
 
   const statusLevel = platformStatus?.level || 'down'
   const statusLabel =
