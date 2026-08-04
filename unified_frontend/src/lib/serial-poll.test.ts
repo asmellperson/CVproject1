@@ -1,4 +1,23 @@
+import type { useSerialPoll } from '../hooks/use-serial-poll'
 import { createSerialPoller, type PollTimerHandle } from './serial-poll'
+
+type UseSerialPollContract = (
+  task: (signal: AbortSignal) => Promise<void>,
+  options: {
+    intervalMs: number
+    timeoutMs: number
+    enabled?: boolean
+    onError?: (error: unknown) => void
+  },
+) => void
+
+type IsAssignable<From, To> = [From] extends [To] ? true : false
+type AssertTrue<Value extends true> = Value
+
+export type UseSerialPollContractAssertions = [
+  AssertTrue<IsAssignable<typeof useSerialPoll, UseSerialPollContract>>,
+  AssertTrue<IsAssignable<UseSerialPollContract, typeof useSerialPoll>>,
+]
 
 type Deferred = {
   promise: Promise<void>
