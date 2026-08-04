@@ -93,9 +93,9 @@ function App() {
   const renderContent = () => {
     switch (activePage) {
       case 'overview':
-        return <HomeSection onNavigate={handlePageChange} />
+        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
       case 'home':
-        return <HomeSection onNavigate={handlePageChange} />
+        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
       case 'guard-behavior':
         return <GuardBehaviorSection department="general_electric" />
       case 'guard-behavior-general-electric':
@@ -136,7 +136,7 @@ function App() {
       case 'user-management':
         return <UserManagementSection />
       default:
-        return <HomeSection onNavigate={handlePageChange} />
+        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
     }
   }
 

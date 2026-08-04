@@ -37,7 +37,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
-import { getAlarms, getPlatformStatus, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
+import { getAlarms, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
 import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 import {
   createAiVisionCamera,
@@ -53,6 +53,7 @@ import {
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
+  platformStatus: PlatformStatus | null
 }
 
 const moduleEntries = [
@@ -210,7 +211,6 @@ const moduleEntries = [
 ]
 
 type OverviewState = {
-  cameraCount: number
   todayAlarms: number
   pendingAlarms: number
   latestAlarm: AlarmEvent | null
@@ -269,7 +269,6 @@ const aiVisionFeatureLabels: Record<string, string> = {
 }
 
 const defaultOverview: OverviewState = {
-  cameraCount: 0,
   todayAlarms: 0,
   pendingAlarms: 0,
   latestAlarm: null,
@@ -504,7 +503,7 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
   }
 }
 
-export function HomeSection({ onNavigate }: HomeSectionProps) {
+export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
   const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
   const adminModuleGroups = useMemo(
@@ -513,7 +512,6 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
   )
   const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
-  const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
@@ -662,15 +660,12 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
     let cancelled = false
 
     async function loadOverview() {
-      const [status, alarms, cameras] = await Promise.allSettled([
-        getPlatformStatus(),
+      const [alarms, cameras] = await Promise.allSettled([
         getAlarms(100),
         getAiVisionCameras(),
       ])
 
       if (cancelled) return
-      const currentStatus = status.status === 'fulfilled' ? status.value : null
-      setPlatformStatus(currentStatus)
       const currentAiVisionCameras = cameras.status === 'fulfilled' ? cameras.value : []
       setAiVisionCameras(currentAiVisionCameras)
 
@@ -680,7 +675,6 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
         : []
 
       setOverview({
-        cameraCount: getScopedStatusSummary(getVisibleStatusCards(visibleModuleEntries), currentStatus, getAiVisionFeatureCounts(currentAiVisionCameras)).cameraTotal,
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
         latestAlarm: alarmItems[0] || null,
@@ -689,14 +683,13 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
 
     loadOverview().catch(() => {
       if (!cancelled) {
-        setPlatformStatus(null)
         setOverview(defaultOverview)
       }
     })
 
     const timer = window.setInterval(() => {
       loadOverview().catch(() => {
-        if (!cancelled) setPlatformStatus(null)
+        if (!cancelled) setOverview(defaultOverview)
       })
     }, 10000)
 
@@ -704,7 +697,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [accessibleAlarmEventTypes, visibleModuleEntries])
+  }, [accessibleAlarmEventTypes])
 
   return (
     <>
@@ -761,7 +754,7 @@ export function HomeSection({ onNavigate }: HomeSectionProps) {
                 />
                 <MetricTile
                   title="接入摄像头"
-                  value={overview.cameraCount}
+                  value={scopedStatusSummary.cameraTotal}
                   detail="平台接入总摄像头数"
                   icon={<ScanFace className="h-5 w-5" />}
                   tone="cyan"
