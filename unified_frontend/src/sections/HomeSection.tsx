@@ -727,7 +727,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 福达 AI 视觉安全监管平台
               </h2>
             </div>
-            <div className="pointer-events-none absolute left-4 bottom-0 z-[2] flex w-[140px] justify-center sm:left-8 sm:w-[190px] md:left-10 md:w-[300px] lg:left-14">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-[2] hidden w-[40%] max-w-[560px] justify-center md:flex">
               <button
                 type="button"
                 className="overview-mascot-trigger pointer-events-auto block w-full cursor-pointer border-0 bg-transparent p-0"
@@ -736,17 +736,17 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
               >
                 <video
                   ref={overviewMascotVideoRef}
-                  className="overview-mascot-media block h-auto w-full select-none object-contain"
+                  className="overview-mascot-media block h-full w-full select-none object-cover object-right opacity-30 mix-blend-multiply [mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)]"
                   autoPlay
                   muted
                   playsInline
                   preload="auto"
-                  poster="/assets/overview/overview-mascot-poster.png"
+                  poster="/平台总览动画-蓝白版-poster.jpg"
                   onEnded={(event) => {
                     event.currentTarget.pause()
                   }}
                 >
-                  <source src="/assets/overview/overview-mascot.mp4" type="video/mp4" />
+                  <source src="/平台总览动画-蓝白版.mp4" type="video/mp4" />
                 </video>
               </button>
             </div>

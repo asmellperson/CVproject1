@@ -178,6 +178,7 @@ nohup.out
 # ======================
 *.mp4
 !unified_frontend/public/assets/overview/overview-mascot.mp4
+!unified_frontend/public/平台总览动画-蓝白版.mp4
 *.avi
 *.mkv
 *.mov
@@ -185,6 +186,7 @@ nohup.out
 *.webm
 *.jpg
 !unified_frontend/public/company-home-bg.jpg
+!unified_frontend/public/平台总览动画-蓝白版-poster.jpg
 *.jpeg
 *.png
 !unified_frontend/public/mascot.png
