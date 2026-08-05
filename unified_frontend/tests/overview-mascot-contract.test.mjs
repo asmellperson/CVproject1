@@ -5,24 +5,29 @@ import test from 'node:test'
 
 const frontendRoot = new URL('../', import.meta.url)
 const sectionUrl = new URL('src/sections/HomeSection.tsx', frontendRoot)
-const videoUrl = new URL('public/assets/overview/overview-mascot.mp4', frontendRoot)
-const posterUrl = new URL('public/assets/overview/overview-mascot-poster.png', frontendRoot)
+const componentUrl = new URL('src/components/OverviewMascot.tsx', frontendRoot)
+const webmUrl = new URL('public/assets/overview/overview-mascot-alpha.webm', frontendRoot)
+const finalPoseUrl = new URL('public/assets/overview/overview-mascot-final.png', frontendRoot)
 
 const section = await readFile(sectionUrl, 'utf8')
+const component = existsSync(componentUrl) ? await readFile(componentUrl, 'utf8') : ''
 
-test('places the overview mascot inside the platform hero banner', () => {
-  assert.match(section, /福达 AI 视觉安全监管平台/)
-  assert.match(section, /overview-mascot-trigger/)
-  assert.match(section, /overview-mascot-media/)
-  assert.match(section, /src="\/assets\/overview\/overview-mascot\.mp4"/)
-  assert.match(section, /type="video\/mp4"/)
-  assert.match(section, /poster="\/assets\/overview\/overview-mascot-poster\.png"/)
+test('renders a focused mascot overlay instead of a rectangular banner video', () => {
+  assert.equal(existsSync(componentUrl), true, 'expected the OverviewMascot component')
+  assert.match(section, /import \{ OverviewMascot \}/)
+  assert.match(section, /<OverviewMascot\s*\/>/)
+  assert.doesNotMatch(section, /平台总览动画-蓝白版\.mp4/)
+  assert.match(component, /src="\/assets\/overview\/overview-mascot-alpha\.webm"/)
+  assert.match(component, /type="video\/webm"/)
+  assert.match(component, /src="\/assets\/overview\/overview-mascot-final\.png"/)
 })
 
-test('plays once on entry and replays only when the mascot is clicked', () => {
-  const videoElement = section.match(/<video\b[\s\S]*?<\/video>/)?.[0] ?? ''
-  const triggerElement = section.match(/<button\b[\s\S]*?overview-mascot-trigger[\s\S]*?<\/button>/)?.[0] ?? ''
+test('plays once on entry, holds the final pose, and replays only on click', () => {
+  const videoElement = component.match(/<video\b[\s\S]*?<\/video>/)?.[0] ?? ''
+  const triggerElement = component.match(/<button\b[\s\S]*?<\/button>/)?.[0] ?? ''
 
+  assert.match(component, /useRef<HTMLVideoElement/)
+  assert.match(component, /useState\(true\)/)
   assert.match(videoElement, /\bautoPlay\b/)
   assert.match(videoElement, /\bmuted\b/)
   assert.match(videoElement, /\bplaysInline\b/)
@@ -31,21 +36,34 @@ test('plays once on entry and replays only when the mascot is clicked', () => {
   assert.doesNotMatch(videoElement, /\scontrols(?:=|\s|>)/)
   assert.match(videoElement, /onEnded=/)
   assert.match(triggerElement, /onClick=/)
-  assert.match(section, /currentTime = 0/)
-  assert.match(section, /\.play\(\)/)
+  assert.match(component, /currentTime = 0/)
+  assert.match(component, /\.play\(\)/)
+  assert.match(component, /setIsPlaying\(false\)/)
 })
 
-test('keeps the mascot non-blocking and responsive', () => {
-  assert.match(section, /absolute left-4/)
-  assert.match(section, /w-\[140px\]/)
-  assert.match(section, /md:w-\[300px\]/)
-  assert.match(section, /pointer-events-none/)
-  assert.match(section, /pointer-events-auto/)
-  assert.match(section, /z-\[2\]/)
-  assert.match(section, /-translate-y-3/)
+test('keeps the mascot overlay responsive and non-blocking', () => {
+  assert.match(component, /absolute inset-y-0 left-0/)
+  assert.match(component, /w-\[140px\]/)
+  assert.match(component, /md:w-\[300px\]/)
+  assert.match(component, /pointer-events-none/)
+  assert.match(component, /pointer-events-auto/)
+  assert.match(component, /opacity-50/)
+  assert.match(component, /md:hidden/)
+  assert.match(component, /hidden md:block/)
+  assert.doesNotMatch(component, /\bfixed\b/)
 })
 
-test('ships browser-compatible overview mascot media and fallback poster', () => {
-  assert.equal(existsSync(videoUrl), true, 'expected converted H.264 mascot video')
-  assert.equal(existsSync(posterUrl), true, 'expected final-pose poster')
+test('keeps the banner title centered on one line without mascot spacing', () => {
+  assert.match(section, /福达 AI 视觉安全监管平台/)
+  assert.match(section, /justify-center/)
+  assert.match(section, /text-center/)
+  assert.match(section, /whitespace-nowrap/)
+  assert.doesNotMatch(section, /md:pl-\[340px\]/)
+  assert.doesNotMatch(section, /lg:pl-\[390px\]/)
+  assert.doesNotMatch(section, /2xl:pl-\[620px\]/)
+})
+
+test('ships transparent WebM media and a transparent final-pose fallback', () => {
+  assert.equal(existsSync(webmUrl), true, 'expected transparent VP9 WebM mascot media')
+  assert.equal(existsSync(finalPoseUrl), true, 'expected transparent final-pose PNG')
 })

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { OverviewMascot } from '@/components/OverviewMascot'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -708,26 +709,15 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       <div className="relative z-[1] flex w-full min-w-0 flex-col gap-4 sm:gap-7">
         <section className="relative overflow-hidden rounded-[14px] border border-white/80 bg-slate-900 shadow-[0_22px_54px_rgba(15,44,92,0.16)] dark:border-slate-800 dark:shadow-[0_22px_54px_rgba(0,0,0,0.36)] sm:rounded-[18px]">
           <img src="/company-home-bg.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
-          <video
-            aria-hidden
-            className="absolute inset-0 z-[1] hidden h-full w-full object-cover object-left md:block"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            poster="/平台总览动画-蓝白版-poster.jpg?v=3"
-          >
-            <source src="/平台总览动画-蓝白版.mp4?v=3" type="video/mp4" />
-          </video>
           <div className="absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(232,242,255,0.96)_0%,rgba(222,236,255,0.78)_50%,rgba(218,235,255,0.16)_100%)] dark:bg-[linear-gradient(90deg,rgba(7,17,31,0.94)_0%,rgba(9,25,48,0.82)_45%,rgba(9,25,48,0.24)_100%)] sm:bg-[linear-gradient(90deg,rgba(232,242,255,0.94)_0%,rgba(222,236,255,0.66)_38%,rgba(218,235,255,0.08)_72%)] dark:sm:bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(9,25,48,0.72)_42%,rgba(9,25,48,0.16)_78%)]" />
           <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.9),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] dark:bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.18),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0))]" />
-          <div className="relative z-[3] flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pl-[340px] lg:px-14 lg:pl-[390px] 2xl:min-h-[380px] 2xl:px-20 2xl:py-10 2xl:pl-[620px]">
-            <div className="relative z-[3] flex max-w-3xl -translate-y-3 flex-col justify-center sm:-translate-y-4">
+          <OverviewMascot />
+          <div className="relative z-[3] flex min-h-[240px] items-center justify-center px-3 py-5 text-center sm:min-h-[280px] sm:px-10 sm:py-7 lg:px-14 2xl:min-h-[380px] 2xl:px-20 2xl:py-10">
+            <div className="relative z-[3] flex -translate-y-3 flex-col items-center justify-center sm:-translate-y-4">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
                 {departmentLabel(department)}
               </Badge>
-              <h2 className="max-w-2xl text-3xl font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] dark:text-white dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.55)] sm:text-4xl md:text-5xl 2xl:max-w-3xl 2xl:text-6xl">
+              <h2 className="whitespace-nowrap text-[clamp(1rem,4.5vw,3rem)] font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] dark:text-white dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.55)] 2xl:text-6xl">
                 福达 AI 视觉安全监管平台
               </h2>
             </div>

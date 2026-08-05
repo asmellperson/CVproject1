@@ -92,6 +92,7 @@ recordings/
 *.mov
 *.flv
 *.webm
+!unified_frontend/public/assets/overview/overview-mascot-alpha.webm
 *.jpg
 *.jpeg
 *.png
@@ -184,6 +185,7 @@ nohup.out
 *.mov
 *.flv
 *.webm
+!unified_frontend/public/assets/overview/overview-mascot-alpha.webm
 *.jpg
 !unified_frontend/public/company-home-bg.jpg
 !unified_frontend/public/平台总览动画-蓝白版-poster.jpg
@@ -191,6 +193,7 @@ nohup.out
 *.png
 !unified_frontend/public/mascot.png
 !unified_frontend/public/assets/overview/overview-mascot-poster.png
+!unified_frontend/public/assets/overview/overview-mascot-final.png
 *.bmp
 *.tif
 *.tiff
