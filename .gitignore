@@ -177,12 +177,12 @@ nohup.out
 # Video / image data
 # ======================
 *.mp4
+!unified_frontend/public/assets/overview/overview-mascot.mp4
 *.avi
 *.mkv
 *.mov
 *.flv
 *.webm
-!unified_frontend/public/assets/overview/overview-mascot.webm
 *.jpg
 !unified_frontend/public/company-home-bg.jpg
 *.jpeg

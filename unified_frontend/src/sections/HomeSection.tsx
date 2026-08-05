@@ -719,7 +719,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(232,242,255,0.96)_0%,rgba(222,236,255,0.78)_50%,rgba(218,235,255,0.16)_100%)] dark:bg-[linear-gradient(90deg,rgba(7,17,31,0.94)_0%,rgba(9,25,48,0.82)_45%,rgba(9,25,48,0.24)_100%)] sm:bg-[linear-gradient(90deg,rgba(232,242,255,0.94)_0%,rgba(222,236,255,0.66)_38%,rgba(218,235,255,0.08)_72%)] dark:sm:bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(9,25,48,0.72)_42%,rgba(9,25,48,0.16)_78%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.9),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] dark:bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.18),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0))]" />
           <div className="relative flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pl-[340px] lg:px-14 lg:pl-[390px]">
-            <div className="relative z-[3] flex max-w-3xl flex-col justify-center">
+            <div className="relative z-[3] flex max-w-3xl -translate-y-3 flex-col justify-center sm:-translate-y-4">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
                 {departmentLabel(department)}
               </Badge>
@@ -746,7 +746,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                     event.currentTarget.pause()
                   }}
                 >
-                  <source src="/assets/overview/overview-mascot.webm" type="video/webm" />
+                  <source src="/assets/overview/overview-mascot.mp4" type="video/mp4" />
                 </video>
               </button>
             </div>
