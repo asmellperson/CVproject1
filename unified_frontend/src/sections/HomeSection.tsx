@@ -709,28 +709,28 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
 
   return (
     <>
-      <div className="overview-mobile-shell relative -mx-3 -my-4 min-h-[calc(100dvh-64px)] overflow-hidden bg-[#f5f8fc]/35 p-3 dark:bg-[#07111f]/45 sm:-mx-4 sm:-my-5 sm:min-h-[calc(100vh-72px)] sm:p-4 md:bg-[#f5f8fc] md:dark:bg-[#07111f] lg:-mx-8 lg:-my-6 lg:p-8 2xl:-mx-10 2xl:p-10">
-      <video
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0 h-dvh w-full object-cover object-[45%_center] opacity-35 md:hidden"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        poster="/平台总览动画-蓝白版-poster.jpg?v=3"
-      >
-        <source src="/平台总览动画-蓝白版.mp4?v=3" type="video/mp4" />
-      </video>
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4fb_48%,#f8fafc_100%)] opacity-45 dark:bg-[linear-gradient(180deg,#07111f_0%,#0b1626_48%,#07111f_100%)] md:opacity-100" />
+      <div className="relative -mx-3 -my-4 min-h-[calc(100dvh-64px)] overflow-hidden bg-[#f5f8fc] p-3 dark:bg-[#07111f] sm:-mx-4 sm:-my-5 sm:min-h-[calc(100vh-72px)] sm:p-4 lg:-mx-8 lg:-my-6 lg:p-8 2xl:-mx-10 2xl:p-10">
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#f8fbff_0%,#eef4fb_48%,#f8fafc_100%)] dark:bg-[linear-gradient(180deg,#07111f_0%,#0b1626_48%,#07111f_100%)]" />
       <div aria-hidden className="pointer-events-none absolute inset-x-10 top-8 h-24 rounded-full bg-blue-200/20 blur-3xl dark:bg-blue-500/10" />
 
       <div className="relative z-[1] flex w-full min-w-0 flex-col gap-4 sm:gap-7">
-        <section className="relative overflow-hidden rounded-[14px] border border-white/80 bg-slate-900/55 shadow-[0_22px_54px_rgba(15,44,92,0.16)] backdrop-blur-sm dark:border-slate-800 dark:shadow-[0_22px_54px_rgba(0,0,0,0.36)] md:bg-slate-900 md:backdrop-blur-none sm:rounded-[18px]">
+        <section className="relative overflow-hidden rounded-[14px] border border-white/80 bg-slate-900 shadow-[0_22px_54px_rgba(15,44,92,0.16)] dark:border-slate-800 dark:shadow-[0_22px_54px_rgba(0,0,0,0.36)] sm:rounded-[18px]">
           <img src="/company-home-bg.jpg" alt="" className="absolute inset-0 hidden h-full w-full object-cover object-center md:block" />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(232,242,255,0.96)_0%,rgba(222,236,255,0.78)_50%,rgba(218,235,255,0.16)_100%)] opacity-55 dark:bg-[linear-gradient(90deg,rgba(7,17,31,0.94)_0%,rgba(9,25,48,0.82)_45%,rgba(9,25,48,0.24)_100%)] md:opacity-100 sm:bg-[linear-gradient(90deg,rgba(232,242,255,0.94)_0%,rgba(222,236,255,0.66)_38%,rgba(218,235,255,0.08)_72%)] dark:sm:bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(9,25,48,0.72)_42%,rgba(9,25,48,0.16)_78%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.9),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] dark:bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.18),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0))]" />
-          <div className="relative flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pl-[340px] lg:px-14 lg:pl-[390px] 2xl:min-h-[380px] 2xl:px-20 2xl:py-10 2xl:pl-[620px]">
+          <video
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover object-center opacity-40 md:hidden"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            poster="/平台总览动画-蓝白版-poster.jpg?v=3"
+          >
+            <source src="/平台总览动画-蓝白版.mp4?v=3" type="video/mp4" />
+          </video>
+          <div className="absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(232,242,255,0.96)_0%,rgba(222,236,255,0.78)_50%,rgba(218,235,255,0.16)_100%)] opacity-50 dark:bg-[linear-gradient(90deg,rgba(7,17,31,0.94)_0%,rgba(9,25,48,0.82)_45%,rgba(9,25,48,0.24)_100%)] md:opacity-100 sm:bg-[linear-gradient(90deg,rgba(232,242,255,0.94)_0%,rgba(222,236,255,0.66)_38%,rgba(218,235,255,0.08)_72%)] dark:sm:bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(9,25,48,0.72)_42%,rgba(9,25,48,0.16)_78%)]" />
+          <div className="absolute inset-0 z-[2] bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.9),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] opacity-60 dark:bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.18),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0))] md:opacity-100" />
+          <div className="relative z-[3] flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pl-[340px] lg:px-14 lg:pl-[390px] 2xl:min-h-[380px] 2xl:px-20 2xl:py-10 2xl:pl-[620px]">
             <div className="relative z-[3] flex max-w-3xl -translate-y-3 flex-col justify-center sm:-translate-y-4">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
                 {departmentLabel(department)}
@@ -739,7 +739,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 福达 AI 视觉安全监管平台
               </h2>
             </div>
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-[2] hidden w-[40%] max-w-[560px] translate-x-6 justify-center md:flex 2xl:w-[38%] 2xl:max-w-[680px] 2xl:translate-x-8">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-[2] hidden w-[40%] max-w-[560px] justify-center md:flex 2xl:w-[38%] 2xl:max-w-[680px]">
               <button
                 type="button"
                 className="overview-mascot-trigger pointer-events-auto block w-full cursor-pointer border-0 bg-transparent p-0"
@@ -766,7 +766,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)]">
-          <div className="overview-mobile-glass relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]">
+          <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]">
             <div className="h-1.5 bg-gradient-to-r from-[#001b43] via-blue-500 to-cyan-400" />
             <div className="relative p-5 sm:p-6">
               <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(225,238,255,0.72),rgba(255,255,255,0))] dark:bg-[linear-gradient(180deg,rgba(37,99,235,0.16),rgba(15,23,42,0))]" />
@@ -821,7 +821,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           </div>
 
           <div className={cn(
-            'overview-mobile-glass relative overflow-hidden rounded-[18px] border bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]',
+            'relative overflow-hidden rounded-[18px] border bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]',
             overview.latestAlarm ? 'border-amber-100 dark:border-amber-900/50' : 'border-emerald-100 dark:border-emerald-900/50',
           )}>
             <div className={cn('h-1.5', overview.latestAlarm ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500' : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500')} />
@@ -871,7 +871,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,430px)]">
-          <div className="overview-mobile-glass relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92">
+          <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92">
             <div className={cn(
               'h-1.5',
               platformStatus?.level === 'healthy'
@@ -947,7 +947,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
             </div>
           </div>
 
-          <div className="overview-mobile-glass relative overflow-hidden rounded-[18px] border border-white/90 bg-white p-5 shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 sm:p-6">
+          <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white p-5 shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 sm:p-6">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-600 text-white shadow-sm">
                 <Activity className="h-5 w-5" />
@@ -1169,7 +1169,7 @@ function ModuleEntryCard({ entry, onNavigate }: { entry: ModuleEntry; onNavigate
   return (
     <article
       className={cn(
-        'overview-mobile-glass group relative min-h-[176px] overflow-hidden rounded-[14px] border border-white bg-white shadow-[0_16px_42px_rgba(25,53,93,0.10)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_16px_42px_rgba(0,0,0,0.30)] sm:min-h-[218px]',
+        'group relative min-h-[176px] overflow-hidden rounded-[14px] border border-white bg-white shadow-[0_16px_42px_rgba(25,53,93,0.10)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_16px_42px_rgba(0,0,0,0.30)] sm:min-h-[218px]',
         'transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(25,53,93,0.16)]',
         entry.glow,
       )}
