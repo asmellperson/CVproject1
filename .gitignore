@@ -182,11 +182,13 @@ nohup.out
 *.mov
 *.flv
 *.webm
+!unified_frontend/public/assets/overview/overview-mascot.webm
 *.jpg
 !unified_frontend/public/company-home-bg.jpg
 *.jpeg
 *.png
 !unified_frontend/public/mascot.png
+!unified_frontend/public/assets/overview/overview-mascot-poster.png
 *.bmp
 *.tif
 *.tiff
