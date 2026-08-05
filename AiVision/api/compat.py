@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.auth import require_admin, get_current_user
 from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service, get_department_service
-from api.v2.cameras import encode_frame_to_jpeg, frame_size_headers
+from api.v2.cameras import build_camera_frame_response
 from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
 from core.db import session_scope
 from platform.department.service import DepartmentService
@@ -370,22 +370,13 @@ def compat_get_camera_frame_jpg(
     max_height: int | None = Query(None, ge=1, le=4096),
     orchestrator=Depends(get_current_orchestrator),
 ):
-    if hasattr(orchestrator, "get_camera_frame_info"):
-        frame, updated_at = orchestrator.get_camera_frame_info(key, feature=feature)
-    else:
-        frame, updated_at = orchestrator.get_camera_frame(key, feature=feature), 0.0
-    if frame is None and updated_at:
-        raise HTTPException(status_code=503, detail="camera frame is stale")
-    return Response(
-        content=encode_frame_to_jpeg(
-            frame,
-            quality,
-            max_width=max_width,
-            max_height=max_height,
-            cache_token=(key, feature or "", updated_at),
-        ),
-        media_type="image/jpeg",
-        headers=frame_size_headers(frame),
+    return build_camera_frame_response(
+        key=key,
+        feature=feature,
+        quality=quality,
+        max_width=max_width,
+        max_height=max_height,
+        orchestrator=orchestrator,
     )
 
 

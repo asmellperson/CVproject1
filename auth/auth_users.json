@@ -82,6 +82,27 @@
     "role": "viewer",
     "department": "research_institute",
     "enabled": true
+  },
+    {
+    "employee_id": "260510441",
+    "name": "庄怡",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
+  },
+  {
+    "employee_id": "260510449",
+    "name": "吴博凯",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
+  },
+  {
+    "employee_id": "260510448",
+    "name": "陈苏醒",
+    "role": "admin",
+    "department": "all",
+    "enabled": true
   }
 
 ]

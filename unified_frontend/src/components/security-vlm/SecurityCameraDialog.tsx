@@ -34,10 +34,11 @@ export function SecurityCameraDialog({
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
+    setMessage('')
     try {
       await operation()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error))
+      console.error('[SecurityCameraDialog] 摄像头操作失败', error)
     } finally {
       setBusy(false)
     }

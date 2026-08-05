@@ -25,6 +25,10 @@ from core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
 from features._base.spec import FeatureSpec
 
 
+_FRAME_CHANGE_SAMPLE_STEP = 4
+_FRAME_CHANGE_BLUR_KERNEL = (5, 5)
+
+
 class BaseFunctionConsumer(ABC):
     """
     所有功能消费者的基类，每个功能对应一个独立的 Consumer 线程。
@@ -70,8 +74,9 @@ class BaseFunctionConsumer(ABC):
         self._roi_polygon_cache: dict[int, list] = {}   # 当前摄像头的多边形列表
         self._masks: dict[int, list] = {}               # 预计算的裁剪掩码
         self._masks_roi_input: dict[int, list] = {}     # 上次生成掩码时的 roi_pos 输入，用于检测配置变更
-        self.pre_roi: dict[int, list] = {}              # 上一帧的 ROI 内容，用于帧差跳帧
+        self.pre_roi: dict[int, list] = {}              # 最近一次显著变化的原始 ROI
         self.blur_roi: dict[int, list[np.ndarray]] = defaultdict(list)  # 高斯模糊缓存，加速帧差计算
+        self.frame_change_samples: dict[int, list[np.ndarray]] = {}  # 低分辨率帧差缓存
 
         # ---- 输出帧（Orchestrator 通过此字典向 API/前端提供预览帧）----
         self.result_dict: dict[str, np.ndarray] = {}       # {shm_name: 带标注帧}
@@ -422,12 +427,13 @@ class BaseFunctionConsumer(ABC):
             mask        — 多边形内为 255、外为 0 的单通道掩码，尺寸为包围盒大小。
             y/x min/max — 包围盒坐标，用于从原始帧中裁剪对应区域。
 
-        同时清除与旧 ROI 关联的帧差缓存（pre_roi、blur_roi），
+        同时清除与旧 ROI 关联的帧差缓存，
         避免新旧 ROI 的帧差计算产生错误跳帧判断。
         """
         self._masks_roi_input[camera_id] = roi_pos_raw
         self.pre_roi.pop(camera_id, None)   # 清除旧帧差缓存
         self.blur_roi.pop(camera_id, None)
+        self.frame_change_samples.pop(camera_id, None)
         polygons = self._normalize_roi_pos(roi_pos_raw)
         self._roi_polygon_cache[camera_id] = polygons
 
@@ -456,26 +462,55 @@ class BaseFunctionConsumer(ABC):
             threshold: 差值比率阈值（0~1），默认 0.005（约 1.275/255），
                        低于此值视为画面无变化。
         """
-        if camera_id not in self.pre_roi:
-            # 首帧：初始化缓存，强制处理
-            self.pre_roi[camera_id] = list(roi_list)
-            self.blur_roi[camera_id] = [cv2.GaussianBlur(r, (5, 5), 0) for r in roi_list]
+        if (
+            camera_id not in self.pre_roi
+            or camera_id not in self.frame_change_samples
+            or len(self.pre_roi[camera_id]) != len(roi_list)
+            or len(self.frame_change_samples[camera_id]) != len(roi_list)
+        ):
+            self._initialize_frame_change_state(camera_id, roi_list)
             return True
 
         for i, roi in enumerate(roi_list):
-            if i >= len(self.pre_roi[camera_id]):
-                self.blur_roi[camera_id].append(cv2.GaussianBlur(roi, (5, 5), 0))
-                continue
-            blur = cv2.GaussianBlur(roi, (5, 5), 0)
-            # 4x 下采样后做绝对差，减少计算量
-            quick = cv2.absdiff(blur[::4, ::4], self.pre_roi[camera_id][i][::4, ::4])
+            sample = self._frame_change_sample(roi)
+            previous_sample = self.frame_change_samples[camera_id][i]
+            if sample.shape != previous_sample.shape:
+                self._initialize_frame_change_state(camera_id, roi_list)
+                return True
+
+            quick = cv2.absdiff(sample, previous_sample)
             ratio = quick.mean() / 255.0
             if ratio > threshold:
-                # 画面有变化：更新缓存并返回 True
-                self.blur_roi[camera_id][i] = blur
+                # 仅显著变化时计算完整分辨率模糊帧，供门检测等业务使用。
+                self.frame_change_samples[camera_id][i] = sample
+                self.blur_roi[camera_id][i] = cv2.GaussianBlur(
+                    roi,
+                    _FRAME_CHANGE_BLUR_KERNEL,
+                    0,
+                )
                 self.pre_roi[camera_id][i] = roi
                 return True
         return False
+
+    @staticmethod
+    def _frame_change_sample(roi: np.ndarray) -> np.ndarray:
+        """先 4 倍下采样再模糊，生成仅用于快速帧差判断的小图。"""
+        sampled = np.ascontiguousarray(
+            roi[::_FRAME_CHANGE_SAMPLE_STEP, ::_FRAME_CHANGE_SAMPLE_STEP]
+        )
+        return cv2.GaussianBlur(sampled, _FRAME_CHANGE_BLUR_KERNEL, 0)
+
+    def _initialize_frame_change_state(self, camera_id: int, roi_list: list[np.ndarray]) -> None:
+        """初始化帧差小图，同时保留业务处理依赖的完整模糊帧。"""
+        self.pre_roi[camera_id] = list(roi_list)
+        self.frame_change_samples[camera_id] = [
+            self._frame_change_sample(roi)
+            for roi in roi_list
+        ]
+        self.blur_roi[camera_id] = [
+            cv2.GaussianBlur(roi, _FRAME_CHANGE_BLUR_KERNEL, 0)
+            for roi in roi_list
+        ]
 
     # ------------------------------------------------------------------ #
     #  推理调度                                                             #

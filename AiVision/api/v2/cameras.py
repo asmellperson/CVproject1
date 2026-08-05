@@ -5,6 +5,7 @@ api/v2/cameras.py
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 import cv2
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from api.auth import require_admin
 from api.deps import get_camera_service, get_current_orchestrator
+from core.logger import logger
+from core.settings import settings
 
 
 router = APIRouter(prefix="/api/v2/cameras", tags=["cameras"])
@@ -163,6 +166,53 @@ def frame_size_headers(frame) -> dict[str, str]:
     }
 
 
+def build_camera_frame_response(
+    *,
+    key: str,
+    feature: str | None,
+    quality: int,
+    max_width: int | None,
+    max_height: int | None,
+    orchestrator,
+) -> Response:
+    """读取、编码并返回预览帧；慢请求输出分阶段耗时。"""
+    started_at = time.monotonic()
+    if hasattr(orchestrator, "get_camera_frame_info"):
+        frame, updated_at = orchestrator.get_camera_frame_info(key, feature=feature)
+    else:
+        frame, updated_at = orchestrator.get_camera_frame(key, feature=feature), 0.0
+    lookup_seconds = time.monotonic() - started_at
+
+    if frame is None and updated_at:
+        raise HTTPException(status_code=503, detail="camera frame is stale")
+
+    encode_started_at = time.monotonic()
+    content = encode_frame_to_jpeg(
+        frame,
+        quality,
+        max_width=max_width,
+        max_height=max_height,
+        cache_token=(key, feature or "", updated_at),
+    )
+    encode_seconds = time.monotonic() - encode_started_at
+    total_seconds = time.monotonic() - started_at
+
+    if total_seconds >= settings.runtime.slow_frame_log_seconds:
+        height, width = frame.shape[:2]
+        logger.warning(
+            f"[CameraFrame] 慢响应 key={key} feature={feature or '-'} "
+            f"lookup={lookup_seconds:.3f}s encode={encode_seconds:.3f}s "
+            f"total={total_seconds:.3f}s source={width}x{height} "
+            f"max_width={max_width or '-'} max_height={max_height or '-'}"
+        )
+
+    return Response(
+        content=content,
+        media_type="image/jpeg",
+        headers=frame_size_headers(frame),
+    )
+
+
 @router.get("/{key}/frame.jpg")
 def get_camera_frame_jpg(
     key: str,
@@ -172,20 +222,11 @@ def get_camera_frame_jpg(
     max_height: int | None = Query(None, ge=1, le=4096),
     orchestrator=Depends(get_current_orchestrator),
 ) -> Response:
-    if hasattr(orchestrator, "get_camera_frame_info"):
-        frame, updated_at = orchestrator.get_camera_frame_info(key, feature=feature)
-    else:
-        frame, updated_at = orchestrator.get_camera_frame(key, feature=feature), 0.0
-    if frame is None and updated_at:
-        raise HTTPException(status_code=503, detail="camera frame is stale")
-    return Response(
-        content=encode_frame_to_jpeg(
-            frame,
-            quality,
-            max_width=max_width,
-            max_height=max_height,
-            cache_token=(key, feature or "", updated_at),
-        ),
-        media_type="image/jpeg",
-        headers=frame_size_headers(frame),
+    return build_camera_frame_response(
+        key=key,
+        feature=feature,
+        quality=quality,
+        max_width=max_width,
+        max_height=max_height,
+        orchestrator=orchestrator,
     )

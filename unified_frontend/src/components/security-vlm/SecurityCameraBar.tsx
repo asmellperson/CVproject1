@@ -62,14 +62,16 @@ export function SecurityCameraBar({
                 ? '运行中'
                 : camera.desired_running
                   ? '重启中'
-                  : camera.last_error
-                    ? '异常'
-                    : '已停止'}
+                  : '已停止'}
             </Badge>
           </div>
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-xs text-slate-500">
-              {camera.last_error || (camera.running ? '检测与会话处理中' : '未产生 VLM 调用')}
+              {camera.running
+                ? '检测与会话处理中'
+                : camera.desired_running
+                  ? '正在恢复画面'
+                  : '摄像头已停止'}
             </span>
             {isAdmin && (
               <span className="flex shrink-0 gap-1" onClick={(event) => event.stopPropagation()}>

@@ -33,6 +33,14 @@ def _set_spawn_start_method() -> None:
         pass
 
 
+def _configure_opencv_threads(thread_count: int) -> int:
+    """限制当前进程的 OpenCV 内部线程池，并返回实际生效值。"""
+    import cv2
+
+    cv2.setNumThreads(thread_count)
+    return int(cv2.getNumThreads())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AiVision FastAPI Server")
     parser.add_argument("--host", default=None, help="覆盖 API_HOST")
@@ -42,12 +50,20 @@ def main() -> None:
     _set_spawn_start_method()
     _load_dotenv_if_available()
 
+    from core.settings import settings
+
+    actual_opencv_threads = _configure_opencv_threads(settings.runtime.opencv_threads)
+
     import uvicorn
 
     from api.app import create_app
     from core.logger import logger
-    from core.settings import settings
     from platform.orchestrator import init_orchestrator
+
+    logger.info(
+        f"[main] OpenCV 线程限制 requested={settings.runtime.opencv_threads} "
+        f"actual={actual_opencv_threads}"
+    )
 
     mp_manager = mp.Manager()
     orchestrator = init_orchestrator(mp_manager)

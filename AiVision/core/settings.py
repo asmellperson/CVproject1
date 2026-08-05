@@ -92,6 +92,19 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+class RuntimeSettings(BaseSettings):
+    """
+    AiVision 主进程的图像处理运行参数。
+
+    OpenCV 默认按宿主机全部 CPU 创建内部线程池。在多摄像头、多 Consumer
+    场景中，应用层已经存在并发，继续按全机核心数并行会造成线程争抢。
+    """
+    opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")
+    slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
 class ModelPathSettings(BaseSettings):
     """
     本机模型路径配置。
@@ -106,7 +119,7 @@ class ModelPathSettings(BaseSettings):
 
 class Settings:
     """
-    配置聚合根，将四个子配置组合为单一访问点。
+    配置聚合根，将各子配置组合为单一访问点。
 
     通过模块级单例 settings 访问，无需直接实例化本类：
         from core.settings import settings
@@ -118,6 +131,7 @@ class Settings:
         self.storage = StorageSettings()
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
+        self.runtime = RuntimeSettings()
         self.model_paths = ModelPathSettings()
 
 

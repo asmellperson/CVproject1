@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
-  CircleDollarSign,
   Columns2,
   Clock3,
   Crosshair,
@@ -84,8 +83,12 @@ function formatNumber(value?: number, suffix = '') {
 function statusBadge(status?: string) {
   if (status === 'compliant') return <Badge className="bg-emerald-600">合规</Badge>
   if (status === 'non_compliant') return <Badge variant="destructive">不合规</Badge>
-  if (status === 'error') return <Badge className="bg-amber-500">错误</Badge>
+  if (status === 'error') return <Badge variant="secondary">未判定</Badge>
   return <Badge variant="secondary">未知</Badge>
+}
+
+function logSecurityVlmError(action: string, error: unknown) {
+  console.error(`[SecurityVlm] ${action}`, error)
 }
 
 function boolMark(value?: boolean | null) {
@@ -169,7 +172,6 @@ export function SecurityVlmSection({
   const { isAdmin } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [health, setHealth] = useState<SecurityVlmHealth | null>(null)
-  const [message, setMessage] = useState('正在连接安检流程规范检测服务...')
   const [controlMessage, setControlMessage] = useState('')
   const [controlBusy, setControlBusy] = useState(false)
   const [busyCameraId, setBusyCameraId] = useState<string | null>(null)
@@ -225,7 +227,6 @@ export function SecurityVlmSection({
       if (previous && nextCameras.some((camera) => camera.camera_id === previous)) return previous
       return nextCameras.find((camera) => camera.camera_id !== nextCameras[0]?.camera_id)?.camera_id
     })
-    setMessage('服务已连接')
   }
 
   const handleAllCameras = async (action: 'start' | 'stop') => {
@@ -239,7 +240,7 @@ export function SecurityVlmSection({
       if (action === 'stop') {
         await stopAllSecurityVlmCameras(department)
         setVideoNonce(Date.now())
-        setControlMessage('全部检测已关闭，VLM 不会继续产生新的调用费用。')
+        setControlMessage('全部检测已关闭。')
       } else {
         await startAllSecurityVlmCameras(department)
         setVideoNonce(Date.now())
@@ -247,7 +248,8 @@ export function SecurityVlmSection({
       }
       await loadHealth()
     } catch (error) {
-      setControlMessage(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+      setControlMessage('')
+      logSecurityVlmError(`${action === 'stop' ? '关闭' : '开启'}全部检测失败`, error)
     } finally {
       setControlBusy(false)
     }
@@ -272,11 +274,10 @@ export function SecurityVlmSection({
               ? previous
               : nextCameras[1]?.camera_id
           ))
-          setMessage('服务已连接')
         }
       } catch (error) {
         if (mounted) {
-          setMessage(`连接失败：${error instanceof Error ? error.message : String(error)}`)
+          logSecurityVlmError('读取运行状态失败', error)
         }
       }
     }
@@ -306,7 +307,8 @@ export function SecurityVlmSection({
         ))
       })
       .catch((error) => {
-        setRoiMessage(`ROI 读取失败：${error instanceof Error ? error.message : String(error)}`)
+        setRoiMessage('')
+        logSecurityVlmError('读取 ROI 失败', error)
       })
   }, [activeTab, department, selectedCameraId])
 
@@ -514,7 +516,8 @@ export function SecurityVlmSection({
       setCurrentRoi((prev) => (prev && names.includes(prev) ? prev : names[0] || null))
       setRoiMessage('ROI 已保存，后端会自动热加载。')
     } catch (error) {
-      setRoiMessage(`ROI 保存失败：${error instanceof Error ? error.message : String(error)}`)
+      setRoiMessage('')
+      logSecurityVlmError('保存 ROI 失败', error)
     } finally {
       setSavingRoi(false)
     }
@@ -535,7 +538,8 @@ export function SecurityVlmSection({
       await loadHealth()
       setControlMessage(`${camera.name} 已${shouldStop ? '关闭' : '开启'}。`)
     } catch (error) {
-      setControlMessage(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+      setControlMessage('')
+      logSecurityVlmError(`${shouldStop ? '关闭' : '开启'}摄像头失败`, error)
     } finally {
       setBusyCameraId(null)
     }
@@ -555,7 +559,8 @@ export function SecurityVlmSection({
       await loadHealth()
       setControlMessage(`${camera.name} 已重启。`)
     } catch (error) {
-      setControlMessage(`重启失败：${error instanceof Error ? error.message : String(error)}`)
+      setControlMessage('')
+      logSecurityVlmError('重启摄像头失败', error)
     } finally {
       setBusyCameraId(null)
     }
@@ -579,9 +584,8 @@ export function SecurityVlmSection({
       setCameraDialogKey((value) => value + 1)
       setCameraDialogOpen(true)
     } catch (error) {
-      setControlMessage(
-        `摄像头编辑信息读取失败：${error instanceof Error ? error.message : String(error)}`,
-      )
+      setControlMessage('')
+      logSecurityVlmError('读取摄像头编辑信息失败', error)
     } finally {
       setBusyCameraId(null)
     }
@@ -756,7 +760,10 @@ export function SecurityVlmSection({
               className="gap-2"
               onClick={() => {
                 setVideoNonce(Date.now())
-                loadHealth().catch((error) => setMessage(`刷新失败：${error instanceof Error ? error.message : String(error)}`))
+                loadHealth().catch((error) => {
+                  setControlMessage('')
+                  logSecurityVlmError('刷新运行状态失败', error)
+                })
               }}
             >
               <RefreshCw className="h-4 w-4" />
@@ -777,47 +784,56 @@ export function SecurityVlmSection({
           onAdd={() => void openCameraDialog(null)}
         />
 
-        <TabsContent value="dashboard" className="space-y-6">
+        <TabsContent
+          value="dashboard"
+          className="mx-auto w-full space-y-6 2xl:w-[92%] 2xl:max-w-[120rem]"
+        >
           <Card className="overflow-hidden">
-            <CardHeader className="flex flex-col gap-3 border-b bg-slate-50 lg:flex-row lg:items-center lg:justify-between">
+            <CardHeader className="border-b bg-slate-50">
               <div className="min-w-0">
-                <CardTitle className="text-lg">摄像头画面</CardTitle>
-                <p className="mt-1 text-sm text-slate-500">{controlMessage || message}</p>
+                <CardTitle className="text-lg">安检检测概览</CardTitle>
+                {controlMessage && (
+                  <p className="mt-1 text-sm text-slate-500">{controlMessage}</p>
+                )}
               </div>
             </CardHeader>
-            <CardContent className="p-3">
-              <div className={cn('grid gap-3', dualView && 'lg:grid-cols-2')}>
-                <SecurityVideoPanel
-                  department={department}
-                  cameras={cameras}
-                  cameraId={selectedCameraId}
-                  nonce={videoNonce}
-                  onCameraChange={setSelectedCameraId}
-                />
-                {dualView && (
+            <CardContent className="space-y-6 p-5 lg:p-6 2xl:space-y-8 2xl:p-8">
+              <section className="w-full space-y-3 2xl:space-y-4">
+                <h3 className="text-base font-semibold text-slate-800 2xl:text-lg">数据汇总</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-4">
+                  <StatCard title="总 session" value={formatNumber(stats.total)} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
+                  <StatCard title="合规" value={formatNumber(stats.compliant)} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />
+                  <StatCard title="不合规" value={formatNumber(stats.non_compliant)} icon={<AlertTriangle className="h-5 w-5 text-red-600" />} valueClassName="text-red-600" />
+                  <StatCard title="合规率" value={formatNumber(stats.rate, '%')} icon={<FileCheck2 className="h-5 w-5 text-cyan-600" />} valueClassName="text-cyan-600" />
+                  <StatCard title="VLM 队列" value={formatNumber(stats.queue)} icon={<Clock3 className="h-5 w-5 text-slate-600" />} />
+                </div>
+              </section>
+
+              <section className="w-full space-y-3 border-t pt-6 2xl:space-y-4 2xl:pt-8">
+                <h3 className="text-base font-semibold text-slate-800 2xl:text-lg">安检画面</h3>
+                <div className={cn('grid gap-4 2xl:gap-5', dualView && 'lg:grid-cols-2')}>
                   <SecurityVideoPanel
                     department={department}
                     cameras={cameras}
-                    cameraId={secondaryCameraId}
+                    cameraId={selectedCameraId}
                     nonce={videoNonce}
-                    onCameraChange={setSecondaryCameraId}
+                    onCameraChange={setSelectedCameraId}
                   />
-                )}
-              </div>
+                  {dualView && (
+                    <SecurityVideoPanel
+                      department={department}
+                      cameras={cameras}
+                      cameraId={secondaryCameraId}
+                      nonce={videoNonce}
+                      onCameraChange={setSecondaryCameraId}
+                    />
+                  )}
+                </div>
+              </section>
             </CardContent>
           </Card>
 
           <HistoryTable items={history} cameras={cameras} />
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-            <StatCard title="总 session" value={formatNumber(stats.total)} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
-            <StatCard title="合规" value={formatNumber(stats.compliant)} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />
-            <StatCard title="不合规" value={formatNumber(stats.non_compliant)} icon={<AlertTriangle className="h-5 w-5 text-red-600" />} valueClassName="text-red-600" />
-            <StatCard title="错误" value={formatNumber(stats.error)} icon={<XCircle className="h-5 w-5 text-amber-600" />} valueClassName="text-amber-600" />
-            <StatCard title="合规率" value={formatNumber(stats.rate, '%')} icon={<FileCheck2 className="h-5 w-5 text-cyan-600" />} valueClassName="text-cyan-600" />
-            <StatCard title="VLM 队列" value={formatNumber(stats.queue)} icon={<Clock3 className="h-5 w-5 text-slate-600" />} />
-            <StatCard title="今日花费" value={`¥${stats.budget?.spent_yuan ?? 0}`} icon={<CircleDollarSign className="h-5 w-5 text-slate-600" />} />
-          </div>
         </TabsContent>
 
         <TabsContent value="roi" className="space-y-6">
@@ -966,15 +982,13 @@ function StatCard({
   valueClassName?: string
 }) {
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-3 p-4">
-        <div>
-          <p className="text-sm text-slate-500">{title}</p>
-          <p className={cn('mt-1 text-2xl font-bold text-slate-900', valueClassName)}>{value}</p>
-        </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">{icon}</div>
-      </CardContent>
-    </Card>
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3 2xl:justify-center 2xl:gap-4 2xl:px-5 2xl:py-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm 2xl:h-12 2xl:w-12">{icon}</div>
+      <div className="min-w-0">
+        <p className="truncate text-base font-semibold text-slate-700 2xl:text-lg">{title}</p>
+        <p className={cn('mt-0.5 text-2xl font-bold tracking-tight text-slate-900 2xl:text-3xl', valueClassName)}>{value}</p>
+      </div>
+    </div>
   )
 }
 
@@ -1099,7 +1113,9 @@ function HistoryTable({
                 <TableCell>{boolMark(item.middle_checked)}</TableCell>
                 <TableCell>{boolMark(item.lower_checked)}</TableCell>
                 <TableCell>{boolMark(item.arms_open)}</TableCell>
-                <TableCell className="max-w-md whitespace-normal">{item.reason || item.error || '-'}</TableCell>
+                <TableCell className="max-w-md whitespace-normal">
+                  {item.status === 'error' ? '-' : item.reason || '-'}
+                </TableCell>
               </TableRow>
             ))}
             {filteredItems.length === 0 && (
