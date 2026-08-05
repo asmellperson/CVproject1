@@ -718,7 +718,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           <img src="/company-home-bg.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(232,242,255,0.96)_0%,rgba(222,236,255,0.78)_50%,rgba(218,235,255,0.16)_100%)] dark:bg-[linear-gradient(90deg,rgba(7,17,31,0.94)_0%,rgba(9,25,48,0.82)_45%,rgba(9,25,48,0.24)_100%)] sm:bg-[linear-gradient(90deg,rgba(232,242,255,0.94)_0%,rgba(222,236,255,0.66)_38%,rgba(218,235,255,0.08)_72%)] dark:sm:bg-[linear-gradient(90deg,rgba(7,17,31,0.92)_0%,rgba(9,25,48,0.72)_42%,rgba(9,25,48,0.16)_78%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.9),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] dark:bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.18),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0))]" />
-          <div className="relative flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pr-[340px] lg:px-14 lg:pr-[390px]">
+          <div className="relative flex min-h-[240px] px-5 py-5 sm:min-h-[280px] sm:px-10 sm:py-7 md:pl-[340px] lg:px-14 lg:pl-[390px]">
             <div className="relative z-[3] flex max-w-3xl flex-col justify-center">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
                 {departmentLabel(department)}
@@ -727,7 +727,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 福达 AI 视觉安全监管平台
               </h2>
             </div>
-            <div className="pointer-events-none absolute right-4 bottom-0 z-[2] flex w-[140px] justify-center sm:right-8 sm:w-[190px] md:right-10 md:w-[300px] lg:right-14">
+            <div className="pointer-events-none absolute left-4 bottom-0 z-[2] flex w-[140px] justify-center sm:left-8 sm:w-[190px] md:left-10 md:w-[300px] lg:left-14">
               <button
                 type="button"
                 className="overview-mascot-trigger pointer-events-auto block w-full cursor-pointer border-0 bg-transparent p-0"

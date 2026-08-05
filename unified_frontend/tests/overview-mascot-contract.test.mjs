@@ -35,7 +35,7 @@ test('plays once on entry and replays only when the mascot is clicked', () => {
 })
 
 test('keeps the mascot non-blocking and responsive', () => {
-  assert.match(section, /absolute right-4/)
+  assert.match(section, /absolute left-4/)
   assert.match(section, /w-\[140px\]/)
   assert.match(section, /md:w-\[300px\]/)
   assert.match(section, /pointer-events-none/)
