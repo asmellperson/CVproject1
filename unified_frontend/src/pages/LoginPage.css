@@ -9,13 +9,7 @@
   min-height: 100svh;
   overflow: hidden;
   color: var(--login-ink);
-  background: linear-gradient(
-    90deg,
-    var(--login-video-bg) 0%,
-    var(--login-video-bg) 55%,
-    var(--login-page-bg) 55%,
-    var(--login-page-bg) 100%
-  );
+  background: var(--login-page-bg);
 }
 
 .login-page,
@@ -26,7 +20,7 @@
 .login-page::after {
   position: absolute;
   z-index: 0;
-  inset: 0 0 0 55%;
+  inset: 0;
   pointer-events: none;
   content: '';
   background:
@@ -40,7 +34,6 @@
   display: grid;
   grid-template-columns: 55fr 45fr;
   width: 100%;
-  max-width: 1500px;
   height: 100vh;
   min-height: 100svh;
   margin: 0 auto;
@@ -451,17 +444,11 @@
 
 @media (max-width: 1200px) {
   .login-page {
-    background: linear-gradient(
-      90deg,
-      var(--login-video-bg) 0%,
-      var(--login-video-bg) 45%,
-      var(--login-page-bg) 45%,
-      var(--login-page-bg) 100%
-    );
+    background: var(--login-page-bg);
   }
 
   .login-page::after {
-    inset: 0 0 0 45%;
+    inset: 0;
   }
 
   .login-layout {
@@ -593,6 +580,34 @@
 
   .login-security-note {
     margin-top: 16px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .login-brand-lockup {
+    top: 46px;
+    left: clamp(46px, 4.2vw, 86px);
+  }
+
+  .login-video-stage {
+    inset: 108px 0 36px;
+  }
+
+  .login-video-glow {
+    width: min(860px, 76%);
+    filter: blur(42px);
+  }
+
+  .login-tech-ring {
+    width: min(790px, 70%);
+  }
+
+  .login-video-crop {
+    width: min(760px, 68%);
+  }
+
+  .login-auth-panel {
+    padding: 48px clamp(48px, 5vw, 112px);
   }
 }
 
