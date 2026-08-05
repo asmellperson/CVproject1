@@ -736,17 +736,17 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
               >
                 <video
                   ref={overviewMascotVideoRef}
-                  className="overview-mascot-media block h-full w-full select-none object-cover object-right opacity-30 mix-blend-multiply [mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)]"
+                  className="overview-mascot-media block h-full w-full select-none object-cover object-right opacity-50 mix-blend-multiply [mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,#000_0%,#000_28%,transparent_100%)]"
                   autoPlay
                   muted
                   playsInline
                   preload="auto"
-                  poster="/平台总览动画-蓝白版-poster.jpg"
+                  poster="/平台总览动画-蓝白版-poster.jpg?v=3"
                   onEnded={(event) => {
                     event.currentTarget.pause()
                   }}
                 >
-                  <source src="/平台总览动画-蓝白版.mp4" type="video/mp4" />
+                  <source src="/平台总览动画-蓝白版.mp4?v=3" type="video/mp4" />
                 </video>
               </button>
             </div>
