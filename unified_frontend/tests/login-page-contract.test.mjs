@@ -45,8 +45,8 @@ test('keeps passwords hidden until the user presses the visibility button', () =
 test('uses measured video colors and edge fading in page-scoped CSS', () => {
   assert.match(css, /--login-video-bg:\s*#0b1b39/)
   assert.match(css, /--login-video-bg-soft:\s*#1a2c50/)
-  assert.match(css, /-webkit-mask-image:\s*radial-gradient/)
-  assert.match(css, /mask-image:\s*radial-gradient/)
+  assert.match(css, /^\s*-webkit-mask-image:\s*radial-gradient/m)
+  assert.match(css, /^\s*mask-image:\s*radial-gradient/m)
   assert.match(css, /\.login-video-crop\s*{[\s\S]*?overflow:\s*hidden/)
   assert.match(css, /@media \(max-width: 1200px\)/)
   assert.match(css, /@media \(max-width: 767px\)/)
