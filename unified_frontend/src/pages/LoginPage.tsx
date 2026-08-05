@@ -1,10 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { LockKeyhole, LogIn } from 'lucide-react'
+import {
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  LockKeyhole,
+  LogIn,
+  ShieldCheck,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/auth/useAuth'
+import './LoginPage.css'
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 export function LoginPage() {
   const { login } = useAuth()
@@ -12,6 +22,21 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [videoFailed, setVideoFailed] = useState(false)
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(
+    () => window.matchMedia(REDUCED_MOTION_QUERY).matches,
+  )
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(REDUCED_MOTION_QUERY)
+    const handleChange = (event: MediaQueryListEvent) => {
+      setPrefersReducedMotion(event.matches)
+    }
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -26,57 +51,148 @@ export function LoginPage() {
     }
   }
 
+  const showVideoPoster = prefersReducedMotion || videoFailed
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <div className="w-full max-w-[420px] rounded-lg border border-slate-200 bg-white p-7 shadow-xl shadow-slate-900/8 dark:border-slate-800 dark:bg-slate-900/95 dark:shadow-slate-950/40">
-        <div className="mb-7 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#09265a] text-white dark:bg-blue-500">
-            <LockKeyhole className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">福达视觉平台</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">统一登录鉴权</p>
-          </div>
-        </div>
-
-        <form className="space-y-5" onSubmit={onSubmit}>
-          <div className="space-y-2">
-            <Label htmlFor="account">工号或姓名</Label>
-            <Input
-              id="account"
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              autoComplete="username"
-              placeholder="请输入工号或姓名"
-              required
+    <main className="login-page">
+      <div className="login-layout">
+        <section
+          className="login-brand-panel"
+          aria-label="福达视觉平台品牌展示"
+        >
+          <div className="login-brand-lockup">
+            <img
+              className="login-brand-mascot"
+              src="/mascot.png"
+              alt="福达视觉平台标志"
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="password">密码</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              placeholder="请输入密码"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-200">
-              {error}
+            <div className="login-brand-copy">
+              <p className="login-brand-name">福达视觉平台</p>
+              <p className="login-brand-english">FUDA VISION PLATFORM</p>
             </div>
-          )}
+          </div>
 
-          <Button type="submit" className="w-full gap-2" disabled={submitting}>
-            <LogIn className="h-4 w-4" />
-            {submitting ? '登录中' : '登录'}
-          </Button>
-        </form>
+          <div className="login-video-stage" aria-hidden="true">
+            <div className="login-video-glow" />
+            <div className="login-tech-ring" />
+            <div className="login-video-crop">
+              {showVideoPoster ? (
+                <img
+                  className="login-video-media"
+                  src="/assets/login/login-video-cover.png"
+                  alt=""
+                />
+              ) : (
+                <video
+                  className="login-video-media"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  poster="/assets/login/login-video-cover.png"
+                  onError={() => setVideoFailed(true)}
+                >
+                  <source
+                    src="/assets/login/login-mascot.mp4"
+                    type="video/mp4"
+                  />
+                </video>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="login-auth-panel">
+          <div className="login-card">
+            <header className="login-card-header">
+              <div className="login-access-label">
+                <span className="login-access-icon">
+                  <LockKeyhole aria-hidden="true" />
+                </span>
+                <span>SECURE ACCESS</span>
+              </div>
+              <h1 className="login-title">福达视觉平台</h1>
+              <p className="login-subtitle">统一登录鉴权</p>
+            </header>
+
+            <form className="login-form" onSubmit={onSubmit}>
+              <div className="login-form-field">
+                <Label className="login-label" htmlFor="account">
+                  工号或姓名
+                </Label>
+                <Input
+                  className="login-input"
+                  id="account"
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  autoComplete="username"
+                  placeholder="请输入工号或姓名"
+                  required
+                />
+              </div>
+
+              <div className="login-form-field">
+                <Label className="login-label" htmlFor="password">
+                  密码
+                </Label>
+                <div className="login-password-field">
+                  <Input
+                    className="login-input login-password-input"
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="current-password"
+                    placeholder="请输入密码"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="login-password-toggle"
+                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="login-toggle-icon" aria-hidden="true" />
+                    ) : (
+                      <Eye className="login-toggle-icon" aria-hidden="true" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="login-error" role="alert">
+                  {error}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className={`login-submit${submitting ? ' is-loading' : ''}`}
+                disabled={submitting}
+                aria-busy={submitting}
+              >
+                {submitting ? (
+                  <LoaderCircle className="login-spinner" aria-hidden="true" />
+                ) : (
+                  <LogIn className="login-submit-icon" aria-hidden="true" />
+                )}
+                {submitting ? '登录中' : '登录'}
+              </Button>
+            </form>
+
+            <div className="login-security-note">
+              <ShieldCheck aria-hidden="true" />
+              <span>企业级身份认证 · 安全访问受保护</span>
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
   )
 }
