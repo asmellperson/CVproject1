@@ -409,3 +409,15 @@
 .video-overlay svg {
   pointer-events: none;
 }
+@media (max-width: 767px) {
+  .overview-mobile-shell .overview-mobile-glass {
+    background-color: rgb(255 255 255 / 72%) !important;
+    border-color: rgb(255 255 255 / 78%) !important;
+    backdrop-filter: blur(12px);
+  }
+
+  .dark .overview-mobile-shell .overview-mobile-glass {
+    background-color: rgb(15 23 42 / 74%) !important;
+    border-color: rgb(51 65 85 / 72%) !important;
+  }
+}
