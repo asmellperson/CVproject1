@@ -21,6 +21,14 @@ async function readIfPresent(url) {
 const page = await readIfPresent(pageUrl)
 const css = await readIfPresent(cssUrl)
 
+function openingTags(markup, tagName) {
+  return [...markup.matchAll(new RegExp(`<${tagName}\\b[^>]*>`, 'g'))].map((match) => match[0])
+}
+
+function cssRuleBody(stylesheet, selector) {
+  return stylesheet.match(new RegExp(`${selector}\\s*{([^}]*)}`))?.[1] ?? ''
+}
+
 test('keeps the existing login request and error lifecycle', () => {
   assert.match(page, /await login\(account\.trim\(\), password\)/)
   assert.match(page, /setError\(err instanceof Error \? err\.message : '登录失败'\)/)
@@ -29,25 +37,46 @@ test('keeps the existing login request and error lifecycle', () => {
 })
 
 test('declares the browser-compatible mascot video contract', () => {
-  assert.match(page, /<video[\s\S]*?autoPlay[\s\S]*?muted[\s\S]*?loop[\s\S]*?playsInline[\s\S]*?preload="auto"/)
-  assert.match(page, /<source src="\/assets\/login\/login-mascot\.mp4" type="video\/mp4"/)
-  assert.doesNotMatch(page, /\scontrols(?:=|\s|>)/)
-  assert.match(page, /login-video-cover\.png/)
+  const video = page.match(/<video\b[\s\S]*?<\/video>/)?.[0] ?? ''
+  const source = openingTags(video, 'source')[0] ?? ''
+  const fallbackImage = openingTags(video, 'img')[0] ?? ''
+
+  assert.ok(video, 'expected a mascot video element')
+  assert.match(video, /\bautoPlay\b/)
+  assert.match(video, /\bmuted\b/)
+  assert.match(video, /\bloop\b/)
+  assert.match(video, /\bplaysInline\b/)
+  assert.match(video, /\bpreload="auto"/)
+  assert.doesNotMatch(video, /\scontrols(?:=|\s|>)/)
+  assert.match(video, /\bposter="\/assets\/login\/login-video-cover\.png"/)
+  assert.match(source, /\bsrc="\/assets\/login\/login-mascot\.mp4"/)
+  assert.match(source, /\btype="video\/mp4"/)
+  assert.match(fallbackImage, /\bsrc="\/assets\/login\/login-video-cover\.png"/)
 })
 
 test('keeps passwords hidden until the user presses the visibility button', () => {
+  const passwordToggle = openingTags(page, 'button').find((button) =>
+    /aria-label={showPassword \? '隐藏密码' : '显示密码'}/.test(button),
+  ) ?? ''
+
   assert.match(page, /const \[showPassword, setShowPassword\] = useState\(false\)/)
   assert.match(page, /type={showPassword \? 'text' : 'password'}/)
-  assert.match(page, /aria-label={showPassword \? '隐藏密码' : '显示密码'}/)
-  assert.match(page, /aria-pressed={showPassword}/)
+  assert.match(passwordToggle, /\btype="button"/)
+  assert.match(passwordToggle, /onClick={\(\) => setShowPassword\((?:\(\w+\) => !\w+|!showPassword)\)}/)
+  assert.match(passwordToggle, /aria-label={showPassword \? '隐藏密码' : '显示密码'}/)
+  assert.match(passwordToggle, /aria-pressed={showPassword}/)
 })
 
 test('uses measured video colors and edge fading in page-scoped CSS', () => {
+  const videoMedia = cssRuleBody(css, '\\.login-video-media')
+  const videoCrop = cssRuleBody(css, '\\.login-video-crop')
+
+  assert.match(page, /import '\.\/LoginPage\.css'/)
   assert.match(css, /--login-video-bg:\s*#0b1b39/)
   assert.match(css, /--login-video-bg-soft:\s*#1a2c50/)
-  assert.match(css, /^\s*-webkit-mask-image:\s*radial-gradient/m)
-  assert.match(css, /^\s*mask-image:\s*radial-gradient/m)
-  assert.match(css, /\.login-video-crop\s*{[\s\S]*?overflow:\s*hidden/)
+  assert.match(videoMedia, /^\s*-webkit-mask-image:\s*radial-gradient/m)
+  assert.match(videoMedia, /^\s*mask-image:\s*radial-gradient/m)
+  assert.match(videoCrop, /^\s*overflow:\s*hidden/m)
   assert.match(css, /@media \(max-width: 1200px\)/)
   assert.match(css, /@media \(max-width: 767px\)/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/)
