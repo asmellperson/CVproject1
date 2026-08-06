@@ -266,10 +266,10 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-950 dark:text-slate-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold text-slate-900">报警记录</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">报警记录</h2>
           <p className="text-slate-500">查看报警事件、截图与处置线索</p>
         </div>
         <Button variant="outline" className="gap-2" onClick={exportJson}>
@@ -451,10 +451,10 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
 
               <div className="rounded-lg border bg-slate-50 p-3 text-sm">{selectedAlarm.reason || '-'}</div>
 
-              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-slate-900">处置状态</div>
+                    <div className="font-semibold text-slate-900 dark:text-slate-100">处置状态</div>
                     <div className="mt-1 text-slate-500">
                       {selectedAlarm.disposition_updated_at
                         ? `${formatTime(selectedAlarm.disposition_updated_at)} 由 ${selectedAlarm.disposition_updated_by?.name || selectedAlarm.disposition_updated_by?.employee_id || '-'} 更新`
@@ -577,7 +577,7 @@ function StatCard({
   valueClassName?: string
 }) {
   return (
-    <Card>
+        <Card className="dark:border-slate-800 dark:bg-slate-900">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div>

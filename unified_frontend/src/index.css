@@ -151,6 +151,8 @@
   }
 
   .dark .bg-slate-50,
+  .dark .bg-slate-50\/60,
+  .dark .bg-slate-50\/70,
   .dark .bg-slate-50\/90,
   .dark .bg-slate-50\/80,
   .dark .bg-slate-100,
@@ -272,6 +274,11 @@
   }
 
   .dark [class*="bg-[#f5f8fc]"] {
+    background-color: hsl(var(--background)) !important;
+  }
+
+  .dark [class*="bg-[#F3F5FA]"],
+  .dark [class*="bg-[#f8fbff]"] {
     background-color: hsl(var(--background)) !important;
   }
 

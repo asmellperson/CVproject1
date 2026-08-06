@@ -7,9 +7,7 @@
       ;(() => {
         const storageKey = 'unified-frontend-theme'
         const stored = window.localStorage.getItem(storageKey)
-        const theme = stored === 'light' || stored === 'dark'
-          ? stored
-          : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        const theme = stored === 'light' || stored === 'dark' ? stored : 'dark'
         document.documentElement.classList.toggle('dark', theme === 'dark')
         document.documentElement.style.colorScheme = theme
       })()

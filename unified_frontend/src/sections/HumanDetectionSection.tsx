@@ -420,14 +420,14 @@ export function HumanDetectionSection() {
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))
 
   return (
-    <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 sm:p-5 lg:p-6">
+    <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-[28px]">人员逗留监控与配置入口</h1>
             <p className="mt-1 text-sm text-slate-500 sm:text-base">区域逗留超时监控面板</p>
           </div>
-          <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm sm:w-auto">
+          <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
             <TabsTrigger value="monitor" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
               <Clock3 className="h-4 w-4" />
               实时监控

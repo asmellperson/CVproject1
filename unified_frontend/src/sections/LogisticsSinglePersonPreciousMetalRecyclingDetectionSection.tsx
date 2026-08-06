@@ -305,9 +305,9 @@ export function LogisticsSinglePersonPreciousMetalRecyclingDetectionSection() {
   const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_logistics_single_person_precious_metal_recycling'))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 rounded-3xl bg-[#F3F5FA] p-4 text-slate-950 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-md grid-cols-2 p-1">
+        <TabsList className="grid h-auto w-full max-w-md grid-cols-2 border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
           <TabsTrigger value="monitor" className="gap-2 py-2">
             <UsersRound className="h-4 w-4" />
             实时监控

@@ -39,7 +39,7 @@ import {
 
 const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
-const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm'
+const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
 function withFrameNonce(url: string) {
   return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`
@@ -247,8 +247,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
                   <Camera className="h-4 w-4" />
                 </span>
                 监控对象
@@ -263,7 +263,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
               >
                 <SelectTrigger
                   id="guard-room-monitor-site"
-                  className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15"
+                  className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200"
                 >
                   <SelectValue placeholder={loadingSites ? '正在读取保安室' : '选择保安室'} />
                 </SelectTrigger>
@@ -279,8 +279,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+                <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
                     <Activity className="h-4 w-4" />
                   </span>
                   检测控制
@@ -324,7 +324,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
               <Button
                 type="button"
                 variant="outline"
-                className="mt-3 w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin"
+                className="mt-3 w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                 onClick={handleRefresh}
                 disabled={!site}
               >
@@ -336,7 +336,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
 
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-2">
-              <CardTitle className="text-base font-bold text-slate-950">实时检测项</CardTitle>
+              <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-100">实时检测项</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-4">
               <GuardDetectionStatusRow label="手机使用检测" icon={Smartphone} state={phoneAbnormal ? 'danger' : 'normal'} stateLabel={phoneAbnormal ? '异常' : '正常'} />
@@ -350,8 +350,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
             <>
               <Card className={CARD_CLASS}>
                 <CardHeader className="p-5 pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
-                    <Radio className="h-4 w-4 text-[#1B3FA0]" />
+                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950 dark:text-slate-100">
+                    <Radio className="h-4 w-4 text-[#1B3FA0] dark:text-blue-300" />
                     检测详情
                   </CardTitle>
                 </CardHeader>
@@ -373,7 +373,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
 
               <Card className={CARD_CLASS}>
                 <CardHeader className="p-5 pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950 dark:text-slate-100">
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                     最近报警
                   </CardTitle>
@@ -398,14 +398,14 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
         </div>
 
         <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
-          <CardHeader className="border-b border-slate-100 p-4 sm:px-5">
+              <CardHeader className="border-b border-slate-100 p-4 dark:border-slate-800 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white">
                   <Camera className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <CardTitle className="text-base font-bold text-slate-950">视频流</CardTitle>
+                  <CardTitle className="text-base font-bold text-slate-950 dark:text-slate-100">视频流</CardTitle>
                   <p className="mt-0.5 truncate text-xs text-slate-400">cam1 · {site?.name ?? '未选择保安室'}</p>
                 </div>
               </div>

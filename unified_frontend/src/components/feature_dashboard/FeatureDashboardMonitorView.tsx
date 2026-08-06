@@ -25,7 +25,7 @@ import {
   type FeatureDashboardKey,
 } from './monitorState'
 
-const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm'
+const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
 function StatCard({
   label,
@@ -44,7 +44,7 @@ function StatCard({
 }) {
   const tones = {
     emerald: 'bg-emerald-50 text-emerald-600',
-    indigo: 'bg-[#EAF0FE] text-[#1B3FA0]',
+    indigo: 'bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300',
     amber: 'bg-amber-50 text-amber-600',
     rose: 'bg-rose-50 text-rose-600',
     slate: 'bg-slate-100 text-slate-500',
@@ -62,7 +62,7 @@ function StatCard({
         </span>
       )}
       <p className="mt-4 text-xs font-medium text-slate-400">{label}</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950">{value}</p>
+      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100">{value}</p>
       <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>
     </article>
   )
@@ -199,26 +199,26 @@ export function FeatureDashboardMonitorView({
       <section className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]"><Camera className="h-4 w-4" /></span>监控对象</CardTitle></CardHeader>
+            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Camera className="h-4 w-4" /></span>监控对象</CardTitle></CardHeader>
             <CardContent className="space-y-3 px-5 pb-5">
               <div className="space-y-2">
                 <Label htmlFor={`${feature}-dashboard-camera`} className="text-xs text-slate-500">摄像头</Label>
                 <Select value={selectedCamera} onValueChange={onSelectCamera} disabled={loading || cameras.length === 0}>
-                  <SelectTrigger id={`${feature}-dashboard-camera`} className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15"><SelectValue placeholder={loading ? '正在读取摄像头' : '选择摄像头'} /></SelectTrigger>
+                  <SelectTrigger id={`${feature}-dashboard-camera`} className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200"><SelectValue placeholder={loading ? '正在读取摄像头' : '选择摄像头'} /></SelectTrigger>
                   <SelectContent>{cameras.map((camera) => { const key = getAiVisionCameraKey(camera); return <SelectItem key={key} value={key}>{camera.name}</SelectItem> })}</SelectContent>
                 </Select>
               </div>
-              <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin" onClick={onRefreshCameras} disabled={loading}><RefreshCw className="h-4 w-4" />{loading ? '读取中' : '刷新状态'}</Button>
+              <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefreshCameras} disabled={loading}><RefreshCw className="h-4 w-4" />{loading ? '读取中' : '刷新状态'}</Button>
             </CardContent>
           </Card>
 
           <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
-            <CardContent className="space-y-3 px-5 pb-5 text-sm">{rows.map(([label, value]) => <div key={label} className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">{label}</span><span className="break-words text-slate-700">{value}</span></div>)}</CardContent>
+            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
+            <CardContent className="space-y-3 px-5 pb-5 text-sm">{rows.map(([label, value]) => <div key={label} className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">{label}</span><span className="break-words text-slate-700 dark:text-slate-300">{value}</span></div>)}</CardContent>
           </Card>
 
           <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center justify-between text-base font-bold text-slate-950"><span>最近报警</span><Activity className="h-4 w-4 text-slate-300" /></CardTitle></CardHeader>
+            <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center justify-between text-base font-bold text-slate-950 dark:text-slate-100"><span>最近报警</span><Activity className="h-4 w-4 text-slate-300 dark:text-slate-600" /></CardTitle></CardHeader>
             <CardContent className="px-5 pb-5">
               {alarms.length ? <div className="relative space-y-4 pl-5 before:absolute before:bottom-1 before:left-[5px] before:top-1 before:w-px before:bg-slate-200">{alarms.map((alarm) => <div key={alarm.id} className="relative"><span className="absolute -left-5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-rose-500" /><p className="text-sm font-medium text-rose-600">{alarm.event_label || profile.eventLabel}</p><p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{alarm.reason || cameraName}</p><p className="mt-1 font-mono text-[11px] text-slate-400">{formatClock(alarm.created_at)}</p></div>)}</div> : <p className="text-sm text-slate-400">当前摄像头今日暂无报警</p>}
             </CardContent>
@@ -226,9 +226,9 @@ export function FeatureDashboardMonitorView({
         </div>
 
         <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
-          <CardHeader className="border-b border-slate-100 p-4 sm:px-5">
+          <CardHeader className="border-b border-slate-100 p-4 dark:border-slate-800 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white"><Video className="h-5 w-5" /></span><div className="min-w-0"><CardTitle className="truncate text-base font-bold text-slate-950">{profile.videoTitle}</CardTitle><p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p></div></div>
+              <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white dark:bg-blue-700"><Video className="h-5 w-5" /></span><div className="min-w-0"><CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">{profile.videoTitle}</CardTitle><p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p></div></div>
               <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-500">FPS {fps?.toFixed(1) ?? '--'}</span><Badge className={cn('rounded-full border-0 px-2.5 py-1 shadow-none', frameConnected ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>{frameConnected && <span className="relative mr-1.5 flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-70" /><span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" /></span>}{frameConnected ? 'LIVE' : '离线'}</Badge></div>
             </div>
           </CardHeader>
@@ -244,7 +244,7 @@ export function FeatureDashboardMonitorView({
               <div className="pointer-events-none absolute bottom-3 left-4 font-mono font-semibold text-white/95 [text-shadow:0_1px_4px_rgba(0,0,0,0.85)]"><Clock3 className="mr-1.5 inline h-4 w-4" />{browserTimestamp()}</div>
               <span className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-black/45 px-2 py-1 font-mono text-[10px] text-white backdrop-blur-sm">实时画面</span>
             </div>
-            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400">{message}</div>
+            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
           </CardContent>
         </Card>
       </section>

@@ -698,7 +698,7 @@ export function SecurityVlmSection({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-950 dark:text-slate-100">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 p-1">
           <TabsTrigger value="dashboard" className="gap-2 py-2">
@@ -713,7 +713,7 @@ export function SecurityVlmSection({
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold text-slate-900">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
               安检流程规范检测 · {DEPARTMENT_LABELS[department]}
             </h2>
           </div>
@@ -762,8 +762,8 @@ export function SecurityVlmSection({
           value="dashboard"
           className="mx-auto w-full space-y-6 2xl:w-[92%] 2xl:max-w-[120rem]"
         >
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b bg-slate-50">
+          <Card className="overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+            <CardHeader className="border-b bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
               <div className="min-w-0">
                 <CardTitle className="text-lg">安检检测概览</CardTitle>
                 {controlMessage && (
@@ -773,7 +773,7 @@ export function SecurityVlmSection({
             </CardHeader>
             <CardContent className="space-y-6 p-5 lg:p-6 2xl:space-y-8 2xl:p-8">
               <section className="w-full space-y-3 2xl:space-y-4">
-                <h3 className="text-base font-semibold text-slate-800 2xl:text-lg">数据汇总</h3>
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">数据汇总</h3>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-4">
                   <StatCard title="总 session" value={formatNumber(stats.total)} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
                   <StatCard title="合规" value={formatNumber(stats.compliant)} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />
@@ -783,8 +783,8 @@ export function SecurityVlmSection({
                 </div>
               </section>
 
-              <section className="w-full space-y-3 border-t pt-6 2xl:space-y-4 2xl:pt-8">
-                <h3 className="text-base font-semibold text-slate-800 2xl:text-lg">安检画面</h3>
+              <section className="w-full space-y-3 border-t pt-6 dark:border-slate-800 2xl:space-y-4 2xl:pt-8">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">安检画面</h3>
                 <div className={cn('grid gap-4 2xl:gap-5', dualView && 'lg:grid-cols-2')}>
                   <SecurityVideoPanel
                     department={department}
@@ -971,7 +971,7 @@ export function SecurityVlmSection({
               </div>
 
               <div className="space-y-3">
-                {roiMessage && <div className="rounded-lg border bg-slate-50 px-3 py-2 text-sm text-slate-600">{roiMessage}</div>}
+                {roiMessage && <div className="rounded-lg border bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">{roiMessage}</div>}
                 <div className="space-y-2">
                   {slotNames.map((name, index) => {
                     const roi = rois[name]
@@ -988,7 +988,7 @@ export function SecurityVlmSection({
                       >
                         <span className="h-4 w-4 rounded" style={{ backgroundColor: color }} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold text-slate-900">{name}</span>
+                          <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{name}</span>
                           <span className="block truncate text-xs text-slate-500">{roi ? formatRoi(roi) : '未设置'}</span>
                         </span>
                       </button>
@@ -1034,11 +1034,11 @@ function StatCard({
   valueClassName?: string
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3 2xl:justify-center 2xl:gap-4 2xl:px-5 2xl:py-4">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm 2xl:h-12 2xl:w-12">{icon}</div>
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-900 2xl:justify-center 2xl:gap-4 2xl:px-5 2xl:py-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-slate-800 2xl:h-12 2xl:w-12">{icon}</div>
       <div className="min-w-0">
         <p className="truncate text-base font-semibold text-slate-700 2xl:text-lg">{title}</p>
-        <p className={cn('mt-0.5 text-2xl font-bold tracking-tight text-slate-900 2xl:text-3xl', valueClassName)}>{value}</p>
+        <p className={cn('mt-0.5 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 2xl:text-3xl', valueClassName)}>{value}</p>
       </div>
     </div>
   )

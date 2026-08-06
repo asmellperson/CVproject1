@@ -430,6 +430,70 @@
   color: #507cad;
 }
 
+.dark .login-page {
+  --login-page-bg: #060d1d;
+  --login-ink: #f1f5f9;
+}
+
+.dark .login-page::after {
+  background:
+    radial-gradient(circle at 82% 16%, rgba(37, 99, 235, 0.12), transparent 36%),
+    linear-gradient(145deg, rgba(30, 41, 59, 0.26), transparent 48%);
+}
+
+.dark .login-card {
+  border-color: rgba(71, 85, 105, 0.72);
+  background: rgba(15, 23, 42, 0.86);
+  box-shadow: 0 20px 56px rgba(2, 6, 23, 0.42);
+}
+
+.dark .login-access-label {
+  color: #93c5fd;
+}
+
+.dark .login-subtitle,
+.dark .login-security-note {
+  color: #94a3b8;
+}
+
+.dark .login-label {
+  color: #cbd5e1;
+}
+
+.dark .login-input {
+  border-color: #475569;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.32);
+}
+
+.dark .login-input::placeholder,
+.dark .login-password-toggle {
+  color: #94a3b8;
+}
+
+.dark .login-input:hover,
+.dark .login-input:focus,
+.dark .login-input:focus-visible {
+  border-color: #60a5fa;
+  background: #111c30;
+}
+
+.dark .login-password-toggle:hover {
+  color: #bfdbfe;
+  background: #1e293b;
+}
+
+.dark .login-error {
+  border-color: #7f1d1d;
+  color: #fda4af;
+  background: rgba(76, 5, 25, 0.72);
+}
+
+.dark .login-security-note svg {
+  color: #60a5fa;
+}
+
 @keyframes login-spin {
   to {
     transform: rotate(360deg);

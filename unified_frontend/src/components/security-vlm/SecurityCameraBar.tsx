@@ -35,7 +35,7 @@ export function SecurityCameraBar({
           role="button"
           tabIndex={0}
           className={cn(
-            'rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-300',
+            'rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-300 dark:border-slate-800 dark:bg-slate-900',
             selectedId === camera.camera_id && 'border-blue-500 ring-2 ring-blue-100',
           )}
           onClick={() => onSelect(camera.camera_id)}
@@ -48,7 +48,7 @@ export function SecurityCameraBar({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Camera className="h-4 w-4 shrink-0 text-slate-500" />
-                <span className="truncate font-semibold text-slate-900">{camera.name}</span>
+                <span className="truncate font-semibold text-slate-900 dark:text-slate-100">{camera.name}</span>
               </div>
             </div>
             <Badge
@@ -124,7 +124,7 @@ export function SecurityCameraBar({
       {isAdmin && cameras.length < 4 && (
         <button
           type="button"
-          className="flex min-h-32 items-center justify-center gap-2 rounded-xl border border-dashed bg-slate-50 text-sm font-medium text-slate-600 transition hover:border-blue-400 hover:text-blue-700"
+          className="flex min-h-32 items-center justify-center gap-2 rounded-xl border border-dashed bg-slate-50 text-sm font-medium text-slate-600 transition hover:border-blue-400 hover:text-blue-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
           onClick={onAdd}
         >
           <Plus className="h-5 w-5" />

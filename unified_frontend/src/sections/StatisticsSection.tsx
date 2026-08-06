@@ -225,10 +225,10 @@ export function StatisticsSection() {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-950 dark:text-slate-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">统计聚合</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">统计聚合</h2>
           <p className="text-slate-500">报警趋势、类型分布与摄像头排行</p>
         </div>
         <Badge variant="outline" className="gap-2">
@@ -342,13 +342,13 @@ export function StatisticsSection() {
                 return (
                   <div key={camera.camera_no || camera.name} className="space-y-2">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="truncate font-medium text-slate-800">
+                      <span className="truncate font-medium text-slate-800 dark:text-slate-200">
                         {index + 1}. {camera.name}
                       </span>
-                      <span className="font-semibold text-slate-900">{camera.value}</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">{camera.value}</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100">
-                      <div className="h-2 rounded-full bg-slate-900" style={{ width: `${(camera.value / max) * 100}%` }} />
+                      <div className="h-2 rounded-full bg-slate-900 dark:bg-blue-500" style={{ width: `${(camera.value / max) * 100}%` }} />
                     </div>
                   </div>
                 )
@@ -368,12 +368,12 @@ export function StatisticsSection() {
               <div className="col-span-full rounded-md border border-dashed p-6 text-center text-sm text-slate-500">暂无报警记录</div>
             ) : (
               stats.recent.map((alarm) => (
-                <div key={alarm.id} className="rounded-md border bg-white p-3">
+                <div key={alarm.id} className="rounded-md border bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <Badge variant="outline">{alarm.event_label || alarm.event_type}</Badge>
                     <span className="text-xs text-slate-400">#{alarm.id}</span>
                   </div>
-                  <div className="truncate text-sm font-medium text-slate-900">{alarm.camera_name || alarm.camera_no || '-'}</div>
+                  <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{alarm.camera_name || alarm.camera_no || '-'}</div>
                   <div className="mt-1 text-xs text-slate-500">{formatTime(alarm.created_at)}</div>
                 </div>
               ))
@@ -397,13 +397,13 @@ function SummaryCard({
   icon: React.ReactNode
 }) {
   return (
-    <Card>
+    <Card className="dark:border-slate-800 dark:bg-slate-900">
       <CardContent className="p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm text-slate-500">{title}</p>
             <div className="mt-1 flex items-baseline gap-2">
-              <p className="truncate text-2xl font-bold text-slate-950">{value}</p>
+              <p className="truncate text-2xl font-bold text-slate-950 dark:text-slate-100">{value}</p>
               <span className="text-xs text-slate-400">{sub}</span>
             </div>
           </div>

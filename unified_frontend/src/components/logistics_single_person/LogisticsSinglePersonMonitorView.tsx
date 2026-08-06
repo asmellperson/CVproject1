@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 import { getAiVisionCameraKey, type AiVisionCamera, type AiVisionLogisticsSinglePersonStatus } from '@/lib/aivision'
 import { classifyLogisticsCount, type LogisticsMonitorEvent } from './monitorState'
 
-const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm'
+const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
 function StatCard({
   label,
@@ -38,7 +38,7 @@ function StatCard({
 }) {
   const tones = {
     emerald: 'bg-emerald-50 text-emerald-600',
-    indigo: 'bg-[#EAF0FE] text-[#1B3FA0]',
+    indigo: 'bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300',
     amber: 'bg-amber-50 text-amber-600',
     rose: 'bg-rose-50 text-rose-600',
     slate: 'bg-slate-100 text-slate-500',
@@ -56,7 +56,7 @@ function StatCard({
         </span>
       )}
       <p className="mt-4 text-xs font-medium text-slate-400">{label}</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950">{value}</p>
+      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100">{value}</p>
       <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>
     </article>
   )
@@ -152,8 +152,8 @@ export function LogisticsSinglePersonMonitorView({
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
                   <Camera className="h-4 w-4" />
                 </span>
                 监控对象
@@ -163,7 +163,7 @@ export function LogisticsSinglePersonMonitorView({
               <div className="space-y-2">
                 <Label htmlFor="logistics-monitor-camera" className="text-xs text-slate-500">摄像头</Label>
                 <Select value={selectedCamera} onValueChange={onSelectCamera} disabled={loading || cameras.length === 0}>
-                  <SelectTrigger id="logistics-monitor-camera" className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15">
+                  <SelectTrigger id="logistics-monitor-camera" className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200">
                     <SelectValue placeholder={loading ? '正在读取摄像头' : '选择摄像头'} />
                   </SelectTrigger>
                   <SelectContent>
@@ -174,7 +174,7 @@ export function LogisticsSinglePersonMonitorView({
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin" onClick={onRefreshCameras} disabled={loading}>
+              <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefreshCameras} disabled={loading}>
                 <RefreshCw className="h-4 w-4" />
                 {loading ? '读取中' : '刷新状态'}
               </Button>
@@ -183,8 +183,8 @@ export function LogisticsSinglePersonMonitorView({
 
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
                   <Info className="h-4 w-4" />
                 </span>
                 判定说明
@@ -200,7 +200,7 @@ export function LogisticsSinglePersonMonitorView({
 
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center justify-between text-base font-bold text-slate-950">
+              <CardTitle className="flex items-center justify-between text-base font-bold text-slate-950 dark:text-slate-100">
                 <span>实时事件</span>
                 <Activity className="h-4 w-4 text-slate-300" />
               </CardTitle>
@@ -227,12 +227,12 @@ export function LogisticsSinglePersonMonitorView({
         </div>
 
         <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
-          <CardHeader className="border-b border-slate-100 p-4 sm:px-5">
+          <CardHeader className="border-b border-slate-100 p-4 dark:border-slate-800 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white"><Video className="h-5 w-5" /></span>
                 <div className="min-w-0">
-                  <CardTitle className="truncate text-base font-bold text-slate-950">物流通道单人检测监控</CardTitle>
+                  <CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">物流通道单人检测监控</CardTitle>
                   <p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p>
                 </div>
               </div>
@@ -259,7 +259,7 @@ export function LogisticsSinglePersonMonitorView({
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" />
             </div>
-            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400">{message}</div>
+            <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
           </CardContent>
         </Card>
       </section>

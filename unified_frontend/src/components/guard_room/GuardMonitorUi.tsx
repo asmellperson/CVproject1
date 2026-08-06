@@ -7,7 +7,7 @@ type StatTone = 'emerald' | 'amber' | 'indigo' | 'rose'
 const statToneClasses: Record<StatTone, { icon: string; ping: string }> = {
   emerald: { icon: 'bg-emerald-50 text-emerald-600', ping: 'bg-emerald-500' },
   amber: { icon: 'bg-amber-50 text-amber-600', ping: 'bg-amber-500' },
-  indigo: { icon: 'bg-[#EAF0FE] text-[#1B3FA0]', ping: 'bg-indigo-500' },
+  indigo: { icon: 'bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300', ping: 'bg-indigo-500' },
   rose: { icon: 'bg-rose-50 text-rose-600', ping: 'bg-rose-500' },
 }
 
@@ -29,7 +29,7 @@ export function GuardMonitorStatCard({
   const toneClasses = statToneClasses[tone]
 
   return (
-    <article className="relative rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+    <article className="relative rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl', toneClasses.icon)}>
         <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
       </div>
@@ -40,7 +40,7 @@ export function GuardMonitorStatCard({
         </span>
       )}
       <p className="mt-4 text-xs font-medium text-slate-400">{label}</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950">{value}</p>
+      <p className="mt-1 text-[22px] font-bold leading-tight text-slate-950 dark:text-slate-100">{value}</p>
       <p className="mt-1.5 truncate text-xs text-slate-400" title={detail}>{detail}</p>
     </article>
   )
@@ -60,8 +60,8 @@ export function GuardDetectionStatusRow({
   const normal = state === 'normal'
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-3 text-sm font-medium text-slate-600">
+    <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 last:border-b-0 dark:border-slate-800">
+      <div className="flex min-w-0 items-center gap-3 text-sm font-medium text-slate-600 dark:text-slate-300">
         <Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
         <span className="truncate">{label}</span>
       </div>

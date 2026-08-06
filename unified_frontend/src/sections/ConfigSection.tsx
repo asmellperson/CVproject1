@@ -465,11 +465,11 @@ async function waitUntilRunning(timeoutMs: number) {
   const vehicleRoiText = formatVehicleRoiText(config.rules.vehicle_roi.length ? config.rules.vehicle_roi : defaultConfig.rules.vehicle_roi)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-950 dark:text-slate-100">
       {/* 顶部标题栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold text-slate-900">配置管理</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">配置管理</h2>
           <p className="text-slate-500">系统参数和规则配置</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
@@ -539,15 +539,15 @@ async function waitUntilRunning(timeoutMs: number) {
         </TabsList>
 
         <TabsContent value="sites" className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80">
-              <CardTitle className="flex items-center gap-2 text-[#10264d]">
+          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900">
+              <CardTitle className="flex items-center gap-2 text-[#10264d] dark:text-slate-100">
                 <Building2 className="w-5 h-5 text-blue-600" />
                 保安室管理
               </CardTitle>
               <CardDescription>维护保安行为规范检测的保安室，并选择要配置的对象。</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5 bg-[#f8fbff] p-4 sm:p-5 lg:p-6">
+            <CardContent className="space-y-5 bg-[#f8fbff] p-4 dark:bg-slate-950/50 sm:p-5 lg:p-6">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <Input
                   value={siteName}
@@ -565,7 +565,7 @@ async function waitUntilRunning(timeoutMs: number) {
                 <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{siteActionError || siteError}</div>
               ) : null}
 
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                 {loadingSites ? (
                   <div className="px-4 py-5 text-sm text-slate-500">正在加载保安室...</div>
                 ) : sites.length === 0 ? (
@@ -579,7 +579,7 @@ async function waitUntilRunning(timeoutMs: number) {
                         onClick={() => onSelectSite(item.id)}
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-slate-900">{item.name}</span>
+                          <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{item.name}</span>
                           {item.id === selectedSiteId ? <Badge className="bg-blue-600">当前配置</Badge> : null}
                           <Badge variant={item.enabled ? 'outline' : 'secondary'}>{item.enabled ? '启用' : '停用'}</Badge>
                         </div>
@@ -630,7 +630,7 @@ async function waitUntilRunning(timeoutMs: number) {
                   <Badge variant="outline">{site.enabled_camera_count}/{site.camera_count} 路</Badge>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-blue-100 bg-white">
+                <div className="overflow-hidden rounded-lg border border-blue-100 bg-white dark:border-slate-800 dark:bg-slate-900">
                   {site.cameras.length === 0 ? (
                     <div className="px-4 py-5 text-sm text-slate-500">当前保安室还没有摄像头。</div>
                   ) : (
@@ -638,7 +638,7 @@ async function waitUntilRunning(timeoutMs: number) {
                       <div key={camera.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-slate-900">{camera.name}</span>
+                            <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{camera.name}</span>
                             <Badge variant={camera.enabled ? 'default' : 'secondary'} className={camera.enabled ? 'bg-emerald-600' : ''}>
                               {camera.enabled ? '启用' : '停用'}
                             </Badge>
@@ -780,9 +780,9 @@ async function waitUntilRunning(timeoutMs: number) {
 
         {/* ==================== 检测规则 ==================== */}
         <TabsContent value="rules" className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm">
+          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80">
-              <CardTitle className="flex items-center gap-2 text-[#10264d]">
+              <CardTitle className="flex items-center gap-2 text-[#10264d] dark:text-slate-100">
                 <Shield className="w-5 h-5 text-green-600" />
                 检测规则配置
               </CardTitle>
@@ -1372,7 +1372,7 @@ function SwitchRow({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+    <div className="flex items-center justify-between rounded-lg border border-transparent bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
       <div>
         <Label htmlFor={id} className="cursor-pointer">{label}</Label>
         <p className="text-sm text-slate-500">{description}</p>
@@ -1407,7 +1407,7 @@ function SliderRow({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Label className="text-sm font-bold text-[#1a2e55]">{title}</Label>
+          <Label className="text-sm font-bold text-[#1a2e55] dark:text-slate-100">{title}</Label>
           {description && <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>}
         </div>
         <span className={cn('shrink-0 rounded-md border px-2.5 py-1 text-xs font-bold shadow-sm', styles.badge)}>{safeValue}</span>
