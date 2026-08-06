@@ -24,12 +24,19 @@ import { LogisticsSinglePersonMonitorView } from './logistics_single_person/Logi
 import { useLogisticsSinglePersonMonitor } from './logistics_single_person/useLogisticsSinglePersonMonitor'
 import { HumanDwellMonitorView } from './human_dwell/HumanDwellMonitorView'
 import { useHumanDwellMonitor } from './human_dwell/useHumanDwellMonitor'
+import { FeatureDashboardMonitorView } from './feature_dashboard/FeatureDashboardMonitorView'
+import {
+  isFeatureDashboardKey,
+  resolveCameraFeatureValue,
+  type CameraFeatureValueState,
+} from './feature_dashboard/monitorState'
+import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department?: string
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -41,7 +48,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const [loading, setLoading] = useState(true)
   const [frameSrc, setFrameSrc] = useState('')
   const [message, setMessage] = useState('正在读取摄像头列表...')
-  const [featureValue, setFeatureValue] = useState<Record<string, unknown> | null>(null)
+  const [featureValueState, setFeatureValueState] = useState<CameraFeatureValueState | null>(null)
   const [imageSize, setImageSize] = useState(fallbackImageSize)
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
@@ -52,6 +59,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
     [cameras, selectedCamera],
   )
+  const featureValue = resolveCameraFeatureValue(featureValueState, selectedCamera)
   const overlay = useMemo(
     () => buildAiVisionMonitorOverlay({ feature, value: featureValue, imageSize }),
     [feature, featureValue, imageSize],
@@ -63,6 +71,13 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   })
   const humanDwellMonitor = useHumanDwellMonitor({
     enabled: presentation === 'human-dwell',
+    selectedCamera,
+    selectedCameraName: selectedCameraInfo?.name || '',
+  })
+  const featureDashboardKey = isFeatureDashboardKey(feature) ? feature : 'blocks'
+  const featureDashboardAlarms = useFeatureDashboardAlarms({
+    enabled: presentation === 'feature-dashboard' && isFeatureDashboardKey(feature),
+    feature: featureDashboardKey,
     selectedCamera,
     selectedCameraName: selectedCameraInfo?.name || '',
   })
@@ -106,17 +121,17 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
 
   useEffect(() => {
     if (!selectedCamera) {
-      setFeatureValue(null)
+      setFeatureValueState(null)
       return
     }
 
     let cancelled = false
     getAiVisionFeatureConfig(feature, selectedCamera)
       .then((payload) => {
-        if (!cancelled) setFeatureValue(payload.config.value || {})
+        if (!cancelled) setFeatureValueState({ cameraKey: selectedCamera, value: payload.config.value || {} })
       })
       .catch(() => {
-        if (!cancelled) setFeatureValue(null)
+        if (!cancelled) setFeatureValueState(null)
       })
 
     return () => {
@@ -257,7 +272,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           {loading ? '正在读取摄像头...' : message}
         </div>
       )}
-      {presentation !== 'human-dwell' && frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
+      {presentation !== 'human-dwell' && presentation !== 'feature-dashboard' && frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
         <svg
           viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -326,6 +341,29 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         todayAlarmCount={humanDwellMonitor.todayAlarmCount}
         latestAlarmAt={humanDwellMonitor.latestAlarmAt}
         roiPolygons={overlay.polygons}
+        imageSize={imageSize}
+        onSelectCamera={handleSelectCamera}
+        onRefreshCameras={refreshCameras}
+      />
+    )
+  }
+
+  if (presentation === 'feature-dashboard' && isFeatureDashboardKey(feature)) {
+    return (
+      <FeatureDashboardMonitorView
+        feature={feature}
+        cameras={cameras}
+        selectedCamera={selectedCamera}
+        selectedCameraInfo={selectedCameraInfo}
+        loading={loading}
+        message={message}
+        frameConnected={Boolean(frameSrc)}
+        frameContent={frameContent}
+        featureValue={featureValue}
+        alarms={featureDashboardAlarms.recent}
+        todayAlarmCount={featureDashboardAlarms.todayCount}
+        roiPolygons={overlay.polygons}
+        alarmLines={overlay.lines}
         imageSize={imageSize}
         onSelectCamera={handleSelectCamera}
         onRefreshCameras={refreshCameras}
