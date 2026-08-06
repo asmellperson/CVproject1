@@ -32,6 +32,13 @@ test('keeps the existing login request and error lifecycle', () => {
   assert.match(page, /disabled={submitting}/)
 })
 
+test('keeps the top-left brand text without a mascot image', () => {
+  assert.match(page, /className="login-brand-name">福达视觉平台/)
+  assert.match(page, /className="login-brand-english">FUDA VISION PLATFORM/)
+  assert.doesNotMatch(page, /className="login-brand-mascot"/)
+  assert.doesNotMatch(css, /\.login-brand-mascot/)
+})
+
 test('declares the browser-compatible mascot video contract', () => {
   const videoElement = page.match(/<video\b[\s\S]*?<\/video>/)?.[0] ?? ''
   const source = videoElement.match(/<source\b[^>]*>/)?.[0] ?? ''

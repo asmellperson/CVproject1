@@ -61,11 +61,6 @@ export function LoginPage() {
           aria-label="福达视觉平台品牌展示"
         >
           <div className="login-brand-lockup">
-            <img
-              className="login-brand-mascot"
-              src="/mascot.png"
-              alt="福达视觉平台标志"
-            />
             <div className="login-brand-copy">
               <p className="login-brand-name">福达视觉平台</p>
               <p className="login-brand-english">FUDA VISION PLATFORM</p>
