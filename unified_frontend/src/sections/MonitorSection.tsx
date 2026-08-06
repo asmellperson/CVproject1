@@ -202,8 +202,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
 
   const lastAlarm = status?.last_alarm ?? null
   const cameraOnline = Boolean(site && frameSrc)
-  const guards = status?.counts.persons ?? 0
-  const guardConfidence = status?.metrics.person_confidence ?? 0
+  const guards = status?.counts.guards ?? 0
+  const guardConfidence = status?.metrics.guard_confidence ?? 0
   const phoneAbnormal = Boolean(status?.decisions.phone_use)
   const proneAbnormal = Boolean(status?.decisions.prone_sleep)
   const vehicleAbnormal = Boolean(status?.decisions.vehicle_unattended)
@@ -357,8 +357,8 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
                 </CardHeader>
                 <CardContent className="space-y-5 px-5 pb-5">
                   <div>
-                    <div className="mb-2 flex items-center justify-between text-sm"><span>人员置信度</span><span>{Math.round((status?.metrics.person_confidence ?? 0) * 100)}%</span></div>
-                    <Progress value={(status?.metrics.person_confidence ?? 0) * 100} />
+                    <div className="mb-2 flex items-center justify-between text-sm"><span>保安识别置信度</span><span>{Math.round(guardConfidence * 100)}%</span></div>
+                    <Progress value={guardConfidence * 100} />
                   </div>
                   <div>
                     <div className="mb-2 flex items-center justify-between text-sm"><span>手机置信度</span><span>{Math.round((status?.metrics.phone_confidence ?? 0) * 100)}%</span></div>

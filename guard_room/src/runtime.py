@@ -1022,6 +1022,7 @@ class GuardRoomRuntime:
                 )
                 combined = stacked_frames
                 merged_persons: List[Detection] = []
+                merged_guards: List[Detection] = []
                 merged_phones: List[Detection] = []
                 merged_vehicles: List[Detection] = []
                 merged_pose_features: Dict[int, Dict[str, float]] = {}
@@ -1030,6 +1031,7 @@ class GuardRoomRuntime:
                     result = last_results[camera_id]
                     # 将各路坐标平移到合并画面中的实际位置
                     merged_persons.extend(self._offset_detections(result.all_persons, y_offset=y_offsets[idx]))
+                    merged_guards.extend(self._offset_detections(result.guard_persons, y_offset=y_offsets[idx]))
                     merged_phones.extend(self._offset_detections(result.phones, y_offset=y_offsets[idx]))
                     merged_vehicles.extend(self._offset_detections(result.vehicles, y_offset=y_offsets[idx]))
                     # track_id 加偏移以区分不同摄像头的同号目标
@@ -1052,6 +1054,11 @@ class GuardRoomRuntime:
                     fps=infer_fps_ema,
                     timestamp_s=timestamp_s,
                     persons=merged_persons,
+                    guards=merged_guards,
+                    guard_confidence=max(
+                        (result.guard_confidence for result in last_results.values()),
+                        default=0.0,
+                    ),
                     phones=merged_phones,
                     vehicles=merged_vehicles,
                     pose_features=merged_pose_features,

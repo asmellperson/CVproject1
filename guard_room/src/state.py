@@ -76,6 +76,7 @@ class AppState:
         # ── 检测结果（最近一帧）──────────────────────────────────────────
         self.latest_detections: dict[str, Any] = {
             "persons": [],
+            "guards": [],
             "phones": [],
             "vehicles": [],
             "pose_features": {},
@@ -87,11 +88,12 @@ class AppState:
             },
             "metrics": {
                 "person_confidence": 0.0,
+                "guard_confidence": 0.0,
                 "phone_confidence": 0.0,
                 "vehicle_confidence": 0.0,
                 "head_down_ratio": 0.0,
             },
-            "counts": {"persons": 0, "phones": 0, "vehicles": 0},
+            "counts": {"persons": 0, "guards": 0, "phones": 0, "vehicles": 0},
         }
 
         # ── 统计缓存（预留，当前未启用 TTL 逻辑）────────────────────────
@@ -173,6 +175,8 @@ class AppState:
         fps: float,
         timestamp_s: float,
         persons: list[Detection],
+        guards: list[Detection] | None = None,
+        guard_confidence: float = 0.0,
         phones: list[Detection],
         pose_features: dict[int, dict[str, float]],
         decisions: dict[str, Any],
@@ -191,6 +195,8 @@ class AppState:
             fps:          推理帧率的指数移动平均值。
             timestamp_s:  当前流时间戳（秒，从系统启动计）。
             persons:      本帧所有人体检测结果（合并多路坐标后）。
+            guards:       经制服识别确认为保安的人体检测结果。
+            guard_confidence: 本帧保安制服识别置信度最大值。
             phones:       本帧手机检测结果。
             vehicles:     本帧车辆检测结果。
             pose_features:各 track_id 的姿态特征字典。
@@ -205,11 +211,13 @@ class AppState:
         if not ok:
             return  # 编码失败，保留上一帧，不中断推流
 
+        guards = guards or []
         vehicles = vehicles or []
 
         # 汇总置信度指标，取各类目标中的最大值
         metrics = {
             "person_confidence": max((float(d.conf) for d in persons), default=0.0),
+            "guard_confidence": float(guard_confidence),
             "phone_confidence": max((float(d.conf) for d in phones), default=0.0),
             "vehicle_confidence": max((float(d.conf) for d in vehicles), default=0.0),
             "head_down_ratio": max(
@@ -226,6 +234,7 @@ class AppState:
             self.last_update_ts = time.time()   # MJPEG 推流以此字段判断是否有新帧
             self.latest_detections = {
                 "persons": [self._det_to_dict(d) for d in persons],
+                "guards": [self._det_to_dict(d) for d in guards],
                 "phones": [self._det_to_dict(d) for d in phones],
                 "vehicles": [self._det_to_dict(d) for d in vehicles],
                 "pose_features": {str(k): v for k, v in pose_features.items()},
@@ -237,7 +246,12 @@ class AppState:
                     "vehicle_unattended": bool(getattr(decisions.get("vehicle_unattended"), "active", False)),
                 },
                 "metrics": metrics,
-                "counts": {"persons": len(persons), "phones": len(phones), "vehicles": len(vehicles)},
+                "counts": {
+                    "persons": len(persons),
+                    "guards": len(guards),
+                    "phones": len(phones),
+                    "vehicles": len(vehicles),
+                },
                 "stream_time_s": round(timestamp_s, 2),
             }
 

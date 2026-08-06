@@ -162,6 +162,7 @@ export interface BackendStatus {
   stream_url: string
   frame_url: string
   persons: Detection[]
+  guards?: Detection[]
   phones: Detection[]
   vehicles?: Detection[]
   pose_features: Record<string, Record<string, number>>
@@ -173,12 +174,14 @@ export interface BackendStatus {
   }
   metrics: {
     person_confidence: number
+    guard_confidence?: number
     phone_confidence: number
     vehicle_confidence?: number
     head_down_ratio: number
   }
   counts: {
     persons: number
+    guards?: number
     phones: number
     vehicles?: number
   }

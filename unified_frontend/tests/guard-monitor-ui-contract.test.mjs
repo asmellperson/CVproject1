@@ -31,8 +31,9 @@ test('renders the approved heading, segmented tabs, and dashboard grid', () => {
 })
 
 test('keeps existing status fields bound to the refreshed UI', () => {
-  assert.match(monitor, /status\?\.counts\.persons/)
-  assert.match(monitor, /status\?\.metrics\.person_confidence/)
+  assert.match(monitor, /const guards = status\?\.counts\.guards \?\? 0/)
+  assert.match(monitor, /const guardConfidence = status\?\.metrics\.guard_confidence \?\? 0/)
+  assert.doesNotMatch(monitor, /const guards = status\?\.counts\.persons/)
   assert.match(monitor, /status\?\.fps/)
   assert.match(monitor, /status\?\.decisions\.phone_use/)
   assert.match(monitor, /status\?\.decisions\.prone_sleep/)
