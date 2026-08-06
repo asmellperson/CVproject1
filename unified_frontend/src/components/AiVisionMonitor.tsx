@@ -22,12 +22,14 @@ import {
 } from './AiVisionMonitor.frame'
 import { LogisticsSinglePersonMonitorView } from './logistics_single_person/LogisticsSinglePersonMonitorView'
 import { useLogisticsSinglePersonMonitor } from './logistics_single_person/useLogisticsSinglePersonMonitor'
+import { HumanDwellMonitorView } from './human_dwell/HumanDwellMonitorView'
+import { useHumanDwellMonitor } from './human_dwell/useHumanDwellMonitor'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department?: string
-  presentation?: 'default' | 'logistics-single-person'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -56,6 +58,11 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   )
   const logisticsMonitor = useLogisticsSinglePersonMonitor({
     enabled: presentation === 'logistics-single-person',
+    selectedCamera,
+    selectedCameraName: selectedCameraInfo?.name || '',
+  })
+  const humanDwellMonitor = useHumanDwellMonitor({
+    enabled: presentation === 'human-dwell',
     selectedCamera,
     selectedCameraName: selectedCameraInfo?.name || '',
   })
@@ -250,7 +257,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           {loading ? '正在读取摄像头...' : message}
         </div>
       )}
-      {frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
+      {presentation !== 'human-dwell' && frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
         <svg
           viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -297,6 +304,29 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         status={logisticsMonitor.status}
         events={logisticsMonitor.events}
         todayAlarmCount={logisticsMonitor.todayAlarmCount}
+        onSelectCamera={handleSelectCamera}
+        onRefreshCameras={refreshCameras}
+      />
+    )
+  }
+
+  if (presentation === 'human-dwell') {
+    return (
+      <HumanDwellMonitorView
+        cameras={cameras}
+        selectedCamera={selectedCamera}
+        selectedCameraInfo={selectedCameraInfo}
+        loading={loading}
+        message={message}
+        frameConnected={Boolean(frameSrc)}
+        frameContent={frameContent}
+        featureValue={featureValue}
+        status={humanDwellMonitor.status}
+        events={humanDwellMonitor.events}
+        todayAlarmCount={humanDwellMonitor.todayAlarmCount}
+        latestAlarmAt={humanDwellMonitor.latestAlarmAt}
+        roiPolygons={overlay.polygons}
+        imageSize={imageSize}
         onSelectCamera={handleSelectCamera}
         onRefreshCameras={refreshCameras}
       />

@@ -80,6 +80,18 @@ export type AiVisionLogisticsSinglePersonStatus = {
   updated_at: string | null
 }
 
+export type AiVisionHumanDwellStatus = {
+  camera_key: string
+  feature: 'detect_human'
+  online: boolean
+  count: number | null
+  alarm: boolean
+  reason: 'normal' | 'loitering' | 'unknown'
+  duration_seconds: number | null
+  threshold_seconds: number | null
+  updated_at: string | null
+}
+
 type AiVisionFeatureConfigResponse = {
   camera: {
     id: number
@@ -131,6 +143,17 @@ export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string) 
     throw new Error(await readAiVisionError(response))
   }
   return (await response.json()) as AiVisionLogisticsSinglePersonStatus
+}
+
+export async function getAiVisionHumanDwellStatus(cameraKey: string) {
+  const response = await fetch(
+    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/detect_human/status`,
+    { credentials: 'include' },
+  )
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as AiVisionHumanDwellStatus
 }
 
 export async function getAiVisionDepartments() {

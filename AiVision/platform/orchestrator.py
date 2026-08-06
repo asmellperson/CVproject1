@@ -402,6 +402,8 @@ class Orchestrator:
                 "count": None,
                 "alarm": False,
                 "reason": "unknown",
+                "duration_seconds": None,
+                "threshold_seconds": None,
                 "updated_at": None,
             }
 
@@ -416,6 +418,8 @@ class Orchestrator:
             "count": snapshot.get("count"),
             "alarm": bool(snapshot.get("alarm")),
             "reason": str(snapshot.get("reason") or "unknown"),
+            "duration_seconds": snapshot.get("duration_seconds"),
+            "threshold_seconds": snapshot.get("threshold_seconds"),
             "updated_at": updated_at,
         }
 

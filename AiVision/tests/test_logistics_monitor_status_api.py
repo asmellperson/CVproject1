@@ -39,6 +39,8 @@ def test_orchestrator_returns_fresh_typed_snapshot(monkeypatch):
             "count": 1,
             "alarm": False,
             "reason": "normal",
+            "duration_seconds": 12.5,
+            "threshold_seconds": 30.0,
             "updated_at_s": 100.0,
         }
     )
@@ -53,6 +55,8 @@ def test_orchestrator_returns_fresh_typed_snapshot(monkeypatch):
     assert response["count"] == 1
     assert response["alarm"] is False
     assert response["reason"] == "normal"
+    assert response["duration_seconds"] == 12.5
+    assert response["threshold_seconds"] == 30.0
     assert response["updated_at"]
 
 
@@ -64,6 +68,8 @@ def test_orchestrator_returns_unknown_for_stale_snapshot(monkeypatch):
             "count": 2,
             "alarm": True,
             "reason": "multiple",
+            "duration_seconds": 18.0,
+            "threshold_seconds": 10.0,
             "updated_at_s": 100.0,
         },
     )
@@ -77,6 +83,8 @@ def test_orchestrator_returns_unknown_for_stale_snapshot(monkeypatch):
     assert response["count"] is None
     assert response["alarm"] is False
     assert response["reason"] == "unknown"
+    assert response["duration_seconds"] is None
+    assert response["threshold_seconds"] is None
 
 
 def test_compat_status_delegates_to_read_only_orchestrator():

@@ -31,6 +31,44 @@ def _number_or_default(value, default: float) -> float:
         return default
 
 
+def build_dwell_monitor_snapshot(
+    trackers: dict,
+    *,
+    camera_id: int,
+    active_roi_indices: set[int] | None = None,
+    threshold_seconds: float,
+    now: float | None = None,
+    updated_at: float | None = None,
+) -> dict:
+    """Build a display-only snapshot from the existing dwell trackers."""
+    current_time = time.time() if now is None else float(now)
+    visible_tracks = []
+    for (tracker_camera_id, roi_index), tracker in trackers.items():
+        if tracker_camera_id != camera_id:
+            continue
+        if active_roi_indices is not None and roi_index not in active_roi_indices:
+            continue
+        visible_tracks.extend(
+            track
+            for track in tracker.tracks.values()
+            if int(getattr(track, "lost", 0)) == 0
+        )
+
+    durations = [
+        max(0.0, current_time - float(getattr(track, "first_seen", current_time)))
+        for track in visible_tracks
+    ]
+    alarm = any(bool(getattr(track, "alarmed", False)) for track in visible_tracks)
+    return {
+        "count": len(visible_tracks),
+        "alarm": alarm,
+        "reason": "loitering" if alarm else "normal",
+        "duration_seconds": round(max(durations, default=0.0), 2),
+        "threshold_seconds": float(threshold_seconds),
+        "updated_at_s": time.time() if updated_at is None else float(updated_at),
+    }
+
+
 class DwellDetectionConsumer(BaseFunctionConsumer):
     """逗留检测通用模板 — 适合 face 和 human"""
 
@@ -43,6 +81,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         super().__init__(*args, **kwargs)
         # (camera_id, roi_index) → IouTracker
         self._trackers: dict[tuple[int, int], IouTracker] = {}
+        self.monitor_status: dict[str, dict] = {}
 
     def _process(self, roi_list, camera_id):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
@@ -136,6 +175,15 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         return results
 
     def post_process(self, camera_id, result):
+        cfg = self._value_config(self.config_cache.get(camera_id, {}))
+        camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
+        if camera_key:
+            self.monitor_status[camera_key] = build_dwell_monitor_snapshot(
+                self._trackers,
+                camera_id=camera_id,
+                active_roi_indices=set(range(len(result))),
+                threshold_seconds=_number_or_default(cfg.get("MAX_TIME"), 10.0),
+            )
         frame = self.frame_cache.get(camera_id)
         if frame is None:
             return None
@@ -177,6 +225,10 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.BBOX_COLOR_NORMAL, 1,
                     )
         return frame_copy
+
+    def get_monitor_status(self, camera_key: str) -> dict | None:
+        value = self.monitor_status.get(camera_key)
+        return dict(value) if value else None
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True
