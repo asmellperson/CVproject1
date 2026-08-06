@@ -182,7 +182,7 @@ git status --short
 
 Confirm no API, type, backend, configuration-management, or media asset files changed.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -- docs/superpowers/plans/2026-08-06-guard-monitor-ui.md unified_frontend/tests/guard-monitor-ui-contract.test.mjs unified_frontend/src/components/guard_room/GuardMonitorUi.tsx unified_frontend/src/sections/GuardBehaviorSection.tsx unified_frontend/src/sections/MonitorSection.tsx
