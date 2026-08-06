@@ -214,8 +214,10 @@ const moduleEntries = [
 type OverviewState = {
   todayAlarms: number
   pendingAlarms: number
-  latestAlarm: AlarmEvent | null
+  recentAlarms: AlarmEvent[]
 }
+
+type AlarmSeverity = 'critical' | 'warning' | 'normal'
 
 type ServiceKey = keyof PlatformStatus['services']
 
@@ -272,8 +274,18 @@ const aiVisionFeatureLabels: Record<string, string> = {
 const defaultOverview: OverviewState = {
   todayAlarms: 0,
   pendingAlarms: 0,
-  latestAlarm: null,
+  recentAlarms: [],
 }
+
+const criticalAlarmTypes = new Set(['blocks', 'guard_absent'])
+const warningAlarmTypes = new Set([
+  'detect_door',
+  'detect_phone',
+  'guard_phone_use',
+  'guard_prone_sleep',
+  'security_vlm_non_compliant',
+  'security_vlm_error',
+])
 
 function isToday(value?: string) {
   if (!value) return false
@@ -293,6 +305,16 @@ function formatLatestTime(value?: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function getAlarmSeverity(eventType: string): AlarmSeverity {
+  if (criticalAlarmTypes.has(eventType)) return 'critical'
+  if (warningAlarmTypes.has(eventType)) return 'warning'
+  return 'normal'
+}
+
+function getAlarmLocation(alarm: AlarmEvent) {
+  return alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
 function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
@@ -678,7 +700,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       setOverview({
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
-        latestAlarm: alarmItems[0] || null,
+        recentAlarms: alarmItems.slice(0, 5),
       })
     }
 
@@ -770,61 +792,63 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                   {aiVisionCameras.length === 0 ? (
                     <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
                   ) : (
-                    aiVisionCameras.map((camera) => {
-                      const cameraKey = getAiVisionCameraKey(camera)
-                      const featureLabels = getAiVisionCameraFeatureLabels(camera)
-                      return (
-                        <div
-                          key={cameraKey}
-                          className="border-b border-blue-100 bg-white px-4 py-3 last:border-b-0 dark:border-slate-800 dark:bg-slate-900/70"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
-                              <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
-                            </div>
-                            {isAdmin ? (
-                              <div className="flex shrink-0 items-center gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="gap-1.5"
-                                  onClick={() => openEditCameraDialog(camera)}
-                                  disabled={Boolean(cameraActionKey)}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                  修改
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  className="gap-1.5"
-                                  onClick={() => {
-                                    setCameraToDelete(camera)
-                                    setCameraDeleteError('')
-                                  }}
-                                  disabled={Boolean(cameraActionKey)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                  删除
-                                </Button>
+                    <div className="grid grid-cols-1 lg:grid-cols-2">
+                      {aiVisionCameras.map((camera) => {
+                        const cameraKey = getAiVisionCameraKey(camera)
+                        const featureLabels = getAiVisionCameraFeatureLabels(camera)
+                        return (
+                          <div
+                            key={cameraKey}
+                            className="group relative border-b border-blue-100 bg-white px-4 py-3 outline-none transition-colors hover:bg-blue-50/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/70 dark:hover:bg-slate-800/70 lg:border-r lg:even:border-r-0"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
+                                <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
                               </div>
-                            ) : null}
+                              {isAdmin ? (
+                                <div className="flex shrink-0 items-center gap-2 opacity-100 transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5"
+                                    onClick={() => openEditCameraDialog(camera)}
+                                    disabled={Boolean(cameraActionKey)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    修改
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="gap-1.5"
+                                    onClick={() => {
+                                      setCameraToDelete(camera)
+                                      setCameraDeleteError('')
+                                    }}
+                                    disabled={Boolean(cameraActionKey)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    删除
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {featureLabels.length ? (
+                                featureLabels.map((label) => (
+                                  <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    {label}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
+                              )}
+                            </div>
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {featureLabels.length ? (
-                              featureLabels.map((label) => (
-                                <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                  {label}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
@@ -832,42 +856,53 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           </div>
 
           <div className={cn(
-            'relative overflow-hidden rounded-[18px] border bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]',
-            overview.latestAlarm ? 'border-amber-100 dark:border-amber-900/50' : 'border-emerald-100 dark:border-emerald-900/50',
+            'relative flex flex-col overflow-hidden rounded-[18px] border bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]',
+            overview.recentAlarms.length ? 'border-amber-100 dark:border-amber-900/50' : 'border-emerald-100 dark:border-emerald-900/50',
           )}>
-            <div className="relative p-5 sm:p-6">
+            <div className="relative flex h-full flex-col p-5 sm:p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">最近异常</h3>
                   <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">
-                    {overview.latestAlarm ? '最新一条可见报警事件' : '当前可见范围内暂无异常'}
+                    {overview.recentAlarms.length ? '最近 5 条可见报警事件' : '当前可见范围内暂无异常'}
                   </p>
                 </div>
                 <div className={cn(
                   'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm',
-                  overview.latestAlarm ? 'bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-950/50 dark:ring-amber-900/70' : 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100 dark:bg-emerald-950/50 dark:ring-emerald-900/70',
+                  overview.recentAlarms.length ? 'bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-950/50 dark:ring-amber-900/70' : 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100 dark:bg-emerald-950/50 dark:ring-emerald-900/70',
                 )}>
                   <AlertTriangle className="h-5 w-5" />
                 </div>
               </div>
 
-              {overview.latestAlarm ? (
-                <div className="mt-5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0_0%,#ffffff_100%)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-amber-900/50 dark:bg-[linear-gradient(180deg,rgba(69,42,15,0.32)_0%,rgba(15,23,42,0.22)_100%)]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-base font-black text-[#071d3d] dark:text-slate-100">{overview.latestAlarm.event_label || overview.latestAlarm.event_type}</div>
-                      <div className="mt-1 truncate text-sm font-semibold text-slate-500 dark:text-slate-400">{overview.latestAlarm.camera_name || overview.latestAlarm.camera_no || '未知摄像头'}</div>
-                    </div>
-                    <Badge className="shrink-0 border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 shadow-none hover:bg-amber-50">
-                      {formatLatestTime(overview.latestAlarm.created_at)}
-                    </Badge>
-                  </div>
-                  <div className="mt-4 rounded-xl border border-white/80 bg-white/78 p-3 text-sm font-medium leading-6 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950/42 dark:text-slate-300">
-                    <p className="line-clamp-3">{overview.latestAlarm.reason}</p>
+              {overview.recentAlarms.length ? (
+                <div className="relative mt-5 flex-1">
+                  <div aria-hidden className="absolute left-[5px] bottom-2 top-2 w-px bg-slate-200 dark:bg-slate-700" />
+                  <div className="space-y-0">
+                    {overview.recentAlarms.map((alarm) => {
+                      const severity = getAlarmSeverity(alarm.event_type)
+                      return (
+                        <div key={alarm.id} className="relative pb-4 pl-7 last:pb-0">
+                          <span
+                            aria-hidden
+                            className={cn(
+                              'absolute left-0 top-1 h-3 w-3 rounded-full border-2 border-white shadow-sm dark:border-slate-900',
+                              severity === 'critical' && 'bg-red-500',
+                              severity === 'warning' && 'bg-amber-400',
+                              severity === 'normal' && 'bg-slate-400',
+                            )}
+                          />
+                          <span className="sr-only">{severity === 'critical' ? '严重报警' : severity === 'warning' ? '中等报警' : '普通报警'}</span>
+                          <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500">{formatLatestTime(alarm.created_at)}</div>
+                          <div className="mt-0.5 truncate text-sm font-black text-[#071d3d] dark:text-slate-100">{alarm.event_label || alarm.event_type}</div>
+                          <div className="mt-0.5 truncate text-xs font-medium text-slate-500 dark:text-slate-400">{getAlarmLocation(alarm)}</div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               ) : (
-                <div className="mt-5 rounded-2xl border border-emerald-100 bg-[linear-gradient(180deg,#ecfdf5_0%,#ffffff_100%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.86)] dark:border-emerald-900/50 dark:bg-[linear-gradient(180deg,rgba(6,78,59,0.25)_0%,rgba(15,23,42,0.18)_100%)]">
+                <div className="mt-5 flex-1 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.14)]" />
                     <div className="text-sm font-semibold leading-6 text-emerald-700 dark:text-emerald-300">
@@ -876,6 +911,15 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                   </div>
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={() => onNavigate('alarms')}
+                className="mt-5 flex w-full items-center justify-between border-t border-slate-200 pt-4 text-sm font-bold text-[#09265a] transition hover:text-blue-600 dark:border-slate-800 dark:text-blue-300 dark:hover:text-blue-200"
+              >
+                <span>查看全部报警</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </section>
@@ -897,32 +941,33 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
               </div>
 
               {isAdmin ? (
-                <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50/55 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-sm font-black text-[#071d3d] dark:text-slate-100">
-                        <Bell className="h-4 w-4 text-amber-600" />
-                        全局异常推送
-                      </div>
-                      <div className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-amber-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                      <Bell className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-[220px] flex-1">
+                      <div className="text-sm font-black text-[#071d3d] dark:text-slate-100">全局异常推送</div>
+                      <div className="mt-0.5 truncate text-xs font-medium text-slate-500 dark:text-slate-400">
                         摄像头断流、功能异常、模型 Worker 退出和 API 未处理异常统一推送。
                       </div>
                     </div>
                     <Switch
+                      aria-label="启用全局异常推送"
                       checked={exceptionWechatEnabled}
                       onCheckedChange={setExceptionWechatEnabled}
                       disabled={exceptionSettingsLoading || exceptionSettingsSaving}
                     />
-                  </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                     <Input
+                      aria-label="推送群号"
+                      className="min-w-[220px] flex-[1_1_280px] bg-white dark:bg-slate-900"
                       value={exceptionWechatUser}
                       onChange={(event) => setExceptionWechatUser(event.target.value)}
-                      placeholder="多个接收人用 | 分隔，例如 zhangsan|lisi；也可填 @all"
+                      placeholder="推送群号，多个用 | 分隔；也可填 @all"
                       disabled={exceptionSettingsLoading || exceptionSettingsSaving || !exceptionWechatEnabled}
                     />
                     <Button
-                      className="gap-2"
+                      className="gap-2 bg-[#001b43] text-white hover:bg-[#082a5f] dark:bg-blue-600 dark:hover:bg-blue-500"
                       onClick={handleSaveExceptionSettings}
                       disabled={exceptionSettingsLoading || exceptionSettingsSaving}
                     >
@@ -930,8 +975,8 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                       {exceptionSettingsSaving ? '保存中' : '保存'}
                     </Button>
                   </div>
-                  {exceptionSettingsError ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{exceptionSettingsError}</div> : null}
-                  {exceptionSettingsMessage ? <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{exceptionSettingsMessage}</div> : null}
+                  {exceptionSettingsError ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{exceptionSettingsError}</div> : null}
+                  {exceptionSettingsMessage ? <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{exceptionSettingsMessage}</div> : null}
                 </div>
               ) : null}
 

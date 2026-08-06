@@ -65,3 +65,62 @@ test('moves account controls to the sidebar and removes global status', () => {
   assert.notEqual(sidebarElement, '', 'expected the application sidebar')
   assert.doesNotMatch(sidebarElement, /platformStatus=\{platformStatus\}/)
 })
+
+test('keeps cameras in one scroller with a responsive two-column grid and hover actions', () => {
+  const cameraListStart = homeSection.indexOf('全部摄像头')
+  const cameraListEnd = homeSection.indexOf('</section>', cameraListStart)
+  const cameraList = homeSection.slice(cameraListStart, cameraListEnd)
+
+  assert.notEqual(cameraListStart, -1, 'expected the all-camera list')
+  assert.match(cameraList, /grid-cols-1/)
+  assert.match(cameraList, /lg:grid-cols-2/)
+  assert.match(cameraList, /\bgroup\b/)
+  assert.match(cameraList, /opacity-0/)
+  assert.match(cameraList, /group-hover:opacity-100/)
+  assert.match(cameraList, /group-focus-within:opacity-100/)
+  assert.match(cameraList, /transition-opacity/)
+  assert.match(cameraList, /\[@media\(hover:hover\)\]:opacity-0/)
+  assert.match(cameraList, /\[@media\(hover:hover\)\]:pointer-events-none/)
+  assert.match(cameraList, /group-hover:pointer-events-auto/)
+  assert.doesNotMatch(cameraList, /tabIndex=/)
+  assert.match(cameraList, /onClick=\{\(\) => openEditCameraDialog\(camera\)\}/)
+  assert.match(cameraList, /setCameraToDelete\(camera\)/)
+})
+
+test('compresses global exception push into a wrapping horizontal bar', () => {
+  const pushBar = homeSection.match(/<div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-3[\s\S]*?\{visibleStatusCards\.map/)?.[0] ?? ''
+
+  assert.notEqual(pushBar, '', 'expected global exception push settings')
+  assert.match(pushBar, /flex flex-wrap items-center/)
+  assert.match(pushBar, /bg-slate-50/)
+  assert.match(pushBar, /dark:bg-slate-950/)
+  assert.match(pushBar, /<Bell[\s\S]*?全局异常推送[\s\S]*?<Switch[\s\S]*?<Input[\s\S]*?<Button/)
+  assert.match(pushBar, /min-w-\[220px\]/)
+  assert.match(pushBar, /bg-\[#001b43\]/)
+  assert.match(pushBar, /aria-label="启用全局异常推送"/)
+  assert.match(pushBar, /aria-label="推送群号"/)
+})
+
+test('renders the five latest alarms as a severity timeline with navigation', () => {
+  const alarmHelpers = homeSection.slice(homeSection.indexOf('const criticalAlarmTypes'), homeSection.indexOf('function departmentLabel'))
+  const timeline = homeSection.slice(homeSection.indexOf('最近异常'), homeSection.indexOf('运行状态看板'))
+
+  assert.match(homeSection, /recentAlarms: AlarmEvent\[\]/)
+  assert.match(homeSection, /alarmItems\.slice\(0, 5\)/)
+  assert.match(alarmHelpers, /criticalAlarmTypes = new Set\(\['blocks', 'guard_absent'\]\)/)
+  for (const eventType of ['detect_door', 'detect_phone', 'guard_phone_use', 'guard_prone_sleep', 'security_vlm_non_compliant', 'security_vlm_error']) {
+    assert.match(alarmHelpers, new RegExp(`'${eventType}'`))
+  }
+  assert.match(alarmHelpers, /function getAlarmSeverity[\s\S]*?return 'normal'/)
+  assert.match(alarmHelpers, /alarm\.camera_name \|\| alarm\.site_name \|\| alarm\.camera_no \|\| '未知位置'/)
+  assert.match(timeline, /overview\.recentAlarms\.map/)
+  assert.match(timeline, /severity === 'critical' && 'bg-red-500'/)
+  assert.match(timeline, /severity === 'warning' && 'bg-amber-400'/)
+  assert.match(timeline, /severity === 'normal' && 'bg-slate-400'/)
+  assert.match(timeline, /absolute left-\[/)
+  assert.match(timeline, /alarm\.event_label \|\| alarm\.event_type/)
+  assert.match(timeline, /getAlarmLocation\(alarm\)/)
+  assert.match(timeline, /严重报警/)
+  assert.match(timeline, /查看全部报警/)
+  assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms'\)\}/)
+})
