@@ -4,6 +4,7 @@ import { findNavItem } from '@/lib/nav'
 import { getPageDisplayOverride } from '@/auth/permissions'
 import { useTheme } from '@/hooks/use-theme'
 import { useAuth } from '@/auth/useAuth'
+import { UserIdentity } from '@/components/UserIdentity'
 
 interface TopbarProps {
   currentPage: string
@@ -47,6 +48,14 @@ export function Topbar({ currentPage, onToggleSidebar }: TopbarProps) {
           <h2 className="truncate text-base font-semibold leading-tight text-[#09265a] dark:text-slate-100 sm:hidden">福达视觉平台</h2>
         )}
       </div>
+
+      {user && (
+        <UserIdentity
+          user={user}
+          className="shrink-0"
+          detailsClassName="hidden xl:flex"
+        />
+      )}
 
       <button
         onClick={toggleTheme}

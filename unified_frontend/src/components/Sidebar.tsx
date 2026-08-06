@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { UserIdentity } from '@/components/UserIdentity'
 
 interface SidebarProps {
   currentPage: string
@@ -232,11 +233,7 @@ export function Sidebar({
           <div className="rounded-xl border border-slate-200 bg-white/72 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
             {user && (
               <div className="min-w-0 border-b border-slate-200 px-1 pb-3 dark:border-slate-800">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="shrink-0 font-bold text-[#09265a] dark:text-slate-100">{user.employee_id}</span>
-                  <span className="truncate text-slate-600 dark:text-slate-300">{user.name}</span>
-                </div>
-                <span className="mt-1.5 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[11px] uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-300">{user.role}</span>
+                <UserIdentity user={user} />
               </div>
             )}
             <div className="mt-3 grid grid-cols-2 gap-2">

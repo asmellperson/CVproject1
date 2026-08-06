@@ -54,8 +54,7 @@ test('keeps only the bilingual brand at the top of the sidebar', () => {
 test('moves account controls to the sidebar and removes global status', () => {
   const sidebarElement = app.match(/<Sidebar\b[\s\S]*?\/>/)?.[0] ?? ''
 
-  assert.match(sidebar, /user\.employee_id/)
-  assert.match(sidebar, /user\.name/)
+  assert.match(sidebar, /<UserIdentity user=\{user\}/)
   assert.match(sidebar, /修改密码/)
   assert.match(sidebar, /退出/)
   assert.match(sidebar, /aria-label="修改密码"/)
