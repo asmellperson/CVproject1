@@ -345,6 +345,56 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
               <GuardDetectionStatusRow label="保安在岗识别" icon={UserRound} state={guards > 0 ? 'normal' : 'warning'} stateLabel={guards > 0 ? `${guards} 人在岗` : '未在岗'} />
             </CardContent>
           </Card>
+
+          {site && (
+            <>
+              <Card className={CARD_CLASS}>
+                <CardHeader className="p-5 pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                    <Radio className="h-4 w-4 text-[#1B3FA0]" />
+                    检测详情
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5 px-5 pb-5">
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-sm"><span>人员置信度</span><span>{Math.round((status?.metrics.person_confidence ?? 0) * 100)}%</span></div>
+                    <Progress value={(status?.metrics.person_confidence ?? 0) * 100} />
+                  </div>
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-sm"><span>手机置信度</span><span>{Math.round((status?.metrics.phone_confidence ?? 0) * 100)}%</span></div>
+                    <Progress value={(status?.metrics.phone_confidence ?? 0) * 100} />
+                  </div>
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-sm"><span>头部姿态</span><span>{(status?.metrics.head_down_ratio ?? 0).toFixed(2)}</span></div>
+                    <Progress value={Math.min(100, (status?.metrics.head_down_ratio ?? 0) * 300)} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={CARD_CLASS}>
+                <CardHeader className="p-5 pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    最近报警
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-5">
+                  {lastAlarm ? (
+                    <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold text-slate-900">{alarmText(lastAlarm.event_type)}</div>
+                        <Badge variant="outline">{Math.round(lastAlarm.confidence * 100)}%</Badge>
+                      </div>
+                      <div className="text-sm text-slate-600">{lastAlarm.reason}</div>
+                      <div className="text-xs text-slate-500">{lastAlarm.created_at}</div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-500">暂无报警</div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
         <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
@@ -423,56 +473,6 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
           </CardContent>
         </Card>
       </section>
-
-      {site && (
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
-                <Radio className="h-4 w-4 text-[#1B3FA0]" />
-                检测详情
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5 px-5 pb-5">
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm"><span>人员置信度</span><span>{Math.round((status?.metrics.person_confidence ?? 0) * 100)}%</span></div>
-                <Progress value={(status?.metrics.person_confidence ?? 0) * 100} />
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm"><span>手机置信度</span><span>{Math.round((status?.metrics.phone_confidence ?? 0) * 100)}%</span></div>
-                <Progress value={(status?.metrics.phone_confidence ?? 0) * 100} />
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-sm"><span>头部姿态</span><span>{(status?.metrics.head_down_ratio ?? 0).toFixed(2)}</span></div>
-                <Progress value={Math.min(100, (status?.metrics.head_down_ratio ?? 0) * 300)} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                最近报警
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-5">
-              {lastAlarm ? (
-                <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-900">{alarmText(lastAlarm.event_type)}</div>
-                    <Badge variant="outline">{Math.round(lastAlarm.confidence * 100)}%</Badge>
-                  </div>
-                  <div className="text-sm text-slate-600">{lastAlarm.reason}</div>
-                  <div className="text-xs text-slate-500">{lastAlarm.created_at}</div>
-                </div>
-              ) : (
-                <div className="text-sm text-slate-500">暂无报警</div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      )}
     </div>
   )
 }

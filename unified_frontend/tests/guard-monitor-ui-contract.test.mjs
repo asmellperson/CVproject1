@@ -63,3 +63,18 @@ test('extracts repeated display elements without moving business logic', () => {
   assert.match(monitor, /guardRoomSiteFrameUrl\(site\.id, department\)/)
   assert.match(monitor, /window\.setInterval\(fetchStatus, POLL_MS\)/)
 })
+
+test('places details and alarms below real-time items in the left column', () => {
+  const leftColumn = monitor.indexOf('<div className="space-y-5">')
+  const realtimeItems = monitor.indexOf('实时检测项', leftColumn)
+  const details = monitor.indexOf('检测详情', realtimeItems)
+  const recentAlarm = monitor.indexOf('最近报警', details)
+  const video = monitor.indexOf("'overflow-hidden lg:col-span-2'", recentAlarm)
+
+  assert.ok(leftColumn >= 0)
+  assert.ok(leftColumn < realtimeItems)
+  assert.ok(realtimeItems < details)
+  assert.ok(details < recentAlarm)
+  assert.ok(recentAlarm < video)
+  assert.doesNotMatch(monitor, /<section className="grid gap-5 lg:grid-cols-2">/)
+})
