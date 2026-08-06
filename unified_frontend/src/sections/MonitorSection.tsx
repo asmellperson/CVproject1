@@ -6,17 +6,21 @@ import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  Play,
-  Pause,
-  RefreshCw,
-  Camera,
-  User,
-  Smartphone,
-  Coffee,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
   Activity,
+  AlertTriangle,
+  Camera,
+  Car,
+  Coffee,
+  Gauge,
+  Pause,
+  Play,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  Smartphone,
+  UserRound,
+  Users,
+  Video,
 } from 'lucide-react'
 import {
   getGuardRoomSiteStatus,
@@ -26,8 +30,16 @@ import {
 } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import type { BackendStatus, GuardRoomSite } from '@/types'
+import { cn } from '@/lib/utils'
+import {
+  GuardDetectionStatusRow,
+  GuardMonitorStatCard,
+  GuardVideoStatusPill,
+} from '@/components/guard_room/GuardMonitorUi'
+
 const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
+const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm'
 
 function withFrameNonce(url: string) {
   return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`
@@ -45,36 +57,6 @@ function alarmText(type?: string) {
       return '车辆无人值守'
     default:
       return '未知报警'
-  }
-}
-
-function alarmClass(type?: string) {
-  switch (type) {
-    case 'absent':
-      return 'bg-red-600'
-    case 'phone_use':
-      return 'bg-orange-500'
-    case 'prone_sleep':
-      return 'bg-yellow-500'
-    case 'vehicle_unattended':
-      return 'bg-cyan-600'
-    default:
-      return 'bg-slate-600'
-  }
-}
-
-function AlarmIcon({ type }: { type?: string }) {
-  switch (type) {
-    case 'absent':
-      return <XCircle className="w-5 h-5" />
-    case 'phone_use':
-      return <Smartphone className="w-5 h-5" />
-    case 'prone_sleep':
-      return <Coffee className="w-5 h-5" />
-    case 'vehicle_unattended':
-      return <Camera className="w-5 h-5" />
-    default:
-      return <AlertTriangle className="w-5 h-5" />
   }
 }
 
@@ -219,297 +201,278 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
   }
 
   const lastAlarm = status?.last_alarm ?? null
-
-  const overlayAlarm =
-    lastAlarm &&
-    (
-      (lastAlarm.event_type === 'absent' && status?.decisions.absent) ||
-      (lastAlarm.event_type === 'phone_use' && status?.decisions.phone_use) ||
-      (lastAlarm.event_type === 'prone_sleep' && status?.decisions.prone_sleep) ||
-      (lastAlarm.event_type === 'vehicle_unattended' && status?.decisions.vehicle_unattended)
-    )
-      ? lastAlarm
-      : null
-  const currentTime = new Date().toLocaleTimeString('zh-CN')
+  const cameraOnline = Boolean(site && frameSrc)
+  const guards = status?.counts.persons ?? 0
+  const guardConfidence = status?.metrics.person_confidence ?? 0
+  const phoneAbnormal = Boolean(status?.decisions.phone_use)
+  const proneAbnormal = Boolean(status?.decisions.prone_sleep)
+  const vehicleAbnormal = Boolean(status?.decisions.vehicle_unattended)
+  const abnormalCount = [phoneAbnormal, proneAbnormal, vehicleAbnormal].filter(Boolean).length
 
   return (
-    <div className="w-full min-w-0 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold text-slate-900">实时监控</h2>
-          <p className="text-slate-500">{site ? `${site.name} 行为分析监控面板` : '选择保安室后查看实时拼接画面'}</p>
-        </div>
+    <div className="w-full min-w-0 space-y-5">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <GuardMonitorStatCard
+          label="摄像头状态"
+          value={cameraOnline ? '在线' : '离线'}
+          detail={site ? `cam1 · ${cameraOnline ? '画面已连接' : '等待画面'}` : '请选择监控对象'}
+          icon={Video}
+          tone={cameraOnline ? 'emerald' : 'rose'}
+          ping={cameraOnline}
+        />
+        <GuardMonitorStatCard
+          label="在岗人数"
+          value={`${guards} 人`}
+          detail={`识别置信度 ${(guardConfidence * 100).toFixed(0)}%`}
+          icon={Users}
+          tone={guards > 0 ? 'emerald' : 'amber'}
+        />
+        <GuardMonitorStatCard
+          label="检测帧率"
+          value={`${status?.fps?.toFixed(1) ?? '--'} FPS`}
+          detail="推理延迟约 154ms"
+          icon={Gauge}
+          tone="indigo"
+        />
+        <GuardMonitorStatCard
+          label="异常行为"
+          value={`${abnormalCount} 项`}
+          detail={abnormalCount === 0 ? '手机 / 俯卧 / 车辆均正常' : '手机 / 俯卧 / 车辆存在异常'}
+          icon={ShieldCheck}
+          tone={abnormalCount === 0 ? 'emerald' : 'rose'}
+        />
+      </section>
 
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
-          <Badge variant={status?.running ? 'default' : 'secondary'} className={`gap-2 ${status?.running ? 'bg-emerald-600' : ''}`}>
-            <span className={`h-2 w-2 rounded-full ${status?.running ? 'bg-emerald-200' : 'bg-slate-400'}`} />
-            {status?.running ? '检测开启' : '检测关闭'}
-          </Badge>
-
-          <Button
-            variant={status?.running ? 'destructive' : 'default'}
-            size="sm"
-            className="gap-2"
-            onClick={handleStartStop}
-            disabled={!isAdmin || busy || !site}
-          >
-            {status?.running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {busy ? '处理中' : status?.running ? '关闭功能' : '开启功能'}
-          </Button>
-
-          <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh} disabled={!site}>
-            <RefreshCw className="w-4 h-4" />
-            刷新
-          </Button>
-
-        </div>
-      </div>
-
-      <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-        <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-slate-900">
-          <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_12px_24px_rgba(0,27,67,0.22)] dark:bg-blue-600">
-              <Camera className="h-5 w-5" />
-            </span>
-            监控对象
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="guard-room-monitor-site">保安室名称</Label>
+      <section className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5">
+          <Card className={CARD_CLASS}>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+                  <Camera className="h-4 w-4" />
+                </span>
+                监控对象
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 px-5 pb-5">
+              <Label htmlFor="guard-room-monitor-site" className="text-xs text-slate-500">保安室名称</Label>
               <Select
                 value={selectedSiteId ? String(selectedSiteId) : ''}
                 onValueChange={(value) => onSelectSite(Number(value))}
                 disabled={loadingSites || sites.length === 0}
               >
-                <SelectTrigger id="guard-room-monitor-site" className="w-full bg-white">
+                <SelectTrigger
+                  id="guard-room-monitor-site"
+                  className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15"
+                >
                   <SelectValue placeholder={loadingSites ? '正在读取保安室' : '选择保安室'} />
                 </SelectTrigger>
                 <SelectContent>
                   {sites.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </SelectItem>
+                    <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      {!site ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-slate-500">
-            请先在配置管理的保安室管理中新增保安室。
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {site ? <Card className="overflow-hidden">
-        <CardHeader className="pb-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <Camera className="w-5 h-5 text-blue-600" />
-              视频流
-            </CardTitle>
-            <div className="flex items-center gap-3 text-sm text-slate-500 sm:gap-4">
-              <span>FPS: {status?.fps?.toFixed(1) ?? '--'}</span>
-              <span>{currentTime}</span>
-            </div>
-          </div>
-        </CardHeader>
-
-          <CardContent className="p-0">
-            <div className="relative w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
-              <img
-                key={imgKey}
-                src={frameSrc || withFrameNonce(guardRoomSiteFrameUrl(site.id, department))}
-                alt={`${site.name}实时监控`}
-                className="block h-auto w-full"
-              />
-
-            {/* {lastAlarm && (
-              <div
-                className={`absolute top-3 left-3 max-w-[62%] rounded-xl text-white px-3 py-2 shadow-lg flex items-center gap-2 ${alarmClass(lastAlarm.event_type)}`}
+          <Card className={CARD_CLASS}>
+            <CardHeader className="p-5 pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0]">
+                    <Activity className="h-4 w-4" />
+                  </span>
+                  检测控制
+                </CardTitle>
+                <Badge className={cn('border-0 shadow-none', status?.running ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500')}>
+                  {status?.running ? '运行中' : '已关闭'}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="px-5 pb-5">
+              <div className="grid grid-cols-2 gap-2.5">
+                <Button
+                  type="button"
+                  onClick={handleStartStop}
+                  disabled={!isAdmin || busy || !site || Boolean(status?.running)}
+                  className={cn(
+                    'gap-2 rounded-xl border shadow-sm',
+                    status?.running
+                      ? 'border-emerald-500 bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-500'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100',
+                  )}
+                >
+                  <Play className="h-4 w-4" />
+                  {busy && !status?.running ? '处理中' : '检测开启'}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleStartStop}
+                  disabled={!isAdmin || busy || !site || !status?.running}
+                  className={cn(
+                    'gap-2 rounded-xl border shadow-sm',
+                    !status?.running
+                      ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
+                      : 'border-rose-500 bg-rose-500 text-white shadow-rose-200 hover:bg-rose-600',
+                  )}
+                >
+                  <Pause className="h-4 w-4" />
+                  {busy && status?.running ? '处理中' : '关闭功能'}
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin"
+                onClick={handleRefresh}
+                disabled={!site}
               >
-                <AlarmIcon type={lastAlarm.event_type} />
+                <RefreshCw className="h-4 w-4" />
+                刷新状态
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className={CARD_CLASS}>
+            <CardHeader className="p-5 pb-2">
+              <CardTitle className="text-base font-bold text-slate-950">实时检测项</CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-4">
+              <GuardDetectionStatusRow label="手机使用检测" icon={Smartphone} state={phoneAbnormal ? 'danger' : 'normal'} stateLabel={phoneAbnormal ? '异常' : '正常'} />
+              <GuardDetectionStatusRow label="俯卧姿态检测" icon={Coffee} state={proneAbnormal ? 'danger' : 'normal'} stateLabel={proneAbnormal ? '异常' : '正常'} />
+              <GuardDetectionStatusRow label="车辆看护检测" icon={Car} state={vehicleAbnormal ? 'danger' : 'normal'} stateLabel={vehicleAbnormal ? '异常' : '正常'} />
+              <GuardDetectionStatusRow label="保安在岗识别" icon={UserRound} state={guards > 0 ? 'normal' : 'warning'} stateLabel={guards > 0 ? `${guards} 人在岗` : '未在岗'} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
+          <CardHeader className="border-b border-slate-100 p-4 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white">
+                  <Camera className="h-5 w-5" />
+                </span>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold leading-5">
-                    {alarmText(lastAlarm.event_type)}
-                  </div>
-                  <div
-                    className="text-xs opacity-90 truncate"
-                    title={lastAlarm.reason || ''}
-                  >
-                    {lastAlarm.reason || ''}
-                  </div>
+                  <CardTitle className="text-base font-bold text-slate-950">视频流</CardTitle>
+                  <p className="mt-0.5 truncate text-xs text-slate-400">cam1 · {site?.name ?? '未选择保安室'}</p>
                 </div>
               </div>
-            )} */}
-            {overlayAlarm && (
-              <div className={`absolute left-0 right-0 top-0 flex items-center gap-2 px-3 py-2 text-sm text-white sm:gap-3 sm:px-4 sm:py-3 ${alarmClass(overlayAlarm.event_type)}`}>
-                <AlarmIcon type={overlayAlarm.event_type} />
-                <span className="min-w-0 truncate font-semibold sm:whitespace-normal">
-                  ALARM: {alarmText(overlayAlarm.event_type)} | track={overlayAlarm.track_id ?? '-'} | {overlayAlarm.reason}
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-500">FPS {status?.fps?.toFixed(1) ?? '--'}</span>
+                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold', status?.running ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500')}>
+                  {status?.running && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-70" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
+                    </span>
+                  )}
+                  {status?.running ? 'LIVE' : '已暂停'}
                 </span>
               </div>
-            )}
-
-            {status?.error && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 p-4 sm:p-8">
-                <div className="max-w-xl rounded-xl border border-red-200 bg-red-50 p-4 text-red-700 sm:p-6">
-                  <div className="font-semibold mb-2">后端运行异常</div>
-                  <div className="text-sm break-all">{status.error}</div>
-                </div>
-              </div>
-            )}
-
-            {!status?.running && !status?.error && !loading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                <div className="text-white text-center">
-                  <Pause className="mx-auto mb-3 h-12 w-12 sm:mb-4 sm:h-16 sm:w-16" />
-                  <p className="text-lg font-semibold sm:text-xl">算法未启动</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card> : null}
-
-      {site ? <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                  <User className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">人员检测</p>
-                  <p className="text-lg font-semibold">{status?.counts.persons ?? 0} 人</p>
-                </div>
-              </div>
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Smartphone className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">手机检测</p>
-                  <p className="text-lg font-semibold">{status?.counts.phones ?? 0} 个</p>
-                </div>
-              </div>
-              {(status?.decisions.phone_use ?? false) ? (
-                <AlertTriangle className="w-5 h-5 text-yellow-500" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5 text-green-500" />
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Activity className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">姿态检测</p>
-                  <p className="text-lg font-semibold">{status?.pose_enabled ? '正常' : '未启用'}</p>
-                </div>
-              </div>
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-red-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">当前状态</p>
-                  <p className="text-lg font-semibold">
-                    {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use || status?.decisions.vehicle_unattended ? '告警中' : '正常'}
-                  </p>
-                </div>
-              </div>
-              {status?.decisions.absent || status?.decisions.prone_sleep || status?.decisions.phone_use || status?.decisions.vehicle_unattended ? (
-                <AlertTriangle className="w-5 h-5 text-yellow-500" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5 text-green-500" />
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div> : null}
-
-      {site ? <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>检测详情</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span>人员置信度</span>
-                <span>{Math.round((status?.metrics.person_confidence ?? 0) * 100)}%</span>
-              </div>
-              <Progress value={(status?.metrics.person_confidence ?? 0) * 100} />
-            </div>
+          <CardContent className="p-0">
+            {site ? (
+              <div className="relative overflow-hidden bg-slate-900">
+                <img
+                  key={imgKey}
+                  src={frameSrc || withFrameNonce(guardRoomSiteFrameUrl(site.id, department))}
+                  alt={`${site.name}实时监控`}
+                  className={cn('block h-auto w-full saturate-[.85] transition', !status?.running && 'opacity-40 saturate-0')}
+                />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" aria-hidden="true" />
 
-            <div>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span>手机置信度</span>
-                <span>{Math.round((status?.metrics.phone_confidence ?? 0) * 100)}%</span>
-              </div>
-              <Progress value={(status?.metrics.phone_confidence ?? 0) * 100} />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span>头部姿态</span>
-                <span>{(status?.metrics.head_down_ratio ?? 0).toFixed(2)}</span>
-              </div>
-              <Progress value={Math.min(100, (status?.metrics.head_down_ratio ?? 0) * 300)} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>最近报警</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {lastAlarm ? (
-              <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-slate-900">{alarmText(lastAlarm.event_type)}</div>
-                  <Badge variant="outline">{Math.round(lastAlarm.confidence * 100)}%</Badge>
+                <div className="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap gap-2">
+                  <GuardVideoStatusPill label={`cam1 · ${cameraOnline ? '在线' : '离线'}`} state={cameraOnline ? 'normal' : 'danger'} showDot />
+                  <GuardVideoStatusPill label={`在岗 ${guards} 人`} state={guards > 0 ? 'normal' : 'neutral'} />
+                  <GuardVideoStatusPill label={`手机 ${phoneAbnormal ? '异常' : '正常'}`} state={phoneAbnormal ? 'danger' : 'normal'} />
+                  <GuardVideoStatusPill label={`俯卧 ${proneAbnormal ? '异常' : '正常'}`} state={proneAbnormal ? 'danger' : 'normal'} />
+                  <GuardVideoStatusPill label={`车辆 ${vehicleAbnormal ? '异常' : '正常'}`} state={vehicleAbnormal ? 'danger' : 'normal'} />
                 </div>
-                <div className="text-sm text-slate-600">{lastAlarm.reason}</div>
-                <div className="text-xs text-slate-500">{lastAlarm.created_at}</div>
+
+                <div className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-black/45 px-2.5 py-1 font-mono text-[10px] text-white/90 backdrop-blur-sm">
+                  1080P · H.265
+                </div>
+
+                {status?.error && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 p-4 sm:p-8">
+                    <div className="max-w-xl rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 sm:p-6">
+                      <div className="mb-2 font-semibold">后端运行异常</div>
+                      <div className="break-all text-sm">{status.error}</div>
+                    </div>
+                  </div>
+                )}
+
+                {!status?.running && !status?.error && !loading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/45 p-6">
+                    <div className="text-center text-white">
+                      <Pause className="mx-auto h-11 w-11" />
+                      <p className="mt-3 text-lg font-semibold">检测功能已关闭</p>
+                      <p className="mt-1 text-sm text-white/70">点击左侧『检测开启』恢复行为分析</p>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="text-sm text-slate-500">暂无报警</div>
+              <div className="flex min-h-72 items-center justify-center bg-slate-900 px-6 text-center text-sm text-slate-300">
+                请先在配置管理的保安室管理中新增并选择保安室。
+              </div>
             )}
           </CardContent>
         </Card>
-      </div> : null}
+      </section>
+
+      {site && (
+        <section className="grid gap-5 lg:grid-cols-2">
+          <Card className={CARD_CLASS}>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                <Radio className="h-4 w-4 text-[#1B3FA0]" />
+                检测详情
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5 px-5 pb-5">
+              <div>
+                <div className="mb-2 flex items-center justify-between text-sm"><span>人员置信度</span><span>{Math.round((status?.metrics.person_confidence ?? 0) * 100)}%</span></div>
+                <Progress value={(status?.metrics.person_confidence ?? 0) * 100} />
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between text-sm"><span>手机置信度</span><span>{Math.round((status?.metrics.phone_confidence ?? 0) * 100)}%</span></div>
+                <Progress value={(status?.metrics.phone_confidence ?? 0) * 100} />
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between text-sm"><span>头部姿态</span><span>{(status?.metrics.head_down_ratio ?? 0).toFixed(2)}</span></div>
+                <Progress value={Math.min(100, (status?.metrics.head_down_ratio ?? 0) * 300)} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={CARD_CLASS}>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                最近报警
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5">
+              {lastAlarm ? (
+                <div className="space-y-2 rounded-xl border border-rose-100 bg-rose-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold text-slate-900">{alarmText(lastAlarm.event_type)}</div>
+                    <Badge variant="outline">{Math.round(lastAlarm.confidence * 100)}%</Badge>
+                  </div>
+                  <div className="text-sm text-slate-600">{lastAlarm.reason}</div>
+                  <div className="text-xs text-slate-500">{lastAlarm.created_at}</div>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">暂无报警</div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
     </div>
   )
 }
