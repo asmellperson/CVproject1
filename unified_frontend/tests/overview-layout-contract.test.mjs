@@ -123,3 +123,10 @@ test('renders the five latest alarms as a severity timeline with navigation', ()
   assert.match(timeline, /查看全部报警/)
   assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms'\)\}/)
 })
+
+test('removes the bottom feature entry cards from the overview', () => {
+  assert.doesNotMatch(homeSection, /ModuleEntryCard/)
+  assert.doesNotMatch(homeSection, /进入功能/)
+  assert.match(homeSection, /const moduleEntries =/)
+  assert.match(homeSection, /getVisibleStatusCards\(visibleModuleEntries\)/)
+})

@@ -7,17 +7,12 @@ import {
   Bell,
   Camera,
   CircleDotDashed,
-  DoorOpen,
   Pencil,
   Plus,
   ScanFace,
   Server,
-  ShieldAlert,
   ShieldCheck,
-  Smartphone,
   Trash2,
-  UserRound,
-  UsersRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,7 +32,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
-import { departmentPermissions, filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
+import { filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
 import { getAlarms, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
 import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 import {
@@ -61,154 +56,63 @@ const moduleEntries = [
   {
     id: 'security-vlm-general-electric',
     title: '安检流程规范检测入口',
-    icon: ShieldAlert,
-    status: '已接入',
-    accent: 'from-cyan-500 to-blue-500',
-    glow: 'shadow-cyan-500/16',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'security-vlm-electronics-electrician',
     title: '安检流程规范检测入口',
-    icon: ShieldAlert,
-    status: '已接入',
-    accent: 'from-cyan-500 to-blue-500',
-    glow: 'shadow-cyan-500/16',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'security-vlm-electrical-components',
     title: '安检流程规范检测入口',
-    icon: ShieldAlert,
-    status: '已接入',
-    accent: 'from-cyan-500 to-blue-500',
-    glow: 'shadow-cyan-500/16',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'security-vlm-precious-metal-recycling',
     title: '安检流程规范检测入口',
-    icon: ShieldAlert,
-    status: '已接入',
-    accent: 'from-cyan-500 to-blue-500',
-    glow: 'shadow-cyan-500/16',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'guard-behavior-general-electric',
     title: '保安行为规范检测入口',
-    icon: ShieldCheck,
-    status: '已接入',
-    accent: 'from-sky-500 to-blue-600',
-    glow: 'shadow-blue-500/18',
-    iconColor: 'text-blue-600',
-    iconBg: 'from-blue-50 to-sky-100',
   },
   {
     id: 'guard-behavior-electronics-electrician',
     title: '保安行为规范检测入口',
-    icon: ShieldCheck,
-    status: '已接入',
-    accent: 'from-blue-500 to-cyan-600',
-    glow: 'shadow-cyan-500/18',
-    iconColor: 'text-cyan-700',
-    iconBg: 'from-cyan-50 to-blue-100',
   },
   {
     id: 'intrusion-detection',
     title: '区域入侵检测入口',
-    icon: UserRound,
-    status: '已接入',
-    accent: 'from-teal-400 to-emerald-500',
-    glow: 'shadow-emerald-500/16',
-    iconColor: 'text-teal-600',
-    iconBg: 'from-teal-50 to-cyan-100',
   },
   {
     id: 'door-detection',
     title: '大门开关检测入口',
-    icon: DoorOpen,
-    status: '已接入',
-    accent: 'from-indigo-500 to-blue-600',
-    glow: 'shadow-indigo-500/16',
-    iconColor: 'text-indigo-600',
-    iconBg: 'from-indigo-50 to-blue-100',
   },
   {
     id: 'face-detection',
     title: '人脸检测入口',
-    icon: ScanFace,
-    status: '已接入',
-    accent: 'from-violet-500 to-purple-600',
-    glow: 'shadow-violet-500/16',
-    iconColor: 'text-violet-600',
-    iconBg: 'from-violet-50 to-purple-100',
   },
   {
     id: 'human-detection',
     title: '人员逗留检测入口',
-    icon: CircleDotDashed,
-    status: '已接入',
-    accent: 'from-amber-400 to-orange-500',
-    glow: 'shadow-orange-500/16',
-    iconColor: 'text-orange-600',
-    iconBg: 'from-orange-50 to-amber-100',
   },
   {
     id: 'logistics-single-person-detection',
     title: '物流通道单人检测入口',
-    icon: UsersRound,
-    status: '已接入',
-    accent: 'from-teal-500 to-cyan-600',
-    glow: 'shadow-teal-500/16',
-    iconColor: 'text-teal-700',
-    iconBg: 'from-teal-50 to-cyan-100',
   },
   {
     id: 'logistics-single-person-electronics-electrician-detection',
     title: '物流通道单人检测入口（电子电工）',
-    icon: UsersRound,
-    status: '已接入',
-    accent: 'from-teal-500 to-cyan-600',
-    glow: 'shadow-teal-500/16',
-    iconColor: 'text-teal-700',
-    iconBg: 'from-teal-50 to-cyan-100',
   },
   {
     id: 'logistics-single-person-electrical-components-detection',
     title: '物流通道单人检测入口（电气部件）',
-    icon: UsersRound,
-    status: '已接入',
-    accent: 'from-teal-500 to-cyan-600',
-    glow: 'shadow-teal-500/16',
-    iconColor: 'text-teal-700',
-    iconBg: 'from-teal-50 to-cyan-100',
   },
   {
     id: 'logistics-single-person-precious-metal-recycling-detection',
     title: '物流通道单人检测入口（贵金属回收）',
-    icon: UsersRound,
-    status: '已接入',
-    accent: 'from-teal-500 to-cyan-600',
-    glow: 'shadow-teal-500/16',
-    iconColor: 'text-teal-700',
-    iconBg: 'from-teal-50 to-cyan-100',
   },
   {
     id: 'phone-detection',
     title: '手机使用检测入口',
-    icon: Smartphone,
-    status: '已接入',
-    accent: 'from-rose-500 to-red-500',
-    glow: 'shadow-rose-500/16',
-    iconColor: 'text-rose-600',
-    iconBg: 'from-rose-50 to-red-100',
   },
-  
 ]
 
 type OverviewState = {
@@ -246,13 +150,6 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
 }
 
 type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
-type ModuleEntry = (typeof moduleEntries)[number]
-type DepartmentModuleGroup = {
-  id: string
-  title: string
-  description: string
-  entries: ModuleEntry[]
-}
 
 type FeatureCameraCounts = Record<string, {
   cameraCount: number
@@ -428,64 +325,6 @@ function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStat
   })
 }
 
-const adminDepartmentGroups = [
-  {
-    id: 'general_electric',
-    title: '通用电气部',
-    description: '安检流程、保安行为、后大门异常逗留等检测能力',
-    pages: departmentPermissions.general_electric.pages,
-  },
-  {
-    id: 'electronics_electrician',
-    title: '电子电工',
-    description: '保安行为规范检测能力',
-    pages: departmentPermissions.electronics_electrician.pages,
-  },
-  {
-    id: 'electrical_components',
-    title: '电气部件事业部',
-    description: '物流通道单人检测能力',
-    pages: departmentPermissions.electrical_components.pages,
-  },
-  {
-    id: 'precious_metal_recycling',
-    title: '贵金属回收事业部',
-    description: '物流通道单人检测能力',
-    pages: departmentPermissions.precious_metal_recycling.pages,
-  },
-  {
-    id: 'research_institute',
-    title: '研究院',
-    description: '区域入侵、人脸检测、手机使用等检测能力',
-    pages: departmentPermissions.research_institute.pages,
-  },
-]
-
-function getAdminDepartmentModuleGroups(entries: ModuleEntry[]): DepartmentModuleGroup[] {
-  const byId = new Map(entries.map((entry) => [entry.id, entry]))
-  const groupedIds = new Set<string>()
-  const groups = adminDepartmentGroups.flatMap((group) => {
-    const groupEntries = group.pages.flatMap((pageId) => {
-      const entry = byId.get(pageId)
-      if (!entry) return []
-      groupedIds.add(entry.id)
-      return [entry]
-    })
-    if (!groupEntries.length) return []
-    return [{ id: group.id, title: group.title, description: group.description, entries: groupEntries }]
-  })
-  const unassignedEntries = entries.filter((entry) => !groupedIds.has(entry.id))
-  if (unassignedEntries.length) {
-    groups.push({
-      id: 'shared',
-      title: '公共能力',
-      description: '暂未归入单一部门的检测能力',
-      entries: unassignedEntries,
-    })
-  }
-  return groups
-}
-
 function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!platformStatus) {
     return {
@@ -529,10 +368,6 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
 export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
   const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
-  const adminModuleGroups = useMemo(
-    () => (isAdmin ? getAdminDepartmentModuleGroups(visibleModuleEntries) : []),
-    [isAdmin, visibleModuleEntries],
-  )
   const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
@@ -1046,34 +881,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           </div>
         </section>
 
-        {isAdmin ? (
-          <section className="space-y-4">
-            {adminModuleGroups.map((group) => (
-              <div key={group.id} className="space-y-3">
-                <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-                  <div>
-                    <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">{group.title}</h3>
-                    <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">{group.description}</p>
-                  </div>
-                  <Badge className="border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100">
-                    {group.entries.length} 项能力
-                  </Badge>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
-                  {group.entries.map((entry) => (
-                    <ModuleEntryCard key={entry.id} entry={entry} onNavigate={onNavigate} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </section>
-        ) : (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
-            {visibleModuleEntries.map((entry) => (
-              <ModuleEntryCard key={entry.id} entry={entry} onNavigate={onNavigate} />
-            ))}
-          </section>
-        )}
       </div>
       </div>
 
@@ -1155,43 +962,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
         </AlertDialogContent>
       </AlertDialog>
     </>
-  )
-}
-
-function ModuleEntryCard({ entry, onNavigate }: { entry: ModuleEntry; onNavigate: (page: string) => void }) {
-  const Icon = entry.icon
-  return (
-    <article
-      className={cn(
-        'group relative min-h-[176px] overflow-hidden rounded-[14px] border border-white bg-white shadow-[0_16px_42px_rgba(25,53,93,0.10)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_16px_42px_rgba(0,0,0,0.30)] sm:min-h-[218px]',
-        'transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_58px_rgba(25,53,93,0.16)]',
-        entry.glow,
-      )}
-    >
-      <div className="absolute -right-10 bottom-2 opacity-[0.055] transition duration-200 group-hover:scale-105 group-hover:opacity-[0.08] sm:-right-12">
-        <Icon className="h-32 w-32 text-slate-900 sm:h-40 sm:w-40" strokeWidth={1.4} />
-      </div>
-      <div className="relative flex h-full flex-col justify-between p-5 sm:p-7">
-        <div className="flex items-start gap-4 sm:gap-5">
-          <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${entry.iconBg} shadow-[0_10px_26px_rgba(30,78,141,0.12)] ring-1 ring-white sm:h-[74px] sm:w-[74px]`}>
-            <Icon className={`h-7 w-7 sm:h-9 sm:w-9 ${entry.iconColor}`} strokeWidth={1.8} />
-          </div>
-          <div className="min-w-0 pt-1 sm:pt-3">
-            <h3 className="text-lg font-bold tracking-[0] text-[#071d3d] sm:text-[22px]">{entry.title}</h3>
-            <Badge className="mt-3 border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-600 shadow-none hover:bg-emerald-50">
-              {entry.status}
-            </Badge>
-          </div>
-        </div>
-        <Button
-          className="mt-5 h-11 w-full justify-between rounded-xl bg-[#001b43] px-5 text-base font-semibold text-white shadow-[0_10px_20px_rgba(0,27,67,0.22)] hover:bg-[#082a5f] dark:bg-blue-600 dark:hover:bg-blue-500 sm:mt-7 sm:h-12 sm:w-[210px] sm:px-8"
-          onClick={() => onNavigate(entry.id)}
-        >
-          进入功能
-          <ArrowRight className="h-5 w-5" />
-        </Button>
-      </div>
-    </article>
   )
 }
 
