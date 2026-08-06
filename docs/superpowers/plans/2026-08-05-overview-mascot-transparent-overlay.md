@@ -84,7 +84,7 @@ Decode first, middle, and final frames over a checkerboard/contact sheet. Confir
 
 - [ ] **Step 1: Implement playback and final-pose state**
 
-Create a button whose outer wrapper is `pointer-events-none absolute inset-y-0 left-0 z-[4] w-[140px] md:w-[300px]`; make only the button `pointer-events-auto`. Render a static final PNG on mobile. On desktop render the WebM while `isPlaying` is true, set `isPlaying(false)` in `onEnded`, and show the final PNG otherwise. The click handler sets `currentTime = 0`, sets playing state, and calls `play()` after the video is visible.
+Create a button whose outer wrapper is `pointer-events-none absolute left-0 top-0 z-[4] h-full aspect-[600/544]`; make only the button `pointer-events-auto`. This keeps the media canvas as tall as the banner and derives its width from the generated asset. Render a static final PNG on mobile. On desktop render the WebM while `isPlaying` is true, set `isPlaying(false)` in `onEnded`, and show the final PNG otherwise. The click handler sets `currentTime = 0`, sets playing state, and calls `play()` after the video is visible.
 
 - [ ] **Step 2: Preserve non-blocking input behavior**
 
@@ -135,7 +135,7 @@ Expected: both exit with code 0.
 
 - [ ] **Step 3: Perform browser checks**
 
-At desktop width, verify a 300px, 50%-opacity mascot overlays the left side and the title remains a centered single line. At less than 768px, verify a 140px final-pose image appears. Click the desktop mascot after playback ends and verify exactly one replay. Confirm the building remains visible and page buttons/scrolling still work.
+At desktop width, verify the 50%-opacity mascot is exactly as tall as the banner and its width follows the `600:544` media ratio while the title remains a centered single line. At less than 768px, verify the final-pose image uses the same height and aspect-ratio rule. Click the desktop mascot after playback ends and verify exactly one replay. Confirm the building remains visible and page buttons/scrolling still work.
 
 - [ ] **Step 4: Review the final diff**
 

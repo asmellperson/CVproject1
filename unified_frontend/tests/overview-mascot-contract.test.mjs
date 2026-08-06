@@ -41,10 +41,12 @@ test('plays once on entry, holds the final pose, and replays only on click', () 
   assert.match(component, /setIsPlaying\(false\)/)
 })
 
-test('keeps the mascot overlay responsive and non-blocking', () => {
-  assert.match(component, /absolute inset-y-0 left-0/)
-  assert.match(component, /w-\[140px\]/)
-  assert.match(component, /md:w-\[300px\]/)
+test('matches the banner height and derives width from the media aspect ratio', () => {
+  assert.match(component, /absolute left-0 top-0/)
+  assert.match(component, /h-full/)
+  assert.match(component, /aspect-\[600\/544\]/)
+  assert.doesNotMatch(component, /w-\[140px\]/)
+  assert.doesNotMatch(component, /md:w-\[300px\]/)
   assert.match(component, /pointer-events-none/)
   assert.match(component, /pointer-events-auto/)
   assert.match(component, /opacity-50/)

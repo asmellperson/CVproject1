@@ -13,7 +13,7 @@ export function OverviewMascot() {
   }
 
   return (
-    <div className="pointer-events-none absolute inset-y-0 left-0 z-[4] w-[140px] opacity-50 md:w-[300px]">
+    <div className="pointer-events-none absolute left-0 top-0 z-[4] h-full aspect-[600/544] opacity-50">
       <img
         src="/assets/overview/overview-mascot-final.png"
         alt=""
