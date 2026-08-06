@@ -149,7 +149,6 @@ function App() {
       />
 
       <Sidebar
-        platformStatus={platformStatus}
         currentPage={activePage}
         onPageChange={handlePageChange}
         collapsed={sidebarCollapsed}

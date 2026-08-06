@@ -726,55 +726,107 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)]">
           <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]">
-            <div className="h-1.5 bg-gradient-to-r from-[#001b43] via-blue-500 to-cyan-400" />
-            <div className="relative p-5 sm:p-6">
-              <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(225,238,255,0.72),rgba(255,255,255,0))] dark:bg-[linear-gradient(180deg,rgba(37,99,235,0.16),rgba(15,23,42,0))]" />
-              <div className="relative flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_14px_26px_rgba(0,27,67,0.22)] dark:bg-blue-600">
-                      <ShieldCheck className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-black tracking-[0] text-[#071d3d] dark:text-slate-100">统一监管总览</h3>
-                      <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">当前账号可查看的检测能力与现场异常概况</p>
-                    </div>
-                  </div>
+            <div className="p-5 sm:p-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-600 text-white shadow-sm">
+                  <Activity className="h-5 w-5" />
                 </div>
-                <Badge className="border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100 dark:hover:bg-blue-950/50">
-                  {departmentLabel(department)}
-                </Badge>
+                <div>
+                  <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">平台汇总</h3>
+                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">平台状态 30 秒 · 摄像头 10 秒刷新</p>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
+                <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
+                <MiniStatusMetric label="摄像头在线" value={`${scopedStatusSummary.cameraOnline}/${scopedStatusSummary.cameraTotal}`} />
+                <MiniStatusMetric label="摄像头离线" value={scopedStatusSummary.cameraOffline} warn={scopedStatusSummary.cameraOffline > 0} />
               </div>
 
-              <div className="relative mt-6 grid gap-3 sm:grid-cols-4">
-                <MetricTile
-                  title="模块覆盖"
-                  value={visibleModuleEntries.length}
-                  detail="按账号权限展示"
-                  icon={<CircleDotDashed className="h-5 w-5" />}
-                  tone="blue"
-                />
-                <MetricTile
-                  title="接入摄像头"
-                  value={scopedStatusSummary.cameraTotal}
-                  detail="平台接入总摄像头数"
-                  icon={<ScanFace className="h-5 w-5" />}
-                  tone="cyan"
-                />
-                <MetricTile
-                  title="今日异常"
-                  value={overview.todayAlarms}
-                  detail="今日累计异常报警数"
-                  icon={<AlertTriangle className="h-5 w-5" />}
-                  tone={overview.todayAlarms > 0 ? 'amber' : 'green'}
-                />
-                <MetricTile
-                  title="待处理"
-                  value={overview.pendingAlarms}
-                  detail="尚未确认处置的报警"
-                  icon={<AlertTriangle className="h-5 w-5" />}
-                  tone={overview.pendingAlarms > 0 ? 'amber' : 'green'}
-                />
+              <div className="mt-5 flex h-[360px] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-[#f8fbff] shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
+                <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-blue-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-black text-[#071d3d] dark:text-slate-100">
+                      <Camera className="h-4 w-4 text-cyan-600" />
+                      全部摄像头
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      共 {aiVisionCameras.length} 路；在各检测功能配置页可选择加入当前功能。
+                    </div>
+                  </div>
+                  {isAdmin ? (
+                    <Button size="sm" className="gap-2" onClick={openCreateCameraDialog} disabled={Boolean(cameraActionKey)}>
+                      <Plus className="h-4 w-4" />
+                      新增摄像头
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="shrink-0 bg-white text-xs font-semibold text-slate-500 dark:bg-slate-900">
+                      只读
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {aiVisionCameras.length === 0 ? (
+                    <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
+                  ) : (
+                    aiVisionCameras.map((camera) => {
+                      const cameraKey = getAiVisionCameraKey(camera)
+                      const featureLabels = getAiVisionCameraFeatureLabels(camera)
+                      return (
+                        <div
+                          key={cameraKey}
+                          className="border-b border-blue-100 bg-white px-4 py-3 last:border-b-0 dark:border-slate-800 dark:bg-slate-900/70"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
+                              <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
+                            </div>
+                            {isAdmin ? (
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5"
+                                  onClick={() => openEditCameraDialog(camera)}
+                                  disabled={Boolean(cameraActionKey)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  修改
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="gap-1.5"
+                                  onClick={() => {
+                                    setCameraToDelete(camera)
+                                    setCameraDeleteError('')
+                                  }}
+                                  disabled={Boolean(cameraActionKey)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  删除
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {featureLabels.length ? (
+                              featureLabels.map((label) => (
+                                <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                  {label}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -783,7 +835,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
             'relative overflow-hidden rounded-[18px] border bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:bg-slate-900/92 dark:shadow-[0_18px_48px_rgba(0,0,0,0.32)]',
             overview.latestAlarm ? 'border-amber-100 dark:border-amber-900/50' : 'border-emerald-100 dark:border-emerald-900/50',
           )}>
-            <div className={cn('h-1.5', overview.latestAlarm ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500' : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500')} />
             <div className="relative p-5 sm:p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -831,14 +882,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,430px)]">
           <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92">
-            <div className={cn(
-              'h-1.5',
-              platformStatus?.level === 'healthy'
-                ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500'
-                : platformStatus?.level === 'degraded'
-                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500'
-                  : 'bg-gradient-to-r from-red-600 via-rose-500 to-orange-500',
-            )} />
             <div className="p-5 sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -907,106 +950,53 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           </div>
 
           <div className="relative overflow-hidden rounded-[18px] border border-white/90 bg-white p-5 shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92 sm:p-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-600 text-white shadow-sm">
-                <Activity className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">平台汇总</h3>
-                <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">平台状态 30 秒 · 摄像头 10 秒刷新</p>
-              </div>
-            </div>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
-              <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
-              <MiniStatusMetric label="摄像头在线" value={`${scopedStatusSummary.cameraOnline}/${scopedStatusSummary.cameraTotal}`} />
-              <MiniStatusMetric label="摄像头离线" value={scopedStatusSummary.cameraOffline} warn={scopedStatusSummary.cameraOffline > 0} />
-            </div>
-
-            <div className="mt-5 flex h-[360px] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-[#f8fbff] shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
-              <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-blue-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-black text-[#071d3d] dark:text-slate-100">
-                    <Camera className="h-4 w-4 text-cyan-600" />
-                    全部摄像头
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[linear-gradient(180deg,rgba(225,238,255,0.72),rgba(255,255,255,0))] dark:bg-[linear-gradient(180deg,rgba(37,99,235,0.16),rgba(15,23,42,0))]" />
+            <div className="relative flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_14px_26px_rgba(0,27,67,0.22)] dark:bg-blue-600">
+                    <ShieldCheck className="h-5 w-5" />
                   </div>
-                  <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                    共 {aiVisionCameras.length} 路；在各检测功能配置页可选择加入当前功能。
+                  <div>
+                    <h3 className="text-xl font-black tracking-[0] text-[#071d3d] dark:text-slate-100">监管概况</h3>
+                    <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">当前账号可查看的检测能力与现场异常概况</p>
                   </div>
                 </div>
-                {isAdmin ? (
-                  <Button size="sm" className="gap-2" onClick={openCreateCameraDialog} disabled={Boolean(cameraActionKey)}>
-                    <Plus className="h-4 w-4" />
-                    新增摄像头
-                  </Button>
-                ) : (
-                  <Badge variant="outline" className="shrink-0 bg-white text-xs font-semibold text-slate-500 dark:bg-slate-900">
-                    只读
-                  </Badge>
-                )}
               </div>
+              <Badge className="border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100 dark:hover:bg-blue-950/50">
+                {departmentLabel(department)}
+              </Badge>
+            </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {aiVisionCameras.length === 0 ? (
-                  <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
-                ) : (
-                  aiVisionCameras.map((camera) => {
-                    const cameraKey = getAiVisionCameraKey(camera)
-                    const featureLabels = getAiVisionCameraFeatureLabels(camera)
-                    return (
-                      <div
-                        key={cameraKey}
-                        className="border-b border-blue-100 bg-white px-4 py-3 last:border-b-0 dark:border-slate-800 dark:bg-slate-900/70"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
-                            <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
-                          </div>
-                          {isAdmin ? (
-                            <div className="flex shrink-0 items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-1.5"
-                                onClick={() => openEditCameraDialog(camera)}
-                                disabled={Boolean(cameraActionKey)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                                修改
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                className="gap-1.5"
-                                onClick={() => {
-                                  setCameraToDelete(camera)
-                                  setCameraDeleteError('')
-                                }}
-                                disabled={Boolean(cameraActionKey)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                删除
-                              </Button>
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {featureLabels.length ? (
-                            featureLabels.map((label) => (
-                              <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700">
-                                {label}
-                              </Badge>
-                            ))
-                          ) : (
-                            <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
+            <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
+              <MetricTile
+                title="模块覆盖"
+                value={visibleModuleEntries.length}
+                detail="按账号权限展示"
+                icon={<CircleDotDashed className="h-5 w-5" />}
+                tone="blue"
+              />
+              <MetricTile
+                title="接入摄像头"
+                value={scopedStatusSummary.cameraTotal}
+                detail="平台接入总摄像头数"
+                icon={<ScanFace className="h-5 w-5" />}
+                tone="cyan"
+              />
+              <MetricTile
+                title="今日异常"
+                value={overview.todayAlarms}
+                detail="今日累计异常报警数"
+                icon={<AlertTriangle className="h-5 w-5" />}
+                tone={overview.todayAlarms > 0 ? 'amber' : 'green'}
+              />
+              <MetricTile
+                title="待处理"
+                value={overview.pendingAlarms}
+                detail="尚未确认处置的报警"
+                icon={<AlertTriangle className="h-5 w-5" />}
+                tone={overview.pendingAlarms > 0 ? 'amber' : 'green'}
+              />
             </div>
           </div>
         </section>
@@ -1133,7 +1123,6 @@ function ModuleEntryCard({ entry, onNavigate }: { entry: ModuleEntry; onNavigate
         entry.glow,
       )}
     >
-      <div className={`h-1.5 bg-gradient-to-r ${entry.accent}`} />
       <div className="absolute -right-10 bottom-2 opacity-[0.055] transition duration-200 group-hover:scale-105 group-hover:opacity-[0.08] sm:-right-12">
         <Icon className="h-32 w-32 text-slate-900 sm:h-40 sm:w-40" strokeWidth={1.4} />
       </div>
@@ -1176,24 +1165,24 @@ function MetricTile({
 }) {
   const toneClass = {
     blue: {
-      shell: 'border-blue-100 bg-[linear-gradient(180deg,#eff6ff_0%,#ffffff_100%)]',
-      icon: 'bg-blue-600 text-white',
-      value: 'text-blue-700',
+      shell: 'border-blue-100 bg-[linear-gradient(180deg,#eff6ff_0%,#ffffff_100%)] dark:border-blue-900/60 dark:bg-[linear-gradient(180deg,rgba(30,64,175,0.24)_0%,rgba(15,23,42,0.72)_100%)]',
+      icon: 'bg-blue-600 text-white dark:bg-blue-500',
+      value: 'text-blue-700 dark:text-blue-300',
     },
     cyan: {
-      shell: 'border-cyan-100 bg-[linear-gradient(180deg,#ecfeff_0%,#ffffff_100%)]',
-      icon: 'bg-cyan-600 text-white',
-      value: 'text-cyan-700',
+      shell: 'border-cyan-100 bg-[linear-gradient(180deg,#ecfeff_0%,#ffffff_100%)] dark:border-cyan-900/60 dark:bg-[linear-gradient(180deg,rgba(14,116,144,0.22)_0%,rgba(15,23,42,0.72)_100%)]',
+      icon: 'bg-cyan-600 text-white dark:bg-cyan-500',
+      value: 'text-cyan-700 dark:text-cyan-300',
     },
     amber: {
-      shell: 'border-amber-100 bg-[linear-gradient(180deg,#fffbeb_0%,#ffffff_100%)]',
-      icon: 'bg-amber-500 text-white',
-      value: 'text-amber-700',
+      shell: 'border-amber-100 bg-[linear-gradient(180deg,#fffbeb_0%,#ffffff_100%)] dark:border-amber-900/60 dark:bg-[linear-gradient(180deg,rgba(180,83,9,0.22)_0%,rgba(15,23,42,0.72)_100%)]',
+      icon: 'bg-amber-500 text-white dark:bg-amber-500',
+      value: 'text-amber-700 dark:text-amber-300',
     },
     green: {
-      shell: 'border-emerald-100 bg-[linear-gradient(180deg,#ecfdf5_0%,#ffffff_100%)]',
-      icon: 'bg-emerald-500 text-white',
-      value: 'text-emerald-700',
+      shell: 'border-emerald-100 bg-[linear-gradient(180deg,#ecfdf5_0%,#ffffff_100%)] dark:border-emerald-900/60 dark:bg-[linear-gradient(180deg,rgba(6,95,70,0.22)_0%,rgba(15,23,42,0.72)_100%)]',
+      icon: 'bg-emerald-500 text-white dark:bg-emerald-500',
+      value: 'text-emerald-700 dark:text-emerald-300',
     },
   }[tone]
 
