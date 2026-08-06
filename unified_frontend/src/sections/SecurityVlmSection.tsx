@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   Columns2,
   Clock3,
@@ -13,6 +14,7 @@ import {
   PowerOff,
   RefreshCw,
   Save,
+  Settings2,
   Trash2,
   Video,
   XCircle,
@@ -171,6 +173,7 @@ export function SecurityVlmSection({
 }) {
   const { isAdmin } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [configTab, setConfigTab] = useState('camera')
   const [health, setHealth] = useState<SecurityVlmHealth | null>(null)
   const [controlMessage, setControlMessage] = useState('')
   const [controlBusy, setControlBusy] = useState(false)
@@ -203,16 +206,17 @@ export function SecurityVlmSection({
   const sourceHeight = Number(selectedCamera?.capture?.height || 0)
   const runtimeRunning = Boolean(health?.running)
   const vlmDegraded = Boolean(health?.vlm?.degraded)
+  const roiActive = activeTab === 'config' && configTab === 'roi'
 
   const activeVideoUrl = useMemo(() => {
     if (!selectedCameraId) return ''
     return securityVlmCameraVideoUrl(
       department,
       selectedCameraId,
-      activeTab === 'roi' ? 'original' : 'rule',
+      roiActive ? 'original' : 'rule',
       videoNonce,
     )
-  }, [activeTab, department, selectedCameraId, videoNonce])
+  }, [department, roiActive, selectedCameraId, videoNonce])
 
   const loadHealth = async () => {
     const next = await getSecurityVlmHealth(department)
@@ -294,7 +298,7 @@ export function SecurityVlmSection({
   }, [department])
 
   useEffect(() => {
-    if (activeTab !== 'roi' || !selectedCameraId) return
+    if (!roiActive || !selectedCameraId) return
     getSecurityVlmCameraRois(department, selectedCameraId)
       .then((data) => {
         const names = data.available_slots?.length
@@ -310,7 +314,7 @@ export function SecurityVlmSection({
         setRoiMessage('')
         logSecurityVlmError('读取 ROI 失败', error)
       })
-  }, [activeTab, department, selectedCameraId])
+  }, [department, roiActive, selectedCameraId])
 
   useEffect(() => {
     const onResize = () => {
@@ -699,11 +703,11 @@ export function SecurityVlmSection({
         <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 p-1">
           <TabsTrigger value="dashboard" className="gap-2 py-2">
             <Video className="h-4 w-4" />
-            检测面板
+            实时监控
           </TabsTrigger>
-          <TabsTrigger value="roi" className="gap-2 py-2">
-            <Crosshair className="h-4 w-4" />
-            ROI 绘制
+          <TabsTrigger value="config" className="gap-2 py-2">
+            <Settings2 className="h-4 w-4" />
+            配置管理
           </TabsTrigger>
         </TabsList>
 
@@ -713,76 +717,46 @@ export function SecurityVlmSection({
               安检流程规范检测 · {DEPARTMENT_LABELS[department]}
             </h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
-              <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
-              {runtimeRunning ? '检测开启' : '检测关闭'}
-            </Badge>
-            {vlmDegraded && (
-              <Badge className="gap-2 bg-amber-500">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                VLM 重启中
+          {activeTab === 'dashboard' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
+                <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
+                {runtimeRunning ? '检测开启' : '检测关闭'}
               </Badge>
-            )}
-            <Button
-              variant="default"
-              size="sm"
-              className="gap-2"
-              onClick={() => void handleAllCameras('start')}
-              disabled={!isAdmin || controlBusy || cameras.length === 0}
-            >
-              <Power className="h-4 w-4" />
-              {controlBusy ? '处理中' : '全部开启'}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="gap-2"
-              onClick={() => void handleAllCameras('stop')}
-              disabled={!isAdmin || controlBusy || cameras.length === 0}
-            >
-              <PowerOff className="h-4 w-4" />
-              全部关闭
-            </Button>
-            <Button
-              variant={dualView ? 'default' : 'outline'}
-              size="sm"
-              className="gap-2"
-              disabled={cameras.length < 2 || activeTab === 'roi'}
-              onClick={() => setDualView((value) => !value)}
-            >
-              <Columns2 className="h-4 w-4" />
-              {dualView ? '单画面' : '双画面'}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => {
-                setVideoNonce(Date.now())
-                loadHealth().catch((error) => {
-                  setControlMessage('')
-                  logSecurityVlmError('刷新运行状态失败', error)
-                })
-              }}
-            >
-              <RefreshCw className="h-4 w-4" />
-              刷新
-            </Button>
-          </div>
+              {vlmDegraded && (
+                <Badge className="gap-2 bg-amber-500">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  VLM 重启中
+                </Badge>
+              )}
+              <Button
+                variant={dualView ? 'default' : 'outline'}
+                size="sm"
+                className="gap-2"
+                disabled={cameras.length < 2}
+                onClick={() => setDualView((value) => !value)}
+              >
+                <Columns2 className="h-4 w-4" />
+                {dualView ? '单画面' : '双画面'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  setVideoNonce(Date.now())
+                  loadHealth().catch((error) => {
+                    setControlMessage('')
+                    logSecurityVlmError('刷新运行状态失败', error)
+                  })
+                }}
+              >
+                <RefreshCw className="h-4 w-4" />
+                刷新
+              </Button>
+            </div>
+          )}
         </div>
-
-        <SecurityCameraBar
-          cameras={cameras}
-          selectedId={selectedCameraId}
-          isAdmin={isAdmin}
-          busyId={busyCameraId}
-          onSelect={setSelectedCameraId}
-          onToggle={(camera) => void handleToggleCamera(camera)}
-          onRestart={(camera) => void handleRestartCamera(camera)}
-          onEdit={(camera) => void openCameraDialog(camera)}
-          onAdd={() => void openCameraDialog(null)}
-        />
 
         <TabsContent
           value="dashboard"
@@ -836,7 +810,83 @@ export function SecurityVlmSection({
           <HistoryTable items={history} cameras={cameras} />
         </TabsContent>
 
-        <TabsContent value="roi" className="space-y-6">
+        <TabsContent value="config" className="space-y-6">
+          <Tabs value={configTab} onValueChange={setConfigTab} className="space-y-6">
+            <TabsList className="grid h-auto w-full max-w-md grid-cols-2 p-1">
+              <TabsTrigger value="camera" className="gap-2 py-2">
+                <Camera className="h-4 w-4" />
+                摄像头管理
+              </TabsTrigger>
+              <TabsTrigger value="roi" className="gap-2 py-2">
+                <Crosshair className="h-4 w-4" />
+                ROI 绘制
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="camera" className="space-y-6">
+              <Card>
+                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-lg">摄像头管理</CardTitle>
+                    {controlMessage && (
+                      <p className="mt-1 text-sm text-slate-500">{controlMessage}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => void handleAllCameras('start')}
+                      disabled={!isAdmin || controlBusy || cameras.length === 0}
+                    >
+                      <Power className="h-4 w-4" />
+                      {controlBusy ? '处理中' : '全部开启'}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => void handleAllCameras('stop')}
+                      disabled={!isAdmin || controlBusy || cameras.length === 0}
+                    >
+                      <PowerOff className="h-4 w-4" />
+                      全部关闭
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        setVideoNonce(Date.now())
+                        loadHealth().catch((error) => {
+                          setControlMessage('')
+                          logSecurityVlmError('刷新运行状态失败', error)
+                        })
+                      }}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      刷新
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <SecurityCameraBar
+                    cameras={cameras}
+                    selectedId={selectedCameraId}
+                    isAdmin={isAdmin}
+                    busyId={busyCameraId}
+                    onSelect={setSelectedCameraId}
+                    onToggle={(camera) => void handleToggleCamera(camera)}
+                    onRestart={(camera) => void handleRestartCamera(camera)}
+                    onEdit={(camera) => void openCameraDialog(camera)}
+                    onAdd={() => void openCameraDialog(null)}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="roi" className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <div>
@@ -951,6 +1001,8 @@ export function SecurityVlmSection({
               </div>
             </CardContent>
           </Card>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
       {cameraDialogOpen && (
