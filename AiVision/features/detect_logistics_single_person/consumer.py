@@ -28,6 +28,36 @@ class PresenceDecision:
     elapsed: float
 
 
+def build_monitor_snapshot(result, updated_at: float | None = None) -> dict:
+    """Aggregate the latest ROI decisions for read-only monitor presentation."""
+    counts: list[int] = []
+    reasons: list[str] = []
+    alarm = False
+
+    for item in result or []:
+        try:
+            alarm_flag, detail = item
+        except (TypeError, ValueError):
+            continue
+        detail = detail if isinstance(detail, dict) else {}
+        count = detail.get("person_count")
+        if isinstance(count, int) and not isinstance(count, bool):
+            counts.append(count)
+        reasons.append(str(detail.get("reason") or "unknown"))
+        alarm = alarm or bool(alarm_flag)
+
+    reason = next(
+        (candidate for candidate in ("multiple", "empty", "normal") if candidate in reasons),
+        "unknown",
+    )
+    return {
+        "count": sum(counts) if counts else None,
+        "alarm": alarm,
+        "reason": reason,
+        "updated_at_s": time.time() if updated_at is None else float(updated_at),
+    }
+
+
 class SinglePersonPresenceState:
     """Tracks consecutive empty/multiple-person durations for one camera ROI."""
 
@@ -84,6 +114,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._presence_states: dict[tuple[int, int], SinglePersonPresenceState] = {}
+        self.monitor_status: dict[str, dict] = {}
 
     def _process(self, roi_list, camera_id):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
@@ -167,6 +198,9 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         return persons
 
     def post_process(self, camera_id, result):
+        camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
+        if camera_key:
+            self.monitor_status[camera_key] = build_monitor_snapshot(result)
         frame = self.frame_cache.get(camera_id)
         if frame is None:
             return None
@@ -221,6 +255,10 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
                     2,
                 )
         return frame_copy
+
+    def get_monitor_status(self, camera_key: str) -> dict | None:
+        value = self.monitor_status.get(camera_key)
+        return dict(value) if value else None
 
     @staticmethod
     def _label_for(reason: str, count, elapsed) -> str:

@@ -380,6 +380,15 @@ def compat_get_camera_frame_jpg(
     )
 
 
+@router.get("/api/aivision/cameras/{key}/features/{feature}/status")
+def compat_get_camera_feature_status(
+    key: str,
+    feature: str,
+    orchestrator=Depends(get_current_orchestrator),
+):
+    return orchestrator.get_feature_monitor_status(key, feature)
+
+
 # ----- AiVision alarm/statistics 路径 -----
 
 

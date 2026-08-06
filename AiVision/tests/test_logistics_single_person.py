@@ -1,6 +1,10 @@
 from datetime import time as datetime_time
 
-from features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer, SinglePersonPresenceState
+from features.detect_logistics_single_person.consumer import (
+    LogisticsSinglePersonConsumer,
+    SinglePersonPresenceState,
+    build_monitor_snapshot,
+)
 
 
 def test_empty_detection_alarms_only_after_grace_period():
@@ -53,3 +57,30 @@ def test_logistics_single_person_detects_only_from_8_to_before_20():
     assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(8, 0, 0)) is True
     assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(19, 59, 59)) is True
     assert LogisticsSinglePersonConsumer._is_detection_time(datetime_time(20, 0, 0)) is False
+
+
+def test_monitor_snapshot_sums_known_roi_counts_and_preserves_alarm():
+    result = [
+        (False, {"reason": "normal", "person_count": 1}),
+        (True, {"reason": "multiple", "person_count": 2}),
+    ]
+
+    snapshot = build_monitor_snapshot(result, updated_at=100.0)
+
+    assert snapshot == {
+        "count": 3,
+        "alarm": True,
+        "reason": "multiple",
+        "updated_at_s": 100.0,
+    }
+
+
+def test_monitor_snapshot_keeps_unknown_count_neutral():
+    snapshot = build_monitor_snapshot(
+        [(False, {"reason": "unknown", "person_count": None})],
+        updated_at=101.0,
+    )
+
+    assert snapshot["count"] is None
+    assert snapshot["alarm"] is False
+    assert snapshot["reason"] == "unknown"

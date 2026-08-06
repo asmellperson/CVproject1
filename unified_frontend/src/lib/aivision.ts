@@ -14,6 +14,7 @@ export type AiVisionCamera = {
   shm_name: string
   url: string
   camera_id: number
+  fps?: number
   enabled: boolean
   functions: Record<string, boolean> | string[]
   department?: string | null
@@ -69,6 +70,16 @@ export type AiVisionFeatureConfig = {
   alarm?: unknown
 }
 
+export type AiVisionLogisticsSinglePersonStatus = {
+  camera_key: string
+  feature: 'detect_logistics_single_person'
+  online: boolean
+  count: number | null
+  alarm: boolean
+  reason: 'normal' | 'empty' | 'multiple' | 'unknown'
+  updated_at: string | null
+}
+
 type AiVisionFeatureConfigResponse = {
   camera: {
     id: number
@@ -109,6 +120,17 @@ export async function getAiVisionCameras(department?: string) {
 
   const payload = (await response.json()) as AiVisionCamerasResponse
   return Array.isArray(payload) ? payload : payload.cameras || []
+}
+
+export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string) {
+  const response = await fetch(
+    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/detect_logistics_single_person/status`,
+    { credentials: 'include' },
+  )
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  return (await response.json()) as AiVisionLogisticsSinglePersonStatus
 }
 
 export async function getAiVisionDepartments() {

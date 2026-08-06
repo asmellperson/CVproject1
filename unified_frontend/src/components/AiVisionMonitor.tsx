@@ -20,17 +20,20 @@ import {
   scheduleFrameRequestAbort,
   type FrameCoordinateSize,
 } from './AiVisionMonitor.frame'
+import { LogisticsSinglePersonMonitorView } from './logistics_single_person/LogisticsSinglePersonMonitorView'
+import { useLogisticsSinglePersonMonitor } from './logistics_single_person/useLogisticsSinglePersonMonitor'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department?: string
+  presentation?: 'default' | 'logistics-single-person'
 }
 
 const FRAME_REFRESH_MS = 200
 const fallbackImageSize = { width: 1920, height: 1080 }
 
-export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorProps) {
+export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
@@ -51,6 +54,11 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
     () => buildAiVisionMonitorOverlay({ feature, value: featureValue, imageSize }),
     [feature, featureValue, imageSize],
   )
+  const logisticsMonitor = useLogisticsSinglePersonMonitor({
+    enabled: presentation === 'logistics-single-person',
+    selectedCamera,
+    selectedCameraName: selectedCameraInfo?.name || '',
+  })
 
   const revokeFrameUrl = useCallback(() => {
     if (objectUrlRef.current) {
@@ -78,6 +86,12 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
       setLoading(false)
     }
   }, [feature, department])
+
+  const handleSelectCamera = useCallback((value: string) => {
+    selectedCameraRef.current = value
+    setSelectedCamera(value)
+    setMessage('正在读取实时画面...')
+  }, [])
 
   useEffect(() => {
     selectedCameraRef.current = selectedCamera
@@ -205,6 +219,90 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
     }
   }, [feature, isPageVisible, revokeFrameUrl, selectedCamera])
 
+  const frameContent = (
+    <>
+      {selectedCamera ? (
+        frameSrc ? (
+          <img
+            key={`${selectedCamera}-${feature}`}
+            src={frameSrc}
+            alt={`${title}实时画面`}
+            className="h-full w-full object-contain"
+            onLoad={(event) => {
+              const image = event.currentTarget
+              const frameCoordinateSize = frameCoordinateSizeRef.current
+              setImageSize(
+                frameCoordinateSize || {
+                  width: image.naturalWidth || fallbackImageSize.width,
+                  height: image.naturalHeight || fallbackImageSize.height,
+                },
+              )
+            }}
+            onError={() => setMessage('画面渲染失败：请刷新后重试。')}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
+            正在读取实时画面...
+          </div>
+        )
+      ) : (
+        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
+          {loading ? '正在读取摄像头...' : message}
+        </div>
+      )}
+      {frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
+        <svg
+          viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          {overlay.polygons.map((polygon, index) => (
+            <polygon
+              key={`roi-${index}`}
+              points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
+              fill="rgba(14, 165, 233, 0.16)"
+              stroke="rgb(14, 165, 233)"
+              strokeWidth="4"
+            />
+          ))}
+          {overlay.lines.map(([start, end], index) => (
+            <line
+              key={`line-${index}`}
+              x1={start.x}
+              y1={start.y}
+              x2={end.x}
+              y2={end.y}
+              stroke="rgb(239, 68, 68)"
+              strokeWidth="5"
+              strokeLinecap="round"
+            />
+          ))}
+        </svg>
+      ) : null}
+      {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
+    </>
+  )
+
+  if (presentation === 'logistics-single-person') {
+    return (
+      <LogisticsSinglePersonMonitorView
+        cameras={cameras}
+        selectedCamera={selectedCamera}
+        selectedCameraInfo={selectedCameraInfo}
+        loading={loading}
+        message={message}
+        frameConnected={Boolean(frameSrc)}
+        frameContent={frameContent}
+        featureValue={featureValue}
+        status={logisticsMonitor.status}
+        events={logisticsMonitor.events}
+        todayAlarmCount={logisticsMonitor.todayAlarmCount}
+        onSelectCamera={handleSelectCamera}
+        onRefreshCameras={refreshCameras}
+      />
+    )
+  }
+
   return (
     <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.12)] dark:border-slate-800 dark:bg-slate-900/92">
       <CardHeader className="flex flex-col gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] lg:flex-row lg:items-center lg:justify-between dark:border-slate-800 dark:bg-slate-900">
@@ -223,11 +321,7 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
             <Label htmlFor={`${feature}-monitor-camera`}>摄像头</Label>
             <Select
               value={selectedCamera}
-              onValueChange={(value) => {
-                selectedCameraRef.current = value
-                setSelectedCamera(value)
-                setMessage('正在读取实时画面...')
-              }}
+              onValueChange={handleSelectCamera}
               disabled={loading || cameras.length === 0}
             >
               <SelectTrigger id={`${feature}-monitor-camera`} className="w-full bg-white">
@@ -262,65 +356,7 @@ export function AiVisionMonitor({ title, feature, department }: AiVisionMonitorP
             实时检测
           </div>
           <div className="relative aspect-video w-full">
-          {selectedCamera ? (
-            frameSrc ? (
-              <img
-                key={`${selectedCamera}-${feature}`}
-                src={frameSrc}
-                alt={`${title}实时画面`}
-                className="h-full w-full object-contain"
-                onLoad={(event) => {
-                  const image = event.currentTarget
-                  const frameCoordinateSize = frameCoordinateSizeRef.current
-                  setImageSize(
-                    frameCoordinateSize || {
-                      width: image.naturalWidth || fallbackImageSize.width,
-                      height: image.naturalHeight || fallbackImageSize.height,
-                    },
-                  )
-                }}
-                onError={() => setMessage('画面渲染失败：请刷新后重试。')}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-                正在读取实时画面...
-              </div>
-            )
-          ) : (
-            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-              {loading ? '正在读取摄像头...' : message}
-            </div>
-          )}
-          {frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
-            <svg
-              viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
-              className="pointer-events-none absolute inset-0 h-full w-full"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              {overlay.polygons.map((polygon, index) => (
-                <polygon
-                  key={`roi-${index}`}
-                  points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
-                  fill="rgba(14, 165, 233, 0.16)"
-                  stroke="rgb(14, 165, 233)"
-                  strokeWidth="4"
-                />
-              ))}
-              {overlay.lines.map(([start, end], index) => (
-                <line
-                  key={`line-${index}`}
-                  x1={start.x}
-                  y1={start.y}
-                  x2={end.x}
-                  y2={end.y}
-                  stroke="rgb(239, 68, 68)"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                />
-              ))}
-            </svg>
-          ) : null}
-          {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
+            {frameContent}
         </div>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">{message}</div>

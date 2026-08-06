@@ -14,6 +14,7 @@ platform/orchestrator.py
 关闭顺序逆序进行。
 """
 from __future__ import annotations
+import datetime as dt
 import time
 from typing import Optional
 
@@ -40,6 +41,7 @@ from platform.violation.service import violation_writer
 
 
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
+_ANNOTATED_FRAME_FRESH_SECONDS = 2.0
 
 
 class Orchestrator:
@@ -368,7 +370,7 @@ class Orchestrator:
             annotated_is_fresh = (
                 annotated is not None
                 and annotated_updated_at > 0
-                and now - annotated_updated_at <= 2.0
+                and now - annotated_updated_at <= _ANNOTATED_FRAME_FRESH_SECONDS
             )
             if annotated_is_fresh:
                 return annotated, annotated_updated_at
@@ -378,6 +380,44 @@ class Orchestrator:
             None,
             max(raw_updated_at, annotated_updated_at),
         )
+
+    def get_feature_monitor_status(self, shm_name: str, feature: str) -> dict:
+        """Return the latest display-only feature snapshot for one camera."""
+        online = shm_name in set(self.camera_manager.list_running())
+        consumer = self.consumers.get(feature)
+        getter = getattr(consumer, "get_monitor_status", None)
+        snapshot = getter(shm_name) if callable(getter) else None
+        updated_at_s = float(snapshot.get("updated_at_s") or 0.0) if snapshot else 0.0
+        fresh = bool(
+            snapshot
+            and updated_at_s > 0
+            and time.time() - updated_at_s <= _ANNOTATED_FRAME_FRESH_SECONDS
+        )
+
+        if not fresh:
+            return {
+                "camera_key": shm_name,
+                "feature": feature,
+                "online": online,
+                "count": None,
+                "alarm": False,
+                "reason": "unknown",
+                "updated_at": None,
+            }
+
+        updated_at = dt.datetime.fromtimestamp(
+            updated_at_s,
+            tz=dt.timezone.utc,
+        ).astimezone().isoformat()
+        return {
+            "camera_key": shm_name,
+            "feature": feature,
+            "online": online,
+            "count": snapshot.get("count"),
+            "alarm": bool(snapshot.get("alarm")),
+            "reason": str(snapshot.get("reason") or "unknown"),
+            "updated_at": updated_at,
+        }
 
     def runtime_status(self) -> dict:
         running_models = inference_manager.list_running()
