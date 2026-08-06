@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from features._base.consumer import BaseFunctionConsumer
+from features.detect_logistics_single_person.consumer import build_monitor_snapshot
 
 
 def _number_or_default(value, default: float) -> float:
@@ -84,6 +85,7 @@ class LogisticsSinglePersonElectronicsElectricianConsumer(BaseFunctionConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._presence_states: dict[tuple[int, int], SinglePersonPresenceState] = {}
+        self.monitor_status: dict[str, dict] = {}
 
     def _process(self, roi_list, camera_id):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
@@ -167,6 +169,9 @@ class LogisticsSinglePersonElectronicsElectricianConsumer(BaseFunctionConsumer):
         return persons
 
     def post_process(self, camera_id, result):
+        camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
+        if camera_key:
+            self.monitor_status[camera_key] = build_monitor_snapshot(result)
         frame = self.frame_cache.get(camera_id)
         if frame is None:
             return None
@@ -221,6 +226,10 @@ class LogisticsSinglePersonElectronicsElectricianConsumer(BaseFunctionConsumer):
                     2,
                 )
         return frame_copy
+
+    def get_monitor_status(self, camera_key: str) -> dict | None:
+        value = self.monitor_status.get(camera_key)
+        return dict(value) if value else None
 
     @staticmethod
     def _label_for(reason: str, count, elapsed) -> str:
