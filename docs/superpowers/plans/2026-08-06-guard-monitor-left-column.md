@@ -105,7 +105,7 @@ git status --short
 
 Expected: only the plan, guard-monitor contract test, and `MonitorSection.tsx` are modified after the already committed design record.
 
-- [ ] **Step 3: Commit the implementation**
+- [x] **Step 3: Commit the implementation**
 
 ```bash
 git add -- docs/superpowers/plans/2026-08-06-guard-monitor-left-column.md unified_frontend/tests/guard-monitor-ui-contract.test.mjs unified_frontend/src/sections/MonitorSection.tsx
