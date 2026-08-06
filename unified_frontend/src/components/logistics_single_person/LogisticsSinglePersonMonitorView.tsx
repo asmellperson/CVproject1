@@ -74,6 +74,7 @@ function GlassPill({ children, danger = false }: { children: ReactNode; danger?:
 }
 
 export type LogisticsSinglePersonMonitorViewProps = {
+  title: string
   cameras: AiVisionCamera[]
   selectedCamera: string
   selectedCameraInfo?: AiVisionCamera
@@ -90,6 +91,7 @@ export type LogisticsSinglePersonMonitorViewProps = {
 }
 
 export function LogisticsSinglePersonMonitorView({
+  title,
   cameras,
   selectedCamera,
   selectedCameraInfo,
@@ -232,7 +234,7 @@ export function LogisticsSinglePersonMonitorView({
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white"><Video className="h-5 w-5" /></span>
                 <div className="min-w-0">
-                  <CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">物流通道单人检测监控</CardTitle>
+                  <CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">{title}</CardTitle>
                   <p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p>
                 </div>
               </div>

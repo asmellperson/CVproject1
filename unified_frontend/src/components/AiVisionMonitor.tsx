@@ -66,6 +66,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   )
   const logisticsMonitor = useLogisticsSinglePersonMonitor({
     enabled: presentation === 'logistics-single-person',
+    feature,
     selectedCamera,
     selectedCameraName: selectedCameraInfo?.name || '',
   })
@@ -308,6 +309,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   if (presentation === 'logistics-single-person') {
     return (
       <LogisticsSinglePersonMonitorView
+        title={title}
         cameras={cameras}
         selectedCamera={selectedCamera}
         selectedCameraInfo={selectedCameraInfo}

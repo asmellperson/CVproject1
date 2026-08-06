@@ -63,12 +63,13 @@ function isSameLocalDay(value: string | undefined, now: Date) {
 
 export function filterTodayLogisticsAlarms(
   alarms: AlarmEvent[],
+  feature: string,
   cameraKey: string,
   cameraName: string,
   now = new Date(),
 ) {
   return alarms.filter((alarm) =>
-    alarm.event_type === 'detect_logistics_single_person'
+    alarm.event_type === feature
     && (alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName))
     && isSameLocalDay(alarm.created_at, now),
   )

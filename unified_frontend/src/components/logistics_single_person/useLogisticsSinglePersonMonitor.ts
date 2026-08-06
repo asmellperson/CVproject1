@@ -16,10 +16,12 @@ const ALARM_POLL_MS = 5000
 
 export function useLogisticsSinglePersonMonitor({
   enabled,
+  feature,
   selectedCamera,
   selectedCameraName,
 }: {
   enabled: boolean
+  feature: string
   selectedCamera: string
   selectedCameraName: string
 }) {
@@ -44,7 +46,7 @@ export function useLogisticsSinglePersonMonitor({
 
     const loadStatus = async () => {
       try {
-        const nextStatus = await getAiVisionLogisticsSinglePersonStatus(selectedCamera)
+        const nextStatus = await getAiVisionLogisticsSinglePersonStatus(selectedCamera, feature)
         if (!mounted) return
         setStatusState({ cameraKey: selectedCamera, value: nextStatus })
         const cameraChanged = previousStateRef.current.cameraKey !== selectedCamera
@@ -76,7 +78,7 @@ export function useLogisticsSinglePersonMonitor({
       mounted = false
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [enabled, selectedCamera])
+  }, [enabled, feature, selectedCamera])
 
   useEffect(() => {
     if (!enabled || !selectedCamera) return
@@ -85,7 +87,7 @@ export function useLogisticsSinglePersonMonitor({
 
     const loadAlarms = async () => {
       try {
-        const nextAlarms = await getAlarms(1000, ['detect_logistics_single_person'])
+        const nextAlarms = await getAlarms(1000, [feature])
         if (mounted) setAlarms(nextAlarms)
       } catch {
         // Keep the last successful alarm list when polling fails.
@@ -99,11 +101,11 @@ export function useLogisticsSinglePersonMonitor({
       mounted = false
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [enabled, selectedCamera])
+  }, [enabled, feature, selectedCamera])
 
   const todayAlarms = useMemo(
-    () => filterTodayLogisticsAlarms(alarms, selectedCamera, selectedCameraName),
-    [alarms, selectedCamera, selectedCameraName],
+    () => filterTodayLogisticsAlarms(alarms, feature, selectedCamera, selectedCameraName),
+    [alarms, feature, selectedCamera, selectedCameraName],
   )
 
   return {

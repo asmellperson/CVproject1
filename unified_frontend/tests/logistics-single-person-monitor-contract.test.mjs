@@ -19,11 +19,28 @@ const hook = await readIfPresent('src/components/logistics_single_person/useLogi
 const view = await readIfPresent('src/components/logistics_single_person/LogisticsSinglePersonMonitorView.tsx')
 const monitor = await readIfPresent('src/components/AiVisionMonitor.tsx')
 const page = await readIfPresent('src/sections/LogisticsSinglePersonDetectionSection.tsx')
+const variantPages = [
+  [
+    await readIfPresent('src/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection.tsx'),
+    'detect_logistics_single_person_electronics_electrician',
+    '物流通道单人检测（电子电工）监控与配置',
+  ],
+  [
+    await readIfPresent('src/sections/LogisticsSinglePersonElectricalComponentsDetectionSection.tsx'),
+    'detect_logistics_single_person_electrical_components',
+    '物流通道单人检测（电气部件）监控与配置',
+  ],
+  [
+    await readIfPresent('src/sections/LogisticsSinglePersonPreciousMetalRecyclingDetectionSection.tsx'),
+    'detect_logistics_single_person_precious_metal_recycling',
+    '物流通道单人检测（贵金属回收）监控与配置',
+  ],
+]
 
 test('provides typed logistics monitor status without changing the frame endpoint', () => {
   assert.match(api, /export type AiVisionLogisticsSinglePersonStatus/)
-  assert.match(api, /getAiVisionLogisticsSinglePersonStatus/)
-  assert.match(api, /cameras\/\$\{encodeURIComponent\(cameraKey\)\}\/features\/detect_logistics_single_person\/status/)
+  assert.match(api, /getAiVisionLogisticsSinglePersonStatus\(cameraKey: string, feature: string\)/)
+  assert.match(api, /cameras\/\$\{encodeURIComponent\(cameraKey\)\}\/features\/\$\{encodeURIComponent\(feature\)\}\/status/)
   assert.match(api, /fps\?: number/)
 })
 
@@ -48,7 +65,7 @@ test('renders the approved logistics dashboard hierarchy and states', () => {
   assert.match(view, /ROI 内 1 人/)
   assert.match(view, /ROI 内 0 人/)
   assert.match(view, /ROI 内 ≥ 2 人/)
-  assert.match(view, /物流通道单人检测监控/)
+  assert.match(view, /\{title\}/)
   assert.match(view, /人员异常告警/)
   assert.match(view, /bg-black\/45/)
   assert.match(view, /backdrop-blur/)
@@ -58,7 +75,10 @@ test('renders the approved logistics dashboard hierarchy and states', () => {
 
 test('polls display data separately while preserving the existing frame lifecycle', () => {
   assert.match(hook, /getAiVisionLogisticsSinglePersonStatus/)
-  assert.match(hook, /getAlarms\(1000, \['detect_logistics_single_person'\]\)/)
+  assert.match(hook, /feature: string/)
+  assert.match(hook, /getAlarms\(1000, \[feature\]\)/)
+  assert.match(state, /feature: string/)
+  assert.match(state, /alarm\.event_type === feature/)
   assert.match(hook, /cameraChanged/)
   assert.match(hook, /window\.setTimeout\(loadStatus, STATUS_POLL_MS\)/)
   assert.match(hook, /window\.setTimeout\(loadAlarms, ALARM_POLL_MS\)/)
@@ -91,5 +111,14 @@ test('uses the approved page shell while preserving configuration behavior', () 
     'AiVisionRoiEditor',
   ]) {
     assert.match(page, new RegExp(binding))
+  }
+})
+
+test('uses the approved logistics dashboard for every department variant', () => {
+  for (const [source, feature, title] of variantPages) {
+    assert.match(source, /presentation="logistics-single-person"/)
+    assert.match(source, new RegExp(`feature="${feature}"`))
+    assert.match(source, new RegExp(title))
+    assert.match(source, /rounded-full border border-slate-200\/70 bg-white p-1/)
   }
 })
