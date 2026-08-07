@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import test from 'node:test'
 
 import { buildSync } from 'esbuild'
@@ -15,7 +15,7 @@ test('executes deferred serial poll regressions without overlapping restarts', a
 
   try {
     buildSync({
-      entryPoints: [new URL('src/lib/serial-poll.test.ts', frontendRoot).pathname],
+      entryPoints: [fileURLToPath(new URL('src/lib/serial-poll.test.ts', frontendRoot))],
       outfile: bundlePath,
       bundle: true,
       platform: 'node',

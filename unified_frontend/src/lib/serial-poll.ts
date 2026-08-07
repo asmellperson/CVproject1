@@ -115,6 +115,7 @@ export function createSerialPoller(options: {
       started = true
       if (inFlight) {
         pendingImmediateRun = true
+        activeController?.abort()
         return
       }
       runRound()
@@ -133,6 +134,7 @@ export function createSerialPoller(options: {
       }
       if (inFlight) {
         pendingImmediateRun = true
+        activeController?.abort()
         return
       }
       runRound()

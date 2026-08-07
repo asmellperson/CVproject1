@@ -53,8 +53,8 @@ const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number)
     : `${featurePath}/${encodeURIComponent(String(channelId))}`
 }
 
-const cameraConfigPath = (feature: LogisticsFeatureName, cameraKey: string | number) =>
-  `/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(String(cameraKey))}`
+const cameraConfigPath = (feature: LogisticsFeatureName, shmName: string) =>
+  `/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(shmName)}`
 
 function invalidateAfter<T>(
   request: Promise<T>,
@@ -236,15 +236,15 @@ export function revokeLogisticsChannelFrameObjectUrl(objectUrl?: string | null) 
 
 export const getLogisticsCameraConfig = (
   feature: LogisticsFeatureName,
-  cameraKey: string | number,
+  shmName: string,
   init?: RequestInit,
-) => apiGet<LogisticsCameraConfigResponse>(cameraConfigPath(feature, cameraKey), init)
+) => apiGet<LogisticsCameraConfigResponse>(cameraConfigPath(feature, shmName), init)
 
 export const updateLogisticsCameraConfig = (
   feature: LogisticsFeatureName,
-  cameraKey: string | number,
+  shmName: string,
   payload: LogisticsCameraConfigPayload,
 ) => invalidateAfter(
-  apiPut<LogisticsCameraConfigResponse>(cameraConfigPath(feature, cameraKey), payload),
+  apiPut<LogisticsCameraConfigResponse>(cameraConfigPath(feature, shmName), payload),
   feature,
 )

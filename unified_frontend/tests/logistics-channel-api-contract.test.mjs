@@ -39,6 +39,8 @@ test('uses canonical encoded v2 resource URLs for the complete client', () => {
   assert.match(api, /apiPost<LogisticsChannelDetail>/)
   assert.match(api, /apiPut<LogisticsChannelDetail>/)
   assert.match(api, /apiDelete<LogisticsChannelOkResponse>/)
+  assert.match(api, /cameraConfigPath = \(feature: LogisticsFeatureName, shmName: string\)/)
+  assert.doesNotMatch(api, /cameraKey: string \| number/)
 })
 
 test('fetches frames with auth, cancellation, and object URL lifecycle helpers', () => {
@@ -64,10 +66,15 @@ test('provides feature-scoped query keys, invalidation, and settled polling', ()
   assert.match(hooks, /useReducer/)
   assert.doesNotMatch(hooks, /window\.setTimeout/)
   assert.doesNotMatch(hooks, /void\s+(?:refresh|load)/)
-  assert.match(hooks, /statusState\?\.key === selectionKey/)
-  assert.match(hooks, /alarmState\?\.key === selectionKey/)
-  assert.match(hooks, /statisticsState\?\.key === selectionKey/)
-  assert.match(hooks, /eventState\?\.key === selectionKey/)
+  assert.match(hooks, /selectionToken = useMemo/)
+  assert.match(hooks, /statusState\?\.selection === selectionToken/)
+  assert.match(hooks, /alarmState\?\.selection === selectionToken/)
+  assert.match(hooks, /statisticsState\?\.selection === selectionToken/)
+  assert.match(hooks, /eventState\?\.selection === selectionToken/)
+  assert.match(hooks, /frameUrlState\?\.selection === selectionToken/)
+  assert.match(hooks, /statusErrorState/)
+  assert.match(hooks, /summaryErrorState/)
+  assert.match(hooks, /frameErrorState/)
 })
 
 test('mutations stay feature-scoped and cross-channel moves invalidate source and target', () => {

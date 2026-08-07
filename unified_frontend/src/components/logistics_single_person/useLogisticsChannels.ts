@@ -180,7 +180,8 @@ function appendStatusEvent(
   return [{ id: `${occurredAt}-${status.reason}`, reason: status.reason, occurredAt }, ...events].slice(0, 8)
 }
 
-type KeyedValue<T> = { key: string; value: T }
+type SelectionToken = { key: string }
+type KeyedValue<T> = { selection: SelectionToken; value: T }
 
 export function useLogisticsChannelStatus(
   feature: LogisticsFeatureName,
@@ -192,92 +193,99 @@ export function useLogisticsChannelStatus(
   const [statisticsState, setStatisticsState] = useState<KeyedValue<LogisticsChannelStatistics> | null>(null)
   const [eventState, setEventState] = useState<KeyedValue<LogisticsChannelStatusEvent[]> | null>(null)
   const [frameUrlState, setFrameUrlState] = useState<KeyedValue<string> | null>(null)
-  const [errorState, setErrorState] = useState<KeyedValue<string> | null>(null)
+  const [statusErrorState, setStatusErrorState] = useState<KeyedValue<string> | null>(null)
+  const [summaryErrorState, setSummaryErrorState] = useState<KeyedValue<string> | null>(null)
+  const [frameErrorState, setFrameErrorState] = useState<KeyedValue<string> | null>(null)
   const [statusRevision, refreshStatus] = useReducer((value: number) => value + 1, 0)
   const [summaryRevision, refreshSummary] = useReducer((value: number) => value + 1, 0)
   const [frameRevision, refreshFrame] = useReducer((value: number) => value + 1, 0)
   const frameObjectUrlRef = useRef<string | null>(null)
   const previousReasonRef = useRef<KeyedValue<LogisticsChannelReason | null> | null>(null)
   const selectionKey = `${feature}:${channelId ?? ''}`
-  const currentSelectionRef = useRef(selectionKey)
+  const selectionToken = useMemo<SelectionToken>(() => ({ key: selectionKey }), [selectionKey])
+  const currentSelectionRef = useRef(selectionToken)
   const canPoll = enabled && channelId !== null
 
   useEffect(() => {
-    currentSelectionRef.current = selectionKey
-  }, [selectionKey])
+    currentSelectionRef.current = selectionToken
+  }, [selectionToken])
 
   const loadStatus = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
-    const requestedKey = `${feature}:${channelId}`
+    const requestedSelection = selectionToken
     try {
       const nextStatus = await getLogisticsChannelStatus(feature, channelId, { signal })
-      if (currentSelectionRef.current !== requestedKey) return
+      if (currentSelectionRef.current !== requestedSelection) return
       setEventState((current) => ({
-        key: requestedKey,
+        selection: requestedSelection,
         value: appendStatusEvent(
-          current?.key === requestedKey ? current.value : [],
-          previousReasonRef.current?.key === requestedKey ? previousReasonRef.current.value : null,
+          current?.selection === requestedSelection ? current.value : [],
+          previousReasonRef.current?.selection === requestedSelection
+            ? previousReasonRef.current.value
+            : null,
           nextStatus,
         ),
       }))
-      previousReasonRef.current = { key: requestedKey, value: nextStatus.reason }
-      setStatusState({ key: requestedKey, value: nextStatus })
-      setErrorState(null)
+      previousReasonRef.current = { selection: requestedSelection, value: nextStatus.reason }
+      setStatusState({ selection: requestedSelection, value: nextStatus })
+      setStatusErrorState(null)
     } catch (reason) {
-      if (signal?.aborted || currentSelectionRef.current !== requestedKey) return
-      setErrorState({
-        key: requestedKey,
+      if (signal?.aborted || currentSelectionRef.current !== requestedSelection) return
+      setStatusErrorState({
+        selection: requestedSelection,
         value: reason instanceof Error ? reason.message : '物流通道状态加载失败',
       })
     }
-  }, [channelId, feature])
+  }, [channelId, feature, selectionToken])
 
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
-    const requestedKey = `${feature}:${channelId}`
+    const requestedSelection = selectionToken
     try {
       const [alarmResponse, nextStatistics] = await Promise.all([
         getLogisticsChannelAlarms(feature, channelId, 1000, { signal }),
         getLogisticsChannelStatistics(feature, channelId, 7, { signal }),
       ])
-      if (currentSelectionRef.current !== requestedKey) return
+      if (currentSelectionRef.current !== requestedSelection) return
       setAlarmState({
-        key: requestedKey,
+        selection: requestedSelection,
         value: alarmResponse.items.filter((alarm) => isToday(alarm.created_at)),
       })
-      setStatisticsState({ key: requestedKey, value: nextStatistics })
+      setStatisticsState({ selection: requestedSelection, value: nextStatistics })
+      setSummaryErrorState(null)
     } catch (reason) {
-      if (signal?.aborted || currentSelectionRef.current !== requestedKey) return
-      setErrorState({
-        key: requestedKey,
+      if (signal?.aborted || currentSelectionRef.current !== requestedSelection) return
+      setSummaryErrorState({
+        selection: requestedSelection,
         value: reason instanceof Error ? reason.message : '物流通道告警统计加载失败',
       })
     }
-  }, [channelId, feature])
+  }, [channelId, feature, selectionToken])
 
   const loadFrame = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
-    const requestedKey = `${feature}:${channelId}`
+    const requestedSelection = selectionToken
     try {
       const blob = await fetchLogisticsChannelFrame(feature, channelId, signal, { nonce: Date.now() })
-      if (currentSelectionRef.current !== requestedKey) return
+      if (currentSelectionRef.current !== requestedSelection) return
       const nextUrl = replaceLogisticsChannelFrameObjectUrl(blob, frameObjectUrlRef.current)
       frameObjectUrlRef.current = nextUrl
-      setFrameUrlState({ key: requestedKey, value: nextUrl })
+      setFrameUrlState({ selection: requestedSelection, value: nextUrl })
+      setFrameErrorState(null)
     } catch (reason) {
-      if (signal?.aborted || currentSelectionRef.current !== requestedKey) return
-      setErrorState({
-        key: requestedKey,
+      if (signal?.aborted || currentSelectionRef.current !== requestedSelection) return
+      setFrameErrorState({
+        selection: requestedSelection,
         value: reason instanceof Error ? reason.message : '物流通道画面加载失败',
       })
     }
-  }, [channelId, feature])
+  }, [channelId, feature, selectionToken])
 
   useEffect(() => {
     previousReasonRef.current = null
     revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
     frameObjectUrlRef.current = null
-  }, [selectionKey])
+  }, [selectionToken])
 
   useEffect(() => () => {
     revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
@@ -318,12 +326,23 @@ export function useLogisticsChannelStatus(
   }, [canPoll, channelId, feature])
 
   return {
-    status: statusState?.key === selectionKey ? statusState.value : null,
-    alarms: alarmState?.key === selectionKey ? alarmState.value : [],
-    statistics: statisticsState?.key === selectionKey ? statisticsState.value : null,
-    events: eventState?.key === selectionKey ? eventState.value : [],
-    frameUrl: frameUrlState?.key === selectionKey ? frameUrlState.value : null,
-    error: errorState?.key === selectionKey ? errorState.value : null,
+    status: statusState?.selection === selectionToken ? statusState.value : null,
+    alarms: alarmState?.selection === selectionToken ? alarmState.value : [],
+    statistics: statisticsState?.selection === selectionToken ? statisticsState.value : null,
+    events: eventState?.selection === selectionToken ? eventState.value : [],
+    frameUrl: frameUrlState?.selection === selectionToken ? frameUrlState.value : null,
+    error: statusErrorState?.selection === selectionToken
+      ? statusErrorState.value
+      : summaryErrorState?.selection === selectionToken
+        ? summaryErrorState.value
+        : frameErrorState?.selection === selectionToken
+          ? frameErrorState.value
+          : null,
+    errors: {
+      status: statusErrorState?.selection === selectionToken ? statusErrorState.value : null,
+      summary: summaryErrorState?.selection === selectionToken ? summaryErrorState.value : null,
+      frame: frameErrorState?.selection === selectionToken ? frameErrorState.value : null,
+    },
     refreshStatus,
     refreshSummary,
     refreshFrame,

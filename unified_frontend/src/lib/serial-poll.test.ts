@@ -544,6 +544,87 @@ async function testStopStartQueuesBehindAbortIgnoringRound() {
   poller.stop()
 }
 
+async function testRunNowAbortsCooperativeRoundBeforeLatestTask() {
+  const timers = new FakeTimers()
+  const attempts: Array<{ label: string; completion: Deferred; signal: AbortSignal }> = []
+  let currentLabel = 'A'
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  const poller = createSerialPoller({
+    task: (signal) => {
+      const completion = deferred()
+      const attempt = { label: currentLabel, completion, signal }
+      attempts.push(attempt)
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      signal.addEventListener('abort', () => completion.reject(new Error('request aborted')), {
+        once: true,
+      })
+      return completion.promise.finally(() => {
+        activeTasks -= 1
+      })
+    },
+    intervalMs: 1000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  currentLabel = 'B'
+  poller.runNow()
+  assertEqual(attempts[0].signal.aborted, true, 'runNow aborts the stale cooperative request')
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'latest task starts as soon as abort settles the old request')
+  assertEqual(attempts[1].label, 'B', 'replacement uses the latest task identity')
+  assertEqual(maxActiveTasks, 1, 'cooperative abort handoff remains serial')
+
+  attempts[1].completion.resolve()
+  await flushAsyncWork()
+  poller.stop()
+}
+
+async function testRapidSelectionChangesCoalesceToLatestTask() {
+  const timers = new FakeTimers()
+  const attempts: Array<{ label: string; completion: Deferred; signal: AbortSignal }> = []
+  let currentLabel = 'A:first'
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  const poller = createSerialPoller({
+    task: (signal) => {
+      const completion = deferred()
+      attempts.push({ label: currentLabel, completion, signal })
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      return completion.promise.finally(() => {
+        activeTasks -= 1
+      })
+    },
+    intervalMs: 1000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  currentLabel = 'B'
+  poller.runNow()
+  currentLabel = 'A:latest'
+  poller.runNow()
+  assertEqual(attempts.length, 1, 'A to B to A does not overlap an abort-ignoring request')
+  assertEqual(attempts[0].signal.aborted, true, 'rapid selection change still requests stale abort')
+
+  attempts[0].completion.resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'rapid changes coalesce to one replacement request')
+  assertEqual(attempts[1].label, 'A:latest', 'replacement uses only the latest selection task')
+  assertEqual(maxActiveTasks, 1, 'rapid selection handoff remains serial')
+
+  attempts[1].completion.resolve()
+  await flushAsyncWork()
+  poller.stop()
+}
+
 async function main() {
   await testSerialExecutionAndSettledScheduling()
   await testTimeoutAbortsWithoutReportingAnError()
@@ -556,6 +637,8 @@ async function main() {
   await testIndependentEndpointPollersStartOnceWithoutOverlap()
   await testRunNowQueuesBehindUnsettledRound()
   await testStopStartQueuesBehindAbortIgnoringRound()
+  await testRunNowAbortsCooperativeRoundBeforeLatestTask()
+  await testRapidSelectionChangesCoalesceToLatestTask()
   console.log('serial poll tests passed')
 }
 
