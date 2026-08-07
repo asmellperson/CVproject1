@@ -4,8 +4,17 @@ export type FeatureCameraCounts = Record<string, {
 }>
 
 type CameraInventoryItem = {
+  id?: string
+  shm_name?: string
+  camera_id?: number
   enabled: boolean
   functions: Record<string, boolean> | string[]
+}
+
+export type CameraInventorySummary = {
+  cameraTotal: number
+  cameraOnline: number
+  cameraOffline: number
 }
 
 const AI_VISION_FEATURES = [
@@ -39,4 +48,24 @@ export function getLoadedAiVisionFeatureCounts(
     }
     return counts
   }, {})
+}
+
+export function getCameraInventorySummary(
+  cameras: CameraInventoryItem[],
+  runningCameras: string[] | undefined,
+  fallbackOnlineCount = 0,
+): CameraInventorySummary {
+  const cameraTotal = cameras.length
+  const cameraOnline = Array.isArray(runningCameras)
+    ? cameras.filter((camera) => {
+      const key = String(camera.shm_name || camera.id || camera.camera_id || '')
+      return runningCameras.includes(key)
+    }).length
+    : Math.min(cameraTotal, Math.max(0, Number(fallbackOnlineCount) || 0))
+
+  return {
+    cameraTotal,
+    cameraOnline,
+    cameraOffline: Math.max(0, cameraTotal - cameraOnline),
+  }
 }

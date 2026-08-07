@@ -44,10 +44,39 @@ test('counts a loaded logistics camera inventory by feature', async () => {
   })
 })
 
+test('counts online cameras from the unique loaded inventory', async () => {
+  const { getCameraInventorySummary } = await importTypeScript(
+    'src/sections/homeCameraCounts.ts',
+  )
+  const cameras = [
+    { shm_name: 'camera-a', enabled: true, functions: {} },
+    { shm_name: 'camera-b', enabled: true, functions: {} },
+  ]
+
+  assert.deepEqual(
+    getCameraInventorySummary(cameras, ['camera-a', 'unknown-camera']),
+    { cameraTotal: 2, cameraOnline: 1, cameraOffline: 1 },
+  )
+})
+
+test('caps the camera online fallback at the inventory total', async () => {
+  const { getCameraInventorySummary } = await importTypeScript(
+    'src/sections/homeCameraCounts.ts',
+  )
+  const cameras = [{ id: 'camera-a', enabled: true, functions: {} }]
+
+  assert.deepEqual(
+    getCameraInventorySummary(cameras, undefined, 86),
+    { cameraTotal: 1, cameraOnline: 1, cameraOffline: 0 },
+  )
+})
+
 test('home overview only marks the camera inventory loaded after a successful request', async () => {
   const source = await readFile(new URL('src/sections/HomeSection.tsx', frontendRoot), 'utf8')
 
   assert.match(source, /const \[aiVisionCamerasLoaded, setAiVisionCamerasLoaded\] = useState\(false\)/)
   assert.match(source, /getLoadedAiVisionFeatureCounts\(aiVisionCameras, aiVisionCamerasLoaded\)/)
+  assert.match(source, /const cameraStatusReady = aiVisionCamerasLoaded && platformStatus !== null/)
+  assert.match(source, /cameraStatusReady \? `\$\{cameraInventorySummary\.cameraOnline\}\/\$\{cameraInventorySummary\.cameraTotal\}` : '加载中'/)
   assert.match(source, /if \(cameras\.status === 'fulfilled'\) \{[\s\S]*?setAiVisionCamerasLoaded\(true\)[\s\S]*?\} else \{[\s\S]*?setAiVisionCamerasLoaded\(false\)/)
 })

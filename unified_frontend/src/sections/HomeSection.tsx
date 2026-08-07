@@ -45,7 +45,7 @@ import {
   updateAiVisionCamera,
   type AiVisionCamera,
 } from '@/lib/aivision'
-import { getLoadedAiVisionFeatureCounts, type FeatureCameraCounts } from './homeCameraCounts'
+import { getCameraInventorySummary, getLoadedAiVisionFeatureCounts, type FeatureCameraCounts } from './homeCameraCounts'
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
@@ -377,6 +377,15 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     [aiVisionCameras, aiVisionCamerasLoaded],
   )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
+  const cameraInventorySummary = useMemo(
+    () => getCameraInventorySummary(
+      aiVisionCameras,
+      platformStatus?.services.aivision.running_cameras,
+      platformStatus?.services.aivision.online_camera_count,
+    ),
+    [aiVisionCameras, platformStatus],
+  )
+  const cameraStatusReady = aiVisionCamerasLoaded && platformStatus !== null
   const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
 
   useEffect(() => {
@@ -588,8 +597,12 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
               <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
                 <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
-                <MiniStatusMetric label="摄像头在线" value={`${scopedStatusSummary.cameraOnline}/${scopedStatusSummary.cameraTotal}`} />
-                <MiniStatusMetric label="摄像头离线" value={scopedStatusSummary.cameraOffline} warn={scopedStatusSummary.cameraOffline > 0} />
+                <MiniStatusMetric label="摄像头在线" value={cameraStatusReady ? `${cameraInventorySummary.cameraOnline}/${cameraInventorySummary.cameraTotal}` : '加载中'} />
+                <MiniStatusMetric
+                  label="摄像头离线"
+                  value={cameraStatusReady ? cameraInventorySummary.cameraOffline : '加载中'}
+                  warn={cameraStatusReady && cameraInventorySummary.cameraOffline > 0}
+                />
               </div>
 
               <div className="mt-5 flex h-[360px] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-[#f8fbff] shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
