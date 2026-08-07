@@ -39,6 +39,8 @@ test('shared channel configuration covers channel, members, schedule and per-cam
   assert.match(config, /AiVisionRoiEditor/)
   assert.match(config, /getLogisticsCameraConfig/)
   assert.match(config, /updateLogisticsCameraConfig/)
+  assert.match(config, /setLogisticsChannelCameraEnabled/)
+  assert.match(config, /if \(!isAdmin\)/)
   assert.match(config, /Promise\.all\(channelIds\.map/)
   assert.match(config, /filterBindableCameras/)
   assert.match(config, /confirmMembershipRemoval/)

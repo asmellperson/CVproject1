@@ -39,7 +39,8 @@ test('uses canonical encoded v2 resource URLs for the complete client', () => {
   assert.match(api, /apiPost<LogisticsChannelDetail>/)
   assert.match(api, /apiPut<LogisticsChannelDetail>/)
   assert.match(api, /apiDelete<LogisticsChannelOkResponse>/)
-  assert.match(api, /cameraConfigPath = \(feature: LogisticsFeatureName, shmName: string\)/)
+  assert.match(api, /memberCameraConfigPath/)
+  assert.match(api, /cameraId: number/)
   assert.doesNotMatch(api, /cameraKey: string \| number/)
 })
 

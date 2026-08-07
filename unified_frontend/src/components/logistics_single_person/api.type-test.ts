@@ -19,7 +19,7 @@ type AssertTrue<Value extends true> = Value
 export type LogisticsCameraConfigApiAssertions = [
   AssertTrue<Equal<
     Parameters<typeof getLogisticsCameraConfig>,
-    [feature: LogisticsFeatureName, shmName: string, init?: RequestInit]
+    [feature: LogisticsFeatureName, channelId: number, cameraId: number, init?: RequestInit]
   >>,
   AssertTrue<Equal<
     ReturnType<typeof getLogisticsCameraConfig>,
@@ -27,6 +27,6 @@ export type LogisticsCameraConfigApiAssertions = [
   >>,
   AssertTrue<Equal<
     Parameters<typeof updateLogisticsCameraConfig>,
-    [feature: LogisticsFeatureName, shmName: string, payload: LogisticsCameraConfigPayload]
+    [feature: LogisticsFeatureName, channelId: number, cameraId: number, payload: LogisticsCameraConfigPayload]
   >>,
 ]

@@ -53,8 +53,11 @@ const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number)
     : `${featurePath}/${encodeURIComponent(String(channelId))}`
 }
 
-const cameraConfigPath = (feature: LogisticsFeatureName, shmName: string) =>
-  `/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(shmName)}`
+const memberCameraConfigPath = (
+  feature: LogisticsFeatureName,
+  channelId: number,
+  cameraId: number,
+) => `${logisticsChannelPath(feature, channelId)}/cameras/${encodeURIComponent(String(cameraId))}/config`
 
 function invalidateAfter<T>(
   request: Promise<T>,
@@ -155,6 +158,20 @@ export const removeLogisticsChannelCamera = (
   channelId,
 )
 
+export const setLogisticsChannelCameraEnabled = (
+  feature: LogisticsFeatureName,
+  channelId: number,
+  cameraId: number,
+  enabled: boolean,
+) => invalidateAfter(
+  apiPut<LogisticsChannelDetail>(
+    `${logisticsChannelPath(feature, channelId)}/cameras/${encodeURIComponent(String(cameraId))}/enabled`,
+    { enabled },
+  ),
+  feature,
+  channelId,
+)
+
 export const getLogisticsChannelStatus = (
   feature: LogisticsFeatureName,
   channelId: number,
@@ -236,15 +253,21 @@ export function revokeLogisticsChannelFrameObjectUrl(objectUrl?: string | null) 
 
 export const getLogisticsCameraConfig = (
   feature: LogisticsFeatureName,
-  shmName: string,
+  channelId: number,
+  cameraId: number,
   init?: RequestInit,
-) => apiGet<LogisticsCameraConfigResponse>(cameraConfigPath(feature, shmName), init)
+) => apiGet<LogisticsCameraConfigResponse>(
+  memberCameraConfigPath(feature, channelId, cameraId),
+  init,
+)
 
 export const updateLogisticsCameraConfig = (
   feature: LogisticsFeatureName,
-  shmName: string,
+  channelId: number,
+  cameraId: number,
   payload: LogisticsCameraConfigPayload,
 ) => invalidateAfter(
-  apiPut<LogisticsCameraConfigResponse>(cameraConfigPath(feature, shmName), payload),
+  apiPut<LogisticsCameraConfigResponse>(memberCameraConfigPath(feature, channelId, cameraId), payload),
   feature,
+  channelId,
 )

@@ -20,6 +20,7 @@ import {
   moveLogisticsChannelCamera,
   removeLogisticsChannelCamera,
   reorderLogisticsChannelCameras,
+  setLogisticsChannelCameraEnabled,
   updateLogisticsCameraConfig,
   updateLogisticsChannel,
   updateLogisticsChannelConfig,
@@ -91,7 +92,7 @@ export function LogisticsChannelConfigView({
   const membershipLoadRef = useRef<MembershipLoadIdentity>({ generation: 0, feature, channelIdsKey: '' })
 
   const members = useMemo(
-    () => [...(selectedChannelDetail?.members ?? [])].filter((member) => member.enabled).sort((a, b) => a.sort_order - b.sort_order),
+    () => [...(selectedChannelDetail?.members ?? [])].sort((a, b) => a.sort_order - b.sort_order),
     [selectedChannelDetail],
   )
   const cameraById = useMemo(() => new Map(cameras.map((camera) => [camera.camera_id, camera])), [cameras])
@@ -142,6 +143,10 @@ export function LogisticsChannelConfigView({
   }, [channelIdsKey, feature, membershipRevision])
 
   useEffect(() => {
+    if (!isAdmin) {
+      setCameras([])
+      return
+    }
     let active = true
     const load = async () => {
       try {
@@ -158,7 +163,36 @@ export function LogisticsChannelConfigView({
       active = false
       window.removeEventListener('aivision:cameras-changed', refresh)
     }
-  }, [])
+  }, [isAdmin])
+
+  useEffect(() => {
+    if (isAdmin || !selectedChannelDetail) return
+    const controller = new AbortController()
+    Promise.all(selectedChannelDetail.members.map((member) => (
+      getLogisticsCameraConfig(
+        feature,
+        selectedChannelDetail.id,
+        member.camera_id,
+        { signal: controller.signal },
+      )
+    )))
+      .then((results) => {
+        if (controller.signal.aborted) return
+        setCameras(results.map(({ camera }) => ({
+          id: String(camera.id),
+          camera_id: camera.id,
+          name: camera.name,
+          shm_name: camera.shm_name,
+          url: '',
+          enabled: camera.enable,
+          functions: {},
+        })))
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setMessage(`通道摄像头读取失败：${messageOf(reason)}`)
+      })
+    return () => controller.abort()
+  }, [feature, isAdmin, selectedChannelDetail])
 
   useEffect(() => {
     const nextChannelId = selectedChannelDetail?.id ?? null
@@ -180,7 +214,8 @@ export function LogisticsChannelConfigView({
     }
     let active = true
     setCameraConfig(null)
-    getLogisticsCameraConfig(feature, selectedCamera.shm_name)
+    if (!selectedChannelDetail) return
+    getLogisticsCameraConfig(feature, selectedChannelDetail.id, selectedCamera.camera_id)
       .then((result) => {
         if (!active) return
         setCameraConfig(result)
@@ -188,7 +223,7 @@ export function LogisticsChannelConfigView({
       })
       .catch((reason) => active && setMessage(`逐路 ROI 读取失败：${messageOf(reason)}`))
     return () => { active = false }
-  }, [feature, selectedCamera])
+  }, [feature, selectedCamera, selectedChannelDetail])
 
   const run = async (action: () => Promise<unknown>, success: string, reloadMemberships = false) => {
     if (!isAdmin || busy) return
@@ -287,12 +322,30 @@ export function LogisticsChannelConfigView({
     )
   }
 
+  const setMemberEnabled = (cameraId: number, enabled: boolean) => {
+    if (!selectedChannelDetail) return
+    void run(
+      () => setLogisticsChannelCameraEnabled(
+        feature,
+        selectedChannelDetail.id,
+        cameraId,
+        enabled,
+      ),
+      enabled ? '摄像头已启用。' : '摄像头已停用。',
+    )
+  }
+
   const saveRoi = () => {
-    if (!selectedCamera || !cameraConfig) return
-    void run(() => updateLogisticsCameraConfig(feature, selectedCamera.shm_name, {
+    if (!selectedChannelDetail || !selectedCamera || !cameraConfig) return
+    void run(() => updateLogisticsCameraConfig(
+      feature,
+      selectedChannelDetail.id,
+      selectedCamera.camera_id,
+      {
       ...cameraConfig.config,
       value: { ...cameraConfig.config.value, roi_pos: roiPayload(roiJson) },
-    }), '当前摄像头 ROI 已保存。')
+      },
+    ), '当前摄像头 ROI 已保存。')
   }
 
   return (
@@ -338,6 +391,8 @@ export function LogisticsChannelConfigView({
                       <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-3">
                         <Camera className="h-4 w-4 text-slate-400" />
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
+                        <Badge variant={member.enabled ? 'default' : 'secondary'}>{member.enabled ? '已启用' : '已停用'}</Badge>
+                        <Button size="sm" variant="outline" onClick={() => setMemberEnabled(member.camera_id, !member.enabled)} disabled={!isAdmin || busy}>{member.enabled ? '停用' : '启用'}</Button>
                         <Button size="sm" variant="outline" aria-label="上移" onClick={() => moveMember(member.camera_id, -1)} disabled={!isAdmin || busy || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
                         <Button size="sm" variant="outline" aria-label="下移" onClick={() => moveMember(member.camera_id, 1)} disabled={!isAdmin || busy || index === members.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
                         <Button size="sm" variant="outline" className="text-rose-600" onClick={() => removeMember(member.camera_id)} disabled={!isAdmin || busy}><Trash2 className="h-4 w-4" />移除</Button>
