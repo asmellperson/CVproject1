@@ -63,7 +63,11 @@ export function LogisticsChannelMonitorView({
 }: LogisticsChannelMonitorViewProps) {
   const reason = status?.reason ?? selectedChannelDetail?.status?.reason ?? 'unknown'
   const presentation = reasonPresentation[reason]
-  const cameraStates = status ? Object.values(status.camera_states) : []
+  const cameraStates = status
+    ? status.camera_ids
+      .map((cameraId) => status.camera_states[String(cameraId)])
+      .filter((camera): camera is NonNullable<typeof camera> => Boolean(camera))
+    : []
   const onlineCount = cameraStates.filter((camera) => camera.online).length
   const memberCount = selectedChannelDetail?.members.filter((member) => member.enabled).length ?? status?.camera_ids.length ?? 0
   const offlineCount = cameraStates.filter((camera) => !camera.online).length
