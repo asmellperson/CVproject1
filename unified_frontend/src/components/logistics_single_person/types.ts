@@ -149,9 +149,14 @@ export type UpdateLogisticsChannelPayload = {
   config?: LogisticsChannelConfigPayload
 }
 
-export type BindExistingLogisticsCameraPayload = { camera_id: number }
+export type BindExistingLogisticsCameraPayload = {
+  camera_id: number
+  name?: never
+  url?: never
+}
 
 export type CreateLogisticsCameraPayload = {
+  camera_id?: never
   name: string
   url: string
   fps?: number
@@ -194,4 +199,3 @@ export type LogisticsCameraConfigResponse = {
   feature: LogisticsFeatureName
   config: LogisticsCameraConfigPayload
 }
-
