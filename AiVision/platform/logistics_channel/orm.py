@@ -54,6 +54,7 @@ class LogisticsChannel(Base):
         "LogisticsChannelCamera",
         back_populates="channel",
         cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="LogisticsChannelCamera.sort_order, LogisticsChannelCamera.id",
     )
 
@@ -81,7 +82,7 @@ class LogisticsChannelCamera(Base):
     )
     camera_id = Column(
         Integer,
-        ForeignKey("ai_camera_config.id", ondelete="RESTRICT"),
+        ForeignKey("ai_camera_config.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="摄像头ID",
@@ -95,5 +96,5 @@ class LogisticsChannelCamera(Base):
         onupdate=text("CURRENT_TIMESTAMP"),
     )
 
-    channel = relationship("LogisticsChannel", back_populates="cameras")
-    camera = relationship(AiCameraConfig)
+    channel = relationship("LogisticsChannel", back_populates="cameras", passive_deletes=True)
+    camera = relationship(AiCameraConfig, passive_deletes=True)

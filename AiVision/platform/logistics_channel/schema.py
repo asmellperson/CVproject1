@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime, time
-from typing import Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .constants import DEFAULT_DETECTION_END, DEFAULT_DETECTION_START
+from .constants import DEFAULT_DETECTION_END, DEFAULT_DETECTION_START, MAX_CAMERAS_PER_CHANNEL
 
 
 LogisticsFeatureName = Literal[
@@ -21,33 +21,51 @@ LogisticsChannelStatusReason = Literal[
 
 
 class LogisticsChannelAlarmChannel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
-    horn_id: int | None = None
-    horn_event_id: int | None = None
+    horn_id: int | None = Field(default=None, gt=0)
+    horn_event_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_enabled_horn(self) -> "LogisticsChannelAlarmChannel":
+        if self.enabled and (self.horn_id is None or self.horn_event_id is None):
+            raise ValueError("启用喇叭告警时必须提供 horn_id 和 horn_event_id")
+        return self
 
 
 class LogisticsChannelWechatChannel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     user: str = ""
 
 
 class LogisticsChannelAlarm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sql_enable: bool = False
     horn: LogisticsChannelAlarmChannel = Field(default_factory=LogisticsChannelAlarmChannel)
     wechat: LogisticsChannelWechatChannel = Field(default_factory=LogisticsChannelWechatChannel)
 
 
 class LogisticsChannelCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=100)
 
 
 class LogisticsChannelUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool | None = None
     sort_order: int | None = None
 
 
 class LogisticsChannelConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
     detection_start: time = DEFAULT_DETECTION_START
     detection_end: time = DEFAULT_DETECTION_END
@@ -58,12 +76,21 @@ class LogisticsChannelConfigUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_detection_window(self) -> "LogisticsChannelConfigUpdate":
+        if (
+            self.detection_start.tzinfo is not None
+            or self.detection_start.utcoffset() is not None
+            or self.detection_end.tzinfo is not None
+            or self.detection_end.utcoffset() is not None
+        ):
+            raise ValueError("detection_start 和 detection_end 不支持时区")
         if self.detection_start >= self.detection_end:
             raise ValueError("detection_start 必须早于 detection_end")
         return self
 
 
 class LogisticsChannelMemberCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     camera_id: int | None = Field(default=None, gt=0)
     name: str | None = Field(default=None, min_length=1, max_length=100)
     url: str | None = Field(default=None, min_length=1, max_length=500)
@@ -78,13 +105,23 @@ class LogisticsChannelMemberCreate(BaseModel):
         has_new_camera = self.name is not None or self.url is not None
         if has_existing_camera == has_new_camera:
             raise ValueError("必须且只能提供 camera_id 或 name 和 url")
+        if has_existing_camera:
+            new_camera_fields = {"name", "url", "fps", "max_restart", "department", "shm_name"}
+            supplied = new_camera_fields & self.model_fields_set
+            if supplied:
+                raise ValueError("camera_id 模式不得提供新摄像头字段")
         if has_new_camera and (self.name is None or self.url is None):
             raise ValueError("新摄像头必须同时提供 name 和 url")
         return self
 
 
 class LogisticsChannelMemberOrder(BaseModel):
-    camera_ids: list[int] = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    camera_ids: list[Annotated[int, Field(gt=0)]] = Field(
+        min_length=1,
+        max_length=MAX_CAMERAS_PER_CHANNEL,
+    )
 
     @model_validator(mode="after")
     def _validate_unique_camera_ids(self) -> "LogisticsChannelMemberOrder":
@@ -116,8 +153,35 @@ class LogisticsChannelConfigResponse(BaseModel):
     alarm_interval: float
     alarm: LogisticsChannelAlarm
 
+    @model_validator(mode="before")
+    @classmethod
+    def _adapt_channel_orm(cls, value: Any) -> Any:
+        if isinstance(value, dict) or not hasattr(value, "detection_start"):
+            return value
+        return {
+            "enabled": value.enabled,
+            "detection_start": value.detection_start,
+            "detection_end": value.detection_end,
+            "empty_grace_seconds": value.empty_grace_seconds,
+            "multi_grace_seconds": value.multi_grace_seconds,
+            "alarm_interval": value.alarm_interval,
+            "alarm": {
+                "sql_enable": value.sql_enable,
+                "horn": {
+                    "enabled": value.horn_enable,
+                    "horn_id": value.horn_id,
+                    "horn_event_id": value.horn_event_id,
+                },
+                "wechat": {
+                    "enabled": value.wechat_enable,
+                    "user": value.wechat_user or "",
+                },
+            },
+        }
+
 
 class LogisticsChannelStatusResponse(BaseModel):
+    """运行时状态响应；调用方传入已组装的 dict，不接受 ORM 对象。"""
     reason: LogisticsChannelStatusReason
     online: bool | None = None
     person_count: int | None = None
@@ -147,3 +211,21 @@ class LogisticsChannelDetailResponse(LogisticsChannelResponse):
     config: LogisticsChannelConfigResponse
     members: list[LogisticsChannelMemberResponse] = Field(default_factory=list)
     status: LogisticsChannelStatusResponse | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _adapt_channel_orm(cls, value: Any) -> Any:
+        if isinstance(value, dict) or not hasattr(value, "feature_name"):
+            return value
+        return {
+            "id": value.id,
+            "name": value.name,
+            "feature_name": value.feature_name,
+            "enabled": value.enabled,
+            "sort_order": value.sort_order,
+            "created_at": value.created_at,
+            "updated_at": value.updated_at,
+            "config": value,
+            "members": value.cameras,
+            "status": getattr(value, "status", None),
+        }
