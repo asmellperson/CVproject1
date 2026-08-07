@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.db import get_session
 from platform.camera.orm import AiCameraConfig
@@ -30,6 +31,45 @@ _TYPE_META = {
 _DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64748b"}
 
 
+class AlarmEventResponse(BaseModel):
+    """统一告警列表项，同时兼容旧摄像头告警和通道告警。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    event_type: str
+    event_label: str
+    violation_type: int | None = None
+    camera_no: str
+    camera_name: str
+    subject_type: str
+    subject_id: str | None = None
+    subject_name: str | None = None
+    channel_id: str | None = None
+    channel_name: str | None = None
+    reason: str
+    status: str | None = None
+    confidence: float = 1
+    created_at: str | None = None
+    image_path: str | None = None
+    image_url: str
+    video_path: str | None = None
+    video_status: str | None = None
+    camera_ids: list[int] = Field(default_factory=list)
+    camera_names: dict[str, str] = Field(default_factory=dict)
+    camera_counts: dict[str, int | None] = Field(default_factory=dict)
+    camera_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    offending_camera_ids: list[int] = Field(default_factory=list)
+    evidence_error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AlarmListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AlarmEventResponse] = Field(default_factory=list)
+
+
 def _meta(violation_type: int | None) -> dict[str, str]:
     return _TYPE_META.get(int(violation_type or 0), _DEFAULT_META)
 
@@ -39,28 +79,120 @@ def _camera_names(session) -> dict[str, str]:
     return {shm: name for shm, name in rows if shm}
 
 
+def _dict_value(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
+def _int_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        try:
+            result.append(int(item))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return result
+
+
+def _channel_alarm_fields(metadata: dict[str, Any]) -> dict[str, Any]:
+    raw_states = _dict_value(metadata.get("camera_states"))
+    camera_states = {
+        key: dict(value)
+        for key, value in raw_states.items()
+        if isinstance(value, dict)
+    }
+    raw_counts = _dict_value(metadata.get("camera_counts"))
+    camera_counts: dict[str, int | None] = {}
+    for key, value in raw_counts.items():
+        if value is None:
+            camera_counts[key] = None
+        elif isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            camera_counts[key] = value
+
+    explicit_names = _dict_value(metadata.get("camera_names"))
+    camera_names = {
+        key: str(value)
+        for key, value in explicit_names.items()
+        if value is not None
+    }
+    for key, state in camera_states.items():
+        if state.get("camera_name") is not None:
+            camera_names.setdefault(key, str(state["camera_name"]))
+    evidence_error = metadata.get("evidence_error")
+    return {
+        "camera_ids": _int_list(metadata.get("camera_ids")),
+        "camera_names": camera_names,
+        "camera_counts": camera_counts,
+        "camera_states": camera_states,
+        "offending_camera_ids": _int_list(metadata.get("offending_camera_ids")),
+        "evidence_error": str(evidence_error) if evidence_error is not None else None,
+    }
+
+
 def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any]:
-    meta = _meta(row.violation_type)
-    camera_key = row.camera_no or ""
-    created_at = row.create_time.isoformat(sep=" ") if row.create_time else None
+    meta = _meta(getattr(row, "violation_type", None))
+    camera_key = getattr(row, "camera_no", None) or ""
+    raw_metadata = getattr(row, "event_metadata", None)
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    subject_type = str(getattr(row, "subject_type", None) or "camera")
+    subject_id = getattr(row, "subject_id", None)
+    subject_name = getattr(row, "subject_name", None)
+    persisted_reason = getattr(row, "reason", None)
+    is_channel = subject_type == "logistics_channel"
+    channel_id_value = subject_id if subject_id is not None else metadata.get("channel_id")
+    channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
+    channel_name = None
+    if is_channel:
+        channel_name = str(
+            subject_name
+            or metadata.get("channel_name")
+            or cameras.get(camera_key)
+            or camera_key
+            or "物流通道"
+        )
+        camera_key = f"logistics_channel_{channel_id}" if channel_id else "logistics_channel"
+    camera_name = str(channel_name or cameras.get(camera_key) or camera_key or "-")
+    if not is_channel:
+        subject_id = subject_id if subject_id is not None else (camera_key or None)
+        subject_name = subject_name if subject_name is not None else camera_name
+    reason = str(
+        persisted_reason
+        or metadata.get("reason")
+        or f"{meta['label']} - {camera_name if camera_name != '-' else '未知摄像头'}"
+    )
+    create_time = getattr(row, "create_time", None)
+    created_at = create_time.isoformat(sep=" ") if create_time else None
     return {
         "id": str(row.id),
         "event_type": meta["event_type"],
         "event_label": meta["label"],
         "violation_type": row.violation_type,
         "camera_no": camera_key,
-        "camera_name": cameras.get(camera_key, camera_key or "-"),
-        "reason": f"{meta['label']} - {cameras.get(camera_key, camera_key or '未知摄像头')}",
+        "camera_name": camera_name,
+        "subject_type": subject_type,
+        "subject_id": str(subject_id) if subject_id is not None else None,
+        "subject_name": str(subject_name) if subject_name is not None else None,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "reason": reason,
+        "status": reason if is_channel else None,
         "confidence": 1,
         "created_at": created_at,
         "image_path": row.image_path,
         "image_url": f"/api/aivision/alarms/{row.id}/image",
         "video_path": None,
         "video_status": None,
+        **_channel_alarm_fields(metadata),
+        "metadata": metadata,
     }
 
 
-@router.get("")
+@router.get("", response_model=AlarmListResponse)
 def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     session = get_session()
     try:
@@ -109,7 +241,13 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
         total = len(rows)
         today = sum(1 for row in rows if row.create_time and row.create_time >= today_start)
         type_counts = Counter(int(row.violation_type or 0) for row in rows)
-        camera_counts = Counter(row.camera_no or "unknown" for row in rows)
+        subject_counts: Counter[str] = Counter()
+        subject_names: dict[str, str] = {}
+        for row in rows:
+            event = _event_dict(row, cameras)
+            subject_key = event["camera_no"] or "unknown"
+            subject_counts[subject_key] += 1
+            subject_names[subject_key] = event["camera_name"] or subject_key
         hourly_counts = Counter(row.create_time.hour for row in rows if row.create_time)
         daily_by_type: dict[str, Counter[int]] = defaultdict(Counter)
         hourly_by_type: dict[int, Counter[int]] = defaultdict(Counter)
@@ -156,10 +294,10 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
         by_camera = [
             {
                 "camera_no": camera_no,
-                "name": cameras.get(camera_no, camera_no),
+                "name": subject_names.get(camera_no, camera_no),
                 "value": value,
             }
-            for camera_no, value in camera_counts.most_common(8)
+            for camera_no, value in subject_counts.most_common(8)
         ]
 
         peak_hour = hourly_counts.most_common(1)[0][0] if hourly_counts else None
@@ -169,7 +307,7 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
                 "today": today,
                 "week": total,
                 "avg_per_day": round(total / days, 2),
-                "active_cameras": len(camera_counts),
+                "active_cameras": len(subject_counts),
                 "peak_hour": f"{peak_hour:02d}:00" if peak_hour is not None else "-",
             },
             "by_type": by_type,

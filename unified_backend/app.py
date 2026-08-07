@@ -103,6 +103,19 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "detect_phone": {"name": "手机检测", "color": "#f97316"},
     "detect_face": {"name": "人脸检测", "color": "#8b5cf6"},
     "detect_human": {"name": "人体逗留", "color": "#2563eb"},
+    "detect_logistics_single_person": {"name": "物流通道单人检测", "color": "#0f766e"},
+    "detect_logistics_single_person_electronics_electrician": {
+        "name": "物流通道单人检测（电子电工）",
+        "color": "#0f766e",
+    },
+    "detect_logistics_single_person_electrical_components": {
+        "name": "物流通道单人检测（电气部件）",
+        "color": "#0f766e",
+    },
+    "detect_logistics_single_person_precious_metal_recycling": {
+        "name": "物流通道单人检测（贵金属回收）",
+        "color": "#0f766e",
+    },
     "guard_absent": {"name": "保安离岗", "color": "#dc2626"},
     "guard_phone_use": {"name": "保安玩手机", "color": "#ea580c"},
     "guard_prone_sleep": {"name": "保安趴睡", "color": "#ca8a04"},
@@ -124,6 +137,7 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "guard_phone_use",
         "guard_prone_sleep",
         "detect_human",
+        "detect_logistics_single_person",
     },
     "research_institute": {
         "blocks",
@@ -136,6 +150,7 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "guard_absent",
         "guard_phone_use",
         "guard_prone_sleep",
+        "detect_logistics_single_person_electronics_electrician",
     },
     "electrical_components": {
         "security_vlm_non_compliant",
@@ -316,14 +331,97 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     source_id = str(alarm.get("id") or "")
+    raw_metadata = alarm.get("metadata", alarm.get("event_metadata"))
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    subject_type = str(alarm.get("subject_type") or "camera")
+    is_channel = subject_type == "logistics_channel"
+
+    channel_id_value = alarm.get("channel_id") or alarm.get("subject_id") or metadata.get("channel_id")
+    channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
+    channel_name = None
+    if is_channel:
+        channel_name = str(
+            alarm.get("channel_name")
+            or alarm.get("subject_name")
+            or metadata.get("channel_name")
+            or alarm.get("camera_name")
+            or "物流通道"
+        )
+
+    raw_states = metadata.get("camera_states")
+    camera_states = {
+        str(key): dict(value)
+        for key, value in raw_states.items()
+        if isinstance(value, dict)
+    } if isinstance(raw_states, dict) else {}
+    raw_counts = metadata.get("camera_counts")
+    camera_counts = {
+        str(key): value
+        for key, value in raw_counts.items()
+        if value is None or (
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        )
+    } if isinstance(raw_counts, dict) else {}
+    camera_ids = metadata.get("camera_ids")
+    camera_ids = _normalize_alarm_id_list(camera_ids)
+    offending_ids = metadata.get("offending_camera_ids")
+    offending_ids = _normalize_alarm_id_list(offending_ids)
+    explicit_names = metadata.get("camera_names")
+    camera_names = {
+        str(key): str(value)
+        for key, value in explicit_names.items()
+        if value is not None
+    } if isinstance(explicit_names, dict) else {}
+    for key, state in camera_states.items():
+        if isinstance(state, dict) and state.get("camera_name") is not None:
+            camera_names.setdefault(str(key), str(state["camera_name"]))
+
+    camera_no = alarm.get("camera_no")
+    camera_name = alarm.get("camera_name")
+    if is_channel:
+        camera_no = f"logistics_channel_{channel_id}" if channel_id else "logistics_channel"
+        camera_name = channel_name
+    reason = alarm.get("reason") or metadata.get("reason")
+    normalized_subject_id = channel_id if is_channel else alarm.get("subject_id")
+    normalized_subject_name = channel_name if is_channel else alarm.get("subject_name")
     return {
         **alarm,
         "id": f"aivision:{source_id}",
         "source": "aivision",
         "source_id": source_id,
+        "subject_type": subject_type,
+        "subject_id": str(normalized_subject_id) if normalized_subject_id is not None else None,
+        "subject_name": normalized_subject_name,
+        "camera_no": camera_no,
+        "camera_name": camera_name,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "reason": reason,
+        "status": alarm.get("status") or (reason if is_channel else None),
+        "camera_ids": camera_ids,
+        "camera_names": camera_names,
+        "camera_counts": camera_counts,
+        "camera_states": camera_states,
+        "offending_camera_ids": offending_ids,
+        "evidence_error": alarm.get("evidence_error") or metadata.get("evidence_error"),
+        "metadata": metadata,
         "image_url": alarm.get("image_url") or f"/api/aivision/alarms/{source_id}/image",
         "video_url": alarm.get("video_url") or None,
     }
+
+
+def _normalize_alarm_id_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[int] = []
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        try:
+            normalized.append(int(item))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return normalized
 
 
 def _normalize_security_vlm_alarm(
