@@ -37,20 +37,22 @@ test('shared monitor views define their own dark surfaces and typography', async
   }
 })
 
-test('every detection Section has a dark page shell', async () => {
+test('every detection surface has dark page styling', async () => {
   const files = [
     'GuardBehaviorSection.tsx', 'IntrusionDetectionSection.tsx', 'FaceDetectionSection.tsx',
     'PhoneDetectionSection.tsx', 'DoorDetectionSection.tsx', 'HumanDetectionSection.tsx',
-    'LogisticsSinglePersonDetectionSection.tsx',
-    'LogisticsSinglePersonElectronicsElectricianDetectionSection.tsx',
-    'LogisticsSinglePersonElectricalComponentsDetectionSection.tsx',
-    'LogisticsSinglePersonPreciousMetalRecyclingDetectionSection.tsx',
   ]
   for (const file of files) {
     const source = await read(`src/sections/${file}`)
     assert.match(source, /dark:bg-slate-950/)
     assert.match(source, /dark:text-slate-100/)
   }
+
+  const logisticsSection = await read('src/components/logistics_single_person/LogisticsChannelSection.tsx')
+  const logisticsMonitor = await read('src/components/logistics_single_person/LogisticsChannelMonitorView.tsx')
+  assert.match(logisticsSection, /dark:text-slate-100/)
+  assert.match(logisticsMonitor, /dark:bg-slate-900/)
+  assert.match(logisticsMonitor, /dark:border-slate-800/)
 })
 
 test('guard and security workflow business cards support dark mode', async () => {

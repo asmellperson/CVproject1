@@ -18,23 +18,31 @@ const state = await readIfPresent('src/components/logistics_single_person/monito
 const hook = await readIfPresent('src/components/logistics_single_person/useLogisticsSinglePersonMonitor.ts')
 const view = await readIfPresent('src/components/logistics_single_person/LogisticsSinglePersonMonitorView.tsx')
 const monitor = await readIfPresent('src/components/AiVisionMonitor.tsx')
-const page = await readIfPresent('src/sections/LogisticsSinglePersonDetectionSection.tsx')
-const variantPages = [
-  [
-    await readIfPresent('src/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection.tsx'),
-    'detect_logistics_single_person_electronics_electrician',
-    '物流通道单人检测（电子电工）监控与配置',
-  ],
-  [
-    await readIfPresent('src/sections/LogisticsSinglePersonElectricalComponentsDetectionSection.tsx'),
-    'detect_logistics_single_person_electrical_components',
-    '物流通道单人检测（电气部件）监控与配置',
-  ],
-  [
-    await readIfPresent('src/sections/LogisticsSinglePersonPreciousMetalRecyclingDetectionSection.tsx'),
-    'detect_logistics_single_person_precious_metal_recycling',
-    '物流通道单人检测（贵金属回收）监控与配置',
-  ],
+const logisticsPages = [
+  {
+    source: await readIfPresent('src/sections/LogisticsSinglePersonDetectionSection.tsx'),
+    exportName: 'LogisticsSinglePersonDetectionSection',
+    feature: 'detect_logistics_single_person',
+    title: '物流通道单人检测监控与配置',
+  },
+  {
+    source: await readIfPresent('src/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection.tsx'),
+    exportName: 'LogisticsSinglePersonElectronicsElectricianDetectionSection',
+    feature: 'detect_logistics_single_person_electronics_electrician',
+    title: '物流通道单人检测（电子电工）监控与配置',
+  },
+  {
+    source: await readIfPresent('src/sections/LogisticsSinglePersonElectricalComponentsDetectionSection.tsx'),
+    exportName: 'LogisticsSinglePersonElectricalComponentsDetectionSection',
+    feature: 'detect_logistics_single_person_electrical_components',
+    title: '物流通道单人检测（电气部件）监控与配置',
+  },
+  {
+    source: await readIfPresent('src/sections/LogisticsSinglePersonPreciousMetalRecyclingDetectionSection.tsx'),
+    exportName: 'LogisticsSinglePersonPreciousMetalRecyclingDetectionSection',
+    feature: 'detect_logistics_single_person_precious_metal_recycling',
+    title: '物流通道单人检测（贵金属回收）监控与配置',
+  },
 ]
 
 test('provides typed logistics monitor status without changing the frame endpoint', () => {
@@ -92,33 +100,27 @@ test('polls display data separately while preserving the existing frame lifecycl
   assert.match(monitor, /presentation\?: 'default' \| 'logistics-single-person'/)
 })
 
-test('uses the approved page shell while preserving configuration behavior', () => {
-  assert.match(page, /物流通道单人检测监控与配置/)
-  assert.match(page, /ROI 单人检测监控面板/)
-  assert.match(page, /bg-\[#F3F5FA\]/)
-  assert.match(page, /rounded-full border border-slate-200\/70 bg-white p-1/)
-  assert.match(page, /presentation="logistics-single-person"/)
+test('maps every logistics page to the shared channel section without legacy camera APIs', () => {
+  const allFeatures = logisticsPages.map(({ feature }) => feature)
+  assert.equal(new Set(allFeatures).size, logisticsPages.length)
 
-  for (const binding of [
-    'requestLogisticsSinglePersonConfig',
-    'getAiVisionCameras',
-    'loadConfig',
-    'loadCameras',
-    'saveConfig',
-    'addCameraToFeature',
-    'removeCameraFromFeature',
-    'FeatureCameraManager',
-    'AiVisionRoiEditor',
-  ]) {
-    assert.match(page, new RegExp(binding))
-  }
-})
-
-test('uses the approved logistics dashboard for every department variant', () => {
-  for (const [source, feature, title] of variantPages) {
-    assert.match(source, /presentation="logistics-single-person"/)
+  for (const { source, exportName, feature, title } of logisticsPages) {
+    assert.match(source, /LogisticsChannelSection/)
+    assert.match(source, new RegExp(`export function ${exportName}\\(`))
     assert.match(source, new RegExp(`feature="${feature}"`))
-    assert.match(source, new RegExp(title))
-    assert.match(source, /rounded-full border border-slate-200\/70 bg-white p-1/)
+    assert.match(source, new RegExp(`title="${title}"`))
+    assert.match(source, new RegExp(`export default ${exportName}`))
+
+    for (const legacyBinding of [
+      'requestLogisticsSinglePersonConfig',
+      'getAiVisionCameras',
+      'AiVisionMonitor',
+      'FeatureCameraManager',
+      'AiVisionRoiEditor',
+      'useLogisticsSinglePersonMonitor',
+    ]) {
+      assert.doesNotMatch(source, new RegExp(legacyBinding))
+    }
+    assert.doesNotMatch(source, /logistics-single-person(?:-[a-z-]+)?-config/)
   }
 })
