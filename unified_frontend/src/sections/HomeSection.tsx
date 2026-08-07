@@ -41,11 +41,11 @@ import {
   getAiVisionCameraKey,
   getAiVisionCameras,
   getAiVisionExceptionAlertSettings,
-  isAiVisionFeatureEnabled,
   saveAiVisionExceptionAlertSettings,
   updateAiVisionCamera,
   type AiVisionCamera,
 } from '@/lib/aivision'
+import { getLoadedAiVisionFeatureCounts, type FeatureCameraCounts } from './homeCameraCounts'
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
@@ -151,11 +151,6 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
 
 type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
 
-type FeatureCameraCounts = Record<string, {
-  cameraCount: number
-  enabledCameraCount: number
-}>
-
 const aiVisionFeatureLabels: Record<string, string> = {
   blocks: '区域入侵',
   detect_door: '大门开关',
@@ -226,18 +221,6 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
 
 function getRunningConsumers(service?: PlatformServiceStatus) {
   return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
-}
-
-function getAiVisionFeatureCounts(cameras: AiVisionCamera[]): FeatureCameraCounts {
-  const features = ['blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_logistics_single_person_electronics_electrician', 'detect_logistics_single_person_electrical_components', 'detect_logistics_single_person_precious_metal_recycling', 'detect_phone']
-  return features.reduce<FeatureCameraCounts>((acc, feature) => {
-    const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
-    acc[feature] = {
-      cameraCount: featureCameras.length,
-      enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
-    }
-    return acc
-  }, {})
 }
 
 function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
@@ -371,6 +354,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
+  const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
   const [exceptionSettingsLoading, setExceptionSettingsLoading] = useState(false)
@@ -388,7 +372,10 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraDeleteError, setCameraDeleteError] = useState('')
   const department = getUserDepartment(user)
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
-  const aiVisionFeatureCounts = useMemo(() => getAiVisionFeatureCounts(aiVisionCameras), [aiVisionCameras])
+  const aiVisionFeatureCounts = useMemo(
+    () => getLoadedAiVisionFeatureCounts(aiVisionCameras, aiVisionCamerasLoaded),
+    [aiVisionCameras, aiVisionCamerasLoaded],
+  )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
 
@@ -437,6 +424,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const reloadAiVisionCameras = async () => {
     const cameras = await getAiVisionCameras()
     setAiVisionCameras(cameras)
+    setAiVisionCamerasLoaded(true)
     window.dispatchEvent(new Event('aivision:cameras-changed'))
   }
 
@@ -524,8 +512,12 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       ])
 
       if (cancelled) return
-      const currentAiVisionCameras = cameras.status === 'fulfilled' ? cameras.value : []
-      setAiVisionCameras(currentAiVisionCameras)
+      if (cameras.status === 'fulfilled') {
+        setAiVisionCameras(cameras.value)
+        setAiVisionCamerasLoaded(true)
+      } else {
+        setAiVisionCamerasLoaded(false)
+      }
 
       const allowedAlarmTypes = accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null
       const alarmItems = alarms.status === 'fulfilled'

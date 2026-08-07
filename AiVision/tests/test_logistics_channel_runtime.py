@@ -88,6 +88,7 @@ def build_runtime(
     active=None,
     wall_time=None,
     cameras=None,
+    raw_frames=None,
     compositor=None,
     start_background=False,
     clock=None,
@@ -115,6 +116,7 @@ def build_runtime(
         dispatcher=dispatcher,
         camera_provider=lambda camera_id: cameras.get(int(camera_id)),
         is_camera_active=active or (lambda _shm_name: True),
+        frame_provider=lambda shm_name: (raw_frames or {}).get(shm_name),
         stale_seconds=5.0,
         wall_time_provider=wall_time
         or (lambda: datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc).astimezone()),
@@ -177,6 +179,46 @@ def test_disabled_members_are_excluded_from_aggregation_status_and_composite():
     assert runtime.get_composite_frame(FEATURE, 3).shape == (20, 30, 3)
     assert composed == [(10,)]
     assert dispatcher.requests == []
+
+
+def test_inactive_detection_window_still_composes_live_preview_frames():
+    item = channel(
+        member_ids=(10, 11),
+        start=time(8, 0),
+        end=time(20, 0),
+    )
+    raw_frames = {
+        "camera_10": np.full((8, 12, 3), 10, np.uint8),
+        "camera_11": np.full((8, 12, 3), 20, np.uint8),
+    }
+    captured = []
+
+    def compositor(tiles):
+        captured.append(tuple(tile.frame for tile in tiles))
+        return np.concatenate([tile.frame for tile in tiles], axis=1)
+
+    runtime, _dispatcher = build_runtime(
+        [item],
+        raw_frames=raw_frames,
+        wall_time=lambda: datetime(2026, 8, 7, 22, 55),
+        compositor=compositor,
+    )
+    runtime.update_camera_snapshot(
+        FEATURE,
+        snapshot(10, 1),
+        np.full((8, 12, 3), 99, np.uint8),
+    )
+
+    assert runtime.evaluate(FEATURE, 3, now=100.0).reason == "inactive"
+    frame = runtime.get_composite_frame(FEATURE, 3)
+
+    assert frame.shape == (8, 24, 3)
+    assert len(captured) == 1
+    assert all(tile_frame is not None for tile_frame in captured[0])
+    assert np.all(frame[:, :12] == 10)
+    assert np.all(frame[:, 12:] == 20)
+    status = runtime.get_channel_status(FEATURE, 3)
+    assert status["camera_states"]["10"]["stale_reason"] == "detection_inactive"
 
 
 def test_alarm_is_dispatched_once_per_incident_and_again_after_recovery():

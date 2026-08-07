@@ -84,6 +84,7 @@ class LogisticsChannelRuntime:
         dispatcher=alarm_dispatcher,
         camera_provider: Callable[[int], dict | None] | None = None,
         is_camera_active: Callable[[str], bool] | None = None,
+        frame_provider: Callable[[str], np.ndarray | None] | None = None,
         stale_seconds: float | None = None,
         wall_time_provider: Callable[[], datetime] | None = None,
         violation_type_provider: Callable[[str], int] | None = None,
@@ -98,6 +99,7 @@ class LogisticsChannelRuntime:
             lambda camera_id: camera_service.get_camera(str(camera_id))
         )
         self._is_camera_active = is_camera_active or (lambda _shm_name: True)
+        self._frame_provider = frame_provider or (lambda _shm_name: None)
         self._stale_seconds = (
             settings.runtime.logistics_status_stale_seconds
             if stale_seconds is None
@@ -328,18 +330,41 @@ class LogisticsChannelRuntime:
             channel = self._channels.get((feature_name, channel_id))
             if channel is None:
                 return None
-            return _ChannelView(
-                channel=channel,
-                generation=self._generations[feature_name],
-                snapshots=tuple(
-                    self._snapshots.get((feature_name, camera.camera_id))
-                    for camera in channel.cameras
-                ),
-                frames=tuple(
-                    self._frames.get((feature_name, camera.camera_id))
-                    for camera in channel.cameras
-                ),
+            generation = self._generations[feature_name]
+            snapshots = tuple(
+                self._snapshots.get((feature_name, camera.camera_id))
+                for camera in channel.cameras
             )
+            detected_frames = tuple(
+                self._frames.get((feature_name, camera.camera_id))
+                for camera in channel.cameras
+            )
+
+        channel_active = self._channel_is_active(channel)
+        frames = []
+        for camera, detected_frame in zip(channel.cameras, detected_frames, strict=True):
+            frame = detected_frame
+            if not channel_active or frame is None:
+                try:
+                    raw_frame = self._frame_provider(camera.shm_name)
+                    if isinstance(raw_frame, np.ndarray) and raw_frame.size:
+                        frame = raw_frame
+                except Exception as exc:
+                    logger.warning(
+                        f"[LogisticsChannelRuntime] 摄像头预览帧读取失败 "
+                        f"camera_id={camera.camera_id}: {exc}"
+                    )
+            frames.append(
+                frame.copy()
+                if isinstance(frame, np.ndarray) and frame.size
+                else None
+            )
+        return _ChannelView(
+            channel=channel,
+            generation=generation,
+            snapshots=snapshots,
+            frames=tuple(frames),
+        )
 
     def _prepare_view(self, view: _ChannelView, now: float) -> _PreparedView:
         active = self._channel_is_active(view.channel)
@@ -361,6 +386,8 @@ class LogisticsChannelRuntime:
                 online=online,
             )
             reason, stale_reason = self._camera_reason(snapshot, raw is not None, now)
+            if not active and online:
+                reason, stale_reason = "unknown", "detection_inactive"
             effective_count = snapshot.count if reason != "unknown" else None
             states[str(camera.camera_id)] = {
                 "camera_id": camera.camera_id,

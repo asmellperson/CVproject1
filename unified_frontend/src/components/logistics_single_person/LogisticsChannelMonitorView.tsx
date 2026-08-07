@@ -26,7 +26,7 @@ const reasonPresentation: Record<LogisticsChannelReason, { label: string; classN
   empty: { label: '无人异常', className: 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300', tone: 'rose' },
   multiple: { label: '多人异常', className: 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300', tone: 'rose' },
   unknown: { label: '未知', className: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300', tone: 'amber' },
-  inactive: { label: '未启用', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300', tone: 'slate' },
+  inactive: { label: '检测未运行', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300', tone: 'slate' },
   unconfigured: { label: '未配置', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300', tone: 'slate' },
 }
 
@@ -70,6 +70,7 @@ function unknownReason(reason: string | null) {
   if (reason === 'offline') return '摄像头离线'
   if (reason === 'stale') return '结果过期'
   if (reason === 'waiting' || reason === 'no_result') return '等待检测结果'
+  if (reason === 'detection_inactive') return '当前不在检测时间段或通道未启用'
   return reason
 }
 

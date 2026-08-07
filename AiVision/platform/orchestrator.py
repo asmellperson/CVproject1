@@ -62,6 +62,7 @@ class Orchestrator:
             channel_service=logistics_channel_service,
             dispatcher=alarm_dispatcher,
             is_camera_active=frame_reader_registry.is_active,
+            frame_provider=lambda shm_name: frame_reader_registry.latest_frames.get(shm_name),
         )
 
         # 订阅配置变更事件
