@@ -139,29 +139,28 @@ async function testSerialExecutionAndSettledScheduling() {
 
   attempts[0].completion.resolve()
   await flushAsyncWork()
-  assertNumbers(timers.pendingDelays(), [3000], 'the next round is scheduled after settlement')
+  assertEqual(attempts.length, 2, 'queued runNow starts immediately after settlement')
+  assertNumbers(timers.pendingDelays(), [8000], 'the queued round owns only its request timeout')
 
-  timers.advanceBy(1000)
   poller.setPaused(false)
-  assertEqual(attempts.length, 1, 'repeated setPaused(false) does not run while already active')
-  assertNumbers(timers.pendingDelays(), [2000], 'repeated setPaused(false) preserves the interval')
+  assertEqual(attempts.length, 2, 'repeated setPaused(false) does not overlap the queued round')
 
   poller.runNow()
-  assertEqual(attempts.length, 2, 'runNow starts immediately while idle')
-  assertNumbers(timers.pendingDelays(), [8000], 'runNow replaces the scheduled next round')
-
   poller.runNow()
   timers.advanceBy(3000)
-  assertEqual(attempts.length, 2, 'runNow and stale timer callbacks do not overlap a task')
+  assertEqual(attempts.length, 2, 'repeated runNow calls coalesce without overlap')
 
   attempts[1].completion.resolve()
   await flushAsyncWork()
-  timers.advanceBy(2999)
-  assertEqual(attempts.length, 2, 'the interval waits for its full delay')
-  timers.advanceBy(1)
-  assertEqual(attempts.length, 3, 'the next round begins after the settled interval')
-
+  assertEqual(attempts.length, 3, 'coalesced runNow starts one replacement round')
   attempts[2].completion.resolve()
+  await flushAsyncWork()
+  timers.advanceBy(2999)
+  assertEqual(attempts.length, 3, 'the interval waits for its full delay')
+  timers.advanceBy(1)
+  assertEqual(attempts.length, 4, 'the next round begins after the settled interval')
+
+  attempts[3].completion.resolve()
   await flushAsyncWork()
   poller.stop()
   assertEqual(timers.pendingCount(), 0, 'stop clears the next-round timer')
@@ -457,7 +456,6 @@ async function testIndependentEndpointPollersStartOnceWithoutOverlap() {
   pollers.forEach((poller) => {
     poller.start()
     poller.start()
-    poller.runNow()
   })
   endpointNames.forEach((endpoint) => {
     assertEqual(attempts.get(endpoint)?.length, 1, `${endpoint} starts exactly one initial request`)
@@ -473,6 +471,79 @@ async function testIndependentEndpointPollersStartOnceWithoutOverlap() {
   pollers.forEach((poller) => poller.stop())
 }
 
+async function testRunNowQueuesBehindUnsettledRound() {
+  const timers = new FakeTimers()
+  const attempts: Deferred[] = []
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  const poller = createSerialPoller({
+    task: () => {
+      const completion = deferred()
+      attempts.push(completion)
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      return completion.promise.finally(() => {
+        activeTasks -= 1
+      })
+    },
+    intervalMs: 1000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.runNow()
+  poller.runNow()
+  assertEqual(attempts.length, 1, 'runNow does not overlap the unsettled initial round')
+  assertEqual(maxActiveTasks, 1, 'only one task is active before settlement')
+
+  attempts[0].resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'coalesced runNow runs immediately after settlement')
+  assertEqual(maxActiveTasks, 1, 'runNow execution remains serial')
+
+  attempts[1].resolve()
+  await flushAsyncWork()
+  poller.stop()
+}
+
+async function testStopStartQueuesBehindAbortIgnoringRound() {
+  const timers = new FakeTimers()
+  const attempts: Deferred[] = []
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  const poller = createSerialPoller({
+    task: () => {
+      const completion = deferred()
+      attempts.push(completion)
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      return completion.promise.finally(() => {
+        activeTasks -= 1
+      })
+    },
+    intervalMs: 1000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  })
+
+  poller.start()
+  poller.stop()
+  poller.start()
+  assertEqual(attempts.length, 1, 'stop/start does not overlap an abort-ignoring task')
+
+  attempts[0].resolve()
+  await flushAsyncWork()
+  assertEqual(attempts.length, 2, 'restart waits for the stopped task to settle')
+  assertEqual(maxActiveTasks, 1, 'stop/start handoff remains serial')
+
+  attempts[1].resolve()
+  await flushAsyncWork()
+  poller.stop()
+}
+
 async function main() {
   await testSerialExecutionAndSettledScheduling()
   await testTimeoutAbortsWithoutReportingAnError()
@@ -483,6 +554,8 @@ async function main() {
   await testPauseClearsPendingResume()
   await testStopClearsPendingResume()
   await testIndependentEndpointPollersStartOnceWithoutOverlap()
+  await testRunNowQueuesBehindUnsettledRound()
+  await testStopStartQueuesBehindAbortIgnoringRound()
   console.log('serial poll tests passed')
 }
 

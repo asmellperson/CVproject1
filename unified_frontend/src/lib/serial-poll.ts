@@ -5,6 +5,7 @@ export type SerialPoller = {
   stop(): void
   runNow(): void
   setPaused(paused: boolean): void
+  configure(intervalMs: number, timeoutMs: number): void
 }
 
 export function createSerialPoller(options: {
@@ -29,6 +30,8 @@ export function createSerialPoller(options: {
   let nextTimer: PollTimerHandle | undefined
   let requestTimer: PollTimerHandle | undefined
   let activeController: AbortController | undefined
+  let intervalMs = options.intervalMs
+  let timeoutMs = options.timeoutMs
 
   const clearNextTimer = () => {
     if (nextTimer === undefined) {
@@ -57,7 +60,7 @@ export function createSerialPoller(options: {
       }
       nextTimer = undefined
       runRound()
-    }, options.intervalMs)
+    }, intervalMs)
     nextTimer = handle
   }
 
@@ -77,7 +80,7 @@ export function createSerialPoller(options: {
       }
       requestTimer = undefined
       controller.abort()
-    }, options.timeoutMs)
+    }, timeoutMs)
     requestTimer = timeoutHandle
 
     void (async () => {
@@ -110,6 +113,10 @@ export function createSerialPoller(options: {
         return
       }
       started = true
+      if (inFlight) {
+        pendingImmediateRun = true
+        return
+      }
       runRound()
     },
     stop() {
@@ -121,6 +128,13 @@ export function createSerialPoller(options: {
       activeController = undefined
     },
     runNow() {
+      if (!started || paused) {
+        return
+      }
+      if (inFlight) {
+        pendingImmediateRun = true
+        return
+      }
       runRound()
     },
     setPaused(nextPaused) {
@@ -138,6 +152,15 @@ export function createSerialPoller(options: {
         return
       }
       runRound()
+    },
+    configure(nextIntervalMs, nextTimeoutMs) {
+      const intervalChanged = intervalMs !== nextIntervalMs
+      intervalMs = nextIntervalMs
+      timeoutMs = nextTimeoutMs
+      if (intervalChanged && started && !paused && !inFlight) {
+        clearNextTimer()
+        scheduleNext()
+      }
     },
   }
 }
