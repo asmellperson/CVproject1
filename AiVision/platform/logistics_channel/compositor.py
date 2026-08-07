@@ -257,11 +257,15 @@ def _draw_tile_overlay(image: np.ndarray, tile: CameraTile) -> None:
 
 
 def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndarray:
-    try:
-        image = letterbox(tile.frame, tile_size)
-    except (ValueError, cv2.error):
-        explanation = tile.detail or str(tile.reason) or "unavailable frame"
+    if not tile.online:
+        explanation = tile.detail or "offline"
         image = render_placeholder(tile.camera_name, explanation, tile_size)
+    else:
+        try:
+            image = letterbox(tile.frame, tile_size)
+        except (ValueError, cv2.error):
+            explanation = tile.detail or str(tile.reason) or "unavailable frame"
+            image = render_placeholder(tile.camera_name, explanation, tile_size)
     _draw_tile_overlay(image, tile)
     return image
 

@@ -214,3 +214,14 @@ def test_compose_overlay_uses_normalized_offline_color(monkeypatch):
     result = compose_channel_frame([tile], tile_size=(120, 100))
 
     assert tuple(result[0, 0]) == (110, 110, 110)
+
+
+def test_offline_tile_hides_valid_cached_frame_and_keeps_offline_status_bar(monkeypatch):
+    monkeypatch.setattr(compositor, "_draw_text", lambda image, *args, **kwargs: image)
+    cached_frame = np.full((20, 20, 3), (7, 8, 9), dtype=np.uint8)
+    tile = CameraTile(1, "cam", cached_frame, "normal", 1, False, "stream disconnected")
+
+    result = compose_channel_frame([tile], tile_size=(120, 100))
+
+    assert tuple(result[75, 60]) == (45, 45, 45)
+    assert tuple(result[0, 0]) == (110, 110, 110)
