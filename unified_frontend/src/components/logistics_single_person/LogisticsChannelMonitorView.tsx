@@ -30,6 +30,14 @@ function unknownReason(reason: string | null) {
   return reason
 }
 
+function formatCameraUpdatedAt(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value <= 0) return '暂无更新时间'
+  const timestampMs = value < 1_000_000_000_000 ? value * 1000 : value
+  const date = new Date(timestampMs)
+  if (Number.isNaN(date.getTime())) return '暂无更新时间'
+  return `更新于 ${date.toLocaleString('zh-CN', { hour12: false })}`
+}
+
 export type LogisticsChannelMonitorViewProps = {
   title: string
   channels: LogisticsChannel[]
@@ -146,6 +154,7 @@ export function LogisticsChannelMonitorView({
                         <span>{camera.count === null ? '--' : `${camera.count} 人`}</span>
                         <span>{camera.online ? '在线' : '离线'}</span>
                       </div>
+                      <p className="mt-1 text-right text-[11px] text-slate-400">{formatCameraUpdatedAt(camera.updated_at)}</p>
                       {camera.status === 'unknown' ? (
                         <p className="mt-2 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5" />{unknownReason(camera.stale_reason)}</p>
                       ) : null}
