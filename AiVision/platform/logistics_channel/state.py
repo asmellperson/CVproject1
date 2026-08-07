@@ -85,6 +85,7 @@ class ChannelPresenceState:
     def __init__(self) -> None:
         self._reason: ChannelReason | None = None
         self._started_at: float | None = None
+        self._last_evaluated_at: float | None = None
 
     def evaluate(
         self,
@@ -109,10 +110,16 @@ class ChannelPresenceState:
             self.reset()
             return _decision(reason, offending_camera_ids=offending_camera_ids)
 
-        if self._reason != reason or self._started_at is None or now < self._started_at:
+        if (
+            self._reason != reason
+            or self._started_at is None
+            or self._last_evaluated_at is None
+            or now < self._last_evaluated_at
+        ):
             self._reason = reason
             self._started_at = now
         duration = max(0.0, now - self._started_at)
+        self._last_evaluated_at = now
         threshold = empty_grace_seconds if reason == "empty" else multi_grace_seconds
         return ChannelDecision(
             reason=reason,
@@ -126,6 +133,7 @@ class ChannelPresenceState:
         """清空当前连续异常状态。"""
         self._reason = None
         self._started_at = None
+        self._last_evaluated_at = None
 
 
 def translate_person_detection(

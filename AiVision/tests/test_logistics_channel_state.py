@@ -138,6 +138,36 @@ def test_presence_state_clock_rollback_restarts_duration_and_reset_clears_state(
     assert after_reset.duration_seconds == 0.0
 
 
+@pytest.mark.parametrize("reason", ["empty", "multiple"])
+def test_presence_state_rolls_back_after_accumulation_from_last_evaluation(reason):
+    state = ChannelPresenceState()
+    grace_seconds = 5.0
+
+    state.evaluate(reason, now=10.0, empty_grace_seconds=grace_seconds, multi_grace_seconds=grace_seconds)
+    reached_threshold = state.evaluate(
+        reason, now=20.0, empty_grace_seconds=grace_seconds, multi_grace_seconds=grace_seconds
+    )
+    rollback = state.evaluate(reason, now=15.0, empty_grace_seconds=grace_seconds, multi_grace_seconds=grace_seconds)
+    resumed = state.evaluate(reason, now=16.0, empty_grace_seconds=grace_seconds, multi_grace_seconds=grace_seconds)
+
+    assert reached_threshold.alarm is True
+    assert rollback.duration_seconds == 0.0
+    assert rollback.alarm is False
+    assert resumed.duration_seconds == 1.0
+    assert resumed.alarm is False
+
+
+def test_presence_state_reset_clears_clock_rollback_tracking():
+    state = ChannelPresenceState()
+    state.evaluate("empty", now=20.0, empty_grace_seconds=5.0, multi_grace_seconds=5.0)
+    state.reset()
+
+    result = state.evaluate("empty", now=10.0, empty_grace_seconds=5.0, multi_grace_seconds=5.0)
+
+    assert result.duration_seconds == 0.0
+    assert result.alarm is False
+
+
 def test_translate_person_detection_offsets_box_without_mutating_input():
     detection = PersonDetection(bbox=(1.0, 2.0, 11.0, 12.0), confidence=0.8, source_roi=4)
 
@@ -170,6 +200,23 @@ def test_deduplicate_person_detections_filters_invalid_boxes_and_validates_thres
     assert deduplicate_person_detections([invalid, valid]) == (valid,)
     with pytest.raises(ValueError, match="iou_threshold"):
         deduplicate_person_detections([valid], iou_threshold=1.1)
+
+
+def test_deduplicate_person_detections_validates_iou_bounds_and_uses_strict_duplicate_cutoff():
+    first = PersonDetection(bbox=(0, 0, 10, 10), confidence=0.9)
+    identical = PersonDetection(bbox=(0, 0, 10, 10), confidence=0.8)
+    distinct = PersonDetection(bbox=(20, 20, 30, 30), confidence=0.7)
+
+    with pytest.raises(ValueError, match="iou_threshold"):
+        deduplicate_person_detections([first], iou_threshold=-0.01)
+    with pytest.raises(ValueError, match="iou_threshold"):
+        deduplicate_person_detections([first], iou_threshold=1.01)
+    assert deduplicate_person_detections([first, identical, distinct], iou_threshold=0.0) == (first, distinct)
+    assert deduplicate_person_detections([first, identical, distinct], iou_threshold=1.0) == (
+        first,
+        identical,
+        distinct,
+    )
 
 
 def test_snapshot_store_isolates_features_and_returns_immutable_snapshots():
