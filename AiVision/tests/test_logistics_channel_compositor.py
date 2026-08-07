@@ -3,6 +3,7 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
 
+import platform.logistics_channel.compositor as compositor
 from platform.logistics_channel.compositor import (
     CameraTile,
     compose_channel_frame,
@@ -136,3 +137,52 @@ def test_compose_channel_frame_accepts_grayscale_and_bgra_frames(frame):
 def test_compose_channel_frame_rejects_invalid_tile_size(tile_size):
     with pytest.raises(ValueError):
         compose_channel_frame([CameraTile(1, "cam", None, "waiting", None, False)], tile_size=tile_size)
+
+
+def test_placeholder_preserves_unicode_camera_name_and_actual_reason_in_text_renderer(monkeypatch):
+    rendered_text = []
+
+    def record_text(image, text, *args, **kwargs):
+        rendered_text.append(text)
+        return image
+
+    monkeypatch.setattr(compositor, "_draw_text", record_text, raising=False)
+
+    render_placeholder("一号物流通道摄像头", "离线/等待画面", (240, 100))
+
+    assert "一号物流通道摄像头" in rendered_text
+    assert "离线/等待画面" in rendered_text
+
+
+def test_overlay_renders_camera_name_person_count_status_and_detail(monkeypatch):
+    rendered_text = []
+
+    def record_text(image, text, *args, **kwargs):
+        rendered_text.append(text)
+        return image
+
+    monkeypatch.setattr(compositor, "_draw_text", record_text, raising=False)
+    tile = CameraTile(1, "一号物流通道摄像头", None, "multiple", 2, True, "离线/等待画面")
+
+    compose_channel_frame([tile], tile_size=(240, 100))
+
+    assert "一号物流通道摄像头" in rendered_text
+    assert "人数: 2" in rendered_text
+    assert any("多人异常" in text for text in rendered_text)
+    assert any("离线/等待画面" in text for text in rendered_text)
+
+
+def test_text_renderer_survives_missing_explicit_font():
+    image = np.zeros((80, 240, 3), dtype=np.uint8)
+
+    result = compositor._draw_text(
+        image,
+        "一号物流通道摄像头",
+        (5, 25),
+        (255, 255, 255),
+        font_path="/definitely/missing/font.ttf",
+    )
+
+    assert result.shape == image.shape
+    assert result.dtype == np.uint8
+    assert result.flags.c_contiguous
