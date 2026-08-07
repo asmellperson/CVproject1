@@ -129,7 +129,6 @@ export const moveLogisticsChannelCamera = (
     `${logisticsChannelPath(feature, channelId)}/cameras/${encodeURIComponent(String(cameraId))}`,
   ),
   feature,
-  channelId,
 )
 
 export const reorderLogisticsChannelCameras = (
@@ -249,4 +248,3 @@ export const updateLogisticsCameraConfig = (
   apiPut<LogisticsCameraConfigResponse>(cameraConfigPath(feature, cameraKey), payload),
   feature,
 )
-

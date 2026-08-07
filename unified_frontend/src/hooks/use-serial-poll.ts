@@ -7,11 +7,12 @@ export type UseSerialPollOptions = {
   timeoutMs: number
   enabled?: boolean
   onError?: (error: unknown) => void
+  restartKey?: string | number
 }
 
 export function useSerialPoll(
   task: (signal: AbortSignal) => Promise<void>,
-  { intervalMs, timeoutMs, enabled = true, onError }: UseSerialPollOptions,
+  { intervalMs, timeoutMs, enabled = true, onError, restartKey }: UseSerialPollOptions,
 ): void {
   const taskRef = useRef(task)
   const onErrorRef = useRef(onError)
@@ -47,5 +48,5 @@ export function useSerialPoll(
       document.removeEventListener('visibilitychange', syncVisibility)
       poller.stop()
     }
-  }, [enabled, intervalMs, timeoutMs])
+  }, [enabled, intervalMs, restartKey, timeoutMs])
 }

@@ -8,6 +8,7 @@ type UseSerialPollContract = (
     timeoutMs: number
     enabled?: boolean
     onError?: (error: unknown) => void
+    restartKey?: string | number
   },
 ) => void
 
@@ -428,6 +429,50 @@ async function testStopClearsPendingResume() {
   poller.stop()
 }
 
+async function testIndependentEndpointPollersStartOnceWithoutOverlap() {
+  const timers = new FakeTimers()
+  const endpointNames = ['list', 'status', 'summary', 'frame'] as const
+  const attempts = new Map<string, Deferred[]>()
+  const active = new Map<string, number>()
+  const maxActive = new Map<string, number>()
+  const pollers = endpointNames.map((endpoint) => createSerialPoller({
+    task: () => {
+      const completion = deferred()
+      const endpointAttempts = attempts.get(endpoint) ?? []
+      endpointAttempts.push(completion)
+      attempts.set(endpoint, endpointAttempts)
+      const nextActive = (active.get(endpoint) ?? 0) + 1
+      active.set(endpoint, nextActive)
+      maxActive.set(endpoint, Math.max(maxActive.get(endpoint) ?? 0, nextActive))
+      return completion.promise.finally(() => {
+        active.set(endpoint, (active.get(endpoint) ?? 1) - 1)
+      })
+    },
+    intervalMs: 1000,
+    timeoutMs: 8000,
+    setTimeoutFn: timers.setTimeout,
+    clearTimeoutFn: timers.clearTimeout,
+  }))
+
+  pollers.forEach((poller) => {
+    poller.start()
+    poller.start()
+    poller.runNow()
+  })
+  endpointNames.forEach((endpoint) => {
+    assertEqual(attempts.get(endpoint)?.length, 1, `${endpoint} starts exactly one initial request`)
+    assertEqual(maxActive.get(endpoint), 1, `${endpoint} never overlaps its own request`)
+  })
+
+  endpointNames.forEach((endpoint) => attempts.get(endpoint)?.[0].resolve())
+  await flushAsyncWork()
+  endpointNames.forEach((endpoint) => {
+    assertEqual(attempts.get(endpoint)?.length, 1, `${endpoint} waits one interval after settlement`)
+    assertEqual(maxActive.get(endpoint), 1, `${endpoint} remains serial after settlement`)
+  })
+  pollers.forEach((poller) => poller.stop())
+}
+
 async function main() {
   await testSerialExecutionAndSettledScheduling()
   await testTimeoutAbortsWithoutReportingAnError()
@@ -437,6 +482,7 @@ async function main() {
   await testResumeDuringTimedOutRoundRunsImmediatelyAfterSettlement()
   await testPauseClearsPendingResume()
   await testStopClearsPendingResume()
+  await testIndependentEndpointPollersStartOnceWithoutOverlap()
   console.log('serial poll tests passed')
 }
 

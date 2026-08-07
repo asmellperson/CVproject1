@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import {
@@ -47,6 +47,8 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
+  const [listRevision, refresh] = useReducer((value: number) => value + 1, 0)
+  const [detailRevision, refreshSelectedChannel] = useReducer((value: number) => value + 1, 0)
   const currentFeatureRef = useRef(feature)
   const currentSelectedChannelIdRef = useRef(selectedChannelId)
 
@@ -55,7 +57,7 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     currentSelectedChannelIdRef.current = selectedChannelId
   }, [feature, selectedChannelId])
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const loadChannels = useCallback(async (signal?: AbortSignal) => {
     const requestedFeature = feature
     try {
       const response = await listLogisticsChannels(requestedFeature, { signal })
@@ -76,7 +78,7 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     }
   }, [feature])
 
-  const refreshSelectedChannel = useCallback(async (signal?: AbortSignal) => {
+  const loadSelectedChannel = useCallback(async (signal?: AbortSignal) => {
     if (selectedChannelId === null) return
     const requestedFeature = feature
     const requestedChannelId = selectedChannelId
@@ -101,43 +103,43 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     setSelectedChannelId(null)
     setError(null)
     setLoading(enabled)
-    if (!enabled) return
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    return () => controller.abort()
-  }, [enabled, feature, refresh])
+  }, [enabled, feature])
 
   useEffect(() => {
     setSelectedChannelDetail(null)
-    if (!enabled || selectedChannelId === null) return
-    const controller = new AbortController()
-    void refreshSelectedChannel(controller.signal)
-    return () => controller.abort()
-  }, [enabled, refreshSelectedChannel, selectedChannelId])
+  }, [feature, selectedChannelId])
 
   useSerialPoll(
-    async (signal) => refresh(signal),
+    async (signal) => loadChannels(signal),
     {
       intervalMs: CHANNEL_LIST_POLL_INTERVAL_MS,
       timeoutMs: JSON_REQUEST_TIMEOUT_MS,
       enabled,
+      restartKey: `${feature}:${listRevision}`,
     },
   )
+
+  useSerialPoll(loadSelectedChannel, {
+    intervalMs: CHANNEL_LIST_POLL_INTERVAL_MS,
+    timeoutMs: JSON_REQUEST_TIMEOUT_MS,
+    enabled: enabled && selectedChannelId !== null,
+    restartKey: `${feature}:${selectedChannelId ?? ''}:${detailRevision}`,
+  })
 
   useEffect(() => {
     if (!enabled) return
     const onInvalidated = (rawEvent: Event) => {
       const event = rawEvent as LogisticsChannelInvalidationEvent
       if (event.detail.feature !== feature) return
-      void refresh()
+      refresh()
       if (
         selectedChannelId !== null
         && (event.detail.channelId === undefined || event.detail.channelId === selectedChannelId)
-      ) void refreshSelectedChannel()
+      ) refreshSelectedChannel()
     }
     window.addEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
     return () => window.removeEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
-  }, [enabled, feature, refresh, refreshSelectedChannel, selectedChannelId])
+  }, [enabled, feature, selectedChannelId])
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
@@ -191,6 +193,9 @@ export function useLogisticsChannelStatus(
   const [eventState, setEventState] = useState<KeyedValue<LogisticsChannelStatusEvent[]> | null>(null)
   const [frameUrlState, setFrameUrlState] = useState<KeyedValue<string> | null>(null)
   const [errorState, setErrorState] = useState<KeyedValue<string> | null>(null)
+  const [statusRevision, refreshStatus] = useReducer((value: number) => value + 1, 0)
+  const [summaryRevision, refreshSummary] = useReducer((value: number) => value + 1, 0)
+  const [frameRevision, refreshFrame] = useReducer((value: number) => value + 1, 0)
   const frameObjectUrlRef = useRef<string | null>(null)
   const previousReasonRef = useRef<KeyedValue<LogisticsChannelReason | null> | null>(null)
   const selectionKey = `${feature}:${channelId ?? ''}`
@@ -201,7 +206,7 @@ export function useLogisticsChannelStatus(
     currentSelectionRef.current = selectionKey
   }, [selectionKey])
 
-  const refreshStatus = useCallback(async (signal?: AbortSignal) => {
+  const loadStatus = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
     const requestedKey = `${feature}:${channelId}`
     try {
@@ -227,7 +232,7 @@ export function useLogisticsChannelStatus(
     }
   }, [channelId, feature])
 
-  const refreshSummary = useCallback(async (signal?: AbortSignal) => {
+  const loadSummary = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
     const requestedKey = `${feature}:${channelId}`
     try {
@@ -250,7 +255,7 @@ export function useLogisticsChannelStatus(
     }
   }, [channelId, feature])
 
-  const refreshFrame = useCallback(async (signal?: AbortSignal) => {
+  const loadFrame = useCallback(async (signal?: AbortSignal) => {
     if (channelId === null) return
     const requestedKey = `${feature}:${channelId}`
     try {
@@ -272,40 +277,30 @@ export function useLogisticsChannelStatus(
     previousReasonRef.current = null
     revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
     frameObjectUrlRef.current = null
-    if (!canPoll) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      void Promise.all([
-        refreshStatus(controller.signal),
-        refreshSummary(controller.signal),
-        refreshFrame(controller.signal),
-      ])
-    }, 0)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [canPoll, refreshFrame, refreshStatus, refreshSummary, selectionKey])
+  }, [selectionKey])
 
   useEffect(() => () => {
     revokeLogisticsChannelFrameObjectUrl(frameObjectUrlRef.current)
     frameObjectUrlRef.current = null
   }, [])
 
-  useSerialPoll(refreshStatus, {
+  useSerialPoll(loadStatus, {
     intervalMs: STATUS_POLL_INTERVAL_MS,
     timeoutMs: JSON_REQUEST_TIMEOUT_MS,
     enabled: canPoll,
+    restartKey: `${selectionKey}:${statusRevision}`,
   })
-  useSerialPoll(refreshSummary, {
+  useSerialPoll(loadSummary, {
     intervalMs: SUMMARY_POLL_INTERVAL_MS,
     timeoutMs: JSON_REQUEST_TIMEOUT_MS,
     enabled: canPoll,
+    restartKey: `${selectionKey}:${summaryRevision}`,
   })
-  useSerialPoll(refreshFrame, {
+  useSerialPoll(loadFrame, {
     intervalMs: FRAME_POLL_INTERVAL_MS,
     timeoutMs: FRAME_REQUEST_TIMEOUT_MS,
     enabled: canPoll,
+    restartKey: `${selectionKey}:${frameRevision}`,
   })
 
   useEffect(() => {
@@ -314,11 +309,13 @@ export function useLogisticsChannelStatus(
       const event = rawEvent as LogisticsChannelInvalidationEvent
       if (event.detail.feature !== feature) return
       if (event.detail.channelId !== undefined && event.detail.channelId !== channelId) return
-      void Promise.all([refreshStatus(), refreshSummary()])
+      refreshStatus()
+      refreshSummary()
+      refreshFrame()
     }
     window.addEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
     return () => window.removeEventListener(LOGISTICS_CHANNEL_QUERY_INVALIDATED, onInvalidated)
-  }, [canPoll, channelId, feature, refreshStatus, refreshSummary])
+  }, [canPoll, channelId, feature])
 
   return {
     status: statusState?.key === selectionKey ? statusState.value : null,
