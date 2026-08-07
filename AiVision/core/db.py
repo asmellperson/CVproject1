@@ -167,6 +167,7 @@ def ensure_schema_compatible():
     from platform.camera import orm as _camera_orm              # noqa: F401
     from platform.department import orm as _department_orm       # noqa: F401
     from platform.inference import orm as _inference_orm        # noqa: F401
+    from platform.logistics_channel import orm as _logistics_channel_orm  # noqa: F401
     from platform.violation import orm as _violation_orm        # noqa: F401
 
     engine = get_engine()
