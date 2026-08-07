@@ -11,6 +11,7 @@ from .state import (
     intersection_over_union,
     translate_person_detection,
 )
+from .compositor import CameraTile, compose_channel_frame, layout_for_count, letterbox, render_placeholder
 
 __all__ = [
     "CameraSnapshot",
@@ -22,6 +23,11 @@ __all__ = [
     "deduplicate_person_detections",
     "intersection_over_union",
     "translate_person_detection",
+    "CameraTile",
+    "compose_channel_frame",
+    "layout_for_count",
+    "letterbox",
+    "render_placeholder",
     "LogisticsChannelService",
     "MigrationSummary",
     "logistics_channel_service",
