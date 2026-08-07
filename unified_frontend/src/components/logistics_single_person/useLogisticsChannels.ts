@@ -14,6 +14,7 @@ import {
   type LogisticsChannelQueryInvalidation,
 } from './api'
 import {
+  advanceChannelRequestsForCreatedChannel,
   isCurrentChannelDetailRequest,
   isCurrentChannelListRequest,
 } from './channelRequestState'
@@ -184,12 +185,34 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     setSelectedChannelDetail(null)
   }, [])
 
+  const selectCreatedChannelLocally = useCallback((channel: LogisticsChannelDetail) => {
+    const next = advanceChannelRequestsForCreatedChannel({
+      feature,
+      listGeneration: listRequestGenerationRef.current,
+      detailGeneration: detailRequestGenerationRef.current,
+      selectedChannelId: currentSelectedChannelIdRef.current,
+    }, channel.id)
+    listRequestGenerationRef.current = next.listGeneration
+    detailRequestGenerationRef.current = next.detailGeneration
+    currentSelectedChannelIdRef.current = next.selectedChannelId
+    setSelectedChannelId(next.selectedChannelId)
+    setSelectedChannelDetail(channel)
+    setChannels((current) => {
+      const withoutCreated = current.filter((item) => item.id !== channel.id)
+      return [...withoutCreated, channel].sort((left, right) => (
+        left.sort_order - right.sort_order || left.id - right.id
+      ))
+    })
+    refresh()
+  }, [feature])
+
   return {
     channels,
     selectedChannel,
     selectedChannelDetail,
     selectedChannelId,
     setSelectedChannelId,
+    selectCreatedChannelLocally,
     removeChannelLocally,
     loading,
     error,

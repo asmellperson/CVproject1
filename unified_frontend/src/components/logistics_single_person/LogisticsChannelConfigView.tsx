@@ -52,6 +52,7 @@ type Props = {
   selectedChannelDetail: LogisticsChannelDetail | null
   isAdmin: boolean
   onSelectChannel: (channelId: number) => void
+  onChannelCreated: (channel: LogisticsChannelDetail) => void
   onChannelDeleted: (channelId: number) => void
   onChanged: () => void
 }
@@ -76,6 +77,7 @@ export function LogisticsChannelConfigView({
   selectedChannelDetail,
   isAdmin,
   onSelectChannel,
+  onChannelCreated,
   onChannelDeleted,
   onChanged,
 }: Props) {
@@ -267,7 +269,7 @@ export function LogisticsChannelConfigView({
     dispatchCreateDialog({ type: 'submit' })
     try {
       const result = await createLogisticsChannel(feature, { name })
-      onSelectChannel(result.id)
+      onChannelCreated(result)
       onChanged()
       setMessage('物流通道已新增。')
       dispatchCreateDialog({ type: 'success' })

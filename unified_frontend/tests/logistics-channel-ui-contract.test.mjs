@@ -55,7 +55,7 @@ test('shared channel configuration covers channel, members, schedule and per-cam
   assert.match(config, /取消/)
   assert.doesNotMatch(config, /CardTitle[^\n]*新增物流通道/)
   assert.doesNotMatch(config, /aria-label="物流通道名称"/)
-  assert.match(config, /onSelectChannel\(result\.id\)/)
+  assert.match(config, /onChannelCreated\(result\)/)
   assert.match(config, /dispatchCreateDialog\(\{ type: 'success' \}\)/)
   assert.match(config, /collectChannelMemberCounts/)
   assert.match(config, /enabled.*total.*路/)

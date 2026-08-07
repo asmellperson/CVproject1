@@ -7,6 +7,13 @@ export type ChannelDetailRequestIdentity = ChannelListRequestIdentity & {
   channelId: number | null
 }
 
+export type ChannelRequestCursor = {
+  feature: string
+  listGeneration: number
+  detailGeneration: number
+  selectedChannelId: number | null
+}
+
 export function isCurrentChannelListRequest(
   request: ChannelListRequestIdentity,
   current: ChannelListRequestIdentity,
@@ -19,4 +26,16 @@ export function isCurrentChannelDetailRequest(
   current: ChannelDetailRequestIdentity,
 ) {
   return isCurrentChannelListRequest(request, current) && request.channelId === current.channelId
+}
+
+export function advanceChannelRequestsForCreatedChannel(
+  current: ChannelRequestCursor,
+  createdChannelId: number,
+): ChannelRequestCursor {
+  return {
+    ...current,
+    listGeneration: current.listGeneration + 1,
+    detailGeneration: current.detailGeneration + 1,
+    selectedChannelId: createdChannelId,
+  }
 }

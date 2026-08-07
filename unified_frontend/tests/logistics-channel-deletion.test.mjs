@@ -117,3 +117,63 @@ test('stale detail requests cannot apply delayed resolve or reject state', async
   await rejecting
   assert.deepEqual(state, { detail: 'current', error: null })
 })
+
+test('a delayed pre-create list response cannot replace the newly selected channel', async () => {
+  const source = await read('src/components/logistics_single_person/channelRequestState.ts')
+  const { advanceChannelRequestsForCreatedChannel, isCurrentChannelListRequest } = await importTypeScript(source)
+  let cursor = {
+    feature: 'feature-a',
+    listGeneration: 4,
+    detailGeneration: 8,
+    selectedChannelId: 1,
+  }
+  const state = { channels: [{ id: 1 }], selectedChannelId: 1 }
+  const oldRequest = { feature: cursor.feature, generation: cursor.listGeneration }
+  const slowList = deferred()
+  const applyingOldList = slowList.promise.then((items) => {
+    const current = { feature: cursor.feature, generation: cursor.listGeneration }
+    if (!isCurrentChannelListRequest(oldRequest, current)) return
+    state.channels = items
+    state.selectedChannelId = items[0]?.id ?? null
+  })
+
+  cursor = advanceChannelRequestsForCreatedChannel(cursor, 9)
+  state.channels = [...state.channels, { id: 9 }]
+  state.selectedChannelId = cursor.selectedChannelId
+  slowList.resolve([{ id: 1 }])
+  await applyingOldList
+
+  assert.deepEqual(cursor, {
+    feature: 'feature-a',
+    listGeneration: 5,
+    detailGeneration: 9,
+    selectedChannelId: 9,
+  })
+  assert.deepEqual(state, { channels: [{ id: 1 }, { id: 9 }], selectedChannelId: 9 })
+})
+
+test('a failed create request leaves request generations and selection unchanged', async () => {
+  const source = await read('src/components/logistics_single_person/channelRequestState.ts')
+  const { advanceChannelRequestsForCreatedChannel } = await importTypeScript(source)
+  const original = {
+    feature: 'feature-a',
+    listGeneration: 2,
+    detailGeneration: 3,
+    selectedChannelId: 1,
+  }
+  let cursor = original
+  const createRequest = deferred()
+  const create = async () => {
+    try {
+      const created = await createRequest.promise
+      cursor = advanceChannelRequestsForCreatedChannel(cursor, created.id)
+    } catch {
+      // The production callback is likewise only reached after create resolves.
+    }
+  }
+
+  const pending = create()
+  createRequest.reject(new Error('duplicate channel'))
+  await pending
+  assert.equal(cursor, original)
+})
