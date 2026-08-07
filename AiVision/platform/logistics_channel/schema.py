@@ -229,3 +229,82 @@ class LogisticsChannelDetailResponse(LogisticsChannelResponse):
             "members": value.cameras,
             "status": getattr(value, "status", None),
         }
+
+
+class LogisticsChannelCameraRuntimeStatus(BaseModel):
+    """通道状态中单路摄像头的最新运行时快照。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    camera_id: int
+    camera_name: str
+    count: int | None = Field(default=None, ge=0)
+    status: LogisticsChannelStatusReason
+    online: bool
+    updated_at: float | None = None
+    stale_reason: str | None = None
+
+
+class LogisticsChannelRuntimeStatusResponse(BaseModel):
+    """通道聚合运行状态；时间戳沿用运行时 Unix 秒格式。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feature_name: LogisticsFeatureName
+    channel_id: int
+    channel_name: str
+    reason: LogisticsChannelStatusReason
+    alarm: bool
+    duration_seconds: float | None = Field(default=None, ge=0)
+    threshold_seconds: float | None = Field(default=None, ge=0)
+    camera_ids: list[int] = Field(default_factory=list)
+    camera_counts: dict[str, int | None] = Field(default_factory=dict)
+    camera_states: dict[str, LogisticsChannelCameraRuntimeStatus] = Field(default_factory=dict)
+    offending_camera_ids: list[int] = Field(default_factory=list)
+    updated_at: float | None = None
+
+
+class LogisticsChannelAlarmResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    feature_name: LogisticsFeatureName | None = None
+    channel_id: int
+    channel_name: str | None = None
+    reason: str | None = None
+    created_at: str | None = None
+    image_url: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LogisticsChannelAlarmListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[LogisticsChannelAlarmResponse] = Field(default_factory=list)
+
+
+class LogisticsChannelStatisticsSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int = Field(ge=0)
+    today: int = Field(ge=0)
+
+
+class LogisticsChannelDailyStatistic(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: str
+    count: int = Field(ge=0)
+
+
+class LogisticsChannelStatisticsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: LogisticsChannelStatisticsSummary
+    daily: list[LogisticsChannelDailyStatistic] = Field(default_factory=list)
+
+
+class LogisticsChannelOkResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool

@@ -17,10 +17,16 @@ from platform.logistics_channel.constants import (
     LOGISTICS_FEATURES,
 )
 from platform.logistics_channel.schema import (
+    LogisticsChannelAlarmListResponse,
     LogisticsChannelConfigUpdate,
     LogisticsChannelCreate,
+    LogisticsChannelDetailResponse,
+    LogisticsChannelListResponse,
     LogisticsChannelMemberCreate,
     LogisticsChannelMemberOrder,
+    LogisticsChannelOkResponse,
+    LogisticsChannelRuntimeStatusResponse,
+    LogisticsChannelStatisticsResponse,
     LogisticsChannelUpdate,
 )
 from platform.violation.orm import AiViolationImage
@@ -65,47 +71,57 @@ def _get_channel_or_404(service, feature: str, channel_id: int) -> dict:
     return channel
 
 
-@router.get("/{feature}")
+@router.get("/{feature}", response_model=LogisticsChannelListResponse)
 def list_channels(
     feature: str,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-) -> dict:
-    return service.list_channels(_require_feature_access(feature, user))
+) -> LogisticsChannelListResponse:
+    return LogisticsChannelListResponse.model_validate(
+        service.list_channels(_require_feature_access(feature, user))
+    )
 
 
-@router.post("/{feature}", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{feature}",
+    status_code=status.HTTP_201_CREATED,
+    response_model=LogisticsChannelDetailResponse,
+)
 def create_channel(
     feature: str,
     payload: LogisticsChannelCreate,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     try:
-        return service.create_channel(feature, payload.name)
+        return LogisticsChannelDetailResponse.model_validate(
+            service.create_channel(feature, payload.name)
+        )
     except ValueError as exc:
         _raise_service_error(exc)
 
 
-@router.get("/{feature}/{channel_id}")
+@router.get("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
 def get_channel(
     feature: str,
     channel_id: int,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-) -> dict:
-    return _get_channel_or_404(service, _require_feature_access(feature, user), channel_id)
+) -> LogisticsChannelDetailResponse:
+    return LogisticsChannelDetailResponse.model_validate(
+        _get_channel_or_404(service, _require_feature_access(feature, user), channel_id)
+    )
 
 
-@router.put("/{feature}/{channel_id}")
+@router.put("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
 def update_channel(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelPutRequest,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     metadata = payload.model_dump(exclude_unset=True, exclude={"config"})
     try:
@@ -118,19 +134,22 @@ def update_channel(
                 raise HTTPException(status_code=404, detail="logistics channel not found")
         if result is None:
             result = _get_channel_or_404(service, feature, channel_id)
-        return result
+        return LogisticsChannelDetailResponse.model_validate(result)
     except ValueError as exc:
         _raise_service_error(exc)
 
 
-@router.put("/{feature}/{channel_id}/config")
+@router.put(
+    "/{feature}/{channel_id}/config",
+    response_model=LogisticsChannelDetailResponse,
+)
 def update_channel_config(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelConfigUpdate,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     try:
         result = service.update_config(feature, channel_id, payload)
@@ -138,97 +157,118 @@ def update_channel_config(
         _raise_service_error(exc)
     if result is None:
         raise HTTPException(status_code=404, detail="logistics channel not found")
-    return result
+    return LogisticsChannelDetailResponse.model_validate(result)
 
 
-@router.delete("/{feature}/{channel_id}")
+@router.delete("/{feature}/{channel_id}", response_model=LogisticsChannelOkResponse)
 def delete_channel(
     feature: str,
     channel_id: int,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict[str, bool]:
+) -> LogisticsChannelOkResponse:
     feature = _require_feature_access(feature, user)
     if not service.delete_channel(feature, channel_id):
         raise HTTPException(status_code=404, detail="logistics channel not found")
-    return {"ok": True}
+    return LogisticsChannelOkResponse(ok=True)
 
 
-@router.post("/{feature}/{channel_id}/cameras")
+@router.post(
+    "/{feature}/{channel_id}/cameras",
+    response_model=LogisticsChannelDetailResponse,
+)
 def add_camera(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelMemberCreate,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     try:
         if payload.camera_id is not None:
-            return service.add_existing_camera(feature, channel_id, payload.camera_id)
-        return service.create_camera_and_bind(feature, channel_id, payload)
+            result = service.add_existing_camera(feature, channel_id, payload.camera_id)
+        else:
+            result = service.create_camera_and_bind(feature, channel_id, payload)
+        return LogisticsChannelDetailResponse.model_validate(result)
     except ValueError as exc:
         _raise_service_error(exc)
 
 
-@router.put("/{feature}/{channel_id}/cameras/order")
+@router.put(
+    "/{feature}/{channel_id}/cameras/order",
+    response_model=LogisticsChannelDetailResponse,
+)
 def reorder_cameras(
     feature: str,
     channel_id: int,
     payload: LogisticsChannelMemberOrder,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     try:
-        return service.reorder_members(feature, channel_id, payload.camera_ids)
+        return LogisticsChannelDetailResponse.model_validate(
+            service.reorder_members(feature, channel_id, payload.camera_ids)
+        )
     except ValueError as exc:
         _raise_service_error(exc)
 
 
-@router.put("/{feature}/{channel_id}/cameras/{camera_id}")
+@router.put(
+    "/{feature}/{channel_id}/cameras/{camera_id}",
+    response_model=LogisticsChannelDetailResponse,
+)
 def move_camera(
     feature: str,
     channel_id: int,
     camera_id: int,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict:
+) -> LogisticsChannelDetailResponse:
     feature = _require_feature_access(feature, user)
     try:
-        return service.move_camera(feature, camera_id, channel_id)
+        return LogisticsChannelDetailResponse.model_validate(
+            service.move_camera(feature, camera_id, channel_id)
+        )
     except ValueError as exc:
         _raise_service_error(exc)
 
 
-@router.delete("/{feature}/{channel_id}/cameras/{camera_id}")
+@router.delete(
+    "/{feature}/{channel_id}/cameras/{camera_id}",
+    response_model=LogisticsChannelOkResponse,
+)
 def remove_camera(
     feature: str,
     channel_id: int,
     camera_id: int,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-) -> dict[str, bool]:
+) -> LogisticsChannelOkResponse:
     feature = _require_feature_access(feature, user)
     if not service.remove_camera(feature, channel_id, camera_id):
         raise HTTPException(status_code=404, detail="channel camera membership not found")
-    return {"ok": True}
+    return LogisticsChannelOkResponse(ok=True)
 
 
-@router.get("/{feature}/{channel_id}/status")
+@router.get(
+    "/{feature}/{channel_id}/status",
+    response_model=LogisticsChannelRuntimeStatusResponse,
+)
 def get_channel_status(
     feature: str,
     channel_id: int,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
     orchestrator=Depends(get_current_orchestrator),
-) -> dict:
+) -> LogisticsChannelRuntimeStatusResponse:
     feature = _require_feature_access(feature, user)
     channel = _get_channel_or_404(service, feature, channel_id)
     value = orchestrator.get_logistics_channel_status(feature, channel_id)
     if value is not None:
-        return value
-    return {
+        return LogisticsChannelRuntimeStatusResponse.model_validate(value)
+    return LogisticsChannelRuntimeStatusResponse.model_validate({
         "feature_name": feature,
         "channel_id": channel_id,
         "channel_name": channel["name"],
@@ -239,7 +279,7 @@ def get_channel_status(
         "camera_states": {},
         "offending_camera_ids": [],
         "updated_at": None,
-    }
+    })
 
 
 @router.get("/{feature}/{channel_id}/frame.jpg")
@@ -292,14 +332,17 @@ def _channel_alarm_query(session, feature: str, channel_id: int):
     )
 
 
-@router.get("/{feature}/{channel_id}/alarms")
+@router.get(
+    "/{feature}/{channel_id}/alarms",
+    response_model=LogisticsChannelAlarmListResponse,
+)
 def list_channel_alarms(
     feature: str,
     channel_id: int,
     limit: int = Query(200, ge=1, le=1000),
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-) -> dict[str, Any]:
+) -> LogisticsChannelAlarmListResponse:
     feature = _require_feature_access(feature, user)
     _get_channel_or_404(service, feature, channel_id)
     session = get_session()
@@ -307,19 +350,24 @@ def list_channel_alarms(
         rows = _channel_alarm_query(session, feature, channel_id).order_by(
             AiViolationImage.create_time.desc(), AiViolationImage.id.desc()
         ).limit(limit).all()
-        return {"items": [_alarm_dict(row) for row in rows]}
+        return LogisticsChannelAlarmListResponse.model_validate(
+            {"items": [_alarm_dict(row) for row in rows]}
+        )
     finally:
         session.close()
 
 
-@router.get("/{feature}/{channel_id}/statistics")
+@router.get(
+    "/{feature}/{channel_id}/statistics",
+    response_model=LogisticsChannelStatisticsResponse,
+)
 def channel_statistics(
     feature: str,
     channel_id: int,
     days: int = Query(7, ge=1, le=90),
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-) -> dict[str, Any]:
+) -> LogisticsChannelStatisticsResponse:
     feature = _require_feature_access(feature, user)
     _get_channel_or_404(service, feature, channel_id)
     now = dt.datetime.now()
@@ -339,12 +387,12 @@ def channel_statistics(
         for offset in range(days):
             key = (range_start + dt.timedelta(days=offset)).strftime("%Y-%m-%d")
             daily.append({"day": key, "count": counts.get(key, 0)})
-        return {
+        return LogisticsChannelStatisticsResponse.model_validate({
             "summary": {
                 "total": len(rows),
                 "today": sum(1 for row in rows if row.create_time and row.create_time >= today_start),
             },
             "daily": daily,
-        }
+        })
     finally:
         session.close()

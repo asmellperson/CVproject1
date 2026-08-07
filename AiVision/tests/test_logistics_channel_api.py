@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 from copy import deepcopy
@@ -5,6 +6,8 @@ from copy import deepcopy
 import numpy as np
 import pytest
 from fastapi import HTTPException
+from fastapi.exceptions import ResponseValidationError
+from fastapi.routing import serialize_response
 
 
 sys.modules.pop("platform", None)
@@ -39,7 +42,16 @@ class FakeService:
         self.next_id += 1
         value = {
             "id": channel_id, "name": name, "feature_name": feature,
-            "enabled": True, "sort_order": 0, "config": {"enabled": True},
+            "enabled": True, "sort_order": 0,
+            "config": {
+                "enabled": True,
+                "detection_start": "08:00:00",
+                "detection_end": "20:00:00",
+                "empty_grace_seconds": 2,
+                "multi_grace_seconds": 1,
+                "alarm_interval": 5,
+                "alarm": {},
+            },
             "members": [],
         }
         self.channels[feature][channel_id] = value
@@ -134,13 +146,58 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
     app_module = importlib.import_module("api.app")
     assert any(route.path.startswith("/api/v2/logistics-channels") for route in app_module.app.routes)
 
+    openapi = app_module.app.openapi()
+    for path, methods in openapi["paths"].items():
+        if not path.startswith("/api/v2/logistics-channels"):
+            continue
+        for method, operation in methods.items():
+            if method == "parameters" or path.endswith("frame.jpg"):
+                continue
+            success_code = "201" if "201" in operation["responses"] else "200"
+            schema = operation["responses"][success_code][
+                "content"
+            ]["application/json"]["schema"]
+            assert schema.get("$ref") or schema.get("type") == "object"
+
+
+def test_fastapi_response_field_filters_and_rejects_invalid_output():
+    route = next(
+        route for route in api.router.routes
+        if route.path == "/api/v2/logistics-channels/{feature}" and "GET" in route.methods
+    )
+    valid = {
+        "items": [{
+            "id": 1,
+            "name": "一号通道",
+            "feature_name": FEATURES[0],
+            "enabled": True,
+            "sort_order": 0,
+            "server_only": "must be filtered",
+        }],
+        "server_only": "must be filtered",
+    }
+    encoded = asyncio.run(serialize_response(
+        field=route.response_field,
+        response_content=valid,
+        is_coroutine=True,
+    ))
+    assert "server_only" not in encoded
+    assert "server_only" not in encoded["items"][0]
+
+    with pytest.raises(ResponseValidationError):
+        asyncio.run(serialize_response(
+            field=route.response_field,
+            response_content={"items": [{"id": "invalid"}]},
+            is_coroutine=True,
+        ))
+
 
 def test_four_features_are_isolated_and_whitelisted():
     service = FakeService()
     for index, feature in enumerate(FEATURES):
         api.create_channel(feature, api.LogisticsChannelCreate(name=f"通道-{index}"), ADMIN, service)
     for index, feature in enumerate(FEATURES):
-        assert [item["name"] for item in api.list_channels(feature, ADMIN, service)["items"]] == [f"通道-{index}"]
+        assert [item.name for item in api.list_channels(feature, ADMIN, service).items] == [f"通道-{index}"]
     with pytest.raises(HTTPException) as caught:
         api.list_channels("arbitrary", ADMIN, service)
     assert caught.value.status_code == 404
@@ -171,13 +228,13 @@ def test_crud_config_and_validation_models():
             "empty_grace_seconds": 3,
         },
     )
-    result = api.update_channel(FEATURES[0], channel["id"], payload, ADMIN, service)
-    assert result["name"] == "更新"
-    assert result["config"]["empty_grace_seconds"] == 3
-    assert api.get_channel(FEATURES[0], channel["id"], ADMIN, service)["name"] == "更新"
-    assert api.delete_channel(FEATURES[0], channel["id"], ADMIN, service) == {"ok": True}
+    result = api.update_channel(FEATURES[0], channel.id, payload, ADMIN, service)
+    assert result.name == "更新"
+    assert result.config.empty_grace_seconds == 3
+    assert api.get_channel(FEATURES[0], channel.id, ADMIN, service).name == "更新"
+    assert api.delete_channel(FEATURES[0], channel.id, ADMIN, service).ok is True
     with pytest.raises(HTTPException) as caught:
-        api.get_channel(FEATURES[0], channel["id"], ADMIN, service)
+        api.get_channel(FEATURES[0], channel.id, ADMIN, service)
     assert caught.value.status_code == 404
 
     with pytest.raises(ValueError):
@@ -198,10 +255,10 @@ def test_member_bind_create_reorder_move_and_remove():
     ordered = api.reorder_cameras(
         feature, source["id"], api.LogisticsChannelMemberOrder(camera_ids=[8, 7]), ADMIN, service
     )
-    assert [m["camera_id"] for m in ordered["members"]] == [8, 7]
+    assert [member.camera_id for member in ordered.members] == [8, 7]
     api.move_camera(feature, target["id"], 8, ADMIN, service)
     assert ("move", feature, 8, target["id"]) in service.calls
-    assert api.remove_camera(feature, source["id"], 7, ADMIN, service) == {"ok": True}
+    assert api.remove_camera(feature, source["id"], 7, ADMIN, service).ok is True
     api.add_camera(
         feature, source["id"],
         api.LogisticsChannelMemberCreate(name="新增", url="rtsp://camera"),
@@ -233,11 +290,24 @@ def test_status_response_and_composite_jpeg_semantics():
     channel = _seed(service)
     feature, channel_id = FEATURES[0], channel["id"]
     fallback = api.get_channel_status(feature, channel_id, ADMIN, service, orchestrator)
-    assert fallback["reason"] == "unknown"
-    assert fallback["alarm"] is False
+    assert fallback.reason == "unknown"
+    assert fallback.alarm is False
 
-    orchestrator.status = {"reason": "normal", "alarm": False, "camera_counts": {"7": 1}}
-    assert api.get_channel_status(feature, channel_id, ADMIN, service, orchestrator) == orchestrator.status
+    orchestrator.status = {
+        "feature_name": feature,
+        "channel_id": channel_id,
+        "channel_name": "一号通道",
+        "reason": "normal",
+        "alarm": False,
+        "camera_ids": [7],
+        "camera_counts": {"7": 1},
+        "camera_states": {},
+        "offending_camera_ids": [],
+        "updated_at": 1.0,
+    }
+    status = api.get_channel_status(feature, channel_id, ADMIN, service, orchestrator)
+    assert status.reason == "normal"
+    assert status.camera_counts == {"7": 1}
 
     with pytest.raises(HTTPException) as caught:
         api.get_channel_frame(feature, channel_id, 85, None, None, ADMIN, service, orchestrator)
