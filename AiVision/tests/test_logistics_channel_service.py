@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import create_engine, event
+from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Query, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.db import Base
@@ -334,6 +335,226 @@ def test_existing_member_writes_use_channels_then_cameras_lock_order(service_db,
     assert [kind for kind, _ in calls] == ["channels", "cameras"]
 
 
+def test_membership_locking_sql_is_current_read_without_channel_join(service_db):
+    with service_db.factory() as session:
+        query = service_db.service._build_membership_lock_query(
+            session,
+            member_ids=(1, 2),
+            camera_ids=(3,),
+            channel_ids=(4, 5),
+        )
+        sql = str(query.statement.compile(
+            dialect=mysql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )).upper()
+
+    assert " FOR UPDATE" in sql
+    assert " JOIN " not in sql
+    assert "AI_LOGISTICS_CHANNEL_CAMERA" in sql
+
+
+def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_inside(
+    service_db,
+    monkeypatch,
+):
+    import platform.logistics_channel.service as channel_service_module
+
+    service = service_db.service
+    camera_id = _seed_camera(service_db, "discover-before-write")
+    channel = service.create_channel(BASE_FEATURE, "发现先于写")
+    original_get_session = channel_service_module.get_session
+    original_scope = channel_service_module.session_scope
+    tracked_sessions = []
+    formal_reads = []
+
+    class TrackingSession:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.closed = False
+
+        def __getattr__(self, name):
+            return getattr(self.wrapped, name)
+
+        def close(self):
+            self.closed = True
+            self.wrapped.close()
+
+    def tracked_get_session():
+        tracked = TrackingSession(original_get_session())
+        tracked_sessions.append(tracked)
+        return tracked
+
+    class TrackingQuery:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.locking = False
+
+        def with_for_update(self, *args, **kwargs):
+            self.locking = True
+            self.wrapped = self.wrapped.with_for_update(*args, **kwargs)
+            return self
+
+        def __getattr__(self, name):
+            attribute = getattr(self.wrapped, name)
+            if not callable(attribute):
+                return attribute
+
+            def invoke(*args, **kwargs):
+                if name in {"all", "first", "one", "scalar"}:
+                    formal_reads.append(self.locking)
+                result = attribute(*args, **kwargs)
+                if isinstance(result, Query):
+                    self.wrapped = result
+                    return self
+                return result
+
+            return invoke
+
+    class FormalSession:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def query(self, *entities, **kwargs):
+            return TrackingQuery(self.wrapped.query(*entities, **kwargs))
+
+        def __getattr__(self, name):
+            return getattr(self.wrapped, name)
+
+    @contextmanager
+    def tracked_write_scope():
+        assert tracked_sessions and tracked_sessions[-1].closed is True
+        with original_scope() as session:
+            yield FormalSession(session)
+
+    monkeypatch.setattr(channel_service_module, "get_session", tracked_get_session)
+    monkeypatch.setattr(channel_service_module, "session_scope", tracked_write_scope)
+
+    service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+
+    assert tracked_sessions[0].closed is True
+    assert formal_reads[:3] == [True, True, True]
+    assert False not in formal_reads[:3]
+
+
+def test_membership_change_retries_with_new_discovery_and_channel_lock_set(service_db, monkeypatch):
+    import platform.logistics_channel.service as channel_service_module
+
+    service = service_db.service
+    source_one = service.create_channel(BASE_FEATURE, "重试锁集合一")
+    source_two = service.create_channel(BASE_FEATURE, "重试锁集合二")
+    target = service.create_channel(BASE_FEATURE, "重试锁集合目标")
+    discoveries = [
+        channel_service_module._MembershipDiscovery(
+            members=(channel_service_module._DiscoveredMembership(
+                member_id=10,
+                channel_id=source_one["id"],
+                camera_id=7,
+                feature_name=BASE_FEATURE,
+            ),),
+            camera_scope=(7,),
+            channel_scope=(),
+        ),
+        channel_service_module._MembershipDiscovery(
+            members=(channel_service_module._DiscoveredMembership(
+                member_id=10,
+                channel_id=source_two["id"],
+                camera_id=7,
+                feature_name=BASE_FEATURE,
+            ),),
+            camera_scope=(7,),
+            channel_scope=(),
+        ),
+    ]
+    discovery_calls = []
+    write_sessions = []
+    locked_channel_sets = []
+
+    def discover():
+        result = discoveries[len(discovery_calls)]
+        discovery_calls.append(result)
+        return result
+
+    def operation(session, discovery):
+        write_sessions.append(session)
+        channel_ids = sorted({target["id"], *discovery.member_channel_ids})
+        locked = service._lock_channels(session, channel_ids)
+        locked_channel_sets.append(tuple(locked))
+        if len(write_sessions) == 1:
+            raise channel_service_module._MembershipLockSetChanged()
+        return list(locked)
+
+    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None)
+    result = service._run_membership_transaction(discover, operation)
+
+    assert result == sorted((source_two["id"], target["id"]))
+    assert locked_channel_sets == [
+        tuple(sorted((source_one["id"], target["id"]))),
+        tuple(sorted((source_two["id"], target["id"]))),
+    ]
+    assert len({id(session) for session in write_sessions}) == 2
+
+
+def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
+    import platform.logistics_channel.service as channel_service_module
+
+    attempts = []
+
+    def discover():
+        attempts.append("discover")
+        return channel_service_module._MembershipDiscovery(
+            members=(),
+            camera_scope=(),
+            channel_scope=(),
+        )
+
+    def always_changed(session, discovery):
+        raise channel_service_module._MembershipLockSetChanged()
+
+    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None)
+    with pytest.raises(channel_service_module._MembershipLockSetChanged):
+        service_db.service._run_membership_transaction(discover, always_changed)
+    assert attempts == ["discover", "discover", "discover"]
+
+
+def test_capacity_and_sort_use_same_locked_membership_rows(service_db, monkeypatch):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "锁定行容量")
+    camera_ids = [_seed_camera(service_db, f"locked-capacity-{index}") for index in range(10)]
+    for camera_id in camera_ids[:8]:
+        service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+
+    locked_row_ids = []
+    capacity_row_ids = []
+    sort_row_ids = []
+    original_lock_state = service._lock_membership_state
+    original_capacity = service._require_capacity
+    original_next_sort = service._next_sort_order
+
+    def track_lock_state(*args, **kwargs):
+        state = original_lock_state(*args, **kwargs)
+        locked_row_ids.append(id(state.members))
+        return state
+
+    def track_capacity(members, channel_id):
+        capacity_row_ids.append(id(members))
+        return original_capacity(members, channel_id)
+
+    def track_sort(members, channel_id):
+        sort_row_ids.append(id(members))
+        return original_next_sort(members, channel_id)
+
+    monkeypatch.setattr(service, "_lock_membership_state", track_lock_state)
+    monkeypatch.setattr(service, "_require_capacity", track_capacity)
+    monkeypatch.setattr(service, "_next_sort_order", track_sort)
+
+    service.add_existing_camera(BASE_FEATURE, channel["id"], camera_ids[8])
+    with pytest.raises(ValueError, match="最多.*9.*路"):
+        service.add_existing_camera(BASE_FEATURE, channel["id"], camera_ids[9])
+
+    assert capacity_row_ids == locked_row_ids
+    assert sort_row_ids == locked_row_ids[:1]
+
+
 def test_move_reorder_and_remove_preserve_camera_config(service_db):
     service = service_db.service
     source = service.create_channel(BASE_FEATURE, "来源")
@@ -458,13 +679,13 @@ def test_create_camera_and_bind_rolls_back_camera_and_notifications_when_channel
 def test_create_camera_and_bind_rolls_back_all_rows_when_member_flush_fails(service_db, monkeypatch):
     service = service_db.service
     channel = service.create_channel(BASE_FEATURE, "强制回滚")
-    original_bind = service._bind_locked_camera
+    original_bind = service._insert_locked_member
 
     def bind_then_fail(*args, **kwargs):
         original_bind(*args, **kwargs)
         raise RuntimeError("forced member flush failure")
 
-    monkeypatch.setattr(service, "_bind_locked_camera", bind_then_fail)
+    monkeypatch.setattr(service, "_insert_locked_member", bind_then_fail)
     service_db.notifications.clear()
     with pytest.raises(RuntimeError, match="forced member flush failure"):
         service.create_camera_and_bind(
