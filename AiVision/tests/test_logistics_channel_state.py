@@ -22,6 +22,7 @@ from platform.logistics_channel.state import (
         ([1, 1], "normal"),
         ([2, 0], "multiple"),
         ([3, 1], "multiple"),
+        # 全无人要求所有成员均有效；未知成员不能触发全无人告警。
         ([None, 0], "unknown"),
         ([None, 1], "normal"),
         ([None, 2], "multiple"),
@@ -67,6 +68,25 @@ def test_classify_channel_staleness_boundary_is_inclusive():
 
     assert classify_channel([fresh_at_boundary], now=100.0, stale_seconds=5.0).reason == "normal"
     assert classify_channel([stale_after_boundary], now=100.0, stale_seconds=5.0).reason == "unknown"
+
+
+@pytest.mark.parametrize("now, stale_seconds", [(float("nan"), 5.0), (float("inf"), 5.0), (100.0, float("nan")), (100.0, float("inf")), (100.0, -0.1)])
+def test_classify_channel_rejects_non_finite_or_negative_time_inputs(now, stale_seconds):
+    with pytest.raises(ValueError):
+        classify_channel([CameraSnapshot(camera_id=1, count=1, updated_at=100.0)], now=now, stale_seconds=stale_seconds)
+
+
+@pytest.mark.parametrize("updated_at", [float("nan"), float("inf"), float("-inf")])
+def test_classify_channel_treats_non_finite_snapshot_timestamp_as_unknown(updated_at):
+    decision = classify_channel([CameraSnapshot(camera_id=1, count=1, updated_at=updated_at)], now=100.0, stale_seconds=5.0)
+
+    assert decision.reason == "unknown"
+
+
+def test_classify_channel_treats_future_snapshot_timestamp_as_unknown():
+    snapshot = CameraSnapshot(camera_id=1, count=1, updated_at=100.001)
+
+    assert classify_channel([snapshot], now=100.0, stale_seconds=5.0).reason == "unknown"
 
 
 def test_multiple_decision_identifies_offending_camera_ids():
@@ -168,6 +188,27 @@ def test_presence_state_reset_clears_clock_rollback_tracking():
     assert result.alarm is False
 
 
+@pytest.mark.parametrize(
+    "now, empty_grace_seconds, multi_grace_seconds",
+    [
+        (float("nan"), 1.0, 1.0),
+        (float("inf"), 1.0, 1.0),
+        (1.0, float("nan"), 1.0),
+        (1.0, 1.0, float("inf")),
+        (1.0, -0.1, 1.0),
+        (1.0, 1.0, -0.1),
+    ],
+)
+def test_presence_state_rejects_non_finite_or_negative_time_inputs(now, empty_grace_seconds, multi_grace_seconds):
+    with pytest.raises(ValueError):
+        ChannelPresenceState().evaluate(
+            "empty",
+            now=now,
+            empty_grace_seconds=empty_grace_seconds,
+            multi_grace_seconds=multi_grace_seconds,
+        )
+
+
 def test_translate_person_detection_offsets_box_without_mutating_input():
     detection = PersonDetection(bbox=(1.0, 2.0, 11.0, 12.0), confidence=0.8, source_roi=4)
 
@@ -217,6 +258,36 @@ def test_deduplicate_person_detections_validates_iou_bounds_and_uses_strict_dupl
         identical,
         distinct,
     )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        PersonDetection(bbox=(float("nan"), 0, 10, 10), confidence=0.9),
+        PersonDetection(bbox=(0, 0, float("inf"), 10), confidence=0.9),
+        PersonDetection(bbox=(0, 0, 10, 10), confidence=float("nan")),
+        PersonDetection(bbox=(0, 0, 10, 10), confidence=float("inf")),
+        PersonDetection(bbox=(0, 0, 10, 10), confidence=-0.01),
+        PersonDetection(bbox=(0, 0, 10, 10), confidence=1.01),
+    ],
+)
+def test_deduplicate_person_detections_filters_non_finite_or_out_of_range_candidates(invalid):
+    valid = PersonDetection(bbox=(20, 20, 30, 30), confidence=0.5)
+
+    assert deduplicate_person_detections([invalid, valid]) == (valid,)
+
+
+def test_deduplicate_person_detections_output_order_is_independent_of_input_order():
+    detections = (
+        PersonDetection(bbox=(20, 20, 30, 30), confidence=0.8, source_roi=2),
+        PersonDetection(bbox=(0, 0, 10, 10), confidence=0.8, source_roi=1),
+        PersonDetection(bbox=(40, 40, 50, 50), confidence=0.9, source_roi=None),
+    )
+
+    first_order = deduplicate_person_detections(detections)
+    reversed_order = deduplicate_person_detections(reversed(detections))
+
+    assert first_order == reversed_order
 
 
 def test_snapshot_store_isolates_features_and_returns_immutable_snapshots():

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from threading import RLock
 from typing import Iterable, Literal
 
@@ -38,7 +39,7 @@ def classify_channel(
     snapshots: Iterable[CameraSnapshot], *, now: float, stale_seconds: float, active: bool = True
 ) -> ChannelDecision:
     """按全体摄像头人数作无副作用的通道基础判定。"""
-    if stale_seconds < 0:
+    if not _is_finite_number(now) or not _is_finite_number(stale_seconds) or stale_seconds < 0:
         raise ValueError("stale_seconds 必须大于等于 0")
     snapshot_list = tuple(snapshots)
     if not active:
@@ -54,6 +55,8 @@ def classify_channel(
         count = snapshot.count
         if (
             not snapshot.online
+            or not _is_finite_number(snapshot.updated_at)
+            or snapshot.updated_at > now
             or now - snapshot.updated_at > stale_seconds
             or count is None
             or isinstance(count, bool)
@@ -95,7 +98,13 @@ class ChannelPresenceState:
         empty_grace_seconds: float,
         multi_grace_seconds: float,
     ) -> ChannelDecision:
-        if empty_grace_seconds < 0 or multi_grace_seconds < 0:
+        if (
+            not _is_finite_number(now)
+            or not _is_finite_number(empty_grace_seconds)
+            or not _is_finite_number(multi_grace_seconds)
+            or empty_grace_seconds < 0
+            or multi_grace_seconds < 0
+        ):
             raise ValueError("持续时间阈值必须大于等于 0")
         if isinstance(decision_or_reason, ChannelDecision):
             reason = decision_or_reason.reason
@@ -169,9 +178,13 @@ def deduplicate_person_detections(
     detections: Iterable[PersonDetection], *, iou_threshold: float = 0.5
 ) -> tuple[PersonDetection, ...]:
     """以确定性置信度排序执行轻量 NMS，丢弃无效框。"""
-    if not 0 <= iou_threshold <= 1:
+    if not _is_finite_number(iou_threshold) or not 0 <= iou_threshold <= 1:
         raise ValueError("iou_threshold 必须在 0 到 1 之间")
-    candidates = [detection for detection in detections if _is_valid_bbox(detection.bbox)]
+    candidates = [
+        detection
+        for detection in detections
+        if _is_valid_bbox(detection.bbox) and _is_valid_confidence(detection.confidence)
+    ]
     candidates.sort(key=_detection_sort_key)
     selected: list[PersonDetection] = []
     for detection in candidates:
@@ -218,8 +231,18 @@ def _decision(reason: ChannelReason, *, offending_camera_ids: tuple[int, ...] = 
 
 
 def _is_valid_bbox(bbox: tuple[float, float, float, float]) -> bool:
+    if len(bbox) != 4 or not all(_is_finite_number(coordinate) for coordinate in bbox):
+        return False
     x1, y1, x2, y2 = bbox
     return x2 > x1 and y2 > y1
+
+
+def _is_valid_confidence(confidence: float) -> bool:
+    return _is_finite_number(confidence) and 0 <= confidence <= 1
+
+
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
 def _detection_sort_key(detection: PersonDetection) -> tuple[float, tuple[float, float, float, float], int]:
