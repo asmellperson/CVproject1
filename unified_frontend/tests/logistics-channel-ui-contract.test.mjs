@@ -22,6 +22,27 @@ test('shared logistics section owns channel selection and polled composite frame
   assert.doesNotMatch(monitor, /camera_id.*frame/i)
 })
 
+test('shared logistics monitor follows the approved dwell dashboard layout', () => {
+  const section = read('src/components/logistics_single_person/LogisticsChannelSection.tsx')
+  const monitor = read('src/components/logistics_single_person/LogisticsChannelMonitorView.tsx')
+
+  assert.match(section, /min-h-\[calc\(100vh-7rem\)\] rounded-3xl bg-\[#F3F5FA\]/)
+  assert.match(section, /rounded-full border border-slate-200\/70 bg-white p-1/)
+  assert.match(section, /data-\[state=active\]:bg-\[#132C72\]/)
+  assert.match(section, /配置管理/)
+
+  assert.match(monitor, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
+  assert.match(monitor, /grid gap-5 lg:grid-cols-3/)
+  assert.match(monitor, /lg:col-span-2/)
+  for (const label of ['监控对象', '判定说明', '实时事件', '物流通道实时监控']) {
+    assert.match(monitor, new RegExp(label))
+  }
+
+  assert.doesNotMatch(monitor, /pointer-events-none absolute/)
+  assert.doesNotMatch(monitor, /GlassPill/)
+  assert.doesNotMatch(monitor, /from-(rose|emerald|black).*via-transparent/)
+})
+
 test('shared channel configuration covers channel, members, schedule and per-camera ROI', () => {
   const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
 

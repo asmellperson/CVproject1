@@ -27,6 +27,7 @@ test('shared monitor views define their own dark surfaces and typography', async
     'src/components/guard_room/GuardMonitorUi.tsx',
     'src/components/feature_dashboard/FeatureDashboardMonitorView.tsx',
     'src/components/human_dwell/HumanDwellMonitorView.tsx',
+    'src/components/logistics_single_person/LogisticsChannelMonitorView.tsx',
     'src/components/logistics_single_person/LogisticsSinglePersonMonitorView.tsx',
   ]) {
     const source = await read(path)
