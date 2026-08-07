@@ -7,6 +7,7 @@ save_to_database / save_camera_with_function_config 等方法。
 """
 from __future__ import annotations
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import or_
 
@@ -72,6 +73,16 @@ class CameraService:
 
     def create_camera(self, payload: dict) -> dict:
         """新增摄像头 — 同时为每个已注册 feature 建一行默认空配置(enable=False)"""
+        with session_scope() as session:
+            cam = self.create_camera_record(session, payload)
+            cam_id = cam.id
+            cam_shm = cam.shm_name
+
+        self.notify_camera_created(cam_id, cam_shm)
+        return self.get_camera(cam_shm)
+
+    def create_camera_record(self, session, payload: dict) -> AiCameraConfig:
+        """在调用方事务内创建摄像头及所有默认功能配置，不提交或发事件。"""
         name = (payload.get("name") or "").strip()
         url = (payload.get("url") or "").strip()
         shm_name = (payload.get("shm_name") or "").strip()
@@ -80,46 +91,60 @@ class CameraService:
         enable = bool(payload.get("enabled", payload.get("enable", True)))
         department = payload.get("department")
 
-        if not (name and url and shm_name):
-            raise ValueError("name, url, shm_name 都是必填")
+        if not (name and url):
+            raise ValueError("name, url 都是必填")
         if fps <= 0:
             raise ValueError("fps must be > 0")
         if max_restart < 0:
             raise ValueError("max_restart must be >= 0")
 
-        with session_scope() as session:
-            # 唯一性校验
-            if session.query(AiCameraConfig).filter_by(name=name).first():
-                raise ValueError(f"name 已存在: {name}")
-            if session.query(AiCameraConfig).filter_by(shm_name=shm_name).first():
-                raise ValueError(f"shm_name 已存在: {shm_name}")
+        if session.query(AiCameraConfig).filter_by(name=name).first():
+            raise ValueError(f"name 已存在: {name}")
+        if shm_name and session.query(AiCameraConfig).filter_by(shm_name=shm_name).first():
+            raise ValueError(f"shm_name 已存在: {shm_name}")
 
-            cam = AiCameraConfig(
-                name=name, url=url, shm_name=shm_name,
-                fps=fps, max_restart=max_restart, enable=enable,
-                function_config={},
-                department=department,
+        # shm_name 非空且唯一，先用随机内部标识拿到自增 ID，再稳定替换为 camera_<id>。
+        pending_shm = shm_name or f"__pending_camera_{uuid4().hex}"
+        cam = AiCameraConfig(
+            name=name, url=url, shm_name=pending_shm,
+            fps=fps, max_restart=max_restart, enable=enable,
+            function_config={},
+            department=department,
+        )
+        session.add(cam)
+        session.flush()
+        if not shm_name:
+            stable_shm = f"camera_{cam.id}"
+            conflict = (
+                session.query(AiCameraConfig)
+                .filter(AiCameraConfig.shm_name == stable_shm, AiCameraConfig.id != cam.id)
+                .first()
             )
-            session.add(cam)
-            session.flush()
+            if conflict is not None:
+                raise ValueError(f"shm_name 已存在: {stable_shm}")
+            cam.shm_name = stable_shm
 
-            # 为每个 feature 创建默认配置(enable=False)
-            for spec in all_specs().values():
+        for spec in all_specs().values():
+            existing = session.query(spec.orm_class).filter_by(camera_id=cam.id).first()
+            if existing is None:
                 session.add(spec.orm_class(camera_id=cam.id, enable=False))
+        session.flush()
+        return cam
 
-            cam_id = cam.id
-            cam_shm = cam.shm_name
-
-        # 缓存 + 事件
-        config_cache.refresh_camera(cam_id)
-        for fname in all_specs():
-            config_cache.refresh_function(cam_id, fname)
-        config_event_bus.publish(ConfigChangeEvent(
-            change_type="camera_added",
-            camera_id=cam_id, camera_name=cam_shm,
-        ))
-
-        return self.get_camera(cam_shm)
+    @staticmethod
+    def notify_camera_created(camera_id: int, shm_name: str) -> None:
+        """事务提交后刷新缓存并发布新增事件；通知失败不回滚已提交数据。"""
+        try:
+            config_cache.refresh_camera(camera_id)
+            for feature_name in all_specs():
+                config_cache.refresh_function(camera_id, feature_name)
+            config_event_bus.publish(ConfigChangeEvent(
+                change_type="camera_added",
+                camera_id=camera_id,
+                camera_name=shm_name,
+            ))
+        except Exception as exc:
+            logger.warning(f"[CameraService] 摄像头新增通知失败 camera_id={camera_id}: {exc}")
 
     def update_camera(self, key: str, payload: dict) -> Optional[dict]:
         """更新摄像头基础信息 — 不动功能配置"""

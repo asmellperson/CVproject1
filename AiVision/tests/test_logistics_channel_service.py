@@ -1,8 +1,19 @@
+from contextlib import contextmanager
 from datetime import time, timezone
+import importlib.util
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from core.db import Base
+from features import all_specs
+from platform.alarm_device.orm import AiHornConfig
+from platform.camera.orm import AiCameraConfig
+from platform.camera.service import CameraService
 from platform.logistics_channel.constants import (
     DEFAULT_STATUS_STALE_SECONDS,
     LOGISTICS_FEATURES,
@@ -10,6 +21,7 @@ from platform.logistics_channel.constants import (
     require_logistics_feature,
 )
 from platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+from platform.logistics_channel.service import LogisticsChannelService, MigrationSummary
 from platform.logistics_channel.schema import (
     LogisticsChannelAlarm,
     LogisticsChannelConfigUpdate,
@@ -19,6 +31,493 @@ from platform.logistics_channel.schema import (
     LogisticsChannelStatusResponse,
     LogisticsFeatureName,
 )
+
+
+def test_logistics_channel_service_module_exists():
+    assert importlib.util.find_spec("platform.logistics_channel.service") is not None
+
+
+def test_logistics_channel_package_exports_service_without_hiding_state_exports():
+    import platform.logistics_channel as package
+
+    assert package.LogisticsChannelService is LogisticsChannelService
+    assert package.MigrationSummary is MigrationSummary
+    assert isinstance(package.logistics_channel_service, LogisticsChannelService)
+    assert callable(package.classify_channel)
+
+
+@pytest.fixture
+def service_db(monkeypatch):
+    import platform.camera.service as camera_service_module
+    import platform.logistics_channel.service as channel_service_module
+
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    tables = [
+        AiCameraConfig.__table__,
+        AiHornConfig.__table__,
+        *(spec.orm_class.__table__ for spec in all_specs().values()),
+        LogisticsChannel.__table__,
+        LogisticsChannelCamera.__table__,
+    ]
+    Base.metadata.create_all(engine, tables=tables)
+
+    transaction_state = {"committed": True}
+
+    @contextmanager
+    def test_session_scope():
+        session = factory()
+        transaction_state["committed"] = False
+        try:
+            yield session
+            session.commit()
+            transaction_state["committed"] = True
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    monkeypatch.setattr(channel_service_module, "session_scope", test_session_scope, raising=False)
+    monkeypatch.setattr(channel_service_module, "get_session", factory, raising=False)
+    monkeypatch.setattr(camera_service_module, "session_scope", test_session_scope)
+    monkeypatch.setattr(camera_service_module, "get_session", factory)
+
+    notifications = []
+
+    class FakeCache:
+        def reload(self):
+            assert transaction_state["committed"] is True
+            notifications.append(("cache", "reload"))
+
+        def refresh_camera(self, camera_id):
+            assert transaction_state["committed"] is True
+            notifications.append(("cache", "camera", camera_id))
+
+        def refresh_function(self, camera_id, feature_name):
+            assert transaction_state["committed"] is True
+            notifications.append(("cache", "feature", camera_id, feature_name))
+
+    class FakeEventBus:
+        def publish(self, event):
+            assert transaction_state["committed"] is True
+            notifications.append(("event", event))
+
+    fake_cache = FakeCache()
+    fake_bus = FakeEventBus()
+    monkeypatch.setattr(channel_service_module, "config_cache", fake_cache, raising=False)
+    monkeypatch.setattr(channel_service_module, "config_event_bus", fake_bus, raising=False)
+    monkeypatch.setattr(camera_service_module, "config_cache", fake_cache)
+    monkeypatch.setattr(camera_service_module, "config_event_bus", fake_bus)
+
+    yield SimpleNamespace(
+        service=LogisticsChannelService(),
+        camera_service=CameraService(),
+        factory=factory,
+        notifications=notifications,
+    )
+    engine.dispose()
+
+
+def _seed_camera(service_db, name, *, department="general_electric", enabled_features=()):
+    with service_db.factory.begin() as session:
+        camera = AiCameraConfig(
+            name=name,
+            url=f"rtsp://example/{name}",
+            shm_name=f"shm_{name}",
+            department=department,
+            enable=True,
+        )
+        session.add(camera)
+        session.flush()
+        for feature_name, spec in all_specs().items():
+            session.add(spec.orm_class(
+                camera_id=camera.id,
+                enable=feature_name in enabled_features,
+            ))
+        camera_id = camera.id
+    return camera_id
+
+
+BASE_FEATURE = "detect_logistics_single_person"
+EE_FEATURE = "detect_logistics_single_person_electronics_electrician"
+
+
+def test_channel_crud_is_scoped_by_feature(service_db):
+    service = service_db.service
+    created = service.create_channel(BASE_FEATURE, "收货通道")
+    service.create_channel(EE_FEATURE, "收货通道")
+
+    with pytest.raises(ValueError, match="已存在"):
+        service.create_channel(BASE_FEATURE, "收货通道")
+
+    updated = service.update_channel(
+        BASE_FEATURE,
+        created["id"],
+        {"name": "卸货通道", "enabled": False, "sort_order": 7},
+    )
+    configured = service.update_config(
+        BASE_FEATURE,
+        created["id"],
+        {
+            "enabled": True,
+            "detection_start": time(7, 30),
+            "detection_end": time(19, 30),
+            "empty_grace_seconds": 4.0,
+            "multi_grace_seconds": 3.0,
+            "alarm_interval": 8.0,
+            "alarm": {
+                "sql_enable": True,
+                "horn": {"enabled": False},
+                "wechat": {"enabled": True, "user": "operator"},
+            },
+        },
+    )
+
+    assert updated["name"] == "卸货通道"
+    assert updated["enabled"] is False
+    assert updated["sort_order"] == 7
+    assert configured["config"]["empty_grace_seconds"] == 4.0
+    assert configured["config"]["alarm"]["wechat"]["user"] == "operator"
+    assert service.get_channel(BASE_FEATURE, created["id"])["id"] == created["id"]
+    assert [item["name"] for item in service.list_channels(BASE_FEATURE)["items"]] == ["卸货通道"]
+    assert service.delete_channel(BASE_FEATURE, created["id"]) is True
+    assert service.get_channel(BASE_FEATURE, created["id"]) is None
+
+
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [
+        ("list_channels", ()),
+        ("get_channel", (1,)),
+        ("create_channel", ("通道",)),
+        ("update_channel", (1, {})),
+        ("delete_channel", (1,)),
+        ("update_config", (1, {})),
+        ("add_existing_camera", (1, 1)),
+        ("create_camera_and_bind", (1, {"name": "相机", "url": "rtsp://example"})),
+        ("move_camera", (1, 1)),
+        ("reorder_members", (1, [])),
+        ("remove_camera", (1, 1)),
+    ],
+)
+def test_every_feature_scoped_entry_rejects_unknown_feature(service_db, method, args):
+    with pytest.raises(ValueError, match="不支持的物流检测功能"):
+        getattr(service_db.service, method)("blocks", *args)
+
+
+def test_add_existing_camera_enforces_nine_member_limit_and_rolls_back_tenth(service_db):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "九路通道")
+    camera_ids = [_seed_camera(service_db, f"camera-{index}") for index in range(10)]
+
+    for camera_id in camera_ids[:9]:
+        detail = service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+        assert len(detail["members"]) <= MAX_CAMERAS_PER_CHANNEL
+
+    with pytest.raises(ValueError, match="最多.*9.*路"):
+        service.add_existing_camera(BASE_FEATURE, channel["id"], camera_ids[9])
+
+    detail = service.get_channel(BASE_FEATURE, channel["id"])
+    assert [member["camera_id"] for member in detail["members"]] == camera_ids[:9]
+    with service_db.factory() as session:
+        cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[9]).one()
+        assert cfg.enable is False
+
+
+def test_camera_membership_is_unique_within_feature_but_isolated_across_features(service_db):
+    service = service_db.service
+    camera_id = _seed_camera(service_db, "shared-camera")
+    first = service.create_channel(BASE_FEATURE, "一号")
+    second = service.create_channel(BASE_FEATURE, "二号")
+    other_feature = service.create_channel(EE_FEATURE, "一号")
+    service.add_existing_camera(BASE_FEATURE, first["id"], camera_id)
+
+    with pytest.raises(ValueError, match="已绑定"):
+        service.add_existing_camera(BASE_FEATURE, second["id"], camera_id)
+
+    detail = service.add_existing_camera(EE_FEATURE, other_feature["id"], camera_id)
+    assert [member["camera_id"] for member in detail["members"]] == [camera_id]
+
+
+def test_move_reorder_and_remove_preserve_camera_config(service_db):
+    service = service_db.service
+    source = service.create_channel(BASE_FEATURE, "来源")
+    target = service.create_channel(BASE_FEATURE, "目标")
+    camera_ids = [_seed_camera(service_db, f"route-{index}") for index in range(3)]
+    with service_db.factory.begin() as session:
+        retained_cfg = (
+            session.query(all_specs()[BASE_FEATURE].orm_class)
+            .filter_by(camera_id=camera_ids[1])
+            .one()
+        )
+        retained_cfg.roi_pos = [[10, 20], [30, 40]]
+        retained_cfg.CONF_THRESHOLD = 0.66
+    for camera_id in camera_ids:
+        service.add_existing_camera(BASE_FEATURE, source["id"], camera_id)
+
+    service.move_camera(BASE_FEATURE, camera_ids[0], target["id"])
+    assert [m["camera_id"] for m in service.get_channel(BASE_FEATURE, target["id"])["members"]] == [camera_ids[0]]
+    with service_db.factory() as session:
+        cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[0]).one()
+        assert cfg.enable is True
+        memberships = (
+            session.query(LogisticsChannelCamera)
+            .join(LogisticsChannel)
+            .filter(LogisticsChannel.feature_name == BASE_FEATURE, LogisticsChannelCamera.camera_id == camera_ids[0])
+            .count()
+        )
+        assert memberships == 1
+
+    with pytest.raises(ValueError, match="全部成员"):
+        service.reorder_members(BASE_FEATURE, source["id"], [camera_ids[1]])
+    reordered = service.reorder_members(BASE_FEATURE, source["id"], [camera_ids[2], camera_ids[1]])
+    assert [m["camera_id"] for m in reordered["members"]] == [camera_ids[2], camera_ids[1]]
+
+    assert service.remove_camera(BASE_FEATURE, source["id"], camera_ids[1]) is True
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, camera_ids[1]) is not None
+        cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[1]).one()
+        assert cfg.enable is False
+        assert cfg.roi_pos == [[10, 20], [30, 40]]
+        assert cfg.CONF_THRESHOLD == 0.66
+
+
+def test_move_to_full_channel_fails_without_losing_original_binding(service_db):
+    service = service_db.service
+    source = service.create_channel(BASE_FEATURE, "来源")
+    target = service.create_channel(BASE_FEATURE, "满载目标")
+    moving_id = _seed_camera(service_db, "moving")
+    service.add_existing_camera(BASE_FEATURE, source["id"], moving_id)
+    for index in range(MAX_CAMERAS_PER_CHANNEL):
+        camera_id = _seed_camera(service_db, f"full-{index}")
+        service.add_existing_camera(BASE_FEATURE, target["id"], camera_id)
+
+    with pytest.raises(ValueError, match="最多.*9.*路"):
+        service.move_camera(BASE_FEATURE, moving_id, target["id"])
+
+    assert [m["camera_id"] for m in service.get_channel(BASE_FEATURE, source["id"])["members"]] == [moving_id]
+
+
+def test_delete_channel_disables_members_without_deleting_global_cameras(service_db):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "待删除")
+    camera_id = _seed_camera(service_db, "kept-camera")
+    service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+
+    assert service.delete_channel(BASE_FEATURE, channel["id"]) is True
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, camera_id) is not None
+        assert session.query(LogisticsChannelCamera).filter_by(camera_id=camera_id).count() == 0
+        cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
+        assert cfg.enable is False
+
+
+def test_create_camera_and_bind_is_atomic_uses_feature_department_and_notifies_after_commit(service_db):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "新相机")
+    service_db.notifications.clear()
+
+    detail = service.create_camera_and_bind(
+        BASE_FEATURE,
+        channel["id"],
+        {"name": "入口相机", "url": "rtsp://example/new", "fps": 6},
+    )
+    camera_id = detail["members"][0]["camera_id"]
+    with service_db.factory() as session:
+        camera = session.get(AiCameraConfig, camera_id)
+        assert camera.shm_name == f"camera_{camera_id}"
+        assert camera.department == "general_electric"
+        for feature_name, spec in all_specs().items():
+            cfg = session.query(spec.orm_class).filter_by(camera_id=camera_id).one()
+            assert cfg.enable is (feature_name == BASE_FEATURE)
+
+    event_types = [item[1].change_type for item in service_db.notifications if item[0] == "event"]
+    cache_notifications = [item for item in service_db.notifications if item[0] == "cache"]
+    assert cache_notifications == [("cache", "reload")]
+    assert event_types.count("camera_added") == 1
+    assert f"{BASE_FEATURE}_enabled" in event_types
+    assert "logistics_channel_updated" in event_types
+
+
+def test_create_camera_and_bind_rolls_back_camera_and_notifications_when_channel_is_full(service_db):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "满载")
+    for index in range(MAX_CAMERAS_PER_CHANNEL):
+        camera_id = _seed_camera(service_db, f"capacity-{index}")
+        service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+    service_db.notifications.clear()
+
+    with pytest.raises(ValueError, match="最多.*9.*路"):
+        service.create_camera_and_bind(
+            BASE_FEATURE,
+            channel["id"],
+            {"name": "不应保留", "url": "rtsp://example/rollback"},
+        )
+
+    with service_db.factory() as session:
+        assert session.query(AiCameraConfig).filter_by(name="不应保留").first() is None
+    assert service_db.notifications == []
+
+
+def test_create_camera_and_bind_rolls_back_all_rows_when_member_flush_fails(service_db, monkeypatch):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "强制回滚")
+    original_bind = service._bind_locked_camera
+
+    def bind_then_fail(*args, **kwargs):
+        original_bind(*args, **kwargs)
+        raise RuntimeError("forced member flush failure")
+
+    monkeypatch.setattr(service, "_bind_locked_camera", bind_then_fail)
+    service_db.notifications.clear()
+    with pytest.raises(RuntimeError, match="forced member flush failure"):
+        service.create_camera_and_bind(
+            BASE_FEATURE,
+            channel["id"],
+            {"name": "事务回滚相机", "url": "rtsp://example/flush-rollback"},
+        )
+
+    with service_db.factory() as session:
+        assert session.query(AiCameraConfig).filter_by(name="事务回滚相机").first() is None
+        assert session.query(LogisticsChannelCamera).filter_by(channel_id=channel["id"]).count() == 0
+        for spec in all_specs().values():
+            assert session.query(spec.orm_class).count() == 0
+    assert service_db.notifications == []
+
+
+def test_create_camera_rejects_feature_department_mismatch(service_db):
+    channel = service_db.service.create_channel(EE_FEATURE, "电子电工")
+    with pytest.raises(ValueError, match="department"):
+        service_db.service.create_camera_and_bind(
+            EE_FEATURE,
+            channel["id"],
+            {
+                "name": "部门不符",
+                "url": "rtsp://example/mismatch",
+                "department": "general_electric",
+            },
+        )
+
+
+def test_create_camera_rejects_explicit_empty_department(service_db):
+    channel = service_db.service.create_channel(BASE_FEATURE, "空部门")
+    with pytest.raises(ValueError, match="department"):
+        service_db.service.create_camera_and_bind(
+            BASE_FEATURE,
+            channel["id"],
+            {
+                "name": "空部门相机",
+                "url": "rtsp://example/empty-department",
+                "department": "",
+            },
+        )
+
+
+def test_camera_service_create_camera_allows_missing_shm_name_and_keeps_return_contract(service_db):
+    result = service_db.camera_service.create_camera({
+        "name": "普通相机",
+        "url": "rtsp://example/plain",
+    })
+
+    assert result["camera_id"] > 0
+    assert result["id"] == f"camera_{result['camera_id']}"
+    assert result["shm_name"] == result["id"]
+    assert set(result["functions"]) == set(all_specs())
+    assert all(enabled is False for enabled in result["functions"].values())
+
+
+def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(service_db):
+    camera_id = _seed_camera(
+        service_db,
+        "迁移相机",
+        enabled_features=(BASE_FEATURE, EE_FEATURE),
+    )
+    with service_db.factory.begin() as session:
+        base_cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
+        base_cfg.empty_grace_seconds = 6.0
+        base_cfg.multi_grace_seconds = 7.0
+        base_cfg.alarm_interval = 12.0
+        base_cfg.sql_enable = True
+        base_cfg.horn_enable = True
+        base_cfg.horn_id = None
+        base_cfg.horn_event_id = 8
+        base_cfg.wechat_enable = True
+        base_cfg.wechat_user = "base-user"
+        base_cfg.roi_pos = [[1, 2], [3, 4]]
+        session.add(LogisticsChannel(name="迁移相机", feature_name=BASE_FEATURE))
+
+    first = service_db.service.migrate_existing_feature_cameras()
+    second = service_db.service.migrate_existing_feature_cameras()
+
+    assert isinstance(first, MigrationSummary)
+    assert (first.created, first.failed) == (2, 0)
+    assert first.skipped == 0
+    assert second.created == 0
+    assert second.skipped == 2
+    with service_db.factory() as session:
+        base_channel = session.query(LogisticsChannel).filter_by(
+            feature_name=BASE_FEATURE,
+            name=f"迁移相机-{camera_id}",
+        ).one()
+        ee_channel = session.query(LogisticsChannel).filter_by(
+            feature_name=EE_FEATURE,
+            name="迁移相机",
+        ).one()
+        assert base_channel.empty_grace_seconds == 6.0
+        assert base_channel.multi_grace_seconds == 7.0
+        assert base_channel.alarm_interval == 12.0
+        assert base_channel.sql_enable is True
+        assert base_channel.wechat_user == "base-user"
+        assert ee_channel.id != base_channel.id
+        base_cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
+        assert base_cfg.roi_pos == [[1, 2], [3, 4]]
+
+
+def test_migration_records_one_camera_failure_and_continues(service_db, caplog):
+    failed_camera_id = _seed_camera(
+        service_db,
+        "冲突相机",
+        enabled_features=(BASE_FEATURE,),
+    )
+    successful_camera_id = _seed_camera(
+        service_db,
+        "可迁移相机",
+        enabled_features=(BASE_FEATURE,),
+    )
+    with service_db.factory.begin() as session:
+        session.add_all([
+            LogisticsChannel(name="冲突相机", feature_name=BASE_FEATURE),
+            LogisticsChannel(name=f"冲突相机-{failed_camera_id}", feature_name=BASE_FEATURE),
+        ])
+
+    summary = service_db.service.migrate_existing_feature_cameras()
+
+    assert (summary.created, summary.failed) == (1, 1)
+    assert len(summary.errors) == 1
+    assert f"camera_id={failed_camera_id}" in summary.errors[0]
+    assert "迁移失败" in caplog.text
+    with service_db.factory() as session:
+        assert session.query(LogisticsChannelCamera).filter_by(camera_id=failed_camera_id).count() == 0
+        assert session.query(LogisticsChannelCamera).filter_by(camera_id=successful_camera_id).count() == 1
+
+
+def test_notification_failure_is_logged_without_undoing_committed_channel(service_db, monkeypatch, caplog):
+    import platform.logistics_channel.service as channel_service_module
+
+    class FailingEventBus:
+        def publish(self, event):
+            raise RuntimeError("event bus unavailable")
+
+    monkeypatch.setattr(channel_service_module, "config_event_bus", FailingEventBus())
+    result = service_db.service.create_channel(BASE_FEATURE, "通知失败仍保留")
+
+    assert service_db.service.get_channel(BASE_FEATURE, result["id"])["name"] == "通知失败仍保留"
+    assert "通道通知失败" in caplog.text
 
 
 def test_logistics_channel_has_required_python_defaults():

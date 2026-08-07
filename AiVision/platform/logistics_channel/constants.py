@@ -11,6 +11,13 @@ LOGISTICS_FEATURES = frozenset({
     "detect_logistics_single_person_precious_metal_recycling",
 })
 
+LOGISTICS_FEATURE_DEPARTMENTS = {
+    "detect_logistics_single_person": "general_electric",
+    "detect_logistics_single_person_electronics_electrician": "electronics_electrician",
+    "detect_logistics_single_person_electrical_components": "electrical_components",
+    "detect_logistics_single_person_precious_metal_recycling": "precious_metal_recycling",
+}
+
 MAX_CAMERAS_PER_CHANNEL = 9
 DEFAULT_DETECTION_START = time(8, 0)
 DEFAULT_DETECTION_END = time(20, 0)
