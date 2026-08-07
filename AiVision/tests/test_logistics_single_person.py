@@ -222,18 +222,43 @@ def test_schedule_and_channel_evaluation_are_delegated_to_runtime():
     assert runtime.evaluate_calls == [(consumer.feature_name, 7)]
 
 
-def test_consumer_without_runtime_remains_active_but_never_dispatches_camera_alarm(monkeypatch):
-    consumer = build_consumer(LogisticsSinglePersonConsumer)
-    dispatched = []
-    monkeypatch.setattr(
-        "features._base.consumer.alarm_dispatcher.maybe_dispatch",
-        lambda *args, **kwargs: dispatched.append((args, kwargs)),
+@pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
+def test_all_logistics_consumers_require_channel_runtime(consumer_class):
+    spec = SimpleNamespace(
+        name=f"test_{consumer_class.__name__}",
+        required_models=("person-detector",),
     )
 
-    assert consumer._should_process_now(7, consumer.config_cache[7]) is True
-    consumer._handle_alarm(7, [(True, {"reason": "multiple"})], None)
+    with pytest.raises(RuntimeError, match=consumer_class.__name__) as raised:
+        consumer_class(
+            spec=spec,
+            infer_dict={},
+            result_queue=None,
+            latest_frames={},
+            is_camera_active=lambda _camera_key: True,
+        )
 
-    assert dispatched == []
+    assert "LogisticsChannelRuntime" in str(raised.value)
+
+
+@pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
+def test_all_logistics_consumers_accept_injected_channel_runtime(consumer_class):
+    runtime = RuntimeSpy()
+    spec = SimpleNamespace(
+        name=f"test_{consumer_class.__name__}",
+        required_models=("person-detector",),
+    )
+
+    consumer = consumer_class(
+        spec=spec,
+        infer_dict={},
+        result_queue=None,
+        latest_frames={},
+        is_camera_active=lambda _camera_key: True,
+        logistics_runtime=runtime,
+    )
+
+    assert consumer.logistics_runtime is runtime
 
 
 def test_monitor_snapshot_sums_known_roi_counts_and_preserves_alarm():

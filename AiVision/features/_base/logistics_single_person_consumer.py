@@ -90,6 +90,11 @@ class LogisticsSinglePersonConsumerBase(BaseFunctionConsumer):
     ROI_COLOR_UNKNOWN = (0, 165, 255)
 
     def __init__(self, *args, logistics_runtime: LogisticsConsumerRuntime | None = None, **kwargs):
+        if logistics_runtime is None:
+            raise RuntimeError(
+                f"{type(self).__name__} 缺少 LogisticsChannelRuntime 注入；"
+                "物流单人检测不能在无通道聚合运行时的情况下启动"
+            )
         super().__init__(*args, **kwargs)
         self.logistics_runtime = logistics_runtime
         self.monitor_status: dict[str, dict] = {}
@@ -255,9 +260,7 @@ class LogisticsSinglePersonConsumerBase(BaseFunctionConsumer):
                 "reason": self._snapshot_reason(snapshot_count),
                 "updated_at_s": updated_at,
             }
-        runtime = self.logistics_runtime
-        if runtime is not None:
-            runtime.update_camera_snapshot(self.feature_name, snapshot, annotated)
+        self.logistics_runtime.update_camera_snapshot(self.feature_name, snapshot, annotated)
         return annotated
 
     def _camera_online(self, camera_key: str) -> bool:
@@ -322,15 +325,10 @@ class LogisticsSinglePersonConsumerBase(BaseFunctionConsumer):
         return True
 
     def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
-        runtime = self.logistics_runtime
-        if runtime is None:
-            return True
-        return bool(runtime.camera_should_run(self.feature_name, camera_id))
+        return bool(self.logistics_runtime.camera_should_run(self.feature_name, camera_id))
 
     def _handle_alarm(self, camera_id: int, result: list, frame: np.ndarray | None):
-        runtime = self.logistics_runtime
-        if runtime is not None:
-            runtime.evaluate_after_camera_update(self.feature_name, camera_id)
+        self.logistics_runtime.evaluate_after_camera_update(self.feature_name, camera_id)
 
     def _get_roi_offsets(self, camera_id: int) -> list[tuple[int, int]]:
         return [
