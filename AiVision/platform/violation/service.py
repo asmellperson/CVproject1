@@ -42,16 +42,43 @@ class AsyncViolationWriter:
 
     # ---------- 公开接口 ----------
 
-    def enqueue(self, frame: np.ndarray, violation_type: int, camera_no: str):
+    def enqueue(
+        self,
+        frame: np.ndarray,
+        violation_type: int,
+        camera_no: str,
+        *,
+        subject_type: str = "camera",
+        subject_id: str = "",
+        subject_name: str = "",
+        reason: str = "",
+        event_metadata: dict | None = None,
+    ):
         """从 Consumer 调来的入口 — 立即返回,后台线程负责落盘和 DB 写"""
         self._queue.put_nowait({
             "frame": frame,
             "violation_type": violation_type,
             "camera_no": camera_no,
+            "subject_type": subject_type,
+            "subject_id": subject_id,
+            "subject_name": subject_name,
+            "reason": reason,
+            "event_metadata": event_metadata or {},
             "ts": datetime.datetime.now(),
         })
 
-    def save_now(self, *, frame: np.ndarray, violation_type: int, camera_no: str) -> AiViolationImage | None:
+    def save_now(
+        self,
+        *,
+        frame: np.ndarray,
+        violation_type: int,
+        camera_no: str,
+        subject_type: str = "camera",
+        subject_id: str = "",
+        subject_name: str = "",
+        reason: str = "",
+        event_metadata: dict | None = None,
+    ) -> AiViolationImage | None:
         """同步保存单条违规记录并返回已入库对象。
 
         微信图文卡片需要立即拿到 alarm_id 和图片地址，因此不能等待后台批量 flush。
@@ -61,6 +88,11 @@ class AsyncViolationWriter:
             "frame": frame,
             "violation_type": violation_type,
             "camera_no": camera_no,
+            "subject_type": subject_type,
+            "subject_id": subject_id,
+            "subject_name": subject_name,
+            "reason": reason,
+            "event_metadata": event_metadata or {},
             "ts": datetime.datetime.now(),
         })
         if row is None:
@@ -141,6 +173,11 @@ class AsyncViolationWriter:
                 "image_path": full_path,
                 "violation_type": item["violation_type"],
                 "camera_no": item["camera_no"],
+                "subject_type": item.get("subject_type") or "camera",
+                "subject_id": item.get("subject_id") or "",
+                "subject_name": item.get("subject_name") or "",
+                "reason": item.get("reason") or "",
+                "event_metadata": item.get("event_metadata") or {},
                 "create_time": item["ts"],
             }
         except Exception as e:

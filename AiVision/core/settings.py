@@ -101,6 +101,11 @@ class RuntimeSettings(BaseSettings):
     """
     opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")
     slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")
+    logistics_status_stale_seconds: float = Field(
+        5.0,
+        ge=0,
+        alias="LOGISTICS_STATUS_STALE_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

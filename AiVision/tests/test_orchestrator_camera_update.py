@@ -11,6 +11,10 @@ Orchestrator = importlib.import_module("platform.orchestrator").Orchestrator
 def _orchestrator_without_init():
     orchestrator = object.__new__(Orchestrator)
     orchestrator.consumers = {}
+    orchestrator.logistics_channel_runtime = SimpleNamespace(
+        refresh_channel=lambda *_args: None,
+        refresh_camera=lambda *_args: None,
+    )
     return orchestrator
 
 
@@ -166,3 +170,91 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
 
     assert status_calls == [(7, True)]
     assert restart_calls == ["7_logistics"]
+
+
+def test_logistics_channel_event_refreshes_runtime():
+    orchestrator = _orchestrator_without_init()
+    calls = []
+    orchestrator.logistics_channel_runtime = SimpleNamespace(
+        refresh_channel=lambda feature, channel_id: calls.append((feature, channel_id))
+    )
+
+    orchestrator._on_config_change(
+        ConfigChangeEvent(
+            change_type="logistics_channel_updated",
+            new_value={
+                "feature_name": "detect_logistics_single_person",
+                "channel_id": 12,
+            },
+        )
+    )
+
+    assert calls == [("detect_logistics_single_person", 12)]
+
+
+def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch):
+    orchestrator = _orchestrator_without_init()
+    calls = []
+    feature = "detect_logistics_single_person"
+    orchestrator.consumers = {
+        feature: SimpleNamespace(update_config=lambda camera_id: calls.append(("consumer", camera_id)))
+    }
+    orchestrator.logistics_channel_runtime = SimpleNamespace(
+        refresh_channel=lambda *_args: None,
+        refresh_camera=lambda feature_name, camera_id: calls.append(
+            (feature_name, camera_id)
+        ),
+    )
+
+    orchestrator._on_config_change(
+        ConfigChangeEvent(
+            change_type=f"{feature}_config_updated",
+            camera_id=7,
+            camera_name="camera_7",
+        )
+    )
+
+    assert calls == [(feature, 7), ("consumer", 7)]
+
+
+def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatch):
+    import platform.orchestrator as orchestrator_module
+
+    created = {}
+
+    class FakeConsumer:
+        def __init__(self, **kwargs):
+            created[kwargs["spec"].name] = kwargs
+
+        def start(self):
+            pass
+
+    logistics = SimpleNamespace(
+        name="detect_logistics_single_person",
+        required_models=(),
+        consumer_cls=FakeConsumer,
+    )
+    ordinary = SimpleNamespace(
+        name="blocks",
+        required_models=(),
+        consumer_cls=FakeConsumer,
+    )
+    orchestrator = _orchestrator_without_init()
+    orchestrator.logistics_channel_runtime = object()
+    orchestrator._send_system_exception_alert = lambda **_kwargs: None
+    monkeypatch.setattr(orchestrator_module, "all_specs", lambda: {
+        logistics.name: logistics,
+        ordinary.name: ordinary,
+    })
+    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_manager, "infer_queues", {})
+    monkeypatch.setattr(
+        orchestrator_module.inference_manager,
+        "result_queues",
+        {logistics.name: None, ordinary.name: None},
+    )
+
+    orchestrator._start_consumers()
+
+    assert created[logistics.name]["logistics_runtime"] is orchestrator.logistics_channel_runtime
+    assert "logistics_runtime" not in created[ordinary.name]

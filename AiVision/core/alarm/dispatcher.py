@@ -7,11 +7,11 @@ core/alarm/dispatcher.py
 新代码: Consumer 只管业务判断,告警分发交给 AlarmDispatcher。
 """
 from __future__ import annotations
-import base64
 import queue
+import inspect
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote
 
@@ -48,6 +48,11 @@ class AlarmRequest:
     violation_type: int
     alarm_config: dict
     camera_key: str = ""
+    subject_type: str = "camera"
+    subject_id: str = ""
+    subject_name: str = ""
+    reason: str = ""
+    metadata: dict = field(default_factory=dict)
 
 
 class AlarmDispatcher:
@@ -80,9 +85,9 @@ class AlarmDispatcher:
         self._wechat_started = False  # 防止 configure() 被重复调用时二次启动线程
 
         # ---- 冷却状态 ----
-        # key: (camera_id, feature_name)，value: 上次实际触发告警的 Unix 时间戳。
+        # key: (subject_type, subject_id, feature_name)，value: 上次实际触发时间。
         # 使用 _lock 保护，避免多 Consumer 线程并发写入时的竞态条件。
-        self._last_alarm: dict[tuple[int, str], float] = {}
+        self._last_alarm: dict[tuple[str, str, str], float] = {}
         self._lock = threading.Lock()
 
     def configure(
@@ -117,7 +122,7 @@ class AlarmDispatcher:
         冷却检查 + 告警分发的统一入口，Consumer 检测到违规时调用此方法。
 
         冷却逻辑:
-            以 (camera_id, feature_name) 为粒度记录上次触发时间；
+            以 (subject_type, subject_id, feature_name) 为粒度记录上次触发时间；
             若距上次触发不足 alarm_interval 秒，静默丢弃并返回 False。
 
         Args:
@@ -128,7 +133,7 @@ class AlarmDispatcher:
             True  — 冷却已过，告警已提交各通道执行。
             False — 仍在冷却期，本次告警被静默丢弃。
         """
-        key = (request.camera_id, request.feature_name)
+        key = self._cooldown_key(request)
         now = time.time()
 
         with self._lock:
@@ -142,8 +147,23 @@ class AlarmDispatcher:
 
     def reset_cooldown(self, camera_id: int, feature_name: str) -> None:
         """清除指定摄像头和功能的告警冷却状态。"""
+        self.reset_subject_cooldown("camera", str(camera_id), feature_name)
+
+    def reset_subject_cooldown(
+        self,
+        subject_type: str,
+        subject_id: str,
+        feature_name: str,
+    ) -> None:
+        """清除摄像头或通道主体的告警冷却状态。"""
         with self._lock:
-            self._last_alarm.pop((camera_id, feature_name), None)
+            self._last_alarm.pop((subject_type, str(subject_id), feature_name), None)
+
+    @staticmethod
+    def _cooldown_key(request: AlarmRequest) -> tuple[str, str, str]:
+        subject_type = request.subject_type or "camera"
+        subject_id = request.subject_id or str(request.camera_id)
+        return subject_type, subject_id, request.feature_name
 
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
@@ -182,17 +202,12 @@ class AlarmDispatcher:
         if self.violation_writer is not None:
             try:
                 if should_send_wechat and hasattr(self.violation_writer, "save_now"):
-                    alarm_record = self.violation_writer.save_now(
-                        frame=req.frame,
-                        violation_type=req.violation_type,
-                        camera_no=req.camera_key or req.camera_name,
+                    alarm_record = self._write_violation(
+                        self.violation_writer.save_now,
+                        req,
                     )
                 else:
-                    self.violation_writer.enqueue(
-                        frame=req.frame,
-                        violation_type=req.violation_type,
-                        camera_no=req.camera_key or req.camera_name,
-                    )
+                    self._write_violation(self.violation_writer.enqueue, req)
             except Exception as e:
                 logger.warning(f"[Alarm] SQL 入队失败: {e}")
 
@@ -203,6 +218,35 @@ class AlarmDispatcher:
                 self._wechat_queue.put_nowait((req, wechat_user, alarm_record))
             except queue.Full:
                 logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
+
+    @staticmethod
+    def _write_violation(writer_method, req: AlarmRequest):
+        """向支持新字段的 writer 传通道元数据，并兼容旧式 writer 适配器。"""
+        values = {
+            "frame": req.frame,
+            "violation_type": req.violation_type,
+            "camera_no": req.camera_key or req.camera_name,
+            "subject_type": req.subject_type or "camera",
+            "subject_id": req.subject_id or str(req.camera_id),
+            "subject_name": req.subject_name or req.camera_name,
+            "reason": req.reason,
+            "event_metadata": req.metadata,
+        }
+        try:
+            signature = inspect.signature(writer_method)
+            accepts_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+            if not accepts_kwargs:
+                values = {
+                    key: value
+                    for key, value in values.items()
+                    if key in signature.parameters
+                }
+        except (TypeError, ValueError):
+            pass
+        return writer_method(**values)
 
     def _alarm_card_urls(self, alarm_id: object | None) -> tuple[str, str]:
         if not alarm_id:

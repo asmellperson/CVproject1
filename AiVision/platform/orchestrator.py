@@ -36,6 +36,9 @@ from platform.camera.frame_reader import frame_reader_registry
 from platform.camera.service import camera_service
 from platform.inference.manager import inference_manager
 from platform.inference.service import model_service
+from platform.logistics_channel.constants import LOGISTICS_FEATURES
+from platform.logistics_channel.runtime import LogisticsChannelRuntime
+from platform.logistics_channel.service import logistics_channel_service
 from platform.alarm_device.service import horn_service
 from platform.violation.service import violation_writer
 
@@ -55,6 +58,11 @@ class Orchestrator:
         self._started = False
         self._last_system_exception_alerts: dict[tuple[str, str], float] = {}
         self._system_exception_alert_cooldown = 300.0
+        self.logistics_channel_runtime = LogisticsChannelRuntime(
+            channel_service=logistics_channel_service,
+            dispatcher=alarm_dispatcher,
+            is_camera_active=frame_reader_registry.is_active,
+        )
 
         # 订阅配置变更事件
         config_event_bus.subscribe_wildcard(self._on_config_change)
@@ -72,6 +80,18 @@ class Orchestrator:
         camera_service.normalize_shm_names()
         camera_service.ensure_feature_configs(enable_all=False)
         config_cache.init()
+        migration = logistics_channel_service.migrate_existing_feature_cameras()
+        if migration.failed:
+            logger.warning(
+                f"[Orchestrator] 物流通道迁移存在失败 created={migration.created} "
+                f"skipped={migration.skipped} failed={migration.failed} "
+                f"errors={migration.errors}"
+            )
+        else:
+            logger.info(
+                f"[Orchestrator] 物流通道迁移完成 created={migration.created} "
+                f"skipped={migration.skipped}"
+            )
 
         # 2) 企微客户端先初始化,摄像头启动异常可直接推送
         if settings.alarm.wechat_enable:
@@ -126,6 +146,7 @@ class Orchestrator:
         inference_manager.start_all()
 
         # 7) Feature Consumers
+        self.logistics_channel_runtime.start()
         self._start_consumers()
 
         self._started = True
@@ -143,6 +164,7 @@ class Orchestrator:
             except Exception as e:
                 logger.warning(f"[Orchestrator] 停止 Consumer {name} 失败: {e}")
         self.consumers.clear()
+        self.logistics_channel_runtime.stop()
 
         try:
             inference_manager.stop_all()
@@ -192,7 +214,7 @@ class Orchestrator:
                 continue
 
             try:
-                consumer = spec.consumer_cls(
+                consumer_kwargs = dict(
                     spec=spec,
                     infer_dict=inference_manager.infer_queues,
                     result_queue=inference_manager.result_queues[name],
@@ -200,6 +222,9 @@ class Orchestrator:
                     is_camera_active=frame_reader_registry.is_active,
                     runtime_alert_handler=self._send_system_exception_alert,
                 )
+                if name in LOGISTICS_FEATURES:
+                    consumer_kwargs["logistics_runtime"] = self.logistics_channel_runtime
+                consumer = spec.consumer_cls(**consumer_kwargs)
                 consumer.start()
                 self.consumers[name] = consumer
             except Exception:
@@ -218,6 +243,17 @@ class Orchestrator:
     def _on_config_change(self, event: ConfigChangeEvent):
         change = event.change_type
         cam_id = event.camera_id
+
+        if change == "logistics_channel_updated":
+            value = event.new_value or {}
+            feature_name = value.get("feature_name")
+            channel_id = value.get("channel_id")
+            if feature_name in LOGISTICS_FEATURES and channel_id is not None:
+                self.logistics_channel_runtime.refresh_channel(
+                    feature_name,
+                    int(channel_id),
+                )
+            return
 
         # 摄像头层面
         if change == "camera_added":
@@ -242,6 +278,12 @@ class Orchestrator:
         for fname in sorted(all_specs(), key=len, reverse=True):
             if change.startswith(f"{fname}_"):
                 action = change[len(fname) + 1:]
+                if (
+                    fname in LOGISTICS_FEATURES
+                    and action not in ("enabled", "disabled")
+                    and cam_id is not None
+                ):
+                    self.logistics_channel_runtime.refresh_camera(fname, cam_id)
                 consumer = self.consumers.get(fname)
                 if consumer is None:
                     return
@@ -422,6 +464,14 @@ class Orchestrator:
             "threshold_seconds": snapshot.get("threshold_seconds"),
             "updated_at": updated_at,
         }
+
+    def get_logistics_channel_status(self, feature: str, channel_id: int) -> dict | None:
+        """获取物流通道的最新聚合状态。"""
+        return self.logistics_channel_runtime.get_channel_status(feature, channel_id)
+
+    def get_logistics_channel_frame(self, feature: str, channel_id: int):
+        """获取物流通道的最新拼接标注画面。"""
+        return self.logistics_channel_runtime.get_channel_frame(feature, channel_id)
 
     def runtime_status(self) -> dict:
         running_models = inference_manager.list_running()

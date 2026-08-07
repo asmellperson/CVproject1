@@ -31,6 +31,7 @@ __all__ = [
     "LogisticsChannelService",
     "MigrationSummary",
     "logistics_channel_service",
+    "LogisticsChannelRuntime",
 ]
 
 
@@ -52,4 +53,8 @@ def __getattr__(name: str):
             "MigrationSummary": MigrationSummary,
             "logistics_channel_service": logistics_channel_service,
         }[name]
+    if name == "LogisticsChannelRuntime":
+        from .runtime import LogisticsChannelRuntime
+
+        return LogisticsChannelRuntime
     raise AttributeError(name)
