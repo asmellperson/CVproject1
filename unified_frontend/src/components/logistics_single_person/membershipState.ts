@@ -3,6 +3,13 @@ type ChannelMembershipSummary = {
   members: Array<{ camera_id: number; enabled: boolean }>
 }
 
+type CountedChannelMembershipSummary = {
+  id: number
+  members: Array<{ enabled: boolean }>
+}
+
+export type ChannelMemberCount = { enabled: number; total: number }
+
 export type MembershipLoadIdentity = {
   generation: number
   feature: string
@@ -23,6 +30,16 @@ export function collectBoundCameraIds(channels: ChannelMembershipSummary[]) {
     channels.flatMap((channel) => channel.members)
       .map((member) => member.camera_id),
   )
+}
+
+export function collectChannelMemberCounts(channels: CountedChannelMembershipSummary[]) {
+  return Object.fromEntries(channels.map((channel) => [
+    channel.id,
+    {
+      enabled: channel.members.filter((member) => member.enabled).length,
+      total: channel.members.length,
+    },
+  ])) as Record<number, ChannelMemberCount>
 }
 
 export function filterBindableCameras<Camera extends CameraIdentity>(

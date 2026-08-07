@@ -57,6 +57,8 @@ test('shared channel configuration covers channel, members, schedule and per-cam
   assert.doesNotMatch(config, /aria-label="物流通道名称"/)
   assert.match(config, /onSelectChannel\(result\.id\)/)
   assert.match(config, /dispatchCreateDialog\(\{ type: 'success' \}\)/)
+  assert.match(config, /collectChannelMemberCounts/)
+  assert.match(config, /enabled.*total.*路/)
   assert.match(config, /绑定已有摄像头/)
   assert.match(config, /新建摄像头并绑定/)
   assert.match(config, /最多 9 路/)

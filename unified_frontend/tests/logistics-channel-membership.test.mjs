@@ -25,6 +25,19 @@ test('filters cameras bound to any channel in the current feature', async () => 
   )
 })
 
+test('derives enabled and total camera counts for every loaded channel detail', async () => {
+  const { collectChannelMemberCounts } = await importTypeScript(source)
+  const counts = collectChannelMemberCounts([
+    { id: 7, members: [{ enabled: true }, { enabled: false }, { enabled: true }] },
+    { id: 8, members: [] },
+  ])
+
+  assert.deepEqual(counts, {
+    7: { enabled: 2, total: 3 },
+    8: { enabled: 0, total: 0 },
+  })
+})
+
 test('cancelled removal never invokes the mutation', async () => {
   const { confirmMembershipRemoval, removalConfirmationText } = await importTypeScript(source)
   let calls = 0

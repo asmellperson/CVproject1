@@ -35,10 +35,12 @@ import type {
 } from './types'
 import {
   collectBoundCameraIds,
+  collectChannelMemberCounts,
   confirmMembershipRemoval,
   filterBindableCameras,
   isMembershipLoadCurrent,
   removalConfirmationText,
+  type ChannelMemberCount,
   type MembershipLoadIdentity,
 } from './membershipState'
 import { channelCreateDialogReducer, initialChannelCreateDialogState } from './channelCreateDialogState'
@@ -93,6 +95,7 @@ export function LogisticsChannelConfigView({
   const [cameraConfig, setCameraConfig] = useState<LogisticsCameraConfigResponse | null>(null)
   const [roiJson, setRoiJson] = useState('[]')
   const [boundCameraIds, setBoundCameraIds] = useState<ReadonlySet<number>>(new Set())
+  const [channelMemberCounts, setChannelMemberCounts] = useState<Record<number, ChannelMemberCount>>({})
   const [membershipsLoaded, setMembershipsLoaded] = useState(false)
   const [membershipRevision, refreshMemberships] = useReducer((value: number) => value + 1, 0)
   const hydratedChannelId = useRef<number | null>(null)
@@ -124,6 +127,7 @@ export function LogisticsChannelConfigView({
     const controller = new AbortController()
     const channelIds = channelIdsKey ? channelIdsKey.split(',').map(Number) : []
     setBoundCameraIds(new Set())
+    setChannelMemberCounts({})
     setMembershipsLoaded(false)
     const load = async () => {
       try {
@@ -133,6 +137,7 @@ export function LogisticsChannelConfigView({
         const current = { ...membershipLoadRef.current, ...membershipContextRef.current }
         if (!isMembershipLoadCurrent(request, current)) return
         setBoundCameraIds(collectBoundCameraIds(details))
+        setChannelMemberCounts(collectChannelMemberCounts(details))
         setMembershipsLoaded(true)
       } catch (reason) {
         const current = { ...membershipLoadRef.current, ...membershipContextRef.current }
@@ -243,6 +248,7 @@ export function LogisticsChannelConfigView({
           generation: membershipLoadRef.current.generation + 1,
         }
         setBoundCameraIds(new Set())
+        setChannelMemberCounts({})
         setMembershipsLoaded(false)
         refreshMemberships()
       }
@@ -404,12 +410,14 @@ export function LogisticsChannelConfigView({
                 <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
                   {channels.map((channel) => {
                     const selected = selectedChannelId === channel.id
+                    const memberCount = channelMemberCounts[channel.id]
                     return (
                       <div key={channel.id} className={`flex items-center gap-3 px-3 py-3 transition-colors ${selected ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
                         <Button variant="ghost" className="min-w-0 flex-1 justify-start px-2" onClick={() => onSelectChannel(channel.id)}>
                           <span className="truncate font-semibold">{channel.name}</span>
                         </Button>
                         <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
+                        <Badge variant="outline">{memberCount ? `${memberCount.enabled}/${memberCount.total} 路` : '--/-- 路'}</Badge>
                         {selected ? <Badge variant="outline">当前通道</Badge> : null}
                         {isAdmin ? (
                           <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
