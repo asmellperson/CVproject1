@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.auth import require_admin, get_current_user
 from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service, get_department_service
-from api.v2.cameras import build_camera_frame_response
+from api.v2.cameras import (
+    build_camera_frame_response,
+    camera_read_department,
+    get_camera_for_user,
+)
 from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
 from core.db import session_scope
 from platform.department.service import DepartmentService
@@ -311,9 +315,12 @@ def put_logistics_single_person_precious_metal_recycling_config(
 @router.get("/api/aivision/cameras")
 def compat_list_cameras(
     department: str | None = Query(None, description="可选按部门过滤"),
+    user: dict = Depends(get_current_user),
     camera_service=Depends(get_camera_service),
 ):
-    return camera_service.list_cameras(department=department)
+    return camera_service.list_cameras(
+        department=camera_read_department(user, department)
+    )
 
 
 @router.post("/api/aivision/cameras", status_code=status.HTTP_201_CREATED)
@@ -329,11 +336,12 @@ def compat_create_camera(
 
 
 @router.get("/api/aivision/cameras/{key}")
-def compat_get_camera(key: str, camera_service=Depends(get_camera_service)):
-    camera = camera_service.get_camera(key)
-    if camera is None:
-        raise HTTPException(status_code=404, detail="camera not found")
-    return camera
+def compat_get_camera(
+    key: str,
+    user: dict = Depends(get_current_user),
+    camera_service=Depends(get_camera_service),
+):
+    return get_camera_for_user(camera_service, key, user)
 
 
 @router.put("/api/aivision/cameras/{key}")
@@ -368,8 +376,11 @@ def compat_get_camera_frame_jpg(
     quality: int = Query(85, ge=1, le=100),
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),
+    user: dict = Depends(get_current_user),
+    camera_service=Depends(get_camera_service),
     orchestrator=Depends(get_current_orchestrator),
 ):
+    get_camera_for_user(camera_service, key, user)
     return build_camera_frame_response(
         key=key,
         feature=feature,
@@ -384,8 +395,11 @@ def compat_get_camera_frame_jpg(
 def compat_get_camera_feature_status(
     key: str,
     feature: str,
+    user: dict = Depends(get_current_user),
+    camera_service=Depends(get_camera_service),
     orchestrator=Depends(get_current_orchestrator),
 ):
+    get_camera_for_user(camera_service, key, user)
     return orchestrator.get_feature_monitor_status(key, feature)
 
 

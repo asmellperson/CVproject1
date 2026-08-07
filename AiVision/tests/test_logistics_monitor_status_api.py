@@ -104,9 +104,15 @@ def test_compat_status_delegates_to_read_only_orchestrator():
             assert feature == "detect_logistics_single_person"
             return expected
 
+    class CameraService:
+        def get_camera(self, key):
+            return {"shm_name": key, "department": "general_electric"}
+
     response = compat_module.compat_get_camera_feature_status(
         key="cam1",
         feature="detect_logistics_single_person",
+        user={"role": "viewer", "department": "general_electric"},
+        camera_service=CameraService(),
         orchestrator=StatusOrchestrator(),
     )
 

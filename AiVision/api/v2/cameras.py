@@ -12,7 +12,7 @@ import cv2
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from api.auth import require_admin
+from api.auth import get_current_user, require_admin
 from api.deps import get_camera_service, get_current_orchestrator
 from core.logger import logger
 from core.settings import settings
@@ -47,12 +47,39 @@ class CameraUpdateRequest(BaseModel):
     department: str | None = None
 
 
+def camera_read_department(user: dict, requested_department: str | None) -> str | None:
+    """返回当前用户可读取的部门过滤值。"""
+    if user.get("role") == "admin":
+        return requested_department
+    department = user.get("department")
+    if not department:
+        raise HTTPException(status_code=403, detail="camera department permission required")
+    if requested_department is not None and requested_department != department:
+        raise HTTPException(status_code=403, detail="camera department permission required")
+    return str(department)
+
+
+def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
+    """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
+    camera = camera_service.get_camera(key)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="camera not found")
+    if user.get("role") != "admin":
+        department = user.get("department")
+        if not department or camera.get("department") != department:
+            raise HTTPException(status_code=403, detail="camera department permission required")
+    return camera
+
+
 @router.get("")
 def list_cameras(
     department: str | None = Query(None, description="可选按部门过滤"),
+    user: dict = Depends(get_current_user),
     camera_service=Depends(get_camera_service),
 ) -> list[dict[str, Any]]:
-    return camera_service.list_cameras(department=department)
+    return camera_service.list_cameras(
+        department=camera_read_department(user, department)
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -68,11 +95,12 @@ def create_camera(
 
 
 @router.get("/{key}")
-def get_camera(key: str, camera_service=Depends(get_camera_service)) -> dict[str, Any]:
-    camera = camera_service.get_camera(key)
-    if camera is None:
-        raise HTTPException(status_code=404, detail="camera not found")
-    return camera
+def get_camera(
+    key: str,
+    user: dict = Depends(get_current_user),
+    camera_service=Depends(get_camera_service),
+) -> dict[str, Any]:
+    return get_camera_for_user(camera_service, key, user)
 
 
 @router.put("/{key}")
@@ -220,8 +248,11 @@ def get_camera_frame_jpg(
     quality: int = Query(85, ge=1, le=100),
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),
+    user: dict = Depends(get_current_user),
+    camera_service=Depends(get_camera_service),
     orchestrator=Depends(get_current_orchestrator),
 ) -> Response:
+    get_camera_for_user(camera_service, key, user)
     return build_camera_frame_response(
         key=key,
         feature=feature,
