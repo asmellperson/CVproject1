@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Plus, Save, Settings2, Trash2 } from 'lucide-react'
 
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
@@ -15,6 +15,7 @@ import {
   addLogisticsChannelCamera,
   createLogisticsChannel,
   deleteLogisticsChannel,
+  getLogisticsChannel,
   getLogisticsCameraConfig,
   moveLogisticsChannelCamera,
   removeLogisticsChannelCamera,
@@ -30,6 +31,12 @@ import type {
   LogisticsChannelDetail,
   LogisticsFeatureName,
 } from './types'
+import {
+  collectBoundCameraIds,
+  confirmMembershipRemoval,
+  filterBindableCameras,
+  removalConfirmationText,
+} from './membershipState'
 
 type Props = {
   feature: LogisticsFeatureName
@@ -75,6 +82,8 @@ export function LogisticsChannelConfigView({
   const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null)
   const [cameraConfig, setCameraConfig] = useState<LogisticsCameraConfigResponse | null>(null)
   const [roiJson, setRoiJson] = useState('[]')
+  const [boundCameraIds, setBoundCameraIds] = useState<ReadonlySet<number>>(new Set())
+  const [membershipsLoaded, setMembershipsLoaded] = useState(false)
   const hydratedChannelId = useRef<number | null>(null)
 
   const members = useMemo(
@@ -83,8 +92,30 @@ export function LogisticsChannelConfigView({
   )
   const cameraById = useMemo(() => new Map(cameras.map((camera) => [camera.camera_id, camera])), [cameras])
   const selectedCamera = selectedCameraId === null ? undefined : cameraById.get(selectedCameraId)
-  const memberIds = useMemo(() => new Set(members.map((member) => member.camera_id)), [members])
-  const availableCameras = cameras.filter((camera) => !memberIds.has(camera.camera_id))
+  const channelIdsKey = useMemo(() => channels.map((channel) => channel.id).sort((a, b) => a - b).join(','), [channels])
+  const currentMemberIds = useMemo(() => new Set(members.map((member) => member.camera_id)), [members])
+  const availableCameras = membershipsLoaded ? filterBindableCameras(cameras, boundCameraIds) : []
+  const movableCameras = membershipsLoaded
+    ? cameras.filter((camera) => boundCameraIds.has(camera.camera_id) && !currentMemberIds.has(camera.camera_id))
+    : []
+  const existingCameraOptions = moveExisting ? movableCameras : availableCameras
+
+  const loadBoundMemberships = useCallback(async () => {
+    const channelIds = channelIdsKey ? channelIdsKey.split(',').map(Number) : []
+    setMembershipsLoaded(false)
+    try {
+      const details = await Promise.all(channelIds.map((channelId) => getLogisticsChannel(feature, channelId)))
+      setBoundCameraIds(collectBoundCameraIds(details))
+      setMembershipsLoaded(true)
+    } catch (reason) {
+      setBoundCameraIds(new Set())
+      setMessage(`通道成员读取失败：${messageOf(reason)}`)
+    }
+  }, [channelIdsKey, feature])
+
+  useEffect(() => {
+    void loadBoundMemberships()
+  }, [loadBoundMemberships])
 
   useEffect(() => {
     let active = true
@@ -135,11 +166,12 @@ export function LogisticsChannelConfigView({
     return () => { active = false }
   }, [feature, selectedCamera])
 
-  const run = async (action: () => Promise<unknown>, success: string) => {
+  const run = async (action: () => Promise<unknown>, success: string, refreshMemberships = false) => {
     if (!isAdmin || busy) return
     setBusy(true)
     try {
       await action()
+      if (refreshMemberships) await loadBoundMemberships()
       setMessage(success)
       onChanged()
     } catch (reason) {
@@ -178,23 +210,26 @@ export function LogisticsChannelConfigView({
   const addExisting = () => {
     if (!selectedChannelDetail || !existingCameraId) return
     const cameraId = Number(existingCameraId)
-    void run(
-      () => moveExisting
-        ? moveLogisticsChannelCamera(feature, selectedChannelDetail.id, cameraId)
-        : addLogisticsChannelCamera(feature, selectedChannelDetail.id, { camera_id: cameraId }),
-      moveExisting ? '摄像头已移动至当前通道。' : '已有摄像头已绑定。',
-    )
-    setExistingCameraId('')
+    void run(async () => {
+      if (moveExisting) {
+        await moveLogisticsChannelCamera(feature, selectedChannelDetail.id, cameraId)
+      } else {
+        await addLogisticsChannelCamera(feature, selectedChannelDetail.id, { camera_id: cameraId })
+      }
+      setExistingCameraId('')
+    }, moveExisting ? '摄像头已移动至当前通道。' : '已有摄像头已绑定。', true)
   }
 
   const createCameraAndBind = () => {
     if (!selectedChannelDetail) return
-    void run(() => addLogisticsChannelCamera(feature, selectedChannelDetail.id, {
-      name: newCamera.name.trim(),
-      url: newCamera.url.trim(),
-      fps: Math.round(Number(newCamera.fps)),
-    }), '摄像头已新建并绑定。')
-    setNewCamera({ name: '', url: '', fps: '5' })
+    void run(async () => {
+      await addLogisticsChannelCamera(feature, selectedChannelDetail.id, {
+        name: newCamera.name.trim(),
+        url: newCamera.url.trim(),
+        fps: Math.round(Number(newCamera.fps)),
+      })
+      setNewCamera({ name: '', url: '', fps: '5' })
+    }, '摄像头已新建并绑定。', true)
   }
 
   const moveMember = (cameraId: number, offset: -1 | 1) => {
@@ -209,7 +244,15 @@ export function LogisticsChannelConfigView({
 
   const removeMember = (cameraId: number) => {
     if (!selectedChannelDetail) return
-    void run(() => removeLogisticsChannelCamera(feature, selectedChannelDetail.id, cameraId), '摄像头已从通道移除。')
+    const cameraName = cameraById.get(cameraId)?.name ?? `摄像头 #${cameraId}`
+    confirmMembershipRemoval(
+      () => window.confirm(removalConfirmationText(cameraName, selectedChannelDetail.name)),
+      () => void run(
+        () => removeLogisticsChannelCamera(feature, selectedChannelDetail.id, cameraId),
+        '摄像头已从通道移除。',
+        true,
+      ),
+    )
   }
 
   const saveRoi = () => {
@@ -276,11 +319,12 @@ export function LogisticsChannelConfigView({
                 <Card>
                   <CardHeader><CardTitle className="text-base">绑定已有摄像头</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
+                    <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
                     <Select value={existingCameraId} onValueChange={setExistingCameraId} disabled={!isAdmin || busy || members.length >= 9}>
-                      <SelectTrigger><SelectValue placeholder="选择已有摄像头" /></SelectTrigger>
-                      <SelectContent>{availableCameras.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
+                      <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
+                      <SelectContent>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
                     </Select>
-                    <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={moveExisting} onChange={(event) => setMoveExisting(event.target.checked)} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
+                    <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
                     <Button onClick={addExisting} disabled={!isAdmin || busy || !existingCameraId || members.length >= 9}>{moveExisting ? '移动至当前通道' : '绑定已有摄像头'}</Button>
                   </CardContent>
                 </Card>
@@ -299,7 +343,7 @@ export function LogisticsChannelConfigView({
             <TabsContent value="roi" className="space-y-5">
               <Card>
                 <CardHeader><CardTitle className="text-base">逐路 ROI 摄像头</CardTitle></CardHeader>
-                <CardContent><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></CardContent>
+                <CardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></CardContent>
               </Card>
               <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} feature={feature} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
             </TabsContent>
