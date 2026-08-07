@@ -102,7 +102,7 @@ def test_compose_channel_frame_rejects_empty_or_too_many_tiles(tiles):
         compose_channel_frame(tiles)
 
 
-def test_compose_channel_frame_places_tiles_in_input_order_away_from_overlay():
+def test_compose_channel_frame_places_tiles_in_input_order():
     colors = [(10, 20, 30), (40, 50, 60)]
     tiles = [CameraTile(index, str(index), np.full((20, 20, 3), color, np.uint8), "normal", 1, True) for index, color in enumerate(colors)]
 
@@ -110,6 +110,20 @@ def test_compose_channel_frame_places_tiles_in_input_order_away_from_overlay():
 
     assert tuple(result[25, 20]) == colors[0]
     assert tuple(result[25, 60]) == colors[1]
+
+
+@pytest.mark.parametrize(
+    ("reason", "person_count"),
+    [("normal", 1), ("empty", 0), ("multiple", 2)],
+)
+def test_live_camera_frame_top_pixels_are_not_covered_by_status_banner(reason, person_count):
+    color = (17, 83, 149)
+    frame = np.full((30, 40, 3), color, dtype=np.uint8)
+    tile = CameraTile(1, "cam", frame, reason, person_count, True)
+
+    result = compose_channel_frame([tile], tile_size=(40, 30))
+
+    assert np.all(result[0] == color)
 
 
 def test_compose_channel_frame_replaces_invalid_frame_without_losing_other_tile():
@@ -154,24 +168,6 @@ def test_placeholder_preserves_unicode_camera_name_and_actual_reason_in_text_ren
     assert "离线/等待画面" in rendered_text
 
 
-def test_overlay_renders_camera_name_person_count_status_and_detail(monkeypatch):
-    rendered_text = []
-
-    def record_text(image, text, *args, **kwargs):
-        rendered_text.append(text)
-        return image
-
-    monkeypatch.setattr(compositor, "_draw_text", record_text, raising=False)
-    tile = CameraTile(1, "一号物流通道摄像头", None, "multiple", 2, True, "离线/等待画面")
-
-    compose_channel_frame([tile], tile_size=(240, 100))
-
-    assert "一号物流通道摄像头" in rendered_text
-    assert "人数: 2" in rendered_text
-    assert any("多人异常" in text for text in rendered_text)
-    assert any("离线/等待画面" in text for text in rendered_text)
-
-
 def test_text_renderer_survives_missing_explicit_font():
     image = np.zeros((80, 240, 3), dtype=np.uint8)
 
@@ -188,35 +184,7 @@ def test_text_renderer_survives_missing_explicit_font():
     assert result.flags.c_contiguous
 
 
-@pytest.mark.parametrize(
-    ("online", "reason", "expected_label", "expected_color"),
-    [
-        (False, "normal", "离线", (110, 110, 110)),
-        (True, "normal", "正常", (0, 180, 0)),
-        (True, "empty", "无人异常", (0, 0, 255)),
-        (True, "multiple", "多人异常", (0, 0, 255)),
-        (True, "unknown", "未知", (0, 165, 255)),
-        (True, "inactive", "未启用", (110, 110, 110)),
-        (True, "unconfigured", "未配置", (110, 110, 110)),
-        (True, "not-a-real-reason", "未知", (0, 165, 255)),
-    ],
-)
-def test_visual_status_normalizes_text_and_color_together(online, reason, expected_label, expected_color):
-    tile = CameraTile(1, "cam", None, reason, 1, online)
-
-    assert compositor._visual_status(tile) == (expected_label, expected_color)
-
-
-def test_compose_overlay_uses_normalized_offline_color(monkeypatch):
-    monkeypatch.setattr(compositor, "_draw_text", lambda image, *args, **kwargs: image)
-    tile = CameraTile(1, "cam", np.zeros((20, 20, 3), dtype=np.uint8), "normal", 1, False)
-
-    result = compose_channel_frame([tile], tile_size=(120, 100))
-
-    assert tuple(result[0, 0]) == (110, 110, 110)
-
-
-def test_offline_tile_hides_valid_cached_frame_and_keeps_offline_status_bar(monkeypatch):
+def test_offline_tile_hides_valid_cached_frame_and_keeps_placeholder(monkeypatch):
     monkeypatch.setattr(compositor, "_draw_text", lambda image, *args, **kwargs: image)
     cached_frame = np.full((20, 20, 3), (7, 8, 9), dtype=np.uint8)
     tile = CameraTile(1, "cam", cached_frame, "normal", 1, False, "stream disconnected")
@@ -224,4 +192,4 @@ def test_offline_tile_hides_valid_cached_frame_and_keeps_offline_status_bar(monk
     result = compose_channel_frame([tile], tile_size=(120, 100))
 
     assert tuple(result[75, 60]) == (45, 45, 45)
-    assert tuple(result[0, 0]) == (110, 110, 110)
+    assert tuple(result[0, 0]) == (100, 100, 100)

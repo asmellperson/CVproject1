@@ -32,25 +32,6 @@ _CJK_FONT_PATHS = (
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
 )
-_STATUS_LABELS = {
-    "normal": "正常",
-    "empty": "无人异常",
-    "multiple": "多人异常",
-    "unknown": "未知",
-    "inactive": "未启用",
-    "unconfigured": "未配置",
-}
-_STATUS_COLORS = {
-    "offline": (110, 110, 110),
-    "normal": (0, 180, 0),
-    "empty": (0, 0, 255),
-    "multiple": (0, 0, 255),
-    "unknown": (0, 165, 255),
-    "inactive": (110, 110, 110),
-    "unconfigured": (110, 110, 110),
-}
-
-
 @dataclass(frozen=True)
 class CameraTile:
     """The latest frame and display metadata for one camera."""
@@ -227,35 +208,6 @@ def render_placeholder(camera_name: str, detail: str, target_size: tuple[int, in
     return np.ascontiguousarray(canvas)
 
 
-def _visual_status(tile: CameraTile) -> tuple[str, tuple[int, int, int]]:
-    """Normalize a tile's display state so label and color cannot diverge."""
-    if not tile.online:
-        return "离线", _STATUS_COLORS["offline"]
-    reason = str(tile.reason).strip().lower()
-    key = reason if reason in _STATUS_LABELS else "unknown"
-    return _STATUS_LABELS[key], _STATUS_COLORS[key]
-
-
-def _draw_tile_overlay(image: np.ndarray, tile: CameraTile) -> None:
-    height, width = image.shape[:2]
-    bar_height = min(max(18, height // 2), 96)
-    status, color = _visual_status(tile)
-    cv2.rectangle(image, (0, 0), (width - 1, bar_height - 1), color, -1)
-    count_text = "?" if tile.person_count is None else str(tile.person_count)
-    name = _display_text(tile.camera_name, "camera")
-    detail = _display_text(tile.detail, "")
-    font_size = max(9, min(18, width // 36))
-    line_height = max(10, font_size + 2)
-    labels = [name, f"人数: {count_text}", f"状态: {status}"]
-    if detail:
-        labels.append(f"详情: {detail}")
-    for index, label in enumerate(labels):
-        top = 3 + index * line_height
-        if top + font_size >= bar_height:
-            break
-        _draw_text(image, label, (5, top), (255, 255, 255), font_size=font_size, max_width=width - 10)
-
-
 def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndarray:
     if not tile.online:
         explanation = tile.detail or "offline"
@@ -266,7 +218,6 @@ def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndar
         except (ValueError, cv2.error):
             explanation = tile.detail or str(tile.reason) or "unavailable frame"
             image = render_placeholder(tile.camera_name, explanation, tile_size)
-    _draw_tile_overlay(image, tile)
     return image
 
 
