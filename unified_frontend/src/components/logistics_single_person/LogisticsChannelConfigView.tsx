@@ -413,18 +413,20 @@ export function LogisticsChannelConfigView({
                     const selected = selectedChannelId === channel.id
                     const memberCount = channelMemberCounts[channel.id]
                     return (
-                      <div key={channel.id} className={`flex items-center gap-3 px-3 py-3 transition-colors ${selected ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
-                        <Button variant="ghost" className="min-w-0 flex-1 justify-start px-2" onClick={() => onSelectChannel(channel.id)}>
+                      <div key={channel.id} className={`flex flex-col items-stretch gap-2 px-3 py-3 transition-colors sm:flex-row sm:items-center sm:gap-3 ${selected ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
+                        <Button variant="ghost" className="w-full min-w-0 justify-start px-2 sm:w-auto sm:flex-1" onClick={() => onSelectChannel(channel.id)}>
                           <span className="truncate font-semibold">{channel.name}</span>
                         </Button>
-                        <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
-                        <Badge variant="outline">{memberCount ? `${memberCount.enabled}/${memberCount.total} 路` : '--/-- 路'}</Badge>
-                        {selected ? <Badge variant="outline">当前通道</Badge> : null}
-                        {isAdmin ? (
-                          <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
-                            <Trash2 className="h-4 w-4" />删除
-                          </Button>
-                        ) : null}
+                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                          <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
+                          <Badge variant="outline">{memberCount ? `${memberCount.enabled}/${memberCount.total} 路` : '--/-- 路'}</Badge>
+                          {selected ? <Badge variant="outline">当前通道</Badge> : null}
+                          {isAdmin ? (
+                            <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40 sm:ml-0" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
+                              <Trash2 className="h-4 w-4" />删除
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
                     )
                   })}

@@ -59,6 +59,8 @@ test('shared channel configuration covers channel, members, schedule and per-cam
   assert.match(config, /dispatchCreateDialog\(\{ type: 'success' \}\)/)
   assert.match(config, /collectChannelMemberCounts/)
   assert.match(config, /enabled.*total.*路/)
+  assert.match(config, /flex flex-col items-stretch.*sm:flex-row sm:items-center/)
+  assert.match(config, /flex w-full flex-wrap items-center gap-2 sm:w-auto/)
   assert.match(config, /绑定已有摄像头/)
   assert.match(config, /新建摄像头并绑定/)
   assert.match(config, /最多 9 路/)
