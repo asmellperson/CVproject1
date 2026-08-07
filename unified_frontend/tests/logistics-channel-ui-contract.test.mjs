@@ -46,7 +46,17 @@ test('shared logistics monitor follows the approved dwell dashboard layout', () 
 test('shared channel configuration covers channel, members, schedule and per-camera ROI', () => {
   const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
 
-  assert.match(config, /新增物流通道/)
+  for (const label of ['通道管理', '摄像头成员', '逐路 ROI', '通道规则']) {
+    assert.match(config, new RegExp(label))
+  }
+  assert.match(config, /DialogContent/)
+  assert.match(config, /DialogTitle>添加通道/)
+  assert.match(config, /确认添加/)
+  assert.match(config, /取消/)
+  assert.doesNotMatch(config, /CardTitle[^\n]*新增物流通道/)
+  assert.doesNotMatch(config, /aria-label="物流通道名称"/)
+  assert.match(config, /onSelectChannel\(result\.id\)/)
+  assert.match(config, /dispatchCreateDialog\(\{ type: 'success' \}\)/)
   assert.match(config, /绑定已有摄像头/)
   assert.match(config, /新建摄像头并绑定/)
   assert.match(config, /最多 9 路/)

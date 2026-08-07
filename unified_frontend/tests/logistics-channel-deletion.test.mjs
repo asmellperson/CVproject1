@@ -28,9 +28,9 @@ test('selects the next channel, then previous channel, after deleting the select
 
 test('delete convergence happens only after the delete request resolves', async () => {
   const config = await read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
-  const deleteBlock = config.slice(config.indexOf('const deleteChannel'), config.indexOf('const addExisting'))
-  const requestPosition = deleteBlock.indexOf('await deleteLogisticsChannel(feature, deletedChannelId)')
-  const convergencePosition = deleteBlock.indexOf('onChannelDeleted(deletedChannelId)')
+  const deleteBlock = config.slice(config.indexOf('const deleteChannelById'), config.indexOf('const addExisting'))
+  const requestPosition = deleteBlock.indexOf('await deleteLogisticsChannel(feature, channelId)')
+  const convergencePosition = deleteBlock.indexOf('onChannelDeleted(channelId)')
   assert.ok(requestPosition >= 0, 'delete API call must be awaited')
   assert.ok(convergencePosition > requestPosition, 'local convergence must happen only after delete succeeds')
 })

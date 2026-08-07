@@ -4,7 +4,8 @@ import { ArrowDown, ArrowUp, Camera, Plus, Save, Settings2, Trash2 } from 'lucid
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -40,6 +41,7 @@ import {
   removalConfirmationText,
   type MembershipLoadIdentity,
 } from './membershipState'
+import { channelCreateDialogReducer, initialChannelCreateDialogState } from './channelCreateDialogState'
 
 type Props = {
   feature: LogisticsFeatureName
@@ -78,7 +80,10 @@ export function LogisticsChannelConfigView({
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('通道配置修改后请保存。')
-  const [newChannelName, setNewChannelName] = useState('')
+  const [createDialog, dispatchCreateDialog] = useReducer(
+    channelCreateDialogReducer,
+    initialChannelCreateDialogState,
+  )
   const [channelName, setChannelName] = useState('')
   const [config, setConfig] = useState<LogisticsChannelConfig | null>(null)
   const [existingCameraId, setExistingCameraId] = useState('')
@@ -250,11 +255,20 @@ export function LogisticsChannelConfigView({
     }
   }
 
-  const createChannel = () => run(async () => {
-    const result = await createLogisticsChannel(feature, { name: newChannelName.trim() })
-    setNewChannelName('')
-    onSelectChannel(result.id)
-  }, '物流通道已新增。')
+  const createChannel = async () => {
+    const name = createDialog.name.trim()
+    if (!isAdmin || createDialog.submitting || !name) return
+    dispatchCreateDialog({ type: 'submit' })
+    try {
+      const result = await createLogisticsChannel(feature, { name })
+      onSelectChannel(result.id)
+      onChanged()
+      setMessage('物流通道已新增。')
+      dispatchCreateDialog({ type: 'success' })
+    } catch (reason) {
+      dispatchCreateDialog({ type: 'failure', error: messageOf(reason) })
+    }
+  }
 
   const saveChannel = () => {
     if (!selectedChannelDetail || !config) return
@@ -271,12 +285,11 @@ export function LogisticsChannelConfigView({
     }, '通道规则已保存。')
   }
 
-  const deleteChannel = () => {
-    if (!selectedChannelDetail || !window.confirm(`确定删除物流通道“${selectedChannelDetail.name}”吗？摄像头资源不会被删除。`)) return
-    const deletedChannelId = selectedChannelDetail.id
+  const deleteChannelById = (channelId: number, channelDisplayName: string) => {
+    if (!window.confirm(`确定删除物流通道“${channelDisplayName}”吗？摄像头资源不会被删除。`)) return
     void run(async () => {
-      await deleteLogisticsChannel(feature, deletedChannelId)
-      onChannelDeleted(deletedChannelId)
+      await deleteLogisticsChannel(feature, channelId)
+      onChannelDeleted(channelId)
     }, '物流通道已删除。')
   }
 
@@ -356,45 +369,76 @@ export function LogisticsChannelConfigView({
 
   return (
     <div className="space-y-5">
-      {!isAdmin ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5" />新增物流通道</CardTitle></CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row">
-          <Input aria-label="物流通道名称" value={newChannelName} onChange={(event) => setNewChannelName(event.target.value)} placeholder="输入物流通道名称" disabled={!isAdmin || busy} />
-          <Button className="shrink-0" onClick={createChannel} disabled={!isAdmin || busy || !newChannelName.trim()}>新增物流通道</Button>
-        </CardContent>
-      </Card>
+      {!isAdmin ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
 
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader><CardTitle className="text-base">通道列表</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {channels.length === 0 ? <p className="text-sm text-slate-500">暂无物流通道</p> : channels.map((channel) => (
-              <Button key={channel.id} variant={selectedChannelId === channel.id ? 'default' : 'outline'} className="w-full justify-between" onClick={() => onSelectChannel(channel.id)}>
-                <span className="truncate">{channel.name}</span><span className="text-xs opacity-70">{channel.enabled ? '启用' : '停用'}</span>
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
+      <div>
+        <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50">配置管理</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">管理物流通道、摄像头成员、逐路 ROI 与通道级检测规则。</p>
+      </div>
+
+      <Tabs defaultValue="channels" className="space-y-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
+          <TabsTrigger value="channels">通道管理</TabsTrigger>
+          <TabsTrigger value="members">摄像头成员</TabsTrigger>
+          <TabsTrigger value="roi">逐路 ROI</TabsTrigger>
+          <TabsTrigger value="rules">通道规则</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="channels" className="mt-0">
+          <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle>通道管理</CardTitle>
+                <CardDescription>选择需要配置的物流通道，或新增、删除通道。</CardDescription>
+              </div>
+              {isAdmin ? (
+                <Button onClick={() => dispatchCreateDialog({ type: 'open' })} disabled={busy}>
+                  <Plus className="h-4 w-4" />添加通道
+                </Button>
+              ) : null}
+            </CardHeader>
+            <CardContent>
+              {channels.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">暂无物流通道</div>
+              ) : (
+                <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+                  {channels.map((channel) => {
+                    const selected = selectedChannelId === channel.id
+                    return (
+                      <div key={channel.id} className={`flex items-center gap-3 px-3 py-3 transition-colors ${selected ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
+                        <Button variant="ghost" className="min-w-0 flex-1 justify-start px-2" onClick={() => onSelectChannel(channel.id)}>
+                          <span className="truncate font-semibold">{channel.name}</span>
+                        </Button>
+                        <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
+                        {selected ? <Badge variant="outline">当前通道</Badge> : null}
+                        {isAdmin ? (
+                          <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
+                            <Trash2 className="h-4 w-4" />删除
+                          </Button>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{message}</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {!selectedChannelDetail || !config ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500">请选择物流通道进行配置。</div>
+          <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">请先在“通道管理”中选择物流通道进行配置。</div>
         ) : (
-          <Tabs defaultValue="members" className="space-y-5">
-            <TabsList className="grid h-auto w-full grid-cols-3">
-              <TabsTrigger value="members">摄像头成员</TabsTrigger>
-              <TabsTrigger value="roi">逐路 ROI</TabsTrigger>
-              <TabsTrigger value="rules">通道规则</TabsTrigger>
-            </TabsList>
+          <>
 
-            <TabsContent value="members" className="space-y-5">
+            <TabsContent value="members" className="mt-0 space-y-5">
               <Card>
                 <CardHeader><CardTitle className="flex items-center justify-between gap-3"><span>通道摄像头</span><Badge variant="outline">{members.length}/9 路 · 最多 9 路</Badge></CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                   {members.length === 0 ? <p className="text-sm text-slate-500">当前通道没有摄像头，不会触发无人告警。</p> : members.map((member, index) => {
                     const camera = cameraById.get(member.camera_id)
                     return (
-                      <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-3">
+                      <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
                         <Camera className="h-4 w-4 text-slate-400" />
                         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
                         <Badge variant={member.enabled ? 'default' : 'secondary'}>{member.enabled ? '已启用' : '已停用'}</Badge>
@@ -417,7 +461,7 @@ export function LogisticsChannelConfigView({
                       <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
                       <SelectContent>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
                     </Select>
-                    <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
                     <Button onClick={addExisting} disabled={!isAdmin || busy || !existingCameraId || members.length >= 9}>{moveExisting ? '移动至当前通道' : '绑定已有摄像头'}</Button>
                   </CardContent>
                 </Card>
@@ -433,7 +477,7 @@ export function LogisticsChannelConfigView({
               </div>
             </TabsContent>
 
-            <TabsContent value="roi" className="space-y-5">
+            <TabsContent value="roi" className="mt-0 space-y-5">
               <Card>
                 <CardHeader><CardTitle className="text-base">逐路 ROI 摄像头</CardTitle></CardHeader>
                 <CardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></CardContent>
@@ -441,30 +485,61 @@ export function LogisticsChannelConfigView({
               <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} feature={feature} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
             </TabsContent>
 
-            <TabsContent value="rules" className="space-y-5">
+            <TabsContent value="rules" className="mt-0 space-y-5">
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" />通道级检测与告警配置</CardTitle></CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm"><span>启用当前物流通道</span><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig({ ...config, enabled: event.target.checked })} disabled={!isAdmin || busy} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用当前物流通道</span><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig({ ...config, enabled: event.target.checked })} disabled={!isAdmin || busy} /></label>
                   <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(config.detection_start)} onChange={(value) => setConfig({ ...config, detection_start: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(config.detection_end)} onChange={(value) => setConfig({ ...config, detection_end: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(config.empty_grace_seconds)} onChange={(value) => setConfig({ ...config, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(config.multi_grace_seconds)} onChange={(value) => setConfig({ ...config, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="告警间隔（秒）" id="logistics-alarm-interval" value={String(config.alarm_interval)} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm"><span>保存数据库告警</span><input type="checkbox" checked={config.alarm.sql_enable} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, sql_enable: event.target.checked } })} disabled={!isAdmin || busy} /></label>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm"><span>启用企业微信推送</span><input type="checkbox" checked={config.alarm.wechat.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, wechat: { ...config.alarm.wechat, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>保存数据库告警</span><input type="checkbox" checked={config.alarm.sql_enable} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, sql_enable: event.target.checked } })} disabled={!isAdmin || busy} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用企业微信推送</span><input type="checkbox" checked={config.alarm.wechat.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, wechat: { ...config.alarm.wechat, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
                   <div className="space-y-2"><Label htmlFor="logistics-wechat-user">企业微信接收人</Label><Input id="logistics-wechat-user" value={config.alarm.wechat.user} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, wechat: { ...config.alarm.wechat, user: event.target.value } } })} disabled={!isAdmin || busy} /></div>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm"><span>启用警号</span><input type="checkbox" checked={config.alarm.horn.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用警号</span><input type="checkbox" checked={config.alarm.horn.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
                   <ConfigNumber label="警号 ID" id="logistics-horn-id" value={config.alarm.horn.horn_id === null ? '' : String(config.alarm.horn.horn_id)} onChange={(value) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, horn_id: value === '' ? null : Number(value) } } })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="警号事件 ID" id="logistics-horn-event-id" value={config.alarm.horn.horn_event_id === null ? '' : String(config.alarm.horn.horn_event_id)} onChange={(value) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, horn_event_id: value === '' ? null : Number(value) } } })} disabled={!isAdmin || busy} />
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4 md:col-span-2"><p className="text-sm text-slate-600">{message}</p><div className="flex gap-2"><Button variant="outline" className="text-rose-600" onClick={deleteChannel} disabled={!isAdmin || busy}><Trash2 className="h-4 w-4" />删除通道</Button><Button onClick={saveChannel} disabled={!isAdmin || busy || !channelName.trim()}><Save className="h-4 w-4" />保存通道配置</Button></div></div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4 dark:bg-slate-900 md:col-span-2"><p className="text-sm text-slate-600 dark:text-slate-300">{message}</p><Button onClick={saveChannel} disabled={!isAdmin || busy || !channelName.trim()}><Save className="h-4 w-4" />保存通道配置</Button></div>
                 </CardContent>
               </Card>
             </TabsContent>
-          </Tabs>
+          </>
         )}
-      </div>
+      </Tabs>
+
+      <Dialog open={createDialog.open} onOpenChange={(open) => {
+        if (open) dispatchCreateDialog({ type: 'open' })
+        else if (!createDialog.submitting) dispatchCreateDialog({ type: 'close' })
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加通道</DialogTitle>
+            <DialogDescription>输入物流通道名称。添加后将自动选中新通道。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="logistics-new-channel-name">通道名称</Label>
+            <Input
+              id="logistics-new-channel-name"
+              value={createDialog.name}
+              onChange={(event) => dispatchCreateDialog({ type: 'change-name', name: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void createChannel()
+              }}
+              placeholder="例如：一号物流通道"
+              disabled={createDialog.submitting}
+              autoFocus
+            />
+            {createDialog.error ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">添加失败：{createDialog.error}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => dispatchCreateDialog({ type: 'close' })} disabled={createDialog.submitting}>取消</Button>
+            <Button onClick={() => void createChannel()} disabled={createDialog.submitting || !createDialog.name.trim()}>{createDialog.submitting ? '添加中…' : '确认添加'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
