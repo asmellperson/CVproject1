@@ -89,3 +89,18 @@ def test_event_dict_strictly_validates_both_camera_id_lists():
 
     assert event["camera_ids"] == [10, 11]
     assert event["offending_camera_ids"] == [10, 11]
+
+
+def test_event_dict_skips_oversized_camera_ids_without_response_failure():
+    upper_bound = 2**31 - 1
+    raw_ids = ["9" * 5000, upper_bound, str(upper_bound + 1)]
+    row = _channel_row(event_metadata={
+        "camera_ids": raw_ids,
+        "offending_camera_ids": list(raw_ids),
+    })
+
+    event = alarms._event_dict(row, {})
+    item = alarms.AlarmListResponse.model_validate({"items": [event]}).items[0]
+
+    assert item.camera_ids == [upper_bound]
+    assert item.offending_camera_ids == [upper_bound]

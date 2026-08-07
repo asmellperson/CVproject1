@@ -171,6 +171,8 @@ SECURITY_VLM_DEPARTMENTS = (
     "precious_metal_recycling",
 )
 
+_MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
+
 DEPARTMENT_ALIASES = {
     "ge": "general_electric",
     "general-electric": "general_electric",
@@ -424,10 +426,13 @@ def _normalize_alarm_id_list(value: object) -> list[int]:
             raw_camera_id = item.strip()
             if not raw_camera_id or any(char not in "0123456789" for char in raw_camera_id):
                 continue
-            camera_id = int(raw_camera_id)
+            try:
+                camera_id = int(raw_camera_id)
+            except (ValueError, OverflowError):
+                continue
         else:
             continue
-        if camera_id <= 0 or camera_id in seen:
+        if not 1 <= camera_id <= _MAX_AIVISION_CAMERA_ID or camera_id in seen:
             continue
         seen.add(camera_id)
         normalized.append(camera_id)

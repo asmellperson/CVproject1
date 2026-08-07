@@ -29,6 +29,7 @@ _TYPE_META = {
     9: {"event_type": "detect_logistics_single_person_precious_metal_recycling", "label": "物流通道单人检测（贵金属回收）", "color": "#0f766e"},
 }
 _DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64748b"}
+_MAX_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 
 
 class AlarmEventResponse(BaseModel):
@@ -99,10 +100,13 @@ def _int_list(value: object) -> list[int]:
             normalized = item.strip()
             if not normalized or any(char not in "0123456789" for char in normalized):
                 continue
-            camera_id = int(normalized)
+            try:
+                camera_id = int(normalized)
+            except (ValueError, OverflowError):
+                continue
         else:
             continue
-        if camera_id <= 0 or camera_id in seen:
+        if not 1 <= camera_id <= _MAX_CAMERA_ID or camera_id in seen:
             continue
         seen.add(camera_id)
         result.append(camera_id)

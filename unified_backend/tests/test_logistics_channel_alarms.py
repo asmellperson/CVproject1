@@ -145,6 +145,24 @@ def test_camera_id_metadata_only_accepts_unique_positive_decimal_ids(subject_typ
     assert normalized["offending_camera_ids"] == [10, 11]
 
 
+@pytest.mark.parametrize("subject_type", ["logistics_channel", "camera"])
+def test_oversized_camera_id_metadata_degrades_without_failure(subject_type):
+    upper_bound = 2**31 - 1
+    raw_ids = ["9" * 5000, upper_bound, str(upper_bound + 1)]
+
+    normalized = _normalize_aivision_alarm(_channel_alarm(
+        subject_type=subject_type,
+        metadata={
+            "channel_id": 3,
+            "camera_ids": raw_ids,
+            "offending_camera_ids": list(raw_ids),
+        },
+    ))
+
+    assert normalized["camera_ids"] == [upper_bound]
+    assert normalized["offending_camera_ids"] == [upper_bound]
+
+
 @pytest.mark.parametrize(("feature_name", "department"), LOGISTICS_FEATURES)
 def test_all_logistics_alarm_features_have_type_and_department_mapping(
     feature_name,
