@@ -29,6 +29,8 @@ const WS_BASE = trimTrailingSlash((import.meta.env.VITE_WS_BASE as string | unde
 export const API_PREFIX = joinUrl(API_BASE, '/api')
 export const WS_PREFIX = joinUrl(WS_BASE, '/ws')
 
+export const apiUrl = (path: string) => joinUrl(API_PREFIX, path)
+
 function notifyUnauthorized(response: Response) {
   if (response.status === 401) {
     window.dispatchEvent(new Event('aicv:unauthorized'))
