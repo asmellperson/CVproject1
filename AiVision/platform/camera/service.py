@@ -6,10 +6,12 @@ save_to_database / save_camera_with_function_config 等方法。
 新版本职责更窄:只管摄像头主表(ai_camera_config),功能配置由 features/_base/service.py 管。
 """
 from __future__ import annotations
+from time import sleep
 from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from core.db import session_scope, get_session
 from core.events import config_event_bus, ConfigChangeEvent
@@ -17,6 +19,32 @@ from core.cache import config_cache
 from core.logger import logger
 from features import all_specs
 from .orm import AiCameraConfig
+
+
+_MYSQL_RETRYABLE_LOCK_ERRORS = frozenset({1205, 1213})
+_MAX_WRITE_ATTEMPTS = 3
+_WRITE_RETRY_BACKOFF_SECONDS = 0.02
+
+
+def _database_error_code(exc: OperationalError) -> int | None:
+    args = getattr(exc.orig, "args", ())
+    if args and isinstance(args[0], int):
+        return args[0]
+    return None
+
+
+def _camera_integrity_value_error(exc: IntegrityError) -> ValueError:
+    """只把可识别的摄像头唯一键冲突映射为对应字段冲突。"""
+    message = str(exc.orig or exc).lower()
+    if (
+        "ai_camera_config.shm_name" in message
+        or "ai_camera_config_shm_name" in message
+        or "shm_name" in message
+    ):
+        return ValueError("shm_name 已存在")
+    if "ai_camera_config.name" in message or "ai_camera_config_name" in message:
+        return ValueError("name 已存在")
+    return ValueError("摄像头数据约束冲突")
 
 
 class CameraService:
@@ -73,13 +101,37 @@ class CameraService:
 
     def create_camera(self, payload: dict) -> dict:
         """新增摄像头 — 同时为每个已注册 feature 建一行默认空配置(enable=False)"""
-        with session_scope() as session:
+        def create_record(session):
             cam = self.create_camera_record(session, payload)
-            cam_id = cam.id
-            cam_shm = cam.shm_name
+            return cam.id, cam.shm_name
+
+        try:
+            cam_id, cam_shm = self._run_write_transaction(create_record)
+        except IntegrityError as exc:
+            error = _camera_integrity_value_error(exc)
+            logger.warning(f"[CameraService] 摄像头创建约束冲突: {error}")
+            raise error from exc
 
         self.notify_camera_created(cam_id, cam_shm)
         return self.get_camera(cam_shm)
+
+    @staticmethod
+    def _run_write_transaction(operation):
+        """死锁/锁等待超时时使用全新 session 完整重跑，最多三次。"""
+        for attempt in range(1, _MAX_WRITE_ATTEMPTS + 1):
+            try:
+                with session_scope() as session:
+                    return operation(session)
+            except OperationalError as exc:
+                code = _database_error_code(exc)
+                if code not in _MYSQL_RETRYABLE_LOCK_ERRORS or attempt >= _MAX_WRITE_ATTEMPTS:
+                    raise
+                logger.warning(
+                    f"[CameraService] 写事务锁冲突 code={code}, "
+                    f"准备第 {attempt + 1}/{_MAX_WRITE_ATTEMPTS} 次尝试"
+                )
+                sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
+        raise RuntimeError("unreachable")
 
     def create_camera_record(self, session, payload: dict) -> AiCameraConfig:
         """在调用方事务内创建摄像头及所有默认功能配置，不提交或发事件。"""

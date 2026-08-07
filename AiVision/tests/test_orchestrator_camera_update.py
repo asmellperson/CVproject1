@@ -124,3 +124,45 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
 
     assert calls == [("electrical-components", 7, True)]
     assert restart_calls == ["7_logistics"]
+
+
+def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypatch):
+    import platform.logistics_channel.service as service_module
+
+    feature_name = "detect_logistics_single_person"
+    orchestrator = _orchestrator_without_init()
+    status_calls = []
+    restart_calls = []
+    orchestrator.consumers = {
+        feature_name: SimpleNamespace(
+            update_status=lambda camera_id, enabled: status_calls.append(
+                (camera_id, enabled)
+            ),
+            update_config=lambda camera_id: None,
+        )
+    }
+    monkeypatch.setattr(
+        orchestrator,
+        "_restart_or_stop_camera",
+        lambda key: restart_calls.append(key),
+    )
+    monkeypatch.setattr(
+        service_module,
+        "config_cache",
+        SimpleNamespace(reload=lambda: None),
+    )
+    monkeypatch.setattr(
+        service_module,
+        "config_event_bus",
+        SimpleNamespace(publish=orchestrator._on_config_change),
+    )
+
+    service_module.LogisticsChannelService._notify_channel_changed(
+        11,
+        feature_name,
+        camera_refs=(service_module._CameraRef(7, "7_logistics"),),
+        feature_action="enabled",
+    )
+
+    assert status_calls == [(7, True)]
+    assert restart_calls == ["7_logistics"]
