@@ -357,6 +357,7 @@ export function LogisticsChannelConfigView({
         enabled,
       ),
       enabled ? '摄像头已启用。' : '摄像头已停用。',
+      true,
     )
   }
 

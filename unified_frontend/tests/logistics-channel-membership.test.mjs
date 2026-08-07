@@ -4,6 +4,7 @@ import test from 'node:test'
 import ts from 'typescript'
 
 const source = await readFile(new URL('../src/components/logistics_single_person/membershipState.ts', import.meta.url), 'utf8').catch(() => '')
+const configSource = await readFile(new URL('../src/components/logistics_single_person/LogisticsChannelConfigView.tsx', import.meta.url), 'utf8').catch(() => '')
 
 async function importTypeScript(value) {
   const output = ts.transpileModule(value, {
@@ -67,4 +68,19 @@ test('a late response from the previous feature cannot replace current membershi
   await oldWork
 
   assert.deepEqual(applied, [9])
+})
+
+test('enabling or disabling a member refreshes membership counts only through the successful run path', () => {
+  const setEnabledBlock = configSource.slice(
+    configSource.indexOf('const setMemberEnabled'),
+    configSource.indexOf('const saveRoi'),
+  )
+  assert.match(setEnabledBlock, /enabled \? '摄像头已启用。' : '摄像头已停用。',\s*true,?\s*\)/)
+
+  const runBlock = configSource.slice(configSource.indexOf('const run = async'), configSource.indexOf('const createChannel'))
+  const mutationPosition = runBlock.indexOf('await action()')
+  const refreshPosition = runBlock.indexOf('if (reloadMemberships)')
+  const catchPosition = runBlock.indexOf('} catch (reason)')
+  assert.ok(mutationPosition >= 0 && refreshPosition > mutationPosition)
+  assert.ok(catchPosition > refreshPosition, 'membership refresh must remain inside the success-only try path')
 })
