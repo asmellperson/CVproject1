@@ -1013,6 +1013,67 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
         assert base_cfg.roi_pos == [[1, 2], [3, 4]]
 
 
+def test_migration_rehearsal_covers_all_four_features_and_preserves_camera_configs(service_db):
+    camera_ids: dict[str, int] = {}
+    original_rois: dict[str, list[list[int]]] = {}
+    for index, feature_name in enumerate(sorted(LOGISTICS_FEATURES), start=1):
+        camera_id = _seed_camera(
+            service_db,
+            f"四模块迁移相机-{index}",
+            enabled_features=(feature_name,),
+        )
+        roi = [[index, index + 1], [index + 20, index + 30]]
+        with service_db.factory.begin() as session:
+            cfg = session.query(all_specs()[feature_name].orm_class).filter_by(
+                camera_id=camera_id,
+            ).one()
+            cfg.roi_pos = roi
+        camera_ids[feature_name] = camera_id
+        original_rois[feature_name] = roi
+
+    collision_feature = sorted(LOGISTICS_FEATURES)[0]
+    collision_camera_id = camera_ids[collision_feature]
+    with service_db.factory.begin() as session:
+        collision_camera = session.get(AiCameraConfig, collision_camera_id)
+        session.add(LogisticsChannel(
+            feature_name=collision_feature,
+            name=collision_camera.name,
+        ))
+
+    first = service_db.service.migrate_existing_feature_cameras()
+    second = service_db.service.migrate_existing_feature_cameras()
+
+    assert (first.created, first.skipped, first.failed) == (4, 0, 0)
+    assert (second.created, second.skipped, second.failed) == (0, 4, 0)
+    with service_db.factory() as session:
+        for feature_name, camera_id in camera_ids.items():
+            memberships = (
+                session.query(LogisticsChannelCamera)
+                .join(LogisticsChannel)
+                .filter(
+                    LogisticsChannel.feature_name == feature_name,
+                    LogisticsChannelCamera.camera_id == camera_id,
+                )
+                .all()
+            )
+            assert len(memberships) == 1
+            cfg = session.query(all_specs()[feature_name].orm_class).filter_by(
+                camera_id=camera_id,
+            ).one()
+            assert cfg.enable is True
+            assert cfg.roi_pos == original_rois[feature_name]
+
+        migrated_collision = (
+            session.query(LogisticsChannel)
+            .filter_by(
+                feature_name=collision_feature,
+                name=f"四模块迁移相机-1-{collision_camera_id}",
+            )
+            .one()
+        )
+        assert migrated_collision.cameras[0].camera_id == collision_camera_id
+
+
 def test_migration_records_one_camera_failure_and_continues(service_db, caplog):
     failed_camera_id = _seed_camera(
         service_db,

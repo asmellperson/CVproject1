@@ -277,6 +277,10 @@ guard_room/config/config.example.yaml
 | `detect_face` | 人脸检测 | 人脸逗留检测 | `yolo_face` |
 | `detect_human` | 人员逗留检测 | 人体逗留检测 | `yolo_human` |
 | `detect_phone` | 手机使用检测 | 手机检测 | `yolo_phone` |
+| `detect_logistics_single_person` | 通用电气物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
+| `detect_logistics_single_person_electronics_electrician` | 电子电工物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
+| `detect_logistics_single_person_electrical_components` | 电气部件物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
+| `detect_logistics_single_person_precious_metal_recycling` | 贵金属回收物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 
 ### 7.2 features-first 架构
 
@@ -366,6 +370,9 @@ AiVision/
 /api/v2/features/{feature}/configs/{shm_name}
 /api/v2/models
 /api/v2/alarms
+/api/v2/logistics-channels/{feature}
+/api/v2/logistics-channels/{feature}/{channel_id}/status
+/api/v2/logistics-channels/{feature}/{channel_id}/frame.jpg
 ```
 
 兼容旧前端的路径包括：
@@ -382,7 +389,44 @@ AiVision/
 
 前端现在仍大量使用兼容路径，见 `unified_frontend/src/lib/aivision.ts`。
 
-### 7.6 新增 AiVision 检测能力的入口
+### 7.6 物流通道多摄像头单人检测
+
+四个物流单人检测模块共用同一套“物流通道”管理能力。管理员在对应模块的配置页新建具名通道，然后新建或绑定摄像头；每个通道支持 1–9 路摄像头，每路摄像头单独保存 ROI。监控页按成员顺序自动拼接：1 路单画面、2 路左右、3–4 路 2×2、5–9 路 3×3。
+
+通道按所有已启用成员的最新结果联合判定：
+
+| 摄像头结果 | 通道状态 | 报警 |
+| --- | --- | --- |
+| 任意一路人数大于等于 2 | 多人异常 | 达到通道“多人持续时间”后报警 |
+| 全部摄像头都有新鲜结果且全部为 0 | 无人异常 | 达到通道“无人持续时间”后报警 |
+| 没有多人，至少一路为 1（包括多路各 1 人） | 正常 | 不报警 |
+| 存在离线、过期或未出结果的摄像头，其余均为 0 | 未知 | 不报警，未知不能当作无人 |
+
+检测开始/结束时间、无人和多人持续时间、报警间隔及通知开关均在前端按通道独立配置。成员 ROI 和推理过滤参数仍按摄像头独立配置。状态结果默认超过 5 秒即视为过期，可在启动 AiVision 前调整：
+
+```bash
+export LOGISTICS_STATUS_STALE_SECONDS=5
+```
+
+AiVision 启动时会先由 `ensure_schema_compatible()` 自动创建 `ai_logistics_channel`、`ai_logistics_channel_camera` 等缺失表，再运行旧配置迁移。迁移会为四个物流 feature 中每个已启用且尚未归属通道的摄像头创建同名通道；同一 feature 名称冲突时稳定追加摄像头 ID，并保留原 ROI、检测参数和启用状态。迁移可重复执行，已迁移成员会跳过，不会重复建通道。
+
+上线前应备份 AiVision 数据库。回滚旧版本代码前也应先备份；新增物流表可以保留，不影响旧代码，不要在未经独立数据清理评审时删除旧摄像头级配置字段或物流表。迁移失败会记录 feature、camera ID 和原因，其他摄像头仍继续迁移；启动日志出现“物流通道迁移存在失败”时，应先处理冲突再重启验证。
+
+纯逻辑回归可在项目根目录执行：
+
+```bash
+cd AiVision
+MYSQL_DB_URL=127.0.0.1 MYSQL_DB_USER=test MYSQL_DB_PASSWORD=test MYSQL_DB_NAME=test \
+  DATA_PATH=/tmp/aivision-logistics-test pytest -q
+cd ..
+PYTHONPATH=. pytest unified_backend/tests -q
+cd unified_frontend
+node --test tests/*.mjs
+npm run lint
+npm run build
+```
+
+### 7.7 新增 AiVision 检测能力的入口
 
 新增一个 feature 时，优先照着现有目录复制结构：
 
