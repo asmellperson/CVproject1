@@ -15,13 +15,21 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.auth import require_admin, get_current_user
-from api.deps import get_camera_service, get_current_orchestrator, get_feature_config_service, get_model_service, get_department_service
+from api.deps import (
+    get_camera_service,
+    get_current_orchestrator,
+    get_department_service,
+    get_feature_config_service,
+    get_logistics_channel_service,
+    get_model_service,
+)
 from api.v2.cameras import (
     build_camera_frame_response,
     camera_read_department,
     get_camera_for_user,
 )
 from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
+from api.v2.logistics_channels import _require_feature_access
 from core.db import session_scope
 from platform.department.service import DepartmentService
 from features import get_spec
@@ -159,6 +167,37 @@ def _get_legacy_config(legacy_name: str, shm_name: str, feature_service) -> dict
     return result["config"]
 
 
+def _get_legacy_logistics_config(
+    legacy_name: str,
+    shm_name: str,
+    user: dict,
+    feature_service,
+    channel_service,
+) -> dict[str, Any]:
+    """兼容读取物流逐路配置，同时执行部门和通道成员权限校验。"""
+    spec = _require_legacy_spec(legacy_name)
+    _require_feature_access(spec.name, user)
+    result = feature_service.get_config(spec, shm_name)
+    if result is None:
+        raise HTTPException(status_code=404, detail="camera or config not found")
+    if user.get("role") != "admin":
+        camera_id = int(result["camera"]["id"])
+        channels = (channel_service.list_channels(spec.name) or {}).get("items") or []
+        for channel in channels:
+            detail = channel_service.get_channel(spec.name, int(channel["id"]))
+            if detail is not None and any(
+                int(member["camera_id"]) == camera_id
+                for member in detail.get("members", [])
+            ):
+                break
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="logistics channel membership permission required",
+            )
+    return result["config"]
+
+
 def _put_legacy_config(legacy_name: str, shm_name: str, payload: dict[str, Any], feature_service) -> dict[str, Any]:
     spec = _require_legacy_spec(legacy_name)
     normalized = _normalize_legacy_payload(spec, payload)
@@ -250,8 +289,15 @@ def put_human_config(
 
 
 @router.get("/api/ai/logistics-single-person-config/{shm_name}")
-def get_logistics_single_person_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("logistics_single_person", shm_name, feature_service)
+def get_logistics_single_person_config(
+    shm_name: str,
+    user: dict = Depends(get_current_user),
+    feature_service=Depends(get_feature_config_service),
+    channel_service=Depends(get_logistics_channel_service),
+):
+    return _get_legacy_logistics_config(
+        "logistics_single_person", shm_name, user, feature_service, channel_service
+    )
 
 
 @router.put("/api/ai/logistics-single-person-config/{shm_name}")
@@ -265,8 +311,19 @@ def put_logistics_single_person_config(
 
 
 @router.get("/api/ai/logistics-single-person-electronics-electrician-config/{shm_name}")
-def get_logistics_single_person_electronics_electrician_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("logistics_single_person_electronics_electrician", shm_name, feature_service)
+def get_logistics_single_person_electronics_electrician_config(
+    shm_name: str,
+    user: dict = Depends(get_current_user),
+    feature_service=Depends(get_feature_config_service),
+    channel_service=Depends(get_logistics_channel_service),
+):
+    return _get_legacy_logistics_config(
+        "logistics_single_person_electronics_electrician",
+        shm_name,
+        user,
+        feature_service,
+        channel_service,
+    )
 
 
 @router.put("/api/ai/logistics-single-person-electronics-electrician-config/{shm_name}")
@@ -280,8 +337,19 @@ def put_logistics_single_person_electronics_electrician_config(
 
 
 @router.get("/api/ai/logistics-single-person-electrical-components-config/{shm_name}")
-def get_logistics_single_person_electrical_components_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("logistics_single_person_electrical_components", shm_name, feature_service)
+def get_logistics_single_person_electrical_components_config(
+    shm_name: str,
+    user: dict = Depends(get_current_user),
+    feature_service=Depends(get_feature_config_service),
+    channel_service=Depends(get_logistics_channel_service),
+):
+    return _get_legacy_logistics_config(
+        "logistics_single_person_electrical_components",
+        shm_name,
+        user,
+        feature_service,
+        channel_service,
+    )
 
 
 @router.put("/api/ai/logistics-single-person-electrical-components-config/{shm_name}")
@@ -295,8 +363,19 @@ def put_logistics_single_person_electrical_components_config(
 
 
 @router.get("/api/ai/logistics-single-person-precious-metal-recycling-config/{shm_name}")
-def get_logistics_single_person_precious_metal_recycling_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("logistics_single_person_precious_metal_recycling", shm_name, feature_service)
+def get_logistics_single_person_precious_metal_recycling_config(
+    shm_name: str,
+    user: dict = Depends(get_current_user),
+    feature_service=Depends(get_feature_config_service),
+    channel_service=Depends(get_logistics_channel_service),
+):
+    return _get_legacy_logistics_config(
+        "logistics_single_person_precious_metal_recycling",
+        shm_name,
+        user,
+        feature_service,
+        channel_service,
+    )
 
 
 @router.put("/api/ai/logistics-single-person-precious-metal-recycling-config/{shm_name}")

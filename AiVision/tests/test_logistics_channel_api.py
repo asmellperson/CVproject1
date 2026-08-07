@@ -14,6 +14,7 @@ from fastapi.routing import serialize_response
 
 sys.modules.pop("platform", None)
 api = importlib.import_module("api.v2.logistics_channels")
+compat_api = importlib.import_module("api.compat")
 
 FEATURES = tuple(sorted(importlib.import_module(
     "platform.logistics_channel.constants"
@@ -137,9 +138,12 @@ class FakeFeatureService:
 
     @staticmethod
     def _response(spec, camera_id):
+        raw_camera_id = str(camera_id)
+        if raw_camera_id.startswith("camera_"):
+            raw_camera_id = raw_camera_id.removeprefix("camera_")
         return {
             "camera": {
-                "id": int(camera_id),
+                "id": int(raw_camera_id),
                 "name": f"摄像头-{camera_id}",
                 "shm_name": f"camera_{camera_id}",
                 "enable": True,
@@ -149,6 +153,8 @@ class FakeFeatureService:
         }
 
     def get_config(self, spec, camera_id):
+        if camera_id == "missing":
+            return None
         self.calls.append(("get", spec.name, int(camera_id)))
         return self._response(spec, camera_id)
 
@@ -428,6 +434,78 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
             allowed = await client.get(path)
             assert allowed.status_code == 200
             assert "url" not in allowed.json()["camera"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("feature", "legacy_path"),
+    [
+        (
+            "detect_logistics_single_person",
+            "/api/ai/logistics-single-person-config",
+        ),
+        (
+            "detect_logistics_single_person_electronics_electrician",
+            "/api/ai/logistics-single-person-electronics-electrician-config",
+        ),
+        (
+            "detect_logistics_single_person_electrical_components",
+            "/api/ai/logistics-single-person-electrical-components-config",
+        ),
+        (
+            "detect_logistics_single_person_precious_metal_recycling",
+            "/api/ai/logistics-single-person-precious-metal-recycling-config",
+        ),
+    ],
+)
+def test_legacy_logistics_config_reads_require_department_and_membership(
+    monkeypatch,
+    feature,
+    legacy_path,
+):
+    service = FakeService()
+    channel = _seed(service, feature=feature)
+    service.add_existing_camera(feature, channel["id"], 7)
+    feature_service = FakeFeatureService()
+    app = FastAPI()
+    app.include_router(compat_api.router)
+    app.dependency_overrides[compat_api.get_logistics_channel_service] = lambda: service
+    app.dependency_overrides[compat_api.get_feature_config_service] = lambda: feature_service
+
+    async def inline_run_sync(func, *args, **_kwargs):
+        return func(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            def unauthenticated():
+                raise HTTPException(status_code=401, detail="not authenticated")
+
+            app.dependency_overrides[compat_api.get_current_user] = unauthenticated
+            assert (await client.get(f"{legacy_path}/7")).status_code == 401
+
+            viewer = {
+                "role": "viewer",
+                "department": api.LOGISTICS_FEATURE_DEPARTMENTS[feature],
+            }
+            app.dependency_overrides[compat_api.get_current_user] = lambda: viewer
+            assert (await client.get(f"{legacy_path}/7")).status_code == 200
+            assert (await client.get(f"{legacy_path}/8")).status_code == 403
+            assert (await client.put(f"{legacy_path}/7", json={})).status_code == 403
+
+            app.dependency_overrides[compat_api.get_current_user] = lambda: {
+                "role": "viewer",
+                "department": "cross_department",
+            }
+            assert (await client.get(f"{legacy_path}/7")).status_code == 403
+
+            app.dependency_overrides[compat_api.get_current_user] = lambda: ADMIN
+            assert (await client.get(f"{legacy_path}/7")).status_code == 200
+            assert (await client.get(f"{legacy_path}/8")).status_code == 200
+            assert (await client.get(f"{legacy_path}/missing")).status_code == 404
 
     asyncio.run(scenario())
 
