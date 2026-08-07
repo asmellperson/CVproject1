@@ -18,6 +18,10 @@ import {
   isCurrentChannelListRequest,
 } from './channelRequestState'
 import { selectAfterChannelDeletion } from './channelSelection'
+import {
+  appendLogisticsStatusEvent,
+  type LogisticsChannelStatusEvent,
+} from './monitorPresentation'
 import type {
   LogisticsChannel,
   LogisticsChannelDetail,
@@ -194,27 +198,6 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   }
 }
 
-export type LogisticsChannelStatusEvent = {
-  id: string
-  reason: Exclude<LogisticsChannelReason, 'unknown' | 'unconfigured' | 'inactive'>
-  occurredAt: string
-}
-
-function appendStatusEvent(
-  events: LogisticsChannelStatusEvent[],
-  previousReason: LogisticsChannelReason | null,
-  status: LogisticsChannelRuntimeStatus,
-) {
-  if (
-    status.reason === previousReason
-    || status.reason === 'unknown'
-    || status.reason === 'unconfigured'
-    || status.reason === 'inactive'
-  ) return events
-  const occurredAt = new Date().toISOString()
-  return [{ id: `${occurredAt}-${status.reason}`, reason: status.reason, occurredAt }, ...events].slice(0, 8)
-}
-
 type SelectionToken = { key: string }
 type KeyedValue<T> = { selection: SelectionToken; value: T }
 
@@ -253,7 +236,7 @@ export function useLogisticsChannelStatus(
       if (currentSelectionRef.current !== requestedSelection) return
       setEventState((current) => ({
         selection: requestedSelection,
-        value: appendStatusEvent(
+        value: appendLogisticsStatusEvent(
           current?.selection === requestedSelection ? current.value : [],
           previousReasonRef.current?.selection === requestedSelection
             ? previousReasonRef.current.value

@@ -8,7 +8,10 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
-import type { LogisticsChannelStatusEvent } from './useLogisticsChannels'
+import {
+  getLogisticsFramePresentation,
+  type LogisticsChannelStatusEvent,
+} from './monitorPresentation'
 import type {
   LogisticsChannel,
   LogisticsChannelDetail,
@@ -142,6 +145,14 @@ export function LogisticsChannelMonitorView({
   const routeCounts = cameraStates.length
     ? cameraStates.map((camera) => camera.count ?? '--').join(' / ')
     : '--'
+  const framePresentation = getLogisticsFramePresentation(frameUrl, frameError)
+  const frameStatusClassName = framePresentation.state === 'live'
+    ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-300'
+    : framePresentation.state === 'error'
+      ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-300'
+      : framePresentation.state === 'stale'
+        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
 
   return (
     <div className="space-y-5">
@@ -266,17 +277,23 @@ export function LogisticsChannelMonitorView({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={cn('rounded-full border-0 px-2.5 py-1 shadow-none', presentation.className)}>{presentation.label}</Badge>
-                    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold', frameUrl ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300')}>{frameUrl ? '画面在线' : '等待画面'}</span>
+                    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold', frameStatusClassName)}>{framePresentation.label}</span>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="flex aspect-video items-center justify-center bg-slate-950">
-                  {frameUrl ? <img src={frameUrl} alt={`${selectedChannel.name}拼接监控画面`} className="h-full w-full object-contain" /> : (
-                    <div className="px-6 text-center text-sm text-slate-300">{frameError || (memberCount === 0 ? '通道未配置摄像头' : '等待拼接画面')}</div>
+                  {framePresentation.showFrame && frameUrl ? <img src={frameUrl} alt={`${selectedChannel.name}拼接监控画面`} className="h-full w-full object-contain" /> : (
+                    <div className="px-6 text-center text-sm text-slate-300">{framePresentation.errorMessage || (memberCount === 0 ? '通道未配置摄像头' : '等待拼接画面')}</div>
                   )}
                 </div>
-                <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">画面由通道内摄像头实时拼接，状态信息显示在画面外。</div>
+                {framePresentation.errorMessage ? (
+                  <div role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
+                    {framePresentation.state === 'stale' ? '当前显示最近一帧：' : '画面加载失败：'}{framePresentation.errorMessage}
+                  </div>
+                ) : (
+                  <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">画面由通道内摄像头实时拼接，状态信息显示在画面外。</div>
+                )}
               </CardContent>
             </Card>
           </section>
