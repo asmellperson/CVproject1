@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from threading import Event, RLock, Thread
+from math import isfinite
+from threading import Event, Lock, RLock, Thread
 import time
 from typing import Callable
 
@@ -18,13 +19,7 @@ from platform.camera.service import camera_service
 from .compositor import CameraTile, compose_channel_frame
 from .constants import LOGISTICS_FEATURES, require_logistics_feature
 from .service import logistics_channel_service
-from .state import (
-    CameraSnapshot,
-    CameraSnapshotStore,
-    ChannelDecision,
-    ChannelPresenceState,
-    classify_channel,
-)
+from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, classify_channel
 
 
 @dataclass(frozen=True)
@@ -49,6 +44,36 @@ class _ChannelConfig:
     cameras: tuple[_CameraInfo, ...]
 
 
+@dataclass(frozen=True)
+class _ChannelView:
+    channel: _ChannelConfig
+    generation: int
+    snapshots: tuple[CameraSnapshot | None, ...]
+    frames: tuple[np.ndarray | None, ...]
+
+
+@dataclass(frozen=True)
+class _PreparedView:
+    channel: _ChannelConfig
+    generation: int
+    snapshots: tuple[CameraSnapshot, ...]
+    states: dict[str, dict]
+    tiles: tuple[CameraTile, ...]
+    active: bool
+
+
+@dataclass(frozen=True)
+class _IncidentWork:
+    key: tuple[str, int]
+    generation: int
+    token: int
+    channel: _ChannelConfig
+    decision: ChannelDecision
+    states: dict[str, dict]
+    tiles: tuple[CameraTile, ...]
+    evaluated_at: float
+
+
 class LogisticsChannelRuntime:
     """聚合逐路快照、维护通道计时并统一分发通道告警。"""
 
@@ -63,7 +88,9 @@ class LogisticsChannelRuntime:
         wall_time_provider: Callable[[], datetime] | None = None,
         violation_type_provider: Callable[[str], int] | None = None,
         clock_provider: Callable[[], float] | None = None,
+        compositor: Callable[[tuple[CameraTile, ...]], np.ndarray] | None = None,
         start_background: bool = True,
+        stop_timeout_seconds: float = 2.0,
     ) -> None:
         self._service = channel_service
         self._dispatcher = dispatcher
@@ -76,75 +103,101 @@ class LogisticsChannelRuntime:
             if stale_seconds is None
             else float(stale_seconds)
         )
-        self._wall_time_provider = wall_time_provider or (
-            lambda: datetime.now().astimezone()
-        )
+        self._wall_time_provider = wall_time_provider or (lambda: datetime.now().astimezone())
         self._violation_type_provider = violation_type_provider or (
             lambda feature_name: all_specs()[feature_name].violation_type
         )
         self._clock_provider = clock_provider or time.time
+        self._compositor = compositor or compose_channel_frame
         self._start_background = start_background
+        self._stop_timeout_seconds = float(stop_timeout_seconds)
         self._stop_event = Event()
         self._thread: Thread | None = None
+        self._lifecycle_lock = Lock()
         self._lock = RLock()
-        self._snapshots = CameraSnapshotStore()
+        self._snapshots: dict[tuple[str, int], CameraSnapshot] = {}
         self._frames: dict[tuple[str, int], np.ndarray] = {}
         self._channels: dict[tuple[str, int], _ChannelConfig] = {}
         self._camera_channels: dict[tuple[str, int], int] = {}
         self._loaded_features: set[str] = set()
+        self._generations: dict[str, int] = {feature: 0 for feature in LOGISTICS_FEATURES}
         self._states: dict[tuple[str, int], ChannelPresenceState] = {}
         self._statuses: dict[tuple[str, int], dict] = {}
         self._channel_frames: dict[tuple[str, int], np.ndarray] = {}
         self._active_incidents: dict[tuple[str, int], str] = {}
+        self._pending_incidents: dict[tuple[str, int], tuple[str, int, int]] = {}
+        self._next_incident_token = 0
         self._running = False
 
     def start(self) -> None:
-        with self._lock:
-            if self._running:
-                return
-            self._running = True
-            self._stop_event.clear()
-            if self._start_background:
-                self._thread = Thread(
-                    target=self._evaluation_loop,
-                    daemon=True,
-                    name="logistics-channel-runtime",
-                )
-                self._thread.start()
+        thread = None
+        with self._lifecycle_lock:
+            with self._lock:
+                existing = self._thread
+                if existing is not None and existing.is_alive():
+                    if self._running:
+                        return
+                    raise RuntimeError("物流通道运行时上一巡检线程仍在停止中，禁止重复启动")
+                self._thread = None
+                if self._running:
+                    return
+                self._stop_event.clear()
+                self._running = True
+                if self._start_background:
+                    thread = Thread(
+                        target=self._evaluation_loop,
+                        daemon=True,
+                        name="logistics-channel-runtime",
+                    )
+                    self._thread = thread
+            if thread is not None:
+                try:
+                    thread.start()
+                except Exception:
+                    with self._lock:
+                        self._running = False
+                        self._stop_event.set()
+                        if self._thread is thread:
+                            self._thread = None
+                    raise
         logger.info("[LogisticsChannelRuntime] 已启动")
 
     def stop(self) -> None:
-        with self._lock:
-            self._running = False
-            self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
-        with self._lock:
-            self._channels.clear()
-            self._camera_channels.clear()
-            self._loaded_features.clear()
-            self._states.clear()
-            self._statuses.clear()
-            self._channel_frames.clear()
-            self._active_incidents.clear()
-            self._frames.clear()
-            for feature_name in LOGISTICS_FEATURES:
-                self._snapshots.clear_feature(feature_name)
+        with self._lifecycle_lock:
+            with self._lock:
+                self._running = False
+                self._stop_event.set()
+                thread = self._thread
+            if thread is not None:
+                thread.join(timeout=self._stop_timeout_seconds)
+                if thread.is_alive():
+                    logger.error("[LogisticsChannelRuntime] 巡检线程停止超时，保留停止状态")
+                    raise RuntimeError("物流通道巡检线程停止超时，禁止重新启动")
+            with self._lock:
+                if self._thread is not thread:
+                    raise RuntimeError("物流通道巡检线程引用在停止期间发生变化")
+                self._thread = None
+                self._clear_all_state_locked()
         logger.info("[LogisticsChannelRuntime] 已停止")
 
     def camera_should_run(self, feature_name: str, camera_id: int) -> bool:
         feature_name = require_logistics_feature(feature_name)
+        self._ensure_feature_loaded(feature_name)
         with self._lock:
-            self._ensure_feature_loaded(feature_name)
             channel_id = self._camera_channels.get((feature_name, camera_id))
-            if channel_id is None:
-                return False
-            channel = self._channels.get((feature_name, channel_id))
-            active = bool(channel and self._channel_is_active(channel))
-            if not active and channel is not None:
-                self._reset_non_alarm_locked(channel, "inactive")
-            return active
+            channel = self._channels.get((feature_name, channel_id)) if channel_id is not None else None
+            generation = self._generations[feature_name]
+        if channel is None:
+            return False
+        active = self._channel_is_active(channel)
+        reset_cooldown = False
+        if not active:
+            with self._lock:
+                if self._channel_is_current_locked(channel, generation):
+                    reset_cooldown = self._reset_non_alarm_locked(channel, "inactive")
+            if reset_cooldown:
+                self._reset_cooldown(channel)
+        return active
 
     def update_camera_snapshot(
         self,
@@ -153,16 +206,19 @@ class LogisticsChannelRuntime:
         annotated_frame: np.ndarray | None,
     ) -> None:
         feature_name = require_logistics_feature(feature_name)
+        frame_copy = None
+        if isinstance(annotated_frame, np.ndarray) and annotated_frame.size:
+            frame_copy = annotated_frame.copy()
         with self._lock:
-            if not self._running:
-                logger.warning(
-                    f"[LogisticsChannelRuntime] 未启动时收到快照 "
-                    f"feature={feature_name} camera_id={snapshot.camera_id}"
-                )
-            self._snapshots.upsert(feature_name, snapshot)
-            key = (feature_name, snapshot.camera_id)
-            if isinstance(annotated_frame, np.ndarray) and annotated_frame.size:
-                self._frames[key] = annotated_frame.copy()
+            running = self._running
+            self._snapshots[(feature_name, snapshot.camera_id)] = snapshot
+            if frame_copy is not None:
+                self._frames[(feature_name, snapshot.camera_id)] = frame_copy
+        if not running:
+            logger.warning(
+                f"[LogisticsChannelRuntime] 未启动时收到快照 "
+                f"feature={feature_name} camera_id={snapshot.camera_id}"
+            )
 
     def evaluate_after_camera_update(
         self,
@@ -170,12 +226,10 @@ class LogisticsChannelRuntime:
         camera_id: int,
     ) -> ChannelDecision | None:
         feature_name = require_logistics_feature(feature_name)
+        self._ensure_feature_loaded(feature_name)
         with self._lock:
-            self._ensure_feature_loaded(feature_name)
             channel_id = self._camera_channels.get((feature_name, camera_id))
-        if channel_id is None:
-            return None
-        return self.evaluate(feature_name, channel_id)
+        return None if channel_id is None else self.evaluate(feature_name, channel_id)
 
     def evaluate(
         self,
@@ -186,97 +240,58 @@ class LogisticsChannelRuntime:
     ) -> ChannelDecision:
         feature_name = require_logistics_feature(feature_name)
         evaluated_at = self._clock_provider() if now is None else float(now)
-        with self._lock:
-            self._ensure_feature_loaded(feature_name)
-            channel = self._channels.get((feature_name, channel_id))
-            if channel is None:
+        for _attempt in range(3):
+            view = self._snapshot_channel(feature_name, channel_id)
+            if view is None:
                 return ChannelDecision("unconfigured", False, 0.0, None)
-
-            active = self._channel_is_active(channel)
-            snapshots, states, tiles = self._collect_camera_state_locked(
-                channel,
-                evaluated_at,
-            )
-            base = classify_channel(
-                snapshots,
-                now=evaluated_at,
-                stale_seconds=self._stale_seconds,
-                active=active,
-            )
-            state = self._states.setdefault(
-                (feature_name, channel_id),
-                ChannelPresenceState(),
-            )
-            decision = state.evaluate(
-                base,
-                now=evaluated_at,
-                empty_grace_seconds=channel.empty_grace_seconds,
-                multi_grace_seconds=channel.multi_grace_seconds,
-            )
-            frame = self._compose_channel_frame(channel, tiles)
-            if frame is not None:
-                self._channel_frames[(feature_name, channel_id)] = frame
-            self._statuses[(feature_name, channel_id)] = self._build_status(
-                channel,
-                decision,
-                states,
-                evaluated_at,
-            )
-
-            incident_key = (feature_name, channel_id)
-            if not decision.alarm:
-                self._clear_incident_locked(channel)
-                return decision
-            if self._active_incidents.get(incident_key) == decision.reason:
-                return decision
-
-            request = self._build_alarm_request(
-                channel,
-                decision,
-                states,
-                frame,
-                evaluated_at,
-            )
-            try:
-                dispatched = self._dispatcher.maybe_dispatch(
-                    request,
-                    alarm_interval=channel.alarm_interval,
-                )
-            except Exception:
-                logger.exception(
-                    f"[LogisticsChannelRuntime] 告警分发失败 "
-                    f"feature={feature_name} channel_id={channel_id}"
-                )
-                dispatched = False
-            if dispatched:
-                self._active_incidents[incident_key] = decision.reason
+            prepared = self._prepare_view(view, evaluated_at)
+            transition = self._transition(prepared, evaluated_at)
+            if transition is None:
+                continue
+            decision, work, reset_cooldown = transition
+            if reset_cooldown:
+                self._reset_cooldown(prepared.channel)
+            if work is not None:
+                self._execute_incident(work)
             return decision
+        return ChannelDecision("unknown", False, 0.0, None)
 
     def refresh_camera(self, feature_name: str, camera_id: int) -> None:
-        """摄像头 ROI/推理配置变化时清理其所属通道的旧判定状态。"""
+        """摄像头信息、ROI 或绑定变化后重新加载所属功能配置。"""
         feature_name = require_logistics_feature(feature_name)
+        reset_channel = None
         with self._lock:
-            self._ensure_feature_loaded(feature_name)
             channel_id = self._camera_channels.get((feature_name, camera_id))
-        if channel_id is not None:
-            self.refresh_channel(feature_name, channel_id)
+            reset_channel = self._channels.get((feature_name, channel_id)) if channel_id else None
+            self._snapshots.pop((feature_name, camera_id), None)
+            self._frames.pop((feature_name, camera_id), None)
+            if reset_channel is not None:
+                self._clear_channel_state_locked(reset_channel)
+            self._invalidate_feature_locked(feature_name)
+        if reset_channel is not None:
+            self._reset_cooldown(reset_channel)
+        self._ensure_feature_loaded(feature_name)
+
+    def refresh_camera_all(self, camera_id: int) -> None:
+        """全局摄像头改名、运行参数更新或删除后刷新四个物流命名空间。"""
+        for feature_name in sorted(LOGISTICS_FEATURES):
+            self.refresh_camera(feature_name, camera_id)
 
     def refresh_channel(self, feature_name: str, channel_id: int) -> None:
-        """配置或成员事件后丢弃旧快照、计时、证据和成员映射。"""
+        """通道配置或成员事件后丢弃旧快照、计时和证据。"""
         feature_name = require_logistics_feature(feature_name)
+        old = None
         with self._lock:
             old = self._channels.get((feature_name, channel_id))
             if old is not None:
                 for camera in old.cameras:
-                    self._snapshots.remove(feature_name, camera.camera_id)
+                    self._snapshots.pop((feature_name, camera.camera_id), None)
                     self._frames.pop((feature_name, camera.camera_id), None)
-            self._clear_incident_locked(old)
-            self._channels.pop((feature_name, channel_id), None)
-            self._states.pop((feature_name, channel_id), None)
-            self._statuses.pop((feature_name, channel_id), None)
-            self._channel_frames.pop((feature_name, channel_id), None)
-            self._drop_feature_index_locked(feature_name)
-            self._ensure_feature_loaded(feature_name)
+                self._clear_channel_state_locked(old)
+            self._invalidate_feature_locked(feature_name)
+        if old is not None:
+            self._reset_cooldown(old)
+        self._ensure_feature_loaded(feature_name)
         logger.info(
             f"[LogisticsChannelRuntime] 已刷新 feature={feature_name} "
             f"channel_id={channel_id}"
@@ -286,45 +301,216 @@ class LogisticsChannelRuntime:
         feature_name = require_logistics_feature(feature_name)
         with self._lock:
             value = self._statuses.get((feature_name, channel_id))
-            return dict(value) if value is not None else None
+            return self._copy_status(value)
 
     def get_channel_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
+        """显式请求时才按最新不可变 tile 快照生成拼接画面。"""
         feature_name = require_logistics_feature(feature_name)
+        view = self._snapshot_channel(feature_name, channel_id)
+        if view is None:
+            return None
+        prepared = self._prepare_view(view, self._clock_provider())
+        frame = self._compose(prepared.channel, prepared.tiles)
+        if frame is None:
+            return None
         with self._lock:
-            frame = self._channel_frames.get((feature_name, channel_id))
-            return frame.copy() if frame is not None else None
+            if not self._channel_is_current_locked(prepared.channel, prepared.generation):
+                return None
+            self._channel_frames[(feature_name, channel_id)] = frame
+        return frame.copy()
+
+    def get_composite_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
+        return self.get_channel_frame(feature_name, channel_id)
+
+    def _snapshot_channel(self, feature_name: str, channel_id: int) -> _ChannelView | None:
+        self._ensure_feature_loaded(feature_name)
+        with self._lock:
+            channel = self._channels.get((feature_name, channel_id))
+            if channel is None:
+                return None
+            return _ChannelView(
+                channel=channel,
+                generation=self._generations[feature_name],
+                snapshots=tuple(
+                    self._snapshots.get((feature_name, camera.camera_id))
+                    for camera in channel.cameras
+                ),
+                frames=tuple(
+                    self._frames.get((feature_name, camera.camera_id))
+                    for camera in channel.cameras
+                ),
+            )
+
+    def _prepare_view(self, view: _ChannelView, now: float) -> _PreparedView:
+        active = self._channel_is_active(view.channel)
+        snapshots: list[CameraSnapshot] = []
+        states: dict[str, dict] = {}
+        tiles: list[CameraTile] = []
+        for camera, raw, frame in zip(
+            view.channel.cameras,
+            view.snapshots,
+            view.frames,
+            strict=True,
+        ):
+            online = self._camera_online(camera)
+            snapshot = CameraSnapshot(
+                camera_id=camera.camera_id,
+                camera_name=camera.name,
+                count=raw.count if raw is not None else None,
+                updated_at=raw.updated_at if raw is not None else now,
+                online=online,
+            )
+            reason, stale_reason = self._camera_reason(snapshot, raw is not None, now)
+            effective_count = snapshot.count if reason != "unknown" else None
+            states[str(camera.camera_id)] = {
+                "camera_id": camera.camera_id,
+                "camera_name": camera.name,
+                "count": effective_count,
+                "status": reason,
+                "online": online,
+                "updated_at": raw.updated_at if raw is not None else None,
+                "stale_reason": stale_reason,
+            }
+            snapshots.append(snapshot)
+            tiles.append(
+                CameraTile(
+                    camera_id=camera.camera_id,
+                    camera_name=camera.name,
+                    frame=frame,
+                    reason=reason,
+                    person_count=effective_count,
+                    online=online,
+                    detail=stale_reason or "",
+                )
+            )
+        return _PreparedView(
+            channel=view.channel,
+            generation=view.generation,
+            snapshots=tuple(snapshots),
+            states=states,
+            tiles=tuple(tiles),
+            active=active,
+        )
+
+    def _transition(
+        self,
+        prepared: _PreparedView,
+        now: float,
+    ) -> tuple[ChannelDecision, _IncidentWork | None, bool] | None:
+        base = classify_channel(
+            prepared.snapshots,
+            now=now,
+            stale_seconds=self._stale_seconds,
+            active=prepared.active,
+        )
+        channel = prepared.channel
+        key = (channel.feature_name, channel.channel_id)
+        with self._lock:
+            if not self._channel_is_current_locked(channel, prepared.generation):
+                return None
+            state = self._states.setdefault(key, ChannelPresenceState())
+            decision = state.evaluate(
+                base,
+                now=now,
+                empty_grace_seconds=channel.empty_grace_seconds,
+                multi_grace_seconds=channel.multi_grace_seconds,
+            )
+            self._statuses[key] = self._build_status(channel, decision, prepared.states, now)
+            if not decision.alarm:
+                reset = self._clear_incident_locked(key)
+                return decision, None, reset
+            active_reason = self._active_incidents.get(key)
+            pending = self._pending_incidents.get(key)
+            if active_reason == decision.reason or (
+                pending is not None
+                and pending[0] == decision.reason
+                and pending[2] == prepared.generation
+            ):
+                return decision, None, False
+            self._next_incident_token += 1
+            token = self._next_incident_token
+            self._pending_incidents[key] = (decision.reason, token, prepared.generation)
+            return (
+                decision,
+                _IncidentWork(
+                    key=key,
+                    generation=prepared.generation,
+                    token=token,
+                    channel=channel,
+                    decision=decision,
+                    states=prepared.states,
+                    tiles=prepared.tiles,
+                    evaluated_at=now,
+                ),
+                False,
+            )
+
+    def _execute_incident(self, work: _IncidentWork) -> None:
+        frame = self._compose(work.channel, work.tiles)
+        request = self._build_alarm_request(
+            work.channel,
+            work.decision,
+            work.states,
+            frame,
+            work.evaluated_at,
+        )
+        if not self._incident_is_current(work):
+            return
+        try:
+            dispatched = self._dispatcher.maybe_dispatch(
+                request,
+                alarm_interval=work.channel.alarm_interval,
+            )
+        except Exception:
+            logger.exception(
+                f"[LogisticsChannelRuntime] 告警分发失败 "
+                f"feature={work.channel.feature_name} channel_id={work.channel.channel_id}"
+            )
+            dispatched = False
+        with self._lock:
+            pending = self._pending_incidents.get(work.key)
+            if pending != (work.decision.reason, work.token, work.generation):
+                return
+            self._pending_incidents.pop(work.key, None)
+            if not self._channel_is_current_locked(work.channel, work.generation):
+                return
+            if dispatched:
+                self._active_incidents[work.key] = work.decision.reason
+                if frame is not None:
+                    self._channel_frames[work.key] = frame
+
+    def _incident_is_current(self, work: _IncidentWork) -> bool:
+        with self._lock:
+            return (
+                self._channel_is_current_locked(work.channel, work.generation)
+                and self._pending_incidents.get(work.key)
+                == (work.decision.reason, work.token, work.generation)
+            )
 
     def _ensure_feature_loaded(self, feature_name: str) -> None:
-        if feature_name in self._loaded_features:
-            return
+        for _attempt in range(3):
+            with self._lock:
+                if feature_name in self._loaded_features:
+                    return
+                generation = self._generations[feature_name]
+            channels = self._read_feature(feature_name)
+            with self._lock:
+                if generation != self._generations[feature_name]:
+                    continue
+                if feature_name in self._loaded_features:
+                    return
+                self._install_feature_locked(feature_name, channels)
+                return
+        raise RuntimeError(f"物流通道配置持续变化，无法加载 feature={feature_name}")
+
+    def _read_feature(self, feature_name: str) -> tuple[_ChannelConfig, ...]:
         response = self._service.list_channels(feature_name) or {}
+        channels = []
         for summary in response.get("items") or []:
             detail = self._service.get_channel(feature_name, int(summary["id"]))
-            if detail is None:
-                continue
-            channel = self._parse_channel(detail)
-            self._channels[(feature_name, channel.channel_id)] = channel
-            for camera in channel.cameras:
-                self._camera_channels[(feature_name, camera.camera_id)] = channel.channel_id
-        self._loaded_features.add(feature_name)
-
-    def _evaluation_loop(self) -> None:
-        interval = max(0.25, min(1.0, self._stale_seconds / 2.0))
-        while not self._stop_event.wait(interval):
-            with self._lock:
-                if not self._running:
-                    return
-                for feature_name in LOGISTICS_FEATURES:
-                    self._ensure_feature_loaded(feature_name)
-                channels = tuple(self._channels)
-            for feature_name, channel_id in channels:
-                try:
-                    self.evaluate(feature_name, channel_id)
-                except Exception:
-                    logger.exception(
-                        f"[LogisticsChannelRuntime] 通道巡检失败 "
-                        f"feature={feature_name} channel_id={channel_id}"
-                    )
+            if detail is not None:
+                channels.append(self._parse_channel(detail))
+        return tuple(channels)
 
     def _parse_channel(self, detail: dict) -> _ChannelConfig:
         config = detail.get("config") or {}
@@ -357,61 +543,57 @@ class LogisticsChannelRuntime:
             cameras=tuple(cameras),
         )
 
-    def _drop_feature_index_locked(self, feature_name: str) -> None:
-        self._loaded_features.discard(feature_name)
-        for key in [key for key in self._camera_channels if key[0] == feature_name]:
-            self._camera_channels.pop(key, None)
+    def _evaluation_loop(self) -> None:
+        interval = max(0.25, min(1.0, self._stale_seconds / 2.0))
+        while not self._stop_event.wait(interval):
+            try:
+                for feature_name in sorted(LOGISTICS_FEATURES):
+                    if self._stop_event.is_set():
+                        return
+                    self._ensure_feature_loaded(feature_name)
+                with self._lock:
+                    channels = tuple(self._channels)
+                for feature_name, channel_id in channels:
+                    if self._stop_event.is_set():
+                        return
+                    self.evaluate(feature_name, channel_id)
+            except Exception:
+                logger.exception("[LogisticsChannelRuntime] 周期巡检失败")
+
+    def _install_feature_locked(
+        self,
+        feature_name: str,
+        channels: tuple[_ChannelConfig, ...],
+    ) -> None:
         for key in [key for key in self._channels if key[0] == feature_name]:
             self._channels.pop(key, None)
+        for key in [key for key in self._camera_channels if key[0] == feature_name]:
+            self._camera_channels.pop(key, None)
+        for channel in channels:
+            self._channels[(feature_name, channel.channel_id)] = channel
+            for camera in channel.cameras:
+                self._camera_channels[(feature_name, camera.camera_id)] = channel.channel_id
+        self._loaded_features.add(feature_name)
+
+    def _invalidate_feature_locked(self, feature_name: str) -> None:
+        self._generations[feature_name] += 1
+        self._loaded_features.discard(feature_name)
+        for key in [key for key in self._channels if key[0] == feature_name]:
+            self._channels.pop(key, None)
+        for key in [key for key in self._camera_channels if key[0] == feature_name]:
+            self._camera_channels.pop(key, None)
+
+    def _channel_is_current_locked(self, channel: _ChannelConfig, generation: int) -> bool:
+        return (
+            self._generations[channel.feature_name] == generation
+            and self._channels.get((channel.feature_name, channel.channel_id)) is channel
+        )
 
     def _channel_is_active(self, channel: _ChannelConfig) -> bool:
         if not channel.enabled:
             return False
         local_time = self._wall_time_provider().timetz().replace(tzinfo=None)
         return channel.detection_start <= local_time <= channel.detection_end
-
-    def _collect_camera_state_locked(
-        self,
-        channel: _ChannelConfig,
-        now: float,
-    ) -> tuple[list[CameraSnapshot], dict[str, dict], list[CameraTile]]:
-        snapshots: list[CameraSnapshot] = []
-        states: dict[str, dict] = {}
-        tiles: list[CameraTile] = []
-        for camera in channel.cameras:
-            raw = self._snapshots.get(channel.feature_name, camera.camera_id)
-            online = self._camera_online(camera)
-            snapshot = CameraSnapshot(
-                camera_id=camera.camera_id,
-                camera_name=camera.name,
-                count=raw.count if raw is not None else None,
-                updated_at=raw.updated_at if raw is not None else now,
-                online=online,
-            )
-            reason, stale_reason = self._camera_reason(snapshot, raw is not None, now)
-            effective_count = snapshot.count if reason != "unknown" else None
-            states[str(camera.camera_id)] = {
-                "camera_id": camera.camera_id,
-                "camera_name": camera.name,
-                "count": effective_count,
-                "status": reason,
-                "online": online,
-                "updated_at": raw.updated_at if raw is not None else None,
-                "stale_reason": stale_reason,
-            }
-            snapshots.append(snapshot)
-            tiles.append(
-                CameraTile(
-                    camera_id=camera.camera_id,
-                    camera_name=camera.name,
-                    frame=self._frames.get((channel.feature_name, camera.camera_id)),
-                    reason=reason,
-                    person_count=effective_count,
-                    online=online,
-                    detail=stale_reason or "",
-                )
-            )
-        return snapshots, states, tiles
 
     def _camera_online(self, camera: _CameraInfo) -> bool:
         try:
@@ -433,25 +615,32 @@ class LogisticsChannelRuntime:
             return "unknown", "offline"
         if not has_snapshot:
             return "unknown", "waiting_for_result"
-        if snapshot.updated_at > now or now - snapshot.updated_at > self._stale_seconds:
+        if (
+            not self._finite_number(snapshot.updated_at)
+            or snapshot.updated_at > now
+            or now - snapshot.updated_at > self._stale_seconds
+        ):
             return "unknown", "stale"
-        if snapshot.count is None:
+        count = snapshot.count
+        if count is None:
             return "unknown", "inference_unknown"
-        if snapshot.count == 0:
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return "unknown", "invalid_count"
+        if count == 0:
             return "empty", None
-        if snapshot.count == 1:
+        if count == 1:
             return "normal", None
         return "multiple", None
 
-    @staticmethod
-    def _compose_channel_frame(
+    def _compose(
+        self,
         channel: _ChannelConfig,
-        tiles: list[CameraTile],
+        tiles: tuple[CameraTile, ...],
     ) -> np.ndarray | None:
         if not tiles:
             return None
         try:
-            return compose_channel_frame(tiles)
+            return self._compositor(tiles)
         except (ValueError, TypeError) as exc:
             logger.warning(
                 f"[LogisticsChannelRuntime] 拼接失败 feature={channel.feature_name} "
@@ -537,12 +726,17 @@ class LogisticsChannelRuntime:
             metadata=metadata,
         )
 
-    def _reset_non_alarm_locked(self, channel: _ChannelConfig, reason: str) -> None:
+    def _clear_incident_locked(self, key: tuple[str, int]) -> bool:
+        active = self._active_incidents.pop(key, None) is not None
+        self._pending_incidents.pop(key, None)
+        return active
+
+    def _reset_non_alarm_locked(self, channel: _ChannelConfig, reason: str) -> bool:
         key = (channel.feature_name, channel.channel_id)
         state = self._states.get(key)
         if state is not None:
             state.reset()
-        self._clear_incident_locked(channel)
+        reset = self._clear_incident_locked(key)
         self._statuses[key] = {
             "feature_name": channel.feature_name,
             "channel_id": channel.channel_id,
@@ -550,16 +744,47 @@ class LogisticsChannelRuntime:
             "reason": reason,
             "alarm": False,
         }
+        return reset
 
-    def _clear_incident_locked(self, channel: _ChannelConfig | None) -> None:
-        if channel is None:
-            return
+    def _clear_channel_state_locked(self, channel: _ChannelConfig) -> None:
         key = (channel.feature_name, channel.channel_id)
-        if self._active_incidents.pop(key, None) is None:
-            return
+        self._states.pop(key, None)
+        self._statuses.pop(key, None)
+        self._channel_frames.pop(key, None)
+        self._active_incidents.pop(key, None)
+        self._pending_incidents.pop(key, None)
+
+    def _clear_all_state_locked(self) -> None:
+        self._channels.clear()
+        self._camera_channels.clear()
+        self._loaded_features.clear()
+        self._states.clear()
+        self._statuses.clear()
+        self._channel_frames.clear()
+        self._active_incidents.clear()
+        self._pending_incidents.clear()
+        self._frames.clear()
+        self._snapshots.clear()
+
+    def _reset_cooldown(self, channel: _ChannelConfig) -> None:
         reset = getattr(self._dispatcher, "reset_subject_cooldown", None)
         if callable(reset):
             reset("logistics_channel", str(channel.channel_id), channel.feature_name)
+
+    @staticmethod
+    def _copy_status(value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        copied = dict(value)
+        copied["camera_counts"] = dict(value.get("camera_counts") or {})
+        copied["camera_states"] = {
+            key: dict(state) for key, state in (value.get("camera_states") or {}).items()
+        }
+        return copied
+
+    @staticmethod
+    def _finite_number(value: object) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
 __all__ = ["LogisticsChannelRuntime"]

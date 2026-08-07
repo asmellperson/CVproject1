@@ -14,6 +14,7 @@ def _orchestrator_without_init():
     orchestrator.logistics_channel_runtime = SimpleNamespace(
         refresh_channel=lambda *_args: None,
         refresh_camera=lambda *_args: None,
+        refresh_camera_all=lambda *_args: None,
     )
     return orchestrator
 
@@ -21,6 +22,8 @@ def _orchestrator_without_init():
 def test_camera_display_update_does_not_restart_runtime(monkeypatch):
     orchestrator = _orchestrator_without_init()
     restart_calls = []
+    refresh_calls = []
+    orchestrator.logistics_channel_runtime.refresh_camera_all = refresh_calls.append
 
     monkeypatch.setattr(
         orchestrator,
@@ -53,6 +56,7 @@ def test_camera_display_update_does_not_restart_runtime(monkeypatch):
     )
 
     assert restart_calls == []
+    assert refresh_calls == [3]
 
 
 def test_camera_runtime_update_restarts_runtime(monkeypatch):
@@ -90,6 +94,27 @@ def test_camera_runtime_update_restarts_runtime(monkeypatch):
     )
 
     assert restart_calls == ["3_mq7r35ho"]
+
+
+def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
+    orchestrator = _orchestrator_without_init()
+    calls = []
+    orchestrator.logistics_channel_runtime.refresh_camera_all = (
+        lambda camera_id: calls.append(("refresh", camera_id))
+    )
+    orchestrator.camera_manager = SimpleNamespace(
+        remove_camera_config=lambda name: calls.append(("remove", name))
+    )
+
+    orchestrator._on_config_change(
+        ConfigChangeEvent(
+            change_type="camera_removed",
+            camera_id=3,
+            camera_name="3_mq7r35ho",
+        )
+    )
+
+    assert calls == [("refresh", 3), ("remove", "3_mq7r35ho")]
 
 
 def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):

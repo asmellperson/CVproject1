@@ -260,6 +260,8 @@ class Orchestrator:
             self._start_or_update_camera(event.camera_name)
             return
         if change == "camera_updated":
+            if cam_id is not None:
+                self.logistics_channel_runtime.refresh_camera_all(cam_id)
             if self._camera_update_requires_restart(event):
                 self._restart_or_stop_camera(event.camera_name)
             else:
@@ -267,6 +269,8 @@ class Orchestrator:
                 logger.info(f"[Orchestrator] 摄像头展示信息已热更新 cam_id={cam_id} shm={event.camera_name}")
             return
         if change == "camera_removed":
+            if cam_id is not None:
+                self.logistics_channel_runtime.refresh_camera_all(cam_id)
             self.camera_manager.remove_camera_config(event.camera_name)
             logger.info(f"[Orchestrator] 摄像头已热移除 cam_id={cam_id} shm={event.camera_name}")
             return
