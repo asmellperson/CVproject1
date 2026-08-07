@@ -559,4 +559,4 @@ async function main() {
   console.log('serial poll tests passed')
 }
 
-void main()
+export const serialPollTestRun = main()
