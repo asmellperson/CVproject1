@@ -651,6 +651,30 @@ def test_move_to_full_channel_fails_without_losing_original_binding(service_db):
     assert [m["camera_id"] for m in service.get_channel(BASE_FEATURE, source["id"])["members"]] == [moving_id]
 
 
+def test_set_member_enabled_is_atomic_preserves_config_and_notifies_channel_once(service_db):
+    service = service_db.service
+    channel = service.create_channel(BASE_FEATURE, "成员启停")
+    camera_id = _seed_camera(service_db, "toggle-member")
+    service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
+    service_db.notifications.clear()
+
+    disabled = service.set_member_enabled(BASE_FEATURE, channel["id"], camera_id, False)
+    assert disabled["members"][0]["enabled"] is False
+    assert len(_events(service_db, "logistics_channel_updated")) == 1
+    assert _events(service_db, f"{BASE_FEATURE}_disabled") == []
+    with service_db.factory() as session:
+        cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
+        assert cfg.enable is True
+
+    service_db.notifications.clear()
+    enabled = service.set_member_enabled(BASE_FEATURE, channel["id"], camera_id, True)
+    assert enabled["members"][0]["enabled"] is True
+    assert len(_events(service_db, "logistics_channel_updated")) == 1
+
+    with pytest.raises(ValueError, match="成员不存在"):
+        service.set_member_enabled(BASE_FEATURE, channel["id"], camera_id + 1000, False)
+
+
 def test_delete_channel_disables_members_without_deleting_global_cameras(service_db):
     service = service_db.service
     channel = service.create_channel(BASE_FEATURE, "待删除")

@@ -176,13 +176,19 @@ class AlarmDispatcher:
         设计原则:
             - 各通道相互独立，单个通道异常不影响其他通道执行。
             - 微信通过队列异步发送；喇叭同步调用；SQL 通过 ViolationWriter 异步入队。
-            - SQL（violation_writer）对所有已触发告警无条件写入，不受微信/喇叭开关影响。
+            - SQL 遵循 sql.enable；旧请求未携带 sql 配置时保持原有写入行为。
         """
         alarm = req.alarm_config or {}
         alarm_record = None
         wechat_cfg = alarm.get("wechat") or {}
         wechat_user = (wechat_cfg.get("parm") or {}).get("user", "")
         should_send_wechat = bool(wechat_cfg.get("enable") and self.wechat is not None and wechat_user)
+        sql_cfg = alarm.get("sql")
+        should_write_sql = (
+            not isinstance(sql_cfg, dict)
+            or "enable" not in sql_cfg
+            or bool(sql_cfg.get("enable"))
+        )
 
         # ---- 通道 1: 喇叭（同步）----
         horn_cfg = alarm.get("horn") or {}
@@ -197,9 +203,9 @@ class AlarmDispatcher:
                 except Exception as e:
                     logger.warning(f"[Alarm] 喇叭触发失败: {e}")
 
-        # ---- 通道 2: SQL 持久化（无条件写入）----
+        # ---- 通道 2: SQL 持久化 ----
         # 微信图文卡片需要 alarm_id；仅微信开启时同步保存，其余场景保留异步批量写入。
-        if self.violation_writer is not None:
+        if should_write_sql and self.violation_writer is not None:
             try:
                 if should_send_wechat and hasattr(self.violation_writer, "save_now"):
                     alarm_record = self._write_violation(

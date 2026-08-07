@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ConfigDict
 
 from api.auth import get_current_user, require_admin
-from api.deps import get_current_orchestrator, get_logistics_channel_service
+from api.deps import (
+    get_current_orchestrator,
+    get_feature_config_service,
+    get_logistics_channel_service,
+)
+from features._base.api import FeatureConfigResponse
 from api.v2.cameras import encode_frame_to_jpeg, frame_size_headers
 from core.db import get_session
 from features import all_specs
@@ -23,6 +28,7 @@ from platform.logistics_channel.schema import (
     LogisticsChannelDetailResponse,
     LogisticsChannelListResponse,
     LogisticsChannelMemberCreate,
+    LogisticsChannelMemberEnabledUpdate,
     LogisticsChannelMemberOrder,
     LogisticsChannelOkResponse,
     LogisticsChannelRuntimeStatusResponse,
@@ -232,6 +238,88 @@ def move_camera(
         )
     except ValueError as exc:
         _raise_service_error(exc)
+
+
+@router.put(
+    "/{feature}/{channel_id}/cameras/{camera_id}/enabled",
+    response_model=LogisticsChannelDetailResponse,
+)
+def set_camera_enabled(
+    feature: str,
+    channel_id: int,
+    camera_id: int,
+    payload: LogisticsChannelMemberEnabledUpdate,
+    user: dict = Depends(require_admin),
+    service=Depends(get_logistics_channel_service),
+) -> LogisticsChannelDetailResponse:
+    feature = _require_feature_access(feature, user)
+    try:
+        return LogisticsChannelDetailResponse.model_validate(
+            service.set_member_enabled(
+                feature,
+                channel_id,
+                camera_id,
+                payload.enabled,
+            )
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
+
+
+def _require_channel_member(service, feature: str, channel_id: int, camera_id: int) -> dict:
+    channel = _get_channel_or_404(service, feature, channel_id)
+    if not any(
+        int(member["camera_id"]) == camera_id
+        for member in channel.get("members", [])
+    ):
+        raise HTTPException(status_code=404, detail="channel camera membership not found")
+    return channel
+
+
+@router.get(
+    "/{feature}/{channel_id}/cameras/{camera_id}/config",
+    response_model=FeatureConfigResponse,
+)
+def get_member_camera_config(
+    feature: str,
+    channel_id: int,
+    camera_id: int,
+    user: dict = Depends(get_current_user),
+    service=Depends(get_logistics_channel_service),
+    feature_service=Depends(get_feature_config_service),
+) -> FeatureConfigResponse:
+    feature = _require_feature_access(feature, user)
+    _require_channel_member(service, feature, channel_id, camera_id)
+    result = feature_service.get_config(all_specs()[feature], str(camera_id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="camera or config not found")
+    return FeatureConfigResponse(**result)
+
+
+@router.put(
+    "/{feature}/{channel_id}/cameras/{camera_id}/config",
+    response_model=FeatureConfigResponse,
+)
+def update_member_camera_config(
+    feature: str,
+    channel_id: int,
+    camera_id: int,
+    payload: dict,
+    user: dict = Depends(require_admin),
+    service=Depends(get_logistics_channel_service),
+    feature_service=Depends(get_feature_config_service),
+) -> FeatureConfigResponse:
+    feature = _require_feature_access(feature, user)
+    _require_channel_member(service, feature, channel_id, camera_id)
+    spec = all_specs()[feature]
+    try:
+        validated = spec.config_schema.model_validate(payload).model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"validation error: {exc}") from exc
+    result = feature_service.save_config(spec, str(camera_id), validated)
+    if result is None:
+        raise HTTPException(status_code=404, detail="camera not found")
+    return FeatureConfigResponse(**result)
 
 
 @router.delete(

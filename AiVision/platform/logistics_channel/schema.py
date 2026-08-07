@@ -130,6 +130,14 @@ class LogisticsChannelMemberOrder(BaseModel):
         return self
 
 
+class LogisticsChannelMemberEnabledUpdate(BaseModel):
+    """启用或停用一个通道成员；成员本身不会被删除。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 class LogisticsChannelMemberResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

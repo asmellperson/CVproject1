@@ -119,6 +119,45 @@ class FakeService:
         value["members"] = [m for m in value["members"] if m["camera_id"] != camera_id]
         return len(value["members"]) != before
 
+    def set_member_enabled(self, feature, channel_id, camera_id, enabled):
+        value = self.channels[feature].get(channel_id)
+        if value is None:
+            raise ValueError(f"物流通道不存在: {channel_id}")
+        member = next((m for m in value["members"] if m["camera_id"] == camera_id), None)
+        if member is None:
+            raise ValueError("通道摄像头成员不存在")
+        member["enabled"] = enabled
+        self.calls.append(("member_enabled", feature, channel_id, camera_id, enabled))
+        return deepcopy(value)
+
+
+class FakeFeatureService:
+    def __init__(self):
+        self.calls = []
+
+    @staticmethod
+    def _response(spec, camera_id):
+        return {
+            "camera": {
+                "id": int(camera_id),
+                "name": f"摄像头-{camera_id}",
+                "shm_name": f"camera_{camera_id}",
+                "enable": True,
+            },
+            "feature": spec.name,
+            "config": spec.config_schema().model_dump(),
+        }
+
+    def get_config(self, spec, camera_id):
+        self.calls.append(("get", spec.name, int(camera_id)))
+        return self._response(spec, camera_id)
+
+    def save_config(self, spec, camera_id, payload):
+        self.calls.append(("save", spec.name, int(camera_id), payload))
+        result = self._response(spec, camera_id)
+        result["config"] = payload
+        return result
+
 
 class FakeOrchestrator:
     status = None
@@ -167,6 +206,9 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
         ("/api/v2/logistics-channels/{feature}/{channel_id}", "DELETE"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras", "POST"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/order", "PUT"),
+        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/enabled", "PUT"),
+        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "GET"),
+        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "PUT"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}/status", "GET"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}/frame.jpg", "GET"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}/alarms", "GET"),
@@ -228,10 +270,13 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     channel = _seed(service)
     feature = "detect_logistics_single_person"
     channel_id = channel["id"]
+    service.add_existing_camera(feature, channel_id, 7)
+    feature_service = FakeFeatureService()
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
     app.dependency_overrides[api.get_current_orchestrator] = lambda: orchestrator
+    app.dependency_overrides[api.get_feature_config_service] = lambda: feature_service
     monkeypatch.setattr(api, "get_session", EmptyAlarmSession)
 
     async def inline_run_sync(func, *args, **_kwargs):
@@ -253,6 +298,16 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 "/api/v2/logistics-channels/"
                 "detect_logistics_single_person_electronics_electrician"
             )).status_code == 403
+            member_config_url = f"{base}/{channel_id}/cameras/7/config"
+            member_config = await client.get(member_config_url)
+            assert member_config.status_code == 200
+            assert "url" not in member_config.json()["camera"]
+            assert (await client.get(f"{base}/{channel_id}/cameras/999/config")).status_code == 404
+            cross_config = (
+                "/api/v2/logistics-channels/"
+                "detect_logistics_single_person_electronics_electrician/1/cameras/7/config"
+            )
+            assert (await client.get(cross_config)).status_code == 403
 
             write_requests = (
                 ("POST", base, {"name": "禁止新增"}),
@@ -262,6 +317,8 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 ("POST", f"{base}/{channel_id}/cameras", {"camera_id": 7}),
                 ("PUT", f"{base}/{channel_id}/cameras/order", {"camera_ids": [7]}),
                 ("PUT", f"{base}/{channel_id}/cameras/7", None),
+                ("PUT", f"{base}/{channel_id}/cameras/7/enabled", {"enabled": False}),
+                ("PUT", member_config_url, member_config.json()["config"]),
                 ("DELETE", f"{base}/{channel_id}/cameras/7", None),
             )
             for method, url, payload in write_requests:
@@ -283,6 +340,14 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             assert (await client.post(
                 f"{base}/{channel_id}/cameras",
                 json={"camera_id": 7},
+            )).status_code == 200
+            assert (await client.put(
+                f"{base}/{channel_id}/cameras/7/enabled",
+                json={"enabled": False},
+            )).status_code == 200
+            assert (await client.put(
+                member_config_url,
+                json=member_config.json()["config"],
             )).status_code == 200
             assert (await client.get(
                 "/api/v2/logistics-channels/not-a-feature"
@@ -334,6 +399,37 @@ def test_viewer_department_access_and_admin_dependency_contract():
         if route.path == "/api/v2/logistics-channels/{feature}" and "POST" in route.methods
     )
     assert any(dependency.call.__name__ == "require_admin" for dependency in create_route.dependant.dependencies)
+
+
+def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
+    feature_api = importlib.import_module("features._base.api")
+    feature_service = FakeFeatureService()
+    app = FastAPI()
+    app.include_router(feature_api.create_features_router(feature_service))
+
+    async def inline_run_sync(func, *args, **_kwargs):
+        return func(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            path = f"/api/v2/features/{FEATURES[0]}/configs/7"
+            app.dependency_overrides[feature_api.get_current_user] = lambda: {
+                "role": "viewer",
+                "department": "general_electric",
+            }
+            denied = await client.get(path)
+            assert denied.status_code == 403
+            assert feature_service.calls == []
+
+            app.dependency_overrides[feature_api.get_current_user] = lambda: ADMIN
+            allowed = await client.get(path)
+            assert allowed.status_code == 200
+            assert "url" not in allowed.json()["camera"]
+
+    asyncio.run(scenario())
 
 
 def test_crud_config_and_validation_models():

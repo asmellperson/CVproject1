@@ -115,3 +115,30 @@ def test_dispatcher_forwards_subject_metadata_to_violation_writer():
     assert calls[0]["subject_name"] == "物流通道一"
     assert calls[0]["reason"] == "empty"
     assert calls[0]["event_metadata"] == {"camera_counts": {"10": 0}}
+
+
+def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default():
+    calls = []
+
+    class Writer:
+        def enqueue(self, **kwargs):
+            calls.append(kwargs)
+
+    def request(alarm_config):
+        return AlarmRequest(
+            feature_name="detect_logistics_single_person",
+            camera_id=3,
+            camera_name="物流通道一",
+            frame=np.zeros((2, 2, 3), np.uint8),
+            violation_type=6,
+            alarm_config=alarm_config,
+        )
+
+    dispatcher = AlarmDispatcher()
+    dispatcher.violation_writer = Writer()
+    dispatcher._execute(request({"sql": {"enable": False}}))
+    assert calls == []
+
+    dispatcher._execute(request({"sql": {"enable": True}}))
+    dispatcher._execute(request({}))
+    assert len(calls) == 2

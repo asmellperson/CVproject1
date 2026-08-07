@@ -519,6 +519,49 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    def set_member_enabled(
+        self,
+        feature_name: str,
+        channel_id: int,
+        camera_id: int,
+        enabled: bool,
+    ) -> dict:
+        """原子更新成员参与状态，并只发布一次通道刷新事件。"""
+        feature_name = require_logistics_feature(feature_name)
+
+        def discover():
+            return self._discover_memberships(
+                camera_ids=(camera_id,),
+                channel_ids=(channel_id,),
+            )
+
+        def update(session, discovery):
+            state = self._lock_membership_state(
+                session,
+                discovery,
+                required_channel_ids=(channel_id,),
+                required_camera_ids=(camera_id,),
+            )
+            channel = state.channels.get(channel_id)
+            if channel is None or channel.feature_name != feature_name:
+                raise ValueError(f"物流通道不存在: {channel_id}")
+            member = next(
+                (
+                    row
+                    for row in state.members
+                    if row.channel_id == channel_id and row.camera_id == camera_id
+                ),
+                None,
+            )
+            if member is None:
+                raise ValueError("通道摄像头成员不存在")
+            member.enabled = bool(enabled)
+            session.flush()
+
+        self._run_membership_transaction(discover, update)
+        self._notify_channel_changed(channel_id, feature_name)
+        return self.get_channel(feature_name, channel_id)
+
     def remove_camera(
         self,
         feature_name: str,

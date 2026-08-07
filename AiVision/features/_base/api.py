@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
-from api.auth import require_admin
+from api.auth import get_current_user, require_admin
 from features import all_specs, get_spec
 from features._base.spec import FeatureSpec
 
@@ -151,7 +151,11 @@ def create_features_router(feature_service, dept_service=None) -> APIRouter:
         "/{feature}/configs/{shm_name}",
         response_model=FeatureConfigResponse,
     )
-    def get_feature_config(feature: str, shm_name: str):
+    def get_feature_config(
+        feature: str,
+        shm_name: str,
+        user: dict = Depends(get_current_user),
+    ):
         """
         读取指定摄像头的功能配置。
 
@@ -159,6 +163,14 @@ def create_features_router(feature_service, dept_service=None) -> APIRouter:
         摄像头或对应功能配置不存在时返回 404。
         """
         spec = _require_spec(feature)
+        # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
+        # 端点，后者同时校验 feature 部门和成员归属；这里禁止绕过归属校验。
+        from platform.logistics_channel.constants import LOGISTICS_FEATURES
+        if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="logistics camera config requires channel membership access",
+            )
         result = feature_service.get_config(spec, shm_name)
         if result is None:
             raise HTTPException(status_code=404, detail="camera or config not found")

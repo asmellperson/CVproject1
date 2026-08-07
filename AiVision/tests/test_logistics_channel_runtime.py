@@ -157,6 +157,28 @@ def test_partial_unknown_does_not_trigger_empty_but_known_multiple_wins():
     assert len(dispatcher.requests) == 1
 
 
+def test_disabled_members_are_excluded_from_aggregation_status_and_composite():
+    item = channel(member_ids=(10, 11))
+    item["members"][1]["enabled"] = False
+    composed = []
+
+    def compositor(tiles):
+        composed.append(tuple(tile.camera_id for tile in tiles))
+        return np.zeros((20, 30, 3), np.uint8)
+
+    runtime, dispatcher = build_runtime([item], compositor=compositor)
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 1), None)
+    runtime.update_camera_snapshot(FEATURE, snapshot(11, 2), None)
+
+    assert runtime.evaluate(FEATURE, 3, now=100.0).reason == "normal"
+    status = runtime.get_channel_status(FEATURE, 3)
+    assert status["camera_ids"] == [10]
+    assert "11" not in status["camera_states"]
+    assert runtime.get_composite_frame(FEATURE, 3).shape == (20, 30, 3)
+    assert composed == [(10,)]
+    assert dispatcher.requests == []
+
+
 def test_alarm_is_dispatched_once_per_incident_and_again_after_recovery():
     runtime, dispatcher = build_runtime([channel(member_ids=(10,))])
     frame = np.full((12, 16, 3), 20, np.uint8)
@@ -218,6 +240,21 @@ def test_dispatch_request_uses_channel_subject_mosaic_and_complete_metadata():
     assert request.metadata["offending_camera_ids"] == [10]
     assert request.metadata["alarm_started_at"] == 101.0
     assert request.metadata["triggered_at"] == 101.0
+    assert request.alarm_config["sql"] == {"enable": True, "parm": {}}
+
+
+def test_runtime_forwards_disabled_sql_channel_to_dispatcher():
+    item = channel(member_ids=(10,))
+    item["config"]["alarm"]["sql_enable"] = False
+    runtime, dispatcher = build_runtime([item])
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 2), None)
+
+    runtime.evaluate(FEATURE, 3, now=100.0)
+
+    assert dispatcher.requests[0][0].alarm_config["sql"] == {
+        "enable": False,
+        "parm": {},
+    }
 
 
 def test_all_members_must_be_fresh_online_and_zero_for_empty_alarm():
