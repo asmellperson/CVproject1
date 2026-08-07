@@ -129,6 +129,22 @@ def test_malformed_nested_channel_metadata_does_not_leak_invalid_shapes():
     assert normalized["offending_camera_ids"] == []
 
 
+@pytest.mark.parametrize("subject_type", ["logistics_channel", "camera"])
+def test_camera_id_metadata_only_accepts_unique_positive_decimal_ids(subject_type):
+    raw_ids = [10.9, -1, 0, True, "10", "010", " 11 ", 11, "-2", "+3", "1e2", "", None]
+    normalized = _normalize_aivision_alarm(_channel_alarm(
+        subject_type=subject_type,
+        metadata={
+            "channel_id": 3,
+            "camera_ids": raw_ids,
+            "offending_camera_ids": list(raw_ids),
+        },
+    ))
+
+    assert normalized["camera_ids"] == [10, 11]
+    assert normalized["offending_camera_ids"] == [10, 11]
+
+
 @pytest.mark.parametrize(("feature_name", "department"), LOGISTICS_FEATURES)
 def test_all_logistics_alarm_features_have_type_and_department_mapping(
     feature_name,

@@ -88,14 +88,24 @@ def _dict_value(value: object) -> dict[str, Any]:
 def _int_list(value: object) -> list[int]:
     if not isinstance(value, list):
         return []
-    result = []
+    result: list[int] = []
+    seen: set[int] = set()
     for item in value:
         if isinstance(item, bool):
             continue
-        try:
-            result.append(int(item))
-        except (TypeError, ValueError, OverflowError):
+        if isinstance(item, int):
+            camera_id = item
+        elif isinstance(item, str):
+            normalized = item.strip()
+            if not normalized or any(char not in "0123456789" for char in normalized):
+                continue
+            camera_id = int(normalized)
+        else:
             continue
+        if camera_id <= 0 or camera_id in seen:
+            continue
+        seen.add(camera_id)
+        result.append(camera_id)
     return result
 
 
