@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Plus, Save, Settings2, Trash2 } from 'lucide-react'
 
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
@@ -35,7 +35,9 @@ import {
   collectBoundCameraIds,
   confirmMembershipRemoval,
   filterBindableCameras,
+  isMembershipLoadCurrent,
   removalConfirmationText,
+  type MembershipLoadIdentity,
 } from './membershipState'
 
 type Props = {
@@ -84,7 +86,9 @@ export function LogisticsChannelConfigView({
   const [roiJson, setRoiJson] = useState('[]')
   const [boundCameraIds, setBoundCameraIds] = useState<ReadonlySet<number>>(new Set())
   const [membershipsLoaded, setMembershipsLoaded] = useState(false)
+  const [membershipRevision, refreshMemberships] = useReducer((value: number) => value + 1, 0)
   const hydratedChannelId = useRef<number | null>(null)
+  const membershipLoadRef = useRef<MembershipLoadIdentity>({ generation: 0, feature, channelIdsKey: '' })
 
   const members = useMemo(
     () => [...(selectedChannelDetail?.members ?? [])].filter((member) => member.enabled).sort((a, b) => a.sort_order - b.sort_order),
@@ -93,6 +97,8 @@ export function LogisticsChannelConfigView({
   const cameraById = useMemo(() => new Map(cameras.map((camera) => [camera.camera_id, camera])), [cameras])
   const selectedCamera = selectedCameraId === null ? undefined : cameraById.get(selectedCameraId)
   const channelIdsKey = useMemo(() => channels.map((channel) => channel.id).sort((a, b) => a - b).join(','), [channels])
+  const membershipContextRef = useRef({ feature, channelIdsKey })
+  membershipContextRef.current = { feature, channelIdsKey }
   const currentMemberIds = useMemo(() => new Set(members.map((member) => member.camera_id)), [members])
   const availableCameras = membershipsLoaded ? filterBindableCameras(cameras, boundCameraIds) : []
   const movableCameras = membershipsLoaded
@@ -100,22 +106,40 @@ export function LogisticsChannelConfigView({
     : []
   const existingCameraOptions = moveExisting ? movableCameras : availableCameras
 
-  const loadBoundMemberships = useCallback(async () => {
-    const channelIds = channelIdsKey ? channelIdsKey.split(',').map(Number) : []
-    setMembershipsLoaded(false)
-    try {
-      const details = await Promise.all(channelIds.map((channelId) => getLogisticsChannel(feature, channelId)))
-      setBoundCameraIds(collectBoundCameraIds(details))
-      setMembershipsLoaded(true)
-    } catch (reason) {
-      setBoundCameraIds(new Set())
-      setMessage(`通道成员读取失败：${messageOf(reason)}`)
-    }
-  }, [channelIdsKey, feature])
-
   useEffect(() => {
-    void loadBoundMemberships()
-  }, [loadBoundMemberships])
+    const request: MembershipLoadIdentity = {
+      generation: membershipLoadRef.current.generation + 1,
+      feature,
+      channelIdsKey,
+    }
+    membershipLoadRef.current = request
+    const controller = new AbortController()
+    const channelIds = channelIdsKey ? channelIdsKey.split(',').map(Number) : []
+    setBoundCameraIds(new Set())
+    setMembershipsLoaded(false)
+    const load = async () => {
+      try {
+        const details = await Promise.all(channelIds.map((channelId) => (
+          getLogisticsChannel(feature, channelId, { signal: controller.signal })
+        )))
+        const current = { ...membershipLoadRef.current, ...membershipContextRef.current }
+        if (!isMembershipLoadCurrent(request, current)) return
+        setBoundCameraIds(collectBoundCameraIds(details))
+        setMembershipsLoaded(true)
+      } catch (reason) {
+        const current = { ...membershipLoadRef.current, ...membershipContextRef.current }
+        if (controller.signal.aborted || !isMembershipLoadCurrent(request, current)) return
+        setMessage(`通道成员读取失败：${messageOf(reason)}`)
+      }
+    }
+    void load()
+    return () => {
+      controller.abort()
+      if (isMembershipLoadCurrent(request, membershipLoadRef.current)) {
+        membershipLoadRef.current = { ...request, generation: request.generation + 1 }
+      }
+    }
+  }, [channelIdsKey, feature, membershipRevision])
 
   useEffect(() => {
     let active = true
@@ -166,12 +190,20 @@ export function LogisticsChannelConfigView({
     return () => { active = false }
   }, [feature, selectedCamera])
 
-  const run = async (action: () => Promise<unknown>, success: string, refreshMemberships = false) => {
+  const run = async (action: () => Promise<unknown>, success: string, reloadMemberships = false) => {
     if (!isAdmin || busy) return
     setBusy(true)
     try {
       await action()
-      if (refreshMemberships) await loadBoundMemberships()
+      if (reloadMemberships) {
+        membershipLoadRef.current = {
+          ...membershipLoadRef.current,
+          generation: membershipLoadRef.current.generation + 1,
+        }
+        setBoundCameraIds(new Set())
+        setMembershipsLoaded(false)
+        refreshMemberships()
+      }
       setMessage(success)
       onChanged()
     } catch (reason) {

@@ -3,6 +3,21 @@ type ChannelMembershipSummary = {
   members: Array<{ camera_id: number; enabled: boolean }>
 }
 
+export type MembershipLoadIdentity = {
+  generation: number
+  feature: string
+  channelIdsKey: string
+}
+
+export function isMembershipLoadCurrent(
+  request: MembershipLoadIdentity,
+  current: MembershipLoadIdentity,
+) {
+  return request.generation === current.generation
+    && request.feature === current.feature
+    && request.channelIdsKey === current.channelIdsKey
+}
+
 export function collectBoundCameraIds(channels: ChannelMembershipSummary[]) {
   return new Set(
     channels.flatMap((channel) => channel.members)

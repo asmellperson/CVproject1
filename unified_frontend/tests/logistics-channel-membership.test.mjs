@@ -34,3 +34,24 @@ test('cancelled removal never invokes the mutation', async () => {
   assert.equal(calls, 1)
   assert.match(removalConfirmationText('东门', '物流一通道'), /东门.*物流一通道/)
 })
+
+test('a late response from the previous feature cannot replace current membership ids', async () => {
+  const { isMembershipLoadCurrent } = await importTypeScript(source)
+  let current = { generation: 1, feature: 'feature-a', channelIdsKey: '1' }
+  let applied = []
+  let resolveSlow
+  const slow = new Promise((resolve) => { resolveSlow = resolve })
+  const apply = async (request, promise) => {
+    const cameraIds = await promise
+    if (isMembershipLoadCurrent(request, current)) applied = cameraIds
+  }
+
+  const oldRequest = { ...current }
+  const oldWork = apply(oldRequest, slow)
+  current = { generation: 2, feature: 'feature-b', channelIdsKey: '9' }
+  await apply({ ...current }, Promise.resolve([9]))
+  resolveSlow([1])
+  await oldWork
+
+  assert.deepEqual(applied, [9])
+})
