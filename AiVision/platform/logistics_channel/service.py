@@ -167,25 +167,7 @@ class LogisticsChannelService:
             channel = channels.get(channel_id)
             if channel is None or channel.feature_name != feature_name:
                 return False
-            if "name" in values:
-                name = (values["name"] or "").strip()
-                if not name:
-                    raise ValueError("通道名称不能为空")
-                duplicate = (
-                    session.query(LogisticsChannel)
-                    .filter(
-                        LogisticsChannel.feature_name == feature_name,
-                        LogisticsChannel.name == name,
-                        LogisticsChannel.id != channel_id,
-                    )
-                    .first()
-                )
-                if duplicate is not None:
-                    raise ValueError(f"同一功能下通道名称已存在: {name}")
-                channel.name = name
-            for field in ("enabled", "sort_order"):
-                if field in values:
-                    setattr(channel, field, values[field])
+            self._apply_channel_values(session, channel, feature_name, channel_id, values)
             session.flush()
             return True
 
@@ -257,30 +239,7 @@ class LogisticsChannelService:
             channel = channels.get(channel_id)
             if channel is None or channel.feature_name != feature_name:
                 return False
-            for field in (
-                "enabled",
-                "detection_start",
-                "detection_end",
-                "empty_grace_seconds",
-                "multi_grace_seconds",
-                "alarm_interval",
-            ):
-                if field in values:
-                    setattr(channel, field, values[field])
-            alarm = values.get("alarm")
-            if alarm is not None:
-                alarm = self._payload_dict(alarm)
-                if "sql_enable" in alarm:
-                    channel.sql_enable = bool(alarm["sql_enable"])
-                horn = self._payload_dict(alarm.get("horn") or {})
-                if horn:
-                    channel.horn_enable = bool(horn.get("enabled", False))
-                    channel.horn_id = horn.get("horn_id")
-                    channel.horn_event_id = horn.get("horn_event_id")
-                wechat = self._payload_dict(alarm.get("wechat") or {})
-                if wechat:
-                    channel.wechat_enable = bool(wechat.get("enabled", False))
-                    channel.wechat_user = wechat.get("user", "")
+            self._apply_config_values(channel, values)
             session.flush()
             return True
 
@@ -289,6 +248,54 @@ class LogisticsChannelService:
         except IntegrityError as exc:
             error = ValueError("物流通道配置数据约束冲突")
             logger.warning(f"[LogisticsChannelService] 更新通道配置约束冲突: {exc}")
+            raise error from exc
+        if not updated:
+            return None
+        self._notify_channel_changed(channel_id, feature_name)
+        return self.get_channel(feature_name, channel_id)
+
+    def update_channel_and_config(
+        self,
+        feature_name: str,
+        channel_id: int,
+        channel_payload: Any,
+        config_payload: Any | None,
+    ) -> dict | None:
+        """在单事务内更新通道元数据和检测配置，并只发布一次刷新事件。"""
+        feature_name = require_logistics_feature(feature_name)
+        channel_values = self._payload_dict(channel_payload)
+        config_values = self._payload_dict(config_payload)
+        self._reject_none(channel_values, ("enabled", "sort_order"))
+        self._reject_none(config_values, (
+            "enabled",
+            "detection_start",
+            "detection_end",
+            "empty_grace_seconds",
+            "multi_grace_seconds",
+            "alarm_interval",
+        ))
+
+        def update(session):
+            channels = self._lock_channels(session, [channel_id])
+            channel = channels.get(channel_id)
+            if channel is None or channel.feature_name != feature_name:
+                return False
+            self._apply_channel_values(
+                session,
+                channel,
+                feature_name,
+                channel_id,
+                channel_values,
+            )
+            self._apply_config_values(channel, config_values)
+            session.flush()
+            return True
+
+        try:
+            updated = self._run_write_transaction(update)
+        except IntegrityError as exc:
+            error = self._channel_integrity_value_error(exc)
+            logger.warning(f"[LogisticsChannelService] 原子更新通道约束冲突: {error}")
             raise error from exc
         if not updated:
             return None
@@ -680,6 +687,61 @@ class LogisticsChannelService:
         if hasattr(payload, "model_dump"):
             return payload.model_dump(exclude_unset=True)
         raise TypeError("payload 必须是 dict 或 Pydantic model")
+
+    def _apply_channel_values(
+        self,
+        session,
+        channel: LogisticsChannel,
+        feature_name: str,
+        channel_id: int,
+        values: dict,
+    ) -> None:
+        if "name" in values:
+            name = (values["name"] or "").strip()
+            if not name:
+                raise ValueError("通道名称不能为空")
+            duplicate = (
+                session.query(LogisticsChannel)
+                .filter(
+                    LogisticsChannel.feature_name == feature_name,
+                    LogisticsChannel.name == name,
+                    LogisticsChannel.id != channel_id,
+                )
+                .first()
+            )
+            if duplicate is not None:
+                raise ValueError(f"同一功能下通道名称已存在: {name}")
+            channel.name = name
+        for field in ("enabled", "sort_order"):
+            if field in values:
+                setattr(channel, field, values[field])
+
+    def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
+        for field in (
+            "enabled",
+            "detection_start",
+            "detection_end",
+            "empty_grace_seconds",
+            "multi_grace_seconds",
+            "alarm_interval",
+        ):
+            if field in values:
+                setattr(channel, field, values[field])
+        alarm = values.get("alarm")
+        if alarm is None:
+            return
+        alarm = self._payload_dict(alarm)
+        if "sql_enable" in alarm:
+            channel.sql_enable = bool(alarm["sql_enable"])
+        horn = self._payload_dict(alarm.get("horn") or {})
+        if horn:
+            channel.horn_enable = bool(horn.get("enabled", False))
+            channel.horn_id = horn.get("horn_id")
+            channel.horn_event_id = horn.get("horn_event_id")
+        wechat = self._payload_dict(alarm.get("wechat") or {})
+        if wechat:
+            channel.wechat_enable = bool(wechat.get("enabled", False))
+            channel.wechat_user = wechat.get("user", "")
 
     @staticmethod
     def _query_channel(session, feature_name: str, channel_id: int):

@@ -206,6 +206,43 @@ def test_channel_crud_is_scoped_by_feature(service_db):
     assert service.get_channel(BASE_FEATURE, created["id"]) is None
 
 
+def test_combined_channel_update_is_atomic_and_publishes_once(service_db, monkeypatch):
+    service = service_db.service
+    created = service.create_channel(BASE_FEATURE, "原名称")
+    service_db.notifications.clear()
+
+    original_apply_config = service._apply_config_values
+
+    def fail_after_metadata(_channel, _values):
+        raise ValueError("模拟配置更新失败")
+
+    monkeypatch.setattr(service, "_apply_config_values", fail_after_metadata)
+    with pytest.raises(ValueError, match="模拟配置更新失败"):
+        service.update_channel_and_config(
+            BASE_FEATURE,
+            created["id"],
+            {"name": "不应提交"},
+            {"empty_grace_seconds": 9.0},
+        )
+
+    unchanged = service.get_channel(BASE_FEATURE, created["id"])
+    assert unchanged["name"] == "原名称"
+    assert unchanged["config"]["empty_grace_seconds"] == 2.0
+    assert service_db.notifications == []
+
+    monkeypatch.setattr(service, "_apply_config_values", original_apply_config)
+    updated = service.update_channel_and_config(
+        BASE_FEATURE,
+        created["id"],
+        {"name": "已提交"},
+        {"empty_grace_seconds": 4.0},
+    )
+    assert updated["name"] == "已提交"
+    assert updated["config"]["empty_grace_seconds"] == 4.0
+    events = _events(service_db, "logistics_channel_updated")
+    assert len(events) == 1
+
+
 @pytest.mark.parametrize(
     ("method", "args"),
     [

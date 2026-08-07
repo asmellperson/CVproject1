@@ -5,7 +5,9 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
-from fastapi import HTTPException
+import anyio.to_thread
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import ResponseValidationError
 from fastapi.routing import serialize_response
 
@@ -74,6 +76,12 @@ class FakeService:
         self.calls.append(("config", feature, channel_id, update))
         return deepcopy(value)
 
+    def update_channel_and_config(self, feature, channel_id, metadata, config):
+        value = self.update_channel(feature, channel_id, metadata)
+        if value is None or config is None:
+            return value
+        return self.update_config(feature, channel_id, config)
+
     def delete_channel(self, feature, channel_id):
         return self.channels[feature].pop(channel_id, None) is not None
 
@@ -121,6 +129,28 @@ class FakeOrchestrator:
 
     def get_logistics_channel_frame(self, feature, channel_id):
         return self.frame
+
+
+class EmptyAlarmQuery:
+    def filter(self, *_args):
+        return self
+
+    def order_by(self, *_args):
+        return self
+
+    def limit(self, _limit):
+        return self
+
+    def all(self):
+        return []
+
+
+class EmptyAlarmSession:
+    def query(self, _model):
+        return EmptyAlarmQuery()
+
+    def close(self):
+        return None
 
 
 def _seed(service, feature=FEATURES[0], name="一号通道"):
@@ -190,6 +220,94 @@ def test_fastapi_response_field_filters_and_rejects_invalid_output():
             response_content={"items": [{"id": "invalid"}]},
             is_coroutine=True,
         ))
+
+
+def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
+    service = FakeService()
+    orchestrator = FakeOrchestrator()
+    channel = _seed(service)
+    feature = "detect_logistics_single_person"
+    channel_id = channel["id"]
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
+    app.dependency_overrides[api.get_current_orchestrator] = lambda: orchestrator
+    monkeypatch.setattr(api, "get_session", EmptyAlarmSession)
+
+    async def inline_run_sync(func, *args, **_kwargs):
+        return func(*args)
+
+    # 受限测试环境不允许 worker thread；仍通过完整 ASGI 路由/依赖/序列化栈请求。
+    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            base = f"/api/v2/logistics-channels/{feature}"
+            assert (await client.get(base)).status_code == 401
+
+            viewer = {"role": "viewer", "department": "general_electric"}
+            app.dependency_overrides[api.get_current_user] = lambda: viewer
+            assert (await client.get(base)).status_code == 200
+            assert (await client.get(
+                "/api/v2/logistics-channels/"
+                "detect_logistics_single_person_electronics_electrician"
+            )).status_code == 403
+
+            write_requests = (
+                ("POST", base, {"name": "禁止新增"}),
+                ("PUT", f"{base}/{channel_id}", {"name": "禁止更新"}),
+                ("DELETE", f"{base}/{channel_id}", None),
+                ("PUT", f"{base}/{channel_id}/config", {"empty_grace_seconds": 3}),
+                ("POST", f"{base}/{channel_id}/cameras", {"camera_id": 7}),
+                ("PUT", f"{base}/{channel_id}/cameras/order", {"camera_ids": [7]}),
+                ("PUT", f"{base}/{channel_id}/cameras/7", None),
+                ("DELETE", f"{base}/{channel_id}/cameras/7", None),
+            )
+            for method, url, payload in write_requests:
+                response = await client.request(method, url, json=payload)
+                assert response.status_code == 403, (method, url, response.text)
+
+            app.dependency_overrides[api.require_admin] = lambda: ADMIN
+            created = await client.post(base, json={"name": "管理员新增"})
+            assert created.status_code == 201
+            assert created.json()["name"] == "管理员新增"
+            assert (await client.put(
+                f"{base}/{channel_id}",
+                json={"name": "管理员更新", "config": {"empty_grace_seconds": 3}},
+            )).status_code == 200
+            assert (await client.put(
+                f"{base}/{channel_id}/config",
+                json={"empty_grace_seconds": 4},
+            )).status_code == 200
+            assert (await client.post(
+                f"{base}/{channel_id}/cameras",
+                json={"camera_id": 7},
+            )).status_code == 200
+            assert (await client.get(
+                "/api/v2/logistics-channels/not-a-feature"
+            )).status_code == 404
+            assert (await client.post(base, json={})).status_code == 422
+            assert (await client.put(
+                f"{base}/{channel_id}/config",
+                json={"detection_start": "20:00:00", "detection_end": "08:00:00"},
+            )).status_code == 422
+
+            assert (await client.get(f"{base}/{channel_id}/status")).status_code == 200
+            assert (await client.get(f"{base}/{channel_id}/frame.jpg")).status_code == 503
+            orchestrator.frame = np.zeros((60, 120, 3), dtype=np.uint8)
+            frame = await client.get(f"{base}/{channel_id}/frame.jpg")
+            assert frame.status_code == 200
+            assert frame.headers["content-type"] == "image/jpeg"
+            assert frame.content.startswith(b"\xff\xd8")
+            alarms = await client.get(f"{base}/{channel_id}/alarms")
+            assert alarms.status_code == 200
+            assert alarms.json() == {"items": []}
+            statistics = await client.get(f"{base}/{channel_id}/statistics")
+            assert statistics.status_code == 200
+            assert statistics.json()["summary"] == {"total": 0, "today": 0}
+
+    asyncio.run(scenario())
 
 
 def test_four_features_are_isolated_and_whitelisted():
@@ -318,6 +436,11 @@ def test_status_response_and_composite_jpeg_semantics():
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-frame-width"] == "240"
     assert response.body.startswith(b"\xff\xd8")
+    resized = api.get_channel_frame(
+        feature, channel_id, 85, 120, None, ADMIN, service, orchestrator
+    )
+    assert "x-frame-width" not in resized.headers
+    assert "x-frame-height" not in resized.headers
     with pytest.raises(HTTPException) as caught:
         api.get_channel_frame(feature, 999, 85, None, None, ADMIN, service, orchestrator)
     assert caught.value.status_code == 404

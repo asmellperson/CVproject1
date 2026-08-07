@@ -125,15 +125,14 @@ def update_channel(
     feature = _require_feature_access(feature, user)
     metadata = payload.model_dump(exclude_unset=True, exclude={"config"})
     try:
-        result = service.update_channel(feature, channel_id, metadata) if metadata else None
-        if metadata and result is None:
-            raise HTTPException(status_code=404, detail="logistics channel not found")
-        if payload.config is not None:
-            result = service.update_config(feature, channel_id, payload.config)
-            if result is None:
-                raise HTTPException(status_code=404, detail="logistics channel not found")
+        result = service.update_channel_and_config(
+            feature,
+            channel_id,
+            metadata,
+            payload.config,
+        )
         if result is None:
-            result = _get_channel_or_404(service, feature, channel_id)
+            raise HTTPException(status_code=404, detail="logistics channel not found")
         return LogisticsChannelDetailResponse.model_validate(result)
     except ValueError as exc:
         _raise_service_error(exc)
@@ -304,10 +303,13 @@ def get_channel_frame(
         max_width=max_width,
         max_height=max_height,
     )
+    headers = {"Cache-Control": "no-store"}
+    if max_width is None and max_height is None:
+        headers.update(frame_size_headers(frame))
     return Response(
         content=content,
         media_type="image/jpeg",
-        headers={**frame_size_headers(frame), "Cache-Control": "no-store"},
+        headers=headers,
     )
 
 
