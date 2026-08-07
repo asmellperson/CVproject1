@@ -43,3 +43,77 @@ test('the channel hook invalidates stale list and detail requests when removing 
   assert.match(hook, /currentSelectedChannelIdRef\.current = nextSelected/)
   assert.match(hook, /setSelectedChannelDetail\(null\)/)
 })
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  return { promise, resolve, reject }
+}
+
+test('stale list requests cannot apply delayed resolve, reject, or finally state', async () => {
+  const source = await read('src/components/logistics_single_person/channelRequestState.ts')
+  const { isCurrentChannelListRequest } = await importTypeScript(source)
+  let current = { feature: 'feature-a', generation: 0 }
+  const state = { channels: ['current'], error: null, loading: true }
+
+  const run = async (work) => {
+    const request = { ...current }
+    try {
+      const channels = await work
+      if (isCurrentChannelListRequest(request, current)) state.channels = channels
+    } catch (reason) {
+      if (isCurrentChannelListRequest(request, current)) state.error = String(reason)
+    } finally {
+      if (isCurrentChannelListRequest(request, current)) state.loading = false
+    }
+  }
+
+  const slowResolve = deferred()
+  const resolving = run(slowResolve.promise)
+  current = { ...current, generation: 1 }
+  slowResolve.resolve(['deleted-channel'])
+  await resolving
+  assert.deepEqual(state, { channels: ['current'], error: null, loading: true })
+
+  const slowReject = deferred()
+  const rejecting = run(slowReject.promise)
+  current = { ...current, generation: 2 }
+  slowReject.reject(new Error('stale list failure'))
+  await rejecting
+  assert.deepEqual(state, { channels: ['current'], error: null, loading: true })
+})
+
+test('stale detail requests cannot apply delayed resolve or reject state', async () => {
+  const source = await read('src/components/logistics_single_person/channelRequestState.ts')
+  const { isCurrentChannelDetailRequest } = await importTypeScript(source)
+  let current = { feature: 'feature-a', channelId: 1, generation: 0 }
+  const state = { detail: 'current', error: null }
+
+  const run = async (work) => {
+    const request = { ...current }
+    try {
+      const detail = await work
+      if (isCurrentChannelDetailRequest(request, current)) state.detail = detail
+    } catch (reason) {
+      if (isCurrentChannelDetailRequest(request, current)) state.error = String(reason)
+    }
+  }
+
+  const slowResolve = deferred()
+  const resolving = run(slowResolve.promise)
+  current = { feature: 'feature-a', channelId: 2, generation: 1 }
+  slowResolve.resolve('deleted-channel-detail')
+  await resolving
+  assert.deepEqual(state, { detail: 'current', error: null })
+
+  const slowReject = deferred()
+  const rejecting = run(slowReject.promise)
+  current = { ...current, generation: 2 }
+  slowReject.reject(new Error('stale detail failure'))
+  await rejecting
+  assert.deepEqual(state, { detail: 'current', error: null })
+})

@@ -13,6 +13,10 @@ import {
   revokeLogisticsChannelFrameObjectUrl,
   type LogisticsChannelQueryInvalidation,
 } from './api'
+import {
+  isCurrentChannelDetailRequest,
+  isCurrentChannelListRequest,
+} from './channelRequestState'
 import { selectAfterChannelDeletion } from './channelSelection'
 import type {
   LogisticsChannel,
@@ -61,14 +65,14 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   }, [feature, selectedChannelId])
 
   const loadChannels = useCallback(async (signal?: AbortSignal) => {
-    const requestedFeature = feature
-    const requestedGeneration = listRequestGenerationRef.current
+    const request = { feature, generation: listRequestGenerationRef.current }
+    const isCurrentRequest = () => isCurrentChannelListRequest(request, {
+      feature: currentFeatureRef.current,
+      generation: listRequestGenerationRef.current,
+    })
     try {
-      const response = await listLogisticsChannels(requestedFeature, { signal })
-      if (
-        currentFeatureRef.current !== requestedFeature
-        || listRequestGenerationRef.current !== requestedGeneration
-      ) return
+      const response = await listLogisticsChannels(request.feature, { signal })
+      if (!isCurrentRequest()) return
       setChannels(response.items)
       setSelectedChannelId((current) => {
         if (current !== null && response.items.some((channel) => channel.id === current)) {
@@ -78,29 +82,32 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
       })
       setError(null)
     } catch (reason) {
-      if (signal?.aborted || currentFeatureRef.current !== requestedFeature) return
+      if (signal?.aborted || !isCurrentRequest()) return
       setError(reason instanceof Error ? reason.message : '物流通道加载失败')
     } finally {
-      if (currentFeatureRef.current === requestedFeature) setLoading(false)
+      if (isCurrentRequest()) setLoading(false)
     }
   }, [feature])
 
   const loadSelectedChannel = useCallback(async (signal?: AbortSignal) => {
     if (selectedChannelId === null) return
-    const requestedFeature = feature
-    const requestedChannelId = selectedChannelId
-    const requestedGeneration = detailRequestGenerationRef.current
+    const request = {
+      feature,
+      channelId: selectedChannelId,
+      generation: detailRequestGenerationRef.current,
+    }
+    const isCurrentRequest = () => isCurrentChannelDetailRequest(request, {
+      feature: currentFeatureRef.current,
+      channelId: currentSelectedChannelIdRef.current,
+      generation: detailRequestGenerationRef.current,
+    })
     try {
-      const detail = await getLogisticsChannel(requestedFeature, requestedChannelId, { signal })
-      if (
-        currentFeatureRef.current !== requestedFeature
-        || requestedChannelId !== currentSelectedChannelIdRef.current
-        || detailRequestGenerationRef.current !== requestedGeneration
-      ) return
+      const detail = await getLogisticsChannel(request.feature, request.channelId, { signal })
+      if (!isCurrentRequest()) return
       setSelectedChannelDetail(detail)
       setError(null)
     } catch (reason) {
-      if (signal?.aborted || currentFeatureRef.current !== requestedFeature) return
+      if (signal?.aborted || !isCurrentRequest()) return
       setError(reason instanceof Error ? reason.message : '物流通道详情加载失败')
     }
   }, [feature, selectedChannelId])
