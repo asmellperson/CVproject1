@@ -40,6 +40,15 @@ _STATUS_LABELS = {
     "inactive": "未启用",
     "unconfigured": "未配置",
 }
+_STATUS_COLORS = {
+    "offline": (110, 110, 110),
+    "normal": (0, 180, 0),
+    "empty": (0, 0, 255),
+    "multiple": (0, 0, 255),
+    "unknown": (0, 165, 255),
+    "inactive": (110, 110, 110),
+    "unconfigured": (110, 110, 110),
+}
 
 
 @dataclass(frozen=True)
@@ -218,38 +227,22 @@ def render_placeholder(camera_name: str, detail: str, target_size: tuple[int, in
     return np.ascontiguousarray(canvas)
 
 
-def _status_color(tile: CameraTile) -> tuple[int, int, int]:
+def _visual_status(tile: CameraTile) -> tuple[str, tuple[int, int, int]]:
+    """Normalize a tile's display state so label and color cannot diverge."""
+    if not tile.online:
+        return "离线", _STATUS_COLORS["offline"]
     reason = str(tile.reason).strip().lower()
-    if not tile.online or reason in {"offline", "disabled", "unconfigured", "not_configured", "not configured"}:
-        return 110, 110, 110
-    if tile.person_count is None or reason in {"unknown", "waiting", "pending"}:
-        return 0, 165, 255
-    if tile.person_count > 1 or reason in {"multiple", "multi_person", "multi-person"}:
-        return 0, 0, 255
-    return 0, 180, 0
-
-
-def _status_text(tile: CameraTile) -> str:
-    reason = str(tile.reason).strip().lower()
-    if reason in {"disabled", "inactive"}:
-        return _STATUS_LABELS["inactive"]
-    if reason in {"unconfigured", "not_configured", "not configured"}:
-        return _STATUS_LABELS["unconfigured"]
-    if reason in {"multiple", "multi_person", "multi-person"}:
-        return _STATUS_LABELS["multiple"]
-    if reason in {"waiting", "pending", "offline"} and not tile.online:
-        return "离线"
-    return _STATUS_LABELS.get(reason, _STATUS_LABELS["unknown"])
+    key = reason if reason in _STATUS_LABELS else "unknown"
+    return _STATUS_LABELS[key], _STATUS_COLORS[key]
 
 
 def _draw_tile_overlay(image: np.ndarray, tile: CameraTile) -> None:
     height, width = image.shape[:2]
     bar_height = min(max(18, height // 2), 96)
-    color = _status_color(tile)
+    status, color = _visual_status(tile)
     cv2.rectangle(image, (0, 0), (width - 1, bar_height - 1), color, -1)
     count_text = "?" if tile.person_count is None else str(tile.person_count)
     name = _display_text(tile.camera_name, "camera")
-    status = _status_text(tile)
     detail = _display_text(tile.detail, "")
     font_size = max(9, min(18, width // 36))
     line_height = max(10, font_size + 2)

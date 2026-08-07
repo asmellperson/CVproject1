@@ -186,3 +186,31 @@ def test_text_renderer_survives_missing_explicit_font():
     assert result.shape == image.shape
     assert result.dtype == np.uint8
     assert result.flags.c_contiguous
+
+
+@pytest.mark.parametrize(
+    ("online", "reason", "expected_label", "expected_color"),
+    [
+        (False, "normal", "离线", (110, 110, 110)),
+        (True, "normal", "正常", (0, 180, 0)),
+        (True, "empty", "无人异常", (0, 0, 255)),
+        (True, "multiple", "多人异常", (0, 0, 255)),
+        (True, "unknown", "未知", (0, 165, 255)),
+        (True, "inactive", "未启用", (110, 110, 110)),
+        (True, "unconfigured", "未配置", (110, 110, 110)),
+        (True, "not-a-real-reason", "未知", (0, 165, 255)),
+    ],
+)
+def test_visual_status_normalizes_text_and_color_together(online, reason, expected_label, expected_color):
+    tile = CameraTile(1, "cam", None, reason, 1, online)
+
+    assert compositor._visual_status(tile) == (expected_label, expected_color)
+
+
+def test_compose_overlay_uses_normalized_offline_color(monkeypatch):
+    monkeypatch.setattr(compositor, "_draw_text", lambda image, *args, **kwargs: image)
+    tile = CameraTile(1, "cam", np.zeros((20, 20, 3), dtype=np.uint8), "normal", 1, False)
+
+    result = compose_channel_frame([tile], tile_size=(120, 100))
+
+    assert tuple(result[0, 0]) == (110, 110, 110)
