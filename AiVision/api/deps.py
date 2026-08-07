@@ -39,3 +39,8 @@ def get_model_service():
 def get_department_service():
     from platform.department.service import department_service
     return department_service
+
+
+def get_logistics_channel_service():
+    from platform.logistics_channel.service import logistics_channel_service
+    return logistics_channel_service
