@@ -285,6 +285,25 @@ def test_concurrent_camera_updates_produce_consistent_channel_snapshot():
     assert status["camera_counts"] == {"10": 1, "11": 1}
 
 
+def test_channel_status_returns_defensive_copies_of_nested_collections():
+    runtime, _dispatcher = build_runtime([channel()])
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 2), None)
+    runtime.update_camera_snapshot(FEATURE, snapshot(11, 0), None)
+    runtime.evaluate(FEATURE, 3, now=100.0)
+
+    external = runtime.get_channel_status(FEATURE, 3)
+    external["camera_ids"].append(99)
+    external["offending_camera_ids"].clear()
+    external["camera_counts"]["10"] = 0
+    external["camera_states"]["10"]["camera_name"] = "外部篡改"
+
+    internal = runtime.get_channel_status(FEATURE, 3)
+    assert internal["camera_ids"] == [10, 11]
+    assert internal["offending_camera_ids"] == [10]
+    assert internal["camera_counts"]["10"] == 2
+    assert internal["camera_states"]["10"]["camera_name"] == "摄像头-10"
+
+
 @pytest.mark.parametrize("invalid_count", [True, -1, 1.5])
 def test_invalid_count_is_unknown_in_decision_and_display(invalid_count):
     runtime, dispatcher = build_runtime([channel(member_ids=(10,))])

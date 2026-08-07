@@ -164,7 +164,10 @@ class Orchestrator:
             except Exception as e:
                 logger.warning(f"[Orchestrator] 停止 Consumer {name} 失败: {e}")
         self.consumers.clear()
-        self.logistics_channel_runtime.stop()
+        try:
+            self.logistics_channel_runtime.stop()
+        except Exception as e:
+            logger.warning(f"[Orchestrator] 停止物流通道运行时失败，将继续清理其余资源: {e}")
 
         try:
             inference_manager.stop_all()

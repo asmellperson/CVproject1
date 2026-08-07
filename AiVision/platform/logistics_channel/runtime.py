@@ -776,6 +776,8 @@ class LogisticsChannelRuntime:
         if value is None:
             return None
         copied = dict(value)
+        copied["camera_ids"] = list(value.get("camera_ids") or [])
+        copied["offending_camera_ids"] = list(value.get("offending_camera_ids") or [])
         copied["camera_counts"] = dict(value.get("camera_counts") or {})
         copied["camera_states"] = {
             key: dict(state) for key, state in (value.get("camera_states") or {}).items()

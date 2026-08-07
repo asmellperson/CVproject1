@@ -283,3 +283,59 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
 
     assert created[logistics.name]["logistics_runtime"] is orchestrator.logistics_channel_runtime
     assert "logistics_runtime" not in created[ordinary.name]
+
+
+def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch, caplog):
+    import core.db as db_module
+    import platform.orchestrator as orchestrator_module
+
+    calls = []
+    orchestrator = _orchestrator_without_init()
+    orchestrator._started = True
+    orchestrator.consumers = {
+        "detect_test": SimpleNamespace(stop=lambda: calls.append("consumer"))
+    }
+
+    def fail_logistics_stop():
+        calls.append("logistics")
+        raise RuntimeError("巡检线程停止超时")
+
+    orchestrator.logistics_channel_runtime = SimpleNamespace(stop=fail_logistics_stop)
+    orchestrator._horn_dict = {
+        1: SimpleNamespace(stop_heartbeat=lambda: calls.append("horn"))
+    }
+    orchestrator.camera_manager = SimpleNamespace(stop_all=lambda: calls.append("camera"))
+    monkeypatch.setattr(
+        orchestrator_module.inference_manager,
+        "stop_all",
+        lambda: calls.append("inference"),
+    )
+    monkeypatch.setattr(
+        orchestrator_module.violation_writer,
+        "stop",
+        lambda: calls.append("violation"),
+    )
+    monkeypatch.setattr(
+        orchestrator_module.frame_reader_registry,
+        "stop_all",
+        lambda: calls.append("frame_reader"),
+    )
+    monkeypatch.setattr(db_module, "dispose", lambda: calls.append("db"))
+
+    orchestrator.stop()
+
+    assert calls == [
+        "consumer",
+        "logistics",
+        "inference",
+        "horn",
+        "violation",
+        "frame_reader",
+        "camera",
+        "db",
+    ]
+    assert orchestrator.consumers == {}
+    assert orchestrator._horn_dict == {}
+    assert orchestrator._started is False
+    assert "停止物流通道运行时失败，将继续清理其余资源" in caplog.text
+    assert "巡检线程停止超时" in caplog.text
