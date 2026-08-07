@@ -64,6 +64,7 @@ export function LogisticsChannelSection({ feature, title }: LogisticsChannelSect
             selectedChannelDetail={channelQuery.selectedChannelDetail}
             isAdmin={isAdmin}
             onSelectChannel={channelQuery.setSelectedChannelId}
+            onChannelDeleted={channelQuery.removeChannelLocally}
             onChanged={refreshAll}
           />
         </TabsContent>

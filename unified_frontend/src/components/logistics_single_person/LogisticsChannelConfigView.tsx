@@ -48,6 +48,7 @@ type Props = {
   selectedChannelDetail: LogisticsChannelDetail | null
   isAdmin: boolean
   onSelectChannel: (channelId: number) => void
+  onChannelDeleted: (channelId: number) => void
   onChanged: () => void
 }
 
@@ -71,6 +72,7 @@ export function LogisticsChannelConfigView({
   selectedChannelDetail,
   isAdmin,
   onSelectChannel,
+  onChannelDeleted,
   onChanged,
 }: Props) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -271,7 +273,11 @@ export function LogisticsChannelConfigView({
 
   const deleteChannel = () => {
     if (!selectedChannelDetail || !window.confirm(`确定删除物流通道“${selectedChannelDetail.name}”吗？摄像头资源不会被删除。`)) return
-    void run(() => deleteLogisticsChannel(feature, selectedChannelDetail.id), '物流通道已删除。')
+    const deletedChannelId = selectedChannelDetail.id
+    void run(async () => {
+      await deleteLogisticsChannel(feature, deletedChannelId)
+      onChannelDeleted(deletedChannelId)
+    }, '物流通道已删除。')
   }
 
   const addExisting = () => {

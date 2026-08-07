@@ -13,6 +13,7 @@ import {
   revokeLogisticsChannelFrameObjectUrl,
   type LogisticsChannelQueryInvalidation,
 } from './api'
+import { selectAfterChannelDeletion } from './channelSelection'
 import type {
   LogisticsChannel,
   LogisticsChannelDetail,
@@ -51,6 +52,8 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   const [detailRevision, refreshSelectedChannel] = useReducer((value: number) => value + 1, 0)
   const currentFeatureRef = useRef(feature)
   const currentSelectedChannelIdRef = useRef(selectedChannelId)
+  const listRequestGenerationRef = useRef(0)
+  const detailRequestGenerationRef = useRef(0)
 
   useEffect(() => {
     currentFeatureRef.current = feature
@@ -59,9 +62,13 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
 
   const loadChannels = useCallback(async (signal?: AbortSignal) => {
     const requestedFeature = feature
+    const requestedGeneration = listRequestGenerationRef.current
     try {
       const response = await listLogisticsChannels(requestedFeature, { signal })
-      if (currentFeatureRef.current !== requestedFeature) return
+      if (
+        currentFeatureRef.current !== requestedFeature
+        || listRequestGenerationRef.current !== requestedGeneration
+      ) return
       setChannels(response.items)
       setSelectedChannelId((current) => {
         if (current !== null && response.items.some((channel) => channel.id === current)) {
@@ -82,11 +89,13 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     if (selectedChannelId === null) return
     const requestedFeature = feature
     const requestedChannelId = selectedChannelId
+    const requestedGeneration = detailRequestGenerationRef.current
     try {
       const detail = await getLogisticsChannel(requestedFeature, requestedChannelId, { signal })
       if (
         currentFeatureRef.current !== requestedFeature
         || requestedChannelId !== currentSelectedChannelIdRef.current
+        || detailRequestGenerationRef.current !== requestedGeneration
       ) return
       setSelectedChannelDetail(detail)
       setError(null)
@@ -98,6 +107,8 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
 
   useEffect(() => {
     currentFeatureRef.current = feature
+    listRequestGenerationRef.current += 1
+    detailRequestGenerationRef.current += 1
     setChannels([])
     setSelectedChannelDetail(null)
     setSelectedChannelId(null)
@@ -146,12 +157,29 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     [channels, selectedChannelId],
   )
 
+  const removeChannelLocally = useCallback((channelId: number) => {
+    listRequestGenerationRef.current += 1
+    detailRequestGenerationRef.current += 1
+    setChannels((current) => {
+      const nextSelected = selectAfterChannelDeletion(
+        current,
+        channelId,
+        currentSelectedChannelIdRef.current,
+      )
+      currentSelectedChannelIdRef.current = nextSelected
+      setSelectedChannelId(nextSelected)
+      return current.filter((channel) => channel.id !== channelId)
+    })
+    setSelectedChannelDetail(null)
+  }, [])
+
   return {
     channels,
     selectedChannel,
     selectedChannelDetail,
     selectedChannelId,
     setSelectedChannelId,
+    removeChannelLocally,
     loading,
     error,
     refresh,
