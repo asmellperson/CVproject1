@@ -44,6 +44,8 @@ import {
   type MembershipLoadIdentity,
 } from './membershipState'
 import { channelCreateDialogReducer, initialChannelCreateDialogState } from './channelCreateDialogState'
+import { LogisticsCameraCreateDialog } from './LogisticsCameraCreateDialog'
+import type { LogisticsCameraCreateInput } from './logisticsCameraCreateState'
 
 type Props = {
   feature: LogisticsFeatureName
@@ -92,7 +94,7 @@ export function LogisticsChannelConfigView({
   const [config, setConfig] = useState<LogisticsChannelConfig | null>(null)
   const [existingCameraId, setExistingCameraId] = useState('')
   const [moveExisting, setMoveExisting] = useState(false)
-  const [newCamera, setNewCamera] = useState({ name: '', url: '', fps: '5' })
+  const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null)
   const [cameraConfig, setCameraConfig] = useState<LogisticsCameraConfigResponse | null>(null)
   const [roiJson, setRoiJson] = useState('[]')
@@ -239,20 +241,24 @@ export function LogisticsChannelConfigView({
     return () => { active = false }
   }, [feature, selectedCamera, selectedChannelDetail])
 
+  const invalidateMemberships = () => {
+    membershipLoadRef.current = {
+      ...membershipLoadRef.current,
+      generation: membershipLoadRef.current.generation + 1,
+    }
+    setBoundCameraIds(new Set())
+    setChannelMemberCounts({})
+    setMembershipsLoaded(false)
+    refreshMemberships()
+  }
+
   const run = async (action: () => Promise<unknown>, success: string, reloadMemberships = false) => {
     if (!isAdmin || busy) return
     setBusy(true)
     try {
       await action()
       if (reloadMemberships) {
-        membershipLoadRef.current = {
-          ...membershipLoadRef.current,
-          generation: membershipLoadRef.current.generation + 1,
-        }
-        setBoundCameraIds(new Set())
-        setChannelMemberCounts({})
-        setMembershipsLoaded(false)
-        refreshMemberships()
+        invalidateMemberships()
       }
       setMessage(success)
       onChanged()
@@ -314,16 +320,26 @@ export function LogisticsChannelConfigView({
     }, moveExisting ? '摄像头已移动至当前通道。' : '已有摄像头已绑定。', true)
   }
 
-  const createCameraAndBind = () => {
-    if (!selectedChannelDetail) return
-    void run(async () => {
-      await addLogisticsChannelCamera(feature, selectedChannelDetail.id, {
-        name: newCamera.name.trim(),
-        url: newCamera.url.trim(),
-        fps: Math.round(Number(newCamera.fps)),
-      })
-      setNewCamera({ name: '', url: '', fps: '5' })
-    }, '摄像头已新建并绑定。', true)
+  const createCameraAndBind = async (payload: LogisticsCameraCreateInput) => {
+    if (!isAdmin) throw new Error('只有管理员可以新建摄像头。')
+    const channelId = selectedChannelDetail?.id
+    if (channelId === undefined) throw new Error('请先选择物流通道。')
+    if (busy) throw new Error('正在处理其他操作，请稍后再试。')
+    if (members.length >= 9) throw new Error('当前通道最多绑定 9 路摄像头。')
+
+    setBusy(true)
+    try {
+      await addLogisticsChannelCamera(feature, channelId, payload)
+      invalidateMemberships()
+      setMessage('摄像头已新建并绑定。')
+      onChanged()
+      window.dispatchEvent(new Event('aivision:cameras-changed'))
+    } catch (reason) {
+      setMessage(`操作失败：${messageOf(reason)}`)
+      throw reason
+    } finally {
+      setBusy(false)
+    }
   }
 
   const moveMember = (cameraId: number, offset: -1 | 1) => {
@@ -479,12 +495,18 @@ export function LogisticsChannelConfigView({
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader><CardTitle className="text-base">新建摄像头并绑定</CardTitle></CardHeader>
-                  <CardContent className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2"><Label htmlFor="logistics-new-camera-name">摄像头名称</Label><Input id="logistics-new-camera-name" value={newCamera.name} onChange={(event) => setNewCamera((current) => ({ ...current, name: event.target.value }))} disabled={!isAdmin || busy} /></div>
-                    <div className="space-y-2"><Label htmlFor="logistics-new-camera-fps">FPS</Label><Input id="logistics-new-camera-fps" type="number" min="1" step="1" value={newCamera.fps} onChange={(event) => setNewCamera((current) => ({ ...current, fps: event.target.value }))} disabled={!isAdmin || busy} /></div>
-                    <div className="space-y-2 sm:col-span-2"><Label htmlFor="logistics-new-camera-url">RTSP 地址</Label><Input id="logistics-new-camera-url" value={newCamera.url} onChange={(event) => setNewCamera((current) => ({ ...current, url: event.target.value }))} placeholder="rtsp://..." disabled={!isAdmin || busy} /></div>
-                    <Button className="sm:col-span-2" onClick={createCameraAndBind} disabled={!isAdmin || busy || members.length >= 9 || !newCamera.name.trim() || !newCamera.url.trim()}>新建摄像头并绑定</Button>
+                  <CardHeader>
+                    <CardTitle className="text-base">新建摄像头并绑定</CardTitle>
+                    <CardDescription>填写摄像头信息后，将其直接加入当前物流通道。</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button
+                      className="w-full"
+                      onClick={() => setCameraDialogOpen(true)}
+                      disabled={!isAdmin || busy || !selectedChannelDetail || members.length >= 9}
+                    >
+                      <Plus className="h-4 w-4" />新建摄像头并绑定
+                    </Button>
                   </CardContent>
                 </Card>
               </div>
@@ -522,6 +544,13 @@ export function LogisticsChannelConfigView({
           </>
         )}
       </Tabs>
+
+      {cameraDialogOpen ? (
+        <LogisticsCameraCreateDialog
+          onClose={() => setCameraDialogOpen(false)}
+          onSubmit={createCameraAndBind}
+        />
+      ) : null}
 
       <Dialog open={createDialog.open} onOpenChange={(open) => {
         if (open) dispatchCreateDialog({ type: 'open' })

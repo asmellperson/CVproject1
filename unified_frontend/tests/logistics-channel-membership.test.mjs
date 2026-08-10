@@ -84,3 +84,15 @@ test('enabling or disabling a member refreshes membership counts only through th
   assert.ok(mutationPosition >= 0 && refreshPosition > mutationPosition)
   assert.ok(catchPosition > refreshPosition, 'membership refresh must remain inside the success-only try path')
 })
+
+test('creating a camera refreshes memberships, channel data, and the global camera list', () => {
+  const createBlock = configSource.slice(
+    configSource.indexOf('const createCameraAndBind'),
+    configSource.indexOf('const moveMember'),
+  )
+  assert.match(createBlock, /await addLogisticsChannelCamera/)
+  assert.match(createBlock, /invalidateMemberships\(\)/)
+  assert.match(createBlock, /onChanged\(\)/)
+  assert.match(createBlock, /aivision:cameras-changed/)
+  assert.match(createBlock, /throw reason/)
+})
