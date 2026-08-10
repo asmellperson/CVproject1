@@ -180,8 +180,7 @@ export function SecurityVlmSection({
   const [busyCameraId, setBusyCameraId] = useState<string | null>(null)
   const [videoNonce, setVideoNonce] = useState(Date.now())
   const [selectedCameraId, setSelectedCameraId] = useState<string>()
-  const [secondaryCameraId, setSecondaryCameraId] = useState<string>()
-  const [dualView, setDualView] = useState(false)
+  const [singleView, setSingleView] = useState(false)
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [editingCamera, setEditingCamera] = useState<SecurityVlmCamera | null>(null)
   const [cameraDialogKey, setCameraDialogKey] = useState(0)
@@ -227,10 +226,6 @@ export function SecurityVlmSection({
         ? previous
         : nextCameras[0]?.camera_id
     ))
-    setSecondaryCameraId((previous) => {
-      if (previous && nextCameras.some((camera) => camera.camera_id === previous)) return previous
-      return nextCameras.find((camera) => camera.camera_id !== nextCameras[0]?.camera_id)?.camera_id
-    })
   }
 
   const handleAllCameras = async (action: 'start' | 'stop') => {
@@ -261,6 +256,7 @@ export function SecurityVlmSection({
 
   useEffect(() => {
     let mounted = true
+    setSingleView(false)
 
     const load = async () => {
       try {
@@ -272,11 +268,6 @@ export function SecurityVlmSection({
             previous && nextCameras.some((camera) => camera.camera_id === previous)
               ? previous
               : nextCameras[0]?.camera_id
-          ))
-          setSecondaryCameraId((previous) => (
-            previous && nextCameras.some((camera) => camera.camera_id === previous)
-              ? previous
-              : nextCameras[1]?.camera_id
           ))
         }
       } catch (error) {
@@ -730,14 +721,14 @@ export function SecurityVlmSection({
                 </Badge>
               )}
               <Button
-                variant={dualView ? 'default' : 'outline'}
+                variant={singleView ? 'outline' : 'default'}
                 size="sm"
                 className="gap-2"
                 disabled={cameras.length < 2}
-                onClick={() => setDualView((value) => !value)}
+                onClick={() => setSingleView((value) => !value)}
               >
                 <Columns2 className="h-4 w-4" />
-                {dualView ? '单画面' : '双画面'}
+                {singleView ? '多画面' : '单画面'}
               </Button>
               <Button
                 variant="outline"
@@ -785,21 +776,40 @@ export function SecurityVlmSection({
 
               <section className="w-full space-y-3 border-t pt-6 dark:border-slate-800 2xl:space-y-4 2xl:pt-8">
                 <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">安检画面</h3>
-                <div className={cn('grid gap-4 2xl:gap-5', dualView && 'lg:grid-cols-2')}>
-                  <SecurityVideoPanel
-                    department={department}
-                    cameras={cameras}
-                    cameraId={selectedCameraId}
-                    nonce={videoNonce}
-                    onCameraChange={setSelectedCameraId}
-                  />
-                  {dualView && (
+                <div className={cn(
+                  'grid gap-4 2xl:gap-5',
+                  !singleView && cameras.length === 2 && 'lg:grid-cols-2',
+                  !singleView && cameras.length === 3 && 'md:grid-cols-2 xl:grid-cols-3',
+                  !singleView && cameras.length >= 4 && 'md:grid-cols-2',
+                )}>
+                  {singleView ? (
                     <SecurityVideoPanel
                       department={department}
                       cameras={cameras}
-                      cameraId={secondaryCameraId}
+                      cameraId={selectedCameraId}
                       nonce={videoNonce}
-                      onCameraChange={setSecondaryCameraId}
+                      onCameraChange={setSelectedCameraId}
+                    />
+                  ) : cameras.length > 0 ? (
+                    cameras.map((camera) => (
+                      <SecurityVideoPanel
+                        key={camera.camera_id}
+                        department={department}
+                        cameras={cameras}
+                        cameraId={camera.camera_id}
+                        nonce={videoNonce}
+                        onCameraChange={setSelectedCameraId}
+                        selectable={false}
+                      />
+                    ))
+                  ) : (
+                    <SecurityVideoPanel
+                      department={department}
+                      cameras={cameras}
+                      cameraId={undefined}
+                      nonce={videoNonce}
+                      onCameraChange={setSelectedCameraId}
+                      selectable={false}
                     />
                   )}
                 </div>

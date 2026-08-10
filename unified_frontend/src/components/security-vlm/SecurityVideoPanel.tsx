@@ -13,6 +13,7 @@ type Props = {
   kind?: 'original' | 'rule'
   nonce: number
   onCameraChange: (cameraId: string) => void
+  selectable?: boolean
   imageRef?: React.Ref<HTMLImageElement>
   onLoad?: React.ReactEventHandler<HTMLImageElement>
 }
@@ -24,6 +25,7 @@ export function SecurityVideoPanel({
   kind = 'rule',
   nonce,
   onCameraChange,
+  selectable = true,
   imageRef,
   onLoad,
 }: Props) {
@@ -31,18 +33,24 @@ export function SecurityVideoPanel({
   return (
     <div className="overflow-hidden rounded-lg border bg-slate-950">
       <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-3 py-2">
-        <Select value={cameraId} onValueChange={onCameraChange}>
-          <SelectTrigger className="h-8 w-full max-w-64 border-slate-700 bg-slate-800 text-slate-100">
-            <SelectValue placeholder="选择摄像头" />
-          </SelectTrigger>
-          <SelectContent>
-            {cameras.map((item) => (
-              <SelectItem key={item.camera_id} value={item.camera_id}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {selectable ? (
+          <Select value={cameraId} onValueChange={onCameraChange}>
+            <SelectTrigger className="h-8 w-full max-w-64 border-slate-700 bg-slate-800 text-slate-100">
+              <SelectValue placeholder="选择摄像头" />
+            </SelectTrigger>
+            <SelectContent>
+              {cameras.map((item) => (
+                <SelectItem key={item.camera_id} value={item.camera_id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="truncate text-sm font-medium text-slate-100">
+            {camera?.name || '暂无摄像头'}
+          </span>
+        )}
         <span className="shrink-0 text-xs text-slate-400">
           {camera?.running ? '实时' : '已停止'}
         </span>

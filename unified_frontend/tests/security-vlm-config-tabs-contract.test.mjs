@@ -10,6 +10,10 @@ const cameraDialog = await readFile(
   new URL('../src/components/security-vlm/SecurityCameraDialog.tsx', import.meta.url),
   'utf8',
 )
+const videoPanel = await readFile(
+  new URL('../src/components/security-vlm/SecurityVideoPanel.tsx', import.meta.url),
+  'utf8',
+)
 
 test('uses realtime monitor and nested configuration tabs', () => {
   assert.match(section, /const \[activeTab, setActiveTab\] = useState\('dashboard'\)/)
@@ -35,7 +39,7 @@ test('places camera operations and ROI drawing under configuration', () => {
   const startAll = section.indexOf("handleAllCameras('start')", cameraContent)
   const roiContent = section.indexOf('<TabsContent value="roi"', cameraContent)
   const roiEditor = section.indexOf('工位 ROI 绘制', roiContent)
-  const dualView = section.indexOf("dualView ? '单画面' : '双画面'")
+  const multiView = section.indexOf("singleView ? '多画面' : '单画面'")
 
   assert.ok(dashboardContent >= 0)
   assert.ok(configContent > dashboardContent)
@@ -44,7 +48,7 @@ test('places camera operations and ROI drawing under configuration', () => {
   assert.ok(startAll > cameraContent)
   assert.ok(roiContent > cameraBar)
   assert.ok(roiEditor > roiContent)
-  assert.ok(dualView >= 0 && dualView < dashboardContent)
+  assert.ok(multiView >= 0 && multiView < dashboardContent)
   assert.match(section, /activeTab === 'dashboard' && \(/)
   assert.equal(section.match(/<SecurityCameraBar/g)?.length, 1)
 
@@ -85,4 +89,17 @@ test('history only displays completed compliance decisions', () => {
     section,
     /const filteredItems = cameraFilter === 'all'[\s\S]*?\? judgedItems[\s\S]*?: judgedItems\.filter/,
   )
+})
+
+test('defaults to all-camera view and only selects a camera in single view', () => {
+  assert.match(section, /const \[singleView, setSingleView\] = useState\(false\)/)
+  assert.match(section, /useEffect\(\(\) => \{[\s\S]*?setSingleView\(false\)[\s\S]*?getSecurityVlmHealth\(department\)/)
+  assert.doesNotMatch(section, /secondaryCameraId|dualView/)
+  assert.match(section, /singleView \? \([\s\S]*?cameraId=\{selectedCameraId\}/)
+  assert.match(section, /cameras\.map\(\(camera\) => \([\s\S]*?cameraId=\{camera\.camera_id\}[\s\S]*?selectable=\{false\}/)
+  assert.match(section, /cameras\.length === 3 && 'md:grid-cols-2 xl:grid-cols-3'/)
+  assert.match(section, /cameras\.length >= 4 && 'md:grid-cols-2'/)
+  assert.match(videoPanel, /selectable = true/)
+  assert.match(videoPanel, /selectable \? \([\s\S]*?<Select value=\{cameraId\}/)
+  assert.match(videoPanel, /camera\?\.name \|\| '暂无摄像头'/)
 })
