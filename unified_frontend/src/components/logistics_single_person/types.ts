@@ -39,6 +39,7 @@ export type LogisticsChannelConfig = {
   enabled: boolean
   detection_start: LogisticsDetectionTime
   detection_end: LogisticsDetectionTime
+  confidence_threshold: number
   empty_grace_seconds: number
   multi_grace_seconds: number
   alarm_interval: number

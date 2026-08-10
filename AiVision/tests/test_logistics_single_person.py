@@ -28,8 +28,9 @@ LOGISTICS_CONSUMER_CLASSES = (
 
 
 class RuntimeSpy:
-    def __init__(self, *, should_run=True):
+    def __init__(self, *, should_run=True, confidence_threshold=0.3):
         self.should_run = should_run
+        self.confidence_threshold = confidence_threshold
         self.schedule_calls = []
         self.snapshot_calls = []
         self.evaluate_calls = []
@@ -37,6 +38,9 @@ class RuntimeSpy:
     def camera_should_run(self, feature_name, camera_id):
         self.schedule_calls.append((feature_name, camera_id))
         return self.should_run
+
+    def person_confidence_threshold(self, feature_name, camera_id):
+        return self.confidence_threshold
 
     def update_camera_snapshot(self, feature_name, snapshot, annotated_frame):
         self.snapshot_calls.append((feature_name, snapshot, annotated_frame))
@@ -133,6 +137,21 @@ def test_process_preserves_model_and_camera_filter_configuration():
         "task_meta": {"conf": 0.4, "iou": 0.3},
     }
     assert [item["bbox"] for item in result[0][1]["detections"]] == [[2, 2, 22, 62]]
+
+
+def test_process_uses_channel_person_confidence_threshold():
+    runtime = RuntimeSpy(confidence_threshold=0.72)
+    consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
+    dispatched = {}
+
+    def dispatch(_camera_id, _model_name, _roi_list, task_meta):
+        dispatched.update(task_meta)
+        return [{"roi_id": 0, "detections": []}]
+
+    consumer.dispatch_inference_sync = dispatch
+    consumer._process([np.zeros((16, 16, 3), dtype=np.uint8)], camera_id=7)
+
+    assert dispatched == {"conf": 0.72, "iou": 0.3}
 
 
 def test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot():

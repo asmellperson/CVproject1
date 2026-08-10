@@ -31,6 +31,8 @@ class LogisticsConsumerRuntime(Protocol):
 
     def camera_should_run(self, feature_name: str, camera_id: int) -> bool: ...
 
+    def person_confidence_threshold(self, feature_name: str, camera_id: int) -> float | None: ...
+
     def update_camera_snapshot(
         self,
         feature_name: str,
@@ -102,6 +104,12 @@ class LogisticsSinglePersonConsumerBase(BaseFunctionConsumer):
     def _process(self, roi_list, camera_id):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
         conf_thr = _number_or_default(cfg.get("CONF_THRESHOLD"), 0.3)
+        threshold_provider = getattr(self.logistics_runtime, "person_confidence_threshold", None)
+        if callable(threshold_provider):
+            conf_thr = _number_or_default(
+                threshold_provider(self.feature_name, camera_id),
+                conf_thr,
+            )
         iou_thr = _number_or_default(cfg.get("IOU_THR"), 0.3)
         min_box_area = _number_or_default(cfg.get("MIN_BOX_AREA"), 0)
         aspect_range = cfg.get("ASPECT_RATIO_RANGE") or []

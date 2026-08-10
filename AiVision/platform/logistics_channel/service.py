@@ -22,6 +22,7 @@ from platform.camera.service import (
 )
 
 from .constants import (
+    DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
     LOGISTICS_FEATURE_DEPARTMENTS,
     LOGISTICS_FEATURES,
     MAX_CAMERAS_PER_CHANNEL,
@@ -229,6 +230,7 @@ class LogisticsChannelService:
             "enabled",
             "detection_start",
             "detection_end",
+            "confidence_threshold",
             "empty_grace_seconds",
             "multi_grace_seconds",
             "alarm_interval",
@@ -270,6 +272,7 @@ class LogisticsChannelService:
             "enabled",
             "detection_start",
             "detection_end",
+            "confidence_threshold",
             "empty_grace_seconds",
             "multi_grace_seconds",
             "alarm_interval",
@@ -679,6 +682,11 @@ class LogisticsChannelService:
                     channel = LogisticsChannel(
                         name=name,
                         feature_name=feature_name,
+                        confidence_threshold=(
+                            cfg.CONF_THRESHOLD
+                            if cfg.CONF_THRESHOLD is not None
+                            else DEFAULT_PERSON_CONFIDENCE_THRESHOLD
+                        ),
                         empty_grace_seconds=cfg.empty_grace_seconds,
                         multi_grace_seconds=cfg.multi_grace_seconds,
                         alarm_interval=cfg.alarm_interval,
@@ -764,6 +772,7 @@ class LogisticsChannelService:
             "enabled",
             "detection_start",
             "detection_end",
+            "confidence_threshold",
             "empty_grace_seconds",
             "multi_grace_seconds",
             "alarm_interval",

@@ -184,6 +184,7 @@ def test_channel_crud_is_scoped_by_feature(service_db):
             "enabled": True,
             "detection_start": time(7, 30),
             "detection_end": time(19, 30),
+            "confidence_threshold": 0.42,
             "empty_grace_seconds": 4.0,
             "multi_grace_seconds": 3.0,
             "alarm_interval": 8.0,
@@ -198,6 +199,7 @@ def test_channel_crud_is_scoped_by_feature(service_db):
     assert updated["name"] == "卸货通道"
     assert updated["enabled"] is False
     assert updated["sort_order"] == 7
+    assert configured["config"]["confidence_threshold"] == 0.42
     assert configured["config"]["empty_grace_seconds"] == 4.0
     assert configured["config"]["alarm"]["wechat"]["user"] == "operator"
     assert service.get_channel(BASE_FEATURE, created["id"])["id"] == created["id"]
@@ -968,6 +970,7 @@ def test_create_camera_and_bind_translates_camera_integrity_error(service_db, mo
         ("update_channel", {"sort_order": None}, "sort_order"),
         ("update_config", {"alarm_interval": None}, "alarm_interval"),
         ("update_config", {"detection_start": None}, "detection_start"),
+        ("update_config", {"confidence_threshold": None}, "confidence_threshold"),
     ],
 )
 def test_updates_reject_explicit_none_for_not_null_fields(service_db, method, payload, field):
@@ -986,6 +989,7 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
         base_cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
         base_cfg.empty_grace_seconds = 6.0
         base_cfg.multi_grace_seconds = 7.0
+        base_cfg.CONF_THRESHOLD = 0.46
         base_cfg.alarm_interval = 12.0
         base_cfg.sql_enable = True
         base_cfg.horn_enable = True
@@ -1027,6 +1031,7 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
             feature_name=EE_FEATURE,
             name="迁移相机",
         ).one()
+        assert base_channel.confidence_threshold == 0.46
         assert base_channel.empty_grace_seconds == 6.0
         assert base_channel.multi_grace_seconds == 7.0
         assert base_channel.alarm_interval == 12.0
@@ -1155,6 +1160,7 @@ def test_logistics_channel_has_required_python_defaults():
     assert columns.enabled.default.arg is True
     assert columns.detection_start.default.arg == time(8, 0)
     assert columns.detection_end.default.arg == time(20, 0)
+    assert columns.confidence_threshold.default.arg == 0.3
     assert columns.empty_grace_seconds.default.arg == 2.0
     assert columns.multi_grace_seconds.default.arg == 1.0
 
@@ -1234,6 +1240,22 @@ def test_channel_config_requires_start_before_end():
         LogisticsChannelConfigUpdate(detection_start=time(20, 0), detection_end=time(8, 0))
 
 
+def test_channel_config_validates_person_confidence_threshold():
+    assert LogisticsChannelConfigUpdate().confidence_threshold == 0.3
+    assert LogisticsChannelConfigUpdate(confidence_threshold=0.42).confidence_threshold == 0.42
+    with pytest.raises(ValidationError):
+        LogisticsChannelConfigUpdate(confidence_threshold=-0.01)
+    with pytest.raises(ValidationError):
+        LogisticsChannelConfigUpdate(confidence_threshold=1.01)
+
+
+def test_channel_wechat_config_does_not_accept_backend_credentials():
+    with pytest.raises(ValidationError):
+        LogisticsChannelConfigUpdate(
+            alarm={"wechat": {"enabled": True, "user": "operator", "corp_id": "secret"}}
+        )
+
+
 def test_channel_config_rejects_aware_times_without_type_error():
     with pytest.raises(ValidationError):
         LogisticsChannelConfigUpdate(
@@ -1284,6 +1306,7 @@ def test_detail_response_adapts_orm_flat_fields_and_camera_relationship():
         sort_order=2,
         detection_start=time(8, 0),
         detection_end=time(20, 0),
+        confidence_threshold=0.42,
         empty_grace_seconds=2.0,
         multi_grace_seconds=1.0,
         alarm_interval=5.0,
@@ -1298,6 +1321,7 @@ def test_detail_response_adapts_orm_flat_fields_and_camera_relationship():
 
     response = LogisticsChannelDetailResponse.model_validate(channel)
 
+    assert response.config.confidence_threshold == 0.42
     assert response.config.alarm.horn.horn_id == 3
     assert response.config.alarm.wechat.user == "operator"
     assert response.members[0].camera_id == 9

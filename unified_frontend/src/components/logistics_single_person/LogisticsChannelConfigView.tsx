@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Camera, Plus, Save, Settings2, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Plus, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
 
+import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -296,7 +297,7 @@ export function LogisticsChannelConfigView({
         detection_start: timeForApi(config.detection_start),
         detection_end: timeForApi(config.detection_end),
       })
-    }, '通道规则已保存。')
+    }, '通道配置已保存。')
   }
 
   const deleteChannelById = (channelId: number, channelDisplayName: string) => {
@@ -398,15 +399,16 @@ export function LogisticsChannelConfigView({
 
       <div>
         <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50">配置管理</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">管理物流通道、摄像头成员、逐路 ROI 与通道级检测规则。</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">管理物流通道、摄像头成员、逐路 ROI、检测参数与报警推送。</p>
       </div>
 
       <Tabs defaultValue="channels" className="space-y-5">
-        <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-3 lg:grid-cols-5">
           <TabsTrigger value="channels">通道管理</TabsTrigger>
           <TabsTrigger value="members">摄像头成员</TabsTrigger>
           <TabsTrigger value="roi">逐路 ROI</TabsTrigger>
-          <TabsTrigger value="rules">通道规则</TabsTrigger>
+          <TabsTrigger value="params">参数配置</TabsTrigger>
+          <TabsTrigger value="alarm">报警推送</TabsTrigger>
         </TabsList>
 
         <TabsContent value="channels" className="mt-0">
@@ -527,26 +529,46 @@ export function LogisticsChannelConfigView({
               <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
             </TabsContent>
 
-            <TabsContent value="rules" className="mt-0 space-y-5">
+            <TabsContent value="params" className="mt-0 space-y-5">
               <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" />通道级检测与告警配置</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5" />通道参数配置</CardTitle></CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
                   <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用当前物流通道</span><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig({ ...config, enabled: event.target.checked })} disabled={!isAdmin || busy} /></label>
                   <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(config.detection_start)} onChange={(value) => setConfig({ ...config, detection_start: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(config.detection_end)} onChange={(value) => setConfig({ ...config, detection_end: value })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(config.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setConfig({ ...config, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(config.empty_grace_seconds)} onChange={(value) => setConfig({ ...config, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(config.multi_grace_seconds)} onChange={(value) => setConfig({ ...config, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="告警间隔（秒）" id="logistics-alarm-interval" value={String(config.alarm_interval)} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>保存数据库告警</span><input type="checkbox" checked={config.alarm.sql_enable} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, sql_enable: event.target.checked } })} disabled={!isAdmin || busy} /></label>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用企业微信推送</span><input type="checkbox" checked={config.alarm.wechat.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, wechat: { ...config.alarm.wechat, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
-                  <div className="space-y-2"><Label htmlFor="logistics-wechat-user">企业微信接收人</Label><Input id="logistics-wechat-user" value={config.alarm.wechat.user} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, wechat: { ...config.alarm.wechat, user: event.target.value } } })} disabled={!isAdmin || busy} /></div>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用警号</span><input type="checkbox" checked={config.alarm.horn.enabled} onChange={(event) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, enabled: event.target.checked } } })} disabled={!isAdmin || busy} /></label>
-                  <ConfigNumber label="警号 ID" id="logistics-horn-id" value={config.alarm.horn.horn_id === null ? '' : String(config.alarm.horn.horn_id)} onChange={(value) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, horn_id: value === '' ? null : Number(value) } } })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="警号事件 ID" id="logistics-horn-event-id" value={config.alarm.horn.horn_event_id === null ? '' : String(config.alarm.horn.horn_event_id)} onChange={(value) => setConfig({ ...config, alarm: { ...config.alarm, horn: { ...config.alarm.horn, horn_event_id: value === '' ? null : Number(value) } } })} disabled={!isAdmin || busy} />
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4 dark:bg-slate-900 md:col-span-2"><p className="text-sm text-slate-600 dark:text-slate-300">{message}</p><Button onClick={saveChannel} disabled={!isAdmin || busy || !channelName.trim()}><Save className="h-4 w-4" />保存通道配置</Button></div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="alarm" className="mt-0 space-y-5">
+              <AlarmPushConfig
+                alarm={{
+                  wechat: {
+                    enable: config.alarm.wechat.enabled,
+                    parm: { user: config.alarm.wechat.user },
+                  },
+                }}
+                disabled={!isAdmin || busy}
+                saving={busy}
+                message={message}
+                onChange={(alarm) => setConfig({
+                  ...config,
+                  alarm: {
+                    ...config.alarm,
+                    wechat: {
+                      enabled: Boolean(alarm.wechat?.enable),
+                      user: alarm.wechat?.parm?.user ?? '',
+                    },
+                  },
+                })}
+                onSave={saveChannel}
+              />
             </TabsContent>
           </>
         )}
@@ -593,6 +615,6 @@ export function LogisticsChannelConfigView({
   )
 }
 
-function ConfigNumber({ label, id, value, onChange, disabled, type = 'number' }: { label: string; id: string; value: string; onChange: (value: string) => void; disabled: boolean; type?: 'number' | 'time' }) {
-  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type={type} min={type === 'number' ? 0 : undefined} step={type === 'number' ? 0.1 : undefined} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} /></div>
+function ConfigNumber({ label, id, value, onChange, disabled, type = 'number', min = 0, max, step = 0.1 }: { label: string; id: string; value: string; onChange: (value: string) => void; disabled: boolean; type?: 'number' | 'time'; min?: number; max?: number; step?: number }) {
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type={type} min={type === 'number' ? min : undefined} max={type === 'number' ? max : undefined} step={type === 'number' ? step : undefined} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} /></div>
 }

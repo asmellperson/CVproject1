@@ -6,7 +6,11 @@ from sqlalchemy.orm import relationship
 
 from core.db import Base
 from platform.camera.orm import AiCameraConfig
-from .constants import DEFAULT_DETECTION_END, DEFAULT_DETECTION_START
+from .constants import (
+    DEFAULT_DETECTION_END,
+    DEFAULT_DETECTION_START,
+    DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
+)
 
 
 class LogisticsChannel(Base):
@@ -29,6 +33,12 @@ class LogisticsChannel(Base):
     sort_order = Column(Integer, nullable=False, default=0, comment="展示排序")
     detection_start = Column(Time, nullable=False, default=DEFAULT_DETECTION_START, comment="检测开始时间")
     detection_end = Column(Time, nullable=False, default=DEFAULT_DETECTION_END, comment="检测结束时间")
+    confidence_threshold = Column(
+        Float,
+        nullable=False,
+        default=DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
+        comment="人体检测置信度阈值",
+    )
     empty_grace_seconds = Column(Float, nullable=False, default=2.0, comment="无人告警宽限秒数")
     multi_grace_seconds = Column(Float, nullable=False, default=1.0, comment="多人告警宽限秒数")
     alarm_interval = Column(Float, nullable=False, default=5.0, comment="告警间隔秒数")

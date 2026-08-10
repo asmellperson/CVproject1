@@ -50,6 +50,7 @@ class FakeService:
                 "enabled": True,
                 "detection_start": "08:00:00",
                 "detection_end": "20:00:00",
+                "confidence_threshold": 0.3,
                 "empty_grace_seconds": 2,
                 "multi_grace_seconds": 1,
                 "alarm_interval": 5,
@@ -517,11 +518,13 @@ def test_crud_config_and_validation_models():
         name="更新",
         config={
             "detection_start": "09:00:00", "detection_end": "18:00:00",
+            "confidence_threshold": 0.42,
             "empty_grace_seconds": 3,
         },
     )
     result = api.update_channel(FEATURES[0], channel.id, payload, ADMIN, service)
     assert result.name == "更新"
+    assert result.config.confidence_threshold == 0.42
     assert result.config.empty_grace_seconds == 3
     assert api.get_channel(FEATURES[0], channel.id, ADMIN, service).name == "更新"
     assert api.delete_channel(FEATURES[0], channel.id, ADMIN, service).ok is True
@@ -535,6 +538,12 @@ def test_crud_config_and_validation_models():
         )
     with pytest.raises(ValueError):
         api.LogisticsChannelConfigUpdate(roi_pos=[[0, 0], [1, 1]])
+    with pytest.raises(ValueError):
+        api.LogisticsChannelConfigUpdate(confidence_threshold=1.01)
+    with pytest.raises(ValueError):
+        api.LogisticsChannelConfigUpdate(
+            alarm={"wechat": {"enabled": True, "user": "operator", "corp_secret": "secret"}}
+        )
 
 
 def test_member_bind_create_reorder_move_and_remove():

@@ -37,6 +37,7 @@ class _ChannelConfig:
     enabled: bool
     detection_start: object
     detection_end: object
+    confidence_threshold: float
     empty_grace_seconds: float
     multi_grace_seconds: float
     alarm_interval: float
@@ -200,6 +201,15 @@ class LogisticsChannelRuntime:
             if reset_cooldown:
                 self._reset_cooldown(channel)
         return active
+
+    def person_confidence_threshold(self, feature_name: str, camera_id: int) -> float | None:
+        """返回摄像头所属通道的人体检测阈值；未绑定通道时返回 None。"""
+        feature_name = require_logistics_feature(feature_name)
+        self._ensure_feature_loaded(feature_name)
+        with self._lock:
+            channel_id = self._camera_channels.get((feature_name, camera_id))
+            channel = self._channels.get((feature_name, channel_id)) if channel_id is not None else None
+            return None if channel is None else channel.confidence_threshold
 
     def update_camera_snapshot(
         self,
@@ -563,6 +573,7 @@ class LogisticsChannelRuntime:
             enabled=bool(detail.get("enabled", True) and config.get("enabled", True)),
             detection_start=config["detection_start"],
             detection_end=config["detection_end"],
+            confidence_threshold=float(config["confidence_threshold"]),
             empty_grace_seconds=float(config["empty_grace_seconds"]),
             multi_grace_seconds=float(config["multi_grace_seconds"]),
             alarm_interval=float(config["alarm_interval"]),

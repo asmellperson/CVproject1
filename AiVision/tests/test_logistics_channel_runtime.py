@@ -66,6 +66,7 @@ def channel(
             "enabled": enabled,
             "detection_start": start,
             "detection_end": end,
+            "confidence_threshold": 0.42,
             "empty_grace_seconds": empty_grace,
             "multi_grace_seconds": multi_grace,
             "alarm_interval": 13.0,
@@ -157,6 +158,13 @@ def test_partial_unknown_does_not_trigger_empty_but_known_multiple_wins():
     assert multiple.reason == "multiple"
     assert multiple.alarm is True
     assert len(dispatcher.requests) == 1
+
+
+def test_runtime_exposes_channel_person_confidence_threshold_by_camera():
+    runtime, _dispatcher = build_runtime([channel(member_ids=(10,))])
+
+    assert runtime.person_confidence_threshold(FEATURE, 10) == 0.42
+    assert runtime.person_confidence_threshold(FEATURE, 999) is None
 
 
 def test_disabled_members_are_excluded_from_aggregation_status_and_composite():

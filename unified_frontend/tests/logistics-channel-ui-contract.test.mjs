@@ -43,12 +43,18 @@ test('shared logistics monitor follows the approved dwell dashboard layout', () 
   assert.doesNotMatch(monitor, /from-(rose|emerald|black).*via-transparent/)
 })
 
-test('shared channel configuration covers channel, members, schedule and per-camera ROI', () => {
+test('shared channel configuration separates parameters and alarm push for every logistics feature', () => {
   const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
 
-  for (const label of ['通道管理', '摄像头成员', '逐路 ROI', '通道规则']) {
+  for (const label of ['通道管理', '摄像头成员', '逐路 ROI', '参数配置', '报警推送']) {
     assert.match(config, new RegExp(label))
   }
+  assert.doesNotMatch(config, /通道规则/)
+  assert.match(config, /AlarmPushConfig/)
+  assert.match(config, /人体检测阈值/)
+  assert.match(config, /confidence_threshold/)
+  assert.doesNotMatch(config, /保存数据库告警|启用警号|警号 ID|警号事件 ID/)
+  assert.doesNotMatch(config, /corpid|corp_id|corpsecret|corp_secret|agentid|agent_id/i)
   assert.match(config, /DialogContent/)
   assert.match(config, /DialogTitle>添加通道/)
   assert.match(config, /确认添加/)

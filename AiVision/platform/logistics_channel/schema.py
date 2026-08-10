@@ -6,7 +6,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .constants import DEFAULT_DETECTION_END, DEFAULT_DETECTION_START, MAX_CAMERAS_PER_CHANNEL
+from .constants import (
+    DEFAULT_DETECTION_END,
+    DEFAULT_DETECTION_START,
+    DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
+    MAX_CAMERAS_PER_CHANNEL,
+)
 
 
 LogisticsFeatureName = Literal[
@@ -69,6 +74,11 @@ class LogisticsChannelConfigUpdate(BaseModel):
     enabled: bool = True
     detection_start: time = DEFAULT_DETECTION_START
     detection_end: time = DEFAULT_DETECTION_END
+    confidence_threshold: float = Field(
+        default=DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
+        ge=0,
+        le=1,
+    )
     empty_grace_seconds: float = Field(default=2.0, ge=0)
     multi_grace_seconds: float = Field(default=1.0, ge=0)
     alarm_interval: float = Field(default=5.0, gt=0)
@@ -156,6 +166,7 @@ class LogisticsChannelConfigResponse(BaseModel):
     enabled: bool
     detection_start: time
     detection_end: time
+    confidence_threshold: float
     empty_grace_seconds: float
     multi_grace_seconds: float
     alarm_interval: float
@@ -170,6 +181,7 @@ class LogisticsChannelConfigResponse(BaseModel):
             "enabled": value.enabled,
             "detection_start": value.detection_start,
             "detection_end": value.detection_end,
+            "confidence_threshold": value.confidence_threshold,
             "empty_grace_seconds": value.empty_grace_seconds,
             "multi_grace_seconds": value.multi_grace_seconds,
             "alarm_interval": value.alarm_interval,

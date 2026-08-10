@@ -23,7 +23,7 @@ test('declares the four isolated logistics features and exact response DTO field
   for (const field of [
     'feature_name', 'channel_id', 'channel_name', 'duration_seconds',
     'threshold_seconds', 'camera_ids', 'camera_counts', 'camera_states',
-    'offending_camera_ids', 'detection_start', 'detection_end',
+    'offending_camera_ids', 'detection_start', 'detection_end', 'confidence_threshold',
   ]) assert.match(types, new RegExp(field))
   assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\[\]/)
 })
