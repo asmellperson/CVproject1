@@ -33,9 +33,6 @@ export function SecurityVideoPanel({
   const camera = cameras.find((item) => item.camera_id === cameraId)
   const streamImageRef = useRef<HTMLImageElement | null>(null)
   const setStreamImageRef = useCallback((node: HTMLImageElement | null) => {
-    if (node === null) {
-      streamImageRef.current?.removeAttribute('src')
-    }
     streamImageRef.current = node
     if (typeof imageRef === 'function') {
       imageRef(node)
@@ -44,11 +41,20 @@ export function SecurityVideoPanel({
     }
   }, [imageRef])
 
-  useLayoutEffect(() => () => {
-    // MJPEG 是不会自行结束的长连接。切换业务页面时同步撤掉 src，确保浏览器
-    // 立即取消请求并释放同源连接槽，避免阻塞保安室列表和画面请求。
-    streamImageRef.current?.removeAttribute('src')
-  }, [])
+  const streamUrl = camera?.running
+    ? securityVlmCameraVideoUrl(department, camera.camera_id, kind, nonce)
+    : ''
+
+  useLayoutEffect(() => {
+    const image = streamImageRef.current
+    if (!image || !streamUrl) return
+    // setup 主动恢复 src，兼容 React StrictMode 的 setup→cleanup→setup 检查。
+    image.src = streamUrl
+    return () => {
+      // 真正切页或换流时立即取消 MJPEG，释放同源连接槽。
+      image.removeAttribute('src')
+    }
+  }, [streamUrl])
 
   return (
     <div className="overflow-hidden rounded-lg border bg-slate-950">
@@ -79,12 +85,6 @@ export function SecurityVideoPanel({
         {camera?.running ? (
           <img
             ref={setStreamImageRef}
-            src={securityVlmCameraVideoUrl(
-              department,
-              camera.camera_id,
-              kind,
-              nonce,
-            )}
             alt={`${camera.name}实时画面`}
             className="h-full w-full select-none object-contain"
             draggable={false}

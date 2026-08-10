@@ -197,14 +197,7 @@ export function SecurityVlmSection({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const setRoiImageRef = useCallback((node: HTMLImageElement | null) => {
-    if (node === null) {
-      imageRef.current?.removeAttribute('src')
-    }
     imageRef.current = node
-  }, [])
-
-  useLayoutEffect(() => () => {
-    imageRef.current?.removeAttribute('src')
   }, [])
 
   const stats = health?.stats || {}
@@ -226,6 +219,15 @@ export function SecurityVlmSection({
       videoNonce,
     )
   }, [department, roiActive, selectedCameraId, videoNonce])
+
+  useLayoutEffect(() => {
+    const image = imageRef.current
+    if (!image || !roiActive || !selectedCamera?.running || !activeVideoUrl) return
+    image.src = activeVideoUrl
+    return () => {
+      image.removeAttribute('src')
+    }
+  }, [activeVideoUrl, roiActive, selectedCamera?.running])
 
   const loadHealth = async () => {
     const next = await getSecurityVlmHealth(department)
@@ -948,7 +950,6 @@ export function SecurityVlmSection({
                   <>
                     <img
                       ref={setRoiImageRef}
-                      src={activeVideoUrl}
                       alt={`${selectedCamera.name} ROI 绘制画面`}
                       className="w-full select-none object-contain"
                       draggable={false}
