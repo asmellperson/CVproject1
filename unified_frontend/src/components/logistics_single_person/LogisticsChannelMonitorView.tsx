@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, BellRing, Camera, Info, RefreshCw, Users, Vide
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import {
 import type {
   LogisticsChannel,
   LogisticsChannelDetail,
+  LogisticsFeatureName,
   LogisticsChannelReason,
   LogisticsChannelRuntimeStatus,
 } from './types'
@@ -97,6 +99,7 @@ function eventPresentation(reason: LogisticsChannelStatusEvent['reason']) {
 }
 
 export type LogisticsChannelMonitorViewProps = {
+  feature: LogisticsFeatureName
   title: string
   channels: LogisticsChannel[]
   selectedChannelId: number | null
@@ -115,6 +118,7 @@ export type LogisticsChannelMonitorViewProps = {
 }
 
 export function LogisticsChannelMonitorView({
+  feature,
   title,
   channels,
   selectedChannelId,
@@ -176,7 +180,7 @@ export function LogisticsChannelMonitorView({
             <StatCard label="今日通道告警" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : '今日暂无通道告警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
           </section>
 
-          <section className="grid gap-5 lg:grid-cols-3">
+          <ResizableMonitorLayout id={`logistics-channel-${feature}`}>
             <div className="space-y-5">
               <Card className={CARD_CLASS}>
                 <CardHeader className="p-5 pb-3">
@@ -297,7 +301,7 @@ export function LogisticsChannelMonitorView({
                 )}
               </CardContent>
             </Card>
-          </section>
+          </ResizableMonitorLayout>
         </>
       ) : null}
     </div>

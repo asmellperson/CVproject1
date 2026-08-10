@@ -15,6 +15,7 @@ import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -141,7 +142,7 @@ export function HumanDwellMonitorView({
         <StatCard label="今日逗留告警次数" value={`${todayAlarmCount} 次`} detail={todayAlarmCount ? `最近一次 ${formatClock(latestAlarmAt)}` : '今日暂无逗留告警'} icon={BellRing} tone={todayAlarmCount ? 'rose' : 'emerald'} />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-3">
+      <ResizableMonitorLayout id="human-dwell">
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Camera className="h-4 w-4" /></span>监控对象</CardTitle></CardHeader>
@@ -197,7 +198,7 @@ export function HumanDwellMonitorView({
             <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
           </CardContent>
         </Card>
-      </section>
+      </ResizableMonitorLayout>
     </div>
   )
 }

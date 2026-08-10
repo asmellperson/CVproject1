@@ -62,7 +62,7 @@ test('derives ROI single-person events without passage wording', () => {
 
 test('renders the approved logistics dashboard hierarchy and states', () => {
   assert.match(view, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(view, /grid gap-5 lg:grid-cols-3/)
+  assert.match(view, /ResizableMonitorLayout id="logistics-single-person"/)
   assert.match(view, /lg:col-span-2/)
   for (const label of ['摄像头状态', '当前画面人数', '摄像头数量', '今日告警次数']) {
     assert.match(view, new RegExp(label))

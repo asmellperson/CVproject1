@@ -9,6 +9,27 @@ import { usePlatformStatus } from '@/hooks/use-platform-status'
 import { useAuth } from '@/auth/useAuth'
 import { hasPageAccess } from '@/auth/permissions'
 
+const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width'
+const DEFAULT_SIDEBAR_WIDTH = 288
+const MIN_SIDEBAR_WIDTH = 240
+const MAX_SIDEBAR_WIDTH = 420
+const COLLAPSED_SIDEBAR_WIDTH = 76
+
+function clampSidebarWidth(width: number) {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
+}
+
+function getInitialSidebarWidth() {
+  try {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    return Number.isFinite(stored) && stored > 0
+      ? clampSidebarWidth(stored)
+      : DEFAULT_SIDEBAR_WIDTH
+  } catch {
+    return DEFAULT_SIDEBAR_WIDTH
+  }
+}
+
 const GuardBehaviorSection = lazy(() =>
   import('@/sections/GuardBehaviorSection').then((module) => ({ default: module.GuardBehaviorSection })),
 )
@@ -73,6 +94,8 @@ function App() {
   const [currentPage, setCurrentPage] = useState(getInitialPage)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
+  const [sidebarResizing, setSidebarResizing] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
   const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
@@ -153,6 +176,21 @@ function App() {
         onPageChange={handlePageChange}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+        width={sidebarWidth}
+        minWidth={MIN_SIDEBAR_WIDTH}
+        maxWidth={MAX_SIDEBAR_WIDTH}
+        resizing={sidebarResizing}
+        onWidthChange={(width) => setSidebarWidth(clampSidebarWidth(width))}
+        onWidthCommit={(width) => {
+          const nextWidth = clampSidebarWidth(width)
+          setSidebarWidth(nextWidth)
+          try {
+            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(nextWidth))
+          } catch {
+            // 浏览器禁用本地存储时仍保留当前会话内的拖拽结果。
+          }
+        }}
+        onResizeStateChange={setSidebarResizing}
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
         isMobile={isMobile}
@@ -170,11 +208,15 @@ function App() {
       <div
         className={cn(
           'min-w-0 transition-[padding] duration-300 ease-in-out',
-          isMobile ? 'pl-0' : sidebarCollapsed ? 'pl-[4.75rem]' : 'pl-[18rem]',
+          isMobile && 'pl-0',
+          sidebarResizing && 'duration-0',
         )}
+        style={isMobile ? undefined : {
+          paddingLeft: sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth,
+        }}
       >
         <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
-        <main className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
+        <main id="app-main-content" className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           <div className="w-full min-w-0">
             <Suspense fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
           </div>

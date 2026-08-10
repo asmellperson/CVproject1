@@ -2,8 +2,8 @@ import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
 import { departmentPermissions, filterNavGroupsByPermission } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
-import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent, PointerEvent } from 'react'
 import { ChevronRight, ChevronsLeft, KeyRound, LogOut, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -16,6 +16,13 @@ interface SidebarProps {
   onPageChange: (page: string) => void
   collapsed: boolean
   onToggleCollapsed: () => void
+  width: number
+  minWidth: number
+  maxWidth: number
+  resizing: boolean
+  onWidthChange: (width: number) => void
+  onWidthCommit: (width: number) => void
+  onResizeStateChange: (resizing: boolean) => void
   mobileOpen?: boolean
   onMobileClose?: () => void
   isMobile?: boolean
@@ -26,6 +33,13 @@ export function Sidebar({
   onPageChange,
   collapsed,
   onToggleCollapsed,
+  width,
+  minWidth,
+  maxWidth,
+  resizing,
+  onWidthChange,
+  onWidthCommit,
+  onResizeStateChange,
   mobileOpen = false,
   onMobileClose,
   isMobile = false,
@@ -89,9 +103,11 @@ export function Sidebar({
       className={cn(
         'sidebar-shell fixed left-0 top-0 z-40 flex h-[100dvh] flex-col overflow-hidden border-r',
         'transition-[width,transform] duration-300 ease-in-out',
-        isMobile ? 'w-[min(18rem,86vw)]' : compact ? 'w-[4.75rem]' : 'w-[18rem]',
+        isMobile && 'w-[min(18rem,86vw)]',
+        resizing && 'duration-0',
         isMobile && (mobileOpen ? 'translate-x-0' : '-translate-x-full'),
       )}
+      style={isMobile ? undefined : { width: compact ? 76 : width }}
     >
       <div
         className={cn(
@@ -251,6 +267,16 @@ export function Sidebar({
           </div>
         )}
       </div>
+      {!isMobile && !compact ? (
+        <SidebarResizeHandle
+          width={width}
+          minWidth={minWidth}
+          maxWidth={maxWidth}
+          onWidthChange={onWidthChange}
+          onWidthCommit={onWidthCommit}
+          onResizeStateChange={onResizeStateChange}
+        />
+      ) : null}
       </aside>
 
       <Dialog
@@ -316,6 +342,105 @@ export function Sidebar({
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+function SidebarResizeHandle({
+  width,
+  minWidth,
+  maxWidth,
+  onWidthChange,
+  onWidthCommit,
+  onResizeStateChange,
+}: {
+  width: number
+  minWidth: number
+  maxWidth: number
+  onWidthChange: (width: number) => void
+  onWidthCommit: (width: number) => void
+  onResizeStateChange: (resizing: boolean) => void
+}) {
+  const dragRef = useRef<{ pointerId: number; startX: number; startWidth: number; userSelect: string } | null>(null)
+  const latestWidthRef = useRef(width)
+
+  useEffect(() => {
+    latestWidthRef.current = width
+  }, [width])
+
+  useEffect(() => () => {
+    const drag = dragRef.current
+    if (!drag) return
+    document.body.style.userSelect = drag.userSelect
+    onResizeStateChange(false)
+  }, [onResizeStateChange])
+
+  const clamp = (value: number) => Math.min(maxWidth, Math.max(minWidth, value))
+
+  const finishResize = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    document.body.style.userSelect = drag.userSelect
+    dragRef.current = null
+    onResizeStateChange(false)
+    onWidthCommit(latestWidthRef.current)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    let nextWidth = width
+    if (event.key === 'ArrowLeft') nextWidth -= 8
+    else if (event.key === 'ArrowRight') nextWidth += 8
+    else if (event.key === 'Home') nextWidth = minWidth
+    else if (event.key === 'End') nextWidth = maxWidth
+    else return
+    event.preventDefault()
+    nextWidth = clamp(nextWidth)
+    latestWidthRef.current = nextWidth
+    onWidthChange(nextWidth)
+    onWidthCommit(nextWidth)
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-label="调整导航栏宽度"
+      aria-controls="app-main-content"
+      aria-orientation="vertical"
+      aria-valuemin={minWidth}
+      aria-valuemax={maxWidth}
+      aria-valuenow={Math.round(width)}
+      tabIndex={0}
+      title="拖动调整导航栏宽度"
+      className="group absolute inset-y-0 right-0 z-50 flex w-3 touch-none cursor-col-resize items-center justify-end outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        latestWidthRef.current = width
+        dragRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startWidth: width,
+          userSelect: document.body.style.userSelect,
+        }
+        event.currentTarget.setPointerCapture(event.pointerId)
+        document.body.style.userSelect = 'none'
+        onResizeStateChange(true)
+        event.preventDefault()
+      }}
+      onPointerMove={(event) => {
+        const drag = dragRef.current
+        if (!drag || drag.pointerId !== event.pointerId) return
+        const nextWidth = clamp(drag.startWidth + event.clientX - drag.startX)
+        latestWidthRef.current = nextWidth
+        onWidthChange(nextWidth)
+      }}
+      onPointerUp={finishResize}
+      onPointerCancel={finishResize}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="h-full w-px bg-slate-200 transition-colors group-hover:w-0.5 group-hover:bg-blue-500 group-focus-visible:w-0.5 group-focus-visible:bg-blue-500 dark:bg-slate-800" />
+    </div>
   )
 }
 

@@ -13,6 +13,7 @@ import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -150,7 +151,7 @@ export function LogisticsSinglePersonMonitorView({
         />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-3">
+      <ResizableMonitorLayout id="logistics-single-person">
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
@@ -264,7 +265,7 @@ export function LogisticsSinglePersonMonitorView({
             <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">{message}</div>
           </CardContent>
         </Card>
-      </section>
+      </ResizableMonitorLayout>
     </div>
   )
 }

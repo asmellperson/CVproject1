@@ -45,6 +45,7 @@ export function LogisticsChannelSection({ feature, title }: LogisticsChannelSect
         </div>
         <TabsContent value="monitor" className="mt-0">
           <LogisticsChannelMonitorView
+            feature={feature}
             title={title}
             channels={channelQuery.channels}
             selectedChannelId={channelQuery.selectedChannelId}

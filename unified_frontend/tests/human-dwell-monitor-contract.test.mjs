@@ -45,7 +45,7 @@ test('renders the approved dwell dashboard and cyan ROI overlay', () => {
     '监控对象', '判定说明', '实时事件', '人员逗留检测监控', '逗留超时告警',
   ]) assert.match(view, new RegExp(label))
   assert.match(view, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(view, /grid gap-5 lg:grid-cols-3/)
+  assert.match(view, /ResizableMonitorLayout id="human-dwell"/)
   assert.match(view, /lg:col-span-2/)
   assert.match(view, /#22D3EE/)
   assert.match(view, /rgba\(34,211,238,0\.10\)/)

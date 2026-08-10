@@ -32,7 +32,7 @@ test('shared logistics monitor follows the approved dwell dashboard layout', () 
   assert.match(section, /配置管理/)
 
   assert.match(monitor, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(monitor, /grid gap-5 lg:grid-cols-3/)
+  assert.match(monitor, /ResizableMonitorLayout id=\{`logistics-channel-\$\{feature\}`\}/)
   assert.match(monitor, /lg:col-span-2/)
   for (const label of ['监控对象', '判定说明', '实时事件', '物流通道实时监控']) {
     assert.match(monitor, new RegExp(label))

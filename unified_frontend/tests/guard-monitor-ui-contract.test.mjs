@@ -23,7 +23,7 @@ test('renders the approved heading, segmented tabs, and dashboard grid', () => {
   assert.match(guardPage, /rounded-full border border-slate-200\/70 bg-white p-1/)
   assert.match(guardPage, /data-\[state=active\]:bg-\[#132C72\]/)
   assert.match(monitor, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(monitor, /grid gap-5 lg:grid-cols-3/)
+  assert.match(monitor, /ResizableMonitorLayout id=\{`guard-room-\$\{department \|\| 'general-electric'\}`\}/)
   assert.match(monitor, /lg:col-span-2/)
   assert.match(monitor, /监控对象/)
   assert.match(monitor, /检测控制/)

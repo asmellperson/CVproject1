@@ -91,7 +91,7 @@ test('renders the approved shared dashboard and source-coordinate overlays', () 
     assert.match(viewSource, new RegExp(label))
   }
   assert.match(viewSource, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(viewSource, /grid gap-5 lg:grid-cols-3/)
+  assert.match(viewSource, /ResizableMonitorLayout id=\{`feature-dashboard-\$\{feature\}`\}/)
   assert.match(viewSource, /lg:col-span-2/)
   assert.match(viewSource, /#22D3EE/)
   assert.match(viewSource, /rgba\(34,211,238,0\.10\)/)

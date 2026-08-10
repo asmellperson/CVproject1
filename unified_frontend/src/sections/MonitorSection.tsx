@@ -36,6 +36,7 @@ import {
   GuardMonitorStatCard,
   GuardVideoStatusPill,
 } from '@/components/guard_room/GuardMonitorUi'
+import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 
 const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
@@ -243,7 +244,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
         />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-3">
+      <ResizableMonitorLayout id={`guard-room-${department || 'general-electric'}`}>
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">
@@ -472,7 +473,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
             )}
           </CardContent>
         </Card>
-      </section>
+      </ResizableMonitorLayout>
     </div>
   )
 }
