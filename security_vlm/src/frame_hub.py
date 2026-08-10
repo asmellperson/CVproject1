@@ -195,30 +195,40 @@ class FrameHubReader:
         ]
         self.wait_timeout_sec = float(wait_timeout_sec)
  
-        # 阻塞等待 capture 写出第一份 meta (拿到 H/W/C)
-        self.meta = self._wait_meta()
+        # 把 meta 和两个 slot 视为一个整体等待。进程组重启时，meta 可能短暂
+        # 指向刚被撤换的 slot；单独等待 meta 会让该竞态变成 FileNotFoundError。
+        self.meta, self.buffers = self._wait_ready()
         self.height = int(self.meta["height"])
         self.width = int(self.meta["width"])
         self.channels = int(self.meta["channels"])
         self.dtype = np.uint8
- 
-        # 只读 memmap,共享同一段 tmpfs 内存,不做拷贝
-        self.buffers = [
-            np.memmap(self.slot_paths[0], dtype=self.dtype, mode="r",
-                      shape=(self.height, self.width, self.channels)),
-            np.memmap(self.slot_paths[1], dtype=self.dtype, mode="r",
-                      shape=(self.height, self.width, self.channels)),
-        ]
- 
-    def _wait_meta(self) -> Dict[str, Any]:
-        """轮询 meta 文件直到出现完整字段或超时"""
+
+    def _wait_ready(self) -> tuple[Dict[str, Any], list[np.memmap]]:
+        """轮询完整 FrameHub，容忍启动或重启期间 meta/slot 短暂不同步。"""
         t0 = time.time()
+        last_error: Exception | None = None
         while True:
             meta = read_json(self.meta_path)
             if meta and all(k in meta for k in ("height", "width", "channels", "slot_idx", "frame_id")):
-                return meta
+                try:
+                    height = int(meta["height"])
+                    width = int(meta["width"])
+                    channels = int(meta["channels"])
+                    shape = (height, width, channels)
+                    buffers = [
+                        np.memmap(path, dtype=np.uint8, mode="r", shape=shape)
+                        for path in self.slot_paths
+                    ]
+                    return meta, buffers
+                except (FileNotFoundError, OSError, ValueError) as exc:
+                    # capture 可能正在以新 inode 替换 slot，下一轮重新读取 meta，
+                    # 同时也能避开旧尺寸 meta 与新尺寸 slot 的瞬时组合。
+                    last_error = exc
             if time.time() - t0 > self.wait_timeout_sec:
-                raise TimeoutError(f"等待 frame_meta.json 超时: {self.meta_path}")
+                detail = f"，最后错误: {last_error}" if last_error else ""
+                raise TimeoutError(
+                    f"等待 FrameHub 就绪超时: {self.runtime_dir}{detail}"
+                ) from last_error
             time.sleep(0.05)
  
     def get_latest_meta(self) -> Dict[str, Any]:
