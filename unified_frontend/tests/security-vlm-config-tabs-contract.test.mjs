@@ -75,3 +75,14 @@ test('preserves camera, ROI, video, and dialog behavior', () => {
   assert.match(section, /roiActive \? 'original' : 'rule'/)
   assert.match(cameraDialog, /setMessage\(`操作失败：\$\{error instanceof Error \? error\.message : String\(error\)\}`\)/)
 })
+
+test('history only displays completed compliance decisions', () => {
+  assert.match(
+    section,
+    /const judgedItems = items\.filter\([\s\S]*?item\.status === 'compliant' \|\| item\.status === 'non_compliant'/,
+  )
+  assert.match(
+    section,
+    /const filteredItems = cameraFilter === 'all'[\s\S]*?\? judgedItems[\s\S]*?: judgedItems\.filter/,
+  )
+})

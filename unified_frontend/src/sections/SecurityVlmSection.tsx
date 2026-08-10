@@ -1057,9 +1057,12 @@ function HistoryTable({
   const [currentPage, setCurrentPage] = useState(1)
   const [cameraFilter, setCameraFilter] = useState('all')
 
+  const judgedItems = items.filter(
+    (item) => item.status === 'compliant' || item.status === 'non_compliant',
+  )
   const filteredItems = cameraFilter === 'all'
-    ? items
-    : items.filter((item) => item.camera_id === cameraFilter)
+    ? judgedItems
+    : judgedItems.filter((item) => item.camera_id === cameraFilter)
   const total = filteredItems.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const safePage = Math.min(currentPage, totalPages)
