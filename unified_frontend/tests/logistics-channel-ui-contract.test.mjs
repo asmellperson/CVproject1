@@ -99,3 +99,13 @@ test('all logistics mutations use the typed channel API rather than camera-id co
 
   assert.doesNotMatch(config, /\/configs\/\$\{[^}]*camera_id/)
 })
+
+test('existing camera select disables Radix scroll buttons without changing the shared default', () => {
+  const select = read('src/components/ui/select.tsx')
+  const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
+
+  assert.match(select, /showScrollButtons = true/)
+  assert.match(select, /showScrollButtons \? <SelectScrollUpButton \/> : null/)
+  assert.match(select, /showScrollButtons \? <SelectScrollDownButton \/> : null/)
+  assert.match(config, /<SelectContent showScrollButtons=\{false\}>/)
+})
