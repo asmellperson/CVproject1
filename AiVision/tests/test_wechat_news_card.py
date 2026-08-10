@@ -93,6 +93,40 @@ def test_dispatcher_saves_record_before_wechat_card():
     assert req.camera_name == "后大门"
 
 
+def test_dispatcher_persists_card_record_when_sql_is_disabled():
+    dispatcher = AlarmDispatcher()
+    writer = FakeViolationWriter()
+    dispatcher.horn_dict = {}
+    dispatcher.wechat = FakeWeChat()
+    dispatcher.violation_writer = writer
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    dispatcher._execute(
+        AlarmRequest(
+            feature_name="detect_human",
+            camera_id=7,
+            camera_name="后大门",
+            frame=frame,
+            violation_type=5,
+            alarm_config={
+                "sql": {"enable": False, "parm": {}},
+                "wechat": {"enable": True, "parm": {"user": "zhangsan"}},
+            },
+            camera_key="gate_7",
+        )
+    )
+
+    _request, user, record = dispatcher._wechat_queue.get_nowait()
+    assert writer.saved == [(5, "gate_7", (8, 8, 3))]
+    assert writer.enqueued == []
+    assert user == "zhangsan"
+    assert record.id == 42
+    assert dispatcher._alarm_card_urls(record.id) == (
+        "https://aicv.fudar.com/api/public/aivision/alarms/42/image",
+        "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42",
+    )
+
+
 def test_dispatcher_builds_public_image_and_detail_urls(monkeypatch):
     dispatcher = AlarmDispatcher()
     monkeypatch.setattr("core.alarm.dispatcher.settings.alarm.wechat_card_base_url", "https://aicv.fudar.com/")

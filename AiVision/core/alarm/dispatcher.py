@@ -189,6 +189,7 @@ class AlarmDispatcher:
             or "enable" not in sql_cfg
             or bool(sql_cfg.get("enable"))
         )
+        should_persist_violation = should_write_sql or should_send_wechat
 
         # ---- 通道 1: 喇叭（同步）----
         horn_cfg = alarm.get("horn") or {}
@@ -204,8 +205,8 @@ class AlarmDispatcher:
                     logger.warning(f"[Alarm] 喇叭触发失败: {e}")
 
         # ---- 通道 2: SQL 持久化 ----
-        # 微信图文卡片需要 alarm_id；仅微信开启时同步保存，其余场景保留异步批量写入。
-        if should_write_sql and self.violation_writer is not None:
+        # 微信图文卡片需要 alarm_id；即使独立 SQL 通道关闭也必须同步保存卡片记录。
+        if should_persist_violation and self.violation_writer is not None:
             try:
                 if should_send_wechat and hasattr(self.violation_writer, "save_now"):
                     alarm_record = self._write_violation(
