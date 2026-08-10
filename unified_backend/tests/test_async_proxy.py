@@ -14,6 +14,7 @@ from unified_backend.proxy import (
     ProxyRequestError,
     ProxySettings,
     filtered_response_headers,
+    stream_response_bytes,
 )
 
 
@@ -150,6 +151,29 @@ def test_filtered_response_headers_remove_connection_specific_values():
         "content-type": "image/jpeg",
         "x-frame-width": "1920",
     }
+
+
+def test_stream_response_closes_upstream_when_downstream_stops_consuming():
+    class FakeStreamingResponse:
+        def __init__(self):
+            self.closed = False
+
+        async def aiter_bytes(self, chunk_size):
+            assert chunk_size == 64 * 1024
+            yield b"frame"
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            self.closed = True
+
+    async def scenario():
+        upstream = FakeStreamingResponse()
+        stream = stream_response_bytes(upstream)
+        assert await anext(stream) == b"frame"
+        await stream.aclose()
+        assert upstream.closed is True
+
+    asyncio.run(scenario())
 
 
 def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):

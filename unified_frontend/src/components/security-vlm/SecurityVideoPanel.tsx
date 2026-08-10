@@ -1,3 +1,4 @@
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import { Pause } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
@@ -30,6 +31,25 @@ export function SecurityVideoPanel({
   onLoad,
 }: Props) {
   const camera = cameras.find((item) => item.camera_id === cameraId)
+  const streamImageRef = useRef<HTMLImageElement | null>(null)
+  const setStreamImageRef = useCallback((node: HTMLImageElement | null) => {
+    if (node === null) {
+      streamImageRef.current?.removeAttribute('src')
+    }
+    streamImageRef.current = node
+    if (typeof imageRef === 'function') {
+      imageRef(node)
+    } else if (imageRef) {
+      imageRef.current = node
+    }
+  }, [imageRef])
+
+  useLayoutEffect(() => () => {
+    // MJPEG 是不会自行结束的长连接。切换业务页面时同步撤掉 src，确保浏览器
+    // 立即取消请求并释放同源连接槽，避免阻塞保安室列表和画面请求。
+    streamImageRef.current?.removeAttribute('src')
+  }, [])
+
   return (
     <div className="overflow-hidden rounded-lg border bg-slate-950">
       <div className="flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-3 py-2">
@@ -58,7 +78,7 @@ export function SecurityVideoPanel({
       <div className="aspect-video">
         {camera?.running ? (
           <img
-            ref={imageRef}
+            ref={setStreamImageRef}
             src={securityVlmCameraVideoUrl(
               department,
               camera.camera_id,

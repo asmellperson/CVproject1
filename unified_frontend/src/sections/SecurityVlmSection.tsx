@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -196,6 +196,16 @@ export function SecurityVlmSection({
   const startPointRef = useRef<{ rx: number; ry: number; ix: number; iy: number } | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
+  const setRoiImageRef = useCallback((node: HTMLImageElement | null) => {
+    if (node === null) {
+      imageRef.current?.removeAttribute('src')
+    }
+    imageRef.current = node
+  }, [])
+
+  useLayoutEffect(() => () => {
+    imageRef.current?.removeAttribute('src')
+  }, [])
 
   const stats = health?.stats || {}
   const history = health?.history || []
@@ -937,7 +947,7 @@ export function SecurityVlmSection({
                 {selectedCamera?.running ? (
                   <>
                     <img
-                      ref={imageRef}
+                      ref={setRoiImageRef}
                       src={activeVideoUrl}
                       alt={`${selectedCamera.name} ROI 绘制画面`}
                       className="w-full select-none object-contain"

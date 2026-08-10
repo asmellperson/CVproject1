@@ -77,6 +77,8 @@ test('preserves camera, ROI, video, and dialog behavior', () => {
     assert.match(section, new RegExp(name))
   }
   assert.match(section, /roiActive \? 'original' : 'rule'/)
+  assert.match(section, /const setRoiImageRef = useCallback/)
+  assert.match(section, /ref=\{setRoiImageRef\}/)
   assert.match(cameraDialog, /setMessage\(`操作失败：\$\{error instanceof Error \? error\.message : String\(error\)\}`\)/)
 })
 
@@ -102,4 +104,7 @@ test('defaults to all-camera view and only selects a camera in single view', () 
   assert.match(videoPanel, /selectable = true/)
   assert.match(videoPanel, /selectable \? \([\s\S]*?<Select value=\{cameraId\}/)
   assert.match(videoPanel, /camera\?\.name \|\| '暂无摄像头'/)
+  assert.match(videoPanel, /useLayoutEffect\(\(\) => \(\) => \{/)
+  assert.match(videoPanel, /if \(node === null\) \{[\s\S]*?removeAttribute\('src'\)/)
+  assert.match(videoPanel, /streamImageRef\.current\?\.removeAttribute\('src'\)/)
 })
