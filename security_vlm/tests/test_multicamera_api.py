@@ -480,6 +480,11 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
             json={"staff_rois": {"工位 1": [10, 20, 30, 40]}},
         )
         assert saved.status_code == 200
+        saved_payload = json.loads(
+            service.roi_path(camera_a["camera_id"]).read_text(encoding="utf-8")
+        )
+        assert saved_payload["source_width"] == 200
+        assert saved_payload["source_height"] == 100
         rectangle = [
             [10.0, 20.0],
             [30.0, 20.0],
@@ -489,6 +494,13 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
         assert (await client.get(
             f"/api/cameras/{camera_a['camera_id']}/rois"
         )).json()["staff_rois"] == {"工位 1": rectangle}
+        set_capture_dimensions(service, camera_a["camera_id"], width=100, height=50)
+        assert (await client.get(
+            f"/api/cameras/{camera_a['camera_id']}/rois"
+        )).json()["staff_rois"] == {
+            "工位 1": [[5.0, 10.0], [15.0, 10.0], [15.0, 20.0], [5.0, 20.0]],
+        }
+        set_capture_dimensions(service, camera_a["camera_id"])
         assert (await client.get(
             f"/api/cameras/{camera_b['camera_id']}/rois"
         )).json()["staff_rois"] == {
@@ -533,6 +545,72 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
             f"/api/history?camera_id={camera_a['camera_id']}"
         )).json()["history"]
         assert [item["session_id"] for item in history] == ["a1"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_hikvision_roi_migrates_and_mixed_streams_scale_independently(
+    tmp_path,
+):
+    service, _runtime_manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+    transport = httpx.ASGITransport(app=app)
+    department = "electronics_electrician"
+    base = f"/api/departments/{department}/cameras"
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        sub_camera = (await client.post(
+            base,
+            json={
+                "name": "子码流工位",
+                "rtsp_url": "rtsp://camera-a/Streaming/Channels/102",
+            },
+        )).json()["camera"]
+        main_camera = (await client.post(
+            base,
+            json={
+                "name": "主码流工位",
+                "rtsp_url": "rtsp://camera-b/Streaming/Channels/101",
+            },
+        )).json()["camera"]
+        set_capture_dimensions(
+            service,
+            sub_camera["camera_id"],
+            width=768,
+            height=432,
+            department=department,
+        )
+        set_capture_dimensions(
+            service,
+            main_camera["camera_id"],
+            width=2560,
+            height=1440,
+            department=department,
+        )
+        old_roi = {
+            "工位": [[100, 200], [2100, 200], [2100, 1200], [100, 1200]],
+        }
+        for camera in (sub_camera, main_camera):
+            service.roi_path(camera["camera_id"], department).write_text(
+                json.dumps({"staff_rois": old_roi}),
+                encoding="utf-8",
+            )
+
+        sub_response = await client.get(f"{base}/{sub_camera['camera_id']}/rois")
+        main_response = await client.get(f"{base}/{main_camera['camera_id']}/rois")
+
+        assert sub_response.status_code == 200
+        assert sub_response.json()["staff_rois"] == {
+            "工位": [[30.0, 60.0], [630.0, 60.0], [630.0, 360.0], [30.0, 360.0]],
+        }
+        assert main_response.json()["staff_rois"] == old_roi
+
+        migrated_path = service.roi_path(sub_camera["camera_id"], department)
+        migrated = json.loads(migrated_path.read_text(encoding="utf-8"))
+        assert migrated["source_width"] == 2560
+        assert migrated["source_height"] == 1440
+        assert migrated_path.with_name(
+            f"{migrated_path.stem}.pre-dimension-migration.json"
+        ).exists()
 
 
 @pytest.mark.asyncio

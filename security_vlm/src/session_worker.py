@@ -33,6 +33,7 @@ from roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
     roi_bounds,
+    scale_roi_mapping,
 )
 
 
@@ -73,6 +74,8 @@ def reload_rois(
     roi_path: Path,
     roi_cache: Dict[str, List[List[float]]],
     roi_mtime: float,
+    frame_width: float | None = None,
+    frame_height: float | None = None,
 ) -> Tuple[Dict[str, List[List[float]]], float]:
     """按 mtime 热加载 ROI，并保留多边形的全部顶点。"""
     path = Path(roi_path)
@@ -85,10 +88,41 @@ def reload_rois(
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("ROI 文件顶层必须是 JSON 对象")
+        raw_rois = raw.get("staff_rois", {})
         normalized = _normalize_roi_mapping(
-            raw.get("staff_rois", {}),
+            raw_rois,
             roi_cache,
         )
+        source_width = raw.get("source_width")
+        source_height = raw.get("source_height")
+        if (
+            source_width is not None
+            and source_height is not None
+            and frame_width is not None
+            and frame_height is not None
+        ):
+            valid_names = set()
+            for name, values in raw_rois.items():
+                try:
+                    normalize_roi_points(values)
+                    valid_names.add(str(name))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            scaled = scale_roi_mapping(
+                {
+                    name: points
+                    for name, points in normalized.items()
+                    if name in valid_names
+                },
+                source_width,
+                source_height,
+                frame_width,
+                frame_height,
+            )
+            normalized = {
+                name: scaled.get(name, points)
+                for name, points in normalized.items()
+            }
     except (
         OSError,
         ValueError,
@@ -721,6 +755,8 @@ def main():
                 roi_path,
                 roi_cache,
                 roi_mtime,
+                frame_width=hub.width,
+                frame_height=hub.height,
             )
             rois = roi_cache
 

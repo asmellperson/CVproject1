@@ -67,6 +67,55 @@ def normalize_roi_points(values: Any) -> Polygon:
     return points
 
 
+def scale_roi_mapping(
+    rois: Any,
+    source_width: float,
+    source_height: float,
+    target_width: float,
+    target_height: float,
+) -> dict[str, Polygon]:
+    """按每台摄像头的源/目标帧尺寸缩放 ROI，保持多边形顶点结构。"""
+    dimensions = (
+        _finite_float(source_width),
+        _finite_float(source_height),
+        _finite_float(target_width),
+        _finite_float(target_height),
+    )
+    if any(value <= 0 for value in dimensions):
+        raise ValueError("ROI 源尺寸和目标尺寸必须为正数")
+    if not isinstance(rois, Mapping):
+        raise ValueError("staff_rois 必须是字典")
+
+    source_w, source_h, target_w, target_h = dimensions
+    scale_x = target_w / source_w
+    scale_y = target_h / source_h
+    scaled: dict[str, Polygon] = {}
+    for name, values in rois.items():
+        scaled[str(name)] = [
+            [
+                round(x * scale_x, ROI_COORD_DECIMALS),
+                round(y * scale_y, ROI_COORD_DECIMALS),
+            ]
+            for x, y in normalize_roi_points(values)
+        ]
+    return scaled
+
+
+def roi_mapping_exceeds_bounds(rois: Any, width: float, height: float) -> bool:
+    """判断任一 ROI 坐标是否明显超出当前帧，用于旧文件安全迁移。"""
+    frame_width = _finite_float(width)
+    frame_height = _finite_float(height)
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError("画面尺寸必须为正数")
+    if not isinstance(rois, Mapping):
+        raise ValueError("staff_rois 必须是字典")
+    return any(
+        x < 0 or y < 0 or x > frame_width or y > frame_height
+        for values in rois.values()
+        for x, y in normalize_roi_points(values)
+    )
+
+
 def polygon_area(points: Any) -> float:
     """使用鞋带公式计算多边形面积。"""
     polygon = normalize_roi_points(points)

@@ -29,6 +29,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,8 @@ from frame_hub import FrameHubReader, ResultStore  # noqa: E402
 from roi_geometry import (  # noqa: E402
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
+    roi_mapping_exceeds_bounds,
+    scale_roi_mapping,
     validate_rois,
 )
 from camera_registry import CameraRegistry  # noqa: E402
@@ -244,7 +247,11 @@ class AppService:
         self._frame_hubs: Dict[tuple[str, str], FrameHubReader] = {}
         self._roi_caches: Dict[
             tuple[str, str],
-            tuple[float, Dict[str, List[List[float]]]],
+            tuple[
+                float,
+                tuple[float, float] | None,
+                Dict[str, List[List[float]]],
+            ],
         ] = {}
 
     def workspace(self, department: str):
@@ -320,11 +327,49 @@ class AppService:
         if path.exists():
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
-                return self._normalize_rois_for_read(
+                normalized = self._normalize_rois_for_read(
                     camera_id,
                     raw.get("staff_rois", {}),
                 )
-            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                target_dimensions = self._capture_dimensions_or_none(
+                    camera_id,
+                    department,
+                )
+                if target_dimensions is None:
+                    return normalized
+                source_dimensions = self._roi_source_dimensions(raw)
+                if (
+                    source_dimensions is None
+                    and roi_mapping_exceeds_bounds(
+                        normalized,
+                        target_dimensions[0],
+                        target_dimensions[1],
+                    )
+                ):
+                    source_dimensions = self._migrate_legacy_roi_dimensions(
+                        camera_id,
+                        department,
+                        path,
+                        raw,
+                        normalized,
+                        target_dimensions,
+                    )
+                if source_dimensions is None:
+                    return normalized
+                return scale_roi_mapping(
+                    normalized,
+                    source_dimensions[0],
+                    source_dimensions[1],
+                    target_dimensions[0],
+                    target_dimensions[1],
+                )
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                OverflowError,
+                json.JSONDecodeError,
+            ) as exc:
                 LOGGER.warning("读取摄像头 %s 的 ROI 失败: %s", camera_id, exc)
         return self._normalize_rois_for_read(
             camera_id,
@@ -334,6 +379,109 @@ class AppService:
                 else {}
             ),
         )
+
+    @staticmethod
+    def _roi_source_dimensions(raw: Dict[str, Any]) -> tuple[float, float] | None:
+        width = raw.get("source_width")
+        height = raw.get("source_height")
+        if width is None and height is None:
+            return None
+        if (
+            isinstance(width, bool)
+            or isinstance(height, bool)
+            or not isinstance(width, (int, float))
+            or not isinstance(height, (int, float))
+        ):
+            raise ValueError("ROI 文件中的源画面尺寸无效")
+        source_width = float(width)
+        source_height = float(height)
+        if (
+            not math.isfinite(source_width)
+            or not math.isfinite(source_height)
+            or source_width <= 0
+            or source_height <= 0
+        ):
+            raise ValueError("ROI 文件中的源画面尺寸无效")
+        return source_width, source_height
+
+    def _capture_dimensions_or_none(
+        self,
+        camera_id: str,
+        department: str,
+    ) -> tuple[float, float] | None:
+        try:
+            return self.capture_dimensions(camera_id, department)
+        except CaptureDimensionsUnavailable:
+            return None
+
+    def _migrate_legacy_roi_dimensions(
+        self,
+        camera_id: str,
+        department: str,
+        path: Path,
+        raw: Dict[str, Any],
+        normalized: Dict[str, List[List[float]]],
+        target_dimensions: tuple[float, float],
+    ) -> tuple[float, float] | None:
+        """仅为坐标已越界的海康子码流旧文件探测对应主码流尺寸。"""
+        camera = self.workspace(department).registry.get(camera_id)
+        if camera is None:
+            return None
+        source_url = str(camera.get("rtsp_url") or "")
+
+        def main_channel(match: re.Match[str]) -> str:
+            return f"{match.group(1)}{match.group(2)}01"
+
+        main_url, replacements = re.subn(
+            r"(?i)(/streaming/channels/)(\d+)02(?=$|[/?#])",
+            main_channel,
+            source_url,
+            count=1,
+        )
+        if replacements == 0 or main_url == source_url:
+            return None
+        try:
+            probe = self.probe_func(main_url)
+            source_width = float(probe["width"])
+            source_height = float(probe["height"])
+            source_dimensions = (source_width, source_height)
+            if (
+                not all(math.isfinite(value) and value > 0 for value in source_dimensions)
+                or roi_mapping_exceeds_bounds(
+                    normalized,
+                    source_width,
+                    source_height,
+                )
+            ):
+                raise ValueError("主码流尺寸无法容纳旧 ROI")
+        except (KeyError, TypeError, ValueError, OverflowError, RuntimeError) as exc:
+            LOGGER.warning(
+                "摄像头 %s 的旧 ROI 无法自动识别源尺寸: %s",
+                camera_id,
+                exc,
+            )
+            return None
+
+        backup_path = path.with_name(f"{path.stem}.pre-dimension-migration.json")
+        if not backup_path.exists():
+            shutil.copy2(path, backup_path)
+        migrated = dict(raw)
+        migrated["source_width"] = source_width
+        migrated["source_height"] = source_height
+        path.write_text(
+            json.dumps(migrated, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        LOGGER.warning(
+            "摄像头 %s 的旧 ROI 已按源尺寸 %.0fx%.0f 兼容，当前尺寸 %.0fx%.0f；备份: %s",
+            camera_id,
+            source_width,
+            source_height,
+            target_dimensions[0],
+            target_dimensions[1],
+            backup_path,
+        )
+        return source_dimensions
 
     def capture_dimensions(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> tuple[float, float]:
         status = self.camera_store(camera_id, department).read("capture_status", {}) or {}
@@ -387,6 +535,8 @@ class AppService:
             "camera_id": camera_id,
             "camera_name": camera["name"],
             "roi_method": "frontend_canvas",
+            "source_width": width,
+            "source_height": height,
             "staff_rois": normalized,
         }
         path = self.roi_path(camera_id, department)
@@ -405,11 +555,16 @@ class AppService:
         try:
             mtime = path.stat().st_mtime if path.exists() else -1.0
             key = (department, camera_id)
+            dimensions = self._capture_dimensions_or_none(camera_id, department)
             cached = self._roi_caches.get(key)
-            if cached is not None and cached[0] == mtime:
-                return cached[1]
+            if (
+                cached is not None
+                and cached[0] == mtime
+                and cached[1] == dimensions
+            ):
+                return cached[2]
             rois = self.load_rois(camera_id, department)
-            self._roi_caches[key] = (mtime, rois)
+            self._roi_caches[key] = (mtime, dimensions, rois)
             return rois
         except OSError as exc:
             LOGGER.warning("检查摄像头 %s 的 ROI 缓存失败: %s", camera_id, exc)

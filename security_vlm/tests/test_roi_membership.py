@@ -47,6 +47,24 @@ def test_polygon_normalization_area_and_bounds():
     assert roi_geometry.roi_bounds(normalized) == [0.0, 0.0, 100.0, 90.0]
 
 
+def test_roi_mapping_scales_between_per_camera_stream_dimensions():
+    rois = {
+        "工位": [[100, 200], [2100, 200], [2100, 1200], [100, 1200]],
+    }
+
+    assert roi_geometry.scale_roi_mapping(
+        rois,
+        source_width=2560,
+        source_height=1440,
+        target_width=768,
+        target_height=432,
+    ) == {
+        "工位": [[30.0, 60.0], [630.0, 60.0], [630.0, 360.0], [30.0, 360.0]],
+    }
+    assert roi_geometry.roi_mapping_exceeds_bounds(rois, 768, 432) is True
+    assert roi_geometry.roi_mapping_exceeds_bounds(rois, 2560, 1440) is False
+
+
 @pytest.mark.parametrize(
     "values, error",
     [
@@ -301,6 +319,63 @@ def test_session_worker_reload_preserves_all_polygon_vertices(tmp_path):
         "多边形工位": [[float(x), float(y)] for x, y in polygon]
     }
     assert mtime == path.stat().st_mtime
+
+
+def test_session_worker_reload_scales_roi_to_actual_frame_dimensions(tmp_path):
+    path = tmp_path / "camera_staff_rois.json"
+    path.write_text(
+        json.dumps({
+            "source_width": 2560,
+            "source_height": 1440,
+            "staff_rois": {
+                "子码流工位": [[100, 200], [2100, 200], [2100, 1200], [100, 1200]],
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    rois, _mtime = session_worker.reload_rois(
+        path,
+        {},
+        0.0,
+        frame_width=768,
+        frame_height=432,
+    )
+
+    assert rois == {
+        "子码流工位": [[30.0, 60.0], [630.0, 60.0], [630.0, 360.0], [30.0, 360.0]],
+    }
+
+
+def test_session_worker_does_not_rescale_last_known_good_roi_twice(tmp_path):
+    path = tmp_path / "camera_staff_rois.json"
+    path.write_text(
+        json.dumps({
+            "source_width": 200,
+            "source_height": 100,
+            "staff_rois": {
+                "保留": [[0, 0], [True, 10], [10, 0]],
+                "更新": [[20, 20], [100, 20], [20, 80]],
+            },
+        }),
+        encoding="utf-8",
+    )
+    previous = {
+        "保留": [[5.0, 5.0], [30.0, 5.0], [5.0, 30.0]],
+    }
+
+    rois, _mtime = session_worker.reload_rois(
+        path,
+        previous,
+        0.0,
+        frame_width=100,
+        frame_height=50,
+    )
+
+    assert rois == {
+        "保留": previous["保留"],
+        "更新": [[10.0, 10.0], [50.0, 10.0], [10.0, 40.0]],
+    }
 
 
 def test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg(
