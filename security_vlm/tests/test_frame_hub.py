@@ -3,8 +3,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Lock
 
 import pytest
+import numpy as np
 
-from frame_hub import atomic_write_json
+from frame_hub import FrameHubReader, FrameHubWriter, atomic_write_json, reset_frame_hub
 
 
 def test_atomic_write_json_supports_concurrent_writers(tmp_path):
@@ -43,3 +44,22 @@ def test_atomic_write_json_removes_temp_file_after_serialization_error(tmp_path)
         atomic_write_json(target, {"not_json": object()})
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_frame_hub_resolution_change_keeps_old_mapping_safe(tmp_path):
+    old_frame = np.full((4, 6, 3), 7, dtype=np.uint8)
+    old_writer = FrameHubWriter(tmp_path, height=4, width=6)
+    old_writer.write(old_frame, frame_id=1)
+    old_reader = FrameHubReader(tmp_path)
+
+    reset_frame_hub(tmp_path)
+    assert not (tmp_path / "frame_meta.json").exists()
+
+    new_frame = np.full((2, 3, 3), 9, dtype=np.uint8)
+    new_writer = FrameHubWriter(tmp_path, height=2, width=3)
+    new_writer.write(new_frame, frame_id=1)
+    new_reader = FrameHubReader(tmp_path)
+
+    assert np.array_equal(old_reader.read_frame(), old_frame)
+    assert np.array_equal(new_reader.read_frame(), new_frame)
+    assert (new_reader.height, new_reader.width) == (2, 3)

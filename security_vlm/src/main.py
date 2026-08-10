@@ -782,6 +782,17 @@ def create_app(
             raise HTTPException(status_code=404, detail="摄像头不存在")
         return camera
 
+    def invalidate_frame_hubs(
+        department: str,
+        camera_id: str | None = None,
+    ) -> None:
+        department = require_department(department)
+        for key in list(service._frame_hubs):
+            if key[0] == department and (
+                camera_id is None or key[1] == camera_id
+            ):
+                service._frame_hubs.pop(key, None)
+
     # Canonical department APIs.  Legacy endpoints below intentionally remain GE-only.
     @app.get("/api/departments/{department}/cameras")
     async def department_cameras(department: str):
@@ -814,6 +825,7 @@ def create_app(
             camera = await run_blocking(service.workspace(department).registry.update, camera_id, name=req.name, rtsp_url=req.rtsp_url)
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        invalidate_frame_hubs(department, camera_id)
         return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
 
     @app.delete("/api/departments/{department}/cameras/{camera_id}")
@@ -845,7 +857,7 @@ def create_app(
         if action not in {"start", "stop", "restart"}:
             raise HTTPException(status_code=404, detail="invalid action")
         result = await run_blocking(getattr(service.runtime_manager, action), department, camera_id)
-        service._frame_hubs.pop((department, camera_id), None)
+        invalidate_frame_hubs(department, camera_id)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
     @app.post("/api/departments/{department}/cameras/control/{action}")
@@ -854,6 +866,7 @@ def create_app(
         if action not in {"start-all", "stop-all"}:
             raise HTTPException(status_code=404, detail="invalid action")
         method = service.runtime_manager.start_all if action == "start-all" else service.runtime_manager.stop_all
+        invalidate_frame_hubs(department)
         result = await run_blocking(method, department)
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
@@ -1020,6 +1033,7 @@ def create_app(
             )
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
         return JSONResponse(
             {"ok": True, "camera": service.registry.public(camera)}
         )
@@ -1067,6 +1081,7 @@ def create_app(
     @app.post("/api/cameras/{camera_id}/control/start")
     async def start_camera(camera_id: str):
         require_camera(camera_id)
+        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
         result = await run_blocking(
             service.runtime_manager.start,
             GENERAL_ELECTRIC,
@@ -1082,13 +1097,13 @@ def create_app(
             GENERAL_ELECTRIC,
             camera_id,
         )
-        service._frame_hubs.pop((GENERAL_ELECTRIC, camera_id), None)
+        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
     @app.post("/api/cameras/{camera_id}/control/restart")
     async def restart_camera(camera_id: str):
         require_camera(camera_id)
-        service._frame_hubs.pop((GENERAL_ELECTRIC, camera_id), None)
+        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
         result = await run_blocking(
             service.runtime_manager.restart,
             GENERAL_ELECTRIC,
@@ -1098,6 +1113,7 @@ def create_app(
 
     @app.post("/api/cameras/control/start-all")
     async def start_all_cameras():
+        invalidate_frame_hubs(GENERAL_ELECTRIC)
         result = await run_blocking(
             service.runtime_manager.start_all,
             GENERAL_ELECTRIC,
@@ -1110,12 +1126,7 @@ def create_app(
             service.runtime_manager.stop_all,
             GENERAL_ELECTRIC,
         )
-        for key in [
-            key
-            for key in service._frame_hubs
-            if key[0] == GENERAL_ELECTRIC
-        ]:
-            service._frame_hubs.pop(key, None)
+        invalidate_frame_hubs(GENERAL_ELECTRIC)
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
     @app.get("/api/cameras/{camera_id}/rois")

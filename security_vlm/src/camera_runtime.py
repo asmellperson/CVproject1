@@ -17,6 +17,7 @@ import yaml
 
 from camera_registry import validate_camera_id
 from departments import SECURITY_DEPARTMENTS, require_department
+from frame_hub import reset_frame_hub
 
 _WORKER_SCRIPTS = (
     ("capture", "capture_worker.py"),
@@ -548,6 +549,9 @@ class CameraRuntimeManager:
     ) -> None:
         if runtime.processes:
             raise RuntimeError("旧摄像头进程组尚未摘取")
+        # 必须在启动 capture/detector/session 前撤下旧 meta。否则分辨率变化时，
+        # detector 可能先读取上一轮尺寸，并在 capture 缩小 slot 后触发 SIGBUS。
+        reset_frame_hub(paths.runtime_dir)
         snapshot = build_camera_config(self.base_cfg, camera, paths)
         write_camera_config(snapshot, paths.config_path)
         runtime.config_path = paths.config_path
@@ -671,6 +675,11 @@ class CameraRuntimeManager:
                 process.kill()
             except Exception:
                 LOGGER.exception("强制终止 %s worker 失败", name)
+                return
+            try:
+                process.wait(timeout=2.0)
+            except Exception:
+                LOGGER.exception("强制终止后回收 %s worker 失败", name)
 
     def _schedule_restart(self, runtime: CameraRuntime) -> None:
         delay_index = min(

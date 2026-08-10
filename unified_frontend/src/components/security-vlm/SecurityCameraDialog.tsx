@@ -39,6 +39,7 @@ export function SecurityCameraDialog({
       await operation()
     } catch (error) {
       console.error('[SecurityCameraDialog] 摄像头操作失败', error)
+      setMessage(`操作失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setBusy(false)
     }

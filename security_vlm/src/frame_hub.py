@@ -29,6 +29,22 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Optional
  
 import numpy as np
+
+
+FRAME_META_NAME = "frame_meta.json"
+FRAME_SLOT_NAMES = ("frame_slot_0.bin", "frame_slot_1.bin")
+
+
+def reset_frame_hub(runtime_dir: Path) -> None:
+    """撤下旧 FrameHub 路径，避免分辨率变化时截断仍被映射的文件。
+
+    Linux 允许 unlink 已被 memmap 的文件：旧读者继续持有原 inode，新写者
+    会在同一路径创建新文件，因此不会因文件缩小而收到 SIGBUS。
+    """
+    root = Path(runtime_dir).resolve()
+    (root / FRAME_META_NAME).unlink(missing_ok=True)
+    for name in FRAME_SLOT_NAMES:
+        (root / name).unlink(missing_ok=True)
  
  
 # ---------------------------------------------------------------------------
@@ -104,12 +120,15 @@ class FrameHubWriter:
         # 单帧字节数 = H * W * C * sizeof(uint8)
         self.nbytes = self.height * self.width * self.channels * np.dtype(self.dtype).itemsize
  
-        self.meta_path = self.runtime_dir / "frame_meta.json"
+        self.meta_path = self.runtime_dir / FRAME_META_NAME
         self.slot_paths = [
-            self.runtime_dir / "frame_slot_0.bin",
-            self.runtime_dir / "frame_slot_1.bin",
+            self.runtime_dir / FRAME_SLOT_NAMES[0],
+            self.runtime_dir / FRAME_SLOT_NAMES[1],
         ]
- 
+
+        # 先撤下旧元数据，避免新 slot 尚未就绪时读者按旧尺寸打开它们。
+        # 这也覆盖 capture_worker 被脱离 CameraRuntimeManager 单独启动的场景。
+        self.meta_path.unlink(missing_ok=True)
         # 预先把两个 slot 文件 truncate 到固定大小,然后 memmap 进来
         self._init_slots()
         self.buffers = [
@@ -127,8 +146,9 @@ class FrameHubWriter:
         })
  
     def _init_slots(self) -> None:
-        """两个 slot 文件预分配为固定大小,避免运行时 resize"""
+        """以新 inode 创建固定大小 slot，保留旧 memmap 的访问安全。"""
         for path in self.slot_paths:
+            path.unlink(missing_ok=True)
             with open(path, "wb") as f:
                 f.truncate(self.nbytes)
  
@@ -168,10 +188,10 @@ class FrameHubReader:
  
     def __init__(self, runtime_dir: Path, wait_timeout_sec: float = 15.0):
         self.runtime_dir = Path(runtime_dir).resolve()
-        self.meta_path = self.runtime_dir / "frame_meta.json"
+        self.meta_path = self.runtime_dir / FRAME_META_NAME
         self.slot_paths = [
-            self.runtime_dir / "frame_slot_0.bin",
-            self.runtime_dir / "frame_slot_1.bin",
+            self.runtime_dir / FRAME_SLOT_NAMES[0],
+            self.runtime_dir / FRAME_SLOT_NAMES[1],
         ]
         self.wait_timeout_sec = float(wait_timeout_sec)
  

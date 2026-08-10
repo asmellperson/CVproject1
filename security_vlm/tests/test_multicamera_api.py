@@ -157,6 +157,38 @@ async def test_department_cameras_are_isolated_and_legacy_is_deprecated(tmp_path
         assert (await client.get(f"{base}/unknown/cameras")).status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_department_update_and_bulk_control_invalidate_frame_hub_cache(
+    tmp_path,
+):
+    service, _runtime_manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+    transport = httpx.ASGITransport(app=app)
+    department = "electronics_electrician"
+    base = f"/api/departments/{department}/cameras"
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        camera = (await client.post(
+            base,
+            json={"name": "A", "rtsp_url": "rtsp://camera-a/Streaming/Channels/101"},
+        )).json()["camera"]
+        camera_id = camera["camera_id"]
+        cache_key = (department, camera_id)
+
+        service._frame_hubs[cache_key] = object()
+        updated = await client.put(
+            f"{base}/{camera_id}",
+            json={"rtsp_url": "rtsp://camera-a/Streaming/Channels/102"},
+        )
+        assert updated.status_code == 200
+        assert cache_key not in service._frame_hubs
+
+        service._frame_hubs[cache_key] = object()
+        stopped = await client.post(f"{base}/control/stop-all")
+        assert stopped.status_code == 200
+        assert cache_key not in service._frame_hubs
+
+
 def test_app_service_resolves_department_roots_and_reads_general_results(
     tmp_path,
     monkeypatch,

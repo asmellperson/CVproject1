@@ -210,6 +210,50 @@ def test_manager_starts_camera_workers_in_order_and_vlm_once(tmp_path):
 
 
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_manager_removes_stale_framehub_before_starting_workers(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+    ]
+    manager, _events, _clock = make_manager(tmp_path, cameras)
+    paths = manager._paths(GENERAL, "camera-a")
+    paths.runtime_dir.mkdir(parents=True)
+    for name in ("frame_meta.json", "frame_slot_0.bin", "frame_slot_1.bin"):
+        (paths.runtime_dir / name).write_bytes(b"stale")
+
+    manager.start(GENERAL, "camera-a")
+
+    for name in ("frame_meta.json", "frame_slot_0.bin", "frame_slot_1.bin"):
+        assert not (paths.runtime_dir / name).exists()
+    assert paths.config_path.exists()
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_force_killed_worker_is_waited_for_reaping():
+    events = []
+
+    class SlowProcess(FakeProcess):
+        def __init__(self):
+            super().__init__("slow", events)
+            self.wait_calls = 0
+
+        def terminate(self):
+            events.append(("terminate", self.name))
+
+        def wait(self, timeout=None):
+            self.wait_calls += 1
+            events.append(("wait", self.name, timeout))
+            if self.wait_calls == 1:
+                raise TimeoutError("still running")
+            return self.returncode
+
+    process = SlowProcess()
+    camera_runtime.CameraRuntimeManager._terminate_process(process, "detector")
+
+    assert ("kill", "slow") in events
+    assert ("wait", "slow", 2.0) in events
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_stopping_one_camera_leaves_other_running_and_stops_vlm_last(tmp_path):
     cameras = [
         {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},

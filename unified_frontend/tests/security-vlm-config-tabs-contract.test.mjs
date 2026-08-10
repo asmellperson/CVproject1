@@ -6,6 +6,10 @@ const section = await readFile(
   new URL('../src/sections/SecurityVlmSection.tsx', import.meta.url),
   'utf8',
 )
+const cameraDialog = await readFile(
+  new URL('../src/components/security-vlm/SecurityCameraDialog.tsx', import.meta.url),
+  'utf8',
+)
 
 test('uses realtime monitor and nested configuration tabs', () => {
   assert.match(section, /const \[activeTab, setActiveTab\] = useState\('dashboard'\)/)
@@ -69,4 +73,5 @@ test('preserves camera, ROI, video, and dialog behavior', () => {
     assert.match(section, new RegExp(name))
   }
   assert.match(section, /roiActive \? 'original' : 'rule'/)
+  assert.match(cameraDialog, /setMessage\(`操作失败：\$\{error instanceof Error \? error\.message : String\(error\)\}`\)/)
 })
