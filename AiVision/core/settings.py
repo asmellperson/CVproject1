@@ -48,12 +48,21 @@ class StorageSettings(BaseSettings):
     本地文件存储配置。
 
     data_path           : 违规截图等文件的根目录（必填）。
-    max_event_count     : 单摄像头保留的最大事件数，超出时滚动删除最旧记录。
+    max_event_count     : 异步写入器单批最大入库数量。
     flush_interval_seconds: 写入任务的批量落盘间隔（秒）。
+    alarm_media_retention_days: 报警图片保留天数。
+    alarm_media_max_gb  : 报警图片目录容量上限（GB）。
+    alarm_media_cleanup_interval_minutes: 清理任务运行间隔（分钟）。
     """
     data_path: str              = Field(...,  alias="DATA_PATH")
     max_event_count: int        = Field(30,   alias="MAX_EVENT_COUNT")
     flush_interval_seconds: int = Field(5,    alias="INTERVAL")
+    alarm_media_retention_days: int = Field(7, alias="ALARM_MEDIA_RETENTION_DAYS")
+    alarm_media_max_gb: float = Field(10.0, alias="ALARM_MEDIA_MAX_GB")
+    alarm_media_cleanup_interval_minutes: int = Field(
+        60,
+        alias="ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

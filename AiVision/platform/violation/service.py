@@ -5,13 +5,13 @@ platform/violation/service.py
 设计原则:
     - Consumer 调 enqueue() 后立即返回(磁盘写入和 SQL 提交都异步)
     - 满 N 条或超 M 秒批量提交
-    - 定时清理超过 90 天的旧记录
+    - 定时清理过期或超过容量上限的报警图片和关联记录
 """
 from __future__ import annotations
 import datetime
-import os
 import threading
 import time
+from pathlib import Path
 from queue import Queue, Empty
 
 import cv2
@@ -22,6 +22,7 @@ import pytz
 from core.db import session_scope
 from core.logger import logger
 from core.settings import settings
+from .cleanup import GIB, MediaCleanupStats, ViolationMediaCleaner
 from .orm import AiViolationImage
 
 
@@ -36,9 +37,23 @@ class AsyncViolationWriter:
 
         self._batch_size = settings.storage.max_event_count
         self._flush_interval = settings.storage.flush_interval_seconds
-        self._data_path = settings.storage.data_path
+        self._data_path = Path(settings.storage.data_path).expanduser().resolve()
+        self._retention_days = max(1, int(settings.storage.alarm_media_retention_days))
+        self._max_media_bytes = max(
+            0,
+            int(float(settings.storage.alarm_media_max_gb) * GIB),
+        )
+        self._cleanup_interval_minutes = max(
+            1,
+            int(settings.storage.alarm_media_cleanup_interval_minutes),
+        )
 
-        os.makedirs(self._data_path, exist_ok=True)
+        self._data_path.mkdir(parents=True, exist_ok=True)
+        self._media_cleaner = ViolationMediaCleaner(
+            self._data_path,
+            retention_days=self._retention_days,
+            max_bytes=self._max_media_bytes,
+        )
 
     # ---------- 公开接口 ----------
 
@@ -117,9 +132,22 @@ class AsyncViolationWriter:
         self._thread.start()
 
         self._scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Shanghai"))
-        self._scheduler.add_job(self._delete_old, "cron", hour=2, minute=0, id="delete_old_violations")
+        self._scheduler.add_job(
+            self._delete_old,
+            "interval",
+            minutes=self._cleanup_interval_minutes,
+            next_run_time=datetime.datetime.now(pytz.timezone("Asia/Shanghai")),
+            id="cleanup_violation_media",
+            max_instances=1,
+            coalesce=True,
+        )
         self._scheduler.start()
-        logger.info("[ViolationWriter] 已启动 + 定时清理任务已注册")
+        logger.info(
+            "[ViolationWriter] 已启动 + 报警图片清理任务已注册 "
+            f"retention_days={self._retention_days} "
+            f"max_gb={self._max_media_bytes / GIB:.2f} "
+            f"interval_minutes={self._cleanup_interval_minutes}"
+        )
 
     def stop(self):
         self._stop_event.set()
@@ -164,13 +192,14 @@ class AsyncViolationWriter:
     def _save_image(self, item: dict) -> dict | None:
         """同步写盘 — 返回供 DB 入库的行字典,失败返回 None"""
         try:
-            sub = os.path.join(self._data_path, str(item["violation_type"]))
-            os.makedirs(sub, exist_ok=True)
+            sub = self._data_path / str(item["violation_type"])
+            sub.mkdir(parents=True, exist_ok=True)
             fname = item["ts"].strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3] + ".png"
-            full_path = os.path.join(sub, fname)
-            cv2.imwrite(full_path, item["frame"])
+            full_path = sub / fname
+            if not cv2.imwrite(str(full_path), item["frame"]):
+                raise OSError(f"OpenCV 写入报警图片失败: {full_path}")
             return {
-                "image_path": full_path,
+                "image_path": str(full_path),
                 "violation_type": item["violation_type"],
                 "camera_no": item["camera_no"],
                 "subject_type": item.get("subject_type") or "camera",
@@ -193,18 +222,9 @@ class AsyncViolationWriter:
         except Exception as e:
             logger.warning(f"[ViolationWriter] 批量提交失败: {e}")
 
-    def _delete_old(self):
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=90)
-        try:
-            with session_scope() as session:
-                deleted = (
-                    session.query(AiViolationImage)
-                    .filter(AiViolationImage.create_time < cutoff)
-                    .delete()
-                )
-            logger.info(f"[ViolationWriter] 清理了 {deleted} 条过期记录(早于 {cutoff})")
-        except Exception as e:
-            logger.warning(f"[ViolationWriter] 清理失败: {e}")
+    def _delete_old(self, now: datetime.datetime | None = None) -> MediaCleanupStats:
+        """清理过期图片和超出容量上限的最旧图片，并同步删除数据库记录。"""
+        return self._media_cleaner.cleanup(now=now)
 
 
 violation_writer = AsyncViolationWriter()

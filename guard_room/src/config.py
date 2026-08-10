@@ -48,6 +48,9 @@ class VideoConfig:
         reconnect_seconds:      摄像头断流后的重连等待时间（秒）。
         jpeg_quality:           MJPEG 流或快照的 JPEG 压缩质量（1~100）。
         camera_buffer_size:     OpenCV VideoCapture 内部缓冲帧数；设为 1 可降低延迟。
+        alarm_media_retention_days: 报警图片和视频保留天数。
+        alarm_media_max_gb:     alarms/alarm_clips/vehicle_clips 合计容量上限（GB）。
+        alarm_media_cleanup_interval_minutes: 报警证据清理间隔（分钟）。
     """
     # 兼容旧字段
     source: str = ""
@@ -64,6 +67,9 @@ class VideoConfig:
     reconnect_seconds: float = 1.0
     jpeg_quality: int = 80
     camera_buffer_size: int = 1
+    alarm_media_retention_days: int = 7
+    alarm_media_max_gb: float = 10.0
+    alarm_media_cleanup_interval_minutes: int = 60
 
 
 @dataclass

@@ -11,13 +11,18 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from pathlib import Path
 from typing import List, Optional
 
 import cv2
 import json
 import numpy as np
+import threading
 
+from .media_cleanup import (
+    AlarmMediaCleanupStats,
+    cleanup_alarm_media,
+    event_media_available,
+)
 from .types import AlarmEvent
 from .utils import ensure_dir, now_str
 
@@ -134,6 +139,28 @@ class AlarmManager:
         event.video_status = "failed"
         self._flush()
 
+    def cleanup_media(
+        self,
+        *,
+        retention_days: int,
+        max_bytes: int,
+        now: float | None = None,
+    ) -> AlarmMediaCleanupStats:
+        """清理过期/超限的报警图片和视频，并同步裁剪内存事件。"""
+        stats = cleanup_alarm_media(
+            self.output_dir,
+            retention_days=retention_days,
+            max_bytes=max_bytes,
+            now=now,
+        )
+        if stats.skipped_busy:
+            return stats
+        retained = [event for event in self.events if event_media_available(event)]
+        if len(retained) != len(self.events):
+            self.events = retained
+            self._flush()
+        return stats
+
     def _flush(self) -> None:
         """将内存中的全量事件列表序列化并覆写到 alarm_events.json。
 
@@ -141,5 +168,9 @@ class AlarmManager:
         即使进程在写入中途崩溃，旧文件仍完好（依赖 OS 的原子写语义）。
         """
         out_file = self.output_dir / "alarm_events.json"
-        with open(out_file, "w", encoding="utf-8") as f:
+        temporary_file = out_file.with_name(
+            f".{out_file.name}.{threading.get_ident()}.tmp"
+        )
+        with open(temporary_file, "w", encoding="utf-8") as f:
             json.dump([asdict(e) for e in self.events], f, ensure_ascii=False, indent=2)
+        temporary_file.replace(out_file)

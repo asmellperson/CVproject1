@@ -9,6 +9,11 @@ video:
   reconnect_seconds: 1
   jpeg_quality: 60
   camera_buffer_size: 1
+  # 报警 JPG 与 MP4 默认保留 7 天，且三个报警目录合计不超过 10GB
+  alarm_media_retention_days: 7
+  alarm_media_max_gb: 10
+  # 启动后立即清理一次，之后每 60 分钟检查
+  alarm_media_cleanup_interval_minutes: 60
 models:
   detector_model: models/person_phone.pt
   vehicle_detector_model: yolo11n.pt

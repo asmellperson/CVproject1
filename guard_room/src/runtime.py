@@ -434,6 +434,47 @@ class GuardRoomRuntime:
         device = str(getattr(self.cfg.models, "device", "") or "").strip().lower()
         return bool(self.cfg.models.use_half and device != "cpu" and torch.cuda.is_available())
 
+    def _cleanup_alarm_media(self, alarm_manager: AlarmManager, *, now: float) -> None:
+        """执行一次报警图片/视频清理；失败只记录，不中断检测主循环。"""
+        try:
+            cleanup_stats = alarm_manager.cleanup_media(
+                retention_days=max(
+                    1,
+                    int(getattr(
+                        self.cfg.video,
+                        "alarm_media_retention_days",
+                        7,
+                    )),
+                ),
+                max_bytes=max(
+                    0,
+                    int(float(getattr(
+                        self.cfg.video,
+                        "alarm_media_max_gb",
+                        10.0,
+                    )) * 1024 ** 3),
+                ),
+                now=now,
+            )
+            if (
+                cleanup_stats.removed_files
+                or cleanup_stats.pruned_events
+                or cleanup_stats.failed_files
+                or cleanup_stats.skipped_unsafe_paths
+            ):
+                print(
+                    "[GuardRoom] 报警证据清理完成 "
+                    f"files={cleanup_stats.removed_files} "
+                    f"events={cleanup_stats.pruned_events} "
+                    f"freed_mb={cleanup_stats.removed_bytes / 1024 / 1024:.2f} "
+                    f"remaining_mb={cleanup_stats.remaining_bytes / 1024 / 1024:.2f} "
+                    f"failed={cleanup_stats.failed_files} "
+                    f"unsafe={cleanup_stats.skipped_unsafe_paths}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[GuardRoom] 报警证据清理失败: {exc}", flush=True)
+
     def start(self) -> None:
         """启动主循环线程（幂等：已运行时直接返回）。"""
         with self._lock:
@@ -679,6 +720,17 @@ class GuardRoomRuntime:
             )
 
             alarm_manager = AlarmManager(self.cfg.video.output_dir)
+            media_cleanup_interval_seconds = max(
+                60.0,
+                float(getattr(
+                    self.cfg.video,
+                    "alarm_media_cleanup_interval_minutes",
+                    60,
+                )) * 60.0,
+            )
+            cleanup_started_at = time.time()
+            self._cleanup_alarm_media(alarm_manager, now=cleanup_started_at)
+            next_media_cleanup_at = cleanup_started_at + media_cleanup_interval_seconds
 
             latest_buffers = {
                 camera_id: LatestFrameBuffer()
@@ -745,6 +797,11 @@ class GuardRoomRuntime:
 
             # ── 帧循环 ────────────────────────────────────────────────────
             while not self._stop_event.is_set():
+                wall_now = time.time()
+                if wall_now >= next_media_cleanup_at:
+                    self._cleanup_alarm_media(alarm_manager, now=wall_now)
+                    next_media_cleanup_at = wall_now + media_cleanup_interval_seconds
+
                 buffer_items = {
                     camera_id: latest_buffers[camera_id].get()
                     for camera_id, _ in camera_sources
