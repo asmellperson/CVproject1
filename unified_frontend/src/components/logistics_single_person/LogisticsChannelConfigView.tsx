@@ -481,35 +481,42 @@ export function LogisticsChannelConfigView({
                 </CardContent>
               </Card>
 
-              <div className="grid gap-5 xl:grid-cols-2">
-                <Card>
-                  <CardHeader><CardTitle className="text-base">绑定已有摄像头</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
-                    <Select value={existingCameraId} onValueChange={setExistingCameraId} disabled={!isAdmin || busy || members.length >= 9}>
-                      <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">绑定摄像头</CardTitle>
+                  <CardDescription>选择已有摄像头，或新建摄像头并直接绑定至当前物流通道。</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <div>
+                        <h3 className="text-sm font-semibold">绑定已有摄像头</h3>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">从平台摄像头列表中选择并加入当前通道。</p>
+                      </div>
+                      <Label htmlFor="logistics-existing-camera">{moveExisting ? '从其他通道移动摄像头' : '可绑定摄像头'}</Label>
+                      <Select value={existingCameraId} onValueChange={setExistingCameraId} disabled={!isAdmin || busy || members.length >= 9}>
+                        <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
                       <SelectContent showScrollButtons={false}>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
-                    <Button onClick={addExisting} disabled={!isAdmin || busy || !existingCameraId || members.length >= 9}>{moveExisting ? '移动至当前通道' : '绑定已有摄像头'}</Button>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">新建摄像头并绑定</CardTitle>
-                    <CardDescription>填写摄像头信息后，将其直接加入当前物流通道。</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button
-                      className="w-full"
-                      onClick={() => setCameraDialogOpen(true)}
-                      disabled={!isAdmin || busy || !selectedChannelDetail || members.length >= 9}
-                    >
-                      <Plus className="h-4 w-4" />新建摄像头并绑定
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
+                      </Select>
+                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
+                      <Button onClick={addExisting} disabled={!isAdmin || busy || !existingCameraId || members.length >= 9}>{moveExisting ? '移动至当前通道' : '绑定已有摄像头'}</Button>
+                    </div>
+                    <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <div>
+                        <h3 className="text-sm font-semibold">新建摄像头并绑定</h3>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">填写摄像头名称、FPS 和 RTSP 地址后加入当前通道。</p>
+                      </div>
+                      <Button
+                        className="w-full"
+                        onClick={() => setCameraDialogOpen(true)}
+                        disabled={!isAdmin || busy || !selectedChannelDetail || members.length >= 9}
+                      >
+                        <Plus className="h-4 w-4" />新建摄像头并绑定
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="roi" className="mt-0 space-y-5">

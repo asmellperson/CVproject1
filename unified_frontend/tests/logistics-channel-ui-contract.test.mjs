@@ -112,3 +112,18 @@ test('existing camera select disables Radix scroll buttons without changing the 
   assert.match(select, /showScrollButtons \? <SelectScrollDownButton \/> : null/)
   assert.match(config, /<SelectContent showScrollButtons=\{false\}>/)
 })
+
+test('camera binding actions share one module with two choices', () => {
+  const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
+  const members = config.slice(
+    config.indexOf('<TabsContent value="members"'),
+    config.indexOf('<TabsContent value="roi"'),
+  )
+
+  assert.match(members, /<CardTitle className="text-base">绑定摄像头<\/CardTitle>/)
+  assert.match(members, /<div className="grid gap-4 lg:grid-cols-2">/)
+  assert.match(members, /<h3 className="text-sm font-semibold">绑定已有摄像头<\/h3>/)
+  assert.match(members, /<h3 className="text-sm font-semibold">新建摄像头并绑定<\/h3>/)
+  assert.doesNotMatch(members, /<CardTitle className="text-base">绑定已有摄像头<\/CardTitle>/)
+  assert.doesNotMatch(members, /<CardTitle className="text-base">新建摄像头并绑定<\/CardTitle>/)
+})
