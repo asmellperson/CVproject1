@@ -418,7 +418,6 @@ export function IntrusionDetectionSection() {
                 <AiVisionRoiEditor
                   title="区域入侵警戒线绘制"
                   cameraKey={form.cameraName}
-                  feature="blocks"
                   mode="line"
                   roiJson={form.linePoints}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}

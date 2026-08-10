@@ -391,7 +391,6 @@ export function FaceDetectionSection() {
                 <AiVisionRoiEditor
                   title="人脸检测 ROI 绘制"
                   cameraKey={form.cameraName}
-                  feature="detect_face"
                   roiJson={form.roiPos}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}

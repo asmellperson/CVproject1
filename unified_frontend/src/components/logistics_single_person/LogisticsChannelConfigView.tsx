@@ -111,6 +111,7 @@ export function LogisticsChannelConfigView({
   )
   const cameraById = useMemo(() => new Map(cameras.map((camera) => [camera.camera_id, camera])), [cameras])
   const selectedCamera = selectedCameraId === null ? undefined : cameraById.get(selectedCameraId)
+  const selectedChannelDetailId = selectedChannelDetail?.id ?? null
   const channelIdsKey = useMemo(() => channels.map((channel) => channel.id).sort((a, b) => a - b).join(','), [channels])
   const membershipContextRef = useRef({ feature, channelIdsKey })
   membershipContextRef.current = { feature, channelIdsKey }
@@ -223,15 +224,14 @@ export function LogisticsChannelConfigView({
   }, [members])
 
   useEffect(() => {
-    if (!selectedCamera) {
+    if (selectedCameraId === null || selectedChannelDetailId === null) {
       setCameraConfig(null)
       setRoiJson('[]')
       return
     }
     let active = true
     setCameraConfig(null)
-    if (!selectedChannelDetail) return
-    getLogisticsCameraConfig(feature, selectedChannelDetail.id, selectedCamera.camera_id)
+    getLogisticsCameraConfig(feature, selectedChannelDetailId, selectedCameraId)
       .then((result) => {
         if (!active) return
         setCameraConfig(result)
@@ -239,7 +239,7 @@ export function LogisticsChannelConfigView({
       })
       .catch((reason) => active && setMessage(`逐路 ROI 读取失败：${messageOf(reason)}`))
     return () => { active = false }
-  }, [feature, selectedCamera, selectedChannelDetail])
+  }, [feature, selectedCameraId, selectedChannelDetailId])
 
   const invalidateMemberships = () => {
     membershipLoadRef.current = {
@@ -524,7 +524,7 @@ export function LogisticsChannelConfigView({
                 <CardHeader><CardTitle className="text-base">逐路 ROI 摄像头</CardTitle></CardHeader>
                 <CardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></CardContent>
               </Card>
-              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} feature={feature} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
+              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
             </TabsContent>
 
             <TabsContent value="rules" className="mt-0 space-y-5">

@@ -492,7 +492,6 @@ export function HumanDetectionSection() {
                 <AiVisionRoiEditor
                   title="人体逗留 ROI 绘制"
                   cameraKey={form.cameraName}
-                  feature="detect_human"
                   roiJson={form.roiPos}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}

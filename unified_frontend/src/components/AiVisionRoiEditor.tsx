@@ -15,7 +15,6 @@ type RoiMode = 'polygon' | 'rect' | 'line'
 type AiVisionRoiEditorProps = {
   title: string
   cameraKey: string
-  feature?: string
   mode?: RoiMode
   roiJson: string
   regionJson?: string
@@ -93,7 +92,6 @@ function parseRoiPoints(raw: string): Point[] {
 export function AiVisionRoiEditor({
   title,
   cameraKey,
-  feature,
   mode = 'polygon',
   roiJson,
   regionJson,
@@ -113,8 +111,8 @@ export function AiVisionRoiEditor({
   const [dragPointIndex, setDragPointIndex] = useState<number | null>(null)
 
   const frameUrl = useMemo(
-    () => (cameraKey ? aiVisionFrameUrl(cameraKey, feature, nonce) : ''),
-    [cameraKey, feature, nonce],
+    () => (cameraKey ? aiVisionFrameUrl(cameraKey, undefined, nonce) : ''),
+    [cameraKey, nonce],
   )
   const valid = mode === 'line' ? points.length === 2 : mode === 'rect' ? points.length === 4 : points.length >= 3
   const outOfBounds = points.some(

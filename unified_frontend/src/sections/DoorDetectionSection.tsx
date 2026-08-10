@@ -437,7 +437,6 @@ export function DoorDetectionSection() {
                 <AiVisionRoiEditor
                   title="大门开关异常检测 ROI 绘制"
                   cameraKey={form.cameraName}
-                  feature="detect_door"
                   roiJson={form.roiPos}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}

@@ -439,7 +439,6 @@ export function PhoneDetectionSection() {
                 <AiVisionRoiEditor
                   title="手机使用检测 ROI 绘制"
                   cameraKey={form.cameraName}
-                  feature="detect_phone"
                   roiJson={form.roiPos}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
