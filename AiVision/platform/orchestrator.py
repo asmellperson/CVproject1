@@ -15,6 +15,7 @@ platform/orchestrator.py
 """
 from __future__ import annotations
 import datetime as dt
+import threading
 import time
 from typing import Optional
 
@@ -45,6 +46,12 @@ from platform.violation.service import violation_writer
 
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
 _ANNOTATED_FRAME_FRESH_SECONDS = 2.0
+_CAMERA_RUNTIME_ALERT_TYPES = {
+    "启动失败",
+    "启动超时",
+    "视频流异常",
+    "摄像头未运行",
+}
 
 
 class Orchestrator:
@@ -57,7 +64,7 @@ class Orchestrator:
         self._wechat: Optional[WeChatNotifier] = None
         self._started = False
         self._last_system_exception_alerts: dict[tuple[str, str], float] = {}
-        self._system_exception_alert_cooldown = 300.0
+        self._system_exception_alert_lock = threading.Lock()
         self.logistics_channel_runtime = LogisticsChannelRuntime(
             channel_service=logistics_channel_service,
             dispatcher=alarm_dispatcher,
@@ -349,11 +356,14 @@ class Orchestrator:
         if not recipients:
             return
         now = time.time()
-        alert_key = (target_key, event_type)
-        last = self._last_system_exception_alerts.get(alert_key, 0.0)
-        if now - last < self._system_exception_alert_cooldown:
-            return
-        self._last_system_exception_alerts[alert_key] = now
+        alert_group = self._system_exception_alert_group(event_type)
+        alert_key = (target_key, alert_group)
+        cooldown_seconds = float(alert["repeat_interval_minutes"]) * 60.0
+        with self._system_exception_alert_lock:
+            last = self._last_system_exception_alerts.get(alert_key, 0.0)
+            if now - last < cooldown_seconds:
+                return
+            self._last_system_exception_alerts[alert_key] = now
         now_text = time.strftime("%Y-%m-%d %H:%M:%S")
         self._wechat.send_text(
             content=(
@@ -366,6 +376,14 @@ class Orchestrator:
             ),
             recipients=recipients,
         )
+
+    @staticmethod
+    def _system_exception_alert_group(event_type: str) -> str:
+        if event_type in _CAMERA_RUNTIME_ALERT_TYPES:
+            return "摄像头运行异常"
+        if event_type.startswith("采集进程退出") or event_type.startswith("画面停更"):
+            return "摄像头运行异常"
+        return event_type
 
     def _start_or_update_camera(self, key: str):
         cfg = self._camera_runtime_config(key)

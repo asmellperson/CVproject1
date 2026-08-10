@@ -232,12 +232,6 @@ class CameraManager:
             if now - last_attempt < self._restart_retry_interval:
                 continue
             logger.warning(f"[CameraManager] 摄像头未运行,自动重试启动 {shm_name}")
-            self._notify_runtime_alert(
-                shm_name=shm_name,
-                camera_name=cfg.get("name", shm_name),
-                event_type="摄像头未运行",
-                detail="正在自动重试启动",
-            )
             self._start_one(shm_name, cfg, active_index, frame_seq)
 
     def _drain_runtime_events(self):

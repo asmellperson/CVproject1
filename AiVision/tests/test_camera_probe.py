@@ -1,4 +1,5 @@
 import importlib
+import threading
 import json
 import subprocess
 import sys
@@ -170,3 +171,37 @@ def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
     assert runtime.shape == (0, 0, 0)
     assert "ffprobe 探测超时" in runtime.msg
     assert "secret" not in runtime.msg
+
+
+def test_camera_retry_logs_without_sending_a_separate_alert(monkeypatch):
+    manager_module = importlib.import_module("platform.camera.manager")
+    manager = object.__new__(manager_module.CameraManager)
+    manager._lock = threading.Lock()
+    manager._shared_configs = {
+        "offline_camera": (
+            {"name": "offline-camera", "enable": True},
+            SimpleNamespace(value=0),
+            SimpleNamespace(value=0),
+        )
+    }
+    manager._runtimes = {}
+    manager._last_start_attempts = {"offline_camera": 0.0}
+    manager._restart_retry_interval = 30.0
+
+    start_calls = []
+    alert_calls = []
+    monkeypatch.setattr(
+        manager,
+        "_start_one",
+        lambda *args: start_calls.append(args),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_notify_runtime_alert",
+        lambda **kwargs: alert_calls.append(kwargs),
+    )
+
+    manager._retry_missing_enabled(now=31.0)
+
+    assert len(start_calls) == 1
+    assert alert_calls == []

@@ -357,6 +357,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
+  const [exceptionRepeatIntervalMinutes, setExceptionRepeatIntervalMinutes] = useState(60)
   const [exceptionSettingsLoading, setExceptionSettingsLoading] = useState(false)
   const [exceptionSettingsSaving, setExceptionSettingsSaving] = useState(false)
   const [exceptionSettingsMessage, setExceptionSettingsMessage] = useState('')
@@ -398,6 +399,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       .then((settings) => {
         setExceptionWechatEnabled(Boolean(settings.wechat_enable))
         setExceptionWechatUser(settings.wechat_user || '')
+        setExceptionRepeatIntervalMinutes(settings.repeat_interval_minutes || 60)
       })
       .catch((error) => {
         setExceptionSettingsError(`读取全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
@@ -411,6 +413,11 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       setExceptionSettingsMessage('')
       return
     }
+    if (exceptionRepeatIntervalMinutes < 5 || exceptionRepeatIntervalMinutes > 1440) {
+      setExceptionSettingsError('重复提醒间隔必须在 5 到 1440 分钟之间。')
+      setExceptionSettingsMessage('')
+      return
+    }
 
     setExceptionSettingsSaving(true)
     setExceptionSettingsError('')
@@ -419,9 +426,11 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       const next = await saveAiVisionExceptionAlertSettings({
         wechat_enable: exceptionWechatEnabled,
         wechat_user: exceptionWechatUser.trim(),
+        repeat_interval_minutes: exceptionRepeatIntervalMinutes,
       })
       setExceptionWechatEnabled(Boolean(next.wechat_enable))
       setExceptionWechatUser(next.wechat_user || '')
+      setExceptionRepeatIntervalMinutes(next.repeat_interval_minutes || 60)
       setExceptionSettingsMessage('全局异常推送配置已保存。')
     } catch (error) {
       setExceptionSettingsError(`保存全局异常推送配置失败：${error instanceof Error ? error.message : String(error)}`)
@@ -806,6 +815,19 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                       placeholder="推送群号，多个用 | 分隔；也可填 @all"
                       disabled={exceptionSettingsLoading || exceptionSettingsSaving || !exceptionWechatEnabled}
                     />
+                    <div className="flex min-w-[190px] items-center gap-2">
+                      <Input
+                        aria-label="异常重复提醒间隔（分钟）"
+                        className="w-24 bg-white dark:bg-slate-900"
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={exceptionRepeatIntervalMinutes}
+                        onChange={(event) => setExceptionRepeatIntervalMinutes(Number(event.target.value))}
+                        disabled={exceptionSettingsLoading || exceptionSettingsSaving || !exceptionWechatEnabled}
+                      />
+                      <span className="whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">分钟内不重复</span>
+                    </div>
                     <Button
                       className="gap-2 bg-[#001b43] text-white hover:bg-[#082a5f] dark:bg-blue-600 dark:hover:bg-blue-500"
                       onClick={handleSaveExceptionSettings}

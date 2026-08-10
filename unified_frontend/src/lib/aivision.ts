@@ -49,6 +49,7 @@ export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPaylo
 export type AiVisionExceptionAlertSettings = {
   wechat_enable: boolean
   wechat_user: string
+  repeat_interval_minutes: number
 }
 
 export type AiVisionModel = {

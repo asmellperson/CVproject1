@@ -1,5 +1,6 @@
 import importlib
 import sys
+import threading
 from types import SimpleNamespace
 
 from core.events import ConfigChangeEvent
@@ -17,6 +18,47 @@ def _orchestrator_without_init():
         refresh_camera_all=lambda *_args: None,
     )
     return orchestrator
+
+
+def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
+    orchestrator = _orchestrator_without_init()
+    sent = []
+    orchestrator._wechat = SimpleNamespace(
+        send_text=lambda **kwargs: sent.append(kwargs)
+    )
+    orchestrator._last_system_exception_alerts = {}
+    orchestrator._system_exception_alert_lock = threading.Lock()
+
+    clock = SimpleNamespace(now=10_000.0)
+    orchestrator_module = importlib.import_module("platform.orchestrator")
+    monkeypatch.setattr(orchestrator_module.time, "time", lambda: clock.now)
+    monkeypatch.setattr(
+        orchestrator_module.system_config_service,
+        "get_exception_alert",
+        lambda: {
+            "wechat_enable": True,
+            "wechat_user": "operator",
+            "repeat_interval_minutes": 60,
+        },
+    )
+
+    orchestrator._send_system_exception_alert(
+        "进货口4", "camera-4", "视频流异常", "stream closed"
+    )
+    orchestrator._send_system_exception_alert(
+        "进货口4", "camera-4", "启动失败", "ffprobe 探测超时"
+    )
+    orchestrator._send_system_exception_alert(
+        "进货口5", "camera-5", "启动失败", "ffprobe 探测超时"
+    )
+
+    assert len(sent) == 2
+
+    clock.now += 3601
+    orchestrator._send_system_exception_alert(
+        "进货口4", "camera-4", "启动失败", "ffprobe 探测超时"
+    )
+    assert len(sent) == 3
 
 
 def test_camera_display_update_does_not_restart_runtime(monkeypatch):

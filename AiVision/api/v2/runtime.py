@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v2/runtime", tags=["runtime"])
 class ExceptionAlertSettings(BaseModel):
     wechat_enable: bool = False
     wechat_user: str = ""
+    repeat_interval_minutes: int = 60
 
 
 @router.get("/health")

@@ -27,7 +27,6 @@ from api.compat import router as compat_router
 
 
 _api_exception_alerts: dict[tuple[str, str], float] = {}
-_API_EXCEPTION_ALERT_COOLDOWN = 300.0
 
 
 def _send_api_exception_alert(path: str, detail: str):
@@ -43,7 +42,8 @@ def _send_api_exception_alert(path: str, detail: str):
     key = (path, "API 未处理异常")
     now = time.time()
     last = _api_exception_alerts.get(key, 0.0)
-    if now - last < _API_EXCEPTION_ALERT_COOLDOWN:
+    cooldown_seconds = float(alert["repeat_interval_minutes"]) * 60.0
+    if now - last < cooldown_seconds:
         return
     _api_exception_alerts[key] = now
 

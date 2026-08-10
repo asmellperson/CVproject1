@@ -97,6 +97,7 @@ test('compresses global exception push into a wrapping horizontal bar', () => {
   assert.match(pushBar, /min-w-\[220px\]/)
   assert.match(pushBar, /bg-\[#001b43\]/)
   assert.match(pushBar, /aria-label="启用全局异常推送"/)
+  assert.match(pushBar, /aria-label="异常重复提醒间隔（分钟）"/)
   assert.match(pushBar, /aria-label="推送群号"/)
 })
 
