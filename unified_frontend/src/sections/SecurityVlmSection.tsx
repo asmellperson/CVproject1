@@ -10,13 +10,9 @@ import {
   FileCheck2,
   Layers3,
   Plus,
-  Power,
-  PowerOff,
   RefreshCw,
   Save,
-  Settings2,
   Trash2,
-  Video,
   XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +32,16 @@ import {
 } from '@/components/ui/pagination'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+  DetectionConfigTab,
+  DetectionConfigTabsList,
+} from '@/components/detection/DetectionConfigUi'
+import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
+import { DetectionRuntimeControl } from '@/components/detection/DetectionRuntimeControl'
 import { cn } from '@/lib/utils'
 import {
   controlSecurityVlmCamera,
@@ -701,31 +706,28 @@ export function SecurityVlmSection({
   }
 
   return (
-    <div className="space-y-6 text-slate-950 dark:text-slate-100">
+    <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 text-slate-950 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-lg grid-cols-2 p-1">
-          <TabsTrigger value="dashboard" className="gap-2 py-2">
-            <Video className="h-4 w-4" />
-            实时监控
-          </TabsTrigger>
-          <TabsTrigger value="config" className="gap-2 py-2">
-            <Settings2 className="h-4 w-4" />
-            配置管理
-          </TabsTrigger>
-        </TabsList>
+        <DetectionPageHeader
+          title="安检流程规范检测"
+          subtitle="安检流程监控与摄像头配置"
+          departmentLabel={DEPARTMENT_LABELS[department]}
+          monitorValue="dashboard"
+          runtimeControl={(
+            <DetectionRuntimeControl
+              scope="检测控制 · 项目启动时默认关闭"
+              state={health === null ? 'loading' : runtimeRunning ? 'running' : 'stopped'}
+              busyAction={controlBusy ? (runtimeRunning ? 'stop' : 'start') : null}
+              isAdmin={isAdmin}
+              disabled={cameras.length === 0}
+              onStart={() => void handleAllCameras('start')}
+              onStop={() => void handleAllCameras('stop')}
+            />
+          )}
+        />
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              安检流程规范检测 · {DEPARTMENT_LABELS[department]}
-            </h2>
-          </div>
-          {activeTab === 'dashboard' && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={runtimeRunning ? 'default' : 'secondary'} className={cn('gap-2', runtimeRunning && 'bg-emerald-600')}>
-                <span className={cn('h-2 w-2 rounded-full', runtimeRunning ? 'bg-emerald-200' : 'bg-slate-400')} />
-                {runtimeRunning ? '检测开启' : '检测关闭'}
-              </Badge>
+        {activeTab === 'dashboard' && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
               {vlmDegraded && (
                 <Badge className="gap-2 bg-amber-500">
                   <AlertTriangle className="h-3.5 w-3.5" />
@@ -757,9 +759,8 @@ export function SecurityVlmSection({
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <TabsContent
           value="dashboard"
@@ -834,47 +835,19 @@ export function SecurityVlmSection({
 
         <TabsContent value="config" className="space-y-6">
           <Tabs value={configTab} onValueChange={setConfigTab} className="space-y-6">
-            <TabsList className="grid h-auto w-full max-w-md grid-cols-2 p-1">
-              <TabsTrigger value="camera" className="gap-2 py-2">
-                <Camera className="h-4 w-4" />
-                摄像头管理
-              </TabsTrigger>
-              <TabsTrigger value="roi" className="gap-2 py-2">
-                <Crosshair className="h-4 w-4" />
-                ROI 绘制
-              </TabsTrigger>
-            </TabsList>
+            <DetectionConfigTabsList className="sm:grid-cols-2 lg:grid-cols-2">
+              <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
+              <DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
+            </DetectionConfigTabsList>
 
             <TabsContent value="camera" className="space-y-6">
-              <Card>
-                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <CardTitle className="text-lg">摄像头管理</CardTitle>
-                    {controlMessage && (
-                      <p className="mt-1 text-sm text-slate-500">{controlMessage}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => void handleAllCameras('start')}
-                      disabled={!isAdmin || controlBusy || cameras.length === 0}
-                    >
-                      <Power className="h-4 w-4" />
-                      {controlBusy ? '处理中' : '全部开启'}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => void handleAllCameras('stop')}
-                      disabled={!isAdmin || controlBusy || cameras.length === 0}
-                    >
-                      <PowerOff className="h-4 w-4" />
-                      全部关闭
-                    </Button>
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader
+                  icon={Camera}
+                  tone="blue"
+                  title="摄像头"
+                  description={controlMessage || '管理安检流程规范检测的摄像头。'}
+                  actions={(
                     <Button
                       variant="outline"
                       size="sm"
@@ -890,9 +863,9 @@ export function SecurityVlmSection({
                       <RefreshCw className="h-4 w-4" />
                       刷新
                     </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
+                  )}
+                />
+                <DetectionConfigCardContent>
                   <SecurityCameraBar
                     cameras={cameras}
                     selectedId={selectedCameraId}
@@ -904,20 +877,19 @@ export function SecurityVlmSection({
                     onEdit={(camera) => void openCameraDialog(camera)}
                     onAdd={() => void openCameraDialog(null)}
                   />
-                </CardContent>
+                </DetectionConfigCardContent>
               </Card>
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-lg">工位 ROI 绘制</CardTitle>
-                <p className="mt-1 text-sm text-slate-500">
-                  点击可逐点绘制区域，拖拽可快速绘制四边区域，保存后自动热加载。
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Crosshair}
+              tone="rose"
+              title="工位 ROI 绘制"
+              description="点击可逐点绘制区域，拖拽可快速绘制四边区域，保存后自动热加载。"
+              actions={(
+                <>
                 <Select value={selectedCameraId} onValueChange={setSelectedCameraId}>
                   <SelectTrigger className="h-8 w-48">
                     <SelectValue placeholder="选择摄像头" />
@@ -942,9 +914,10 @@ export function SecurityVlmSection({
                   <Save className="h-4 w-4" />
                   {savingRoi ? '保存中' : '保存'}
                 </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                </>
+              )}
+            />
+            <DetectionConfigCardContent className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
               <div ref={stageRef} className="relative overflow-hidden rounded-lg bg-slate-950">
                 {selectedCamera?.running ? (
                   <>
@@ -1020,7 +993,7 @@ export function SecurityVlmSection({
                   )}
                 </div>
               </div>
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
             </TabsContent>
           </Tabs>

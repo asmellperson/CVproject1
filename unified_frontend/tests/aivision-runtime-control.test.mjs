@@ -22,8 +22,9 @@ test('ordinary AiVision pages share the same runtime control', async () => {
 })
 
 test('runtime control polls status and exposes separate admin start and stop actions', async () => {
-  const [control, api, platformHook] = await Promise.all([
+  const [control, sharedControl, api, platformHook] = await Promise.all([
     read('src/components/AiVisionFeatureRuntimeControl.tsx'),
+    read('src/components/detection/DetectionRuntimeControl.tsx'),
     read('src/lib/aivision.ts'),
     read('src/hooks/use-platform-status.ts'),
   ])
@@ -31,21 +32,29 @@ test('runtime control polls status and exposes separate admin start and stop act
   assert.match(control, /useSerialPoll/)
   assert.match(control, /startAiVisionCapability\(feature\)/)
   assert.match(control, /stopAiVisionCapability\(feature\)/)
-  assert.match(control, /!isAdmin/)
+  assert.match(control, /isAdmin=\{isAdmin\}/)
+  assert.match(sharedControl, /!isAdmin/)
   assert.match(control, /检测控制/)
+  assert.match(sharedControl, /PowerOff/)
+  assert.match(sharedControl, /Power/)
+  assert.doesNotMatch(sharedControl, /Play|Pause/)
   assert.match(api, /\/api\/v2\/runtime\/capabilities/)
   assert.match(platformHook, /PLATFORM_RUNTIME_CHANGED_EVENT/)
 })
 
 test('guard configuration saves without implicitly starting a manually stopped site', async () => {
-  const [config, monitor, guardPage] = await Promise.all([
+  const [config, monitor, guardPage, runtime] = await Promise.all([
     read('src/sections/ConfigSection.tsx'),
     read('src/sections/MonitorSection.tsx'),
     read('src/sections/GuardBehaviorSection.tsx'),
+    read('src/components/guard_room/GuardRoomRuntimeControl.tsx'),
   ])
 
   assert.match(config, /if \(site\.enabled\)/)
   assert.match(config, /配置已保存，检测保持关闭/)
-  assert.match(monitor, /await onRuntimeChanged\?\.\(\)/)
-  assert.match(guardPage, /onRuntimeChanged=\{loadSites\}/)
+  assert.doesNotMatch(monitor, /startGuardRoomSiteRuntime|stopGuardRoomSiteRuntime/)
+  assert.match(runtime, /startGuardRoomSiteRuntime\(site\.id\)/)
+  assert.match(runtime, /stopGuardRoomSiteRuntime\(site\.id\)/)
+  assert.match(runtime, /await onChanged\(\)/)
+  assert.match(guardPage, /onChanged=\{loadSites\}/)
 })

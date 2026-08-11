@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+} from '@/components/detection/DetectionConfigUi'
 import { aiVisionFrameUrl } from '@/lib/aivision'
 import { clientPointToImagePoint, imagePixelsPerRenderedPixel } from './AiVisionRoiEditor.geometry'
 
@@ -242,20 +247,20 @@ export function AiVisionRoiEditor({
   }
 
   return (
-    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-none dark:bg-slate-900">
-        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-[0_12px_24px_rgba(37,99,235,0.22)]">
-            <MousePointer2 className="h-5 w-5" />
-          </span>
-          {title}
-        </CardTitle>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
-          <RefreshCw className="h-4 w-4" />
-          刷新画面
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
+    <Card className={DETECTION_CONFIG_CARD_CLASS}>
+      <DetectionConfigCardHeader
+        icon={MousePointer2}
+        tone="rose"
+        title={title}
+        description="沿用当前摄像头画布、坐标与保存方式，进入本标签后可直接绘制。"
+        actions={(
+          <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
+            <RefreshCw className="h-4 w-4" />
+            刷新画面
+          </Button>
+        )}
+      />
+      <DetectionConfigCardContent className="space-y-4">
         <div className="overflow-hidden rounded-2xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.18)]">
           <div className="relative mx-auto max-h-[68vh] w-full">
             <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm">
@@ -357,7 +362,7 @@ export function AiVisionRoiEditor({
             </Button>
           </div>
         </div>
-      </CardContent>
+      </DetectionConfigCardContent>
     </Card>
   )
 }

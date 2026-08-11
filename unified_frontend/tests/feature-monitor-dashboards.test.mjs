@@ -110,20 +110,29 @@ test('adds a presentation without changing the existing frame lifecycle', () => 
   assert.match(monitorSource, /image\.naturalWidth/)
 })
 
+test('shared detection header stays inside the existing platform shell', async () => {
+  const header = await read('src/components/detection/DetectionPageHeader.tsx')
+  assert.match(header, /监控与配置/)
+  assert.match(header, /实时监控/)
+  assert.match(header, /配置管理/)
+  assert.doesNotMatch(header, /复旦智能视觉|摄像头中心/)
+})
+
 test('opts the four pages into the approved shell while preserving configuration bindings', async () => {
   const expected = [
-    ['IntrusionDetectionSection.tsx', '区域入侵检测监控与配置', '警戒区域实时监控面板'],
-    ['FaceDetectionSection.tsx', '人脸检测监控与配置', '人脸识别实时监控面板'],
-    ['PhoneDetectionSection.tsx', '手机识别检测监控与配置', '手机使用识别监控面板'],
-    ['DoorDetectionSection.tsx', '大门开关检测监控与配置', '大门状态异常监控面板'],
+    ['IntrusionDetectionSection.tsx', '区域入侵检测', '警戒区域实时监控面板'],
+    ['FaceDetectionSection.tsx', '人脸检测', '人脸识别实时监控面板'],
+    ['PhoneDetectionSection.tsx', '手机识别检测', '手机使用识别监控面板'],
+    ['DoorDetectionSection.tsx', '大门开关检测', '大门状态异常监控面板'],
   ]
   for (const [file, title, subtitle] of expected) {
     const source = await read(`src/sections/${file}`)
-    assert.match(source, new RegExp(title))
-    assert.match(source, new RegExp(subtitle))
+    assert.match(source, /DetectionPageHeader/)
+    assert.match(source, new RegExp(`title="${title}"`))
+    assert.match(source, new RegExp(`subtitle="${subtitle}"`))
     assert.match(source, /presentation="feature-dashboard"/)
     assert.match(source, /bg-\[#F3F5FA\]/)
-    assert.match(source, /rounded-full border border-slate-200\/70 bg-white p-1/)
+    assert.match(source, /DetectionConfigTabsList/)
     for (const binding of [
       'loadConfig', 'loadCameras', 'saveConfig', 'addCameraToFeature', 'removeCameraFromFeature',
       'FeatureCameraManager', 'AiVisionRoiEditor', 'AiVisionModelConfig', 'AlarmPushConfig',

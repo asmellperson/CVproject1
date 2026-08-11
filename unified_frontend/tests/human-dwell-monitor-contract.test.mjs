@@ -57,13 +57,14 @@ test('renders the approved dwell dashboard and cyan ROI overlay', () => {
 })
 
 test('preserves frame lifecycle and configuration behavior', () => {
-  assert.match(monitor, /presentation\?: 'default' \| 'logistics-single-person' \| 'human-dwell'/)
+  assert.match(monitor, /presentation\?: 'default' \| 'logistics-single-person' \| 'human-dwell' \| 'feature-dashboard'/)
   assert.match(monitor, /buildAiVisionPreviewFrameUrl\(selectedCamera, feature, Date\.now\(\)\)/)
   assert.match(monitor, /window\.setTimeout\(loadFrame, Math\.max\(0, FRAME_REFRESH_MS - elapsed\)\)/)
   assert.match(monitor, /scheduleFrameRequestAbort\(controller, FRAME_REQUEST_TIMEOUT_MS\)/)
   assert.match(monitor, /URL\.revokeObjectURL/)
   assert.match(monitor, /image\.naturalWidth/)
-  assert.match(page, /人员逗留监控与配置入口/)
+  assert.match(page, /DetectionPageHeader/)
+  assert.match(page, /title="人员逗留检测"/)
   assert.match(page, /区域逗留超时监控面板/)
   assert.match(page, /presentation="human-dwell"/)
   for (const binding of [

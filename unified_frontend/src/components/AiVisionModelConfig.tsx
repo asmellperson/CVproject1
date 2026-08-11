@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Box, RefreshCw, Save } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+} from '@/components/detection/DetectionConfigUi'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createAiVisionModel, getAiVisionModels, updateAiVisionModel, type AiVisionModel } from '@/lib/aivision'
@@ -117,20 +122,20 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
   }
 
   return (
-    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-      <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#fbf7ff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-none dark:bg-slate-900">
-        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white shadow-[0_12px_24px_rgba(124,58,237,0.22)]">
-            <Box className="h-5 w-5" />
-          </span>
-          模型配置
-        </CardTitle>
-        <Button variant="outline" className="gap-2" onClick={loadModels} disabled={loading || savingId !== null}>
-          <RefreshCw className="h-4 w-4" />
-          {loading ? '读取中' : '重新读取'}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-5 bg-[#fbf8ff] p-4 sm:p-5 dark:bg-slate-950/30">
+    <Card className={DETECTION_CONFIG_CARD_CLASS}>
+      <DetectionConfigCardHeader
+        icon={Box}
+        tone="violet"
+        title="模型配置"
+        description="查看模型加载状态并维护当前检测功能使用的模型路径。"
+        actions={(
+          <Button variant="outline" className="gap-2 rounded-xl" onClick={loadModels} disabled={loading || savingId !== null}>
+            <RefreshCw className="h-4 w-4" />
+            {loading ? '读取中' : '重新读取'}
+          </Button>
+        )}
+      />
+      <DetectionConfigCardContent className="space-y-5">
         {loadFailed ? (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             模型接口不可用。请确认 AiVision 后端已重启并加载最新接口。
@@ -142,7 +147,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
         ) : (
           <div className="space-y-4">
             {visibleModels.map(({ name, model }) => (
-              <div key={name} className="space-y-3 rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+              <div key={name} className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-medium text-slate-900">{name}</div>
@@ -159,6 +164,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
                         id={`model-path-${model.id}`}
                         value={paths[model.id] ?? ''}
                         onChange={(event) => setPaths((prev) => ({ ...prev, [model.id]: event.target.value }))}
+                        className="font-mono"
                         disabled={!isAdmin || loading || savingId !== null}
                       />
                     </div>
@@ -175,6 +181,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
                         id={`new-model-path-${name}`}
                         value={newPaths[name] ?? ''}
                         onChange={(event) => setNewPaths((prev) => ({ ...prev, [name]: event.target.value }))}
+                        className="font-mono"
                         placeholder="填写模型文件路径后创建"
                         disabled={!isAdmin || loading || creatingName !== null}
                       />
@@ -190,8 +197,8 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
           </div>
         )}
 
-        <div className="rounded-2xl border border-violet-100 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">{message}</div>
-      </CardContent>
+        <div className="rounded-xl border border-[#E8ECF5] bg-[#F5F7FA] px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">{message}</div>
+      </DetectionConfigCardContent>
     </Card>
   )
 }

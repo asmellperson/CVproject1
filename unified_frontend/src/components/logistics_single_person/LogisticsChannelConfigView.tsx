@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Camera, Plus, Power, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bell, Camera, Crosshair, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+  DetectionConfigTab,
+  DetectionConfigTabsList,
+  DetectionSaveBar,
+} from '@/components/detection/DetectionConfigUi'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 
 import {
@@ -402,43 +411,38 @@ export function LogisticsChannelConfigView({
     <div className="space-y-5">
       {!isAdmin ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
 
-      <div>
-        <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50">配置管理</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">管理物流通道、摄像头成员、逐路 ROI、检测参数与报警推送。</p>
-      </div>
-
       <Tabs defaultValue="channels" className="space-y-5">
-        <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-3 lg:grid-cols-5">
-          <TabsTrigger value="channels">通道管理</TabsTrigger>
-          <TabsTrigger value="members">摄像头成员</TabsTrigger>
-          <TabsTrigger value="roi">逐路 ROI</TabsTrigger>
-          <TabsTrigger value="params">参数配置</TabsTrigger>
-          <TabsTrigger value="alarm">报警推送</TabsTrigger>
-        </TabsList>
+        <DetectionConfigTabsList>
+          <DetectionConfigTab value="channels" icon={Layers3}>通道管理</DetectionConfigTab>
+          <DetectionConfigTab value="members" icon={Camera}>摄像头</DetectionConfigTab>
+          <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
+          <DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
+          <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
+        </DetectionConfigTabsList>
 
         <TabsContent value="channels" className="mt-0">
-          <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div className="space-y-1">
-                <CardTitle>通道管理</CardTitle>
-                <CardDescription>选择需要配置的物流通道，或新增、删除通道。</CardDescription>
-              </div>
-              {isAdmin ? (
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Layers3}
+              tone="blue"
+              title="通道管理"
+              description="选择需要配置的物流通道，或新增、删除通道。"
+              actions={isAdmin ? (
                 <Button onClick={() => dispatchCreateDialog({ type: 'open' })} disabled={busy}>
                   <Plus className="h-4 w-4" />添加通道
                 </Button>
               ) : null}
-            </CardHeader>
-            <CardContent>
+            />
+            <DetectionConfigCardContent>
               {channels.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">暂无物流通道</div>
               ) : (
-                <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+                <div className="space-y-2">
                   {channels.map((channel) => {
                     const selected = selectedChannelId === channel.id
                     const memberCount = channelMemberCounts[channel.id]
                     return (
-                      <div key={channel.id} className={`flex flex-col items-stretch gap-2 px-3 py-3 transition-colors sm:flex-row sm:items-center sm:gap-3 ${selected ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
+                      <div key={channel.id} className={`flex flex-col items-stretch gap-2 rounded-xl border px-3 py-3 transition-colors sm:flex-row sm:items-center sm:gap-3 ${selected ? 'border-blue-300 bg-blue-50/80 shadow-sm dark:border-blue-800 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
                         <Button variant="ghost" className="w-full min-w-0 justify-start px-2 sm:w-auto sm:flex-1" onClick={() => onSelectChannel(channel.id)}>
                           <span className="truncate font-semibold">{channel.name}</span>
                         </Button>
@@ -448,9 +452,12 @@ export function LogisticsChannelConfigView({
                           {selected ? <Badge variant="outline">当前通道</Badge> : null}
                           {isAdmin ? (
                             <>
-                              <Button size="sm" variant="outline" className="ml-auto gap-1.5 sm:ml-0" onClick={() => setChannelEnabled(channel, !channel.enabled)} disabled={busy}>
-                                <Power className="h-4 w-4" />{channel.enabled ? '停用通道' : '启用通道'}
-                              </Button>
+                              <Switch
+                                checked={channel.enabled}
+                                aria-label={channel.enabled ? '停用通道' : '启用通道'}
+                                onCheckedChange={(enabled) => setChannelEnabled(channel, enabled)}
+                                disabled={busy}
+                              />
                               <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
                                 <Trash2 className="h-4 w-4" />删除
                               </Button>
@@ -462,8 +469,8 @@ export function LogisticsChannelConfigView({
                   })}
                 </div>
               )}
-              <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{message}</p>
-            </CardContent>
+              <p className="mt-4 rounded-xl bg-[#F5F7FA] px-4 py-3 text-sm text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">{message}</p>
+            </DetectionConfigCardContent>
           </Card>
         </TabsContent>
 
@@ -473,34 +480,31 @@ export function LogisticsChannelConfigView({
           <>
 
             <TabsContent value="members" className="mt-0 space-y-5">
-              <Card>
-                <CardHeader><CardTitle className="flex items-center justify-between gap-3"><span>通道摄像头</span><Badge variant="outline">{members.length}/9 路 · 最多 9 路</Badge></CardTitle></CardHeader>
-                <CardContent className="space-y-3">
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={Camera} tone="blue" title="摄像头" description="管理当前通道中的摄像头、顺序与启用状态。" actions={<Badge variant="outline">{members.length}/9 路 · 最多 9 路</Badge>} />
+                <DetectionConfigCardContent className="space-y-3">
                   {members.length === 0 ? <p className="text-sm text-slate-500">当前通道没有摄像头，不会触发无人告警。</p> : members.map((member, index) => {
                     const camera = cameraById.get(member.camera_id)
                     return (
-                      <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-                        <Camera className="h-4 w-4 text-slate-400" />
-                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
+                      <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E8ECF5] bg-white p-3 transition hover:border-blue-200 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
+                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{camera?.name ?? `摄像头 #${member.camera_id}`}</p><p className="truncate font-mono text-xs text-slate-500">{camera?.shm_name ?? '正在读取摄像头信息'}</p></div>
                         <Badge variant={member.enabled ? 'default' : 'secondary'}>{member.enabled ? '已启用' : '已停用'}</Badge>
-                        <Button size="sm" variant="outline" onClick={() => setMemberEnabled(member.camera_id, !member.enabled)} disabled={!isAdmin || busy}>{member.enabled ? '停用' : '启用'}</Button>
+                        <Switch checked={member.enabled} aria-label={member.enabled ? '停用' : '启用'} onCheckedChange={(enabled) => setMemberEnabled(member.camera_id, enabled)} disabled={!isAdmin || busy} />
                         <Button size="sm" variant="outline" aria-label="上移" onClick={() => moveMember(member.camera_id, -1)} disabled={!isAdmin || busy || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
                         <Button size="sm" variant="outline" aria-label="下移" onClick={() => moveMember(member.camera_id, 1)} disabled={!isAdmin || busy || index === members.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
                         <Button size="sm" variant="outline" className="text-rose-600" onClick={() => removeMember(member.camera_id)} disabled={!isAdmin || busy}><Trash2 className="h-4 w-4" />移除</Button>
                       </div>
                     )
                   })}
-                </CardContent>
+                </DetectionConfigCardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">绑定摄像头</CardTitle>
-                  <CardDescription>选择已有摄像头，或新建摄像头并直接绑定至当前物流通道。</CardDescription>
-                </CardHeader>
-                <CardContent>
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={Plus} tone="blue" title="绑定摄像头" description="选择已有摄像头，或新建摄像头并直接绑定至当前物流通道。" />
+                <DetectionConfigCardContent>
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                    <div className="space-y-3 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
                       <div>
                         <h3 className="text-sm font-semibold">绑定已有摄像头</h3>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">从平台摄像头列表中选择并加入当前通道。</p>
@@ -510,10 +514,10 @@ export function LogisticsChannelConfigView({
                         <SelectTrigger id="logistics-existing-camera"><SelectValue placeholder={membershipsLoaded ? '选择已有摄像头' : '正在读取通道成员'} /></SelectTrigger>
                       <SelectContent showScrollButtons={false}>{existingCameraOptions.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}</SelectItem>)}</SelectContent>
                       </Select>
-                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="checkbox" checked={moveExisting} onChange={(event) => { setMoveExisting(event.target.checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
+                      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Switch checked={moveExisting} onCheckedChange={(checked) => { setMoveExisting(checked); setExistingCameraId('') }} disabled={!isAdmin || busy} />摄像头已属于本功能其他通道时，移动至当前通道</label>
                       <Button onClick={addExisting} disabled={!isAdmin || busy || !existingCameraId || members.length >= 9}>{moveExisting ? '移动至当前通道' : '绑定已有摄像头'}</Button>
                     </div>
-                    <div className="flex flex-col justify-between gap-4 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                    <div className="flex flex-col justify-between gap-4 rounded-xl border border-[#E8ECF5] bg-[#FAFBFE] p-4 dark:border-slate-800 dark:bg-slate-950/40">
                       <div>
                         <h3 className="text-sm font-semibold">新建摄像头并绑定</h3>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">填写摄像头名称、FPS 和 RTSP 地址后加入当前通道。</p>
@@ -527,22 +531,22 @@ export function LogisticsChannelConfigView({
                       </Button>
                     </div>
                   </div>
-                </CardContent>
+                </DetectionConfigCardContent>
               </Card>
             </TabsContent>
 
             <TabsContent value="roi" className="mt-0 space-y-5">
-              <Card>
-                <CardHeader><CardTitle className="text-base">逐路 ROI 摄像头</CardTitle></CardHeader>
-                <CardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></CardContent>
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={Camera} tone="blue" title="逐路 ROI 摄像头" description="选择通道摄像头后，直接在下方现有画布中绘制 ROI。" />
+                <DetectionConfigCardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></DetectionConfigCardContent>
               </Card>
               <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
             </TabsContent>
 
             <TabsContent value="params" className="mt-0 space-y-5">
-              <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5" />通道参数配置</CardTitle></CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前物流通道的检测时段、阈值和告警间隔。" />
+                <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
                   <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(config.detection_start)} onChange={(value) => setConfig({ ...config, detection_start: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(config.detection_end)} onChange={(value) => setConfig({ ...config, detection_end: value })} disabled={!isAdmin || busy} />
@@ -550,9 +554,9 @@ export function LogisticsChannelConfigView({
                   <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(config.empty_grace_seconds)} onChange={(value) => setConfig({ ...config, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(config.multi_grace_seconds)} onChange={(value) => setConfig({ ...config, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="告警间隔（秒）" id="logistics-alarm-interval" value={String(config.alarm_interval)} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4 dark:bg-slate-900 md:col-span-2"><p className="text-sm text-slate-600 dark:text-slate-300">{message}</p><Button onClick={saveChannel} disabled={!isAdmin || busy || !channelName.trim()}><Save className="h-4 w-4" />保存通道配置</Button></div>
-                </CardContent>
+                </DetectionConfigCardContent>
               </Card>
+              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveChannel} saveLabel="保存通道配置" />
             </TabsContent>
 
             <TabsContent value="alarm" className="mt-0 space-y-5">

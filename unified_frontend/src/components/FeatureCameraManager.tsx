@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+} from '@/components/detection/DetectionConfigUi'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   createAiVisionFeatureCamera,
@@ -136,22 +141,20 @@ export function FeatureCameraManager({
   }
 
   return (
-    <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-none dark:bg-slate-900">
-        <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_12px_24px_rgba(0,27,67,0.22)] dark:bg-blue-600">
-            <Camera className="h-5 w-5" />
-          </span>
-          摄像头管理
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 bg-[#f8fbff] p-4 sm:p-5 dark:bg-slate-950/30">
-        <div className="space-y-3 rounded-2xl border border-emerald-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+    <Card className={DETECTION_CONFIG_CARD_CLASS}>
+      <DetectionConfigCardHeader
+        icon={Camera}
+        tone="blue"
+        title="摄像头"
+        description="管理当前检测功能绑定的摄像头，并保持平台汇总与配置页面同步。"
+      />
+      <DetectionConfigCardContent className="space-y-4">
+        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前功能摄像头</div>
             <div className="mt-1 text-xs font-medium text-slate-500">这里的摄像头会运行当前检测功能，并用于预览、ROI 和告警配置。</div>
           </div>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/80">
+          <div className="overflow-hidden rounded-xl border border-[#E2E7F2] bg-white dark:border-slate-800 dark:bg-slate-900/80">
             {enabledCameras.length === 0 ? (
               <div className="px-4 py-5 text-sm text-slate-500">当前功能还没有加入摄像头。</div>
             ) : (
@@ -160,7 +163,7 @@ export function FeatureCameraManager({
                 return (
                   <div
                     key={camera.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition hover:bg-emerald-50/60 last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                    className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60 ${active ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-100 dark:bg-blue-950/30 dark:ring-blue-900' : 'hover:bg-slate-50'}`}
                   >
                     <button
                       type="button"
@@ -169,7 +172,7 @@ export function FeatureCameraManager({
                       disabled={disabled}
                     >
                       <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
-                      <div className="text-xs text-slate-500">{active ? '当前正在编辑' : '点击切换配置'}</div>
+                      <div className="mt-1 text-xs text-slate-500">{active ? <span className="rounded-md bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">当前正在编辑</span> : '点击切换配置'}</div>
                     </button>
                     <Button
                       variant="outline"
@@ -188,7 +191,7 @@ export function FeatureCameraManager({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从已有摄像头加入当前功能</div>
             <div className="mt-1 text-xs font-medium text-slate-500">选择平台汇总里维护的摄像头，并加入当前检测功能。</div>
@@ -221,7 +224,7 @@ export function FeatureCameraManager({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-cyan-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新建摄像头并加入当前功能</div>
             <div className="mt-1 text-xs font-medium text-slate-500">直接新建摄像头，并在保存后启用当前检测功能。</div>
@@ -236,7 +239,7 @@ export function FeatureCameraManager({
           </Button>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制当前功能配置</div>
             <div className="mt-1 text-xs font-medium text-slate-500">将一个摄像头的当前功能参数、ROI 和告警配置复制到另一个摄像头。</div>
@@ -287,7 +290,7 @@ export function FeatureCameraManager({
           </div>
           {copyError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{copyError}</div> : null}
         </div>
-      </CardContent>
+      </DetectionConfigCardContent>
       {createDialogOpen ? (
         <LogisticsCameraCreateDialog
           title="新建摄像头并加入当前功能"

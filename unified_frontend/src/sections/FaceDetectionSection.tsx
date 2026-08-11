@@ -1,18 +1,19 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Bell, Box, Camera, MousePointer2, RefreshCw, Save, ScanFace, SlidersHorizontal, Waypoints } from 'lucide-react'
+import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { AiVisionFeatureRuntimeControl } from '@/components/AiVisionFeatureRuntimeControl'
+import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
+import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
@@ -322,25 +323,12 @@ export function FaceDetectionSection() {
   return (
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100 sm:text-[28px]">人脸检测监控与配置</h1>
-            <p className="mt-1 text-sm text-slate-500 sm:text-base">人脸识别实时监控面板</p>
-          </div>
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end xl:flex-row xl:items-center">
-            <AiVisionFeatureRuntimeControl feature="detect_face" isAdmin={isAdmin} />
-            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
-              <TabsTrigger value="monitor" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
-                <ScanFace className="h-4 w-4" />
-                实时监控
-              </TabsTrigger>
-              <TabsTrigger value="config" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
-                <Waypoints className="h-4 w-4" />
-                配置管理
-              </TabsTrigger>
-            </TabsList>
-          </div>
-        </div>
+        <DetectionPageHeader
+          title="人脸检测"
+          subtitle="人脸识别实时监控面板"
+          departmentLabel="人工智能研究院"
+          runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_face" isAdmin={isAdmin} />}
+        />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
           <AiVisionMonitor title="人脸检测监控" feature="detect_face" presentation="feature-dashboard" />
@@ -348,28 +336,13 @@ export function FaceDetectionSection() {
 
         <TabsContent value="config" className="mt-0 space-y-6">
           <Tabs defaultValue="camera" className="space-y-6">
-            <TabsList className="grid h-auto w-full max-w-4xl grid-cols-2 p-1 sm:grid-cols-3 lg:grid-cols-5">
-              <TabsTrigger value="camera" className="gap-2 py-2">
-                <Camera className="h-4 w-4" />
-                摄像头管理
-              </TabsTrigger>
-              <TabsTrigger value="params" className="gap-2 py-2">
-                <SlidersHorizontal className="h-4 w-4" />
-                参数配置
-              </TabsTrigger>
-              <TabsTrigger value="roi" className="gap-2 py-2">
-                <MousePointer2 className="h-4 w-4" />
-                ROI绘制
-              </TabsTrigger>
-              <TabsTrigger value="model" className="gap-2 py-2">
-                <Box className="h-4 w-4" />
-                模型配置
-              </TabsTrigger>
-              <TabsTrigger value="alarm" className="gap-2 py-2">
-                <Bell className="h-4 w-4" />
-                报警推送
-              </TabsTrigger>
-            </TabsList>
+            <DetectionConfigTabsList>
+              <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
+              <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
+              <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
+              <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
+              <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
+            </DetectionConfigTabsList>
 
             <TabsContent value="camera" className="space-y-6">
               <FeatureCameraManager
@@ -407,19 +380,9 @@ export function FaceDetectionSection() {
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
-              <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-              <CardHeader className="flex flex-col items-start justify-between gap-4 border-b border-slate-100 bg-[linear-gradient(180deg,#faf5ff_0%,#ffffff_100%)] sm:flex-row sm:items-center dark:border-slate-800 dark:bg-none dark:bg-slate-900">
-                <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white shadow-[0_12px_24px_rgba(124,58,237,0.22)]">
-                    <SlidersHorizontal className="h-5 w-5" />
-                  </span>
-                  配置表单
-                </CardTitle>
-                <Badge variant="outline" className="border-slate-300 text-slate-600">
-                  AiVision detect_face
-                </Badge>
-              </CardHeader>
-              <CardContent className="space-y-5 bg-[#fcf8ff] p-4 sm:p-5 dark:bg-slate-950/30">
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的人脸识别阈值与区域参数。" actions={<Badge variant="outline">AiVision detect_face</Badge>} />
+              <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
@@ -492,21 +455,9 @@ export function FaceDetectionSection() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-                  <div className="text-sm text-slate-600">{message}</div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" className="gap-2" onClick={() => loadConfig()} disabled={loading || saving || !form.cameraName}>
-                      <RefreshCw className="h-4 w-4" />
-                      {loading ? '读取中' : '重新读取'}
-                    </Button>
-                    <Button className="gap-2" onClick={saveConfig} disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}>
-                      <Save className="h-4 w-4" />
-                      {saving ? '保存中' : '保存配置'}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
+              </DetectionConfigCardContent>
               </Card>
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || cameraAction || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">

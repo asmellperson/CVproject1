@@ -13,7 +13,6 @@ import {
   Coffee,
   Gauge,
   Pause,
-  Play,
   Radio,
   RefreshCw,
   ShieldCheck,
@@ -25,10 +24,7 @@ import {
 import {
   getGuardRoomSiteStatus,
   guardRoomSiteFrameUrl,
-  startGuardRoomSiteRuntime,
-  stopGuardRoomSiteRuntime,
 } from '@/lib/api'
-import { useAuth } from '@/auth/useAuth'
 import type { BackendStatus, GuardRoomSite } from '@/types'
 import { cn } from '@/lib/utils'
 import {
@@ -67,15 +63,12 @@ type MonitorSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   onSelectSite: (siteId: number) => void
-  onRuntimeChanged?: () => void | Promise<void>
   department?: string
 }
 
-export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, onRuntimeChanged, department }: MonitorSectionProps) {
-  const { isAdmin } = useAuth()
+export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, department }: MonitorSectionProps) {
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
   const [imgKey, setImgKey] = useState(0)
   const [frameSrc, setFrameSrc] = useState('')
   const objectUrlRef = useRef<string | null>(null)
@@ -175,23 +168,6 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
       revokeFrameUrl()
     }
   }, [department, imgKey, revokeFrameUrl, site])
-
-  const handleStartStop = async () => {
-    if (!isAdmin || !site) return
-    setBusy(true)
-    try {
-      if (status?.running) {
-        await stopGuardRoomSiteRuntime(site.id)
-      } else {
-        await startGuardRoomSiteRuntime(site.id)
-      }
-      setStatus(await getGuardRoomSiteStatus(site.id, department))
-      await onRuntimeChanged?.()
-      setImgKey((value) => value + 1)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const handleRefresh = async () => {
     if (!site) return
@@ -294,36 +270,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
               </div>
             </CardHeader>
             <CardContent className="px-5 pb-5">
-              <div className="grid grid-cols-2 gap-2.5">
-                <Button
-                  type="button"
-                  onClick={handleStartStop}
-                  disabled={!isAdmin || busy || !site || Boolean(status?.running)}
-                  className={cn(
-                    'gap-2 rounded-xl border shadow-sm',
-                    status?.running
-                      ? 'border-emerald-500 bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-500'
-                      : 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100',
-                  )}
-                >
-                  <Play className="h-4 w-4" />
-                  {busy && !status?.running ? '处理中' : '检测开启'}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleStartStop}
-                  disabled={!isAdmin || busy || !site || !status?.running}
-                  className={cn(
-                    'gap-2 rounded-xl border shadow-sm',
-                    !status?.running
-                      ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
-                      : 'border-rose-500 bg-rose-500 text-white shadow-rose-200 hover:bg-rose-600',
-                  )}
-                >
-                  <Pause className="h-4 w-4" />
-                  {busy && status?.running ? '处理中' : '关闭功能'}
-                </Button>
-              </div>
+              <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">开启和关闭操作已统一移至页面头部，当前卡片仅显示并刷新运行状态。</p>
               <Button
                 type="button"
                 variant="outline"
@@ -463,7 +410,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
                     <div className="text-center text-white">
                       <Pause className="mx-auto h-11 w-11" />
                       <p className="mt-3 text-lg font-semibold">检测功能已关闭</p>
-                      <p className="mt-1 text-sm text-white/70">点击左侧『检测开启』恢复行为分析</p>
+                      <p className="mt-1 text-sm text-white/70">点击页面上方『开启检测』恢复行为分析</p>
                     </div>
                   </div>
                 )}

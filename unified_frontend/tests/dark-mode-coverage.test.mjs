@@ -57,35 +57,38 @@ test('every detection surface has dark page styling', async () => {
 })
 
 test('detection page titles remain readable on dark surfaces', async () => {
+  const header = await read('src/components/detection/DetectionPageHeader.tsx')
+  assert.match(header, /<h1[^>]*dark:text-slate-100/)
   for (const [file, title] of [
-    ['HumanDetectionSection.tsx', '人员逗留监控与配置入口'],
-    ['IntrusionDetectionSection.tsx', '区域入侵检测监控与配置'],
-    ['FaceDetectionSection.tsx', '人脸检测监控与配置'],
-    ['PhoneDetectionSection.tsx', '手机识别检测监控与配置'],
-    ['DoorDetectionSection.tsx', '大门开关检测监控与配置'],
+    ['HumanDetectionSection.tsx', '人员逗留检测'],
+    ['IntrusionDetectionSection.tsx', '区域入侵检测'],
+    ['FaceDetectionSection.tsx', '人脸检测'],
+    ['PhoneDetectionSection.tsx', '手机识别检测'],
+    ['DoorDetectionSection.tsx', '大门开关检测'],
   ]) {
     const source = await read(`src/sections/${file}`)
-    const heading = source.match(new RegExp(`<h1 className="([^"]*)">${title}</h1>`))
-    assert.ok(heading, `${file} should render its page title as an h1`)
-    assert.match(heading[1], /dark:text-slate-100/, `${file} should give its page title a dark-mode color`)
+    assert.match(source, /DetectionPageHeader/)
+    assert.match(source, new RegExp(`title="${title}"`))
   }
 })
 
 test('guard detection rules heading keeps contrast in dark mode', async () => {
-  const source = await read('src/sections/ConfigSection.tsx')
-  const ruleHeader = [...source.matchAll(/<CardHeader className="([^"]*)">([\s\S]*?)<\/CardHeader>/g)]
-    .find(([, , body]) => body.includes('检测规则配置'))
-  assert.ok(ruleHeader, 'guard detection rules should render a card heading')
-  const title = ruleHeader[2].match(
-    /<CardTitle className="([^"]*)">[\s\S]*?检测规则配置[\s\S]*?<\/CardTitle>/,
-  )
-  assert.ok(title, 'guard detection rules should render its title inside the card heading')
-  assert.match(ruleHeader[1], /dark:from-slate-900/)
-  assert.match(ruleHeader[1], /dark:to-slate-900/)
-  assert.match(title[1], /dark:text-slate-100/)
+  const [source, shared] = await Promise.all([
+    read('src/sections/ConfigSection.tsx'),
+    read('src/components/detection/DetectionConfigUi.tsx'),
+  ])
+  assert.match(source, /title="检测参数"/)
+  assert.match(source, /tone="emerald"/)
+  assert.match(shared, /dark:from-slate-900/)
+  assert.match(shared, /dark:to-slate-900/)
+  assert.match(shared, /dark:text-slate-100/)
 })
 
 test('detection configuration headings remove light gradients in dark mode', async () => {
+  const shared = await read('src/components/detection/DetectionConfigUi.tsx')
+  assert.match(shared, /dark:from-slate-900/)
+  assert.match(shared, /dark:to-slate-900/)
+  assert.match(shared, /dark:bg-slate-900/)
   for (const path of [
     'src/sections/HumanDetectionSection.tsx',
     'src/sections/IntrusionDetectionSection.tsx',
@@ -98,12 +101,7 @@ test('detection configuration headings remove light gradients in dark mode', asy
     'src/components/AlarmPushConfig.tsx',
   ]) {
     const source = await read(path)
-    const gradientHeaders = [...source.matchAll(/<CardHeader className="([^"]*bg-\[linear-gradient[^"]*)"/g)]
-    assert.ok(gradientHeaders.length > 0, `${path} should contain a configuration heading with a light gradient`)
-    for (const [, classes] of gradientHeaders) {
-      assert.match(classes, /dark:bg-none/, `${path} should remove the fixed light gradient in dark mode`)
-      assert.match(classes, /dark:bg-slate-900/, `${path} should use a dark heading surface`)
-    }
+    assert.match(source, /DetectionConfigCardHeader/, `${path} should use the shared configuration heading`)
   }
 })
 
@@ -141,9 +139,10 @@ test('remaining routed pages and shared configuration surfaces support dark mode
 
 test('fixed navy labels and ranking bars remain visible on dark surfaces', async () => {
   const config = await read('src/sections/ConfigSection.tsx')
+  const shared = await read('src/components/detection/DetectionConfigUi.tsx')
   const statistics = await read('src/sections/StatisticsSection.tsx')
-  assert.match(config, /text-\[#10264d\] dark:text-slate-100/)
   assert.match(config, /text-\[#1a2e55\] dark:text-slate-100/)
+  assert.match(shared, /text-\[#0B1226\] dark:text-slate-100/)
   assert.match(statistics, /bg-slate-900 dark:bg-blue-500/)
 })
 

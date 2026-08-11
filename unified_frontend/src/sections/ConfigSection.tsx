@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -7,11 +7,19 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Save, RotateCcw, Video, Shield, Box, CheckCircle2, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car, MousePointer2 } from 'lucide-react'
+import { Video, Shield, Box, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car, MousePointer2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import {
+  DETECTION_CONFIG_CARD_CLASS,
+  DetectionConfigCardContent,
+  DetectionConfigCardHeader,
+  DetectionConfigTab,
+  DetectionConfigTabsList,
+  DetectionSaveBar,
+} from '@/components/detection/DetectionConfigUi'
 import { GuardRoomVehicleRoiEditor } from '@/components/guard_room/GuardRoomVehicleRoiEditor'
 import { formatVehicleRoiText, parseVehicleRoiText } from '@/components/guard_room/vehicleRoiGeometry'
 import {
@@ -470,88 +478,35 @@ async function waitUntilRunning(timeoutMs: number) {
 
   return (
     <div className="space-y-6 text-slate-950 dark:text-slate-100">
-      {/* 顶部标题栏 */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">配置管理</h2>
-          <p className="text-slate-500">系统参数和规则配置</p>
-        </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
-          {saved && (
-            <Badge className="bg-green-500 gap-1">
-              <CheckCircle2 className="w-4 h-4" />
-              已保存并生效
-            </Badge>
-          )}
-          {savePhase && (
-            <Badge className="bg-blue-500 gap-1 animate-pulse">
-              {savePhase}
-            </Badge>
-          )}
-          {saveError && (
-            <Badge variant="destructive" className="gap-1 max-w-xs truncate" title={saveError}>
-              {saveError}
-            </Badge>
-          )}
-          {activeTab !== 'sites' && site ? (
-            <>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => loadConfig().catch(() => undefined)}
-                disabled={saving}
-              >
-                <RotateCcw className="w-4 h-4" />
-                重载配置
-              </Button>
-              <Button
-                className="gap-2"
-                onClick={() => handleSave()}
-                disabled={!isAdmin || saving}
-              >
-                <Save className="w-4 h-4" />
-                {saving ? '处理中...' : '保存配置'}
-              </Button>
-            </>
-          ) : null}
-        </div>
-      </div>
-
       {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-3xl grid-cols-2 p-1 sm:grid-cols-5">
-          <TabsTrigger value="sites" className="gap-2">
-            <Building2 className="w-4 h-4" />
+        <DetectionConfigTabsList>
+          <DetectionConfigTab value="sites" icon={Building2}>
             保安室管理
-          </TabsTrigger>
-          <TabsTrigger value="video" className="gap-2" disabled={!site}>
-            <Video className="w-4 h-4" />
-            视频源
-          </TabsTrigger>
-          <TabsTrigger value="rules" className="gap-2" disabled={!site}>
-            <Shield className="w-4 h-4" />
-            检测规则
-          </TabsTrigger>
-          <TabsTrigger value="model" className="gap-2" disabled={!site}>
-            <Box className="w-4 h-4" />
+          </DetectionConfigTab>
+          <DetectionConfigTab value="video" icon={Video} disabled={!site}>
+            摄像头
+          </DetectionConfigTab>
+          <DetectionConfigTab value="rules" icon={Shield} disabled={!site}>
+            检测参数
+          </DetectionConfigTab>
+          <DetectionConfigTab value="model" icon={Box} disabled={!site}>
             模型配置
-          </TabsTrigger>
-          <TabsTrigger value="wechat" className="gap-2" disabled={!site}>
-            <Bell className="w-4 h-4" />
+          </DetectionConfigTab>
+          <DetectionConfigTab value="wechat" icon={Bell} disabled={!site}>
             报警推送
-          </TabsTrigger>
-        </TabsList>
+          </DetectionConfigTab>
+        </DetectionConfigTabsList>
 
         <TabsContent value="sites" className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900">
-              <CardTitle className="flex items-center gap-2 text-[#10264d] dark:text-slate-100">
-                <Building2 className="w-5 h-5 text-blue-600" />
-                保安室管理
-              </CardTitle>
-              <CardDescription>维护保安行为规范检测的保安室，并选择要配置的对象。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 bg-[#f8fbff] p-4 dark:bg-slate-950/50 sm:p-5 lg:p-6">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Building2}
+              tone="blue"
+              title="保安室管理"
+              description="维护保安行为规范检测的保安室，并选择要配置的对象。"
+            />
+            <DetectionConfigCardContent className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <Input
                   value={siteName}
@@ -603,7 +558,7 @@ async function waitUntilRunning(timeoutMs: number) {
                   ))
                 )}
               </div>
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
         </TabsContent>
 
@@ -616,15 +571,14 @@ async function waitUntilRunning(timeoutMs: number) {
           ) : loading ? (
             <div className="text-slate-500">正在加载配置...</div>
           ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Video className="w-5 h-5 text-blue-600" />
-                视频源配置
-              </CardTitle>
-              <CardDescription>配置多路摄像头视频输入源、抽帧、编码与输出参数</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Video}
+              tone="blue"
+              title="摄像头"
+              description="配置多路摄像头视频输入源、抽帧、编码与输出参数"
+            />
+            <DetectionConfigCardContent className="space-y-6">
               <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -777,22 +731,21 @@ async function waitUntilRunning(timeoutMs: number) {
                 checked={config.runtime.show_window}
                 onChange={(checked) => setRuntime({ show_window: checked })}
               />
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
           )}
         </TabsContent>
 
         {/* ==================== 检测规则 ==================== */}
         <TabsContent value="rules" className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900">
-              <CardTitle className="flex items-center gap-2 text-[#10264d] dark:text-slate-100">
-                <Shield className="w-5 h-5 text-green-600" />
-                检测规则配置
-              </CardTitle>
-              <CardDescription>配置离岗、玩手机、趴睡等行为检测的阈值参数</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 bg-[#f8fbff] p-4 sm:p-5 lg:p-6">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Shield}
+              tone="emerald"
+              title="检测参数"
+              description="配置离岗、玩手机、趴睡等行为检测的阈值参数"
+            />
+            <DetectionConfigCardContent className="space-y-5 bg-[#F8FAFE] dark:bg-slate-950/40">
               {/* 离岗相关 */}
               <RuleGroup title="离岗检测" icon={UserRound} tone="green">
                 <SliderRow
@@ -1124,22 +1077,21 @@ async function waitUntilRunning(timeoutMs: number) {
                   tone="amber"
                 />
               </RuleGroup>
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
         </TabsContent>
 
 
         {/* ==================== 模型配置 ==================== */}
         <TabsContent value="model" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Box className="w-5 h-5 text-purple-600" />
-                模型配置
-              </CardTitle>
-              <CardDescription>配置检测模型、制服分类模型、类别映射和运行时参数</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Box}
+              tone="violet"
+              title="模型配置"
+              description="配置检测模型、制服分类模型、类别映射和运行时参数"
+            />
+            <DetectionConfigCardContent className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <Field label="检测模型">
                 <Input value={config.models.detector_model} onChange={(e) => setModels({ detector_model: e.target.value })} />
               </Field>
@@ -1203,21 +1155,20 @@ async function waitUntilRunning(timeoutMs: number) {
                   <Input type="number" value={config.runtime.max_alarm_history} onChange={(e) => setRuntime({ max_alarm_history: Number(e.target.value) })} />
                 </Field>
               </div>
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
         </TabsContent>
 
         {/* ==================== 报警推送 ==================== */}
         <TabsContent value="wechat" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="w-5 h-5 text-orange-600" />
-                企业微信报警推送
-              </CardTitle>
-              <CardDescription>配置企业微信应用消息推送，报警时自动发送视频到指定用户</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <Card className={DETECTION_CONFIG_CARD_CLASS}>
+            <DetectionConfigCardHeader
+              icon={Bell}
+              tone="amber"
+              title="企业微信报警推送"
+              description="配置企业微信应用消息推送，报警时自动发送视频到指定用户"
+            />
+            <DetectionConfigCardContent className="space-y-6">
               <SwitchRow
                 id="wechat_enable"
                 label="启用企业微信推送"
@@ -1279,10 +1230,27 @@ async function waitUntilRunning(timeoutMs: number) {
                   </p>
                 </div>
               )}
-            </CardContent>
+            </DetectionConfigCardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {activeTab !== 'sites' && site ? (
+        <DetectionSaveBar
+          message={saveError
+            ? `保存失败：${saveError}`
+            : savePhase
+              ? savePhase
+              : saved
+                ? '保存成功：配置已生效'
+                : <>读取成功：已加载 <strong>{site.name}</strong> 的保安行为规范配置</>}
+          loading={loading}
+          saving={saving}
+          disabled={!isAdmin}
+          onReload={() => void loadConfig().catch(() => undefined)}
+          onSave={() => void handleSave()}
+        />
+      ) : null}
     </div>
   )
 }
