@@ -194,6 +194,15 @@ def _env_url(name: str, default: str) -> str:
     return os.getenv(name, default).rstrip("/")
 
 
+def _visual_service_url(aivision_url: str, service: str) -> str:
+    if service not in {"guard-room", "security-vlm"}:
+        raise ValueError(f"unknown visual service: {service}")
+    return (
+        f"{aivision_url.rstrip('/')}"
+        f"/api/v2/integrations/{service}"
+    )
+
+
 def _normalize_department(value: object) -> str:
     department = str(value or "").strip()
     if not department:
@@ -888,9 +897,9 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
 
 
 def create_app() -> FastAPI:
-    guard_room_url = _env_url("UNIFIED_GUARD_ROOM_URL", "http://127.0.0.1:5001")
     aivision_url = _env_url("UNIFIED_AIVISION_URL", "http://127.0.0.1:7862")
-    security_vlm_url = _env_url("UNIFIED_SECURITY_VLM_URL", "http://127.0.0.1:8000")
+    guard_room_url = _visual_service_url(aivision_url, "guard-room")
+    security_vlm_url = _visual_service_url(aivision_url, "security-vlm")
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
 
@@ -966,7 +975,11 @@ def create_app() -> FastAPI:
     def platform_status(request: Request):
         now = _now()
 
-        guard_health_ok, _guard_health, guard_latency, guard_health_error = _get_json(guard_room_url, "/api/health")
+        guard_health_ok, _guard_health, guard_latency, guard_health_error = _get_json(
+            guard_room_url,
+            "/api/health",
+            request=request,
+        )
         _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = _get_json(guard_room_url, "/api/status", request=request)
         guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = _get_json(guard_room_url, "/api/sites", request=request)
         guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
@@ -1012,7 +1025,11 @@ def create_app() -> FastAPI:
         ai_enabled_camera_count = sum(1 for camera in ai_camera_items if camera.get("enabled") and _camera_functions_enabled(camera))
         ai_feature_status = _aivision_feature_status(ai_camera_items, ai_running_cameras)
 
-        vlm_ok, vlm_health, vlm_latency, vlm_error = _get_json(security_vlm_url, "/health")
+        vlm_ok, vlm_health, vlm_latency, vlm_error = _get_json(
+            security_vlm_url,
+            "/health",
+            request=request,
+        )
         vlm_running = bool(vlm_health.get("running")) if isinstance(vlm_health, dict) else False
         vlm_capture = vlm_health.get("capture", {}) if isinstance(vlm_health, dict) else {}
         vlm_detector = vlm_health.get("detector", {}) if isinstance(vlm_health, dict) else {}

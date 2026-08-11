@@ -12,7 +12,19 @@ from unified_backend.app import (
     _normalize_guard_alarm,
     _normalize_security_vlm_alarm,
     _security_vlm_departments_for_user,
+    _visual_service_url,
 )
+
+
+def test_visual_workers_are_routed_through_aivision_control_plane():
+    aivision_url = "http://127.0.0.1:7862/"
+
+    assert _visual_service_url(aivision_url, "guard-room") == (
+        "http://127.0.0.1:7862/api/v2/integrations/guard-room"
+    )
+    assert _visual_service_url(aivision_url, "security-vlm") == (
+        "http://127.0.0.1:7862/api/v2/integrations/security-vlm"
+    )
 
 
 def test_security_vlm_viewer_can_read_but_cannot_mutate():

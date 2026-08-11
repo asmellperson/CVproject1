@@ -29,8 +29,21 @@ test('renders the approved heading, segmented tabs, and dashboard grid', () => {
   assert.match(monitor, /ResizableMonitorLayout id=\{`guard-room-\$\{department \|\| 'general-electric'\}`\}/)
   assert.match(monitor, /lg:col-span-2/)
   assert.match(monitor, /监控对象/)
-  assert.match(monitor, /检测控制/)
+  assert.doesNotMatch(monitor, /检测控制/)
   assert.match(monitor, /实时检测项/)
+})
+
+test('places refresh status directly below the guard-room selector', () => {
+  const monitorTarget = monitor.indexOf('监控对象')
+  const siteSelector = monitor.indexOf('guard-room-monitor-site', monitorTarget)
+  const refreshStatus = monitor.indexOf('刷新状态', siteSelector)
+  const realtimeItems = monitor.indexOf('实时检测项', refreshStatus)
+
+  assert.ok(monitorTarget >= 0)
+  assert.ok(monitorTarget < siteSelector)
+  assert.ok(siteSelector < refreshStatus)
+  assert.ok(refreshStatus < realtimeItems)
+  assert.doesNotMatch(monitor, /当前卡片仅显示并刷新运行状态/)
 })
 
 test('keeps existing status fields bound to the refreshed UI', () => {

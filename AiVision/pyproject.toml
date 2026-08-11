@@ -5,6 +5,7 @@ description = "Refactored AiVision backend with features-first architecture and 
 requires-python = ">=3.10,<3.12"
 dependencies = [
     "fastapi>=0.110,<1.0",
+    "httpx>=0.27,<1.0",
     "uvicorn[standard]>=0.27,<1.0",
     "pydantic>=2.6,<3.0",
     "pydantic-settings>=2.2,<3.0",
@@ -24,7 +25,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0,<9.0",
-    "httpx>=0.27,<1.0",
     "ruff>=0.5,<1.0",
 ]
 

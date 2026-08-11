@@ -8,6 +8,7 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
+import unified_backend.app as app_module
 from unified_backend.app import _proxy
 from unified_backend.proxy import (
     AsyncProxyClient,
@@ -259,3 +260,40 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
 
     monkeypatch.setattr("unified_backend.app.requests.request", reject_sync_request)
     asyncio.run(scenario())
+
+
+def test_visual_routes_target_aivision_control_plane(monkeypatch, tmp_path):
+    calls = []
+
+    async def fake_proxy(request, base_url, upstream_path):
+        calls.append((request, base_url, upstream_path))
+        return {"ok": True}
+
+    monkeypatch.setenv("UNIFIED_AIVISION_URL", "http://aivision:7862/")
+    monkeypatch.setenv("UNIFIED_BACKEND_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(app_module, "_proxy", fake_proxy)
+    app = app_module.create_app()
+    routes = {route.name: route for route in app.routes}
+    request = object()
+
+    async def scenario():
+        await routes["proxy_guard_room_api"].endpoint("sites", request)
+        await routes["proxy_security_vlm"].endpoint(
+            "api/departments/general_electric/history",
+            request,
+        )
+
+    asyncio.run(scenario())
+
+    assert calls == [
+        (
+            request,
+            "http://aivision:7862/api/v2/integrations/guard-room",
+            "/api/sites",
+        ),
+        (
+            request,
+            "http://aivision:7862/api/v2/integrations/security-vlm",
+            "/api/departments/general_electric/history",
+        ),
+    ]

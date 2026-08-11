@@ -10,7 +10,9 @@ core/settings.py
     settings.alarm.horn_enable
 """
 from __future__ import annotations
+
 from functools import lru_cache
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -119,6 +121,51 @@ class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+class VisualWorkerSettings(BaseSettings):
+    """Guard Room 与 Security VLM 执行进程的内部连接配置。"""
+
+    guard_room_url: str = Field(
+        "http://127.0.0.1:5001",
+        alias="GUARD_ROOM_WORKER_URL",
+    )
+    security_vlm_url: str = Field(
+        "http://127.0.0.1:8000",
+        alias="SECURITY_VLM_WORKER_URL",
+    )
+    max_connections: int = Field(
+        512,
+        ge=1,
+        alias="VISUAL_WORKER_PROXY_MAX_CONNECTIONS",
+    )
+    max_keepalive_connections: int = Field(
+        128,
+        ge=1,
+        alias="VISUAL_WORKER_PROXY_MAX_KEEPALIVE_CONNECTIONS",
+    )
+    connect_timeout_seconds: float = Field(
+        3.0,
+        gt=0,
+        alias="VISUAL_WORKER_PROXY_CONNECT_TIMEOUT_SECONDS",
+    )
+    pool_timeout_seconds: float = Field(
+        2.0,
+        gt=0,
+        alias="VISUAL_WORKER_PROXY_POOL_TIMEOUT_SECONDS",
+    )
+    write_timeout_seconds: float = Field(
+        10.0,
+        gt=0,
+        alias="VISUAL_WORKER_PROXY_WRITE_TIMEOUT_SECONDS",
+    )
+    read_timeout_seconds: float = Field(
+        10.0,
+        gt=0,
+        alias="VISUAL_WORKER_PROXY_READ_TIMEOUT_SECONDS",
+    )
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
 class ModelPathSettings(BaseSettings):
     """
     本机模型路径配置。
@@ -146,6 +193,7 @@ class Settings:
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
         self.runtime = RuntimeSettings()
+        self.visual_workers = VisualWorkerSettings()
         self.model_paths = ModelPathSettings()
 
 

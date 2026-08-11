@@ -6,7 +6,6 @@ import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  Activity,
   AlertTriangle,
   Camera,
   Car,
@@ -233,48 +232,31 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
                 监控对象
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 px-5 pb-5">
-              <Label htmlFor="guard-room-monitor-site" className="text-xs text-slate-500">保安室名称</Label>
-              <Select
-                value={selectedSiteId ? String(selectedSiteId) : ''}
-                onValueChange={(value) => onSelectSite(Number(value))}
-                disabled={loadingSites || sites.length === 0}
-              >
-                <SelectTrigger
-                  id="guard-room-monitor-site"
-                  className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200"
+            <CardContent className="space-y-3 px-5 pb-5">
+              <div className="space-y-2">
+                <Label htmlFor="guard-room-monitor-site" className="text-xs text-slate-500">保安室名称</Label>
+                <Select
+                  value={selectedSiteId ? String(selectedSiteId) : ''}
+                  onValueChange={(value) => onSelectSite(Number(value))}
+                  disabled={loadingSites || sites.length === 0}
                 >
-                  <SelectValue placeholder={loadingSites ? '正在读取保安室' : '选择保安室'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {sites.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-
-          <Card className={CARD_CLASS}>
-            <CardHeader className="p-5 pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300">
-                    <Activity className="h-4 w-4" />
-                  </span>
-                  检测控制
-                </CardTitle>
-                <Badge className={cn('border-0 shadow-none', status?.running ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500')}>
-                  {status?.running ? '运行中' : '已关闭'}
-                </Badge>
+                  <SelectTrigger
+                    id="guard-room-monitor-site"
+                    className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200"
+                  >
+                    <SelectValue placeholder={loadingSites ? '正在读取保安室' : '选择保安室'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sites.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </CardHeader>
-            <CardContent className="px-5 pb-5">
-              <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">开启和关闭操作已统一移至页面头部，当前卡片仅显示并刷新运行状态。</p>
               <Button
                 type="button"
                 variant="outline"
-                className="mt-3 w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                 onClick={handleRefresh}
                 disabled={!site}
               >

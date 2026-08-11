@@ -149,7 +149,7 @@ test('fixed navy labels and ranking bars remain visible on dark surfaces', async
 test('every light indigo icon tile uses a dark variant in monitor views', async () => {
   for (const [path, expectedCount] of [
     ['src/components/guard_room/GuardMonitorUi.tsx', 1],
-    ['src/sections/MonitorSection.tsx', 2],
+    ['src/sections/MonitorSection.tsx', 1],
     ['src/components/feature_dashboard/FeatureDashboardMonitorView.tsx', 3],
     ['src/components/human_dwell/HumanDwellMonitorView.tsx', 3],
     ['src/components/logistics_single_person/LogisticsSinglePersonMonitorView.tsx', 3],

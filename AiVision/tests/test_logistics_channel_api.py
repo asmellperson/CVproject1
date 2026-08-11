@@ -3,14 +3,13 @@ import importlib
 import sys
 from copy import deepcopy
 
-import numpy as np
-import pytest
 import anyio.to_thread
 import httpx
+import numpy as np
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import ResponseValidationError
 from fastapi.routing import serialize_response
-
 
 sys.modules.pop("platform", None)
 api = importlib.import_module("api.v2.logistics_channels")
@@ -222,7 +221,22 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
     }
     assert expected <= paths
     app_module = importlib.import_module("api.app")
-    assert any(route.path.startswith("/api/v2/logistics-channels") for route in app_module.app.routes)
+    registered_paths: set[str] = set()
+    for route in app_module.app.routes:
+        path = getattr(route, "path", None)
+        if path:
+            registered_paths.add(path)
+        included_router = getattr(route, "original_router", None)
+        if included_router is not None:
+            registered_paths.update(
+                child.path
+                for child in included_router.routes
+                if getattr(child, "path", None)
+            )
+    assert any(
+        path.startswith("/api/v2/logistics-channels")
+        for path in registered_paths
+    )
 
     openapi = app_module.app.openapi()
     for path, methods in openapi["paths"].items():

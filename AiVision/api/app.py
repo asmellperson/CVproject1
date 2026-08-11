@@ -6,25 +6,27 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import asynccontextmanager
+from platform.visual_services import VisualWorkerClient
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.auth import AuthError, get_current_user_from_request
+from api.compat import router as compat_router
+from api.v2.alarms import router as alarms_router
+from api.v2.cameras import router as cameras_router
+from api.v2.departments import router as departments_router
+from api.v2.features import router as features_router
+from api.v2.logistics_channels import router as logistics_channels_router
+from api.v2.models import router as models_router
+from api.v2.runtime import router as runtime_router
+from api.v2.visual_services import router as visual_services_router
 from core.alarm.wechat import WeChatNotifier
 from core.logger import logger
 from core.settings import settings
 from core.system_config import system_config_service
-from api.v2.cameras import router as cameras_router
-from api.v2.features import router as features_router
-from api.v2.models import router as models_router
-from api.v2.runtime import router as runtime_router
-from api.v2.alarms import router as alarms_router
-from api.v2.departments import router as departments_router
-from api.v2.logistics_channels import router as logistics_channels_router
-from api.compat import router as compat_router
-
 
 _api_exception_alerts: dict[tuple[str, str], float] = {}
 
@@ -67,10 +69,20 @@ def _send_api_exception_alert(path: str, detail: str):
 
 
 def create_app() -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        visual_worker_client = VisualWorkerClient(settings.visual_workers)
+        app.state.visual_worker_client = visual_worker_client
+        try:
+            yield
+        finally:
+            await visual_worker_client.close()
+
     app = FastAPI(
         title="AiVision Backend",
         version="2.0.0",
         description="AiVision features-first refactored backend with API v2 and legacy compatibility routes.",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -112,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)
+    app.include_router(visual_services_router)
 
     return app
 
