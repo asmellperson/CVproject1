@@ -74,6 +74,7 @@ class BaseFunctionConsumer(ABC):
         self._roi_polygon_cache: dict[int, list] = {}   # 当前摄像头的多边形列表
         self._masks: dict[int, list] = {}               # 预计算的裁剪掩码
         self._masks_roi_input: dict[int, list] = {}     # 上次生成掩码时的 roi_pos 输入，用于检测配置变更
+        self._masks_frame_shape: dict[int, tuple[int, int]] = {}  # 掩码对应的帧高宽
         self.pre_roi: dict[int, list] = {}              # 最近一次显著变化的原始 ROI
         self.blur_roi: dict[int, list[np.ndarray]] = defaultdict(list)  # 高斯模糊缓存，加速帧差计算
         self.frame_change_samples: dict[int, list[np.ndarray]] = {}  # 低分辨率帧差缓存
@@ -145,6 +146,7 @@ class BaseFunctionConsumer(ABC):
             # 清除 ROI 缓存，下轮迭代时按新配置重建
             self._masks.pop(camera_id, None)
             self._masks_roi_input.pop(camera_id, None)
+            self._masks_frame_shape.pop(camera_id, None)
             self._roi_polygon_cache.pop(camera_id, None)
 
     def update_status(self, camera_id: int, enabled: bool):
@@ -409,8 +411,14 @@ class BaseFunctionConsumer(ABC):
             h, w = frame.shape[:2]
             roi_pos_raw = [[0, 0], [w, 0], [w, h], [0, h]]
 
-        # roi_pos 变更时重建掩码（通过对比上次输入检测变更）
-        if camera_id not in self._masks or self._masks_roi_input.get(camera_id) != roi_pos_raw:
+        # ROI 配置或当前摄像头的帧尺寸变更时重建掩码。
+        # 不同摄像头、主子码流可能具有不同分辨率，不能复用旧尺寸掩码。
+        frame_shape = tuple(frame.shape[:2])
+        if (
+            camera_id not in self._masks
+            or self._masks_roi_input.get(camera_id) != roi_pos_raw
+            or self._masks_frame_shape.get(camera_id) != frame_shape
+        ):
             self._rebuild_masks(camera_id, frame, roi_pos_raw)
 
         roi_list = []
@@ -430,7 +438,9 @@ class BaseFunctionConsumer(ABC):
         同时清除与旧 ROI 关联的帧差缓存，
         避免新旧 ROI 的帧差计算产生错误跳帧判断。
         """
+        frame_height, frame_width = frame.shape[:2]
         self._masks_roi_input[camera_id] = roi_pos_raw
+        self._masks_frame_shape[camera_id] = (frame_height, frame_width)
         self.pre_roi.pop(camera_id, None)   # 清除旧帧差缓存
         self.blur_roi.pop(camera_id, None)
         self.frame_change_samples.pop(camera_id, None)
@@ -438,10 +448,40 @@ class BaseFunctionConsumer(ABC):
         self._roi_polygon_cache[camera_id] = polygons
 
         masks = []
-        for poly in polygons:
+        for roi_index, poly in enumerate(polygons):
             arr = np.array(poly, dtype=np.int32)
-            x_min, y_min = arr[:, 0].min(), arr[:, 1].min()
-            x_max, y_max = arr[:, 0].max(), arr[:, 1].max()
+            if arr.ndim != 2 or arr.shape[0] < 3 or arr.shape[1] != 2:
+                logger.warning(
+                    f"[{self.feature_name}] 摄像头 {camera_id} 的 ROI {roi_index} "
+                    "坐标无效，已跳过"
+                )
+                continue
+
+            raw_x_min, raw_y_min = arr[:, 0].min(), arr[:, 1].min()
+            raw_x_max, raw_y_max = arr[:, 0].max(), arr[:, 1].max()
+            x_min = max(0, int(raw_x_min))
+            y_min = max(0, int(raw_y_min))
+            x_max = min(frame_width, int(raw_x_max))
+            y_max = min(frame_height, int(raw_y_max))
+
+            if x_max <= x_min or y_max <= y_min:
+                logger.warning(
+                    f"[{self.feature_name}] 摄像头 {camera_id} 的 ROI {roi_index} "
+                    f"完全位于当前画面 {frame_width}x{frame_height} 外，已跳过"
+                )
+                continue
+
+            if (
+                x_min != raw_x_min
+                or y_min != raw_y_min
+                or x_max != raw_x_max
+                or y_max != raw_y_max
+            ):
+                logger.warning(
+                    f"[{self.feature_name}] 摄像头 {camera_id} 的 ROI {roi_index} "
+                    f"超出当前画面 {frame_width}x{frame_height}，已按画面边界裁剪"
+                )
+
             mask = np.zeros((y_max - y_min, x_max - x_min), dtype=np.uint8)
             adj = arr.copy()
             adj[:, 0] -= x_min  # 坐标平移到包围盒原点
