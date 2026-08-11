@@ -265,6 +265,7 @@ fi
 # ---- 构造服务列表（顺序即启动顺序） ----------------------------------------
 # 每条: tmux会话名|工作目录|启动命令|端口|健康检查等待秒数
 SERVICES=()
+LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH"; then
   SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python main.py --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
@@ -708,6 +709,31 @@ start_one() {
   return 0
 }
 
+handle_legacy_service_sessions() {
+  local legacy running=()
+  for legacy in "${LEGACY_SERVICE_SESSIONS[@]}"; do
+    if tmux has-session -t "$legacy" 2>/dev/null; then
+      running+=("$legacy")
+    fi
+  done
+  [[ ${#running[@]} -eq 0 ]] && return 0
+
+  if [[ $FORCE -ne 1 ]]; then
+    err "检测到旧版独立视觉服务 tmux: ${running[*]}"
+    hint "为避免新旧检测重复运行，请先执行: bash ${PROJECT_ROOT}/scripts/stop.sh"
+    hint "也可以使用 --force，由启动脚本清理旧会话后启动三服务架构"
+    return 1
+  fi
+
+  for legacy in "${running[@]}"; do
+    warn "--force 模式：清理不再使用的旧版会话 ${legacy}"
+    if ! tmux kill-session -t "$legacy"; then
+      err "旧版会话 ${legacy} 清理失败，停止启动"
+      return 1
+    fi
+  done
+}
+
 # ---- 主流程 ----------------------------------------------------------------
 main() {
   log "福达视觉平台冷启动脚本 - $(date '+%F %T')"
@@ -717,6 +743,10 @@ main() {
   if ! command -v tmux >/dev/null 2>&1; then
     err "缺少全局依赖: tmux"
     exit 1
+  fi
+
+  if ! handle_legacy_service_sessions; then
+    exit 4
   fi
 
   # AUTH_SECRET 与 tmux 注入能力探测（必须在创建任何 tmux 会话之前）

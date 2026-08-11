@@ -25,6 +25,10 @@ bash scripts/stop.sh -y
 # 强制重启三个服务
 bash scripts/start.sh --force
 
+# 从旧五服务版本首次升级时，推荐先执行 stop.sh；它会同时清理旧的
+# guard_room / security_vlm tmux。若直接启动，普通模式会拒绝重复运行，
+# --force 模式会先清理旧会话再启动。
+
 统一启动后只创建以下三个 tmux 会话：
 - unified_frontend：前端，端口 3000
 - unified_backend：统一后端，端口 5000
