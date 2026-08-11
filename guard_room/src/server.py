@@ -25,6 +25,8 @@ CORS：
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+import logging
 import os
 import time
 from typing import Optional
@@ -54,6 +56,9 @@ from .runtime_manager import GuardRoomRuntimeManager
 from .service import GuardRoomService
 from .state import AppState
 from .wechat_notifier import WeChatNotifier
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +213,50 @@ def create_app(
     site_service = guard_room_service or GuardRoomService(default_config_path=config_path)
     site_service.ensure_schema()
     site_runtime_manager = runtime_manager or GuardRoomRuntimeManager(site_service)
+    runtime_autostart_ready = False
+
+    def restart_enabled_site(site_id: int) -> None:
+        """配置变化后刷新已启用站点；失败不回滚已经提交的配置。"""
+        if not runtime_autostart_ready:
+            return
+        site = site_service.get_site(site_id, include_config=False)
+        if site is None or not site.get("enabled"):
+            return
+        if not site.get("enabled_camera_count"):
+            remove_runtime = getattr(site_runtime_manager, "remove", None)
+            if callable(remove_runtime):
+                remove_runtime(site_id)
+            return
+        try:
+            site_runtime_manager.restart(site_id)
+        except Exception:
+            logger.exception("刷新保安室运行时失败 site_id=%s", site_id)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        nonlocal runtime_autostart_ready
+        for site in site_service.list_sites(include_cameras=False):
+            if not site.get("enabled"):
+                continue
+            if not site.get("enabled_camera_count"):
+                logger.info("保安室暂无启用摄像头，暂不启动 site_id=%s", site["id"])
+                continue
+            try:
+                site_runtime_manager.start(int(site["id"]))
+            except Exception:
+                logger.exception("保安室默认启动失败 site_id=%s", site["id"])
+        runtime_autostart_ready = True
+        try:
+            yield
+        finally:
+            runtime_autostart_ready = False
+            try:
+                site_runtime_manager.stop_all()
+            except Exception:
+                logger.exception("停止全部保安室运行时失败")
 
     # ── 创建 FastAPI 实例并注册中间件 ──────────────────────────────────────
-    app = FastAPI(title="Guard Room API", version="1.0.0")
+    app = FastAPI(title="Guard Room API", version="1.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -358,17 +404,30 @@ def create_app(
     @app.put("/api/sites/{site_id}")
     def update_site(site_id: int, payload: SiteUpdateRequest, _user: dict = Depends(require_admin)):
         """更新保安室基础信息（需 admin）。"""
+        values = payload.model_dump(exclude_unset=True)
         try:
-            site = site_service.update_site(site_id, payload.model_dump(exclude_unset=True))
+            site = site_service.update_site(site_id, values)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if site is None:
             raise HTTPException(status_code=404, detail="保安室不存在")
+        if "enabled" in values:
+            try:
+                if values["enabled"]:
+                    if site.get("enabled_camera_count"):
+                        site_runtime_manager.start(site_id)
+                else:
+                    site_runtime_manager.stop(site_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         return site
 
     @app.delete("/api/sites/{site_id}")
     def delete_site(site_id: int, _user: dict = Depends(require_admin)):
         """删除保安室及其摄像头/配置（需 admin）。"""
+        remove_runtime = getattr(site_runtime_manager, "remove", None)
+        if callable(remove_runtime):
+            remove_runtime(site_id)
         if not site_service.delete_site(site_id):
             raise HTTPException(status_code=404, detail="保安室不存在")
         return {"success": True}
@@ -548,13 +607,15 @@ def create_app(
     def create_site_camera(site_id: int, payload: CameraCreateRequest, _user: dict = Depends(require_admin)):
         """在指定保安室下新增摄像头（需 admin），每个保安室最多 9 路。"""
         try:
-            return site_service.create_camera(
+            camera = site_service.create_camera(
                 site_id,
                 name=payload.name,
                 rtsp_url=payload.rtsp_url,
                 enabled=payload.enabled,
                 sort_order=payload.sort_order,
             )
+            restart_enabled_site(site_id)
+            return camera
         except ValueError as exc:
             message = str(exc)
             status_code = 404 if "保安室不存在" in message else 400
@@ -569,13 +630,18 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if camera is None:
             raise HTTPException(status_code=404, detail="摄像头不存在")
+        restart_enabled_site(int(camera["site_id"]))
         return camera
 
     @app.delete("/api/cameras/{camera_id}")
     def delete_site_camera(camera_id: int, _user: dict = Depends(require_admin)):
         """删除保安室摄像头（需 admin）。"""
+        camera = site_service.get_camera(camera_id)
+        if camera is None:
+            raise HTTPException(status_code=404, detail="摄像头不存在")
         if not site_service.delete_camera(camera_id):
             raise HTTPException(status_code=404, detail="摄像头不存在")
+        restart_enabled_site(int(camera["site_id"]))
         return {"success": True}
 
     # ── 配置路由 ─────────────────────────────────────────────────────────

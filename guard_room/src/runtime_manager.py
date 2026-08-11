@@ -95,6 +95,9 @@ class GuardRoomRuntimeManager:
     def start(self, site_id: int) -> dict[str, Any]:
         """Start one site's runtime and return its status."""
         with self._lock:
+            site = self.service.update_site(site_id, {"enabled": True})
+            if site is None:
+                raise ValueError(f"保安室不存在: {site_id}")
             context = self._get_or_create_context(site_id, rebuild=not self._is_running(site_id))
             context.runtime.start()
             return context.state.get_status()
@@ -102,6 +105,9 @@ class GuardRoomRuntimeManager:
     def stop(self, site_id: int) -> dict[str, Any]:
         """Stop one site's runtime and return its status."""
         with self._lock:
+            site = self.service.update_site(site_id, {"enabled": False})
+            if site is None:
+                raise ValueError(f"保安室不存在: {site_id}")
             context = self._contexts.get(site_id)
             if context is None:
                 context = self._get_or_create_context(site_id, rebuild=True)
@@ -112,6 +118,9 @@ class GuardRoomRuntimeManager:
     def restart(self, site_id: int) -> dict[str, Any]:
         """Rebuild config from DB, restart one site, and return status."""
         with self._lock:
+            site = self.service.update_site(site_id, {"enabled": True})
+            if site is None:
+                raise ValueError(f"保安室不存在: {site_id}")
             old_context = self._contexts.get(site_id)
             if old_context is not None:
                 old_context.runtime.stop()
@@ -145,11 +154,20 @@ class GuardRoomRuntimeManager:
         return self.get_state(site_id).get_statistics()
 
     def stop_all(self) -> None:
-        """Stop all managed runtimes."""
+        """Stop all processes without changing their persisted desired state."""
         with self._lock:
             for context in list(self._contexts.values()):
                 context.runtime.stop()
                 self._stop_notifier(context)
+
+    def remove(self, site_id: int) -> None:
+        """Stop and forget one site without recreating a missing context."""
+        with self._lock:
+            context = self._contexts.pop(int(site_id), None)
+            if context is None:
+                return
+            context.runtime.stop()
+            self._stop_notifier(context)
 
     def _get_or_create_context(self, site_id: int, *, rebuild: bool = False) -> RuntimeContext:
         site_id = int(site_id)

@@ -181,7 +181,6 @@ def test_channel_crud_is_scoped_by_feature(service_db):
         BASE_FEATURE,
         created["id"],
         {
-            "enabled": True,
             "detection_start": time(7, 30),
             "detection_end": time(19, 30),
             "confidence_threshold": 0.42,
@@ -1293,6 +1292,11 @@ def test_channel_config_validates_person_confidence_threshold():
         LogisticsChannelConfigUpdate(confidence_threshold=-0.01)
     with pytest.raises(ValidationError):
         LogisticsChannelConfigUpdate(confidence_threshold=1.01)
+
+
+def test_channel_config_cannot_change_channel_enabled_state():
+    with pytest.raises(ValidationError):
+        LogisticsChannelConfigUpdate(enabled=False)
 
 
 def test_channel_wechat_config_does_not_accept_backend_credentials():

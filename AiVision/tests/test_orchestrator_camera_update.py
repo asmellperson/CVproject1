@@ -12,6 +12,8 @@ Orchestrator = importlib.import_module("platform.orchestrator").Orchestrator
 def _orchestrator_without_init():
     orchestrator = object.__new__(Orchestrator)
     orchestrator.consumers = {}
+    orchestrator._feature_states = {}
+    orchestrator._feature_runtime_lock = threading.RLock()
     orchestrator.logistics_channel_runtime = SimpleNamespace(
         refresh_channel=lambda *_args: None,
         refresh_camera=lambda *_args: None,
@@ -325,6 +327,101 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
 
     assert created[logistics.name]["logistics_runtime"] is orchestrator.logistics_channel_runtime
     assert "logistics_runtime" not in created[ordinary.name]
+
+
+def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatch):
+    import platform.orchestrator as orchestrator_module
+
+    started = []
+
+    class FakeConsumer:
+        def __init__(self, **kwargs):
+            self.feature_name = kwargs["spec"].name
+
+        def start(self):
+            self.running = True
+            started.append(self.feature_name)
+
+    ordinary = SimpleNamespace(
+        name="blocks",
+        required_models=(),
+        consumer_cls=FakeConsumer,
+    )
+    orchestrator = _orchestrator_without_init()
+    orchestrator._feature_states = {ordinary.name: False}
+    monkeypatch.setattr(orchestrator_module, "all_specs", lambda: {ordinary.name: ordinary})
+    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_manager, "infer_queues", {})
+    monkeypatch.setattr(orchestrator_module.inference_manager, "result_queues", {ordinary.name: None})
+
+    orchestrator._start_consumers()
+
+    assert started == []
+    assert orchestrator.consumers == {}
+
+
+def test_feature_stop_persists_state_and_keeps_shared_camera_running(monkeypatch):
+    import platform.orchestrator as orchestrator_module
+
+    stopped = []
+    persisted = []
+    camera_calls = []
+    blocks = SimpleNamespace(name="blocks", display_name="区域入侵检测")
+    face = SimpleNamespace(name="detect_face", display_name="人脸检测")
+    orchestrator = _orchestrator_without_init()
+    orchestrator._feature_states = {"blocks": True, "detect_face": True}
+    orchestrator.consumers = {
+        "blocks": SimpleNamespace(running=True, stop=lambda: stopped.append("blocks")),
+        "detect_face": SimpleNamespace(running=True),
+    }
+    orchestrator.camera_manager = SimpleNamespace(
+        update_camera_config=lambda name, cfg: camera_calls.append(("update", name, cfg["enable"])),
+        is_running=lambda _name: True,
+        start_camera=lambda name: camera_calls.append(("start", name)),
+        stop_camera=lambda name: camera_calls.append(("stop", name)),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "all_specs",
+        lambda: {"blocks": blocks, "detect_face": face},
+    )
+    monkeypatch.setattr(
+        orchestrator_module.system_config_service,
+        "save_feature_runtime_state",
+        lambda name, enabled: persisted.append((name, enabled)),
+    )
+    monkeypatch.setattr(
+        orchestrator_module.camera_service,
+        "list_cameras",
+        lambda: [{
+            "shm_name": "camera_1",
+            "enabled": True,
+            "functions": {"blocks": True, "detect_face": True},
+        }],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_camera_runtime_config",
+        lambda _key: {"shm_name": "camera_1", "enable": True},
+    )
+
+    result = orchestrator.set_feature_enabled("blocks", False)
+
+    assert result["state"] == "stopped"
+    assert stopped == ["blocks"]
+    assert persisted == [("blocks", False)]
+    assert camera_calls == [("update", "camera_1", True)]
+
+
+def test_logistics_feature_cannot_use_global_runtime_switch():
+    orchestrator = _orchestrator_without_init()
+
+    try:
+        orchestrator.set_feature_enabled("detect_logistics_single_person", False)
+    except ValueError as exc:
+        assert "通道管理" in str(exc)
+    else:
+        raise AssertionError("物流检测不应允许使用全局能力开关")
 
 
 def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch, caplog):

@@ -8,6 +8,7 @@ import {
 } from '../lib/api'
 import { useSerialPoll } from './use-serial-poll'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '../lib/camera-events'
+import { PLATFORM_RUNTIME_CHANGED_EVENT } from '../lib/runtime-events'
 
 export function usePlatformStatus(): PlatformStatus | null {
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
@@ -16,7 +17,11 @@ export function usePlatformStatus(): PlatformStatus | null {
   useEffect(() => {
     const refresh = () => setCameraRevision((value) => value + 1)
     window.addEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
-    return () => window.removeEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
+    window.addEventListener(PLATFORM_RUNTIME_CHANGED_EVENT, refresh)
+    return () => {
+      window.removeEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
+      window.removeEventListener(PLATFORM_RUNTIME_CHANGED_EVENT, refresh)
+    }
   }, [])
 
   useSerialPoll(

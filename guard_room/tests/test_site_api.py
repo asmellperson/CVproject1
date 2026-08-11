@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -5,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.db import configure_for_tests
 from src.server import CameraCreateRequest, CameraUpdateRequest, SiteCreateRequest, create_app
+from src.service import GuardRoomService
 
 
 def _app(tmp_path):
@@ -24,6 +26,8 @@ class FakeRuntimeManager:
     def __init__(self):
         self.started = []
         self.stopped = []
+        self.restarted = []
+        self.stop_all_calls = 0
 
     def start(self, site_id: int):
         self.started.append(site_id)
@@ -34,6 +38,7 @@ class FakeRuntimeManager:
         return {"site_id": site_id, "site_name": "测试保安室", "running": False}
 
     def restart(self, site_id: int):
+        self.restarted.append(site_id)
         return {"site_id": site_id, "site_name": "测试保安室", "running": True, "restarted": True}
 
     def get_status(self, site_id: int):
@@ -50,6 +55,9 @@ class FakeRuntimeManager:
 
     def get_statistics(self, site_id: int):
         return {"site_id": site_id, "site_name": "测试保安室", "summary": {"total": 0}}
+
+    def stop_all(self):
+        self.stop_all_calls += 1
 
 
 def test_site_api_routes_create_site_and_camera(tmp_path):
@@ -146,8 +154,59 @@ def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     assert start(7, _user={"role": "admin"})["running"] is True
     assert stop(7, _user={"role": "admin"})["running"] is False
     assert restart(7, _user={"role": "admin"})["restarted"] is True
+    assert manager.restarted == [7]
     assert status(7)["site_name"] == "测试保安室"
     assert frame(7).body == b"jpeg-bytes"
     assert camera_frame(7, "cam2").body == b"7:cam2:jpeg"
     assert alarms(7)["items"][0]["site_id"] == 7
     assert statistics(7)["summary"]["total"] == 0
+
+
+def test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites(tmp_path):
+    configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_lifespan.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+    enabled = service.create_site("默认开启")
+    disabled = service.create_site("手动关闭", enabled=False)
+    service.create_camera(enabled["id"], name="入口", rtsp_url="rtsp://enabled")
+    service.create_camera(disabled["id"], name="入口", rtsp_url="rtsp://disabled")
+    manager = FakeRuntimeManager()
+    app = create_app(
+        str(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"),
+        guard_room_service=service,
+        runtime_manager=manager,
+    )
+
+    async def run_lifespan():
+        async with app.router.lifespan_context(app):
+            assert manager.started == [enabled["id"]]
+
+    asyncio.run(run_lifespan())
+
+    assert manager.stop_all_calls == 1
+
+
+def test_first_enabled_camera_starts_an_enabled_site_after_app_startup(tmp_path):
+    configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_first_camera.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+    site = service.create_site("待添加摄像头")
+    manager = FakeRuntimeManager()
+    app = create_app(
+        str(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"),
+        guard_room_service=service,
+        runtime_manager=manager,
+    )
+    create_camera = _route_endpoint(app, "/api/sites/{site_id}/cameras", "POST")
+
+    async def run_lifespan():
+        async with app.router.lifespan_context(app):
+            assert manager.started == []
+            create_camera(
+                site["id"],
+                CameraCreateRequest(name="入口", rtsp_url="rtsp://camera"),
+                _user={"role": "admin"},
+            )
+            assert manager.restarted == [site["id"]]
+
+    asyncio.run(run_lifespan())

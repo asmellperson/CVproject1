@@ -328,13 +328,17 @@ function ConfigSection({
         wechat: config.wechat,
       })
 
-      // 阶段 2: 重启算法
-      setSavePhase('正在重启算法（约 15 秒）...')
-      await restartGuardRoomSiteRuntime(site.id)
+      if (site.enabled) {
+        // 期望运行中的站点保存后热重启，使模型和规则完整生效。
+        setSavePhase('正在重启算法（约 15 秒）...')
+        await restartGuardRoomSiteRuntime(site.id)
 
-      // 阶段 3: 等后端真的起来
-      setSavePhase('等待算法就绪...')
-      await waitUntilRunning(20000)  // 最多等 20 秒
+        setSavePhase('等待算法就绪...')
+        await waitUntilRunning(20000)  // 最多等 20 秒
+      } else {
+        // 手动关闭状态必须跨配置保存保持，不由保存动作隐式开启。
+        setSavePhase('配置已保存，检测保持关闭')
+      }
 
       setSavePhase('')
       setSaved(true)

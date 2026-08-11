@@ -110,6 +110,7 @@ export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) 
             selectedSiteId={selectedSiteId}
             loadingSites={loadingSites}
             onSelectSite={setSelectedSiteId}
+            onRuntimeChanged={loadSites}
             department={department}
           />
         </TabsContent>

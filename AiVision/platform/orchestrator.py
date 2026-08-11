@@ -63,6 +63,8 @@ class Orchestrator:
         self._horn_dict: dict = {}
         self._wechat: Optional[WeChatNotifier] = None
         self._started = False
+        self._feature_runtime_lock = threading.RLock()
+        self._feature_states: dict[str, bool] = {}
         self._last_system_exception_alerts: dict[tuple[str, str], float] = {}
         self._system_exception_alert_lock = threading.Lock()
         self.logistics_channel_runtime = LogisticsChannelRuntime(
@@ -88,6 +90,9 @@ class Orchestrator:
         camera_service.normalize_shm_names()
         camera_service.ensure_feature_configs(enable_all=False)
         config_cache.init()
+        self._feature_states = system_config_service.get_feature_runtime_states(
+            self._ordinary_feature_names()
+        )
         migration = logistics_channel_service.migrate_existing_feature_cameras()
         if migration.failed:
             logger.warning(
@@ -131,7 +136,7 @@ class Orchestrator:
                 "url": c["url"],
                 "fps": c["fps"],
                 "max_restart": c["max_restart"],
-                "enable": bool(c["enabled"]) and any(bool(v) for v in functions.values()),
+                "enable": bool(c["enabled"]) and self._has_active_function(functions),
                 "shape": c.get("shape") or [1080, 1920, 3],
             })
         self.camera_manager.initialize_configs(cam_configs)
@@ -214,30 +219,11 @@ class Orchestrator:
 
     def _start_consumers(self):
         for name, spec in all_specs().items():
-            # 检查依赖的模型是否都启动了
-            running_models = set(inference_manager.list_running())
-            missing = [m for m in spec.required_models if m not in running_models]
-            if missing:
-                logger.warning(
-                    f"[Orchestrator] 跳过 Consumer '{name}': 依赖模型未启动 {missing} "
-                    f"(已启动: {sorted(running_models)})"
-                )
+            if name not in LOGISTICS_FEATURES and not self._is_feature_desired_enabled(name):
+                logger.info(f"[Orchestrator] 检测能力已关闭，跳过 Consumer '{name}'")
                 continue
-
             try:
-                consumer_kwargs = dict(
-                    spec=spec,
-                    infer_dict=inference_manager.infer_queues,
-                    result_queue=inference_manager.result_queues[name],
-                    latest_frames=frame_reader_registry.latest_frames,
-                    is_camera_active=frame_reader_registry.is_active,
-                    runtime_alert_handler=self._send_system_exception_alert,
-                )
-                if name in LOGISTICS_FEATURES:
-                    consumer_kwargs["logistics_runtime"] = self.logistics_channel_runtime
-                consumer = spec.consumer_cls(**consumer_kwargs)
-                consumer.start()
-                self.consumers[name] = consumer
+                self._start_consumer(name, spec)
             except Exception:
                 logger.exception(f"[Orchestrator] 启动 Consumer {name} 失败")
                 self._send_system_exception_alert(
@@ -248,6 +234,128 @@ class Orchestrator:
                 )
 
         logger.info(f"[Orchestrator] 已启动 {len(self.consumers)} 个 Consumer")
+
+    def _start_consumer(self, name: str, spec=None):
+        """创建并启动一个 Consumer；依赖模型不可用时明确失败。"""
+        if name in self.consumers and self.consumers[name].running:
+            return self.consumers[name]
+        spec = spec or all_specs().get(name)
+        if spec is None:
+            raise ValueError(f"未知检测能力: {name}")
+
+        running_models = set(inference_manager.list_running())
+        missing = [model for model in spec.required_models if model not in running_models]
+        if missing:
+            raise RuntimeError(
+                f"依赖模型未启动: {', '.join(missing)}; "
+                f"当前运行模型: {', '.join(sorted(running_models)) or '无'}"
+            )
+
+        consumer_kwargs = dict(
+            spec=spec,
+            infer_dict=inference_manager.infer_queues,
+            result_queue=inference_manager.result_queues[name],
+            latest_frames=frame_reader_registry.latest_frames,
+            is_camera_active=frame_reader_registry.is_active,
+            runtime_alert_handler=self._send_system_exception_alert,
+        )
+        if name in LOGISTICS_FEATURES:
+            consumer_kwargs["logistics_runtime"] = self.logistics_channel_runtime
+        consumer = spec.consumer_cls(**consumer_kwargs)
+        consumer.start()
+        self.consumers[name] = consumer
+        return consumer
+
+    def set_feature_enabled(self, feature_name: str, enabled: bool) -> dict:
+        """启停普通检测能力，并保存重启后的期望状态。"""
+        spec = self._ordinary_specs().get(feature_name)
+        if spec is None:
+            if feature_name in LOGISTICS_FEATURES:
+                raise ValueError("物流通道检测请在通道管理中启用或停用")
+            raise ValueError(f"未知检测能力: {feature_name}")
+
+        with self._feature_runtime_lock:
+            desired = bool(enabled)
+            system_config_service.save_feature_runtime_state(feature_name, desired)
+            self._feature_states[feature_name] = desired
+
+            error: RuntimeError | None = None
+            if desired:
+                try:
+                    self._start_consumer(feature_name, spec)
+                except RuntimeError as exc:
+                    error = exc
+            else:
+                consumer = self.consumers.pop(feature_name, None)
+                if consumer is not None:
+                    consumer.stop()
+
+            self._reconcile_feature_cameras(feature_name)
+            if error is not None:
+                raise error
+            return self.get_feature_runtime_status(feature_name)
+
+    def get_feature_runtime_status(self, feature_name: str) -> dict:
+        spec = self._ordinary_specs().get(feature_name)
+        if spec is None:
+            raise ValueError(f"未知检测能力: {feature_name}")
+        desired = self._is_feature_desired_enabled(feature_name)
+        consumer = self.consumers.get(feature_name)
+        running = bool(consumer is not None and consumer.running)
+        return {
+            "feature": feature_name,
+            "display_name": spec.display_name,
+            "enabled": desired,
+            "running": running,
+            "state": "running" if running else ("error" if desired else "stopped"),
+        }
+
+    def list_feature_runtime_statuses(self) -> list[dict]:
+        return [
+            self.get_feature_runtime_status(name)
+            for name in self._ordinary_specs()
+        ]
+
+    @staticmethod
+    def _ordinary_specs() -> dict:
+        return {
+            name: spec
+            for name, spec in all_specs().items()
+            if name not in LOGISTICS_FEATURES
+        }
+
+    @classmethod
+    def _ordinary_feature_names(cls) -> tuple[str, ...]:
+        return tuple(cls._ordinary_specs())
+
+    def _is_feature_desired_enabled(self, feature_name: str) -> bool:
+        return bool(getattr(self, "_feature_states", {}).get(feature_name, True))
+
+    def _has_active_function(self, functions: dict) -> bool:
+        for feature_name, configured in functions.items():
+            if not configured:
+                continue
+            if feature_name in LOGISTICS_FEATURES or self._is_feature_desired_enabled(feature_name):
+                return True
+        return False
+
+    def _reconcile_feature_cameras(self, feature_name: str):
+        for camera in camera_service.list_cameras():
+            if not (camera.get("functions") or {}).get(feature_name):
+                continue
+            self._reconcile_camera_runtime(camera["shm_name"])
+
+    def _reconcile_camera_runtime(self, key: str):
+        cfg = self._camera_runtime_config(key)
+        if cfg is None:
+            return
+        shm_name = cfg["shm_name"]
+        self.camera_manager.update_camera_config(shm_name, cfg)
+        running = self.camera_manager.is_running(shm_name)
+        if cfg.get("enable") and not running:
+            self.camera_manager.start_camera(shm_name)
+        elif not cfg.get("enable") and running:
+            self.camera_manager.stop_camera(shm_name)
 
     # ---------- 配置变更事件路由 ----------
 
@@ -342,7 +450,7 @@ class Orchestrator:
             "url": camera["url"],
             "fps": camera["fps"],
             "max_restart": camera["max_restart"],
-            "enable": bool(camera["enabled"]) and any(bool(v) for v in functions.values()),
+            "enable": bool(camera["enabled"]) and self._has_active_function(functions),
             "shape": camera.get("shape") or [1080, 1920, 3],
         }
 
@@ -520,6 +628,7 @@ class Orchestrator:
             "running_cameras": self.camera_manager.list_running(),
             "running_models": running_models,
             "running_consumers": running_consumers,
+            "capabilities": self.list_feature_runtime_statuses(),
         }
 
 

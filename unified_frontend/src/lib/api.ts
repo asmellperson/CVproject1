@@ -7,6 +7,7 @@ import type {
   StatisticsResponse,
 } from '@/types'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+import { notifyPlatformRuntimeChanged } from '@/lib/runtime-events'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -334,14 +335,23 @@ export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConf
 export const getGuardRoomSiteStatus = (siteId: number, department?: string | null) =>
   apiGet<BackendStatus>(withQuery(`/sites/${siteId}/status`, { department }))
 
-export const startGuardRoomSiteRuntime = (siteId: number) =>
-  apiPost<ControlResponse>(`/sites/${siteId}/control/start`)
+export const startGuardRoomSiteRuntime = async (siteId: number) => {
+  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/start`)
+  notifyPlatformRuntimeChanged()
+  return result
+}
 
-export const stopGuardRoomSiteRuntime = (siteId: number) =>
-  apiPost<ControlResponse>(`/sites/${siteId}/control/stop`)
+export const stopGuardRoomSiteRuntime = async (siteId: number) => {
+  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/stop`)
+  notifyPlatformRuntimeChanged()
+  return result
+}
 
-export const restartGuardRoomSiteRuntime = (siteId: number) =>
-  apiPost<ControlResponse>(`/sites/${siteId}/control/restart`)
+export const restartGuardRoomSiteRuntime = async (siteId: number) => {
+  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/restart`)
+  notifyPlatformRuntimeChanged()
+  return result
+}
 
 export const getGuardRoomSiteCameras = async (siteId: number, department?: string | null): Promise<GuardRoomCamera[]> => {
   const data = await apiGet<GuardRoomCamerasResponse>(withQuery(`/sites/${siteId}/cameras`, { department }))

@@ -36,7 +36,6 @@ export type LogisticsChannelAlarmConfig = {
 export type LogisticsDetectionTime = string
 
 export type LogisticsChannelConfig = {
-  enabled: boolean
   detection_start: LogisticsDetectionTime
   detection_end: LogisticsDetectionTime
   confidence_threshold: number

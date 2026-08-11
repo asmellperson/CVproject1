@@ -49,6 +49,38 @@ def runtime_status(orchestrator=Depends(get_current_orchestrator)) -> dict:
     return orchestrator.runtime_status()
 
 
+@router.get("/capabilities")
+def list_capabilities(orchestrator=Depends(get_current_orchestrator)) -> dict:
+    return {"items": orchestrator.list_feature_runtime_statuses()}
+
+
+def _set_capability_state(feature: str, enabled: bool, orchestrator) -> dict:
+    try:
+        return orchestrator.set_feature_enabled(feature, enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/capabilities/{feature}/start")
+def start_capability(
+    feature: str,
+    orchestrator=Depends(get_current_orchestrator),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    return _set_capability_state(feature, True, orchestrator)
+
+
+@router.post("/capabilities/{feature}/stop")
+def stop_capability(
+    feature: str,
+    orchestrator=Depends(get_current_orchestrator),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    return _set_capability_state(feature, False, orchestrator)
+
+
 @router.get("/exception-alert")
 def get_exception_alert() -> dict:
     return system_config_service.get_exception_alert()

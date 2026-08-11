@@ -227,7 +227,6 @@ class LogisticsChannelService:
         feature_name = require_logistics_feature(feature_name)
         values = self._payload_dict(payload)
         self._reject_none(values, (
-            "enabled",
             "detection_start",
             "detection_end",
             "confidence_threshold",
@@ -269,7 +268,6 @@ class LogisticsChannelService:
         config_values = self._payload_dict(config_payload)
         self._reject_none(channel_values, ("enabled", "sort_order"))
         self._reject_none(config_values, (
-            "enabled",
             "detection_start",
             "detection_end",
             "confidence_threshold",
@@ -769,7 +767,6 @@ class LogisticsChannelService:
 
     def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
         for field in (
-            "enabled",
             "detection_start",
             "detection_end",
             "confidence_threshold",

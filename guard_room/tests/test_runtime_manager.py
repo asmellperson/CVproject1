@@ -53,6 +53,21 @@ def test_runtime_manager_starts_and_stops_one_site_without_affecting_another(tmp
     stopped = manager.stop(site_a["id"])
     assert stopped["running"] is False
     assert manager.get_status(site_a["id"])["running"] is False
+    assert service.get_site(site_a["id"])["enabled"] is False
+    assert service.get_site(site_b["id"])["enabled"] is True
+
+
+def test_runtime_manager_shutdown_preserves_desired_enabled_state(tmp_path):
+    service = _service(tmp_path)
+    site = service.create_site("默认开启保安室")
+    service.update_site_config(site["id"], {"wechat": {"enable": False}})
+    service.create_camera(site["id"], name="入口", rtsp_url="rtsp://camera-1")
+    manager = GuardRoomRuntimeManager(service, runtime_cls=FakeRuntime)
+
+    manager.start(site["id"])
+    manager.stop_all()
+
+    assert service.get_site(site["id"])["enabled"] is True
 
 
 def test_runtime_manager_enriches_status_frame_and_alarms_with_site_metadata(tmp_path):

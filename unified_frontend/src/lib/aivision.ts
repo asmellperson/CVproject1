@@ -1,4 +1,5 @@
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+import { notifyPlatformRuntimeChanged } from '@/lib/runtime-events'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -56,6 +57,14 @@ export type AiVisionExceptionAlertSettings = {
   wechat_enable: boolean
   wechat_user: string
   repeat_interval_minutes: number
+}
+
+export type AiVisionCapabilityStatus = {
+  feature: string
+  display_name: string
+  enabled: boolean
+  running: boolean
+  state: 'running' | 'stopped' | 'error'
 }
 
 export type AiVisionModel = {
@@ -296,6 +305,37 @@ export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExcept
   }
   return (await response.json()) as AiVisionExceptionAlertSettings
 }
+
+export async function getAiVisionCapabilities(signal?: AbortSignal) {
+  const response = await fetch('/api/v2/runtime/capabilities', {
+    credentials: 'include',
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  const payload = (await response.json()) as { items?: AiVisionCapabilityStatus[] }
+  return payload.items || []
+}
+
+async function setAiVisionCapabilityState(feature: string, action: 'start' | 'stop') {
+  const response = await fetch(
+    `/api/v2/runtime/capabilities/${encodeURIComponent(feature)}/${action}`,
+    { method: 'POST', credentials: 'include' },
+  )
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+  const status = (await response.json()) as AiVisionCapabilityStatus
+  notifyPlatformRuntimeChanged()
+  return status
+}
+
+export const startAiVisionCapability = (feature: string) =>
+  setAiVisionCapabilityState(feature, 'start')
+
+export const stopAiVisionCapability = (feature: string) =>
+  setAiVisionCapabilityState(feature, 'stop')
 
 export async function getAiVisionFeatureConfig(feature: string, cameraKey: string) {
   const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {

@@ -65,6 +65,9 @@ test('shared channel configuration separates parameters and alarm push for every
   assert.match(config, /dispatchCreateDialog\(\{ type: 'success' \}\)/)
   assert.match(config, /collectChannelMemberCounts/)
   assert.match(config, /enabled.*total.*路/)
+  assert.match(config, /setChannelEnabled\(channel, !channel\.enabled\)/)
+  assert.match(config, /channel\.enabled \? '停用通道' : '启用通道'/)
+  assert.doesNotMatch(config, /启用当前物流通道/)
   assert.match(config, /flex flex-col items-stretch.*sm:flex-row sm:items-center/)
   assert.match(config, /flex w-full flex-wrap items-center gap-2 sm:w-auto/)
   assert.match(config, /绑定已有摄像头/)
@@ -103,8 +106,9 @@ test('all logistics mutations use the typed channel API rather than camera-id co
     'moveLogisticsChannelCamera',
     'reorderLogisticsChannelCameras',
     'removeLogisticsChannelCamera',
-    'updateLogisticsChannelConfig',
   ]) assert.match(config, new RegExp(operation))
+
+  assert.match(config, /updateLogisticsChannel[\s\S]*?config: \{/)
 
   assert.doesNotMatch(config, /\/configs\/\$\{[^}]*camera_id/)
 })

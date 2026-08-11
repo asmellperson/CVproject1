@@ -570,7 +570,7 @@ class LogisticsChannelRuntime:
             feature_name=str(detail["feature_name"]),
             channel_id=int(detail["id"]),
             name=str(detail["name"]),
-            enabled=bool(detail.get("enabled", True) and config.get("enabled", True)),
+            enabled=bool(detail.get("enabled", True)),
             detection_start=config["detection_start"],
             detection_end=config["detection_end"],
             confidence_threshold=float(config["confidence_threshold"]),

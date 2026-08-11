@@ -20,6 +20,7 @@ class AiSystemConfig(Base):
 
 class SystemConfigService:
     EXCEPTION_ALERT_KEY = "exception_alert"
+    FEATURE_RUNTIME_KEY = "feature_runtime_enabled"
     DEFAULT_EXCEPTION_ALERT_INTERVAL_MINUTES = 60
     MIN_EXCEPTION_ALERT_INTERVAL_MINUTES = 5
     MAX_EXCEPTION_ALERT_INTERVAL_MINUTES = 24 * 60
@@ -48,6 +49,26 @@ class SystemConfigService:
             raise ValueError("wechat_user 不能为空")
         self._set_value(self.EXCEPTION_ALERT_KEY, value)
         return value
+
+    def get_feature_runtime_states(self, feature_names) -> dict[str, bool]:
+        """返回普通检测能力的期望运行状态；未保存过的能力默认开启。"""
+        value = self._get_value(self.FEATURE_RUNTIME_KEY)
+        saved = value if isinstance(value, dict) else {}
+        return {
+            str(feature_name): bool(saved.get(str(feature_name), True))
+            for feature_name in feature_names
+        }
+
+    def save_feature_runtime_state(self, feature_name: str, enabled: bool) -> bool:
+        """持久化单项检测能力的期望运行状态。"""
+        normalized = str(feature_name or "").strip()
+        if not normalized:
+            raise ValueError("feature_name 不能为空")
+        value = self._get_value(self.FEATURE_RUNTIME_KEY)
+        saved = dict(value) if isinstance(value, dict) else {}
+        saved[normalized] = bool(enabled)
+        self._set_value(self.FEATURE_RUNTIME_KEY, saved)
+        return bool(enabled)
 
     def _normalize_exception_alert_interval(self, raw_value: Any) -> int:
         try:

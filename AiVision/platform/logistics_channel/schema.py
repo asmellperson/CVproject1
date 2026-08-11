@@ -71,7 +71,6 @@ class LogisticsChannelUpdate(BaseModel):
 class LogisticsChannelConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = True
     detection_start: time = DEFAULT_DETECTION_START
     detection_end: time = DEFAULT_DETECTION_END
     confidence_threshold: float = Field(
@@ -163,7 +162,6 @@ class LogisticsChannelMemberResponse(BaseModel):
 class LogisticsChannelConfigResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    enabled: bool
     detection_start: time
     detection_end: time
     confidence_threshold: float
@@ -178,7 +176,6 @@ class LogisticsChannelConfigResponse(BaseModel):
         if isinstance(value, dict) or not hasattr(value, "detection_start"):
             return value
         return {
-            "enabled": value.enabled,
             "detection_start": value.detection_start,
             "detection_end": value.detection_end,
             "confidence_threshold": value.confidence_threshold,

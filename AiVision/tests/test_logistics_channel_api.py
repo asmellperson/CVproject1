@@ -47,7 +47,6 @@ class FakeService:
             "id": channel_id, "name": name, "feature_name": feature,
             "enabled": True, "sort_order": 0,
             "config": {
-                "enabled": True,
                 "detection_start": "08:00:00",
                 "detection_end": "20:00:00",
                 "confidence_threshold": 0.3,

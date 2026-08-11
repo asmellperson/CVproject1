@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Camera, Plus, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Plus, Power, Save, SlidersHorizontal, Trash2 } from 'lucide-react'
 
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
@@ -25,7 +25,6 @@ import {
   setLogisticsChannelCameraEnabled,
   updateLogisticsCameraConfig,
   updateLogisticsChannel,
-  updateLogisticsChannelConfig,
 } from './api'
 import type {
   LogisticsCameraConfigResponse,
@@ -288,17 +287,21 @@ export function LogisticsChannelConfigView({
 
   const saveChannel = () => {
     if (!selectedChannelDetail || !config) return
-    void run(async () => {
-      await updateLogisticsChannel(feature, selectedChannelDetail.id, {
-        name: channelName.trim(),
-        enabled: config.enabled,
-      })
-      await updateLogisticsChannelConfig(feature, selectedChannelDetail.id, {
+    void run(() => updateLogisticsChannel(feature, selectedChannelDetail.id, {
+      name: channelName.trim(),
+      config: {
         ...config,
         detection_start: timeForApi(config.detection_start),
         detection_end: timeForApi(config.detection_end),
-      })
-    }, '通道配置已保存。')
+      },
+    }), '通道配置已保存。')
+  }
+
+  const setChannelEnabled = (channel: LogisticsChannel, enabled: boolean) => {
+    void run(
+      () => updateLogisticsChannel(feature, channel.id, { enabled }),
+      enabled ? `物流通道“${channel.name}”已启用。` : `物流通道“${channel.name}”已停用。`,
+    )
   }
 
   const deleteChannelById = (channelId: number, channelDisplayName: string) => {
@@ -444,9 +447,14 @@ export function LogisticsChannelConfigView({
                           <Badge variant="outline">{memberCount ? `${memberCount.enabled}/${memberCount.total} 路` : '--/-- 路'}</Badge>
                           {selected ? <Badge variant="outline">当前通道</Badge> : null}
                           {isAdmin ? (
-                            <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40 sm:ml-0" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
-                              <Trash2 className="h-4 w-4" />删除
-                            </Button>
+                            <>
+                              <Button size="sm" variant="outline" className="ml-auto gap-1.5 sm:ml-0" onClick={() => setChannelEnabled(channel, !channel.enabled)} disabled={busy}>
+                                <Power className="h-4 w-4" />{channel.enabled ? '停用通道' : '启用通道'}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40" onClick={() => deleteChannelById(channel.id, channel.name)} disabled={busy}>
+                                <Trash2 className="h-4 w-4" />删除
+                              </Button>
+                            </>
                           ) : null}
                         </div>
                       </div>
@@ -536,7 +544,6 @@ export function LogisticsChannelConfigView({
                 <CardHeader><CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5" />通道参数配置</CardTitle></CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
-                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm dark:border-slate-800"><span>启用当前物流通道</span><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig({ ...config, enabled: event.target.checked })} disabled={!isAdmin || busy} /></label>
                   <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(config.detection_start)} onChange={(value) => setConfig({ ...config, detection_start: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(config.detection_end)} onChange={(value) => setConfig({ ...config, detection_end: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(config.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setConfig({ ...config, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />

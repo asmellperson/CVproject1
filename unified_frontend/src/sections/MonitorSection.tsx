@@ -67,10 +67,11 @@ type MonitorSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   onSelectSite: (siteId: number) => void
+  onRuntimeChanged?: () => void | Promise<void>
   department?: string
 }
 
-export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, department }: MonitorSectionProps) {
+export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, onRuntimeChanged, department }: MonitorSectionProps) {
   const { isAdmin } = useAuth()
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -185,6 +186,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
         await startGuardRoomSiteRuntime(site.id)
       }
       setStatus(await getGuardRoomSiteStatus(site.id, department))
+      await onRuntimeChanged?.()
       setImgKey((value) => value + 1)
     } finally {
       setBusy(false)

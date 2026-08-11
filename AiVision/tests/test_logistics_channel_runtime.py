@@ -63,7 +63,6 @@ def channel(
         "enabled": enabled,
         "sort_order": 0,
         "config": {
-            "enabled": enabled,
             "detection_start": start,
             "detection_end": end,
             "confidence_threshold": 0.42,
@@ -165,6 +164,16 @@ def test_runtime_exposes_channel_person_confidence_threshold_by_camera():
 
     assert runtime.person_confidence_threshold(FEATURE, 10) == 0.42
     assert runtime.person_confidence_threshold(FEATURE, 999) is None
+
+
+def test_channel_root_enabled_is_the_only_runtime_switch():
+    item = channel(enabled=True, member_ids=(10,))
+    item["config"]["enabled"] = False
+    runtime, _dispatcher = build_runtime([item])
+
+    runtime.evaluate(FEATURE, 3, now=100.0)
+
+    assert runtime._channels[(FEATURE, 3)].enabled is True
 
 
 def test_disabled_members_are_excluded_from_aggregation_status_and_composite():

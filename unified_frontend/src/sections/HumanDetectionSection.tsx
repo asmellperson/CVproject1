@@ -4,6 +4,7 @@ import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
+import { AiVisionFeatureRuntimeControl } from '@/components/AiVisionFeatureRuntimeControl'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -427,16 +428,19 @@ export function HumanDetectionSection() {
             <h1 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100 sm:text-[28px]">人员逗留监控与配置入口</h1>
             <p className="mt-1 text-sm text-slate-500 sm:text-base">区域逗留超时监控面板</p>
           </div>
-          <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
-            <TabsTrigger value="monitor" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
-              <Clock3 className="h-4 w-4" />
-              实时监控
-            </TabsTrigger>
-            <TabsTrigger value="config" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
-              <Waypoints className="h-4 w-4" />
-              配置管理
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end xl:flex-row xl:items-center">
+            <AiVisionFeatureRuntimeControl feature="detect_human" isAdmin={isAdmin} />
+            <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
+              <TabsTrigger value="monitor" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
+                <Clock3 className="h-4 w-4" />
+                实时监控
+              </TabsTrigger>
+              <TabsTrigger value="config" className="gap-2 rounded-full px-4 py-1.5 text-slate-500 shadow-none data-[state=active]:bg-[#132C72] data-[state=active]:text-white data-[state=active]:shadow-sm">
+                <Waypoints className="h-4 w-4" />
+                配置管理
+              </TabsTrigger>
+            </TabsList>
+          </div>
         </div>
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
