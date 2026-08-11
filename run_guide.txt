@@ -28,9 +28,17 @@ bash scripts/start.sh --force
 # 从旧五服务版本首次升级时，推荐先执行 stop.sh；它会同时清理旧的
 # guard_room / security_vlm tmux。若直接启动，普通模式会拒绝重复运行，
 # --force 模式会先清理旧会话再启动。
-# git pull 后若根目录还留有旧模块的本地模型、真实配置或运行数据，先执行：
+# git pull 后若根目录还留有旧模块的本地模型、真实配置或运行数据，先确认：
+# 1. AiVision/.env 已配置目标 MySQL；
+# 2. aivision Conda 环境已安装 AiVision/requirements.txt。
+# 然后执行（即使旧目录已经移动过，也可重复执行）：
 bash scripts/migrate_visual_integrations.sh
-# 脚本只合并到 AiVision/integrations，遇到同名文件会停止且不会覆盖。
+# 脚本会：
+# - 把本地文件合并到 AiVision/integrations，遇到同名文件会停止且不会覆盖；
+# - 把旧 Guard Room 数据库中的保安室、摄像头和参数合并进 AiVision 数据库；
+# - 旧库没有摄像头记录时，从旧 config.yaml 导入摄像头源；
+# - 目标库已有数据优先，重复执行不会重复创建或覆盖现有摄像头。
+# 如果此前已经运行过不含数据库迁移的旧版脚本，拉取新版后再运行一次即可。
 
 统一启动后只创建以下三个 tmux 会话：
 - unified_frontend：前端，端口 3000

@@ -27,7 +27,8 @@ touch \
   "$FIXTURE_ROOT/AiVision/integrations/guard_room/config/config.example.yaml" \
   "$FIXTURE_ROOT/AiVision/integrations/security_vlm/configs/config.example.yaml"
 
-VISUAL_INTEGRATION_PROJECT_ROOT="$FIXTURE_ROOT" \
+GUARD_ROOM_SKIP_DATA_MIGRATION=1 \
+  VISUAL_INTEGRATION_PROJECT_ROOT="$FIXTURE_ROOT" \
   bash "$PROJECT_ROOT/scripts/migrate_visual_integrations.sh"
 
 [[ ! -e "$FIXTURE_ROOT/guard_room" ]] || fail "legacy guard_room directory remains"
@@ -43,7 +44,8 @@ grep -q 'staff_identity_dir: data/annotations/staff_rois' \
 mkdir -p "$FIXTURE_ROOT/guard_room/config"
 printf 'legacy\n' > "$FIXTURE_ROOT/guard_room/config/config.yaml"
 printf 'target\n' > "$FIXTURE_ROOT/AiVision/integrations/guard_room/config/config.yaml"
-if VISUAL_INTEGRATION_PROJECT_ROOT="$FIXTURE_ROOT" \
+if GUARD_ROOM_SKIP_DATA_MIGRATION=1 \
+  VISUAL_INTEGRATION_PROJECT_ROOT="$FIXTURE_ROOT" \
   bash "$PROJECT_ROOT/scripts/migrate_visual_integrations.sh" >/dev/null 2>&1; then
   fail "migration must stop when a destination file already exists"
 fi
