@@ -2,6 +2,10 @@
 
 把项目整个目录拷到新机器后，按本清单一步步操作。完成后跑 `bash scripts/start.sh` 即可。
 
+从旧版五服务目录原地升级并执行 `git pull` 后，先运行
+`bash scripts/migrate_visual_integrations.sh`，把 Git 不管理的模型、真实配置和运行数据安全合并到
+`AiVision/integrations/`。脚本遇到同名目标会停止，不会覆盖文件。
+
 本清单中的路径以 `/srv/Fuda_CVPreject` 为例，请按实际位置替换。
 
 ---
@@ -47,7 +51,7 @@ Guard Room 的主进程依赖已经合并到 AiVision 项目依赖中，不再�
 
 ```bash
 conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install -r /srv/Fuda_CVPreject/security_vlm/requirements.txt
+conda run -n security_vlm python -m pip install -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt
 ```
 
 这个环境只供 AiVision 在页面点击开启安检检测后拉起子进程，不运行 FastAPI、不监听端口。
@@ -94,9 +98,9 @@ npm ci          # 用 package-lock.json 严格安装；首次也可用 npm insta
 | 源（老机器） | 目标（新机器） | 用途 | 拷贝后需要改？ |
 |-------------|---------------|------|---------------|
 | `/usr/zyy/Fuda_CVPreject/AiVision/.env` | `/srv/Fuda_CVPreject/AiVision/.env` | MySQL 连接 | **是**，按新机器 MySQL 改 |
-| `/usr/zyy/Fuda_CVPreject/guard_room/config/auth_users.json` | 同路径 | 用户授权 | 否 |
-| `/usr/zyy/Fuda_CVPreject/guard_room/config/*.yaml`（如有自定义 `config.yaml`） | 同路径 | guard 配置 | 视情况 |
-| `/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml` | 同路径 | VLM 配置 | 视情况 |
+| `/usr/zyy/Fuda_CVPreject/auth/auth_users.json` | 同路径 | 首次迁移用的旧用户授权 | 否 |
+| `/usr/zyy/Fuda_CVPreject/AiVision/integrations/guard_room/config/*.yaml`（如有自定义 `config.yaml`） | 同路径 | guard 配置 | 视情况 |
+| `/usr/zyy/Fuda_CVPreject/AiVision/integrations/security_vlm/configs/config.yaml` | 同路径 | VLM 配置 | 视情况 |
 | `/usr/zyy/Fuda_CVPreject/unified_frontend/.env.local` | 同路径（可选） | 前端端口/接口 | 视情况 |
 
 示例：
@@ -106,14 +110,14 @@ npm ci          # 用 package-lock.json 严格安装；首次也可用 npm insta
 scp <老机器>:/usr/zyy/Fuda_CVPreject/AiVision/.env /srv/Fuda_CVPreject/AiVision/.env
 vi /srv/Fuda_CVPreject/AiVision/.env   # 改 MYSQL_DB_URL 等
 
-# 拷 guard_room 用户授权
-mkdir -p /srv/Fuda_CVPreject/guard_room/config
-scp <老机器>:/usr/zyy/Fuda_CVPreject/guard_room/config/auth_users.json \
-    /srv/Fuda_CVPreject/guard_room/config/auth_users.json
+# 拷首次迁移用的共享用户授权
+mkdir -p /srv/Fuda_CVPreject/auth
+scp <老机器>:/usr/zyy/Fuda_CVPreject/auth/auth_users.json \
+    /srv/Fuda_CVPreject/auth/auth_users.json
 
 # 拷 security_vlm 配置
-scp <老机器>:/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml \
-    /srv/Fuda_CVPreject/security_vlm/configs/config.yaml
+scp <老机器>:/usr/zyy/Fuda_CVPreject/AiVision/integrations/security_vlm/configs/config.yaml \
+    /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/configs/config.yaml
 ```
 
 ## 6. 外部服务

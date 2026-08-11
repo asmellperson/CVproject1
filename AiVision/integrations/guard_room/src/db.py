@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import contextlib
 import os
-from typing import Iterator
+from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
-
 
 Base = declarative_base()
 
 _engine = None
 _session_factory: sessionmaker | None = None
 _database_url_override: str | None = None
+_MODULE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _database_url() -> str:
@@ -35,7 +36,7 @@ def _database_url() -> str:
         charset = os.getenv("MYSQL_DB_CHARSET", "utf8mb4")
         return f"mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}:{port}/{mysql_name}?charset={charset}"
 
-    return "sqlite:///guard_room.db"
+    return f"sqlite:///{_MODULE_ROOT / 'guard_room.db'}"
 
 
 def get_engine():

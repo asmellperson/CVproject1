@@ -13,7 +13,7 @@
 各摄像头的 `pending/` 队列。摄像头之间的 ROI、跟踪状态和活动会话互不影响，
 VLM 并发、每日预算和历史统计仍为全局共享。
 
-Security VLM 的 API 由 AiVision 进程内托管；本目录只保留业务模块和按需 worker，
+Security VLM 的 API 由 AiVision 进程内托管；本目录位于 `AiVision/integrations/security_vlm`，只保留业务模块和按需 worker，
 不再部署独立 Web 服务。
 
 ## 部署
@@ -22,7 +22,7 @@ Security VLM 的 API 由 AiVision 进程内托管；本目录只保留业务模�
 
 ```bash
 conda create -n security_vlm python=3.10 -y
-conda run -n security_vlm python -m pip install -r requirements.txt
+conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt
 # 记下 python 路径
 which python
 ffmpeg -version
@@ -33,7 +33,6 @@ ffprobe -version
 
 编辑 `configs/config.yaml`:
 
-- `project.root`:实际项目路径
 - `envs.worker_python`:上一步得到的 python 路径
 - `data.camera_registry_path`:摄像头注册表（默认 `data/config/cameras.json`）
 - `vlm.api_key`:阿里云百炼 API Key

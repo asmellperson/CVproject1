@@ -18,22 +18,23 @@ https://aicv.fudar.com/
 
 | 业务模块 | 子系统 | 做什么 |
 | --- | --- | --- |
-| 安检流程规范检测 | `security_vlm` | 通过 YOLO + ByteTrack 跟踪安检工位人员交互过程，再把关键帧交给 Qwen-VL 判断流程是否合规。 |
-| 保安行为规范检测 | `guard_room` | 多路摄像头实时检测保安离岗、玩手机、趴睡，并保存报警截图/视频、推送企业微信。 |
+| 安检流程规范检测 | `AiVision/integrations/security_vlm` | 通过 YOLO + ByteTrack 跟踪安检工位人员交互过程，再把关键帧交给 Qwen-VL 判断流程是否合规。 |
+| 保安行为规范检测 | `AiVision/integrations/guard_room` | 多路摄像头实时检测保安离岗、玩手机、趴睡，并保存报警截图/视频、推送企业微信。 |
 | 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
-整体上，这是“一个前端 + 一个统一后端 + 一个视觉业务后端”的三服务项目。`guard_room` 和
-`security_vlm` 保留各自算法模块，但 API 与生命周期都直接由 AiVision 承载，不再是独立服务。
+整体上，这是“一个前端 + 一个统一后端 + 一个视觉业务后端”的三服务项目。Guard Room 和
+Security VLM 的源码、API 与生命周期都属于 AiVision，不再是仓库顶层的独立项目或服务。
 
 ## 2. 仓库顶层结构
 
 ```text
 Fuda_CVPreject_V3/
 ├── unified_frontend/      # React + TypeScript + Vite 统一前端
-├── guard_room/            # AiVision 直接调用的保安行为算法与 API 模块
 ├── AiVision/              # 统一视觉业务后端（含全部检测能力）
-├── security_vlm/          # AiVision 管理的安检 VLM 算法与按需 worker
+│   └── integrations/
+│       ├── guard_room/    # 保安行为算法与 API 模块
+│       └── security_vlm/  # 安检 VLM 算法与按需 worker
 ├── auth/                  # 登录鉴权模块：后端认证鉴权、前端权限分级
 ├── run_guide.txt          # 线上/tmux 启动命令与账号维护说明
 └── PROJECT_ARCHITECTURE.md
@@ -93,7 +94,7 @@ JWT/Cookie；Guard Room 内的 `auth.py` 只是兼容旧 import 的转发层。
 | 登录入口 | 前端 `unified_frontend/src/pages/LoginPage.tsx` |
 | 前端登录态 | `unified_frontend/src/auth/` |
 | 后端认证实现 | `auth/auth.py` |
-| Guard Room 兼容入口 | `guard_room/src/auth.py` |
+| Guard Room 兼容入口 | `AiVision/integrations/guard_room/src/auth.py` |
 | AiVision 兼容入口 | `AiVision/api/auth.py` |
 | 用户文件 | `auth/auth_users.json` |
 | 权限分级 | `unified_frontend/src/auth/permissions.ts` |
@@ -156,7 +157,7 @@ unified_frontend/src/lib/nav.ts
 | `face-detection` | `FaceDetectionSection` | `AiVision` |
 | `human-detection` | `HumanDetectionSection` | `AiVision` |
 | `phone-detection` | `PhoneDetectionSection` | `AiVision` |
-| `alarms` | `AlarmsSection` | 聚合三套后端报警 |
+| `alarms` | `AlarmsSection` | 聚合三类视觉业务报警 |
 | `statistics` | `StatisticsSection` | 基于报警数据聚合统计 |
 
 如果新增一个前端模块，通常需要改：
@@ -170,8 +171,8 @@ unified_frontend/src/lib/nav.ts
 
 ### 6.1 业务职责
 
-`guard_room` 是 AiVision 直接加载的保安行为模块，用于值班室/保安场景。它的 FastAPI 子应用
-挂载在 AiVision 7862 端口下，没有独立进程或端口。它支持多路 RTSP 摄像头，并检测：
+`AiVision/integrations/guard_room` 是 AiVision 内置的保安行为模块，用于值班室/保安场景。它的 FastAPI 子应用
+挂载在 AiVision 7862 端口下，没有独立 Web 进程或端口。它支持多路 RTSP 摄像头，并检测：
 
 | 异常 | 判定逻辑概览 |
 | --- | --- |
@@ -220,9 +221,7 @@ FastAPI API / MJPEG / 报警列表
 ### 6.3 关键文件
 
 ```text
-guard_room/
-├── run_server.py              # 仅保留的独立调试入口，生产不启动
-├── run.py                     # 用于本地/脚本方式运行
+AiVision/integrations/guard_room/
 ├── config/config.example.yaml # 配置模板
 ├── auth/auth_users.json     # 用户账号文件
 ├── src/server.py              # FastAPI API、认证中间件、配置/报警/推流接口
@@ -244,13 +243,13 @@ guard_room/
 主配置文件运行时应是：
 
 ```text
-guard_room/config/config.yaml
+AiVision/integrations/guard_room/config/config.yaml
 ```
 
 模板在：
 
 ```text
-guard_room/config/config.example.yaml
+AiVision/integrations/guard_room/config/config.example.yaml
 ```
 
 重点配置节：
@@ -449,7 +448,7 @@ AiVision/features/detect_human/
 
 ### 8.1 业务职责
 
-`security_vlm` 是由 AiVision 直接托管的安检流程模块。其 API 没有独立端口；点击开启后，
+`AiVision/integrations/security_vlm` 是 AiVision 内置的安检流程模块。其 API 没有独立端口；点击开启后，
 AiVision 才按配置拉起隔离的检测/VLM worker。它不是逐帧直接给 VLM，而是先用传统视觉算法
 筛选出“有意义的交互 session”，再把关键帧拼图交给 VLM 判断。
 
@@ -479,7 +478,7 @@ AiVision main.py (7862，托管 security_vlm FastAPI 子应用)
         消费 session_pending 队列，调用 Qwen-VL，写结果和统计
 ```
 
-进程间通信由 `security_vlm/src/frame_hub.py` 提供：
+进程间通信由 `AiVision/integrations/security_vlm/src/frame_hub.py` 提供：
 
 | 数据类型 | 机制 | 说明 |
 | --- | --- | --- |
@@ -488,7 +487,7 @@ AiVision main.py (7862，托管 security_vlm FastAPI 子应用)
 
 ### 8.3 API 和前端交互
 
-`security_vlm/src/main.py` 提供：
+`AiVision/integrations/security_vlm/src/main.py` 提供：
 
 ```text
 GET  /
@@ -518,7 +517,7 @@ unified_frontend/src/lib/security-vlm.ts
 ### 8.4 关键文件
 
 ```text
-security_vlm/
+AiVision/integrations/security_vlm/
 ├── src/main.py              # FastAPI 主进程，负责 API 和 worker 生命周期
 ├── src/frame_hub.py         # 共享内存帧库 + 原子 JSON 状态存储
 ├── src/capture_worker.py    # 读视频源，写最新帧
@@ -536,13 +535,13 @@ security_vlm/
 运行配置应是：
 
 ```text
-security_vlm/configs/config.yaml
+AiVision/integrations/security_vlm/configs/config.yaml
 ```
 
 模板在：
 
 ```text
-security_vlm/configs/config.example.yaml
+AiVision/integrations/security_vlm/configs/config.example.yaml
 ```
 
 重点配置节：
@@ -619,7 +618,7 @@ python main.py --port <AiVision调试端口>
 ```
 
 Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动，但 token 推理 worker
-默认关闭，只有页面点击开启后才使用 `security_vlm/configs/config.yaml` 的 `envs.worker_python`
+默认关闭，只有页面点击开启后才使用 `AiVision/integrations/security_vlm/configs/config.yaml` 的 `envs.worker_python`
 拉起子进程。不要再创建 `guard_room` 或 `security_vlm` tmux。
 
 ## 11. 排查问题的推荐路径
@@ -640,7 +639,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 
 | 页面 | 优先检查 |
 | --- | --- |
-| 保安行为规范检测 | `guard_room/src/runtime.py`、`guard_room/config/config.yaml` 的 RTSP 和模型路径。 |
+| 保安行为规范检测 | `AiVision/integrations/guard_room/src/runtime.py`、`AiVision/integrations/guard_room/config/config.yaml` 的 RTSP 和模型路径。 |
 | AiVision 各检测页面 | AiVision 摄像头配置、功能是否启用、模型表是否启用、`/api/v2/runtime/status`。 |
 | 安检流程规范检测 | `aivision` 日志中 Security VLM worker 是否启动、状态 API、`runtime.dir` 下状态文件。 |
 
@@ -690,23 +689,23 @@ unified_frontend/src/lib/
 优先看：
 
 ```text
-guard_room/src/behavior.py
-guard_room/src/consensus.py
-guard_room/config/config.yaml
+AiVision/integrations/guard_room/src/behavior.py
+AiVision/integrations/guard_room/src/consensus.py
+AiVision/integrations/guard_room/config/config.yaml
 ```
 
 如果涉及画面标注，看：
 
 ```text
-guard_room/src/drawing.py
+AiVision/integrations/guard_room/src/drawing.py
 ```
 
 如果涉及报警保存/推送，看：
 
 ```text
-guard_room/src/alarms.py
-guard_room/src/alarm_clip_recorder.py
-guard_room/src/wechat_notifier.py
+AiVision/integrations/guard_room/src/alarms.py
+AiVision/integrations/guard_room/src/alarm_clip_recorder.py
+AiVision/integrations/guard_room/src/wechat_notifier.py
 ```
 
 ### 12.4 调整 Security VLM 判定流程
@@ -714,22 +713,21 @@ guard_room/src/wechat_notifier.py
 优先看：
 
 ```text
-security_vlm/src/session_worker.py
-security_vlm/src/vlm_worker.py
-security_vlm/configs/config.yaml
+AiVision/integrations/security_vlm/src/session_worker.py
+AiVision/integrations/security_vlm/src/vlm_worker.py
+AiVision/integrations/security_vlm/configs/config.yaml
 ```
 
 如果只是改工位 ROI，走前端 ROI 编辑即可，不需要改代码。
 
 ## 13. 最重要的心智模型
 
-这个项目不是一个单体服务，而是四个可独立运行的部分：
+这个项目由三个常驻服务组成，所有视觉检测都归属同一个 AiVision 业务后端：
 
 ```text
 unified_frontend = 门面和操作台
-guard_room       = 保安行为检测专用系统
-AiVision         = 通用视觉检测能力平台
-security_vlm     = 安检流程 VLM 判定系统
+unified_backend  = 统一鉴权、聚合与 API 网关
+AiVision         = 通用视觉能力 + Guard Room + Security VLM
 ```
 
-前端负责把三套后端的状态、画面、配置和报警统一呈现。后端之间基本不直接互相调用，主要通过前端聚合。排查问题时一定先判断“这条链路属于哪个子系统”，再进入对应目录看入口、配置、API 和运行时。
+Guard Room 与 Security VLM 是 `AiVision/integrations/` 下的业务模块，不是两个独立后端。排查问题时先判断属于哪个视觉模块，再进入 AiVision 内对应目录查看配置、API 和运行时。

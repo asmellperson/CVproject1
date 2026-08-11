@@ -24,7 +24,6 @@ ROI 热加载:
     session_worker 通过 mtime 检测自动重新加载, 不需要重启进程。
 ================================================================================
 """
-import argparse
 import asyncio
 import json
 import logging
@@ -1505,34 +1504,3 @@ def create_app(
         )
 
     return app
-
-
-# ---------------------------------------------------------------------------
-# 入口
-# ---------------------------------------------------------------------------
-def main():
-    """解析命令行参数，加载配置，启动 uvicorn 服务器"""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default=None)
-    parser.add_argument("--host", type=str, default=None)
-    parser.add_argument("--port", type=int, default=None)
-    args = parser.parse_args()
-
-    project_root = Path(__file__).resolve().parent.parent
-    config_path = (resolve_path(args.config, project_root) if args.config
-                   else project_root / "configs" / "config.yaml")
-    cfg = load_yaml(config_path)
-
-    import uvicorn
-    uvicorn.run(
-        create_app(config_path),
-        host=str(args.host or cfg["web"]["host"]),
-        port=int(args.port or cfg["web"]["port"]),
-        reload=False,                 # 生产环境不启用热重载
-        access_log=False,             # 关闭访问日志，减少输出噪音
-        log_level="warning",          # 仅输出警告及以上级别日志
-    )
-
-
-if __name__ == "__main__":
-    main()

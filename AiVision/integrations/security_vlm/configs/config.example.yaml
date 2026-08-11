@@ -3,10 +3,6 @@
 # 安检合规检测 - VLM 方案 完整版配置
 # ======================================================================
 
-project:
-  root: /usr/zyy/SecurityDutyDetect/security_vlm
-  name: security_vlm
-
 # ---- Python 环境 ----
 envs:
   # 新建的 security_vlm conda env 的 python 路径
@@ -36,9 +32,7 @@ workers:
   poll_interval_sec: 0.01
 
 # ---- Web 服务 ----
-web:
-  host: 0.0.0.0
-  port: 8000
+web: {}
   # jpeg_quality: 60
   # display_every_n: 1
 
@@ -48,7 +42,7 @@ data:
   # 安检模块独立维护的多摄像头注册表
   camera_registry_path: data/config/cameras.json
   # ROI 配置持久化目录
-  staff_identity_dir: /usr/zyy/SecurityDutyDetect/security_vlm/data/annotations/staff_rois
+  staff_identity_dir: data/annotations/staff_rois
 
 # ---- 默认工位 ROI(首次启动用;后续以前端保存的 JSON 为准) ----
 staff_rois:

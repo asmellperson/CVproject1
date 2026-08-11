@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from src import db
 from src.config import (
     AppConfig,
     ClassConfig,
@@ -65,3 +66,18 @@ def test_runtime_paths_keep_urls_device_indexes_and_absolute_paths(tmp_path):
     assert runtime_config.video.source == "rtsp://camera/live"
     assert runtime_config.video.source_cam1 == "0"
     assert runtime_config.video.output_dir == str(tmp_path / "absolute-output")
+
+
+def test_default_sqlite_database_is_anchored_to_guard_room_module(monkeypatch):
+    monkeypatch.setattr(db, "_database_url_override", None)
+    for name in (
+        "GUARD_ROOM_DATABASE_URL",
+        "MYSQL_DB_URL",
+        "MYSQL_DB_USER",
+        "MYSQL_DB_PASSWORD",
+        "MYSQL_DB_NAME",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    module_root = Path(db.__file__).resolve().parents[1]
+    assert db._database_url() == f"sqlite:///{module_root / 'guard_room.db'}"

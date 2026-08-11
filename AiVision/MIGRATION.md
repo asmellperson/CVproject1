@@ -174,7 +174,7 @@ curl -o frame_v2.jpg 'http://127.0.0.1:7862/api/v2/cameras/<shm_name>/frame.jpg?
 确认模型路径存在：
 
 ```bash
-ls -lh /usr/zyy/Fuda_CVPreject/guard_room/models/person_phone.pt
+ls -lh /usr/zyy/Fuda_CVPreject/AiVision/integrations/guard_room/models/person_phone.pt
 ls -lh /srv/cv/research/models/face/yolov8x-face-lindevs.pt
 ```
 

@@ -72,7 +72,6 @@ def create_app(
     managed_visual_services: ManagedVisualServices | None = None,
 ) -> FastAPI:
     visual_services = managed_visual_services or ManagedVisualServices(
-        repository_root=settings.visual_services.repository_root,
         guard_room_config_path=settings.visual_services.guard_room_config_path,
         security_vlm_config_path=settings.visual_services.security_vlm_config_path,
     )

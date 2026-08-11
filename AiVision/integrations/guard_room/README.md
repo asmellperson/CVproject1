@@ -1,5 +1,5 @@
 
-# 值班室 AI 行为监控系统
+# AiVision 值班室 AI 行为监控模块
 
 基于多路摄像头的实时保安行为监控系统，自动检测**离岗、玩手机、趴睡**三类异常行为，并通过企业微信推送带视频的报警消息。
 ![alt text](guard_room架构图.png)
@@ -125,8 +125,7 @@ GuardRoomRuntime._run_loop (主循环线程)
 ```
 项目根目录/
 ├── config/
-│   ├── config.yaml          # 主配置文件
-│   └── auth_users.json      # 用户账号数据库
+│   └── config.yaml          # 主配置文件
 ├── models/
 │   ├── person_phone.pt      # YOLO 检测模型（人体+手机）
 │   ├── uniform_classes.pt   # 制服分类模型（ConvNeXtV2）
@@ -138,7 +137,7 @@ GuardRoomRuntime._run_loop (主循环线程)
     ├── utils.py             # 通用工具函数（ensure_dir、now_str、safe_float）
     ├── geometry.py          # 几何计算（IoU、中心点、多边形转换）
     ├── drawing.py           # 画面标注（检测框、多边形、调试文字、报警横幅）
-    ├── auth.py              # 认证授权兼容入口，实际逻辑在 ../auth/auth.py
+    ├── auth.py              # 认证授权兼容入口，实际逻辑在仓库根目录 auth/auth.py
     ├── state.py             # 共享状态（AppState，运行时与 Web API 的数据中转站）
     ├── guard_gate.py        # 保安识别结果平滑（hold_seconds 宽限期）
     ├── uniform.py           # 制服识别分类器（ConvNeXtV2，timm）
@@ -178,11 +177,13 @@ state ←→ runtime
 
 ## 环境与依赖
 
-### 创建环境
+### 运行环境
 
 ```bash
-conda activate guard_room
+conda activate aivision
 ```
+
+本模块由 AiVision 直接加载，不再创建或启动独立的 `guard_room` Web 环境。
 
 ### 主要依赖
 
@@ -201,8 +202,7 @@ pillow
 ### 安装依赖
 
 ```bash
-conda activate guard_room
-pip install -r requirements.txt
+conda run -n aivision python -m pip install -r AiVision/requirements.txt
 ```
 
 ---
@@ -212,73 +212,27 @@ pip install -r requirements.txt
 ### 1. 准备配置文件
 
 ```bash
-cp config/config.yaml.example config/config.yaml
+cp AiVision/integrations/guard_room/config/config.example.yaml \
+  AiVision/integrations/guard_room/config/config.yaml
 # 编辑 config.yaml，填写摄像头地址、模型路径、企业微信凭证
 ```
 
-### 2. 准备用户数据库
-
-```json
-// auth/auth_users.json
-[
-  {
-    "employee_id": "001",
-    "name": "管理员",
-    "role": "admin",
-    "enabled": true
-  }
-]
-```
-
-### 3. 启动服务
+### 2. 启动 AiVision
 
 ```bash
-conda activate guard_room
-
-# 开发模式（自动重载）
-uvicorn src.server:create_app --factory --host 0.0.0.0 --port 5000 --reload
-
-# 生产模式
-uvicorn src.server:create_app --factory --host 0.0.0.0 --port 5000 --workers 1
+cd <仓库根目录>
+bash scripts/start.sh
 ```
 
-> **注意**：`--workers 1` 是必须的，多进程模式下各 worker 的 `runtime` 实例互相独立，会导致状态不一致。
+Guard Room 作为 FastAPI 子应用挂载在 AiVision 的 7862 端口，不再监听独立端口。
 
-### 4. 验证服务
+### 3. 验证服务
 
 ```bash
-# 健康检查
-curl http://localhost:5000/api/health
-
-# 登录获取 Token
-curl -X POST http://localhost:5000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"employee_id": "001", "password": "Fuda@2026"}'
-
-# 启动检测
-curl -X POST http://localhost:5000/api/control/start \
-  -H "Authorization: Bearer <token>"
+curl http://localhost:7862/api/v2/integrations/guard-room/api/health
 ```
 
-### 5. 查看推流
-
-浏览器访问 `http://localhost:5000/api/stream.mjpg` 即可看到实时标注画面。
-
-### 后台运行（推荐）
-
-```bash
-conda activate guard_room
-nohup uvicorn src.server:create_app --factory \
-  --host 0.0.0.0 --port 5000 \
-  > logs/server.log 2>&1 &
-echo $! > logs/server.pid
-```
-
-停止服务：
-
-```bash
-kill $(cat logs/server.pid)
-```
+业务请求通常经统一后端转发；直接请求除公开健康接口外需要与平台一致的认证信息。
 
 ---
 

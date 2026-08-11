@@ -119,7 +119,7 @@ config.local.yaml
 config.local.yml
 config.prod.yaml
 config.prod.yml
-security_vlm/configs/config.yaml
+AiVision/integrations/security_vlm/configs/config.yaml
 AiVision/config/model_paths.yaml
 *.local.yaml
 *.local.yml

@@ -102,7 +102,7 @@ WHERE name='yolo_face';
 
 ## 项目背景信息
 
-- **范围**:只重构 AiVision/。`guard_room/` 和 `unified_frontend/` 是另外两个独立项目,**不动**
+- **当前范围**:Guard Room 与 Security VLM 已迁入 `AiVision/integrations/`；`unified_frontend/` 仍是独立前端项目。
 - **前端约束**:用户会跟着改前端,所以 API 路径可以改 → 因此采用了 v2 路径
 - **数据库**:MySQL,表结构**不变**,只是 ORM 类换位置
 - **当前实际跑起来的**:只有 blocks 和 detect_door(纯帧差,无需推理),
@@ -254,7 +254,7 @@ tests/                  # pytest 单元测试
 - 重构幅度:**结构+重复代码合并** (问 #2)
 - 数据库:**可以改但需迁移脚本** (问 #3) — 实际我这次设计成不需要迁移
 - API 路径:**可以改,前端我会一起改** (Q2)
-- 范围:**只 AiVision,guard_room 后续再看** (Q1)
+- 当时范围:**只 AiVision,guard_room 后续再看** (Q1；已被后续合并需求取代)
 - 录屏:**不做,微信只发文本+图片** (Q1/Q2)
 - 节奏:**分批发,每批 review** (Q2 of 节奏)
 - 代码位置:**重写 AiVision/ 原目录,老代码直接被覆盖** (Q2 of 实际状态)
@@ -262,7 +262,7 @@ tests/                  # pytest 单元测试
 ## 用户技术栈备注
 
 - Python 3.10
-- venv 在 `AiVision/.venv/`
+- Python 服务统一使用 Conda；AiVision 环境名为 `aivision`
 - 用户对企业微信 corpsecret 硬编码在源码不在意,但我新代码改成了环境变量
   (用户没反对就保留)
 

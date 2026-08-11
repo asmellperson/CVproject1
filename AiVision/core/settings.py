@@ -122,22 +122,18 @@ class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_AIVISION_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ManagedVisualServiceSettings(BaseSettings):
     """由 AiVision 同一进程承载的扩展视觉能力配置。"""
 
-    repository_root: Path = Field(
-        _REPOSITORY_ROOT,
-        alias="VISUAL_SERVICES_REPOSITORY_ROOT",
-    )
     guard_room_config_path: Path = Field(
-        _REPOSITORY_ROOT / "guard_room" / "config" / "config.yaml",
+        _AIVISION_ROOT / "integrations" / "guard_room" / "config" / "config.yaml",
         alias="GUARD_ROOM_CONFIG_PATH",
     )
     security_vlm_config_path: Path = Field(
-        _REPOSITORY_ROOT / "security_vlm" / "configs" / "config.yaml",
+        _AIVISION_ROOT / "integrations" / "security_vlm" / "configs" / "config.yaml",
         alias="SECURITY_VLM_CONFIG_PATH",
     )
 

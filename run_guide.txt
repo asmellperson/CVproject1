@@ -28,6 +28,9 @@ bash scripts/start.sh --force
 # 从旧五服务版本首次升级时，推荐先执行 stop.sh；它会同时清理旧的
 # guard_room / security_vlm tmux。若直接启动，普通模式会拒绝重复运行，
 # --force 模式会先清理旧会话再启动。
+# git pull 后若根目录还留有旧模块的本地模型、真实配置或运行数据，先执行：
+bash scripts/migrate_visual_integrations.sh
+# 脚本只合并到 AiVision/integrations，遇到同名文件会停止且不会覆盖。
 
 统一启动后只创建以下三个 tmux 会话：
 - unified_frontend：前端，端口 3000
@@ -35,9 +38,10 @@ bash scripts/start.sh --force
 - aivision：全部视觉检测业务，端口 7862
 
 Guard Room 和 Security VLM 已经直接由 AiVision 进程承载：
+- 两套源码都位于 AiVision/integrations/，仓库根目录不再保留同名后端目录。
 - 保安行为规范检测随 AiVision 启动，并保持默认开启状态，可在页面手动关闭。
 - 安检流程规范 API 随 AiVision 启动，但检测 worker 默认关闭；点击开启后，
-  AiVision 才使用 security_vlm/configs/config.yaml 中配置的 Conda Python
+  AiVision 才使用 AiVision/integrations/security_vlm/configs/config.yaml 中配置的 Conda Python
   拉起耗 token 的推理子进程。
 - 不再启动 guard_room、security_vlm tmux，也不再监听 5001、8000。
 
@@ -100,7 +104,7 @@ conda run -n aivision python -m pip install -r AiVision/requirements.txt
 
 Security VLM 按需 worker 环境不存在时：
 conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install -r security_vlm/requirements.txt
+conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt
 
 物流通道单人检测上线说明：
 - 通用电气、电子电工、电气部件、贵金属回收四个模块都在各自前端配置页按“物流通道”管理。

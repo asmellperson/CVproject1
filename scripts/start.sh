@@ -577,17 +577,17 @@ precheck_one() {
         hint "请编辑: vi ${workdir}/.env"
         issues=$((issues + 1))
       fi
-      if [[ ! -f "${PROJECT_ROOT}/guard_room/config/config.yaml" ]]; then
-        cfg "${name} 托管的 Guard Room 缺少配置文件 ${PROJECT_ROOT}/guard_room/config/config.yaml"
+      if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/guard_room/config/config.yaml" ]]; then
+        cfg "${name} 托管的 Guard Room 缺少配置文件 ${PROJECT_ROOT}/AiVision/integrations/guard_room/config/config.yaml"
         issues=$((issues + 1))
       fi
-      if [[ ! -f "${PROJECT_ROOT}/security_vlm/configs/config.yaml" ]]; then
-        cfg "${name} 托管的 Security VLM 缺少配置文件 ${PROJECT_ROOT}/security_vlm/configs/config.yaml"
+      if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml" ]]; then
+        cfg "${name} 托管的 Security VLM 缺少配置文件 ${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml"
         issues=$((issues + 1))
       fi
       if [[ -n "$CONDA_SH_PATH" ]] && ! conda_env_exists "$SECURITY_VLM_WORKER_ENV" "$CONDA_SH_PATH"; then
         cfg "Security VLM 按需推理环境 '${SECURITY_VLM_WORKER_ENV}' 不存在；AiVision 可启动，但安检检测无法开启"
-        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/security_vlm/requirements.txt"
+        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt"
       fi
       ;;
     unified_frontend)
@@ -734,6 +734,18 @@ handle_legacy_service_sessions() {
   done
 }
 
+handle_legacy_source_layout() {
+  local legacy_paths=()
+  [[ -d "${PROJECT_ROOT}/guard_room" ]] && legacy_paths+=("guard_room")
+  [[ -d "${PROJECT_ROOT}/security_vlm" ]] && legacy_paths+=("security_vlm")
+  [[ ${#legacy_paths[@]} -eq 0 ]] && return 0
+
+  err "检测到旧版根目录视觉模块: ${legacy_paths[*]}"
+  hint "先迁移模型、真实配置和运行数据: bash ${PROJECT_ROOT}/scripts/migrate_visual_integrations.sh"
+  hint "迁移脚本遇到同名文件会停止，不会覆盖目标内容"
+  return 1
+}
+
 # ---- 主流程 ----------------------------------------------------------------
 main() {
   log "福达视觉平台冷启动脚本 - $(date '+%F %T')"
@@ -743,6 +755,10 @@ main() {
   if ! command -v tmux >/dev/null 2>&1; then
     err "缺少全局依赖: tmux"
     exit 1
+  fi
+
+  if ! handle_legacy_source_layout; then
+    exit 4
   fi
 
   if ! handle_legacy_service_sessions; then

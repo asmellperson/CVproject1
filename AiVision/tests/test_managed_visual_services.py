@@ -47,7 +47,6 @@ def _factory(name: str, events: list[str]):
 def _manager(tmp_path: Path, events: list[str]) -> ManagedVisualServices:
     guard, security = _config_files(tmp_path)
     return ManagedVisualServices(
-        repository_root=tmp_path,
         guard_room_config_path=guard,
         security_vlm_config_path=security,
         guard_room_factory=_factory("guard", events),
@@ -134,7 +133,6 @@ def test_aivision_registers_both_managed_route_trees(tmp_path):
 
 def test_missing_child_config_fails_parent_startup(tmp_path):
     manager = ManagedVisualServices(
-        repository_root=tmp_path,
         guard_room_config_path=tmp_path / "missing-guard.yaml",
         security_vlm_config_path=tmp_path / "missing-security.yaml",
         guard_room_factory=_factory("guard", []),

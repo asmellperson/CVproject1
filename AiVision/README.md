@@ -9,6 +9,7 @@ core/                 共享配置、DB、缓存、事件、告警
 features/             检测功能模块
 features/_base/       功能通用基类、配置服务、API 工厂
 platform/             摄像头、推理、喇叭、违规图片、总编排
+integrations/         Guard Room 与 Security VLM 内置业务模块
 api/                  FastAPI v2 路由和旧路径兼容层
 main.py               后端入口
 ```
@@ -19,10 +20,8 @@ main.py               后端入口
 
 ```bash
 cd /usr/zyy/Fuda_CVPreject/AiVision
-python3.10 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .
+conda activate aivision
+python -m pip install -r requirements.txt
 cp .env.example .env
 # 修改 .env 中数据库、DATA_PATH、企业微信等配置
 python main.py
