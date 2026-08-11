@@ -8,31 +8,32 @@
 80 / 443 -> 项目服务器 Nginx
 ```
 
-不要把以下端口开放到公网：
+以下三个应用端口都只允许本机访问，不要开放到公网：
 
 ```text
 3000  Vite 开发服务
 5000  unified_backend
-5001  Guard Room
-7862  AiVision
-8000  Security VLM
+7862  AiVision（含 Guard Room 与 Security VLM API）
 ```
+
+Guard Room 和 Security VLM 不再监听 5001、8000。
 
 ## 项目服务器内部结构
 
 ```text
 公网 80/443
   -> Nginx
-      /                 -> /usr/zyy/Fuda_CVPreject_V3/unified_frontend/dist
+      /                 -> unified_frontend/dist
       /api/             -> 127.0.0.1:5000
       /aivision/        -> 127.0.0.1:5000
       /security-vlm/    -> 127.0.0.1:5000
 
 127.0.0.1:5000  unified_backend
-127.0.0.1:5001  Guard Room
-127.0.0.1:7862  AiVision
-127.0.0.1:8000  Security VLM
+127.0.0.1:7862  AiVision 统一视觉业务层
 ```
+
+统一后端把保安、安检和其他检测请求统一转给 AiVision；AiVision 在同一进程内调用对应模块，
+不会再发起到 Guard Room 或 Security VLM Web 服务的 HTTP 请求。
 
 ## 项目侧构建
 
@@ -49,41 +50,27 @@ npm run build
 
 ## 服务启动方式
 
-内部检测服务只监听本机：
-
-```bash
-cd /usr/zyy/Fuda_CVPreject_V3/guard_room
-python run_server.py --host 127.0.0.1 --port 5001
-
-cd /usr/zyy/Fuda_CVPreject_V3/AiVision
-uv run main.py --host 127.0.0.1 --port 7862
-
-cd /usr/zyy/Fuda_CVPreject_V3/security_vlm
-python src/main.py --config configs/config.yaml --host 127.0.0.1 --port 8000
-```
-
-统一后端只给 Nginx 本机访问：
-
 ```bash
 cd /usr/zyy/Fuda_CVPreject_V3
-python -m unified_backend.run_server --host 127.0.0.1 --port 5000
+bash scripts/start.sh
+```
+
+手动排障时，AiVision 必须使用 Conda：
+
+```bash
+cd /usr/zyy/Fuda_CVPreject_V3/AiVision
+conda activate aivision
+python main.py --host 127.0.0.1 --port 7862
 ```
 
 ## 验证
 
-本机验证统一后端：
-
 ```bash
 curl -i http://127.0.0.1:5000/api/health
-```
-
-公网验证：
-
-```bash
 curl -i https://aicv.fudar.com/api/health
 ```
 
-应返回：
+统一后端应返回：
 
 ```json
 {"status":"ok","service":"unified_backend","port":5000}

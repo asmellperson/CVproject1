@@ -16,7 +16,7 @@ from unified_backend.app import (
 )
 
 
-def test_visual_workers_are_routed_through_aivision_control_plane():
+def test_managed_visual_services_are_routed_to_aivision():
     aivision_url = "http://127.0.0.1:7862/"
 
     assert _visual_service_url(aivision_url, "guard-room") == (

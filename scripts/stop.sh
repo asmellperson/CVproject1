@@ -2,21 +2,21 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：kill 5 个子服务的 tmux 会话。
+# 作用：kill 3 个服务的 tmux 会话。
 # 用法：
-#   bash scripts/cold_stop.sh            # 关停全部 5 个
-#   bash scripts/cold_stop.sh -y         # 跳过确认，直接关停
+#   bash scripts/stop.sh            # 关停全部 3 个
+#   bash scripts/stop.sh -y         # 跳过确认，直接关停
 # 注意：这是破坏性操作，会让线上服务下线。
 #
 # 关于 AUTH_SECRET：
 #   本脚本只关停 tmux 会话，不会动 scripts/auth_secret 文件。
-#   下次 cold_start.sh 会复用同一密钥，用户登录态保持不变。
+#   下次 start.sh 会复用同一密钥，用户登录态保持不变。
 #   如需强制刷新密钥（会踢所有用户下线）：rm scripts/auth_secret
 # =============================================================================
 
 set -u
 
-SERVICES=(unified_frontend unified_backend security_vlm aivision guard_room)
+SERVICES=(unified_frontend unified_backend aivision)
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'

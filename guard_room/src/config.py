@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -369,3 +370,52 @@ class AppConfig:
             "runtime": asdict(self.runtime),
             "wechat": asdict(self.wechat),
         }
+
+
+def resolve_runtime_paths(config: AppConfig, project_root: str | Path) -> AppConfig:
+    """返回供推理运行时使用的副本，并把 Guard 本地路径锚定到项目目录。
+
+    API 与数据库仍保存用户填写的原始值；只有交给模型和文件写入器的副本使用
+    绝对路径，因此从 ``guard_room`` 独立进程迁入 AiVision 后不会依赖当前工作目录。
+    """
+    resolved = deepcopy(config)
+    root = Path(project_root).resolve()
+
+    def local_path(value: str, *, require_path_hint: bool = False) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return raw
+        path = Path(raw)
+        if path.is_absolute():
+            return str(path)
+        candidate = (root / path).resolve()
+        has_path_hint = len(path.parts) > 1 or raw.startswith(".")
+        if candidate.exists() or (require_path_hint and has_path_hint):
+            return str(candidate)
+        return raw
+
+    output_dir = Path(resolved.video.output_dir)
+    if not output_dir.is_absolute():
+        output_dir = root / output_dir
+    resolved.video.output_dir = str(output_dir.resolve())
+
+    for field_name in (
+        "detector_model",
+        "vehicle_detector_model",
+        "uniform_cls_model",
+        "pose_model_task",
+    ):
+        setattr(
+            resolved.models,
+            field_name,
+            local_path(getattr(resolved.models, field_name, ""), require_path_hint=True),
+        )
+
+    resolved.models.tracker = local_path(resolved.models.tracker)
+
+    for field_name in ("source", *(f"source_cam{index}" for index in range(1, 10))):
+        value = getattr(resolved.video, field_name, "")
+        if isinstance(value, str):
+            setattr(resolved.video, field_name, local_path(value))
+
+    return resolved

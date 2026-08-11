@@ -3,7 +3,7 @@
 这份文档读完后应能回答三个问题：
 
 1. 这个项目解决什么业务问题。
-2. 前端和三个后端子系统分别负责什么。
+2. 前端、统一后端和 AiVision 视觉业务层分别负责什么。
 3. 如果要运行、排查或新增能力，应该先看哪些文件。
 
 ## 1. 项目定位
@@ -23,30 +23,29 @@ https://aicv.fudar.com/
 | 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
-整体上，这是一个“一个前端 + 三个独立后端服务”的项目。前端不直接跑算法，它通过 HTTP/MJPEG 接口访问各后端。
+整体上，这是“一个前端 + 一个统一后端 + 一个视觉业务后端”的三服务项目。`guard_room` 和
+`security_vlm` 保留各自算法模块，但 API 与生命周期都直接由 AiVision 承载，不再是独立服务。
 
 ## 2. 仓库顶层结构
 
 ```text
 Fuda_CVPreject_V3/
 ├── unified_frontend/      # React + TypeScript + Vite 统一前端
-├── guard_room/            # 保安行为规范检测后端
-├── AiVision/              # 通用视觉检测后端 v2
-├── security_vlm/          # 安检流程规范 VLM 检测后端
+├── guard_room/            # AiVision 直接调用的保安行为算法与 API 模块
+├── AiVision/              # 统一视觉业务后端（含全部检测能力）
+├── security_vlm/          # AiVision 管理的安检 VLM 算法与按需 worker
 ├── auth/                  # 登录鉴权模块：后端认证鉴权、前端权限分级
 ├── run_guide.txt          # 线上/tmux 启动命令与账号维护说明
 └── PROJECT_ARCHITECTURE.md
 ```
 
-各子系统可以单独启动、单独调试。生产或联调时通常四个服务都跑起来：
+生产和联调只需运行三个常驻服务：
 
 | 服务 | 默认端口 | 启动目录 | 主要入口 |
 | --- | ---: | --- | --- |
 | 统一前端 | `3000` | `unified_frontend` | `npm run dev` |
 | 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
-| Guard Room | `5001` | `guard_room` | `python run_server.py` |
-| AiVision | `7862` | `AiVision` | `uv run main.py` |
-| Security VLM | `8000` | `security_vlm` | `python src/main.py --config configs/config.yaml` |
+| AiVision 视觉业务层 | `7862` | `AiVision` | `conda activate aivision && python main.py` |
 
 ## 3. 整体调用关系
 
@@ -59,11 +58,11 @@ unified_frontend (Vite/React, :3000)
   v
 unified_backend (:5000)
   |
-  +-- /api/*             -> guard_room (:5001)
+  +-- 保安行为 API        -> AiVision (:7862, 进程内 Guard Room)
+  +-- 安检流程 API        -> AiVision (:7862, 进程内 Security VLM)
   +-- /api/aivision/*    -> AiVision (:7862)
   +-- /api/ai/*          -> AiVision (:7862, 旧路径兼容)
   +-- /aivision/*        -> AiVision (:7862)
-  +-- /security-vlm/*    -> security_vlm (:8000)
 ```
 
 开发环境的代理配置在：
@@ -84,8 +83,8 @@ unified_frontend/src/lib/security-vlm.ts
 
 ## 4. 认证与权限
 
-当前项目的后端认证实现集中在`auth/auth.py`。Guard Room 负责登录入口，
-AiVision 校验同一个 JWT/Cookie；两个服务内的 `auth.py` 只是兼容旧 import 的转发层。
+当前项目的后端认证实现集中在 `auth/auth.py`。统一后端负责登录入口，AiVision 校验同一个
+JWT/Cookie；Guard Room 内的 `auth.py` 只是兼容旧 import 的转发层。
 
 关键点：
 
@@ -100,10 +99,10 @@ AiVision 校验同一个 JWT/Cookie；两个服务内的 `auth.py` 只是兼容�
 | 权限分级 | `unified_frontend/src/auth/permissions.ts` |
 | 角色 | `admin` 可以配置/启停/录制；`viewer` 只能查看。 |
 
-线上启动时需要让 Guard Room 和 AiVision 使用同一个 `AUTH_SECRET`：
+线上启动时需要让统一后端和 AiVision 使用同一个 `AUTH_SECRET`：
 
 ```bash
-export AUTH_SECRET="<guard_room和AiVision保持同一串32位以上随机密钥>"
+export AUTH_SECRET="<统一后端和AiVision保持同一串32位以上随机密钥>"
 ```
 
 新增账号和角色修改参考`run_guide.txt`。
@@ -171,7 +170,8 @@ unified_frontend/src/lib/nav.ts
 
 ### 6.1 业务职责
 
-`guard_room` 是一个独立 FastAPI 后端，用于值班室/保安场景。它支持多路 RTSP 摄像头，并检测：
+`guard_room` 是 AiVision 直接加载的保安行为模块，用于值班室/保安场景。它的 FastAPI 子应用
+挂载在 AiVision 7862 端口下，没有独立进程或端口。它支持多路 RTSP 摄像头，并检测：
 
 | 异常 | 判定逻辑概览 |
 | --- | --- |
@@ -221,7 +221,7 @@ FastAPI API / MJPEG / 报警列表
 
 ```text
 guard_room/
-├── run_server.py              # 服务启动入口
+├── run_server.py              # 仅保留的独立调试入口，生产不启动
 ├── run.py                     # 用于本地/脚本方式运行
 ├── config/config.example.yaml # 配置模板
 ├── auth/auth_users.json     # 用户账号文件
@@ -262,7 +262,7 @@ guard_room/config/config.example.yaml
 | `rules` | 离岗、手机、趴睡的阈值和报警冷却时间。 |
 | `wechat` | 企业微信开关、凭据、报警接收人、视频片段时长。 |
 
-排查 Guard Room 时，优先看 `src/runtime.py` 日志和 `/api/status` 返回。
+排查 Guard Room 时，进入 `aivision` tmux，优先看 `src/runtime.py` 日志和状态 API 返回。
 
 ## 7. AiVision 通用视觉检测后端
 
@@ -337,7 +337,7 @@ FastAPI API v2 + 旧路径兼容
 ```text
 AiVision/
 ├── main.py                      # 后端入口，设置 multiprocessing spawn，启动 Uvicorn
-├── pyproject.toml               # Python 依赖与 uv 项目配置
+├── pyproject.toml               # AiVision Conda 环境内安装的 Python 依赖
 ├── .env.example                 # 环境变量模板
 ├── api/app.py                   # FastAPI app、中间件、路由注册
 ├── api/auth.py                  # 兼容入口，实际转发到 ../auth/auth.py
@@ -449,7 +449,9 @@ AiVision/features/detect_human/
 
 ### 8.1 业务职责
 
-`security_vlm` 用于安检工位流程合规检测。它不是逐帧直接给 VLM，而是先用传统视觉算法筛选出“有意义的交互 session”，再把关键帧拼图交给 VLM 判断。
+`security_vlm` 是由 AiVision 直接托管的安检流程模块。其 API 没有独立端口；点击开启后，
+AiVision 才按配置拉起隔离的检测/VLM worker。它不是逐帧直接给 VLM，而是先用传统视觉算法
+筛选出“有意义的交互 session”，再把关键帧拼图交给 VLM 判断。
 
 核心目标：
 
@@ -462,7 +464,7 @@ AiVision/features/detect_human/
 ### 8.2 多进程架构
 
 ```text
-main.py (FastAPI Web 主进程)
+AiVision main.py (7862，托管 security_vlm FastAPI 子应用)
   |
   +-- capture_worker.py
   |     读取 RTSP/视频源，写入 FrameHub 双缓冲共享内存
@@ -507,10 +509,10 @@ GET  /video/rule
 unified_frontend/src/lib/security-vlm.ts
 ```
 
-开发代理前缀是：
+前端访问路径会先经过统一后端，再进入 AiVision 内的 Security VLM 子应用：
 
 ```text
-/security-vlm/* -> http://127.0.0.1:8000
+/security-vlm/* -> unified_backend (:5000) -> AiVision (:7862)
 ```
 
 ### 8.4 关键文件
@@ -600,50 +602,25 @@ http://<服务器IP>:3000
 npm run dev -- --port <前端调试端口>
 ```
 
-### 10.2 Guard Room
-
-```bash
-tmux new -s guard_room
-conda activate guard_room
-cd guard_room
-export AUTH_SECRET="<guard_room和AiVision保持同一串32位以上随机密钥>"
-python run_server.py
-```
-
-临时改端口：
-
-```bash
-python run_server.py --port <guard_room调试端口>
-```
-
-### 10.3 AiVision
+### 10.2 AiVision（同时承载 Guard Room 与 Security VLM API）
 
 ```bash
 tmux new -s aivision
 cd AiVision
-export AUTH_SECRET="<guard_room和AiVision保持同一串32位以上随机密钥>"
-uv run main.py
+conda activate aivision
+export AUTH_SECRET="<与统一后端保持同一串32位以上随机密钥>"
+python main.py
 ```
 
 临时改端口：
 
 ```bash
-uv run main.py --port <AiVision调试端口>
+python main.py --port <AiVision调试端口>
 ```
 
-### 10.4 Security VLM
-
-```bash
-tmux new -s security_vlm
-cd security_vlm
-python src/main.py --config configs/config.yaml
-```
-
-临时改端口：
-
-```bash
-python src/main.py --config configs/config.yaml --port <security_vlm调试端口>
-```
+Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动，但 token 推理 worker
+默认关闭，只有页面点击开启后才使用 `security_vlm/configs/config.yaml` 的 `envs.worker_python`
+拉起子进程。不要再创建 `guard_room` 或 `security_vlm` tmux。
 
 ## 11. 排查问题的推荐路径
 
@@ -656,7 +633,7 @@ python src/main.py --config configs/config.yaml --port <security_vlm调试端口
 ### 11.2 登录失败
 
 1. 看 `auth/auth_users.json` 是否有该工号且 `enabled=true`。
-2. 确认 Guard Room 和 AiVision 的 `AUTH_SECRET` 是否一致。
+2. 确认统一后端和 AiVision 的 `AUTH_SECRET` 是否一致。
 3. 看 `auth/auth.py` 的 token 签发和校验逻辑。
 
 ### 11.3 某个算法页面无画面
@@ -665,7 +642,7 @@ python src/main.py --config configs/config.yaml --port <security_vlm调试端口
 | --- | --- |
 | 保安行为规范检测 | `guard_room/src/runtime.py`、`guard_room/config/config.yaml` 的 RTSP 和模型路径。 |
 | AiVision 各检测页面 | AiVision 摄像头配置、功能是否启用、模型表是否启用、`/api/v2/runtime/status`。 |
-| 安检流程规范检测 | `security_vlm/` worker 是否启动、`/health`、`runtime.dir` 下状态文件。 |
+| 安检流程规范检测 | `aivision` 日志中 Security VLM worker 是否启动、状态 API、`runtime.dir` 下状态文件。 |
 
 ### 11.4 报警没有出现
 

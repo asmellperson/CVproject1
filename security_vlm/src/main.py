@@ -46,8 +46,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-# 把 src/ 加入 import 路径, 让 frame_hub 能被找到
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# 独立脚本与 AiVision 进程内导入都要兼容；放在末尾可避免覆盖宿主应用同名模块。
+_SOURCE_DIR = str(Path(__file__).resolve().parent)
+if _SOURCE_DIR not in sys.path:
+    sys.path.append(_SOURCE_DIR)
 from frame_hub import FrameHubReader, ResultStore  # noqa: E402
 from roi_geometry import (  # noqa: E402
     bbox_belongs_to_normalized_roi,

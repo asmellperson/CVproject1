@@ -1,128 +1,120 @@
 福达视觉平台公网网址：https://aicv.fudar.com/
 
-使用tmux在后端跑代码：下载：
+使用 tmux 在服务器后台运行：
 apt update
 apt install -y tmux
 
-推荐：统一管理五个服务
+推荐：统一管理三个常驻服务
 ========================================
 以下命令都在项目根目录执行：
 
 cd /srv/Fuda_CVPreject
 
-# 启动五个服务（已有同名 tmux 会话时会跳过，不影响正在运行的服务）
+# 启动三个服务（已有同名 tmux 会话时会跳过）
 bash scripts/start.sh
 
-# 统一后端会自动优先使用名为 unified_backend 的 Conda 环境。
-# 目标服务器已有该环境时无需修改任何项目配置文件。
-
-# 查看五个服务的 tmux、端口和健康状态
+# 查看三个服务的 tmux、端口和健康状态
 bash scripts/status.sh
 
-# 停止五个服务（执行时需要输入 yes 确认）
+# 停止三个服务（需要输入 yes 确认）
 bash scripts/stop.sh
 
-# 停止五个服务且不再询问
+# 停止三个服务且不再询问
 bash scripts/stop.sh -y
 
-# 强制重启五个服务
+# 强制重启三个服务
 bash scripts/start.sh --force
 
-统一启动后会创建以下五个 tmux 会话：
+统一启动后只创建以下三个 tmux 会话：
 - unified_frontend：前端，端口 3000
 - unified_backend：统一后端，端口 5000
-- guard_room：保安行为规范检测，端口 5001
-- aivision：AiVision，端口 7862
-- security_vlm：安全生产 VLM，端口 8000
+- aivision：全部视觉检测业务，端口 7862
+
+Guard Room 和 Security VLM 已经直接由 AiVision 进程承载：
+- 保安行为规范检测随 AiVision 启动，并保持默认开启状态，可在页面手动关闭。
+- 安检流程规范 API 随 AiVision 启动，但检测 worker 默认关闭；点击开启后，
+  AiVision 才使用 security_vlm/configs/config.yaml 中配置的 Conda Python
+  拉起耗 token 的推理子进程。
+- 不再启动 guard_room、security_vlm tmux，也不再监听 5001、8000。
+
+AiVision 必须使用名为 aivision 的 Conda 环境，不能使用 uv。
+Security VLM 的按需 worker 默认仍使用 security_vlm Conda 环境；
+这个环境只运行检测子进程，不提供 Web 端口。
 
 首次启动时，如果 scripts/auth_secret 不存在，脚本会提示输入 yes 后生成。
-后续启动会继续复用该文件，并把同一个 AUTH_SECRET 注入
-unified_backend、guard_room 和 aivision，避免点击子系统后登录失效。
-不要分别为这三个后端配置不同的 AUTH_SECRET。
+后续会复用该文件，并把同一个 AUTH_SECRET 注入 unified_backend 和 aivision。
 
-退出窗口（启动了窗口后要按这个退出窗口）
+退出 tmux 窗口（程序继续后台运行）：
 ################
 Ctrl + B
 松开
 再按 D
 ###############
+
 进入已有窗口：
 ****************************************
 tmux attach -t unified_frontend
 tmux attach -t unified_backend
-tmux attach -t guard_room
 tmux attach -t aivision
-tmux attach -t security_vlm
 ****************************************
-关闭程序：
+
+关闭单个程序：
 ****************************************
 tmux kill-session -t unified_frontend
 tmux kill-session -t unified_backend
-tmux kill-session -t guard_room
 tmux kill-session -t aivision
-tmux kill-session -t security_vlm
 ****************************************
 
 以下为单独启动某个服务的排障备用方式，正常运行优先使用 scripts/start.sh。
 
-1、启动unified_frontend:
+1、启动 unified_frontend：
 tmux new -s unified_frontend
 cd unified_frontend
 npm run dev
 如需临时改端口：npm run dev -- --port <前端调试端口>
 
-2、启动unified_backend（统一后端，固定对外 5000）:
+2、启动 unified_backend（固定 5000）：
 tmux new -s unified_backend
 conda activate unified_backend
-export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
+export AUTH_SECRET="<与 AiVision 保持同一串 32 位以上随机密钥>"
 python -m unified_backend.run_server
 如需临时改端口：python -m unified_backend.run_server --port <统一后端调试端口>
 
-3、启动guard_room（内部服务，默认 5001）:
-tmux new -s guard_room
-conda activate guard_room (保安行为规范检测使用的是guard_room的conda环境)
-cd guard_room
-export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
-python run_server.py --host 127.0.0.1 --port 5001
-如需临时改端口：python run_server.py --port <guard_room调试端口>
-
-4、启动AiVision（内部服务，默认 7862）
+3、启动 AiVision（固定 7862，同时承载全部检测功能）：
 tmux new -s aivision
-conda activate aivision (AiVision使用的是aivision的conda环境，python 3.11)
+conda activate aivision
 cd AiVision
-export AUTH_SECRET="<所有后端保持同一串32位以上随机密钥>"
+export AUTH_SECRET="<与统一后端保持同一串 32 位以上随机密钥>"
 # 可选：物流通道单路检测结果超过多少秒按“未知”处理，默认 5 秒。
 export LOGISTICS_STATUS_STALE_SECONDS=5
 python main.py --host 127.0.0.1 --port 7862
-如需临时改端口：python main.py --port <AiVision调试端口>
+如需临时改端口：python main.py --port <AiVision 调试端口>
+
+首次部署环境：
+conda create -n aivision python=3.11 -y
+conda run -n aivision python -m pip install -r AiVision/requirements.txt
+
+Security VLM 按需 worker 环境不存在时：
+conda create -n security_vlm python=3.11 -y
+conda run -n security_vlm python -m pip install -r security_vlm/requirements.txt
 
 物流通道单人检测上线说明：
 - 通用电气、电子电工、电气部件、贵金属回收四个模块都在各自前端配置页按“物流通道”管理。
 - 每个通道最多绑定 9 路摄像头，画面自动使用单画面、左右、2×2 或 3×3 布局；ROI 按摄像头独立保存。
 - 检测时间段、无人/多人持续时间和报警配置按通道独立设置。
-- 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警；至少一路为 1 且没有多人时不报警。离线、过期或无结果按未知处理，不能当作 0 人。
-- 前端经统一后端访问 /api/v2/logistics-channels/{feature}；统一后端将该路径代理到 AiVision 的同名接口，可查询通道、状态、拼接帧、告警和统计。
+- 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警。
+  离线、过期或无结果按未知处理，不能当作 0 人。
+- 前端经统一后端访问 /api/v2/logistics-channels/{feature}，统一后端转到 AiVision 同名接口。
 
-首次用新版启动 AiVision 前先备份数据库。启动流程会自动创建物流通道相关新表，然后将四个旧物流 feature 中尚未归属通道的已启用摄像头幂等迁移为同名通道，保留原摄像头配置和 ROI；同名冲突会追加摄像头 ID。重复启动不会重复创建。启动日志若出现“物流通道迁移存在失败”，会同时打印 feature、camera ID 和原因，应修正数据冲突后重新启动验证。
+首次用新版启动 AiVision 前先备份数据库。启动流程会自动创建物流通道相关新表，
+并迁移四个旧物流 feature 中尚未归属通道的已启用摄像头。重复启动不会重复创建。
 
-回滚旧版本前再次备份数据库。新增物流表可原样保留，不影响旧版本；不要直接删除旧摄像头级配置字段或物流表。若确需清理，须先确认新旧版本切换和数据恢复方案。
-
-5、启动security_vlm:
-tmux new -s security_vlm
-cd security_vlm
-conda activate security_vlm
-python src/main.py --config configs/config.yaml --host 127.0.0.1 --port 8000
-如需临时改端口：python src/main.py --config configs/config.yaml --port <security_vlm调试端口>
-
-
-6、tmux常用命令:
-查看所有正在跑的tmux：
+4、tmux 常用命令：
+查看所有正在运行的 tmux：
 tmux ls
 
-
-
+临时端口示例：
 python AiVision/main.py --port <端口>
-python security_vlm/src/main.py --config configs/config.yaml --port <端口>
 npm run dev -- --port <端口>
 
 如何管理用户

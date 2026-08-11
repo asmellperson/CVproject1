@@ -60,7 +60,7 @@ npm run preview  # 预览构建后的 dist/
 
 开发环境里，浏览器请求会先到 Vite，再由 Vite 转发给后端。配置在 `vite.config.ts`。
 
-已代理路径统一指向 `VITE_BACKEND_TARGET`，由统一后端再转发到各子系统：
+已代理路径统一指向 `VITE_BACKEND_TARGET`，由统一后端再转发到 AiVision 视觉业务层：
 
 - `/api` -> `VITE_BACKEND_TARGET`
 - `/api/aivision`、`/api/ai` -> `VITE_BACKEND_TARGET`
@@ -71,9 +71,7 @@ npm run preview  # 预览构建后的 dist/
 默认服务地址：
 
 - 统一后端: `http://127.0.0.1:5000`
-- Guard Room 内部服务: `http://127.0.0.1:5001`
-- AiVision: `http://127.0.0.1:7862`
-- Security VLM: `http://127.0.0.1:8000`
+- AiVision（含 Guard Room 与 Security VLM API）: `http://127.0.0.1:7862`
 
 可以复制 `.env.example` 为 `.env` 或 `.env.local` 后调整：
 

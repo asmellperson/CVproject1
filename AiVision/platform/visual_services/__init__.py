@@ -1,15 +1,5 @@
-"""AiVision 管理的隔离视觉执行服务。"""
+"""AiVision 进程内托管的扩展视觉能力。"""
 
-from platform.visual_services.client import (
-    VisualWorkerClient,
-    VisualWorkerRequestError,
-    filtered_response_headers,
-    stream_response_bytes,
-)
+from platform.visual_services.managed import ManagedAppSlot, ManagedVisualServices
 
-__all__ = [
-    "VisualWorkerClient",
-    "VisualWorkerRequestError",
-    "filtered_response_headers",
-    "stream_response_bytes",
-]
+__all__ = ["ManagedAppSlot", "ManagedVisualServices"]

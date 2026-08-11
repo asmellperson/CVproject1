@@ -7,7 +7,7 @@ from __future__ import annotations
 import threading
 import time
 from contextlib import asynccontextmanager
-from platform.visual_services import VisualWorkerClient
+from platform.visual_services import ManagedVisualServices
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +22,6 @@ from api.v2.features import router as features_router
 from api.v2.logistics_channels import router as logistics_channels_router
 from api.v2.models import router as models_router
 from api.v2.runtime import router as runtime_router
-from api.v2.visual_services import router as visual_services_router
 from core.alarm.wechat import WeChatNotifier
 from core.logger import logger
 from core.settings import settings
@@ -68,15 +67,21 @@ def _send_api_exception_alert(path: str, detail: str):
     threading.Thread(target=_send, daemon=True, name="api-exception-alert").start()
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    managed_visual_services: ManagedVisualServices | None = None,
+) -> FastAPI:
+    visual_services = managed_visual_services or ManagedVisualServices(
+        repository_root=settings.visual_services.repository_root,
+        guard_room_config_path=settings.visual_services.guard_room_config_path,
+        security_vlm_config_path=settings.visual_services.security_vlm_config_path,
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        visual_worker_client = VisualWorkerClient(settings.visual_workers)
-        app.state.visual_worker_client = visual_worker_client
-        try:
+        app.state.managed_visual_services = visual_services
+        async with visual_services.lifespan():
             yield
-        finally:
-            await visual_worker_client.close()
 
     app = FastAPI(
         title="AiVision Backend",
@@ -124,7 +129,19 @@ def create_app() -> FastAPI:
     app.include_router(alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)
-    app.include_router(visual_services_router)
+
+    # 两套历史 API 直接运行在 AiVision 进程中。这里是 ASGI 子应用挂载，
+    # 不发起 HTTP 请求，也不需要 Guard Room / Security VLM 独立端口。
+    app.mount(
+        "/api/v2/integrations/guard-room",
+        visual_services.guard_room,
+        name="guard-room",
+    )
+    app.mount(
+        "/api/v2/integrations/security-vlm",
+        visual_services.security_vlm,
+        name="security-vlm",
+    )
 
     return app
 

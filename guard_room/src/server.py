@@ -50,7 +50,7 @@ from .auth import (
     set_auth_cookie,
     verify_login,
 )
-from .config import AppConfig
+from .config import AppConfig, resolve_runtime_paths
 from .runtime import GuardRoomRuntime
 from .runtime_manager import GuardRoomRuntimeManager
 from .service import GuardRoomService
@@ -192,7 +192,8 @@ def create_app(
         配置完毕、已注册所有路由的 FastAPI 实例。
     """
     # ── 初始化核心对象 ────────────────────────────────────────────────────
-    cfg = AppConfig.from_yaml(config_path)
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = resolve_runtime_paths(AppConfig.from_yaml(config_path), project_root)
     state = AppState(cfg, config_path=config_path)  # 全局共享状态，供运行时写入、API 读取
 
     wechat_notifier = None
@@ -210,7 +211,10 @@ def create_app(
         alarm_user=cfg.wechat.alarm_user,
         alarm_camera_name=cfg.wechat.camera_name,
     )
-    site_service = guard_room_service or GuardRoomService(default_config_path=config_path)
+    site_service = guard_room_service or GuardRoomService(
+        default_config_path=config_path,
+        project_root=project_root,
+    )
     site_service.ensure_schema()
     site_runtime_manager = runtime_manager or GuardRoomRuntimeManager(site_service)
     runtime_autostart_ready = False
@@ -354,7 +358,7 @@ def create_app(
             "ready": not has_error,
             "running": bool(running),
             "error": error,
-            "port": int(os.getenv("GUARD_ROOM_PORT", "5000")),
+            "port": int(os.getenv("API_PORT", "7862")),
         }
         if has_error:
             return JSONResponse(payload, status_code=503)

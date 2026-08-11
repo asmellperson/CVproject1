@@ -1,6 +1,6 @@
 # 福达视觉平台 - 新服务器部署清单
 
-把项目整个目录拷到新机器后，按本清单一步步操作。完成后跑 `bash scripts/cold_start.sh` 即可。
+把项目整个目录拷到新机器后，按本清单一步步操作。完成后跑 `bash scripts/start.sh` 即可。
 
 本清单中的路径以 `/srv/Fuda_CVPreject` 为例，请按实际位置替换。
 
@@ -22,7 +22,7 @@ rsync -av --exclude '.venv' --exclude 'node_modules' --exclude '__pycache__' \
       <老机器>:/usr/zyy/Fuda_CVPreject/ /srv/Fuda_CVPreject/
 ```
 
-## 2. Python：conda（guard_room 和 security_vlm 用）
+## 2. Python：Conda（全部 Python 服务使用）
 
 ### 2.1 安装 Miniconda（如未装）
 
@@ -33,25 +33,24 @@ source $HOME/miniconda3/etc/profile.d/conda.sh
 conda init bash       # 让以后开新 shell 自动有 conda
 ```
 
-### 2.2 创建 `guard_room` 环境
+### 2.2 创建 `aivision` 环境
 
 ```bash
 source $HOME/miniconda3/etc/profile.d/conda.sh
-conda create -n guard_room python=3.10 -y
-conda activate guard_room
-pip install -r /srv/Fuda_CVPreject/guard_room/requirements.txt
+conda create -n aivision python=3.11 -y
+conda run -n aivision python -m pip install -r /srv/Fuda_CVPreject/AiVision/requirements.txt
 ```
 
-> 已知坑：如启动时报 `ModuleNotFoundError: No module named 'timm'`，说明
-> requirements.txt 没列全。手动补：`pip install timm`。
+Guard Room 的主进程依赖已经合并到 AiVision 项目依赖中，不再创建独立 Guard 环境。
 
-### 2.3 创建 `security_vlm` 环境
+### 2.3 创建 Security VLM 按需 worker 环境
 
 ```bash
-conda create -n security_vlm python=3.10 -y
-conda activate security_vlm
-pip install -r /srv/Fuda_CVPreject/security_vlm/requirements.txt
+conda create -n security_vlm python=3.11 -y
+conda run -n security_vlm python -m pip install -r /srv/Fuda_CVPreject/security_vlm/requirements.txt
 ```
+
+这个环境只供 AiVision 在页面点击开启安检检测后拉起子进程，不运行 FastAPI、不监听端口。
 
 ### 2.4 安装 `unified_backend` 依赖
 
@@ -59,20 +58,8 @@ pip install -r /srv/Fuda_CVPreject/security_vlm/requirements.txt
 python3 -m pip install -r /srv/Fuda_CVPreject/unified_backend/requirements.txt
 ```
 
-如需使用虚拟环境中的 Python，在 `scripts/cold_start.env` 中设置
+如需使用其他环境中的 Python，在 `scripts/cold_start.env` 中设置
 `UNIFIED_BACKEND_PYTHON=/path/to/python`。
-
-## 3. Python：uv（AiVision 用）
-
-```bash
-# 装 uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env 2>/dev/null || export PATH=$HOME/.local/bin:$PATH
-
-# 同步 AiVision 依赖
-cd /srv/Fuda_CVPreject/AiVision
-uv sync
-```
 
 ## 4. Node（unified_frontend 用，任选一种）
 
@@ -135,7 +122,7 @@ scp <老机器>:/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml \
 
 ## 6.5 AUTH_SECRET 管理
 
-`unified_backend`、`guard_room` 和 `aivision` 共用一个 JWT 签名密钥
+`unified_backend` 和 `aivision` 共用一个 JWT 签名密钥
 `AUTH_SECRET`，由冷启动脚本统一管理：
 
 | 项 | 说明 |
@@ -144,13 +131,13 @@ scp <老机器>:/usr/zyy/Fuda_CVPreject/security_vlm/configs/config.yaml \
 | 文件权限 | `-rw-------`（600，仅 owner 可读） |
 | 密钥长度 | 64 字符 hex（32 字节熵） |
 | 生成方式 | `openssl rand -hex 32`，缺则降级为 `python3 secrets.token_hex(32)` 或 `/dev/urandom` |
-| 注入范围 | `unified_backend`、`guard_room` 和 `aivision` 三个 tmux 会话；前端和 VLM 不注入 |
+| 注入范围 | `unified_backend` 和 `aivision` 两个 tmux 会话；前端不注入 |
 | 注入方式 | tmux ≥ 3.2 用 `new -e KEY=VAL`，否则降级为 `export` prepend；自动判定 |
 
 ### 首次启动
 
 ```bash
-bash scripts/cold_start.sh
+bash scripts/start.sh
 # → 检测到 scripts/auth_secret 不存在
 # → 弹出确认提示（"会踢所有在线用户下线"），输入 yes 确认
 # → 生成新密钥并写入文件
@@ -159,7 +146,7 @@ bash scripts/cold_start.sh
 非交互场景（CI/自动化）跳过确认：
 
 ```bash
-bash scripts/cold_start.sh --yes
+bash scripts/start.sh --yes
 ```
 
 ### 后续启动
@@ -180,13 +167,13 @@ scp /usr/zyy/Fuda_CVPreject/scripts/auth_secret \
 chmod 600 /srv/Fuda_CVPreject/scripts/auth_secret
 ```
 
-之后 `bash scripts/cold_start.sh` 会复用该密钥。
+之后 `bash scripts/start.sh` 会复用该密钥。
 
 ### 强制刷新密钥（会踢下线所有用户）
 
 ```bash
 rm scripts/auth_secret
-bash scripts/cold_start.sh    # 会再次弹出确认提示
+bash scripts/start.sh    # 会再次弹出确认提示
 ```
 
 ### 验证注入是否正确
@@ -195,14 +182,10 @@ bash scripts/cold_start.sh    # 会再次弹出确认提示
 # unified_backend 应有
 tmux show-environment -t unified_backend AUTH_SECRET
 
-# guard_room 应有
-tmux show-environment -t guard_room AUTH_SECRET
-
 # aivision 应有
 tmux show-environment -t aivision AUTH_SECRET
 
-# security_vlm / unified_frontend 应报 unknown variable
-tmux show-environment -t security_vlm AUTH_SECRET 2>&1
+# unified_frontend 应报 unknown variable
 tmux show-environment -t unified_frontend AUTH_SECRET 2>&1
 ```
 
@@ -216,27 +199,27 @@ tmux show-environment -t unified_frontend AUTH_SECRET 2>&1
 如果上面有任何路径和默认不一致（比如 conda 装在 `/opt/conda`），创建 `cold_start.env`：
 
 ```bash
-cp scripts/cold_start.env.example scripts/cold_start.env
+cp scripts/start.env.example scripts/cold_start.env
 vi scripts/cold_start.env
 ```
 
 ## 8. 验证
 
 ```bash
-bash scripts/cold_start.sh
+bash scripts/start.sh
 ```
 
 观察输出：
-- **环境探测结果** 一段全是 `[ OK ]` 就说明 4 个依赖都对上了
+- **环境探测结果** 一段全是 `[ OK ]` 就说明依赖都对上了
 - 任一服务出现 `[MISSING DEPS]` / `[MISSING CONFIG]` / `[FAIL]`，**控制台会直接给出修复命令**，按提示执行后再跑一次
-- 最后 **启动汇总** 表里 4 个服务都是 `READY` 即部署成功
+- 最后 **启动汇总** 表里 3 个服务都是 `READY` 即部署成功
 
 后续日常运维：
 
 ```bash
-bash scripts/cold_status.sh    # 查询状态（含 health 就绪探测）
-bash scripts/cold_stop.sh      # 关停全部
-bash scripts/cold_start.sh --force   # 全部重启
+bash scripts/status.sh         # 查询状态（含 health 就绪探测）
+bash scripts/stop.sh           # 关停全部
+bash scripts/start.sh --force  # 全部重启
 ```
 
 ## 8.5 健康检查与就绪状态
@@ -245,9 +228,7 @@ bash scripts/cold_start.sh --force   # 全部重启
 
 | 服务 | Health URL | 判定规则 | 就绪条件 |
 |------|-----------|---------|---------|
-| guard_room（5001） | `GET /api/health` | `json:ready=true` | runtime 运行中且无错误 |
-| aivision | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
-| security_vlm | `GET /health` | `json:running=true` | 服务主循环已启动 |
+| aivision（含 Guard Room / Security VLM API） | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
 | unified_backend（5000） | `GET /api/health` | `json:status=ok` | 统一 API 服务已启动 |
 | unified_frontend | `GET /` | `http2xx` | HTTP 200 即可 |
 
@@ -270,9 +251,9 @@ HEALTH_PROBE_INTERVAL=2      # 每次间隔秒
 HEALTH_PROBE_TIMEOUT=3       # 单次 HTTP 超时秒
 ```
 
-### cold_status.sh 的健康列
+### status.sh 的健康列
 
-`bash scripts/cold_status.sh` 输出中的"健康"列：
+`bash scripts/status.sh` 输出中的"健康"列：
 
 - **就绪**：health 接口返回预期值
 - **降级**：端口在但 health 不通过（模型未加载 / runtime 未就绪）
@@ -282,5 +263,5 @@ HEALTH_PROBE_TIMEOUT=3       # 单次 HTTP 超时秒
 ### 注意
 
 - health 探测依赖 `curl` 或 `python3`（优先 curl）。两者都没有时退化为仅端口检查。
-- `guard_room` 的 health 接口在 runtime 出错时返回 HTTP 503 + `{"status": "error", ...}`，便于负载均衡器自动摘除。
-- 如需跳过 health 探测只用端口检查：`bash scripts/cold_start.sh --no-check`
+- Guard Room 与 Security VLM 子应用初始化失败时，AiVision 整体启动会失败，不会留下伪健康的独立端口。
+- 如需跳过 health 探测只用端口检查：`bash scripts/start.sh --no-check`

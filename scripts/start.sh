@@ -2,8 +2,8 @@
 # =============================================================================
 # 福达视觉平台 - 冷启动脚本
 # -----------------------------------------------------------------------------
-# 作用：用 tmux 后台启动 5 个子服务：guard_room / aivision / security_vlm /
-#       unified_backend / unified_frontend，并做端口健康检查。
+# 作用：用 tmux 后台启动 3 个服务：aivision / unified_backend /
+#       unified_frontend，并做端口健康检查。
 #
 # 用法：
 #   bash scripts/start.sh                  # 安全模式：已存在会话则跳过
@@ -14,13 +14,13 @@
 #   bash scripts/start.sh -h               # 帮助
 #
 # 多服务器适配：
-#   脚本会自动探测 nvm / 系统 node / conda / uv 的路径。
+#   脚本会自动探测 nvm / 系统 node / conda 的路径。
 #   如需覆盖自动探测，可复制 scripts/start.env.example 为
 #   scripts/cold_start.env 后手动指定。
 #
 # AUTH_SECRET 管理：
 #   首次运行会在 scripts/auth_secret 生成 64 字符 hex 密钥（权限 600）。
-#   注入到 unified_backend / guard_room / aivision 三个服务的 tmux 环境。
+#   注入到 unified_backend / aivision 两个服务的 tmux 环境。
 #   要刷新密钥：删除 scripts/auth_secret 后重新启动（会踢下线所有用户）。
 #   跨服务器迁移：scp scripts/auth_secret 到目标机以保持登录态。
 #
@@ -123,13 +123,6 @@ detect_conda_sh() {
   return 1
 }
 
-detect_uv_bin() {
-  if [[ -n "${UV_BIN:-}" && -x "$UV_BIN" ]]; then echo "$UV_BIN"; return 0; fi
-  if command -v uv >/dev/null 2>&1; then command -v uv; return 0; fi
-  if [[ -x "$HOME/.local/bin/uv" ]]; then echo "$HOME/.local/bin/uv"; return 0; fi
-  return 1
-}
-
 conda_env_exists() {
   local env_name="$1" conda_sh="$2"
   # 用子 shell source conda 后检查，不污染当前 shell
@@ -144,7 +137,7 @@ source "$SCRIPT_DIR/lib/unified_backend_runtime.sh"
 # ---- AUTH_SECRET 管理 ------------------------------------------------------
 # 读取或首次生成共享 auth 密钥；写入 scripts/auth_secret（权限 600）。
 # 首次生成会踢下线所有现有用户，因此默认弹出确认；--yes 跳过。
-# 注入到 unified_backend、guard_room 与 aivision 的 tmux 环境。
+# 注入到 unified_backend 与 aivision 的 tmux 环境。
 AUTH_SECRET=""
 AUTH_SECRET_SOURCE=""    # reuse | new
 AUTH_SECRET_FP=""        # sha256 前 8 位
@@ -231,7 +224,7 @@ detect_tmux_env_support() {
 # 判断某服务是否需要 AUTH_SECRET 注入
 needs_auth_secret() {
   case "$1" in
-    unified_backend|guard_room|aivision) return 0 ;;
+    unified_backend|aivision) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -239,7 +232,7 @@ needs_auth_secret() {
 # ---- 执行探测 --------------------------------------------------------------
 NVM_SH_PATH="$(detect_nvm_sh || true)"
 CONDA_SH_PATH="$(detect_conda_sh || true)"
-UV_BIN_PATH="$(detect_uv_bin || true)"
+AIVISION_ENV="${AIVISION_ENV:-aivision}"
 UNIFIED_BACKEND_ENV="${UNIFIED_BACKEND_ENV:-unified_backend}"
 UNIFIED_BACKEND_PYTHON="${UNIFIED_BACKEND_PYTHON:-}"
 SYSTEM_PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
@@ -249,13 +242,10 @@ UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
   "$UNIFIED_BACKEND_ENV" \
   "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
-GUARD_ROOM_ENV="${GUARD_ROOM_ENV:-guard_room}"
-SECURITY_VLM_ENV="${SECURITY_VLM_ENV:-security_vlm}"
+SECURITY_VLM_WORKER_ENV="${SECURITY_VLM_WORKER_ENV:-security_vlm}"
 
 # 健康检查上限（秒）- 可在 cold_start.env 中覆盖
-WAIT_GUARD_ROOM="${WAIT_GUARD_ROOM:-15}"
-WAIT_AIVISION="${WAIT_AIVISION:-30}"
-WAIT_SECURITY_VLM="${WAIT_SECURITY_VLM:-60}"
+WAIT_AIVISION="${WAIT_AIVISION:-90}"
 WAIT_UNIFIED_BACKEND="${WAIT_UNIFIED_BACKEND:-15}"
 WAIT_UNIFIED_FRONTEND="${WAIT_UNIFIED_FRONTEND:-15}"
 
@@ -276,23 +266,10 @@ fi
 # 每条: tmux会话名|工作目录|启动命令|端口|健康检查等待秒数
 SERVICES=()
 
-if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$GUARD_ROOM_ENV" "$CONDA_SH_PATH"; then
-  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|/root/miniconda3/envs/${GUARD_ROOM_ENV}/bin/python run_server.py --host 127.0.0.1 --port 5001|5001|${WAIT_GUARD_ROOM}")
-else
-  SERVICES+=("guard_room|${PROJECT_ROOT}/guard_room|__DEP_MISSING__|5001|${WAIT_GUARD_ROOM}")
-fi
-
-if [[ -n "$UV_BIN_PATH" ]]; then
-  UV_DIR="$(dirname "$UV_BIN_PATH")"
-  SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|export PATH=${UV_DIR}:\$PATH && ${UV_BIN_PATH} run main.py|7862|${WAIT_AIVISION}")
+if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH"; then
+  SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python main.py --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
 else
   SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|__DEP_MISSING__|7862|${WAIT_AIVISION}")
-fi
-
-if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$SECURITY_VLM_ENV" "$CONDA_SH_PATH"; then
-  SERVICES+=("security_vlm|${PROJECT_ROOT}/security_vlm|source ${CONDA_SH_PATH} && conda activate ${SECURITY_VLM_ENV} && python src/main.py --config configs/config.yaml|8000|${WAIT_SECURITY_VLM}")
-else
-  SERVICES+=("security_vlm|${PROJECT_ROOT}/security_vlm|__DEP_MISSING__|8000|${WAIT_SECURITY_VLM}")
 fi
 
 if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
@@ -334,9 +311,7 @@ wait_port() {
 #     skip                 不做 health 探测（端口监听即视为 READY）
 # 注意: health_url 用 127.0.0.1，避免走外部 DNS / 防火墙
 SERVICES_HEALTH=(
-  "guard_room|http://127.0.0.1:5001/api/health|json:ready=true"
   "aivision|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
-  "security_vlm|http://127.0.0.1:8000/health|json:running=true"
   "unified_backend|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|http://127.0.0.1:3000/|http2xx"
 )
@@ -510,12 +485,16 @@ suggest_fix_from_log() {
     pkg="$(echo "$log" | grep -oE "No module named '[^']+'" | head -1 | sed "s/No module named '//;s/'//")"
     local env_name=""
     case "$name" in
-      guard_room)   env_name="$GUARD_ROOM_ENV" ;;
-      security_vlm) env_name="$SECURITY_VLM_ENV" ;;
+      aivision) env_name="$AIVISION_ENV" ;;
+      unified_backend) env_name="$UNIFIED_BACKEND_ENV" ;;
     esac
     if [[ -n "$env_name" && -n "$CONDA_SH_PATH" ]]; then
       hint "缺少 Python 包 '${pkg:-?}'。执行："
-      hint "  source ${CONDA_SH_PATH} && conda activate ${env_name} && pip install -r ${workdir}/requirements.txt"
+      if [[ "$name" == "aivision" ]]; then
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt"
+      else
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
+      fi
     else
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
     fi
@@ -545,36 +524,16 @@ suggest_fix_from_log() {
 suggest_dep_fix() {
   local name="$1" workdir="$2"
   case "$name" in
-    guard_room)
-      if [[ -z "$CONDA_SH_PATH" ]]; then
-        hint "conda 未安装。安装 Miniconda:"
-        hint "  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"
-        hint "  bash /tmp/miniconda.sh -b -p \$HOME/miniconda3"
-      else
-        hint "conda 环境 '${GUARD_ROOM_ENV}' 不存在。执行："
-        hint "  source ${CONDA_SH_PATH}"
-        hint "  conda create -n ${GUARD_ROOM_ENV} python=3.10 -y"
-        hint "  conda activate ${GUARD_ROOM_ENV}"
-        hint "  pip install -r ${workdir}/requirements.txt"
-      fi
-      ;;
     aivision)
-      hint "uv 未安装。执行："
-      hint "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-      hint "  source \$HOME/.local/bin/env 2>/dev/null || export PATH=\$HOME/.local/bin:\$PATH"
-      hint "  cd ${workdir} && uv sync"
-      ;;
-    security_vlm)
       if [[ -z "$CONDA_SH_PATH" ]]; then
         hint "conda 未安装。安装 Miniconda:"
         hint "  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh"
         hint "  bash /tmp/miniconda.sh -b -p \$HOME/miniconda3"
       else
-        hint "conda 环境 '${SECURITY_VLM_ENV}' 不存在。执行："
+        hint "conda 环境 '${AIVISION_ENV}' 不存在。执行："
         hint "  source ${CONDA_SH_PATH}"
-        hint "  conda create -n ${SECURITY_VLM_ENV} python=3.10 -y"
-        hint "  conda activate ${SECURITY_VLM_ENV}"
-        hint "  pip install -r ${workdir}/requirements.txt"
+        hint "  conda create -n ${AIVISION_ENV} python=3.11 -y"
+        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt"
       fi
       ;;
     unified_backend)
@@ -617,12 +576,17 @@ precheck_one() {
         hint "请编辑: vi ${workdir}/.env"
         issues=$((issues + 1))
       fi
-      ;;
-    security_vlm)
-      if [[ ! -f "${workdir}/configs/config.yaml" ]]; then
-        cfg "${name} 缺少配置文件 ${workdir}/configs/config.yaml"
-        hint "从老机器拷贝: scp <老机器>:${workdir}/configs/config.yaml ${workdir}/configs/config.yaml"
+      if [[ ! -f "${PROJECT_ROOT}/guard_room/config/config.yaml" ]]; then
+        cfg "${name} 托管的 Guard Room 缺少配置文件 ${PROJECT_ROOT}/guard_room/config/config.yaml"
         issues=$((issues + 1))
+      fi
+      if [[ ! -f "${PROJECT_ROOT}/security_vlm/configs/config.yaml" ]]; then
+        cfg "${name} 托管的 Security VLM 缺少配置文件 ${PROJECT_ROOT}/security_vlm/configs/config.yaml"
+        issues=$((issues + 1))
+      fi
+      if [[ -n "$CONDA_SH_PATH" ]] && ! conda_env_exists "$SECURITY_VLM_WORKER_ENV" "$CONDA_SH_PATH"; then
+        cfg "Security VLM 按需推理环境 '${SECURITY_VLM_WORKER_ENV}' 不存在；AiVision 可启动，但安检检测无法开启"
+        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/security_vlm/requirements.txt"
       fi
       ;;
     unified_frontend)
@@ -679,7 +643,7 @@ start_one() {
   local tmux_new_args=(-d -s "$name" -c "$workdir")
   local cmd_to_send="$cmd"
 
-  # 对签发或校验 JWT 的三个服务注入同一份 AUTH_SECRET
+  # 对签发或校验 JWT 的两个服务注入同一份 AUTH_SECRET
   if needs_auth_secret "$name"; then
     if [[ -z "$AUTH_SECRET" ]]; then
       err "${name} 需要 AUTH_SECRET 但未初始化（内部错误）"
@@ -777,12 +741,7 @@ main() {
   if [[ -n "$CONDA_SH_PATH" ]]; then
     ok "  CONDA_SH     = ${CONDA_SH_PATH}"
   else
-    miss "  CONDA_SH     = 未找到（guard_room / security_vlm 将跳过）"
-  fi
-  if [[ -n "$UV_BIN_PATH" ]]; then
-    ok "  UV_BIN       = ${UV_BIN_PATH}"
-  else
-    miss "  UV_BIN       = 未找到（aivision 将跳过）"
+    miss "  CONDA_SH     = 未找到（aivision 将跳过）"
   fi
   if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
     ok "  BACKEND_CMD  = ${UNIFIED_BACKEND_RUNTIME}"
@@ -790,10 +749,10 @@ main() {
     miss "  BACKEND_CMD  = 未找到（unified_backend 将跳过）"
   fi
   log "  NODE_VERSION = ${NODE_VERSION}"
+  log "  AIVISION_ENV = ${AIVISION_ENV}"
   log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
-  log "  GUARD_ROOM_ENV   = ${GUARD_ROOM_ENV}"
-  log "  SECURITY_VLM_ENV = ${SECURITY_VLM_ENV}"
-  log "  健康检查上限(秒) guard=${WAIT_GUARD_ROOM} ai=${WAIT_AIVISION} vlm=${WAIT_SECURITY_VLM} backend=${WAIT_UNIFIED_BACKEND} fe=${WAIT_UNIFIED_FRONTEND}"
+  log "  SECURITY_VLM_WORKER_ENV = ${SECURITY_VLM_WORKER_ENV}"
+  log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND} fe=${WAIT_UNIFIED_FRONTEND}"
 
   # AUTH_SECRET 状态
   if [[ "$AUTH_SECRET_SOURCE" == "reuse" ]]; then
@@ -815,7 +774,7 @@ main() {
   fi
 
   # 提示如何覆盖
-  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UV_BIN_PATH" || -z "$UNIFIED_BACKEND_RUNTIME" ]]; then
+  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UNIFIED_BACKEND_RUNTIME" ]]; then
     echo
     warn "部分依赖未探测到，对应服务将跳过。"
     warn "如需手动指定路径，请复制 scripts/start.env.example 为 scripts/cold_start.env"
@@ -873,12 +832,12 @@ main() {
   echo "============================================================"
   if [[ $degraded_cnt -gt 0 ]]; then
     warn "有 ${degraded_cnt} 个服务处于 DEGRADED（端口在但 health 未就绪）。"
-    warn "  通常为模型仍在加载，可稍后再跑 cold_status.sh 复查。"
+    warn "  通常为模型仍在加载，可稍后再跑 status.sh 复查。"
     warn "  持续 DEGRADED 请 tmux attach 排查。"
   fi
   echo "查看日志: tmux attach -t <服务名>  （Ctrl+B 然后 D 退出窗口）"
-  echo "停止全部: bash ${PROJECT_ROOT}/scripts/cold_stop.sh"
-  echo "查询状态: bash ${PROJECT_ROOT}/scripts/cold_status.sh"
+  echo "停止全部: bash ${PROJECT_ROOT}/scripts/stop.sh"
+  echo "查询状态: bash ${PROJECT_ROOT}/scripts/status.sh"
   echo "部署清单: cat ${PROJECT_ROOT}/scripts/DEPLOY.md"
 
   [[ $fail_cnt -eq 0 ]] && exit 0 || exit 1

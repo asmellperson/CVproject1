@@ -30,9 +30,19 @@ DEFAULT_DEPARTMENT = "general_electric"
 class GuardRoomService:
     """CRUD and configuration assembly for guard-room monitoring sites."""
 
-    def __init__(self, default_config_path: str | Path | None = None):
+    def __init__(
+        self,
+        default_config_path: str | Path | None = None,
+        *,
+        project_root: str | Path | None = None,
+    ):
         self.default_config_path = Path(default_config_path) if default_config_path else (
             Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"
+        )
+        self.project_root = (
+            Path(project_root).resolve()
+            if project_root is not None
+            else Path(__file__).resolve().parents[1]
         )
 
     # ---------- Schema ----------

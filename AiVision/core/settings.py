@@ -12,6 +12,7 @@ core/settings.py
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -121,46 +122,23 @@ class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-class VisualWorkerSettings(BaseSettings):
-    """Guard Room 与 Security VLM 执行进程的内部连接配置。"""
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-    guard_room_url: str = Field(
-        "http://127.0.0.1:5001",
-        alias="GUARD_ROOM_WORKER_URL",
+
+class ManagedVisualServiceSettings(BaseSettings):
+    """由 AiVision 同一进程承载的扩展视觉能力配置。"""
+
+    repository_root: Path = Field(
+        _REPOSITORY_ROOT,
+        alias="VISUAL_SERVICES_REPOSITORY_ROOT",
     )
-    security_vlm_url: str = Field(
-        "http://127.0.0.1:8000",
-        alias="SECURITY_VLM_WORKER_URL",
+    guard_room_config_path: Path = Field(
+        _REPOSITORY_ROOT / "guard_room" / "config" / "config.yaml",
+        alias="GUARD_ROOM_CONFIG_PATH",
     )
-    max_connections: int = Field(
-        512,
-        ge=1,
-        alias="VISUAL_WORKER_PROXY_MAX_CONNECTIONS",
-    )
-    max_keepalive_connections: int = Field(
-        128,
-        ge=1,
-        alias="VISUAL_WORKER_PROXY_MAX_KEEPALIVE_CONNECTIONS",
-    )
-    connect_timeout_seconds: float = Field(
-        3.0,
-        gt=0,
-        alias="VISUAL_WORKER_PROXY_CONNECT_TIMEOUT_SECONDS",
-    )
-    pool_timeout_seconds: float = Field(
-        2.0,
-        gt=0,
-        alias="VISUAL_WORKER_PROXY_POOL_TIMEOUT_SECONDS",
-    )
-    write_timeout_seconds: float = Field(
-        10.0,
-        gt=0,
-        alias="VISUAL_WORKER_PROXY_WRITE_TIMEOUT_SECONDS",
-    )
-    read_timeout_seconds: float = Field(
-        10.0,
-        gt=0,
-        alias="VISUAL_WORKER_PROXY_READ_TIMEOUT_SECONDS",
+    security_vlm_config_path: Path = Field(
+        _REPOSITORY_ROOT / "security_vlm" / "configs" / "config.yaml",
+        alias="SECURITY_VLM_CONFIG_PATH",
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -193,7 +171,7 @@ class Settings:
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
         self.runtime = RuntimeSettings()
-        self.visual_workers = VisualWorkerSettings()
+        self.visual_services = ManagedVisualServiceSettings()
         self.model_paths = ModelPathSettings()
 
 

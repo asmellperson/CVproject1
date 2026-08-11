@@ -13,14 +13,16 @@
 各摄像头的 `pending/` 队列。摄像头之间的 ROI、跟踪状态和活动会话互不影响，
 VLM 并发、每日预算和历史统计仍为全局共享。
 
+Security VLM 的 API 由 AiVision 进程内托管；本目录只保留业务模块和按需 worker，
+不再部署独立 Web 服务。
+
 ## 部署
 
 ### 1. 创建 Conda 环境
 
 ```bash
 conda create -n security_vlm python=3.10 -y
-conda activate security_vlm
-pip install -r requirements.txt
+conda run -n security_vlm python -m pip install -r requirements.txt
 # 记下 python 路径
 which python
 ffmpeg -version
@@ -37,7 +39,7 @@ ffprobe -version
 - `vlm.api_key`:阿里云百炼 API Key
 - `yolo.device`:`cuda:0` 或 `cpu`
 
-启动 Web 服务后，在“安检流程规范检测”页面填写“摄像头名称 + RTSP 地址”。
+启动 AiVision 后，在“安检流程规范检测”页面填写“摄像头名称 + RTSP 地址”。
 支持 2～4 台现场摄像头，每台可独立开启、关闭或重启，也可全部开启/全部关闭。
 新增前可用“测试连接”检查编码格式和分辨率。摄像头注册表和运行配置权限为
 `0600`，接口及错误信息只返回脱敏地址。FFmpeg/ffprobe 连接期间，RTSP 地址会
@@ -50,30 +52,19 @@ ffprobe -version
 ### 3. 启动
 
 ```bash
-cd <项目根目录>
-python src/main.py --config configs/config.yaml
+cd <仓库根目录>
+bash scripts/start.sh
 ```
 
-或后台:
-
-```bash
-nohup python src/main.py --config configs/config.yaml > logs/main.log 2>&1 &
-```
-
-后端启动后由统一前端 `unified_frontend` 访问；直接访问 `http://服务器IP:8000/` 只返回服务信息。
-统一后端会阻止 viewer 执行摄像头、ROI 和运行状态写操作。生产环境应同时通过
-防火墙或监听地址限制 8000 端口只允许统一后端访问，避免绕过统一鉴权直连 API。
-
-调试时可用命令行临时覆盖端口：
-
-```bash
-python src/main.py --config configs/config.yaml --port <调试端口>
-```
+平台只启动 AiVision 的 7862 端口。Security VLM 的 API 随 AiVision 就绪，但 worker
+保持默认关闭；页面点击开启后，AiVision 才使用 `envs.worker_python` 拉起检测进程组。
+统一后端会阻止 viewer 执行摄像头、ROI 和运行状态写操作。
 
 ## 目录说明
 
 - `configs/config.yaml` — 总配置
-- `src/` — 5 个进程脚本
+- `src/main.py` — 由 AiVision 加载的 API 与 worker 生命周期模块
+- `src/*_worker.py` — AiVision 按需拉起的检测子进程
 - `data/annotations/staff_rois/` — 统一前端保存的 ROI 配置
 - `data/config/cameras.json` — 安检模块独立的摄像头注册表
 - `results/<camera_id>/` — 每个 session 的 JSON 判定结果

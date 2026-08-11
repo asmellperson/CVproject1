@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type
 
-from .config import AppConfig
+from .config import AppConfig, resolve_runtime_paths
 from .runtime import GuardRoomRuntime
 from .service import GuardRoomService
 from .state import AppState
@@ -178,7 +178,10 @@ class GuardRoomRuntimeManager:
         if site is None:
             raise ValueError(f"保安室不存在: {site_id}")
 
-        cfg = self.service.build_app_config(site_id)
+        cfg = resolve_runtime_paths(
+            self.service.build_app_config(site_id),
+            self.service.project_root,
+        )
         config_path = f"db://guard_room_site/{site_id}"
         state = SiteAppState(cfg, config_path=config_path, site_id=site_id, site_name=site["name"])
 

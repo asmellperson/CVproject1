@@ -2,8 +2,8 @@
 # =============================================================================
 # 福达视觉平台 - 服务状态查询脚本
 # -----------------------------------------------------------------------------
-# 作用：查询 5 个子服务的 tmux 会话状态、端口监听、health 就绪状态、PID。
-# 用法：bash scripts/cold_status.sh
+# 作用：查询 3 个服务的 tmux 会话状态、端口监听、health 就绪状态、PID。
+# 用法：bash scripts/status.sh
 # 只读：不修改任何状态。
 # =============================================================================
 
@@ -15,9 +15,7 @@ set -u
 #   json:KEY=VAL    JSON 响应中 KEY 字段等于 VAL
 #   skip            不做 health 探测
 SERVICES=(
-  "guard_room|5001|http://127.0.0.1:5001/api/health|json:ready=true"
   "aivision|7862|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
-  "security_vlm|8000|http://127.0.0.1:8000/health|json:running=true"
   "unified_backend|5000|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|3000|http://127.0.0.1:3000/|http2xx"
 )
@@ -37,7 +35,7 @@ if ! command -v ss >/dev/null 2>&1; then
   echo "${C_RED}[FAIL]${C_RST} 未安装 ss（iproute2）"; exit 1
 fi
 
-# 探测工具（cold_status 用 curl 或 python3 兜底）
+# 探测工具（status.sh 用 curl 或 python3 兜底）
 HEALTH_TOOL="none"
 if command -v curl >/dev/null 2>&1; then
   HEALTH_TOOL="curl"
@@ -136,7 +134,7 @@ if [[ -s "$AUTH_SECRET_FILE" ]]; then
     echo "        修复: chmod 600 ${AUTH_SECRET_FILE}"
   fi
 else
-  echo "${C_YLW}[WARN]${C_RST} AUTH_SECRET: 未配置 (首次 cold_start.sh 会自动生成)"
+  echo "${C_YLW}[WARN]${C_RST} AUTH_SECRET: 未配置 (首次 start.sh 会自动生成)"
 fi
 
 if [[ "$HEALTH_TOOL" == "none" ]]; then
@@ -205,6 +203,6 @@ elif [[ $ALL_OK -eq 1 ]]; then
   echo "${C_YLW}[WARN]${C_RST} 端口正常但有服务 health 降级（可能模型未就绪）。建议: tmux attach -t <服务名>"
   exit 0
 else
-  echo "${C_YLW}[WARN]${C_RST} 有服务异常。可执行: bash scripts/cold_start.sh 启动缺失项"
+  echo "${C_YLW}[WARN]${C_RST} 有服务异常。可执行: bash scripts/start.sh 启动缺失项"
   exit 1
 fi
