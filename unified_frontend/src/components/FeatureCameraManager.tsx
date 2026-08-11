@@ -113,7 +113,7 @@ export function FeatureCameraManager({
 
   return (
     <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-slate-900">
+      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-none dark:bg-slate-900">
         <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#001b43] text-white shadow-[0_12px_24px_rgba(0,27,67,0.22)] dark:bg-blue-600">
             <Camera className="h-5 w-5" />

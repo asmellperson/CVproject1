@@ -85,6 +85,28 @@ test('guard detection rules heading keeps contrast in dark mode', async () => {
   assert.match(title[1], /dark:text-slate-100/)
 })
 
+test('detection configuration headings remove light gradients in dark mode', async () => {
+  for (const path of [
+    'src/sections/HumanDetectionSection.tsx',
+    'src/sections/IntrusionDetectionSection.tsx',
+    'src/sections/FaceDetectionSection.tsx',
+    'src/sections/PhoneDetectionSection.tsx',
+    'src/sections/DoorDetectionSection.tsx',
+    'src/components/FeatureCameraManager.tsx',
+    'src/components/AiVisionRoiEditor.tsx',
+    'src/components/AiVisionModelConfig.tsx',
+    'src/components/AlarmPushConfig.tsx',
+  ]) {
+    const source = await read(path)
+    const gradientHeaders = [...source.matchAll(/<CardHeader className="([^"]*bg-\[linear-gradient[^"]*)"/g)]
+    assert.ok(gradientHeaders.length > 0, `${path} should contain a configuration heading with a light gradient`)
+    for (const [, classes] of gradientHeaders) {
+      assert.match(classes, /dark:bg-none/, `${path} should remove the fixed light gradient in dark mode`)
+      assert.match(classes, /dark:bg-slate-900/, `${path} should use a dark heading surface`)
+    }
+  }
+})
+
 test('guard and security workflow business cards support dark mode', async () => {
   for (const path of [
     'src/sections/MonitorSection.tsx',

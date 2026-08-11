@@ -32,7 +32,7 @@ export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, on
 
   return (
     <Card className="overflow-hidden border-white/80 bg-white shadow-[0_18px_48px_rgba(20,50,92,0.10)] dark:border-slate-800 dark:bg-slate-900/92">
-      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#fff8ed_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-slate-900">
+      <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,#fff8ed_0%,#ffffff_100%)] dark:border-slate-800 dark:bg-none dark:bg-slate-900">
         <CardTitle className="flex items-center gap-3 text-lg font-black text-[#071d3d] dark:text-slate-100">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white shadow-[0_12px_24px_rgba(249,115,22,0.22)]">
             <Bell className="h-5 w-5" />
