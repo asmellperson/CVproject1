@@ -22,13 +22,22 @@ import {
 type Props = {
   onClose: () => void
   onSubmit: (payload: LogisticsCameraCreateInput) => Promise<void>
+  title?: string
+  description?: string
+  submitLabel?: string
 }
 
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
 }
 
-export function LogisticsCameraCreateDialog({ onClose, onSubmit }: Props) {
+export function LogisticsCameraCreateDialog({
+  onClose,
+  onSubmit,
+  title = '新建摄像头并绑定',
+  description = '填写摄像头信息，保存后将直接加入当前物流通道。',
+  submitLabel = '新建并绑定',
+}: Props) {
   const [draft, setDraft] = useState(initialLogisticsCameraDraft)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -58,8 +67,8 @@ export function LogisticsCameraCreateDialog({ onClose, onSubmit }: Props) {
     }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>新建摄像头并绑定</DialogTitle>
-          <DialogDescription>填写摄像头信息，保存后将直接加入当前物流通道。</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -106,7 +115,7 @@ export function LogisticsCameraCreateDialog({ onClose, onSubmit }: Props) {
             取消
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={busy || validationError !== null}>
-            {busy ? '正在新建' : '新建并绑定'}
+            {busy ? '正在新建' : submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -115,6 +115,62 @@ class CameraService:
         self.notify_camera_created(cam_id, cam_shm)
         return self.get_camera(cam_shm)
 
+    def create_camera_for_feature(self, feature_name: str, payload: dict) -> dict:
+        """在同一事务中新增摄像头并启用指定普通检测功能。"""
+        from platform.logistics_channel.constants import LOGISTICS_FEATURES
+
+        if feature_name in LOGISTICS_FEATURES:
+            raise ValueError("物流通道摄像头必须通过通道接口新建并绑定")
+        spec = all_specs().get(feature_name)
+        if spec is None:
+            raise ValueError(f"unknown feature: {feature_name}")
+
+        values = dict(payload)
+        allowed_departments = tuple(spec.departments)
+        requested_department = values.get("department")
+        if allowed_departments:
+            if not requested_department:
+                if len(allowed_departments) != 1:
+                    raise ValueError("department 是必填项")
+                requested_department = allowed_departments[0]
+            if requested_department not in allowed_departments:
+                raise ValueError(
+                    f"department 必须属于当前功能: {', '.join(allowed_departments)}"
+                )
+            values["department"] = requested_department
+
+        def create_record(session):
+            cam = self.create_camera_record(session, values)
+            config = (
+                session.query(spec.orm_class)
+                .filter_by(camera_id=cam.id)
+                .one()
+            )
+            config.enable = True
+            session.flush()
+            return cam.id, cam.shm_name
+
+        try:
+            cam_id, cam_shm = self._run_write_transaction(create_record)
+        except IntegrityError as exc:
+            error = _camera_integrity_value_error(exc)
+            logger.warning(f"[CameraService] 摄像头创建约束冲突: {error}")
+            raise error from exc
+
+        self.notify_camera_created(cam_id, cam_shm)
+        try:
+            config_event_bus.publish(ConfigChangeEvent(
+                change_type=f"{feature_name}_enabled",
+                camera_id=cam_id,
+                camera_name=cam_shm,
+            ))
+        except Exception as exc:
+            logger.warning(
+                f"[CameraService] 功能启用通知失败 feature={feature_name} "
+                f"camera_id={cam_id}: {exc}"
+            )
+        return self.get_camera(cam_shm)
+
     @staticmethod
     def _run_write_transaction(operation):
         """死锁/锁等待超时时使用全新 session 完整重跑，最多三次。"""

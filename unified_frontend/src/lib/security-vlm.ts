@@ -1,3 +1,5 @@
+import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+
 function readError(response: Response) {
   return response.text().then((text) => {
     if (!text) return `${response.status} ${response.statusText}`
@@ -46,11 +48,14 @@ const securityVlmPut = <T>(path: string, body?: unknown, init?: RequestInit) =>
 const securityVlmDelete = <T>(path: string, init?: RequestInit) =>
   securityVlmRequest<T>('DELETE', path, undefined, init)
 
-export type SecurityVlmDepartment =
-  | 'general_electric'
-  | 'electronics_electrician'
-  | 'electrical_components'
-  | 'precious_metal_recycling'
+export const SECURITY_VLM_DEPARTMENTS = [
+  'general_electric',
+  'electronics_electrician',
+  'electrical_components',
+  'precious_metal_recycling',
+] as const
+
+export type SecurityVlmDepartment = typeof SECURITY_VLM_DEPARTMENTS[number]
 
 const departmentApi = (department: SecurityVlmDepartment) =>
   `/api/departments/${encodeURIComponent(department)}`
@@ -178,34 +183,43 @@ export const getSecurityVlmCameraCredentials = (
     `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/credentials`,
   )
 
-export const createSecurityVlmCamera = (
+export const createSecurityVlmCamera = async (
   department: SecurityVlmDepartment,
   name: string,
   rtspUrl: string,
-) =>
-  securityVlmPost<{ ok: boolean; camera: SecurityVlmCamera }>(
+) => {
+  const result = await securityVlmPost<{ ok: boolean; camera: SecurityVlmCamera }>(
     `${departmentApi(department)}/cameras`,
     { name, rtsp_url: rtspUrl },
   )
+  notifyPlatformCamerasChanged()
+  return result
+}
 
-export const updateSecurityVlmCamera = (
+export const updateSecurityVlmCamera = async (
   department: SecurityVlmDepartment,
   cameraId: string,
   name: string,
   rtspUrl: string,
-) =>
-  securityVlmPut<{ ok: boolean; camera: SecurityVlmCamera }>(
+) => {
+  const result = await securityVlmPut<{ ok: boolean; camera: SecurityVlmCamera }>(
     `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}`,
     { name, rtsp_url: rtspUrl },
   )
+  notifyPlatformCamerasChanged()
+  return result
+}
 
-export const deleteSecurityVlmCamera = (
+export const deleteSecurityVlmCamera = async (
   department: SecurityVlmDepartment,
   cameraId: string,
-) =>
-  securityVlmDelete<{ ok: boolean; camera: SecurityVlmCamera }>(
+) => {
+  const result = await securityVlmDelete<{ ok: boolean; camera: SecurityVlmCamera }>(
     `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}`,
   )
+  notifyPlatformCamerasChanged()
+  return result
+}
 
 export const testSecurityVlmCamera = (
   department: SecurityVlmDepartment,

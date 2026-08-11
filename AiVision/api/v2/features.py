@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from features._base.api import create_features_router
 from features._base.service import feature_config_service
+from platform.camera.service import camera_service
 from platform.department.service import department_service
 
-router = create_features_router(feature_config_service, department_service)
+router = create_features_router(
+    feature_config_service,
+    department_service,
+    camera_service,
+)

@@ -14,7 +14,7 @@ features/_base/api.py
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, require_admin
 from features import all_specs, get_spec
@@ -60,6 +60,18 @@ class FeatureConfigResponse(BaseModel):
     config: dict
 
 
+class FeatureCameraCreateRequest(BaseModel):
+    """在功能配置页新建摄像头并立即启用当前功能。"""
+
+    name: str = Field(..., min_length=1)
+    url: str = Field(..., min_length=1)
+    shm_name: str | None = Field(None, min_length=1)
+    fps: int = Field(5, gt=0)
+    max_restart: int = Field(10, ge=0)
+    enabled: bool = True
+    department: str | None = None
+
+
 # ------------------------------------------------------------------ #
 #  内部工具函数                                                         #
 # ------------------------------------------------------------------ #
@@ -91,7 +103,11 @@ def _require_spec(feature: str) -> FeatureSpec:
 #  路由工厂                                                             #
 # ------------------------------------------------------------------ #
 
-def create_features_router(feature_service, dept_service=None) -> APIRouter:
+def create_features_router(
+    feature_service,
+    dept_service=None,
+    camera_service=None,
+) -> APIRouter:
     """
     构造功能元数据查询 + 配置读写的统一 APIRouter。
 
@@ -102,10 +118,16 @@ def create_features_router(feature_service, dept_service=None) -> APIRouter:
         feature_service: FeatureConfigService 实例，封装跨功能的配置读写逻辑，
                          由调用方（通常是 Orchestrator 或 app 工厂）负责创建并传入。
         dept_service: DepartmentService 实例，可选，用于获取功能归属的部门列表。
+        camera_service: CameraService 实例，可选，用于原子创建摄像头并启用功能。
 
     Returns:
         挂载在 /api/v2/features 下的 APIRouter，可直接 app.include_router()。
     """
+    if camera_service is None:
+        from platform.camera.service import camera_service as default_camera_service
+
+        camera_service = default_camera_service
+
     router = APIRouter(prefix="/api/v2/features", tags=["features"])
 
     def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
@@ -146,6 +168,22 @@ def create_features_router(feature_service, dept_service=None) -> APIRouter:
     def get_feature_meta(feature: Annotated[str, Path()]):
         """返回单个功能的元数据，包含 JSON Schema 供前端按需渲染表单。"""
         return _spec_to_meta(_require_spec(feature))
+
+    @router.post("/{feature}/cameras")
+    def create_feature_camera(
+        feature: str,
+        payload: FeatureCameraCreateRequest,
+        _user: dict = Depends(require_admin),
+    ) -> dict:
+        """新增摄像头并原子启用当前普通检测功能。"""
+        spec = _require_spec(feature)
+        try:
+            return camera_service.create_camera_for_feature(
+                spec.name,
+                payload.model_dump(exclude_none=True),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get(
         "/{feature}/configs/{shm_name}",

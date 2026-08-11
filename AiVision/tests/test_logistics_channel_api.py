@@ -439,6 +439,68 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
     asyncio.run(scenario())
 
 
+def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
+    feature_api = importlib.import_module("features._base.api")
+    feature_service = FakeFeatureService()
+
+    class FakeCameraService:
+        def __init__(self):
+            self.calls = []
+
+        def create_camera_for_feature(self, feature, payload):
+            self.calls.append((feature, payload))
+            return {
+                "id": "camera_21",
+                "camera_id": 21,
+                "name": payload["name"],
+                "shm_name": "camera_21",
+                "url": payload["url"],
+                "enabled": True,
+                "department": payload.get("department"),
+                "functions": {feature: True},
+            }
+
+    camera_service = FakeCameraService()
+    app = FastAPI()
+    app.include_router(feature_api.create_features_router(
+        feature_service,
+        camera_service=camera_service,
+    ))
+    app.dependency_overrides[feature_api.require_admin] = lambda: ADMIN
+
+    async def inline_run_sync(func, *args, **_kwargs):
+        return func(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v2/features/detect_human/cameras",
+                json={
+                    "name": "后门摄像头",
+                    "url": "rtsp://example/human",
+                    "department": "general_electric",
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["functions"] == {"detect_human": True}
+            assert camera_service.calls == [(
+                "detect_human",
+                {
+                    "name": "后门摄像头",
+                    "url": "rtsp://example/human",
+                    "fps": 5,
+                    "max_restart": 10,
+                    "enabled": True,
+                    "department": "general_electric",
+                },
+            )]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     ("feature", "legacy_path"),
     [

@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Camera, Copy, Power, PowerOff } from 'lucide-react'
+import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
+  createAiVisionFeatureCamera,
   getAiVisionFeatureConfig,
   type AiVisionCamera,
   isAiVisionFeatureEnabled,
   saveAiVisionFeatureConfig,
 } from '@/lib/aivision'
+import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+import { LogisticsCameraCreateDialog } from '@/components/logistics_single_person/LogisticsCameraCreateDialog'
+import type { LogisticsCameraCreateInput } from '@/components/logistics_single_person/logisticsCameraCreateState'
 
 type FeatureCameraManagerProps = {
   cameras: AiVisionCamera[]
   feature: string
+  department: string
   currentCameraName: string
   disabled?: boolean
   onSelectCamera: (shmName: string) => void
@@ -24,6 +29,7 @@ type FeatureCameraManagerProps = {
 export function FeatureCameraManager({
   cameras,
   feature,
+  department,
   currentCameraName,
   disabled,
   onSelectCamera,
@@ -36,6 +42,7 @@ export function FeatureCameraManager({
   const [copySourceCamera, setCopySourceCamera] = useState('')
   const [copyTargetCamera, setCopyTargetCamera] = useState('')
   const [copyError, setCopyError] = useState('')
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   const enabledCameras = useMemo(
     () => cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature)),
@@ -70,6 +77,7 @@ export function FeatureCameraManager({
       await onAddCamera(shmName)
       setSelectedExistingCamera('')
       window.dispatchEvent(new Event('aivision:cameras-changed'))
+      notifyPlatformCamerasChanged()
     } finally {
       setWorkingCamera('')
     }
@@ -80,6 +88,7 @@ export function FeatureCameraManager({
     try {
       await onRemoveCamera(shmName)
       window.dispatchEvent(new Event('aivision:cameras-changed'))
+      notifyPlatformCamerasChanged()
     } finally {
       setWorkingCamera('')
     }
@@ -104,8 +113,23 @@ export function FeatureCameraManager({
       await onConfigCopied?.(target)
       setCopyTargetCamera('')
       window.dispatchEvent(new Event('aivision:cameras-changed'))
+      notifyPlatformCamerasChanged()
     } catch (error) {
       setCopyError(`复制失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setWorkingCamera('')
+    }
+  }
+
+  const handleCreateCamera = async (payload: LogisticsCameraCreateInput) => {
+    setWorkingCamera('__creating__')
+    try {
+      const camera = await createAiVisionFeatureCamera(feature, {
+        ...payload,
+        department,
+        enabled: true,
+      })
+      onSelectCamera(camera.shm_name)
     } finally {
       setWorkingCamera('')
     }
@@ -197,6 +221,21 @@ export function FeatureCameraManager({
           </div>
         </div>
 
+        <div className="space-y-3 rounded-2xl border border-cyan-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+          <div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新建摄像头并加入当前功能</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">直接新建摄像头，并在保存后启用当前检测功能。</div>
+          </div>
+          <Button
+            className="gap-2"
+            onClick={() => setCreateDialogOpen(true)}
+            disabled={disabled || Boolean(workingCamera)}
+          >
+            <Plus className="h-4 w-4" />
+            新建摄像头并加入
+          </Button>
+        </div>
+
         <div className="space-y-3 rounded-2xl border border-blue-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制当前功能配置</div>
@@ -249,6 +288,15 @@ export function FeatureCameraManager({
           {copyError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{copyError}</div> : null}
         </div>
       </CardContent>
+      {createDialogOpen ? (
+        <LogisticsCameraCreateDialog
+          title="新建摄像头并加入当前功能"
+          description="填写摄像头信息，保存后将直接启用当前检测功能。"
+          submitLabel="新建并加入"
+          onClose={() => setCreateDialogOpen(false)}
+          onSubmit={handleCreateCamera}
+        />
+      ) : null}
     </Card>
   )
 }

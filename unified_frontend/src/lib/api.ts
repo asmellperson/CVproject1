@@ -6,6 +6,7 @@ import type {
   GuardRoomSite,
   StatisticsResponse,
 } from '@/types'
+import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -347,14 +348,23 @@ export const getGuardRoomSiteCameras = async (siteId: number, department?: strin
   return data.items || []
 }
 
-export const createGuardRoomSiteCamera = (siteId: number, payload: CreateGuardRoomCameraPayload) =>
-  apiPost<GuardRoomCamera>(`/sites/${siteId}/cameras`, payload)
+export const createGuardRoomSiteCamera = async (siteId: number, payload: CreateGuardRoomCameraPayload) => {
+  const camera = await apiPost<GuardRoomCamera>(`/sites/${siteId}/cameras`, payload)
+  notifyPlatformCamerasChanged()
+  return camera
+}
 
-export const updateGuardRoomCamera = (cameraId: number, payload: UpdateGuardRoomCameraPayload) =>
-  apiPut<GuardRoomCamera>(`/cameras/${cameraId}`, payload)
+export const updateGuardRoomCamera = async (cameraId: number, payload: UpdateGuardRoomCameraPayload) => {
+  const camera = await apiPut<GuardRoomCamera>(`/cameras/${cameraId}`, payload)
+  notifyPlatformCamerasChanged()
+  return camera
+}
 
-export const deleteGuardRoomCamera = (cameraId: number) =>
-  apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
+export const deleteGuardRoomCamera = async (cameraId: number) => {
+  const result = await apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
+  notifyPlatformCamerasChanged()
+  return result
+}
 
 export const guardRoomSiteFrameUrl = (siteId: number, department?: string | null) =>
   `${API_PREFIX}${withQuery(`/sites/${siteId}/frame.jpg`, { department })}`

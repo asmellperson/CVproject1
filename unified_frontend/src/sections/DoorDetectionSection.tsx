@@ -417,6 +417,7 @@ export function DoorDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_door"
+                department="general_electric"
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

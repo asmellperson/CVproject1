@@ -806,6 +806,52 @@ def test_camera_service_create_camera_allows_missing_shm_name_and_keeps_return_c
     assert all(enabled is False for enabled in result["functions"].values())
 
 
+def test_camera_service_create_camera_for_feature_enables_only_target_atomically(service_db):
+    result = service_db.camera_service.create_camera_for_feature(
+        "detect_human",
+        {
+            "name": "人员逗留新增相机",
+            "url": "rtsp://example/human",
+            "fps": 7,
+        },
+    )
+
+    assert result["department"] == "general_electric"
+    assert result["functions"]["detect_human"] is True
+    assert all(
+        enabled is (feature_name == "detect_human")
+        for feature_name, enabled in result["functions"].items()
+    )
+    event_types = [
+        item[1].change_type
+        for item in service_db.notifications
+        if item[0] == "event"
+    ]
+    assert event_types.count("camera_added") == 1
+    assert event_types.count("detect_human_enabled") == 1
+
+
+def test_camera_service_create_camera_for_feature_requires_valid_department(service_db):
+    with pytest.raises(ValueError, match="department 是必填项"):
+        service_db.camera_service.create_camera_for_feature(
+            "detect_phone",
+            {
+                "name": "缺少事业部",
+                "url": "rtsp://example/no-department",
+            },
+        )
+
+    with pytest.raises(ValueError, match="department 必须属于当前功能"):
+        service_db.camera_service.create_camera_for_feature(
+            "detect_face",
+            {
+                "name": "事业部不匹配",
+                "url": "rtsp://example/wrong-department",
+                "department": "general_electric",
+            },
+        )
+
+
 @pytest.mark.parametrize("error_code", [1205, 1213])
 def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
     service_db,

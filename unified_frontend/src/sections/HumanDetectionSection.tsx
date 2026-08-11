@@ -472,6 +472,7 @@ export function HumanDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_human"
+                department="general_electric"
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

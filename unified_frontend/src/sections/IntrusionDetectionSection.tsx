@@ -398,6 +398,7 @@ export function IntrusionDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="blocks"
+                department="research_institute"
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

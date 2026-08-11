@@ -1,3 +1,5 @@
+import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
 }
@@ -42,6 +44,10 @@ export type CreateAiVisionCameraPayload = {
   max_restart?: number
   enabled?: boolean
   department?: string | null
+}
+
+export type CreateAiVisionFeatureCameraPayload = Omit<CreateAiVisionCameraPayload, 'shm_name'> & {
+  shm_name?: string
 }
 
 export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled' | 'department'>>
@@ -215,6 +221,27 @@ export async function createAiVisionCamera(payload: CreateAiVisionCameraPayload)
 
   const camera = (await response.json()) as AiVisionCamera
   window.dispatchEvent(new Event('aivision:cameras-changed'))
+  notifyPlatformCamerasChanged()
+  return camera
+}
+
+export async function createAiVisionFeatureCamera(
+  feature: string,
+  payload: CreateAiVisionFeatureCameraPayload,
+) {
+  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/cameras`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(await readAiVisionError(response))
+  }
+
+  const camera = (await response.json()) as AiVisionCamera
+  window.dispatchEvent(new Event('aivision:cameras-changed'))
+  notifyPlatformCamerasChanged()
   return camera
 }
 
@@ -231,6 +258,7 @@ export async function updateAiVisionCamera(cameraKey: string, payload: UpdateAiV
 
   const camera = (await response.json()) as AiVisionCamera
   window.dispatchEvent(new Event('aivision:cameras-changed'))
+  notifyPlatformCamerasChanged()
   return camera
 }
 
@@ -244,6 +272,7 @@ export async function deleteAiVisionCamera(cameraKey: string) {
   }
 
   window.dispatchEvent(new Event('aivision:cameras-changed'))
+  notifyPlatformCamerasChanged()
   return (await response.json()) as { ok: boolean }
 }
 

@@ -419,6 +419,7 @@ export function PhoneDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_phone"
+                department="research_institute"
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

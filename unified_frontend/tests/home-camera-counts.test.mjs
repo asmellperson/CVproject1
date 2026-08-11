@@ -71,12 +71,18 @@ test('caps the camera online fallback at the inventory total', async () => {
   )
 })
 
-test('home overview only marks the camera inventory loaded after a successful request', async () => {
+test('home overview aggregates every camera source and exposes partial failures', async () => {
   const source = await readFile(new URL('src/sections/HomeSection.tsx', frontendRoot), 'utf8')
 
   assert.match(source, /const \[aiVisionCamerasLoaded, setAiVisionCamerasLoaded\] = useState\(false\)/)
+  assert.match(source, /const \[cameraInventoryLoaded, setCameraInventoryLoaded\] = useState\(false\)/)
   assert.match(source, /getLoadedAiVisionFeatureCounts\(aiVisionCameras, aiVisionCamerasLoaded\)/)
-  assert.match(source, /const cameraStatusReady = aiVisionCamerasLoaded && platformStatus !== null/)
+  assert.match(source, /const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null/)
   assert.match(source, /cameraStatusReady \? `\$\{cameraInventorySummary\.cameraOnline\}\/\$\{cameraInventorySummary\.cameraTotal\}` : '加载中'/)
-  assert.match(source, /if \(cameras\.status === 'fulfilled'\) \{[\s\S]*?setAiVisionCamerasLoaded\(true\)[\s\S]*?\} else \{[\s\S]*?setAiVisionCamerasLoaded\(false\)/)
+  assert.match(source, /Promise\.allSettled\(\[getAiVisionCameras\(\), guardRequest\]\)/)
+  assert.match(source, /getGuardRoomSites\(isAdmin \|\| department === 'all' \? undefined : department\)/)
+  assert.match(source, /cameras: \(await getSecurityVlmCameras\(itemDepartment\)\)\.cameras/)
+  assert.match(source, /setCameraInventoryPartial\([\s\S]*?securityResults\.some\(\(result\) => result\.status === 'rejected'\)/)
+  assert.match(source, /setCameraInventoryLoaded\(true\)/)
+  assert.match(source, /window\.addEventListener\(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory\)/)
 })

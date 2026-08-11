@@ -47,6 +47,7 @@ import {
 import { channelCreateDialogReducer, initialChannelCreateDialogState } from './channelCreateDialogState'
 import { LogisticsCameraCreateDialog } from './LogisticsCameraCreateDialog'
 import type { LogisticsCameraCreateInput } from './logisticsCameraCreateState'
+import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 
 type Props = {
   feature: LogisticsFeatureName
@@ -335,6 +336,7 @@ export function LogisticsChannelConfigView({
       setMessage('摄像头已新建并绑定。')
       onChanged()
       window.dispatchEvent(new Event('aivision:cameras-changed'))
+      notifyPlatformCamerasChanged()
     } catch (reason) {
       setMessage(`操作失败：${messageOf(reason)}`)
       throw reason

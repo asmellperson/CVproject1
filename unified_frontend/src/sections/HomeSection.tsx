@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -29,11 +29,24 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
-import { filterHomeModulesByPermission, getAccessibleAlarmEventTypes, getUserDepartment } from '@/auth/permissions'
-import { getAlarms, type AlarmEvent, type PlatformServiceStatus, type PlatformStatus } from '@/lib/api'
+import {
+  filterHomeModulesByPermission,
+  getAccessibleAlarmEventTypes,
+  getUserDepartment,
+  type Department,
+} from '@/auth/permissions'
+import {
+  createGuardRoomSiteCamera,
+  getAlarms,
+  getGuardRoomSites,
+  type AlarmEvent,
+  type PlatformServiceStatus,
+  type PlatformStatus,
+} from '@/lib/api'
 import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 import {
   createAiVisionCamera,
@@ -45,6 +58,15 @@ import {
   updateAiVisionCamera,
   type AiVisionCamera,
 } from '@/lib/aivision'
+import {
+  createSecurityVlmCamera,
+  getSecurityVlmCameras,
+  SECURITY_VLM_DEPARTMENTS,
+  type SecurityVlmCamera,
+  type SecurityVlmDepartment,
+} from '@/lib/security-vlm'
+import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
+import type { GuardRoomCamera, GuardRoomSite } from '@/types'
 import { getCameraInventorySummary, getLoadedAiVisionFeatureCounts, type FeatureCameraCounts } from './homeCameraCounts'
 
 interface HomeSectionProps {
@@ -122,6 +144,59 @@ type OverviewState = {
 }
 
 type AlarmSeverity = 'critical' | 'warning' | 'normal'
+
+type CameraSource = 'aivision' | 'guard_room' | 'security_vlm'
+
+type SecurityCameraInventoryItem = {
+  department: SecurityVlmDepartment
+  camera: SecurityVlmCamera
+}
+
+type PlatformCameraInventoryItem = {
+  key: string
+  source: CameraSource
+  name: string
+  identifier: string
+  department?: string | null
+  detail?: string
+  featureLabels: string[]
+  pageId?: string
+  aiVisionCamera?: AiVisionCamera
+  guardRoomCamera?: GuardRoomCamera
+  securityVlmCamera?: SecurityVlmCamera
+}
+
+const departmentOptions: Array<{ value: Exclude<Department, 'all'>; label: string }> = [
+  { value: 'general_electric', label: '通用电气事业部' },
+  { value: 'research_institute', label: '研究院' },
+  { value: 'electronics_electrician', label: '电子电工事业部' },
+  { value: 'electrical_components', label: '电气部件事业部' },
+  { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
+]
+
+const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
+  { value: 'aivision', label: 'AiVision 通用检测' },
+  { value: 'guard_room', label: '保安行为规范检测' },
+  { value: 'security_vlm', label: '安检流程规范检测' },
+]
+
+const cameraSourceDepartments: Record<CameraSource, Array<Exclude<Department, 'all'>>> = {
+  aivision: departmentOptions.map((item) => item.value),
+  guard_room: ['general_electric', 'electronics_electrician'],
+  security_vlm: [...SECURITY_VLM_DEPARTMENTS],
+}
+
+const securityPageByDepartment: Record<SecurityVlmDepartment, string> = {
+  general_electric: 'security-vlm-general-electric',
+  electronics_electrician: 'security-vlm-electronics-electrician',
+  electrical_components: 'security-vlm-electrical-components',
+  precious_metal_recycling: 'security-vlm-precious-metal-recycling',
+}
+
+const guardPageByDepartment: Partial<Record<Department, string>> = {
+  general_electric: 'guard-behavior-general-electric',
+  electronics_electrician: 'guard-behavior-electronics-electrician',
+}
 
 type ServiceKey = keyof PlatformStatus['services']
 
@@ -217,6 +292,14 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'research_institute') return '研究院视图'
   if (department === 'all') return '全局视图'
   return '权限视图'
+}
+
+function cameraDepartmentLabel(department?: string | null) {
+  return departmentOptions.find((item) => item.value === department)?.label || '未分配事业部'
+}
+
+function cameraSourceLabel(source: CameraSource) {
+  return cameraSourceOptions.find((item) => item.value === source)?.label || source
 }
 
 function getRunningConsumers(service?: PlatformServiceStatus) {
@@ -355,6 +438,10 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
   const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
+  const [guardRoomSites, setGuardRoomSites] = useState<GuardRoomSite[]>([])
+  const [securityVlmCameras, setSecurityVlmCameras] = useState<SecurityCameraInventoryItem[]>([])
+  const [cameraInventoryLoaded, setCameraInventoryLoaded] = useState(false)
+  const [cameraInventoryPartial, setCameraInventoryPartial] = useState(false)
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
   const [exceptionRepeatIntervalMinutes, setExceptionRepeatIntervalMinutes] = useState(60)
@@ -365,6 +452,9 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
   const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
+  const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
+  const [cameraDepartment, setCameraDepartment] = useState<Exclude<Department, 'all'>>('general_electric')
+  const [cameraGuardSiteId, setCameraGuardSiteId] = useState('')
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
   const [cameraFormError, setCameraFormError] = useState('')
@@ -372,21 +462,79 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
   const [cameraDeleteError, setCameraDeleteError] = useState('')
   const department = getUserDepartment(user)
+  const visiblePageIds = useMemo(
+    () => new Set(visibleModuleEntries.map((entry) => entry.id)),
+    [visibleModuleEntries],
+  )
+  const visibleSecurityDepartments = useMemo(
+    () => SECURITY_VLM_DEPARTMENTS.filter((item) => visiblePageIds.has(securityPageByDepartment[item])),
+    [visiblePageIds],
+  )
+  const guardRoomVisible = useMemo(
+    () => Object.values(guardPageByDepartment).some((pageId) => pageId && visiblePageIds.has(pageId)),
+    [visiblePageIds],
+  )
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const aiVisionFeatureCounts = useMemo(
     () => getLoadedAiVisionFeatureCounts(aiVisionCameras, aiVisionCamerasLoaded),
     [aiVisionCameras, aiVisionCamerasLoaded],
   )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
-  const cameraInventorySummary = useMemo(
-    () => getCameraInventorySummary(
+  const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
+    const aiVisionItems = aiVisionCameras.map((camera) => ({
+      key: `aivision:${getAiVisionCameraKey(camera)}`,
+      source: 'aivision' as const,
+      name: camera.name,
+      identifier: camera.shm_name,
+      department: camera.department,
+      featureLabels: getAiVisionCameraFeatureLabels(camera),
+      aiVisionCamera: camera,
+    }))
+    const guardItems = guardRoomSites.flatMap((site) => site.cameras.map((camera) => ({
+      key: `guard_room:${site.id}:${camera.id}`,
+      source: 'guard_room' as const,
+      name: camera.name,
+      identifier: `保安室：${site.name}`,
+      department: site.department,
+      detail: camera.enabled ? '已启用' : '已停用',
+      featureLabels: ['保安行为规范检测'],
+      pageId: guardPageByDepartment[site.department as Department],
+      guardRoomCamera: camera,
+    })))
+    const securityItems = securityVlmCameras.map(({ department: itemDepartment, camera }) => ({
+      key: `security_vlm:${itemDepartment}:${camera.camera_id}`,
+      source: 'security_vlm' as const,
+      name: camera.name,
+      identifier: camera.camera_id,
+      department: itemDepartment,
+      detail: camera.running ? '正在运行' : '未运行',
+      featureLabels: ['安检流程规范检测'],
+      pageId: securityPageByDepartment[itemDepartment],
+      securityVlmCamera: camera,
+    }))
+    return [...aiVisionItems, ...guardItems, ...securityItems]
+  }, [aiVisionCameras, guardRoomSites, securityVlmCameras])
+  const cameraInventorySummary = useMemo(() => {
+    const aiVisionSummary = getCameraInventorySummary(
       aiVisionCameras,
       platformStatus?.services.aivision.running_cameras,
       platformStatus?.services.aivision.online_camera_count,
-    ),
-    [aiVisionCameras, platformStatus],
-  )
-  const cameraStatusReady = aiVisionCamerasLoaded && platformStatus !== null
+    )
+    const guardCameraTotal = guardRoomSites.reduce((total, site) => total + site.cameras.length, 0)
+    const guardCameraOnline = Math.min(
+      guardCameraTotal,
+      Math.max(0, Number(platformStatus?.services.guard_room.online_camera_count) || 0),
+    )
+    const securityCameraOnline = securityVlmCameras.filter(({ camera }) => camera.running).length
+    const cameraTotal = aiVisionSummary.cameraTotal + guardCameraTotal + securityVlmCameras.length
+    const cameraOnline = aiVisionSummary.cameraOnline + guardCameraOnline + securityCameraOnline
+    return {
+      cameraTotal,
+      cameraOnline,
+      cameraOffline: Math.max(0, cameraTotal - cameraOnline),
+    }
+  }, [aiVisionCameras, guardRoomSites, platformStatus, securityVlmCameras])
+  const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null
   const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
 
   useEffect(() => {
@@ -439,12 +587,48 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     }
   }
 
-  const reloadAiVisionCameras = async () => {
-    const cameras = await getAiVisionCameras()
-    setAiVisionCameras(cameras)
-    setAiVisionCamerasLoaded(true)
-    window.dispatchEvent(new Event('aivision:cameras-changed'))
-  }
+  const loadCameraInventory = useCallback(async () => {
+    const guardRequest = guardRoomVisible
+      ? getGuardRoomSites(isAdmin || department === 'all' ? undefined : department)
+      : Promise.resolve([])
+    const securityRequest = Promise.allSettled(
+      visibleSecurityDepartments.map(async (itemDepartment) => ({
+        department: itemDepartment,
+        cameras: (await getSecurityVlmCameras(itemDepartment)).cameras,
+      })),
+    )
+    const [[aiVisionResult, guardResult], securityResults] = await Promise.all([
+      Promise.allSettled([getAiVisionCameras(), guardRequest]),
+      securityRequest,
+    ])
+
+    if (aiVisionResult.status === 'fulfilled') {
+      setAiVisionCameras(aiVisionResult.value)
+      setAiVisionCamerasLoaded(true)
+    } else {
+      setAiVisionCamerasLoaded(false)
+    }
+    if (guardResult.status === 'fulfilled') {
+      setGuardRoomSites(guardResult.value)
+    }
+    setSecurityVlmCameras(securityResults.flatMap((result) => (
+      result.status === 'fulfilled'
+        ? result.value.cameras.map((camera) => ({
+          department: result.value.department,
+          camera,
+        }))
+        : []
+    )))
+    setCameraInventoryPartial(
+      aiVisionResult.status === 'rejected'
+      || guardResult.status === 'rejected'
+      || securityResults.some((result) => result.status === 'rejected'),
+    )
+    setCameraInventoryLoaded(true)
+  }, [department, guardRoomVisible, isAdmin, visibleSecurityDepartments])
+
+  const allowedCameraDepartments = cameraSourceDepartments[cameraSource]
+  const guardSiteOptions = guardRoomSites.filter((site) => site.department === cameraDepartment)
 
   const resetCameraForm = () => {
     setCameraName('')
@@ -456,7 +640,35 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const openCreateCameraDialog = () => {
     setCameraDialogMode('create')
     resetCameraForm()
+    setCameraSource('aivision')
+    setCameraDepartment(department && department !== 'all' ? department : 'general_electric')
+    setCameraGuardSiteId('')
     setCameraDialogOpen(true)
+  }
+
+  const handleCameraSourceChange = (source: CameraSource) => {
+    const departments = cameraSourceDepartments[source]
+    const nextDepartment = departments.includes(cameraDepartment)
+      ? cameraDepartment
+      : departments[0]
+    setCameraSource(source)
+    setCameraDepartment(nextDepartment)
+    setCameraGuardSiteId(
+      source === 'guard_room'
+        ? String(guardRoomSites.find((site) => site.department === nextDepartment)?.id || '')
+        : '',
+    )
+    setCameraFormError('')
+  }
+
+  const handleCameraDepartmentChange = (nextDepartment: Exclude<Department, 'all'>) => {
+    setCameraDepartment(nextDepartment)
+    setCameraGuardSiteId(
+      cameraSource === 'guard_room'
+        ? String(guardRoomSites.find((site) => site.department === nextDepartment)?.id || '')
+        : '',
+    )
+    setCameraFormError('')
   }
 
   const openEditCameraDialog = (camera: AiVisionCamera) => {
@@ -477,23 +689,42 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       return
     }
 
+    if (cameraDialogMode === 'create' && cameraSource === 'guard_room' && !cameraGuardSiteId) {
+      setCameraFormError('请先选择保安室；如暂无保安室，请先在保安行为规范配置页创建。')
+      return
+    }
+
+    const generatedShmName = makeAiVisionShmName(name)
     const actionKey = cameraDialogMode === 'edit' && cameraToEdit
       ? getAiVisionCameraKey(cameraToEdit)
-      : makeAiVisionShmName(name)
+      : `${cameraSource}:${generatedShmName}`
     setCameraActionKey(actionKey)
     setCameraFormError('')
     try {
       if (cameraDialogMode === 'edit' && cameraToEdit) {
         await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url })
-      } else {
+      } else if (cameraSource === 'aivision') {
         await createAiVisionCamera({
           name,
           url,
-          shm_name: actionKey,
+          shm_name: generatedShmName,
+          enabled: true,
+          department: cameraDepartment,
+        })
+      } else if (cameraSource === 'guard_room') {
+        await createGuardRoomSiteCamera(Number(cameraGuardSiteId), {
+          name,
+          rtsp_url: url,
           enabled: true,
         })
+      } else {
+        await createSecurityVlmCamera(
+          cameraDepartment as SecurityVlmDepartment,
+          name,
+          url,
+        )
       }
-      await reloadAiVisionCameras()
+      await loadCameraInventory()
       setCameraDialogOpen(false)
       resetCameraForm()
     } catch (error) {
@@ -511,7 +742,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraDeleteError('')
     try {
       await deleteAiVisionCamera(cameraKey)
-      await reloadAiVisionCameras()
+      await loadCameraInventory()
       setCameraToDelete(null)
     } catch (error) {
       setCameraDeleteError(`删除失败：${error instanceof Error ? error.message : String(error)}`)
@@ -521,26 +752,27 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   }
 
   useEffect(() => {
+    void loadCameraInventory()
+    const refreshCameraInventory = () => {
+      void loadCameraInventory()
+    }
+    const timer = window.setInterval(refreshCameraInventory, 10000)
+    window.addEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory)
+    }
+  }, [loadCameraInventory])
+
+  useEffect(() => {
     let cancelled = false
 
     async function loadOverview() {
-      const [alarms, cameras] = await Promise.allSettled([
-        getAlarms(100),
-        getAiVisionCameras(),
-      ])
+      const alarms = await getAlarms(100)
 
       if (cancelled) return
-      if (cameras.status === 'fulfilled') {
-        setAiVisionCameras(cameras.value)
-        setAiVisionCamerasLoaded(true)
-      } else {
-        setAiVisionCamerasLoaded(false)
-      }
-
       const allowedAlarmTypes = accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null
-      const alarmItems = alarms.status === 'fulfilled'
-        ? alarms.value.filter((alarm) => !allowedAlarmTypes || allowedAlarmTypes.has(alarm.event_type))
-        : []
+      const alarmItems = alarms.filter((alarm) => !allowedAlarmTypes || allowedAlarmTypes.has(alarm.event_type))
 
       setOverview({
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
@@ -549,14 +781,14 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       })
     }
 
-    loadOverview().catch(() => {
+    void loadOverview().catch(() => {
       if (!cancelled) {
         setOverview(defaultOverview)
       }
     })
 
     const timer = window.setInterval(() => {
-      loadOverview().catch(() => {
+      void loadOverview().catch(() => {
         if (!cancelled) setOverview(defaultOverview)
       })
     }, 10000)
@@ -622,7 +854,8 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                       全部摄像头
                     </div>
                     <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      共 {aiVisionCameras.length} 路；在各检测功能配置页可选择加入当前功能。
+                      共 {platformCameras.length} 路；已汇总 AiVision、保安行为和安检流程摄像头。
+                      {cameraInventoryPartial ? ' 部分来源暂不可用。' : ''}
                     </div>
                   </div>
                   {isAdmin ? (
@@ -638,30 +871,30 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                  {aiVisionCameras.length === 0 ? (
+                  {platformCameras.length === 0 ? (
                     <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
                   ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2">
-                      {aiVisionCameras.map((camera) => {
-                        const cameraKey = getAiVisionCameraKey(camera)
-                        const featureLabels = getAiVisionCameraFeatureLabels(camera)
-                        return (
+                      {platformCameras.map((camera) => (
                           <div
-                            key={cameraKey}
+                            key={camera.key}
                             className="group relative border-b border-blue-100 bg-white px-4 py-3 outline-none transition-colors hover:bg-blue-50/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/70 dark:hover:bg-slate-800/70 lg:border-r lg:even:border-r-0"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
-                                <div className="mt-1 truncate text-xs font-medium text-slate-500">{camera.shm_name}</div>
+                                <div className="mt-1 truncate text-xs font-medium text-slate-500">
+                                  {cameraSourceLabel(camera.source)} · {cameraDepartmentLabel(camera.department)} · {camera.identifier}
+                                  {camera.detail ? ` · ${camera.detail}` : ''}
+                                </div>
                               </div>
-                              {isAdmin ? (
+                              {isAdmin && camera.aiVisionCamera ? (
                                 <div className="flex shrink-0 items-center gap-2 opacity-100 transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     className="gap-1.5"
-                                    onClick={() => openEditCameraDialog(camera)}
+                                    onClick={() => openEditCameraDialog(camera.aiVisionCamera!)}
                                     disabled={Boolean(cameraActionKey)}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
@@ -672,7 +905,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                                     size="sm"
                                     className="gap-1.5"
                                     onClick={() => {
-                                      setCameraToDelete(camera)
+                                      setCameraToDelete(camera.aiVisionCamera!)
                                       setCameraDeleteError('')
                                     }}
                                     disabled={Boolean(cameraActionKey)}
@@ -681,11 +914,21 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                                     删除
                                   </Button>
                                 </div>
+                              ) : camera.pageId ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 gap-1.5"
+                                  onClick={() => onNavigate(camera.pageId!)}
+                                >
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                  配置
+                                </Button>
                               ) : null}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {featureLabels.length ? (
-                                featureLabels.map((label) => (
+                              {camera.featureLabels.length ? (
+                                camera.featureLabels.map((label) => (
                                   <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
                                     {label}
                                   </Badge>
@@ -695,8 +938,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                               )}
                             </div>
                           </div>
-                        )
-                      })}
+                      ))}
                     </div>
                   )}
                 </div>
@@ -922,11 +1164,70 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           <DialogHeader>
             <DialogTitle>{cameraDialogMode === 'edit' ? '修改摄像头' : '新增摄像头'}</DialogTitle>
             <DialogDescription>
-              {cameraDialogMode === 'edit' ? '修改全局摄像头信息，相关检测功能会继续引用该摄像头。' : '新增后会出现在各检测功能配置页的已有摄像头列表中。'}
+              {cameraDialogMode === 'edit' ? '修改全局摄像头信息，相关检测功能会继续引用该摄像头。' : '选择目标能力并新增摄像头，保存后平台汇总会立即刷新。'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {cameraDialogMode === 'create' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="overview-camera-source">目标能力</Label>
+                  <Select
+                    value={cameraSource}
+                    onValueChange={(value) => handleCameraSourceChange(value as CameraSource)}
+                    disabled={Boolean(cameraActionKey)}
+                  >
+                    <SelectTrigger id="overview-camera-source">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cameraSourceOptions.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="overview-camera-department">所属事业部</Label>
+                  <Select
+                    value={cameraDepartment}
+                    onValueChange={(value) => handleCameraDepartmentChange(value as Exclude<Department, 'all'>)}
+                    disabled={Boolean(cameraActionKey)}
+                  >
+                    <SelectTrigger id="overview-camera-department">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departmentOptions
+                        .filter((item) => allowedCameraDepartments.includes(item.value))
+                        .map((item) => (
+                          <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {cameraSource === 'guard_room' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="overview-camera-guard-site">所属保安室</Label>
+                    <Select
+                      value={cameraGuardSiteId}
+                      onValueChange={setCameraGuardSiteId}
+                      disabled={Boolean(cameraActionKey) || guardSiteOptions.length === 0}
+                    >
+                      <SelectTrigger id="overview-camera-guard-site">
+                        <SelectValue placeholder={guardSiteOptions.length ? '选择保安室' : '当前事业部暂无保安室'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {guardSiteOptions.map((site) => (
+                          <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="overview-camera-name">摄像头名称</Label>
               <Input
@@ -954,7 +1255,11 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
             <Button variant="outline" onClick={() => setCameraDialogOpen(false)} disabled={Boolean(cameraActionKey)}>
               取消
             </Button>
-            <Button className="gap-2" onClick={handleSaveCamera} disabled={Boolean(cameraActionKey)}>
+            <Button
+              className="gap-2"
+              onClick={handleSaveCamera}
+              disabled={Boolean(cameraActionKey) || (cameraDialogMode === 'create' && cameraSource === 'guard_room' && !cameraGuardSiteId)}
+            >
               {cameraDialogMode === 'edit' ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               {cameraActionKey ? '保存中' : '保存'}
             </Button>

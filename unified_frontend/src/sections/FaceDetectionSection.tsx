@@ -371,6 +371,7 @@ export function FaceDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_face"
+                department="research_institute"
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {
