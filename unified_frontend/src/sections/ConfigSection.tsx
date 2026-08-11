@@ -781,7 +781,7 @@ async function waitUntilRunning(timeoutMs: number) {
         {/* ==================== 检测规则 ==================== */}
         <TabsContent value="rules" className="space-y-6">
           <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80">
+            <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900">
               <CardTitle className="flex items-center gap-2 text-[#10264d] dark:text-slate-100">
                 <Shield className="w-5 h-5 text-green-600" />
                 检测规则配置

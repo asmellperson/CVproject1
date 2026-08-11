@@ -56,6 +56,35 @@ test('every detection surface has dark page styling', async () => {
   assert.match(logisticsMonitor, /dark:border-slate-800/)
 })
 
+test('detection page titles remain readable on dark surfaces', async () => {
+  for (const [file, title] of [
+    ['HumanDetectionSection.tsx', '人员逗留监控与配置入口'],
+    ['IntrusionDetectionSection.tsx', '区域入侵检测监控与配置'],
+    ['FaceDetectionSection.tsx', '人脸检测监控与配置'],
+    ['PhoneDetectionSection.tsx', '手机识别检测监控与配置'],
+    ['DoorDetectionSection.tsx', '大门开关检测监控与配置'],
+  ]) {
+    const source = await read(`src/sections/${file}`)
+    const heading = source.match(new RegExp(`<h1 className="([^"]*)">${title}</h1>`))
+    assert.ok(heading, `${file} should render its page title as an h1`)
+    assert.match(heading[1], /dark:text-slate-100/, `${file} should give its page title a dark-mode color`)
+  }
+})
+
+test('guard detection rules heading keeps contrast in dark mode', async () => {
+  const source = await read('src/sections/ConfigSection.tsx')
+  const ruleHeader = [...source.matchAll(/<CardHeader className="([^"]*)">([\s\S]*?)<\/CardHeader>/g)]
+    .find(([, , body]) => body.includes('检测规则配置'))
+  assert.ok(ruleHeader, 'guard detection rules should render a card heading')
+  const title = ruleHeader[2].match(
+    /<CardTitle className="([^"]*)">[\s\S]*?检测规则配置[\s\S]*?<\/CardTitle>/,
+  )
+  assert.ok(title, 'guard detection rules should render its title inside the card heading')
+  assert.match(ruleHeader[1], /dark:from-slate-900/)
+  assert.match(ruleHeader[1], /dark:to-slate-900/)
+  assert.match(title[1], /dark:text-slate-100/)
+})
+
 test('guard and security workflow business cards support dark mode', async () => {
   for (const path of [
     'src/sections/MonitorSection.tsx',

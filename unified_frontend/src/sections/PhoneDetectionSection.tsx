@@ -371,7 +371,7 @@ export function PhoneDetectionSection() {
       <Tabs defaultValue="monitor" className="space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-[28px]">手机识别检测监控与配置</h1>
+            <h1 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100 sm:text-[28px]">手机识别检测监控与配置</h1>
             <p className="mt-1 text-sm text-slate-500 sm:text-base">手机使用识别监控面板</p>
           </div>
           <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-full border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
