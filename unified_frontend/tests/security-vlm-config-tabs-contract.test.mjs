@@ -83,6 +83,7 @@ test('preserves camera, ROI, video, and dialog behavior', () => {
   assert.match(section, /roiActive \? 'original' : 'rule'/)
   assert.match(section, /const setRoiImageRef = useCallback/)
   assert.match(section, /ref=\{setRoiImageRef\}/)
+  assert.match(section, /ref=\{setRoiImageRef\}[\s\S]*?src=\{activeVideoUrl\}/)
   assert.match(section, /image\.src = activeVideoUrl[\s\S]*?image\.removeAttribute\('src'\)/)
   assert.match(cameraDialog, /setMessage\(`操作失败：\$\{error instanceof Error \? error\.message : String\(error\)\}`\)/)
 })

@@ -923,6 +923,7 @@ export function SecurityVlmSection({
                   <>
                     <img
                       ref={setRoiImageRef}
+                      src={activeVideoUrl}
                       alt={`${selectedCamera.name} ROI 绘制画面`}
                       className="w-full select-none object-contain"
                       draggable={false}
