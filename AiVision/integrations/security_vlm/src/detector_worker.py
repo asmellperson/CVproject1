@@ -39,6 +39,7 @@ import yaml
  
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout  # noqa: E402
+from ultralytics_compat import yolo_precision_kwargs  # noqa: E402
  
  
 # ---------------------------------------------------------------------------
@@ -194,9 +195,9 @@ def main():
                     iou=iou,
                     imgsz=imgsz,
                     device=device,
-                    half=half,
                     tracker=tracker_yaml,
                     verbose=verbose,
+                    **yolo_precision_kwargs(half),
                 )
             except Exception as e:
                 print(f"[detector] YOLO 推理失败: {e}", flush=True)

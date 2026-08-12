@@ -63,6 +63,7 @@ from .drawing import draw_alarm_banner, draw_detection, draw_polygon
 from .pose import PoseEstimator
 from .state import AppState
 from .types import Detection
+from .ultralytics_compat import yolo_precision_kwargs
 from .uniform import UniformClassifier
 from .utils import ensure_dir
 from .vehicle_behavior import VehicleBehaviorEngine
@@ -1314,9 +1315,9 @@ class GuardRoomRuntime:
             conf=max(0.20, self.cfg.models.detector_conf),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.detector_imgsz,
-            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
+            **yolo_precision_kwargs(self._use_half()),
         )
 
         boxes = results[0].boxes
@@ -1406,9 +1407,9 @@ class GuardRoomRuntime:
             conf=min(0.9, max(0.05, self.cfg.models.phone_conf)),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.phone_crop_imgsz,
-            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
+            **yolo_precision_kwargs(self._use_half()),
         )
 
         detections: List[Detection] = []
@@ -1485,9 +1486,9 @@ class GuardRoomRuntime:
             conf=min(0.9, max(0.05, self.cfg.models.phone_conf)),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.phone_full_frame_imgsz,
-            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
+            **yolo_precision_kwargs(self._use_half()),
         )
 
         out: Dict[str, List[Detection]] = {}
@@ -1552,9 +1553,9 @@ class GuardRoomRuntime:
             conf=min(0.9, max(0.05, self.cfg.models.vehicle_conf)),
             iou=self.cfg.models.detector_iou,
             imgsz=self.cfg.models.vehicle_imgsz,
-            half=self._use_half(),
             device=(self.cfg.models.device or None),
             verbose=False,
+            **yolo_precision_kwargs(self._use_half()),
         )[0]
 
         boxes = result.boxes

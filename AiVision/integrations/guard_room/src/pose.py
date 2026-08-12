@@ -23,6 +23,7 @@ from ultralytics import YOLO
 
 from .geometry import bbox_height
 from .types import Detection
+from .ultralytics_compat import yolo_precision_kwargs
 
 
 class PoseEstimator:
@@ -91,9 +92,9 @@ class PoseEstimator:
             conf=conf,
             iou=0.45,
             imgsz=self.imgsz,
-            half=self.half,
             device=(self.device or None),
             verbose=False,
+            **yolo_precision_kwargs(self.half),
         )
 
         if not results or results[0].keypoints is None:
