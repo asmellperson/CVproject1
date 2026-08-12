@@ -92,6 +92,36 @@ def test_build_camera_config_is_isolated_from_base_config(tmp_path):
 
 
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_build_camera_config_uses_department_roi_directory(tmp_path):
+    base_cfg = {
+        "data": {"staff_identity_dir": "data/annotations/staff_rois"},
+        "runtime": {},
+        "session": {},
+    }
+    camera = {
+        "camera_id": "camera-a",
+        "name": "安检工位一号",
+        "rtsp_url": "rtsp://camera-a/stream",
+    }
+    paths = camera_runtime.CameraRuntimePaths(
+        tmp_path / "runtime" / "departments",
+        ELECTRONICS,
+        "camera-a",
+    )
+    roi_dir = tmp_path / "data" / "departments" / ELECTRONICS / "rois"
+
+    snapshot = camera_runtime.build_camera_config(
+        base_cfg,
+        camera,
+        paths,
+        staff_identity_dir=roi_dir,
+    )
+
+    assert snapshot["data"]["staff_identity_dir"] == str(roi_dir.resolve())
+    assert base_cfg["data"]["staff_identity_dir"] == "data/annotations/staff_rois"
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_write_camera_config_is_atomic_and_owner_only(tmp_path):
     config_path = tmp_path / "runtime" / "worker_config.yaml"
     snapshot = {"data": {"input_video": "rtsp://camera-a/stream"}}
@@ -463,7 +493,10 @@ def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
             "camera_root": "runtime/legacy-cameras",
             "max_running_cameras": 16,
         },
-        "departments": {"runtime_root": "runtime/custom/departments"},
+        "departments": {
+            "data_root": "data/custom/departments",
+            "runtime_root": "runtime/custom/departments",
+        },
         "data": {},
         "session": {},
     }
@@ -482,6 +515,26 @@ def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
     assert manager.departments_root == (
         project_root / "runtime" / "custom" / "departments"
     ).resolve()
+    assert manager.departments_data_root == (
+        project_root / "data" / "custom" / "departments"
+    ).resolve()
+
+
+@pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
+def test_started_session_worker_reads_the_same_department_roi_directory(tmp_path):
+    cameras = [
+        {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
+    ]
+    manager, _events, _clock = make_manager(tmp_path, cameras)
+
+    assert manager.start(GENERAL, "camera-a")["ok"] is True
+
+    snapshot = yaml.safe_load(
+        manager._paths(GENERAL, "camera-a").config_path.read_text(encoding="utf-8")
+    )
+    assert snapshot["data"]["staff_identity_dir"] == str(
+        (manager.departments_data_root / GENERAL / "rois").resolve()
+    )
 
 
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")

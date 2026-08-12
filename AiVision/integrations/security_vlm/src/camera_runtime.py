@@ -85,6 +85,8 @@ def build_camera_config(
     base_cfg: dict,
     camera: dict,
     paths: CameraRuntimePaths,
+    *,
+    staff_identity_dir: Path | None = None,
 ) -> dict:
     """从全局配置生成一台摄像头专用且互不共享引用的配置。"""
     snapshot = copy.deepcopy(base_cfg)
@@ -96,6 +98,8 @@ def build_camera_config(
     data_cfg["input_video"] = camera["rtsp_url"]
     data_cfg["video_id"] = camera["camera_id"]
     data_cfg["camera_name"] = camera["name"]
+    if staff_identity_dir is not None:
+        data_cfg["staff_identity_dir"] = str(Path(staff_identity_dir).resolve())
     runtime_cfg["dir"] = str(paths.runtime_dir)
     runtime_cfg["department_dir"] = str(paths.department_runtime_dir)
     session_cfg["pending_queue_dir"] = str(paths.pending_dir)
@@ -173,6 +177,13 @@ class CameraRuntimeManager:
             resolve_path(configured_departments_root, self.project_root)
             if configured_departments_root
             else self.base_runtime_dir / "departments"
+        )
+        configured_departments_data_root = (
+            self.base_cfg.get("departments", {}) or {}
+        ).get("data_root", "data/departments")
+        self.departments_data_root = resolve_path(
+            configured_departments_data_root,
+            self.project_root,
         )
         self.max_running_cameras = int(
             self.base_cfg["runtime"].get("max_running_cameras", 16)
@@ -552,7 +563,14 @@ class CameraRuntimeManager:
         # 必须在启动 capture/detector/session 前撤下旧 meta。否则分辨率变化时，
         # detector 可能先读取上一轮尺寸，并在 capture 缩小 slot 后触发 SIGBUS。
         reset_frame_hub(paths.runtime_dir)
-        snapshot = build_camera_config(self.base_cfg, camera, paths)
+        snapshot = build_camera_config(
+            self.base_cfg,
+            camera,
+            paths,
+            staff_identity_dir=(
+                self.departments_data_root / paths.department / "rois"
+            ),
+        )
         write_camera_config(snapshot, paths.config_path)
         runtime.config_path = paths.config_path
         runtime.processes.clear()
