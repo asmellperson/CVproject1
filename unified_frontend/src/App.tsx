@@ -9,11 +9,11 @@ import { usePlatformStatus } from '@/hooks/use-platform-status'
 import { useAuth } from '@/auth/useAuth'
 import { hasPageAccess } from '@/auth/permissions'
 
-const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width'
-const DEFAULT_SIDEBAR_WIDTH = 288
+const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width-v2'
+const DEFAULT_SIDEBAR_WIDTH = 272
 const MIN_SIDEBAR_WIDTH = 240
 const MAX_SIDEBAR_WIDTH = 420
-const COLLAPSED_SIDEBAR_WIDTH = 76
+const COLLAPSED_SIDEBAR_WIDTH = 84
 
 function clampSidebarWidth(width: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
@@ -199,6 +199,8 @@ function App() {
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
         isMobile={isMobile}
+        monitoringCount={platformStatus?.summary.camera_online ?? null}
+        systemRunning={platformStatus?.ok ?? true}
       />
 
       {isMobile && mobileSidebarOpen && (

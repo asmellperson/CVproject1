@@ -3,13 +3,15 @@ import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
 import { departmentPermissions, filterNavGroupsByPermission } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent, PointerEvent } from 'react'
-import { ChevronRight, ChevronsLeft, KeyRound, LogOut, X } from 'lucide-react'
+import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
+import { Building2, ChevronRight, ChevronsLeft, Cpu, FlaskConical, Gem, KeyRound, LogOut, PackageOpen, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { UserIdentity } from '@/components/UserIdentity'
+import { getStatistics } from '@/lib/api'
 
 interface SidebarProps {
   currentPage: string
@@ -26,6 +28,8 @@ interface SidebarProps {
   mobileOpen?: boolean
   onMobileClose?: () => void
   isMobile?: boolean
+  monitoringCount?: number | null
+  systemRunning?: boolean
 }
 
 export function Sidebar({
@@ -43,6 +47,8 @@ export function Sidebar({
   mobileOpen = false,
   onMobileClose,
   isMobile = false,
+  monitoringCount = null,
+  systemRunning = true,
 }: SidebarProps) {
   const compact = !isMobile && collapsed
   const { user, isAdmin, logout, changePassword } = useAuth()
@@ -52,11 +58,32 @@ export function Sidebar({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordMessage, setPasswordMessage] = useState('')
   const [passwordBusy, setPasswordBusy] = useState(false)
+  const [todayAlarmCount, setTodayAlarmCount] = useState<number | null>(null)
   const visibleNavGroups = useMemo(
     () => buildSidebarNavGroups(user, isAdmin),
     [isAdmin, user],
   )
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(adminModuleGroups.map((group) => group.id).concat('shared')))
+
+  useEffect(() => {
+    let active = true
+    const loadAlarmCount = () => {
+      void getStatistics()
+        .then((result) => {
+          const stats = result as { summary?: { today?: number } }
+          if (active) setTodayAlarmCount(Number(stats.summary?.today) || 0)
+        })
+        .catch(() => {
+          if (active) setTodayAlarmCount(null)
+        })
+    }
+    loadAlarmCount()
+    const timer = window.setInterval(loadAlarmCount, 30_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
 
   const activeChildGroupId = useMemo(
     () => visibleNavGroups
@@ -103,28 +130,31 @@ export function Sidebar({
       className={cn(
         'sidebar-shell fixed left-0 top-0 z-40 flex h-[100dvh] flex-col overflow-hidden border-r',
         'transition-[width,transform] duration-300 ease-in-out',
-        isMobile && 'w-[min(18rem,86vw)]',
+        compact && 'is-compact',
+        isMobile && 'w-[min(272px,86vw)]',
         resizing && 'duration-0',
         isMobile && (mobileOpen ? 'translate-x-0' : '-translate-x-full'),
       )}
-      style={isMobile ? undefined : { width: compact ? 76 : width }}
+      style={isMobile ? undefined : { width: compact ? 84 : width }}
     >
       <div
         className={cn(
-          'relative z-[1] flex h-[76px] items-center border-b border-slate-200/70 px-4 dark:border-slate-800/80 sm:h-[86px] sm:px-5',
-          compact ? 'justify-center' : 'justify-between',
+          'sidebar-brand relative z-[1] shrink-0 border-b px-4',
+          compact ? 'flex h-[92px] items-center justify-center' : 'h-[132px] pt-5',
         )}
       >
-        {!compact && (
-          <div className="min-w-0 overflow-hidden">
-            <h1 className="truncate text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">福达视觉平台</h1>
-            <p className="mt-0.5 truncate text-xs font-medium text-slate-500 dark:text-slate-400">AI Vision Platform</p>
+        {compact ? (
+          <span className="sidebar-brand-mark" aria-label="福达视觉平台">福</span>
+        ) : (
+          <div className="min-w-0 overflow-hidden pr-9">
+            <h1 className="sidebar-brand-title truncate">福达视觉平台</h1>
+            <p className="sidebar-brand-subtitle mt-0.5 truncate">AI Vision Platform</p>
           </div>
         )}
         {isMobile ? (
           <button
             onClick={onMobileClose}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-[#09265a] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            className="sidebar-collapse-button absolute right-3 top-4 flex h-9 w-9 items-center justify-center rounded-xl"
             aria-label="关闭侧边栏"
           >
             <X className="h-4 w-4" />
@@ -132,23 +162,33 @@ export function Sidebar({
         ) : !compact && (
           <button
             onClick={onToggleCollapsed}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-[#09265a] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            className="sidebar-collapse-button absolute right-3 top-4 flex h-9 w-9 items-center justify-center rounded-xl"
             aria-label="收起侧边栏"
           >
             <ChevronsLeft className="h-4 w-4" />
           </button>
         )}
+        {!compact && (
+          <div className={cn('sidebar-status-bar mt-4 flex h-9 items-center gap-2 rounded-xl px-3', !systemRunning && 'is-offline')}>
+            <span className="sidebar-status-dot" aria-hidden="true" />
+            <span className="truncate text-[11px] font-semibold">{systemRunning ? '系统运行中' : '系统连接异常'}</span>
+            <span className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-slate-400">
+              {monitoringCount === null ? '--' : monitoringCount} 路监控
+            </span>
+          </div>
+        )}
       </div>
 
-      <nav className="relative z-[1] flex-1 overflow-y-auto px-4 py-5">
+      <TooltipProvider delayDuration={120}>
+      <nav className={cn('sidebar-nav relative z-[1] flex-1 overflow-y-auto py-5', compact ? 'px-3' : 'px-4')}>
         {visibleNavGroups.map((group, idx) => (
           <div key={group.id} className={cn(idx !== 0 && 'mt-6')}>
             {!compact && group.label && (
-              <div className="mb-3 px-3 text-sm font-bold tracking-[0] text-slate-500">
+              <div className="sidebar-section-label mb-3 flex items-center px-2" style={navToneStyle(sectionTone(group.id))}>
                 {group.label}
               </div>
             )}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {group.items.map((item) => (
                 <SidebarNavButton
                   key={item.id}
@@ -156,13 +196,17 @@ export function Sidebar({
                   compact={compact}
                   active={currentPage === item.id}
                   onClick={() => onPageChange(item.id)}
+                  tone={itemTone(item.id)}
+                  badge={item.id === 'alarms' ? todayAlarmCount : null}
                 />
               ))}
               {group.children?.map((child) => {
                 const childActive = activeChildGroupId === child.id
                 const expanded = compact || expandedGroups.has(child.id) || activeChildGroupId === child.id
+                const childMeta = sidebarChildMeta[child.id] ?? sidebarChildMeta.shared
+                const GroupIcon = childMeta.icon
                 return (
-                <div key={child.id} className={cn(!compact && 'pt-2')}>
+                <div key={child.id} className={cn(!compact && 'pt-1')} style={navToneStyle(childMeta.tone)}>
                   {!compact && (
                     <button
                       type="button"
@@ -178,24 +222,22 @@ export function Sidebar({
                         })
                       }}
                       className={cn(
-                        'mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-lg font-black tracking-[0] transition',
-                        childActive
-                          ? 'bg-gradient-to-r from-[#001b43] to-[#063579] text-white shadow-[0_12px_26px_rgba(0,27,67,0.22)] dark:from-blue-600 dark:to-cyan-500 dark:shadow-blue-950/35'
-                          : 'text-[#09265a] hover:bg-white/70 dark:text-slate-100 dark:hover:bg-slate-800/60',
+                        'sidebar-group-button mb-1.5 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[15px] font-semibold',
+                        childActive && 'is-active',
                       )}
                       aria-expanded={expanded}
                     >
+                      <span className="sidebar-icon-badge"><GroupIcon className="h-[17px] w-[17px]" /></span>
+                      <span className="min-w-0 flex-1 truncate">{child.label}</span>
                       <ChevronRight
                         className={cn(
-                          'h-4 w-4 shrink-0 transition-transform',
-                          childActive ? 'text-blue-100 dark:text-white' : 'text-slate-400',
+                          'h-4 w-4 shrink-0 transition-transform duration-300',
                           expanded && 'rotate-90',
                         )}
                       />
-                      <span className="truncate">{child.label}</span>
                     </button>
                   )}
-                  <div className={cn('space-y-2 overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out', expanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0')}>
+                  <div className={cn('sidebar-child-items space-y-1.5 overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out', expanded ? 'max-h-[40rem] opacity-100' : 'max-h-0 opacity-0')}>
                     {child.items.map((item) => (
                       <SidebarNavButton
                         key={item.id}
@@ -203,6 +245,8 @@ export function Sidebar({
                         compact={compact}
                         active={currentPage === item.id}
                         onClick={() => onPageChange(item.id)}
+                        tone={childMeta.tone}
+                        nested={!compact}
                       />
                     ))}
                   </div>
@@ -213,14 +257,16 @@ export function Sidebar({
           </div>
         ))}
       </nav>
+      </TooltipProvider>
 
-      <div className={cn('relative z-[1] border-t border-slate-200/70 dark:border-slate-800/80', compact ? 'space-y-2 p-3' : 'p-4')}>
+      <div className={cn('sidebar-footer relative z-[1] border-t', compact ? 'space-y-2 p-3' : 'p-3')}>
         {compact ? (
           <>
             <button
               onClick={onToggleCollapsed}
-              className="flex h-10 w-full items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-[#09265a] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              className="sidebar-footer-icon flex h-11 w-full items-center justify-center rounded-xl"
               aria-label="展开侧边栏"
+              title="展开侧边栏"
             >
               <ChevronsLeft className="h-4 w-4 rotate-180" />
             </button>
@@ -228,7 +274,7 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => setPasswordOpen(true)}
-                className="flex h-10 w-full items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-[#09265a] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="sidebar-footer-icon is-password flex h-11 w-full items-center justify-center rounded-xl"
                 aria-label="修改密码"
                 title="修改密码"
               >
@@ -238,7 +284,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={logout}
-              className="flex h-10 w-full items-center justify-center rounded-lg text-slate-500 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-300 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+              className="sidebar-footer-icon is-logout flex h-11 w-full items-center justify-center rounded-xl"
               aria-label="退出"
               title="退出"
             >
@@ -246,20 +292,24 @@ export function Sidebar({
             </button>
           </>
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white/72 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+          <div className="sidebar-user-card relative overflow-hidden rounded-2xl p-3">
+            <i className="sidebar-corner-dot is-top-left" aria-hidden="true" />
+            <i className="sidebar-corner-dot is-top-right" aria-hidden="true" />
+            <i className="sidebar-corner-dot is-bottom-left" aria-hidden="true" />
+            <i className="sidebar-corner-dot is-bottom-right" aria-hidden="true" />
             {user && (
-              <div className="min-w-0 border-b border-slate-200 px-1 pb-3 dark:border-slate-800">
-                <UserIdentity user={user} />
+              <div className="min-w-0 border-b border-white/10 px-1 pb-3">
+                <UserIdentity user={user} className="sidebar-user-identity" />
               </div>
             )}
             <div className="mt-3 grid grid-cols-2 gap-2">
               {user && (
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPasswordOpen(true)}>
+                <Button variant="outline" size="sm" className="sidebar-account-button is-password gap-1.5" onClick={() => setPasswordOpen(true)}>
                   <KeyRound className="h-4 w-4" />
                   修改密码
                 </Button>
               )}
-              <Button variant="outline" size="sm" className="gap-1.5 text-red-600 hover:text-red-700 dark:text-red-300" onClick={logout}>
+              <Button variant="outline" size="sm" className="sidebar-account-button is-logout gap-1.5" onClick={logout}>
                 <LogOut className="h-4 w-4" />
                 退出
               </Button>
@@ -472,6 +522,48 @@ const adminModuleGroups = [
   },
 ]
 
+type NavTone = 'cyan' | 'yellow' | 'purple' | 'gold' | 'green' | 'blue' | 'red' | 'magenta' | 'teal' | 'orange'
+
+const navToneRgb: Record<NavTone, string> = {
+  cyan: '128 246 255',
+  yellow: '250 204 21',
+  purple: '168 85 247',
+  gold: '251 191 36',
+  green: '52 211 153',
+  blue: '96 165 250',
+  red: '248 81 73',
+  magenta: '217 69 238',
+  teal: '45 212 191',
+  orange: '251 113 43',
+}
+
+function navToneStyle(tone: NavTone) {
+  return { '--nav-rgb': navToneRgb[tone] } as CSSProperties
+}
+
+const sidebarChildMeta: Record<string, { tone: NavTone; icon: typeof Building2 }> = {
+  general_electric: { tone: 'cyan', icon: Building2 },
+  electronics_electrician: { tone: 'yellow', icon: Zap },
+  electrical_components: { tone: 'purple', icon: Cpu },
+  precious_metal_recycling: { tone: 'gold', icon: Gem },
+  research_institute: { tone: 'green', icon: FlaskConical },
+  shared: { tone: 'blue', icon: PackageOpen },
+}
+
+function sectionTone(groupId: string): NavTone {
+  if (groupId === 'data') return 'magenta'
+  if (groupId === 'system') return 'teal'
+  return 'cyan'
+}
+
+function itemTone(itemId: string): NavTone {
+  if (itemId === 'alarms') return 'red'
+  if (itemId === 'statistics') return 'magenta'
+  if (itemId === 'user-management') return 'teal'
+  if (itemId === 'access-audit') return 'orange'
+  return 'blue'
+}
+
 function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
   const visibleGroups = filterNavGroupsByPermission(user, navGroups)
   if (!isAdmin) return visibleGroups
@@ -505,29 +597,50 @@ function SidebarNavButton({
   compact,
   active,
   onClick,
+  tone,
+  nested = false,
+  badge = null,
 }: {
   item: NavItem
   compact: boolean
   active: boolean
   onClick: () => void
+  tone: NavTone
+  nested?: boolean
+  badge?: number | null
 }) {
   const Icon = item.icon
-  return (
+  const button = (
     <button
       onClick={onClick}
-      title={compact ? item.label : undefined}
+      aria-current={active ? 'page' : undefined}
+      style={navToneStyle(tone)}
       className={cn(
-        'group relative flex w-full items-center gap-4 rounded-xl px-4 py-3 text-[15px] font-semibold transition-all',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'sidebar-nav-button group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-[15px] font-medium',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80',
         compact && 'justify-center px-0',
-        active
-          ? 'bg-blue-50/90 text-blue-700 shadow-[0_6px_16px_rgba(37,99,235,0.10)] ring-1 ring-inset ring-blue-200 dark:bg-blue-950/55 dark:text-blue-100 dark:ring-blue-800/80'
-          : 'text-[#40557a] hover:bg-white hover:text-[#09265a] hover:shadow-[0_8px_20px_rgba(31,58,97,0.08)] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white',
+        nested && 'is-nested text-[13.5px]',
+        active && 'is-active',
       )}
     >
-      <Icon className="h-[18px] w-[18px] shrink-0" />
-      {!compact && <span className="truncate">{item.label}</span>}
-      {active && !compact && <ChevronRight className="ml-auto h-4 w-4" />}
+      <span className="sidebar-icon-badge"><Icon className="h-[17px] w-[17px] shrink-0" /></span>
+      {!compact && <span className="relative z-[1] min-w-0 flex-1 truncate text-left">{item.label}</span>}
+      {badge !== null && (
+        <span className={cn('sidebar-alarm-badge', compact && 'is-compact')} aria-label={`今日报警 ${badge} 条`}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {active && !compact && <ChevronRight className="relative z-[1] ml-auto h-4 w-4" />}
     </button>
+  )
+
+  if (!compact) return button
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={12} className="sidebar-nav-tooltip">
+        {item.label}
+      </TooltipContent>
+    </Tooltip>
   )
 }

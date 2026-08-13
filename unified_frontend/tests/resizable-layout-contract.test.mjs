@@ -13,10 +13,11 @@ const [app, sidebar, layout, securityVlm] = await Promise.all([
 ])
 
 test('desktop sidebar width is draggable, bounded, persistent, and aligned with main content', () => {
+  assert.match(app, /DEFAULT_SIDEBAR_WIDTH = 272/)
   assert.match(app, /MIN_SIDEBAR_WIDTH = 240/)
   assert.match(app, /MAX_SIDEBAR_WIDTH = 420/)
-  assert.match(app, /COLLAPSED_SIDEBAR_WIDTH = 76/)
-  assert.match(app, /aivision:sidebar-width/)
+  assert.match(app, /COLLAPSED_SIDEBAR_WIDTH = 84/)
+  assert.match(app, /aivision:sidebar-width-v2/)
   assert.match(app, /window\.localStorage\.setItem/)
   assert.match(app, /paddingLeft: sidebarCollapsed \? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth/)
   assert.match(app, /id="app-main-content"/)
