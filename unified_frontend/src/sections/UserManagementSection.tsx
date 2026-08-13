@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { KeyRound, Pencil, Plus, RefreshCw, Trash2, UserCheck, UserX } from 'lucide-react'
+import {
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  UserX,
+  UsersRound,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/auth/useAuth'
 import {
@@ -78,6 +88,14 @@ const emptyEditorForm: EditorForm = {
   department: 'general_electric',
   password: '',
   confirmPassword: '',
+}
+
+const compactActionClass =
+  'h-9 w-9 rounded-xl border-slate-200/80 bg-white/70 p-0 text-slate-500 shadow-none transition-all hover:-translate-y-0.5 hover:border-cyan-400/70 hover:bg-cyan-50 hover:text-cyan-600 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-400 dark:hover:border-cyan-500/60 dark:hover:bg-cyan-500/10 dark:hover:text-cyan-300'
+
+function getAvatarLabel(name: string) {
+  const normalizedName = name.trim()
+  return normalizedName.slice(-1) || '用'
 }
 
 export function UserManagementSection() {
@@ -258,22 +276,44 @@ export function UserManagementSection() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">用户管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            共 {users.length} 个账号，{enabledCount} 个已启用
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => void loadUsers()} disabled={loading || busy}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            刷新
-          </Button>
-          <Button onClick={openCreate} disabled={busy}>
-            <Plus className="mr-2 h-4 w-4" />
-            添加用户
-          </Button>
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/55 sm:px-6">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl dark:bg-cyan-400/15" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-50 text-cyan-600 shadow-[0_0_24px_rgba(34,211,238,0.12)] dark:bg-cyan-500/10 dark:text-cyan-300">
+              <UsersRound className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">用户管理</h1>
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+                <span>共 {users.length} 个账号</span>
+                <span className="hidden text-slate-300 dark:text-slate-700 sm:inline">/</span>
+                <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+                  {enabledCount} 个已启用
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <Button
+              variant="outline"
+              className="h-10 flex-1 rounded-xl border-cyan-500/30 bg-cyan-50/60 px-4 text-cyan-700 shadow-none hover:border-cyan-500/60 hover:bg-cyan-100/70 hover:text-cyan-800 dark:bg-cyan-500/5 dark:text-cyan-300 dark:hover:bg-cyan-500/10 sm:flex-none"
+              onClick={() => void loadUsers()}
+              disabled={loading || busy}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            <Button
+              className="h-10 flex-1 rounded-xl border-0 bg-gradient-to-r from-cyan-500 to-blue-600 px-4 text-white shadow-[0_8px_22px_rgba(14,165,233,0.25)] transition-all hover:-translate-y-0.5 hover:from-cyan-400 hover:to-blue-500 hover:shadow-[0_10px_26px_rgba(14,165,233,0.32)] sm:flex-none"
+              onClick={openCreate}
+              disabled={busy}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              添加用户
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -283,72 +323,129 @@ export function UserManagementSection() {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>账号列表</CardTitle>
-          <CardDescription>管理员操作同时受后端权限和最后管理员保护。</CardDescription>
+      <Card className="overflow-hidden border-slate-200/80 bg-white/80 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/55">
+        <CardHeader className="border-b border-slate-200/70 px-5 py-4 dark:border-slate-800/90 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="h-4 w-4 text-cyan-500 dark:text-cyan-300" />
+            <div>
+              <CardTitle className="text-base">账号列表</CardTitle>
+              <CardDescription className="mt-0.5">账号操作受后端权限和最后管理员保护</CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>工号</TableHead>
-                  <TableHead>姓名</TableHead>
-                  <TableHead>角色</TableHead>
-                  <TableHead>事业部</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="min-w-[310px] text-right">操作</TableHead>
+            <Table className="min-w-[940px]">
+              <TableHeader className="bg-slate-50/90 dark:bg-slate-950/80">
+                <TableRow className="border-slate-200/70 hover:bg-transparent dark:border-slate-800">
+                  <TableHead className="h-11 pl-6 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">工号</TableHead>
+                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">姓名</TableHead>
+                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">角色</TableHead>
+                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">事业部</TableHead>
+                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">状态</TableHead>
+                  <TableHead className="h-11 min-w-[230px] pr-6 text-right text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {users.map((item) => {
                   const isCurrent = item.employee_id === currentUser?.employee_id
                   return (
-                    <TableRow key={item.employee_id}>
-                      <TableCell className="font-mono font-semibold">{item.employee_id}</TableCell>
-                      <TableCell>
-                        {item.name}
-                        {isCurrent && <Badge variant="outline" className="ml-2">当前账号</Badge>}
+                    <TableRow
+                      key={item.employee_id}
+                      className="group h-[68px] border-slate-200/70 transition-colors hover:bg-cyan-50/40 dark:border-slate-800/90 dark:hover:bg-cyan-400/[0.035]"
+                    >
+                      <TableCell className="pl-6">
+                        <div className="flex items-center gap-2.5">
+                          <span className={`h-1.5 w-1.5 rounded-full ${item.enabled ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)]' : 'bg-slate-400 dark:bg-slate-600'}`} />
+                          <span className="font-mono text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-300">
+                            {item.employee_id}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={item.role === 'admin' ? 'default' : 'secondary'}>
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-cyan-300/40 bg-gradient-to-br from-cyan-400 via-sky-500 to-violet-500 text-base font-bold text-slate-950 shadow-[0_6px_18px_rgba(14,165,233,0.2)]">
+                            {getAvatarLabel(item.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                            {isCurrent && (
+                              <span className="mt-0.5 block text-[11px] font-medium text-cyan-600 dark:text-cyan-300">当前账号</span>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={item.role === 'admin'
+                            ? 'rounded-full border-violet-400/35 bg-violet-500/10 px-2.5 py-1 font-medium text-violet-600 dark:text-violet-300'
+                            : 'rounded-full border-cyan-400/35 bg-cyan-500/10 px-2.5 py-1 font-medium text-cyan-700 dark:text-cyan-300'}
+                        >
                           {item.role === 'admin' ? '管理员' : '普通用户'}
                         </Badge>
                       </TableCell>
-                      <TableCell>{departmentLabels[item.department] || item.department}</TableCell>
                       <TableCell>
-                        <Badge variant={item.enabled ? 'default' : 'destructive'}>
+                        <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                          {departmentLabels[item.department] || item.department}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={item.enabled
+                            ? 'rounded-full border-emerald-400/35 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-300'
+                            : 'rounded-full border-slate-400/30 bg-slate-500/10 px-2.5 py-1 font-medium text-slate-500 dark:text-slate-400'}
+                        >
+                          <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${item.enabled ? 'bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.9)]' : 'bg-slate-400'}`} />
                           {item.enabled ? '已启用' : '已禁用'}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1.5">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(item)} disabled={busy}>
-                            <Pencil className="mr-1 h-3.5 w-3.5" />
-                            编辑
+                      <TableCell className="pr-6">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className={compactActionClass}
+                            onClick={() => openEdit(item)}
+                            disabled={busy}
+                            aria-label={`编辑 ${item.name}`}
+                            title="编辑用户"
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
+                            className={compactActionClass}
                             onClick={() => void toggleEnabled(item)}
                             disabled={busy || isCurrent}
+                            aria-label={`${item.enabled ? '禁用' : '启用'} ${item.name}`}
+                            title={isCurrent ? '不能修改当前账号状态' : item.enabled ? '禁用用户' : '启用用户'}
                           >
-                            {item.enabled ? <UserX className="mr-1 h-3.5 w-3.5" /> : <UserCheck className="mr-1 h-3.5 w-3.5" />}
-                            {item.enabled ? '禁用' : '启用'}
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => setResetUser(item)} disabled={busy}>
-                            <KeyRound className="mr-1 h-3.5 w-3.5" />
-                            重置密码
+                            {item.enabled ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
                           </Button>
                           <Button
-                            size="sm"
-                            variant="destructive"
+                            size="icon"
+                            variant="outline"
+                            className={compactActionClass}
+                            onClick={() => setResetUser(item)}
+                            disabled={busy}
+                            aria-label={`重置 ${item.name} 的密码`}
+                            title="重置密码"
+                          >
+                            <KeyRound className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className={`${compactActionClass} hover:border-red-400/60 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-500/50 dark:hover:bg-red-500/10 dark:hover:text-red-300`}
                             onClick={() => setDeleteUser(item)}
                             disabled={busy || isCurrent}
+                            aria-label={`删除 ${item.name}`}
+                            title={isCurrent ? '不能删除当前账号' : '删除用户'}
                           >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                            删除
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -357,7 +454,7 @@ export function UserManagementSection() {
                 })}
                 {!loading && users.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="py-14 text-center text-muted-foreground">
                       暂无用户
                     </TableCell>
                   </TableRow>
@@ -365,7 +462,7 @@ export function UserManagementSection() {
               </TableBody>
             </Table>
           </div>
-          {loading && <div className="py-8 text-center text-sm text-muted-foreground">正在加载用户...</div>}
+          {loading && <div className="border-t border-slate-200/70 py-8 text-center text-sm text-muted-foreground dark:border-slate-800">正在加载用户...</div>}
         </CardContent>
       </Card>
 
