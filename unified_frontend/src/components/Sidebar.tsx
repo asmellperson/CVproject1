@@ -222,7 +222,7 @@ export function Sidebar({
                         })
                       }}
                       className={cn(
-                        'sidebar-group-button mb-1.5 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[15px] font-semibold',
+                        'sidebar-group-button mb-1.5 flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left text-[16px] font-bold',
                         childActive && 'is-active',
                       )}
                       aria-expanded={expanded}
@@ -619,7 +619,7 @@ function SidebarNavButton({
         'sidebar-nav-button group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-[15px] font-medium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80',
         compact && 'justify-center px-0',
-        nested && 'is-nested text-[13.5px]',
+        nested && 'is-nested',
         active && 'is-active',
       )}
     >

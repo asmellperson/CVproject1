@@ -17,6 +17,8 @@ test('renders the space-tech sidebar structure with live status and accessible c
   assert.match(sidebar, /todayAlarmCount/)
   assert.match(sidebar, /TooltipContent side="right"/)
   assert.match(sidebar, /aria-current=\{active \? 'page'/)
+  assert.match(sidebar, /sidebar-group-button[\s\S]*?text-\[16px\][\s\S]*?font-bold/)
+  assert.match(styles, /\.sidebar-nav-button\.is-nested[\s\S]*?margin-left: 14px[\s\S]*?font-size: 12\.5px/)
 })
 
 test('keeps department colors, aurora, rainbow selection, user card, and reduced-motion fallback', () => {
