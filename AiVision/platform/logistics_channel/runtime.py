@@ -467,8 +467,11 @@ class LogisticsChannelRuntime:
             )
             self._statuses[key] = self._build_status(channel, decision, prepared.states, now)
             if not decision.alarm:
-                reset = self._clear_incident_locked(key)
-                return decision, None, reset
+                # 恢复正常只结束当前事件，不能清除分发器记录的最后告警时间。
+                # alarm_interval 表示同一通道、同一功能两次实际告警的最小间隔，
+                # 即使检测结果在正常与告警之间短暂波动，也必须继续受该间隔约束。
+                self._clear_incident_locked(key)
+                return decision, None, False
             active_reason = self._active_incidents.get(key)
             pending = self._pending_incidents.get(key)
             if active_reason == decision.reason or (

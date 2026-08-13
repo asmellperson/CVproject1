@@ -238,7 +238,7 @@ def test_inactive_detection_window_still_composes_live_preview_frames():
     assert status["camera_states"]["10"]["stale_reason"] == "detection_inactive"
 
 
-def test_alarm_is_dispatched_once_per_incident_and_again_after_recovery():
+def test_alarm_incident_reopens_after_recovery_without_resetting_cooldown():
     runtime, dispatcher = build_runtime([channel(member_ids=(10,))])
     frame = np.full((12, 16, 3), 20, np.uint8)
 
@@ -253,7 +253,42 @@ def test_alarm_is_dispatched_once_per_incident_and_again_after_recovery():
     runtime.evaluate(FEATURE, 3, now=112.0)
 
     assert len(dispatcher.requests) == 2
-    assert dispatcher.reset_calls == [("logistics_channel", "3", FEATURE)]
+    assert dispatcher.reset_calls == []
+
+
+def test_alarm_interval_remains_effective_after_recovery(monkeypatch):
+    loaded_platform = sys.modules.get("platform")
+    if loaded_platform is not None and not hasattr(loaded_platform, "__path__"):
+        sys.modules.pop("platform", None)
+    from core.alarm.dispatcher import AlarmDispatcher
+
+    dispatcher = AlarmDispatcher()
+    dispatched = []
+    dispatcher_time = {"now": 100.0}
+    monkeypatch.setattr("core.alarm.dispatcher.time.time", lambda: dispatcher_time["now"])
+    monkeypatch.setattr(dispatcher, "_execute", lambda request: dispatched.append(request))
+    runtime, _ = build_runtime(
+        [channel(member_ids=(10,))],
+        dispatcher=dispatcher,
+    )
+    frame = np.full((12, 16, 3), 20, np.uint8)
+
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 2, now=100.0), frame)
+    runtime.evaluate(FEATURE, 3, now=100.0)
+    assert len(dispatched) == 1
+
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 1, now=111.0), frame)
+    assert runtime.evaluate(FEATURE, 3, now=111.0).reason == "normal"
+
+    dispatcher_time["now"] = 112.0
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 2, now=112.0), frame)
+    runtime.evaluate(FEATURE, 3, now=112.0)
+    assert len(dispatched) == 1
+
+    dispatcher_time["now"] = 113.0
+    runtime.update_camera_snapshot(FEATURE, snapshot(10, 2, now=113.0), frame)
+    runtime.evaluate(FEATURE, 3, now=113.0)
+    assert len(dispatched) == 2
 
 
 def test_cooldown_rejection_does_not_permanently_latch_new_incident():
