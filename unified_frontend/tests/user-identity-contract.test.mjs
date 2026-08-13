@@ -14,6 +14,7 @@ test('derives a gradient text avatar from the current user name', () => {
   assert.match(identity, /bg-gradient-to-br/)
   assert.match(identity, /from-cyan-500/)
   assert.match(identity, /to-indigo-600/)
+  assert.match(identity, /user-identity-avatar/)
   assert.match(identity, /items-center/)
   assert.match(identity, /justify-center/)
   assert.match(identity, /text-white/)

@@ -29,6 +29,7 @@ test('keeps department colors, aurora, rainbow selection, user card, and reduced
   assert.match(styles, /sidebar-aurora-drift/)
   assert.match(styles, /sidebar-rainbow-border/)
   assert.match(styles, /sidebar-avatar-ring/)
+  assert.match(styles, /\.user-identity-avatar::before/)
   assert.match(styles, /sidebar-user-card/)
   assert.match(styles, /prefers-reduced-motion: reduce/)
 })

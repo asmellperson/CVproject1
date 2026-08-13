@@ -401,23 +401,24 @@
   .sidebar-corner-dot.is-bottom-left { bottom: 6px; left: 6px; background: #34d399; box-shadow: 0 0 7px #34d399; }
   .sidebar-corner-dot.is-bottom-right { right: 6px; bottom: 6px; background: #facc15; box-shadow: 0 0 7px #facc15; }
 
-  .sidebar-user-identity > div:first-child {
+  .user-identity-avatar {
     position: relative;
     isolation: isolate;
-    width: 42px;
-    height: 42px;
     overflow: visible;
-    background: linear-gradient(145deg, #80f6ff, #884ef4 58%, #d745ee);
-    box-shadow: 0 0 0 2px #080a18, 0 0 18px rgb(136 78 244 / 0.3);
   }
 
-  .sidebar-user-identity > div:first-child::before {
+  .user-identity-avatar::before {
     content: '';
     position: absolute;
-    z-index: -1;
-    inset: -5px;
+    inset: -3px;
+    padding: 1px;
     border-radius: inherit;
     background: conic-gradient(#884ef4, #d745ee, #fb923c, #facc15, #34d399, #80f6ff, #884ef4);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    filter: drop-shadow(0 0 3px rgb(128 246 255 / 0.38));
+    pointer-events: none;
     animation: sidebar-avatar-ring 5s linear infinite;
   }
 
@@ -717,7 +718,7 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar-shell::before,
   .sidebar-nav-button.is-active::before,
-  .sidebar-user-identity > div:first-child::before,
+  .user-identity-avatar::before,
   .sidebar-status-dot::after,
   .sidebar-alarm-badge::before {
     animation: none !important;
