@@ -14,6 +14,8 @@ class AiViolationImage(Base):
 
     id = Column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     image_path = Column(String(500), nullable=False, comment="违规图片存储路径")
+    video_path = Column(String(500), nullable=True, comment="报警证据视频路径")
+    video_status = Column(String(20), nullable=True, comment="视频状态: pending/ready/failed")
     violation_type = Column(SmallInteger, nullable=False, comment="违规类型枚举")
     camera_no = Column(String(100), nullable=True, comment="摄像头标识 shm_name")
     subject_type = Column(String(50), nullable=True, comment="告警主体类型")

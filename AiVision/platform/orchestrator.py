@@ -42,6 +42,7 @@ from platform.logistics_channel.runtime import LogisticsChannelRuntime
 from platform.logistics_channel.service import logistics_channel_service
 from platform.alarm_device.service import horn_service
 from platform.violation.service import violation_writer
+from platform.violation.evidence_recorder import alarm_evidence_recorder
 
 
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
@@ -72,6 +73,7 @@ class Orchestrator:
             dispatcher=alarm_dispatcher,
             is_camera_active=frame_reader_registry.is_active,
             frame_provider=lambda shm_name: frame_reader_registry.latest_frames.get(shm_name),
+            evidence_recorder=alarm_evidence_recorder,
         )
 
         # 订阅配置变更事件
@@ -142,6 +144,8 @@ class Orchestrator:
         self.camera_manager.initialize_configs(cam_configs)
         self.camera_manager.start_all()
         frame_reader_registry.start_all()
+        alarm_evidence_recorder.set_status_callback(violation_writer.update_video_status)
+        alarm_evidence_recorder.start(lambda: frame_reader_registry.latest_frames)
 
         # 4) 违规图片写入
         violation_writer.start()
@@ -152,6 +156,7 @@ class Orchestrator:
             horn_dict=self._horn_dict,
             wechat=self._wechat,
             violation_writer=violation_writer,
+            evidence_recorder=alarm_evidence_recorder,
         )
 
         # 6) 推理 Worker 进程
@@ -193,6 +198,11 @@ class Orchestrator:
             except Exception:
                 pass
         self._horn_dict.clear()
+
+        try:
+            alarm_evidence_recorder.stop()
+        except Exception:
+            pass
 
         try:
             violation_writer.stop()

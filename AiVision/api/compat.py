@@ -28,7 +28,7 @@ from api.v2.cameras import (
     camera_read_department,
     get_camera_for_user,
 )
-from api.v2.alarms import alarm_image, alarm_statistics, list_alarms
+from api.v2.alarms import alarm_image, alarm_statistics, alarm_video, list_alarms
 from api.v2.logistics_channels import _require_feature_access
 from core.db import session_scope
 from platform.department.service import DepartmentService
@@ -493,6 +493,11 @@ def compat_list_alarms(limit: int = Query(200, ge=1, le=1000)):
 @router.get("/api/aivision/alarms/{alarm_id}/image")
 def compat_alarm_image(alarm_id: int):
     return alarm_image(alarm_id)
+
+
+@router.get("/api/aivision/alarms/{alarm_id}/video")
+def compat_alarm_video(alarm_id: int):
+    return alarm_video(alarm_id)
 
 
 @router.get("/api/public/aivision/alarms/{alarm_id}/image")

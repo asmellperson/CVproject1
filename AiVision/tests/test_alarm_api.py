@@ -31,6 +31,8 @@ def _channel_row(**overrides):
         },
         "create_time": datetime(2026, 8, 7, 12, 0),
         "image_path": "/tmp/channel.png",
+        "video_path": "/tmp/channel.mp4",
+        "video_status": "ready",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -55,6 +57,8 @@ def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     assert item.camera_counts == {"10": 2, "11": 1}
     assert item.offending_camera_ids == [10]
     assert item.evidence_error == "channel_frame_unavailable"
+    assert item.video_path == "/tmp/channel.mp4"
+    assert item.video_status == "ready"
 
 
 def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():

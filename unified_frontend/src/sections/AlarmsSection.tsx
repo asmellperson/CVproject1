@@ -25,6 +25,8 @@ import {
   CircleDashed,
   UsersRound,
   XCircle,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import {
   alarmImageUrl,
@@ -54,6 +56,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const [dispositionBusy, setDispositionBusy] = useState<AlarmDispositionStatus | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [alarms, setAlarms] = useState<AlarmEvent[]>([])
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
+  const [imageZoom, setImageZoom] = useState(1)
   const initialAlarmOpenedRef = useRef(false)
   const itemsPerPage = 10
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
@@ -93,6 +97,20 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   }, [selectedAlarm?.id, selectedAlarm?.disposition_note])
 
   useEffect(() => {
+    if (!selectedAlarm) return
+    const refreshed = alarms.find((alarm) => alarm.id === selectedAlarm.id)
+    if (
+      refreshed
+      && (
+        refreshed.video_status !== selectedAlarm.video_status
+        || refreshed.video_url !== selectedAlarm.video_url
+      )
+    ) {
+      setSelectedAlarm(refreshed)
+    }
+  }, [alarms, selectedAlarm])
+
+  useEffect(() => {
     if (!initialAlarmId || initialAlarmOpenedRef.current || selectedAlarm || !alarms.length) return
     const alarm = findInitialAlarm(alarms, initialAlarmId)
     if (alarm) {
@@ -103,6 +121,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
 
   const handleAlarmDialogOpenChange = (open: boolean) => {
     if (open) return
+    setImagePreviewOpen(false)
+    setImageZoom(1)
     setSelectedAlarm(null)
 
     const params = new URLSearchParams(window.location.search)
@@ -522,14 +542,28 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               <div className="space-y-3">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">报警截图</div>
-                  <img
-                    src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
-                    alt="报警截图"
-                    className="w-full rounded-lg border"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none'
+                  <button
+                    type="button"
+                    className="group relative block w-full cursor-zoom-in overflow-hidden rounded-lg border bg-black/5 text-left dark:bg-black/30"
+                    onClick={() => {
+                      setImageZoom(1)
+                      setImagePreviewOpen(true)
                     }}
-                  />
+                    aria-label="放大查看报警截图"
+                  >
+                    <img
+                      src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
+                      alt="报警截图"
+                      className="w-full transition duration-200 group-hover:brightness-90"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                    <span className="pointer-events-none absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-medium text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
+                      <ZoomIn className="h-3.5 w-3.5" />
+                      点击放大
+                    </span>
+                  </button>
                 </div>
                 
                 {selectedAlarm.video_status === 'ready' && (
@@ -559,6 +593,71 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
+        <DialogContent className="flex h-[94dvh] max-h-none w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-slate-700 bg-slate-950/95 p-0 text-white sm:max-w-[96vw]">
+          <DialogHeader className="flex-col gap-3 border-b border-white/10 px-4 py-3 pr-12 sm:flex-row sm:items-center sm:justify-between">
+            <DialogTitle className="text-base text-white">报警截图</DialogTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setImageZoom((value) => Math.max(0.5, value - 0.25))}
+                aria-label="缩小图片"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+              <span className="w-14 text-center text-xs text-slate-300">{Math.round(imageZoom * 100)}%</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setImageZoom((value) => Math.min(3, value + 0.25))}
+                aria-label="放大图片"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setImageZoom(1)}
+              >
+                适应窗口
+              </Button>
+              {selectedAlarm && (
+                <Button asChild variant="outline" className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                  <a
+                    href={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
+                    download={`alarm-${selectedAlarm.source_id || selectedAlarm.id}.jpg`}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    下载
+                  </a>
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+            {selectedAlarm && (
+              <img
+                src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
+                alt="报警截图大图"
+                className="select-none object-contain transition-[width] duration-150"
+                style={{
+                  width: `${imageZoom * 100}%`,
+                  maxWidth: imageZoom <= 1 ? '100%' : 'none',
+                  maxHeight: imageZoom <= 1 ? '100%' : 'none',
+                }}
+                draggable={false}
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

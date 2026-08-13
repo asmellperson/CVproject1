@@ -66,6 +66,11 @@ class StorageSettings(BaseSettings):
         60,
         alias="ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES",
     )
+    alarm_clip_enabled: bool = Field(True, alias="ALARM_CLIP_ENABLED")
+    alarm_clip_pre_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_PRE_SECONDS")
+    alarm_clip_post_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_POST_SECONDS")
+    alarm_clip_fps: float = Field(5.0, gt=0, alias="ALARM_CLIP_FPS")
+    alarm_clip_max_width: int = Field(960, ge=160, alias="ALARM_CLIP_MAX_WIDTH")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

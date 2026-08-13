@@ -68,6 +68,8 @@ class AsyncViolationWriter:
         subject_name: str = "",
         reason: str = "",
         event_metadata: dict | None = None,
+        video_path: str | None = None,
+        video_status: str | None = None,
     ):
         """从 Consumer 调来的入口 — 立即返回,后台线程负责落盘和 DB 写"""
         self._queue.put_nowait({
@@ -79,6 +81,8 @@ class AsyncViolationWriter:
             "subject_name": subject_name,
             "reason": reason,
             "event_metadata": event_metadata or {},
+            "video_path": video_path,
+            "video_status": video_status,
             "ts": datetime.datetime.now(),
         })
 
@@ -93,6 +97,8 @@ class AsyncViolationWriter:
         subject_name: str = "",
         reason: str = "",
         event_metadata: dict | None = None,
+        video_path: str | None = None,
+        video_status: str | None = None,
     ) -> AiViolationImage | None:
         """同步保存单条违规记录并返回已入库对象。
 
@@ -108,6 +114,8 @@ class AsyncViolationWriter:
             "subject_name": subject_name,
             "reason": reason,
             "event_metadata": event_metadata or {},
+            "video_path": video_path,
+            "video_status": video_status,
             "ts": datetime.datetime.now(),
         })
         if row is None:
@@ -121,6 +129,31 @@ class AsyncViolationWriter:
         except Exception as e:
             logger.warning(f"[ViolationWriter] 同步提交失败: {e}")
             return None
+
+    def update_video_status(self, video_path: str, status: str) -> None:
+        """Update the alarm row after its asynchronous evidence clip finishes."""
+        normalized_status = status if status in {"ready", "failed"} else "failed"
+        # 非企微告警使用批量入库，录像可能先于数据库 flush 完成；短暂重试
+        # 能避免记录永久停留在 pending，同时不阻塞检测和录像线程。
+        for attempt in range(12):
+            try:
+                with session_scope() as session:
+                    row = (
+                        session.query(AiViolationImage)
+                        .filter(AiViolationImage.video_path == str(video_path))
+                        .first()
+                    )
+                    if row is not None:
+                        row.video_status = normalized_status
+                        return
+            except Exception as exc:
+                logger.warning(
+                    f"[ViolationWriter] 报警视频状态更新失败 "
+                    f"path={video_path} attempt={attempt + 1}: {exc}"
+                )
+            if attempt < 11:
+                time.sleep(0.5)
+        logger.warning(f"[ViolationWriter] 未找到报警视频对应记录 path={video_path}")
 
     # ---------- 生命周期 ----------
 
@@ -200,6 +233,8 @@ class AsyncViolationWriter:
                 raise OSError(f"OpenCV 写入报警图片失败: {full_path}")
             return {
                 "image_path": str(full_path),
+                "video_path": item.get("video_path"),
+                "video_status": item.get("video_status"),
                 "violation_type": item["violation_type"],
                 "camera_no": item["camera_no"],
                 "subject_type": item.get("subject_type") or "camera",

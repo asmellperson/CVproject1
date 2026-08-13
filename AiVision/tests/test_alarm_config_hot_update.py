@@ -117,6 +117,38 @@ def test_dispatcher_forwards_subject_metadata_to_violation_writer():
     assert calls[0]["event_metadata"] == {"camera_counts": {"10": 0}}
 
 
+def test_dispatcher_attaches_pending_shared_evidence_video():
+    calls = []
+
+    class Writer:
+        def enqueue(self, **kwargs):
+            calls.append(kwargs)
+
+    class Recorder:
+        def start_alarm(self, source_key, frame):
+            assert source_key == "camera_7"
+            assert frame.shape == (2, 2, 3)
+            return "/tmp/alarm.mp4"
+
+    dispatcher = AlarmDispatcher()
+    dispatcher.violation_writer = Writer()
+    dispatcher.evidence_recorder = Recorder()
+    dispatcher._execute(
+        AlarmRequest(
+            feature_name="blocks",
+            camera_id=7,
+            camera_name="后大门",
+            frame=np.zeros((2, 2, 3), np.uint8),
+            violation_type=1,
+            alarm_config={},
+            camera_key="camera_7",
+        )
+    )
+
+    assert calls[0]["video_path"] == "/tmp/alarm.mp4"
+    assert calls[0]["video_status"] == "pending"
+
+
 def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default():
     calls = []
 

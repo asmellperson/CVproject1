@@ -429,7 +429,14 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         "evidence_error": alarm.get("evidence_error") or metadata.get("evidence_error"),
         "metadata": metadata,
         "image_url": alarm.get("image_url") or f"/api/aivision/alarms/{source_id}/image",
-        "video_url": alarm.get("video_url") or None,
+        "video_url": (
+            alarm.get("video_url")
+            or (
+                f"/api/aivision/alarms/{source_id}/video"
+                if alarm.get("video_status") == "ready"
+                else None
+            )
+        ),
     }
 
 

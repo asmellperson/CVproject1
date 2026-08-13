@@ -59,11 +59,19 @@ def _database():
     return factory, local_session_scope
 
 
-def _add_record(factory, *, row_id: int, image_path: Path, created_at: datetime.datetime):
+def _add_record(
+    factory,
+    *,
+    row_id: int,
+    image_path: Path,
+    created_at: datetime.datetime,
+    video_path: Path | None = None,
+):
     with factory() as session:
         session.add(AiViolationImage(
             id=row_id,
             image_path=str(image_path),
+            video_path=str(video_path) if video_path else None,
             violation_type=6,
             camera_no="camera-1",
             create_time=created_at,
@@ -76,17 +84,25 @@ def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
     now = datetime.datetime(2026, 8, 10, 12, 0, 0)
     root = tmp_path / "alarm-data"
     old_image = root / "6" / "old.png"
+    old_video = root / "alarm_clips" / "old.mp4"
     recent_image = root / "6" / "recent.png"
     orphan = root / "6" / "orphan.png"
     outside = tmp_path / "outside.png"
-    for path in (old_image, recent_image, orphan, outside):
+    for path in (old_image, old_video, recent_image, orphan, outside):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"image")
     old_timestamp = (now - datetime.timedelta(days=8)).timestamp()
     os.utime(old_image, (old_timestamp, old_timestamp))
+    os.utime(old_video, (old_timestamp, old_timestamp))
     os.utime(orphan, (old_timestamp, old_timestamp))
 
-    _add_record(factory, row_id=1, image_path=old_image, created_at=now - datetime.timedelta(days=8))
+    _add_record(
+        factory,
+        row_id=1,
+        image_path=old_image,
+        video_path=old_video,
+        created_at=now - datetime.timedelta(days=8),
+    )
     _add_record(factory, row_id=2, image_path=recent_image, created_at=now - datetime.timedelta(days=1))
     _add_record(factory, row_id=3, image_path=outside, created_at=now - datetime.timedelta(days=8))
     cleaner = violation_cleanup.ViolationMediaCleaner(
@@ -102,11 +118,12 @@ def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
         remaining_ids = [row.id for row in session.query(AiViolationImage).order_by(AiViolationImage.id)]
     assert remaining_ids == [2, 3]
     assert not old_image.exists()
+    assert not old_video.exists()
     assert not orphan.exists()
     assert recent_image.exists()
     assert outside.exists()
     assert stats.removed_records == 1
-    assert stats.removed_files == 2
+    assert stats.removed_files == 3
     assert stats.skipped_unsafe_paths == 1
 
 

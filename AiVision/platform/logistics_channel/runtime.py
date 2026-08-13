@@ -91,6 +91,7 @@ class LogisticsChannelRuntime:
         violation_type_provider: Callable[[str], int] | None = None,
         clock_provider: Callable[[], float] | None = None,
         compositor: Callable[[tuple[CameraTile, ...]], np.ndarray] | None = None,
+        evidence_recorder=None,
         start_background: bool = True,
         stop_timeout_seconds: float = 2.0,
     ) -> None:
@@ -112,6 +113,7 @@ class LogisticsChannelRuntime:
         )
         self._clock_provider = clock_provider or time.time
         self._compositor = compositor or compose_channel_frame
+        self._evidence_recorder = evidence_recorder
         self._start_background = start_background
         self._stop_timeout_seconds = float(stop_timeout_seconds)
         self._stop_event = Event()
@@ -257,6 +259,17 @@ class LogisticsChannelRuntime:
             if view is None:
                 return ChannelDecision("unconfigured", False, 0.0, None)
             prepared = self._prepare_view(view, evaluated_at)
+            evidence_recorder = self._evidence_recorder
+            evidence_key = self._evidence_key(prepared.channel)
+            if evidence_recorder is not None and evidence_recorder.should_sample(
+                evidence_key,
+                evaluated_at,
+            ):
+                evidence_recorder.record_frame(
+                    evidence_key,
+                    self._compose(prepared.channel, prepared.tiles),
+                    evaluated_at,
+                )
             transition = self._transition(prepared, evaluated_at)
             if transition is None:
                 continue
@@ -756,13 +769,17 @@ class LogisticsChannelRuntime:
             frame=evidence,
             violation_type=int(self._violation_type_provider(channel.feature_name)),
             alarm_config=alarm_config,
-            camera_key=f"logistics_channel:{channel.feature_name}:{channel.channel_id}",
+            camera_key=self._evidence_key(channel),
             subject_type="logistics_channel",
             subject_id=str(channel.channel_id),
             subject_name=channel.name,
             reason=decision.reason,
             metadata=metadata,
         )
+
+    @staticmethod
+    def _evidence_key(channel: _ChannelConfig) -> str:
+        return f"logistics_channel:{channel.feature_name}:{channel.channel_id}"
 
     def _clear_incident_locked(self, key: tuple[str, int]) -> bool:
         active = self._active_incidents.pop(key, None) is not None

@@ -199,8 +199,8 @@ def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any
         "created_at": created_at,
         "image_path": row.image_path,
         "image_url": f"/api/aivision/alarms/{row.id}/image",
-        "video_path": None,
-        "video_status": None,
+        "video_path": getattr(row, "video_path", None),
+        "video_status": getattr(row, "video_status", None),
         **_channel_alarm_fields(metadata),
         "metadata": metadata,
     }
@@ -232,6 +232,23 @@ def alarm_image(alarm_id: int):
         if not row.image_path or not os.path.exists(row.image_path):
             raise HTTPException(status_code=404, detail="alarm image not found")
         return FileResponse(row.image_path, media_type="image/png")
+    finally:
+        session.close()
+
+
+@router.get("/{alarm_id}/video")
+def alarm_video(alarm_id: int):
+    session = get_session()
+    try:
+        row = session.query(AiViolationImage).filter(AiViolationImage.id == alarm_id).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="alarm not found")
+        if getattr(row, "video_status", None) != "ready":
+            raise HTTPException(status_code=404, detail="alarm video is not ready")
+        video_path = getattr(row, "video_path", None)
+        if not video_path or not os.path.exists(video_path):
+            raise HTTPException(status_code=404, detail="alarm video not found")
+        return FileResponse(video_path, media_type="video/mp4")
     finally:
         session.close()
 

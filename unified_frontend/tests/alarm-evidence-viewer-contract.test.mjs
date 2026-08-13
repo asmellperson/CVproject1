@@ -1,0 +1,19 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+const frontendRoot = new URL('../', import.meta.url)
+
+test('alarm details expose image zoom and shared evidence video states', async () => {
+  const [section, api] = await Promise.all([
+    readFile(new URL('src/sections/AlarmsSection.tsx', frontendRoot), 'utf8'),
+    readFile(new URL('src/lib/api.ts', frontendRoot), 'utf8'),
+  ])
+
+  assert.match(section, /aria-label="放大查看报警截图"/)
+  assert.match(section, /报警截图大图/)
+  assert.match(section, /setImageZoom\(\(value\) => Math\.min\(3/)
+  assert.match(section, /selectedAlarm\.video_status === 'ready'/)
+  assert.match(section, /视频录制中/)
+  assert.match(api, /alarmVideoUrl.*\/api\/aivision\/alarms\/\$\{alarmId\}\/video/)
+})

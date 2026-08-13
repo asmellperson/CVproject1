@@ -76,6 +76,7 @@ class AlarmDispatcher:
         self.horn_dict: dict[int, Horn] = {}          # horn_id → Horn 实例映射
         self.wechat: Optional[WeChatNotifier] = None  # 微信推送客户端
         self.violation_writer = None                  # ViolationWriter，负责 SQL 持久化
+        self.evidence_recorder = None                 # 公共报警前后视频录制器
 
         # ---- 微信异步发送队列 ----
         # 微信 API 存在网络延迟，使用独立队列 + 守护线程，防止阻塞检测主循环。
@@ -95,6 +96,7 @@ class AlarmDispatcher:
         horn_dict: dict[int, Horn],
         wechat: Optional[WeChatNotifier],
         violation_writer,
+        evidence_recorder=None,
     ):
         """
         注入运行时依赖，并启动微信后台发送线程。
@@ -105,6 +107,7 @@ class AlarmDispatcher:
         self.horn_dict = horn_dict
         self.wechat = wechat
         self.violation_writer = violation_writer
+        self.evidence_recorder = evidence_recorder
         if not self._wechat_started:
             self._wechat_thread.start()
             self._wechat_started = True
@@ -190,6 +193,15 @@ class AlarmDispatcher:
             or bool(sql_cfg.get("enable"))
         )
         should_persist_violation = should_write_sql or should_send_wechat
+        video_path = None
+        if should_persist_violation and self.evidence_recorder is not None:
+            try:
+                video_path = self.evidence_recorder.start_alarm(
+                    req.camera_key or req.camera_name,
+                    req.frame,
+                )
+            except Exception as exc:
+                logger.warning(f"[Alarm] 报警视频任务创建失败: {exc}")
 
         # ---- 通道 1: 喇叭（同步）----
         horn_cfg = alarm.get("horn") or {}
@@ -212,9 +224,14 @@ class AlarmDispatcher:
                     alarm_record = self._write_violation(
                         self.violation_writer.save_now,
                         req,
+                        video_path=video_path,
                     )
                 else:
-                    self._write_violation(self.violation_writer.enqueue, req)
+                    self._write_violation(
+                        self.violation_writer.enqueue,
+                        req,
+                        video_path=video_path,
+                    )
             except Exception as e:
                 logger.warning(f"[Alarm] SQL 入队失败: {e}")
 
@@ -227,7 +244,12 @@ class AlarmDispatcher:
                 logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
 
     @staticmethod
-    def _write_violation(writer_method, req: AlarmRequest):
+    def _write_violation(
+        writer_method,
+        req: AlarmRequest,
+        *,
+        video_path: str | None = None,
+    ):
         """向支持新字段的 writer 传通道元数据，并兼容旧式 writer 适配器。"""
         values = {
             "frame": req.frame,
@@ -238,6 +260,8 @@ class AlarmDispatcher:
             "subject_name": req.subject_name or req.camera_name,
             "reason": req.reason,
             "event_metadata": req.metadata,
+            "video_path": video_path,
+            "video_status": "pending" if video_path else None,
         }
         try:
             signature = inspect.signature(writer_method)

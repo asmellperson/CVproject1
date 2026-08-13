@@ -1,4 +1,4 @@
-"""AiVision 报警图片与数据库记录的一致性清理。"""
+"""AiVision 报警图片、视频与数据库记录的一致性清理。"""
 from __future__ import annotations
 
 import datetime
@@ -11,7 +11,7 @@ from core.logger import logger
 from .orm import AiViolationImage
 
 
-MEDIA_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
+MEDIA_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".mp4"})
 GIB = 1024 ** 3
 CLEANUP_BATCH_SIZE = 500
 QUOTA_GRACE_SECONDS = 10 * 60
@@ -29,7 +29,7 @@ class MediaCleanupStats:
 
 
 class ViolationMediaCleaner:
-    """按保留天数和容量上限清理报警图片及关联数据库记录。"""
+    """按保留天数和容量上限清理报警媒体及关联数据库记录。"""
 
     def __init__(
         self,
@@ -102,13 +102,18 @@ class ViolationMediaCleaner:
                     return
                 cursor = (rows[-1].create_time, int(rows[-1].id))
                 for row in rows:
-                    removed, removed_bytes = self._remove_managed_file(row.image_path, stats)
-                    if not removed:
+                    image_removed, image_bytes = self._remove_managed_file(row.image_path, stats)
+                    video_removed, video_bytes = self._remove_optional_managed_file(
+                        row.video_path,
+                        stats,
+                    )
+                    if not image_removed or not video_removed:
                         continue
                     session.delete(row)
                     stats.removed_records += 1
+                    removed_bytes = image_bytes + video_bytes
                     if removed_bytes:
-                        stats.removed_files += 1
+                        stats.removed_files += int(image_bytes > 0) + int(video_bytes > 0)
                         stats.removed_bytes += removed_bytes
 
     def _delete_expired_orphans(
@@ -177,14 +182,19 @@ class ViolationMediaCleaner:
                         break
                     if row.create_time.timestamp() >= now_timestamp - QUOTA_GRACE_SECONDS:
                         continue
-                    removed, removed_bytes = self._remove_managed_file(row.image_path, stats)
-                    if not removed:
+                    image_removed, image_bytes = self._remove_managed_file(row.image_path, stats)
+                    video_removed, video_bytes = self._remove_optional_managed_file(
+                        row.video_path,
+                        stats,
+                    )
+                    if not image_removed or not video_removed:
                         continue
                     session.delete(row)
                     stats.removed_records += 1
+                    removed_bytes = image_bytes + video_bytes
                     total_bytes = max(0, total_bytes - removed_bytes)
                     if removed_bytes:
-                        stats.removed_files += 1
+                        stats.removed_files += int(image_bytes > 0) + int(video_bytes > 0)
                         stats.removed_bytes += removed_bytes
 
         if total_bytes > self.max_bytes:
@@ -234,7 +244,7 @@ class ViolationMediaCleaner:
     def _referenced_paths(self, paths: list[Path]) -> set[str]:
         raw_paths = [str(path) for path in paths]
         with self._session_scope() as session:
-            return {
+            image_paths = {
                 str(image_path)
                 for (image_path,) in (
                     session.query(AiViolationImage.image_path)
@@ -242,6 +252,25 @@ class ViolationMediaCleaner:
                     .all()
                 )
             }
+            video_paths = {
+                str(video_path)
+                for (video_path,) in (
+                    session.query(AiViolationImage.video_path)
+                    .filter(AiViolationImage.video_path.in_(raw_paths))
+                    .all()
+                )
+                if video_path
+            }
+            return image_paths | video_paths
+
+    def _remove_optional_managed_file(
+        self,
+        raw_path: str | Path | None,
+        stats: MediaCleanupStats,
+    ) -> tuple[bool, int]:
+        if not raw_path:
+            return True, 0
+        return self._remove_managed_file(raw_path, stats)
 
     def _remove_managed_file(
         self,
