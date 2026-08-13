@@ -133,14 +133,18 @@ class DepartmentService:
         # Seed departments
         seed_departments = [
             {"name": "general_electric", "display_name": "通用电气"},
-            {"name": "research_institute", "display_name": "研究院"},
+            {"name": "research_institute", "display_name": "福达新材院"},
             {"name": "electronics_electrician", "display_name": "电子电工"},
             {"name": "electrical_components", "display_name": "电气部件事业部"},
             {"name": "precious_metal_recycling", "display_name": "贵金属回收事业部"},
         ]
         for seed in seed_departments:
-            if not self.get_department(session, seed["name"]):
+            department = self.get_department(session, seed["name"])
+            if department is None:
                 self.create_department(session, seed)
+            elif department.display_name != seed["display_name"]:
+                department.display_name = seed["display_name"]
+                session.flush()
         # Seed feature-department mappings only if DB is empty
         specs = all_specs()
         for name, spec in specs.items():

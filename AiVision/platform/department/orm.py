@@ -13,7 +13,7 @@ class AiDepartment(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False, unique=True, comment="部门标识，如 general_electric/research_institute")
-    display_name = Column(String(100), nullable=False, comment="部门显示名称，如 通用电气/研究院")
+    display_name = Column(String(100), nullable=False, comment="部门显示名称，如 通用电气/福达新材院")
 
     def __repr__(self):
         return f"<AiDepartment name={self.name!r} display={self.display_name!r}>"

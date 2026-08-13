@@ -196,3 +196,18 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
 
     assert updated["role"] == "viewer"
     assert updated["department"] == "research_institute"
+
+
+@pytest.mark.parametrize("department", ["研究院", "人工智能研究院", "福达新材院"])
+def test_accepts_legacy_and_current_materials_institute_labels(tmp_path, department):
+    store, _legacy_path = _store(tmp_path)
+
+    created = store.create_user(
+        employee_id=f"viewer-{department}",
+        name="新材院用户",
+        role="viewer",
+        department=department,
+        password_hash="hash",
+    )
+
+    assert created["department"] == "research_institute"

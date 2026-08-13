@@ -326,7 +326,7 @@ export function FaceDetectionSection() {
         <DetectionPageHeader
           title="人脸检测"
           subtitle="人脸识别实时监控面板"
-          departmentLabel="人工智能研究院"
+          departmentLabel="福达新材院"
           runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_face" isAdmin={isAdmin} />}
         />
 

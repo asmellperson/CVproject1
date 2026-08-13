@@ -23,6 +23,8 @@ DEPARTMENT_ALIASES = {
     "general": "general_electric",
     "通用电气": "general_electric",
     "研究院": "research_institute",
+    "人工智能研究院": "research_institute",
+    "福达新材院": "research_institute",
     "电子电工": "electronics_electrician",
     "电气部件": "electrical_components",
     "贵金属回收": "precious_metal_recycling",

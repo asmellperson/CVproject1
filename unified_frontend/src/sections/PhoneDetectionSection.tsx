@@ -374,7 +374,7 @@ export function PhoneDetectionSection() {
         <DetectionPageHeader
           title="手机识别检测"
           subtitle="手机使用识别监控面板"
-          departmentLabel="人工智能研究院"
+          departmentLabel="福达新材院"
           runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_phone" isAdmin={isAdmin} />}
         />
 

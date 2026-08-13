@@ -517,7 +517,7 @@ const adminModuleGroups = [
   },
   {
     id: 'research_institute',
-    label: '研究院',
+    label: '福达新材院',
     pages: departmentPermissions.research_institute.pages,
   },
 ]

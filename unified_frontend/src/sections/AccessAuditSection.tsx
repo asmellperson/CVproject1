@@ -17,7 +17,7 @@ import { listAccessAudit, type AccessAuditItem } from '@/lib/access-audit'
 const departmentLabels: Record<string, string> = {
   all: '全部事业部',
   general_electric: '通用电气事业部',
-  research_institute: '研究院',
+  research_institute: '福达新材院',
   electronics_electrician: '电子电工事业部',
   electrical_components: '电气部件事业部',
   precious_metal_recycling: '贵金属回收事业部',

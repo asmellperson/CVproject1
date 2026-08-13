@@ -372,7 +372,7 @@ export function DoorDetectionSection() {
         <DetectionPageHeader
           title="大门开关检测"
           subtitle="大门状态异常监控面板"
-          departmentLabel="人工智能研究院"
+          departmentLabel="公共能力"
           runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_door" isAdmin={isAdmin} />}
         />
 

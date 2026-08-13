@@ -168,7 +168,7 @@ type PlatformCameraInventoryItem = {
 
 const departmentOptions: Array<{ value: Exclude<Department, 'all'>; label: string }> = [
   { value: 'general_electric', label: '通用电气事业部' },
-  { value: 'research_institute', label: '研究院' },
+  { value: 'research_institute', label: '福达新材院' },
   { value: 'electronics_electrician', label: '电子电工事业部' },
   { value: 'electrical_components', label: '电气部件事业部' },
   { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
@@ -289,7 +289,7 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'electronics_electrician') return '电子电工视图'
   if (department === 'electrical_components') return '电气部件视图'
   if (department === 'precious_metal_recycling') return '贵金属回收视图'
-  if (department === 'research_institute') return '研究院视图'
+  if (department === 'research_institute') return '福达新材院视图'
   if (department === 'all') return '全局视图'
   return '权限视图'
 }

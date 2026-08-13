@@ -353,7 +353,7 @@ export function IntrusionDetectionSection() {
         <DetectionPageHeader
           title="区域入侵检测"
           subtitle="警戒区域实时监控面板"
-          departmentLabel="人工智能研究院"
+          departmentLabel="福达新材院"
           runtimeControl={<AiVisionFeatureRuntimeControl feature="blocks" isAdmin={isAdmin} />}
         />
 

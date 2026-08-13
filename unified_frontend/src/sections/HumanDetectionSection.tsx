@@ -427,7 +427,7 @@ export function HumanDetectionSection() {
         <DetectionPageHeader
           title="人员逗留检测"
           subtitle="区域逗留超时监控面板"
-          departmentLabel="人工智能研究院"
+          departmentLabel="通用电气事业部"
           runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_human" isAdmin={isAdmin} />}
         />
 
