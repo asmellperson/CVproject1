@@ -25,6 +25,7 @@ export type PageId =
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
+  | 'access-audit'
   | 'user-management'
 
 type PageDisplayOverride = {
@@ -178,6 +179,7 @@ const pageIds = new Set<string>([
   'phone-detection',
   'alarms',
   'statistics',
+  'access-audit',
   'user-management',
 ])
 
@@ -205,6 +207,9 @@ export function getUserDepartment(user: AuthUser | null | undefined): Department
 export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
   const normalizedPageId = normalizePageId(pageId)
   if (!normalizedPageId) return false
+  if (normalizedPageId === 'access-audit') {
+    return user?.capabilities?.view_access_audit === true
+  }
   const role = getUserRole(user)
   if (normalizedPageId === 'overview') return true
   if (role === 'admin') return true

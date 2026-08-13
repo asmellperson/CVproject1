@@ -6,6 +6,9 @@ export type AuthUser = {
   name: string
   role: UserRole | string
   department?: Department | string | null
+  capabilities?: {
+    view_access_audit?: boolean
+  }
 }
 
 export type AuthContextValue = {

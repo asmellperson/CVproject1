@@ -14,8 +14,21 @@ const adminUser = {
   department: 'all',
 }
 
+const ownerUser = {
+  ...adminUser,
+  capabilities: { view_access_audit: true },
+}
+
 if (!hasPageAccess(adminUser, userManagementPage)) {
   throw new Error('expected administrators to access user management')
+}
+
+if (hasPageAccess(adminUser, 'access-audit')) {
+  throw new Error('expected ordinary administrators to be isolated from access audit')
+}
+
+if (!hasPageAccess(ownerUser, 'access-audit')) {
+  throw new Error('expected platform owner capability to grant access audit')
 }
 
 const electronicsUser = {

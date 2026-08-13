@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
+import logging
 import os
+import sqlite3
 import sys
 import time
 from collections import Counter, defaultdict
@@ -51,6 +53,13 @@ from auth.auth import (  # noqa: E402
     verify_login,
 )
 from unified_backend.alarm_dispositions import AlarmDispositionStore  # noqa: E402
+from unified_backend.access_audit import (  # noqa: E402
+    DEFAULT_ACCESS_AUDIT_LIMIT,
+    MAX_ACCESS_AUDIT_LIMIT,
+    AccessAuditStore,
+    add_access_audit_capability,
+    require_access_audit_owner,
+)
 from unified_backend.proxy import (  # noqa: E402
     AsyncProxyClient,
     ProxyRequestError,
@@ -58,6 +67,9 @@ from unified_backend.proxy import (  # noqa: E402
     filtered_response_headers,
     stream_response_bytes,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class AlarmDispositionUpdateRequest(BaseModel):
@@ -902,10 +914,16 @@ def create_app() -> FastAPI:
     security_vlm_url = _visual_service_url(aivision_url, "security-vlm")
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
+    access_audit_database = os.getenv(
+        "UNIFIED_ACCESS_AUDIT_DB",
+        str(Path(data_dir) / "access_audit.db"),
+    )
+    access_audit_store = AccessAuditStore(access_audit_database)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         get_user_store().initialize()
+        access_audit_store.initialize()
         proxy_client = AsyncProxyClient(ProxySettings.from_env())
         app.state.proxy_client = proxy_client
         try:
@@ -918,6 +936,7 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+    app.state.access_audit_store = access_audit_store
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -1150,11 +1169,19 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid employee_id or password")
         token = create_token(user)
         set_auth_cookie(response, token, request)
-        return {"success": True, "user": user}
+        try:
+            access_audit_store.record_visit(user)
+        except (OSError, sqlite3.Error, ValueError):
+            logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
+        return {"success": True, "user": add_access_audit_capability(user)}
 
     @app.get("/api/auth/me")
     def me(user: dict = Depends(get_current_user)):
-        return {"success": True, "user": user}
+        try:
+            access_audit_store.record_visit(user)
+        except (OSError, sqlite3.Error, ValueError):
+            logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
+        return {"success": True, "user": add_access_audit_capability(user)}
 
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response):
@@ -1171,7 +1198,22 @@ def create_app() -> FastAPI:
             )
         except AuthError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"success": True, "user": updated_user}
+        return {
+            "success": True,
+            "user": add_access_audit_capability(updated_user),
+        }
+
+    @app.get("/api/admin/access-audit")
+    def access_audit(
+        limit: int = Query(
+            default=DEFAULT_ACCESS_AUDIT_LIMIT,
+            ge=1,
+            le=MAX_ACCESS_AUDIT_LIMIT,
+        ),
+        owner: dict = Depends(require_access_audit_owner),
+    ):
+        del owner
+        return {"items": access_audit_store.list_recent(limit)}
 
     @app.get("/api/admin/users")
     def admin_list_users(admin: dict = Depends(require_admin)):
