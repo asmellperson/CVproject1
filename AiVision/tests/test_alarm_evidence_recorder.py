@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -54,6 +55,24 @@ def test_recorder_keeps_pre_and_post_alarm_frames(tmp_path):
 
     assert statuses == [(video_path, "ready")]
     assert Path(video_path).is_file()
+    codec = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            video_path,
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+    assert codec == "h264"
     capture = cv2.VideoCapture(video_path)
     try:
         frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))

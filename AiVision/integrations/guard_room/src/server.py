@@ -37,6 +37,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 
+from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
+
 from .auth import (
     AuthError,
     ChangePasswordRequest,
@@ -586,7 +588,12 @@ def create_app(
         path = Path(video_path)
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"视频文件已被清理或移动: {video_path}")
-        return FileResponse(str(path), media_type="video/mp4")
+        try:
+            compatible_path = ensure_browser_compatible_mp4(path)
+        except VideoEncodingError as exc:
+            logger.warning("报警视频浏览器兼容转换失败 site_id=%s alarm_id=%s: %s", site_id, alarm_id, exc)
+            raise HTTPException(status_code=500, detail="报警视频暂时无法播放") from exc
+        return FileResponse(str(compatible_path), media_type="video/mp4")
 
     @app.get("/api/sites/{site_id}/statistics")
     def get_site_statistics(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
@@ -752,8 +759,12 @@ def create_app(
         path = Path(video_path)
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"视频文件已被清理或移动: {video_path}")
-
-        return FileResponse(str(path), media_type="video/mp4")
+        try:
+            compatible_path = ensure_browser_compatible_mp4(path)
+        except VideoEncodingError as exc:
+            logger.warning("报警视频浏览器兼容转换失败 alarm_id=%s: %s", alarm_id, exc)
+            raise HTTPException(status_code=500, detail="报警视频暂时无法播放") from exc
+        return FileResponse(str(compatible_path), media_type="video/mp4")
 
     # ── 统计与视频流路由 ──────────────────────────────────────────────────
 

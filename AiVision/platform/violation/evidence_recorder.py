@@ -14,6 +14,7 @@ import numpy as np
 
 from core.logger import logger
 from core.settings import settings
+from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 
 
 @dataclass
@@ -218,8 +219,9 @@ class AlarmEvidenceRecorder:
                     writer.write(frame)
             finally:
                 writer.release()
+            ensure_browser_compatible_mp4(task.video_path)
             status = "ready"
-        except (OSError, TypeError, ValueError, cv2.error) as exc:
+        except (OSError, TypeError, ValueError, cv2.error, VideoEncodingError) as exc:
             logger.warning(f"[AlarmEvidence] 视频生成失败 path={task.video_path}: {exc}")
         callback = self._status_callback
         if callback is not None:

@@ -58,6 +58,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const [alarms, setAlarms] = useState<AlarmEvent[]>([])
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
   const [imageZoom, setImageZoom] = useState(1)
+  const [videoError, setVideoError] = useState(false)
   const initialAlarmOpenedRef = useRef(false)
   const itemsPerPage = 10
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
@@ -94,6 +95,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
     setDispositionNote(selectedAlarm?.disposition_note || '')
     setDispositionError('')
     setDispositionBusy(null)
+    setVideoError(false)
   }, [selectedAlarm?.id, selectedAlarm?.disposition_note])
 
   useEffect(() => {
@@ -572,8 +574,16 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     <video
                       src={selectedAlarm.video_url || alarmVideoUrl(selectedAlarm.source_id || selectedAlarm.id)}
                       controls
+                      preload="metadata"
                       className="w-full rounded-lg border bg-black"
+                      onLoadedData={() => setVideoError(false)}
+                      onError={() => setVideoError(true)}
                     />
+                    {videoError && (
+                      <div className="mt-2 text-sm text-red-500">
+                        报警视频加载失败，请稍后重试或联系管理员检查视频文件。
+                      </div>
+                    )}
                   </div>
                 )}
 

@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.db import get_session
+from core.logger import logger
+from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 from platform.camera.orm import AiCameraConfig
 from platform.violation.orm import AiViolationImage
 
@@ -248,7 +250,12 @@ def alarm_video(alarm_id: int):
         video_path = getattr(row, "video_path", None)
         if not video_path or not os.path.exists(video_path):
             raise HTTPException(status_code=404, detail="alarm video not found")
-        return FileResponse(video_path, media_type="video/mp4")
+        try:
+            compatible_path = ensure_browser_compatible_mp4(video_path)
+        except VideoEncodingError as exc:
+            logger.warning(f"[AlarmVideo] 浏览器兼容转换失败 alarm_id={alarm_id}: {exc}")
+            raise HTTPException(status_code=500, detail="alarm video is not browser compatible") from exc
+        return FileResponse(compatible_path, media_type="video/mp4")
     finally:
         session.close()
 
