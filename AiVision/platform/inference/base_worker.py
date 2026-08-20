@@ -17,6 +17,12 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from core.logger import logger
+from platform.inference.contracts import (
+    INFERENCE_ERROR_MODEL,
+    INFERENCE_STATUS_ERROR,
+    INFERENCE_STATUS_OK,
+    build_inference_result,
+)
 from platform.inference.model_paths import apply_model_path_override
 
 
@@ -106,6 +112,27 @@ class BaseModelWorker(ABC):
         """摄像头-功能启停变更 — 同上"""
         pass
 
+    def _execute_task(self, model: Any, task: dict) -> dict:
+        """执行单个任务，并保留模型异常与正常空检测之间的语义差异。"""
+        started_at = time.perf_counter()
+        try:
+            detections = self.infer(model, task["frame"], task)
+            return build_inference_result(
+                task,
+                status=INFERENCE_STATUS_OK,
+                detections=detections,
+                inference_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            )
+        except Exception as exc:
+            logger.exception(f"[ModelWorker:{self.model_name}] 推理异常")
+            return build_inference_result(
+                task,
+                status=INFERENCE_STATUS_ERROR,
+                error_code=INFERENCE_ERROR_MODEL,
+                error_message=str(exc),
+                inference_ms=round((time.perf_counter() - started_at) * 1000, 3),
+            )
+
     # ---------- 主循环(子进程内) ----------
 
     def _run(self):
@@ -130,25 +157,15 @@ class BaseModelWorker(ABC):
             except queue.Empty:
                 continue
 
-            try:
-                detections = self.infer(model, task["frame"], task)
-            except Exception:
-                logger.exception(f"[ModelWorker:{self.model_name}] 推理异常")
-                detections = []
+            result = self._execute_task(model, task)
 
             # 把结果分发给请求方对应的 function_name 队列
-            target_fname = task.get("function_name")
+            target_fname = result.get("function_name")
             target_queue = self.result_queues.get(target_fname)
             if target_queue is None:
                 continue
             try:
-                target_queue.put({
-                    "roi_id": task.get("roi_id"),
-                    "camera_id": task.get("camera_id"),
-                    "function_name": target_fname,
-                    "request_id": task.get("request_id"),
-                    "detections": detections,
-                }, timeout=0.5)
+                target_queue.put(result, timeout=0.5)
             except queue.Full:
                 logger.warning(
                     f"[ModelWorker:{self.model_name}] 结果队列满 ({target_fname}),丢弃"

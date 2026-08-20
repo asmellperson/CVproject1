@@ -23,6 +23,16 @@ from core.cache import config_cache
 from core.logger import logger
 from core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
 from features._base.spec import FeatureSpec
+from platform.inference.contracts import (
+    INFERENCE_ERROR_QUEUE_FULL,
+    INFERENCE_ERROR_TIMEOUT,
+    INFERENCE_ERROR_UNAVAILABLE,
+    INFERENCE_STATUS_DROPPED,
+    INFERENCE_STATUS_OK,
+    INFERENCE_STATUS_TIMEOUT,
+    INFERENCE_STATUS_UNAVAILABLE,
+    build_inference_result,
+)
 
 
 _FRAME_CHANGE_SAMPLE_STEP = 4
@@ -65,6 +75,7 @@ class BaseFunctionConsumer(ABC):
         self.latest_frames = latest_frames
         self.is_camera_active = is_camera_active
         self.runtime_alert_handler = runtime_alert_handler
+        self.inference_outcome_counts: dict[str, int] = defaultdict(int)
 
         # ---- 配置与帧缓存（以 camera_id 为索引）----
         self.config_cache: dict[int, dict] = {}        # 运行时功能配置快照
@@ -570,7 +581,8 @@ class BaseFunctionConsumer(ABC):
         通过 request_id（feature:camera_id:单调时间戳）标识本次请求，
         过滤掉属于其他请求或其他功能的结果，避免并发干扰。
 
-        队列满时（推理线程繁忙）静默丢弃该 ROI，结果列表中不含该 roi_id。
+        每个 ROI 始终返回一项结果。队列满、等待超时或模型不可用时，
+        detections 保持为空，并通过 status/error_code 明确失败原因。
 
         Args:
             model_name: 推理模型名称，须在 infer_dict 中已注册。
@@ -579,51 +591,95 @@ class BaseFunctionConsumer(ABC):
             timeout   : 等待所有结果的最长时间（秒），超时后返回已收到的结果。
 
         Returns:
-            按 roi_id 升序排列的推理结果列表，每项为推理线程返回的字典。
+            按 roi_id 升序排列的推理结果列表，长度与 roi_list 一致。
         """
-        if model_name not in self.infer_dict:
-            return []
         import queue as _q
 
-        pending = set()
         task_meta = task_meta or {}
         # request_id 以单调时间戳保证唯一性，避免同一摄像头连续帧的结果串台
         request_id = f"{self.feature_name}:{camera_id}:{time.monotonic_ns()}"
+        tasks = [
+            {
+                **task_meta,
+                "roi_id": roi_id,
+                "camera_id": camera_id,
+                "frame": roi,
+                "function_name": self.feature_name,
+                "request_id": request_id,
+                "model_name": model_name,
+            }
+            for roi_id, roi in enumerate(roi_list)
+        ]
 
-        for roi_id, roi in enumerate(roi_list):
+        if model_name not in self.infer_dict:
+            results = [
+                build_inference_result(
+                    task,
+                    status=INFERENCE_STATUS_UNAVAILABLE,
+                    error_code=INFERENCE_ERROR_UNAVAILABLE,
+                    error_message=f"模型未注册: {model_name}",
+                )
+                for task in tasks
+            ]
+            self.inference_outcome_counts[INFERENCE_STATUS_UNAVAILABLE] += len(results)
+            return results
+
+        pending: set[int] = set()
+        results_by_roi: dict[int, dict] = {}
+
+        for task in tasks:
+            roi_id = int(task["roi_id"])
             try:
-                self.infer_dict[model_name].put({
-                    "roi_id":        roi_id,
-                    "camera_id":     camera_id,
-                    "frame":         roi,
-                    "function_name": self.feature_name,
-                    "request_id":    request_id,
-                    **task_meta,
-                }, timeout=0.02)  # 0.02s 超时：队列满时快速失败，不阻塞主循环
+                self.infer_dict[model_name].put(
+                    task,
+                    timeout=0.02,
+                )  # 0.02s 超时：队列满时快速失败，不阻塞主循环
                 pending.add(roi_id)
             except _q.Full:
-                pass  # 推理线程繁忙，丢弃该 ROI，本帧降级处理
+                results_by_roi[roi_id] = build_inference_result(
+                    task,
+                    status=INFERENCE_STATUS_DROPPED,
+                    error_code=INFERENCE_ERROR_QUEUE_FULL,
+                    error_message="模型推理队列已满",
+                )
 
-        results = []
-        deadline = time.time() + timeout
-        while pending and time.time() < deadline:
+        deadline = time.monotonic() + timeout
+        while pending and time.monotonic() < deadline:
             try:
-                detections = self.result_queue.get(
-                    timeout=min(0.1, max(0.0, deadline - time.time()))
+                outcome = self.result_queue.get(
+                    timeout=min(0.1, max(0.0, deadline - time.monotonic()))
                 )
                 # 过滤：仅接受属于本次请求的结果
                 if (
-                    detections.get("camera_id")     == camera_id
-                    and detections.get("function_name") == self.feature_name
-                    and detections.get("request_id")    == request_id
-                    and detections.get("roi_id") in pending
+                    outcome.get("camera_id") == camera_id
+                    and outcome.get("function_name") == self.feature_name
+                    and outcome.get("request_id") == request_id
+                    and outcome.get("roi_id") in pending
                 ):
-                    results.append(detections)
-                    pending.discard(detections["roi_id"])
+                    roi_id = int(outcome["roi_id"])
+                    normalized = dict(outcome)
+                    normalized.setdefault("model_name", model_name)
+                    normalized.setdefault("status", INFERENCE_STATUS_OK)
+                    normalized.setdefault("error_code", None)
+                    normalized.setdefault("error_message", None)
+                    normalized.setdefault("inference_ms", None)
+                    normalized.setdefault("detections", [])
+                    results_by_roi[roi_id] = normalized
+                    pending.discard(roi_id)
             except _q.Empty:
                 continue
 
-        results.sort(key=lambda x: x.get("roi_id", 0))
+        for roi_id in pending:
+            results_by_roi[roi_id] = build_inference_result(
+                tasks[roi_id],
+                status=INFERENCE_STATUS_TIMEOUT,
+                error_code=INFERENCE_ERROR_TIMEOUT,
+                error_message=f"等待推理结果超时: {timeout:.3f}s",
+            )
+
+        results = [results_by_roi[roi_id] for roi_id in range(len(tasks))]
+        for outcome in results:
+            self.inference_outcome_counts[str(outcome["status"])] += 1
         return results
 
     def _collect_async_results(self):
