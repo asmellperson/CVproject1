@@ -34,12 +34,16 @@ def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
     models = status.get("running_models") or []
     model_ready = len(models) > 0
     ready = started and model_ready
+    inference = status.get("inference") or {}
+    worker_status = inference.get("workers") or {}
     return {
         "ok": ready,
         "service": "AiVision",
         "started": started,
         "model_ready": model_ready,
         "running_models_count": len(models),
+        "worker_watchdog_running": bool(worker_status.get("watchdog_running", False)),
+        "model_workers": worker_status.get("models") or [],
         "database": settings.db.name,
     }
 

@@ -143,3 +143,55 @@ def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypat
         INFERENCE_STATUS_TIMEOUT: 1,
         INFERENCE_STATUS_OK: 1,
     }
+
+
+def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
+    monkeypatch.setattr(
+        "features._base.consumer.settings.runtime.inference_alert_consecutive_failures",
+        2,
+    )
+    monkeypatch.setattr(
+        "features._base.consumer.settings.runtime.inference_alert_cooldown_seconds",
+        300.0,
+    )
+    consumer = _consumer({"test-model": queue.Queue()})
+    consumer.config_cache[7] = {"name": "东门摄像头"}
+    alerts = []
+    monkeypatch.setattr(
+        consumer,
+        "_notify_runtime_alert",
+        lambda event_type, detail, **kwargs: alerts.append((event_type, detail, kwargs)),
+    )
+
+    for _index in range(2):
+        consumer.dispatch_inference_sync(
+            7,
+            "test-model",
+            [np.zeros((4, 4, 3), dtype=np.uint8)],
+            timeout=0,
+        )
+
+    snapshot = consumer.inference_status()
+    assert snapshot["totals"] == {INFERENCE_STATUS_TIMEOUT: 2}
+    assert snapshot["targets"] == [{
+        "model_name": "test-model",
+        "camera_id": 7,
+        "counts": {INFERENCE_STATUS_TIMEOUT: 2},
+        "consecutive_failures": 2,
+        "last_outcome": {
+            "status": INFERENCE_STATUS_TIMEOUT,
+            "error_code": INFERENCE_ERROR_TIMEOUT,
+            "updated_at": snapshot["targets"][0]["last_outcome"]["updated_at"],
+        },
+    }]
+    assert len(alerts) == 1
+    assert alerts[0][0] == "推理连续异常"
+    assert "东门摄像头" in alerts[0][1]
+    assert alerts[0][2]["target_key"] == "outcome-test:test-model:7"
+
+    consumer._record_inference_outcomes(
+        camera_id=7,
+        model_name="test-model",
+        outcomes=[{"status": INFERENCE_STATUS_OK}],
+    )
+    assert consumer.inference_status()["targets"][0]["consecutive_failures"] == 0

@@ -123,6 +123,46 @@ class RuntimeSettings(BaseSettings):
         ge=0,
         alias="LOGISTICS_STATUS_STALE_SECONDS",
     )
+    inference_alert_consecutive_failures: int = Field(
+        3,
+        ge=1,
+        alias="INFERENCE_ALERT_CONSECUTIVE_FAILURES",
+    )
+    inference_alert_cooldown_seconds: float = Field(
+        300.0,
+        ge=0,
+        alias="INFERENCE_ALERT_COOLDOWN_SECONDS",
+    )
+    model_worker_ready_timeout_seconds: float = Field(
+        60.0,
+        ge=0,
+        alias="MODEL_WORKER_READY_TIMEOUT",
+    )
+    model_worker_watchdog_interval_seconds: float = Field(
+        5.0,
+        gt=0,
+        alias="MODEL_WORKER_WATCHDOG_INTERVAL_SECONDS",
+    )
+    model_worker_restart_max_attempts: int = Field(
+        3,
+        ge=0,
+        alias="MODEL_WORKER_RESTART_MAX_ATTEMPTS",
+    )
+    model_worker_restart_backoff_seconds: float = Field(
+        5.0,
+        ge=0,
+        alias="MODEL_WORKER_RESTART_BACKOFF_SECONDS",
+    )
+    model_worker_restart_max_backoff_seconds: float = Field(
+        60.0,
+        ge=0,
+        alias="MODEL_WORKER_RESTART_MAX_BACKOFF_SECONDS",
+    )
+    model_worker_restart_reset_seconds: float = Field(
+        300.0,
+        ge=0,
+        alias="MODEL_WORKER_RESTART_RESET_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

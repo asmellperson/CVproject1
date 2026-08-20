@@ -620,6 +620,11 @@ class Orchestrator:
     def runtime_status(self) -> dict:
         running_models = inference_manager.list_running()
         running_model_set = set(running_models)
+        consumer_inference = {
+            name: consumer.inference_status()
+            for name, consumer in self.consumers.items()
+            if callable(getattr(consumer, "inference_status", None))
+        }
         running_consumers = [
             name
             for name, consumer in self.consumers.items()
@@ -638,6 +643,10 @@ class Orchestrator:
             "running_cameras": self.camera_manager.list_running(),
             "running_models": running_models,
             "running_consumers": running_consumers,
+            "inference": {
+                "workers": inference_manager.runtime_status(),
+                "consumers": consumer_inference,
+            },
             "capabilities": self.list_feature_runtime_statuses(),
         }
 

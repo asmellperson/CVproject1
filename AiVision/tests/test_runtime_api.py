@@ -6,6 +6,30 @@ from fastapi import HTTPException
 from api.v2 import runtime as runtime_api
 
 
+def test_health_exposes_model_worker_watchdog_state():
+    model_workers = [{
+        "model_name": "yolo_human",
+        "status": "running",
+        "running": True,
+    }]
+    orchestrator = SimpleNamespace(runtime_status=lambda: {
+        "started": True,
+        "running_models": ["yolo_human"],
+        "inference": {
+            "workers": {
+                "watchdog_running": True,
+                "models": model_workers,
+            }
+        },
+    })
+
+    result = runtime_api.health(orchestrator)
+
+    assert result["ok"] is True
+    assert result["worker_watchdog_running"] is True
+    assert result["model_workers"] == model_workers
+
+
 def test_capability_routes_list_start_and_stop():
     calls = []
     status = {

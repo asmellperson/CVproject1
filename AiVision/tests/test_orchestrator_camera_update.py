@@ -22,6 +22,45 @@ def _orchestrator_without_init():
     return orchestrator
 
 
+def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch):
+    orchestrator = _orchestrator_without_init()
+    orchestrator._started = True
+    orchestrator.camera_manager = SimpleNamespace(list_running=lambda: ["camera-1"])
+    consumer_status = {"totals": {"ok": 4, "timeout": 1}, "targets": []}
+    orchestrator.consumers = {
+        "blocks": SimpleNamespace(
+            running=True,
+            spec=SimpleNamespace(required_models=["yolo_human"]),
+            inference_status=lambda: consumer_status,
+        )
+    }
+    orchestrator.list_feature_runtime_statuses = lambda: []
+    orchestrator._send_system_exception_alert = lambda *_args: None
+    worker_status = {
+        "watchdog_running": True,
+        "models": [{"model_name": "yolo_human", "status": "running"}],
+    }
+    orchestrator_module = importlib.import_module("platform.orchestrator")
+    monkeypatch.setattr(
+        orchestrator_module.inference_manager,
+        "list_running",
+        lambda: ["yolo_human"],
+    )
+    monkeypatch.setattr(
+        orchestrator_module.inference_manager,
+        "runtime_status",
+        lambda: worker_status,
+    )
+
+    result = orchestrator.runtime_status()
+
+    assert result["running_consumers"] == ["blocks"]
+    assert result["inference"] == {
+        "workers": worker_status,
+        "consumers": {"blocks": consumer_status},
+    }
+
+
 def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
     orchestrator = _orchestrator_without_init()
     sent = []

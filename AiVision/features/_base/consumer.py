@@ -22,11 +22,13 @@ import numpy as np
 from core.cache import config_cache
 from core.logger import logger
 from core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
+from core.settings import settings
 from features._base.spec import FeatureSpec
 from platform.inference.contracts import (
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,
+    INFERENCE_FAILURE_STATUSES,
     INFERENCE_STATUS_DROPPED,
     INFERENCE_STATUS_OK,
     INFERENCE_STATUS_TIMEOUT,
@@ -76,6 +78,13 @@ class BaseFunctionConsumer(ABC):
         self.is_camera_active = is_camera_active
         self.runtime_alert_handler = runtime_alert_handler
         self.inference_outcome_counts: dict[str, int] = defaultdict(int)
+        self._inference_outcome_counts_by_target: dict[tuple[str, int], dict[str, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
+        self._inference_consecutive_failures: dict[tuple[str, int], int] = defaultdict(int)
+        self._inference_last_status: dict[tuple[str, int], dict] = {}
+        self._inference_last_alert_at: dict[tuple[str, int], float] = {}
+        self._inference_status_lock = threading.Lock()
 
         # ---- 配置与帧缓存（以 camera_id 为索引）----
         self.config_cache: dict[int, dict] = {}        # 运行时功能配置快照
@@ -263,14 +272,26 @@ class BaseFunctionConsumer(ABC):
             带标注的 BGR 图像帧，写入 result_dict 后供前端预览。
         """
 
-    def _notify_runtime_alert(self, event_type: str, detail: str):
+    def _notify_runtime_alert(
+        self,
+        event_type: str,
+        detail: str,
+        *,
+        target_name: str | None = None,
+        target_key: str | None = None,
+    ):
         handler = self.runtime_alert_handler
         if handler is None:
             return
 
         def _send():
             try:
-                handler(self.feature_name, self.feature_name, event_type, detail)
+                handler(
+                    target_name or self.feature_name,
+                    target_key or self.feature_name,
+                    event_type,
+                    detail,
+                )
             except Exception as e:
                 logger.warning(f"[{self.feature_name}] 功能异常企微推送失败: {e}")
 
@@ -279,6 +300,103 @@ class BaseFunctionConsumer(ABC):
             daemon=True,
             name=f"feature-runtime-alert-{self.feature_name}",
         ).start()
+
+    def _record_inference_outcomes(
+        self,
+        *,
+        camera_id: int,
+        model_name: str,
+        outcomes: list[dict],
+    ) -> None:
+        """按模型和摄像头记录结果；连续异常达到阈值时发送一次限频告警。"""
+        if not outcomes:
+            return
+
+        target = (model_name, camera_id)
+        now = time.monotonic()
+        failures = [
+            outcome
+            for outcome in outcomes
+            if str(outcome.get("status") or INFERENCE_STATUS_OK) in INFERENCE_FAILURE_STATUSES
+        ]
+        alert_payload: tuple[int, dict[str, int]] | None = None
+
+        with self._inference_status_lock:
+            target_counts = self._inference_outcome_counts_by_target[target]
+            for outcome in outcomes:
+                status = str(outcome.get("status") or INFERENCE_STATUS_OK)
+                self.inference_outcome_counts[status] += 1
+                target_counts[status] += 1
+
+            if not failures:
+                self._inference_consecutive_failures[target] = 0
+                self._inference_last_status[target] = {
+                    "status": INFERENCE_STATUS_OK,
+                    "error_code": None,
+                    "updated_at": time.time(),
+                }
+                return
+
+            consecutive = self._inference_consecutive_failures[target] + 1
+            self._inference_consecutive_failures[target] = consecutive
+            failure_counts: dict[str, int] = defaultdict(int)
+            for outcome in failures:
+                failure_counts[str(outcome.get("status") or "unknown")] += 1
+            last_failure = failures[-1]
+            self._inference_last_status[target] = {
+                "status": str(last_failure.get("status") or "unknown"),
+                "error_code": last_failure.get("error_code"),
+                "updated_at": time.time(),
+            }
+
+            threshold = settings.runtime.inference_alert_consecutive_failures
+            last_alert_at = self._inference_last_alert_at.get(target)
+            cooldown = settings.runtime.inference_alert_cooldown_seconds
+            if (
+                consecutive >= threshold
+                and (last_alert_at is None or now - last_alert_at >= cooldown)
+            ):
+                self._inference_last_alert_at[target] = now
+                alert_payload = consecutive, dict(failure_counts)
+
+        if alert_payload is None:
+            return
+        consecutive, failure_counts = alert_payload
+        camera_name = str(self.config_cache.get(camera_id, {}).get("name") or camera_id)
+        detail = (
+            f"模型 {model_name} 在摄像头 {camera_name} 连续 {consecutive} 次推理未完整成功，"
+            f"本次状态统计: {failure_counts}"
+        )
+        logger.warning(f"[{self.feature_name}] {detail}")
+        self._notify_runtime_alert(
+            "推理连续异常",
+            detail,
+            target_name=f"{self.feature_name}/{model_name}/{camera_name}",
+            target_key=f"{self.feature_name}:{model_name}:{camera_id}",
+        )
+
+    def inference_status(self) -> dict:
+        """返回可序列化的推理结果统计快照，供运行状态接口使用。"""
+        with self._inference_status_lock:
+            targets = []
+            for (model_name, camera_id), counts in sorted(
+                self._inference_outcome_counts_by_target.items(),
+                key=lambda item: (item[0][0], item[0][1]),
+            ):
+                targets.append({
+                    "model_name": model_name,
+                    "camera_id": camera_id,
+                    "counts": dict(counts),
+                    "consecutive_failures": self._inference_consecutive_failures.get(
+                        (model_name, camera_id),
+                        0,
+                    ),
+                    "last_outcome": dict(self._inference_last_status.get((model_name, camera_id), {})),
+                })
+            return {
+                "totals": dict(self.inference_outcome_counts),
+                "targets": targets,
+            }
 
     # ------------------------------------------------------------------ #
     #  告警处理                                                             #
@@ -621,7 +739,11 @@ class BaseFunctionConsumer(ABC):
                 )
                 for task in tasks
             ]
-            self.inference_outcome_counts[INFERENCE_STATUS_UNAVAILABLE] += len(results)
+            self._record_inference_outcomes(
+                camera_id=camera_id,
+                model_name=model_name,
+                outcomes=results,
+            )
             return results
 
         pending: set[int] = set()
@@ -678,8 +800,11 @@ class BaseFunctionConsumer(ABC):
             )
 
         results = [results_by_roi[roi_id] for roi_id in range(len(tasks))]
-        for outcome in results:
-            self.inference_outcome_counts[str(outcome["status"])] += 1
+        self._record_inference_outcomes(
+            camera_id=camera_id,
+            model_name=model_name,
+            outcomes=results,
+        )
         return results
 
     def _collect_async_results(self):
