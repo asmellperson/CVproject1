@@ -47,13 +47,27 @@ npm run dev -- --port <前端调试端口>
 https://aicv.fudar.com/
 ```
 
+## 生产部署
+
+生产环境不长期运行 Vite 的 `dev` 或 `preview` 服务，也不开放 3000 端口。
+在项目根目录执行：
+
+```bash
+bash scripts/build_frontend.sh
+nginx -t && systemctl reload nginx
+```
+
+构建脚本会先把完整产物写入临时目录，确认存在 `index.html` 后再原子替换 `dist`；
+如果 TypeScript/Vite 构建失败，线上旧 `dist` 保持不变。日常统一启动使用
+`bash scripts/start.sh`，它会自动执行这一步。
+
 ## 常用命令
 
 ```bash
 npm run dev      # 启动开发服务
 npm run build    # 构建生产版本，输出到 dist/
 npm run lint     # 代码检查
-npm run preview  # 预览构建后的 dist/
+npm run preview  # 仅本地预览构建结果，不作为生产服务器
 ```
 
 ## 后端代理

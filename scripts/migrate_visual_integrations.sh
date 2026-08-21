@@ -106,7 +106,7 @@ migrate_guard_room_data() {
   }
   if ! conda_env_exists "$AIVISION_ENV" "$conda_sh"; then
     echo "ERROR: Conda 环境 '$AIVISION_ENV' 不存在，无法执行 Guard Room 历史数据迁移" >&2
-    echo "请先创建环境并安装 AiVision/requirements.txt，然后重新执行本脚本。" >&2
+    echo "请先安装 AiVision/requirements.txt，并使用根目录 requirements-python311.lock 约束，然后重新执行本脚本。" >&2
     return 1
   fi
 

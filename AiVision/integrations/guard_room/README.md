@@ -202,7 +202,9 @@ pillow
 ### 安装依赖
 
 ```bash
-conda run -n aivision python -m pip install -r AiVision/requirements.txt
+conda run -n aivision python -m pip install \
+  -r AiVision/requirements.txt \
+  -c requirements-python311.lock
 ```
 
 ---

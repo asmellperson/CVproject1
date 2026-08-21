@@ -13,7 +13,7 @@
 ## 0. 系统包
 
 ```bash
-apt update && apt install -y tmux iproute2 curl wget vim
+apt update && apt install -y tmux iproute2 curl wget vim nginx
 ```
 
 ## 1. 拷贝项目代码
@@ -27,6 +27,13 @@ rsync -av --exclude '.venv' --exclude 'node_modules' --exclude '__pycache__' \
 ```
 
 ## 2. Python：Conda（全部 Python 服务使用）
+
+所有安装命令都必须带根目录的 `requirements-python311.lock`。该文件锁定当前生产目标：
+Python 3.11、Linux x86_64，以及当前 PyTorch/CUDA 运行栈。不要在服务器上单独执行
+无 `-c` 的 `pip install -r ...`，否则同一份代码可能安装出不同版本。
+
+如果目标服务器不是 Linux x86_64，或 GPU 驱动不支持锁文件中的 CUDA 主版本，
+需要先按目标平台重新生成锁文件并完成全量测试，不能直接绕过约束安装。
 
 ### 2.1 安装 Miniconda（如未装）
 
@@ -42,7 +49,9 @@ conda init bash       # 让以后开新 shell 自动有 conda
 ```bash
 source $HOME/miniconda3/etc/profile.d/conda.sh
 conda create -n aivision python=3.11 -y
-conda run -n aivision python -m pip install -r /srv/Fuda_CVPreject/AiVision/requirements.txt
+conda run -n aivision python -m pip install \
+  -r /srv/Fuda_CVPreject/AiVision/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 ```
 
 Guard Room 的主进程依赖已经合并到 AiVision 项目依赖中，不再创建独立 Guard 环境。
@@ -51,7 +60,9 @@ Guard Room 的主进程依赖已经合并到 AiVision 项目依赖中，不再�
 
 ```bash
 conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt
+conda run -n security_vlm python -m pip install \
+  -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 ```
 
 这个环境只供 AiVision 在页面点击开启安检检测后拉起子进程，不运行 FastAPI、不监听端口。
@@ -59,7 +70,9 @@ conda run -n security_vlm python -m pip install -r /srv/Fuda_CVPreject/AiVision/
 ### 2.4 安装 `unified_backend` 依赖
 
 ```bash
-python3 -m pip install -r /srv/Fuda_CVPreject/unified_backend/requirements.txt
+python3 -m pip install \
+  -r /srv/Fuda_CVPreject/unified_backend/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 ```
 
 如需使用其他环境中的 Python，在 `scripts/cold_start.env` 中设置
@@ -90,6 +103,25 @@ nvm use 20
 cd /srv/Fuda_CVPreject/unified_frontend
 npm ci          # 用 package-lock.json 严格安装；首次也可用 npm install
 ```
+
+生产环境不要执行 `npm run dev` 或 `npm run preview`。`scripts/start.sh` 会调用
+`scripts/build_frontend.sh`，在临时目录构建成功后原子切换 `dist`。
+
+### 配置 Nginx 静态托管
+
+示例配置中的项目路径是 `/usr/zyy/Fuda_CVPreject_V3`。如果实际部署在 `/srv/Fuda_CVPreject`，
+安装时替换根目录：
+
+```bash
+sed 's#/usr/zyy/Fuda_CVPreject_V3#/srv/Fuda_CVPreject#g' \
+  /srv/Fuda_CVPreject/deploy/nginx/aicv-unified-backend.conf \
+  > /etc/nginx/conf.d/aicv-unified-backend.conf
+nginx -t
+systemctl enable --now nginx
+systemctl reload nginx
+```
+
+生产公网只开放 Nginx 的 80/443；不再开放或监听前端开发端口 3000。
 
 ## 5. 业务配置文件（**必须从老机器拷贝**）
 
@@ -189,8 +221,8 @@ tmux show-environment -t unified_backend AUTH_SECRET
 # aivision 应有
 tmux show-environment -t aivision AUTH_SECRET
 
-# unified_frontend 应报 unknown variable
-tmux show-environment -t unified_frontend AUTH_SECRET 2>&1
+# 前端是 Nginx 静态文件，不存在 unified_frontend tmux 会话
+tmux has-session -t unified_frontend 2>&1
 ```
 
 ### 注意
@@ -216,14 +248,16 @@ bash scripts/start.sh
 观察输出：
 - **环境探测结果** 一段全是 `[ OK ]` 就说明依赖都对上了
 - 任一服务出现 `[MISSING DEPS]` / `[MISSING CONFIG]` / `[FAIL]`，**控制台会直接给出修复命令**，按提示执行后再跑一次
-- 最后 **启动汇总** 表里 3 个服务都是 `READY` 即部署成功
+- 最后启动汇总中 `aivision`、`unified_backend` 为 `READY`，
+  `unified_frontend` 为 `BUILT` 即代码侧启动成功
+- 再运行 `bash scripts/status.sh`，确认 Nginx 静态前端为“就绪”
 
 后续日常运维：
 
 ```bash
 bash scripts/status.sh         # 查询状态（含 health 就绪探测）
-bash scripts/stop.sh           # 关停全部
-bash scripts/start.sh --force  # 全部重启
+bash scripts/stop.sh           # 关停两个后端 tmux；不关 Nginx
+bash scripts/start.sh --force  # 重建前端并重启两个后端
 ```
 
 ## 8.5 健康检查与就绪状态
@@ -234,7 +268,7 @@ bash scripts/start.sh --force  # 全部重启
 |------|-----------|---------|---------|
 | aivision（含 Guard Room / Security VLM API） | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
 | unified_backend（5000） | `GET /api/health` | `json:status=ok` | 统一 API 服务已启动 |
-| unified_frontend | `GET /` | `http2xx` | HTTP 200 即可 |
+| unified_frontend（Nginx 静态文件） | `GET http://127.0.0.1/` | `http2xx` | `dist/index.html` 存在且 Nginx 返回 2xx |
 
 ### 三种启动状态
 

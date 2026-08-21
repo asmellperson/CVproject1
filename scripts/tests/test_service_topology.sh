@@ -12,6 +12,8 @@ fail() {
 start_script="$(<"$PROJECT_ROOT/scripts/start.sh")"
 status_script="$(<"$PROJECT_ROOT/scripts/status.sh")"
 stop_script="$(<"$PROJECT_ROOT/scripts/stop.sh")"
+frontend_build_script="$(<"$PROJECT_ROOT/scripts/build_frontend.sh")"
+nginx_config="$(<"$PROJECT_ROOT/deploy/nginx/aicv-unified-backend.conf")"
 aivision_app="$(<"$PROJECT_ROOT/AiVision/api/app.py")"
 managed_visual_services="$(<"$PROJECT_ROOT/AiVision/platform/visual_services/managed.py")"
 security_vlm_main="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/src/main.py")"
@@ -29,14 +31,28 @@ for removed_port in 5001 8000; do
     fail "status.sh must not monitor port ${removed_port}"
 done
 
-[[ "$stop_script" == *"SERVICES=(unified_frontend unified_backend aivision)"* ]] || \
-  fail "stop.sh managed service list must contain exactly three services"
-[[ "$start_script" == *"LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)"* ]] || \
+[[ "$stop_script" == *"SERVICES=(unified_backend aivision)"* ]] || \
+  fail "stop.sh must manage exactly the two backend runtime services"
+[[ "$stop_script" == *"LEGACY_SERVICES=(unified_frontend security_vlm guard_room)"* ]] || \
+  fail "stop.sh must clean the retired Vite and visual service sessions"
+[[ "$start_script" == *"LEGACY_SERVICE_SESSIONS=(guard_room security_vlm unified_frontend)"* ]] || \
   fail "start.sh must detect legacy visual service sessions"
+[[ "$start_script" != *"npm run dev"* && "$start_script" != *"|3000|"* ]] || \
+  fail "production startup must not launch the Vite development server"
+[[ "$start_script" == *"scripts/build_frontend.sh"* ]] || \
+  fail "production startup must build the static frontend"
+[[ "$status_script" == *'${FRONTEND_DIST}/index.html'* ]] || \
+  fail "status.sh must verify the built frontend artifact"
+[[ "$frontend_build_script" == *'mktemp -d'* ]] || \
+  fail "frontend production build must use an isolated temporary directory"
+[[ "$frontend_build_script" == *'mv -- "$BUILD_DIR" "$DIST_DIR"'* ]] || \
+  fail "frontend production build must atomically switch the completed dist"
+[[ "$nginx_config" == *"unified_frontend/dist"* && "$nginx_config" == *"try_files "*"/index.html"* ]] || \
+  fail "Nginx must serve the built SPA from unified_frontend/dist"
+[[ "$nginx_config" != *"127.0.0.1:3000"* ]] || \
+  fail "production Nginx must not proxy to the Vite development server"
 [[ "$start_script" == *"scripts/migrate_visual_integrations.sh"* ]] || \
   fail "start.sh must direct legacy source layouts through the safe migration script"
-[[ "$stop_script" == *"LEGACY_SERVICES=(security_vlm guard_room)"* ]] || \
-  fail "stop.sh must clean legacy visual service sessions during migration"
 [[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/guard-room"* ]] || \
   fail "Guard Room must be mounted in AiVision"
 [[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/security-vlm"* ]] || \
@@ -60,4 +76,4 @@ done
 [[ "$security_vlm_config" != *"port: 8000"* ]] || \
   fail "Security VLM config must not advertise the removed Web port"
 
-echo "PASS: three-service managed visual topology"
+echo "PASS: two runtime services plus static frontend topology"

@@ -4,25 +4,25 @@
 apt update
 apt install -y tmux
 
-推荐：统一管理三个常驻服务
+推荐：统一管理两个后端服务 + Nginx 静态前端
 ========================================
 以下命令都在项目根目录执行：
 
 cd /srv/Fuda_CVPreject
 
-# 启动三个服务（已有同名 tmux 会话时会跳过）
+# 原子构建前端，并启动两个后端服务（已有同名 tmux 会话时会跳过）
 bash scripts/start.sh
 
-# 查看三个服务的 tmux、端口和健康状态
+# 查看两个后端 tmux、Nginx 静态前端和健康状态
 bash scripts/status.sh
 
-# 停止三个服务（需要输入 yes 确认）
+# 停止两个后端服务（需要输入 yes 确认；不关 Nginx）
 bash scripts/stop.sh
 
-# 停止三个服务且不再询问
+# 停止两个后端服务且不再询问
 bash scripts/stop.sh -y
 
-# 强制重启三个服务
+# 重建前端并强制重启两个后端服务
 bash scripts/start.sh --force
 
 # 从旧五服务版本首次升级时，推荐先执行 stop.sh；它会同时清理旧的
@@ -40,10 +40,12 @@ bash scripts/migrate_visual_integrations.sh
 # - 目标库已有数据优先，重复执行不会重复创建或覆盖现有摄像头。
 # 如果此前已经运行过不含数据库迁移的旧版脚本，拉取新版后再运行一次即可。
 
-统一启动后只创建以下三个 tmux 会话：
-- unified_frontend：前端，端口 3000
+统一启动后只创建以下两个 tmux 会话：
 - unified_backend：统一后端，端口 5000
 - aivision：全部视觉检测业务，端口 7862
+
+unified_frontend 不再创建 tmux，也不监听 3000。启动脚本会原子构建
+unified_frontend/dist，由 Nginx 在 80/443 提供静态页面。
 
 Guard Room 和 Security VLM 已经直接由 AiVision 进程承载：
 - 两套源码都位于 AiVision/integrations/，仓库根目录不再保留同名后端目录。
@@ -69,25 +71,22 @@ Ctrl + B
 
 进入已有窗口：
 ****************************************
-tmux attach -t unified_frontend
 tmux attach -t unified_backend
 tmux attach -t aivision
 ****************************************
 
 关闭单个程序：
 ****************************************
-tmux kill-session -t unified_frontend
 tmux kill-session -t unified_backend
 tmux kill-session -t aivision
 ****************************************
 
 以下为单独启动某个服务的排障备用方式，正常运行优先使用 scripts/start.sh。
 
-1、启动 unified_frontend：
-tmux new -s unified_frontend
-cd unified_frontend
-npm run dev
-如需临时改端口：npm run dev -- --port <前端调试端口>
+1、发布 unified_frontend：
+bash scripts/build_frontend.sh
+nginx -t && systemctl reload nginx
+开发调试时才使用：cd unified_frontend && npm run dev -- --port <前端调试端口>
 
 2、启动 unified_backend（固定 5000）：
 tmux new -s unified_backend
@@ -108,11 +107,11 @@ python main.py --host 127.0.0.1 --port 7862
 
 首次部署环境：
 conda create -n aivision python=3.11 -y
-conda run -n aivision python -m pip install -r AiVision/requirements.txt
+conda run -n aivision python -m pip install -r AiVision/requirements.txt -c requirements-python311.lock
 
 Security VLM 按需 worker 环境不存在时：
 conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt
+conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt -c requirements-python311.lock
 
 物流通道单人检测上线说明：
 - 通用电气、电子电工、电气部件、贵金属回收四个模块都在各自前端配置页按“物流通道”管理。

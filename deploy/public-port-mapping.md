@@ -8,13 +8,14 @@
 80 / 443 -> 项目服务器 Nginx
 ```
 
-以下三个应用端口都只允许本机访问，不要开放到公网：
+以下两个应用端口都只允许本机访问，不要开放到公网：
 
 ```text
-3000  Vite 开发服务
 5000  unified_backend
 7862  AiVision（含 Guard Room 与 Security VLM API）
 ```
+
+`3000` 仅供开发人员手动执行 `npm run dev` 时使用，生产启动脚本不会监听该端口。
 
 Guard Room 和 Security VLM 不再监听 5001、8000。
 
@@ -54,6 +55,9 @@ npm run build
 cd /usr/zyy/Fuda_CVPreject_V3
 bash scripts/start.sh
 ```
+
+启动脚本会先在临时目录完成前端构建，再原子切换 `dist`；构建失败时保留旧版本，
+也不会启动后端，避免前后端版本不一致。前端不再创建 tmux 会话。
 
 手动排障时，AiVision 必须使用 Conda：
 

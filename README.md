@@ -23,7 +23,7 @@ https://aicv.fudar.com/
 | 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
-整体上，这是“一个前端 + 一个统一后端 + 一个视觉业务后端”的三服务项目。Guard Room 和
+整体上，这是“一个静态前端 + 一个统一后端 + 一个视觉业务后端”的三层项目。Guard Room 和
 Security VLM 的源码、API 与生命周期都属于 AiVision，不再是仓库顶层的独立项目或服务。
 
 ## 2. 仓库顶层结构
@@ -40,11 +40,11 @@ Fuda_CVPreject_V3/
 └── PROJECT_ARCHITECTURE.md
 ```
 
-生产和联调只需运行三个常驻服务：
+生产环境只有两个项目 tmux 运行服务；前端先构建为静态文件，再由系统 Nginx 托管：
 
 | 服务 | 默认端口 | 启动目录 | 主要入口 |
 | --- | ---: | --- | --- |
-| 统一前端 | `3000` | `unified_frontend` | `npm run dev` |
+| 统一前端 | `80/443` | `unified_frontend/dist` | `bash scripts/build_frontend.sh` + Nginx |
 | 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
 | AiVision 视觉业务层 | `7862` | `AiVision` | `conda activate aivision && python main.py` |
 
@@ -54,7 +54,7 @@ Fuda_CVPreject_V3/
 浏览器
   |
   v
-unified_frontend (Vite/React, :3000)
+Nginx -> unified_frontend/dist (React 静态页面, :80/443)
   |
   v
 unified_backend (:5000)
@@ -583,9 +583,24 @@ ROI 热加载逻辑：前端 `POST /api/rois` 后写入 `staff_identity_dir/<vid
 
 ### 10.1 前端
 
+生产环境由统一启动脚本构建静态文件，并交给 Nginx 托管：
+
+```bash
+bash scripts/start.sh
+```
+
+也可以只重新发布前端：
+
+```bash
+bash scripts/build_frontend.sh
+nginx -t && systemctl reload nginx
+```
+
+以下 Vite 命令只用于本地开发调试，不是生产启动方式：
+
 ```bash
 cd unified_frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -625,9 +640,10 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 
 ### 11.1 页面打不开
 
-1. 确认前端 `npm run dev` 是否在跑，端口是否为 `3000`。
-2. 看 `unified_frontend/vite.config.ts` 的代理目标是否正确。
-3. 浏览器 Network 里看失败请求的路径属于哪个后端。
+1. 运行 `bash scripts/status.sh`，确认 `dist/index.html` 存在、Nginx 正在监听且首页返回 2xx。
+2. 执行 `nginx -t`，并确认加载的是 `deploy/nginx/aicv-unified-backend.conf` 对应配置。
+3. 浏览器 Network 里看失败的是静态资源，还是 `/api`、`/aivision`、`/security-vlm` 请求。
+4. 只有本地开发模式才检查 `npm run dev`、3000 端口和 `vite.config.ts` 代理。
 
 ### 11.2 登录失败
 
@@ -722,10 +738,10 @@ AiVision/integrations/security_vlm/configs/config.yaml
 
 ## 13. 最重要的心智模型
 
-这个项目由三个常驻服务组成，所有视觉检测都归属同一个 AiVision 业务后端：
+这个项目由三个逻辑层组成；生产运行态是 Nginx 静态前端加两个项目后端服务：
 
 ```text
-unified_frontend = 门面和操作台
+unified_frontend = 构建后由 Nginx 承载的门面和操作台
 unified_backend  = 统一鉴权、聚合与 API 网关
 AiVision         = 通用视觉能力 + Guard Room + Security VLM
 ```

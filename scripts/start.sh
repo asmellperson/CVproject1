@@ -2,8 +2,8 @@
 # =============================================================================
 # 福达视觉平台 - 冷启动脚本
 # -----------------------------------------------------------------------------
-# 作用：用 tmux 后台启动 3 个服务：aivision / unified_backend /
-#       unified_frontend，并做端口健康检查。
+# 作用：原子构建 unified_frontend/dist，并用 tmux 后台启动
+#       aivision / unified_backend 两个运行服务，完成健康检查。
 #
 # 用法：
 #   bash scripts/start.sh                  # 安全模式：已存在会话则跳过
@@ -243,11 +243,11 @@ UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
   "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
 SECURITY_VLM_WORKER_ENV="${SECURITY_VLM_WORKER_ENV:-security_vlm}"
+PYTHON_CONSTRAINTS="${PROJECT_ROOT}/requirements-python311.lock"
 
 # 健康检查上限（秒）- 可在 cold_start.env 中覆盖
 WAIT_AIVISION="${WAIT_AIVISION:-90}"
 WAIT_UNIFIED_BACKEND="${WAIT_UNIFIED_BACKEND:-15}"
-WAIT_UNIFIED_FRONTEND="${WAIT_UNIFIED_FRONTEND:-15}"
 
 # node 运行时探测：先 nvm 后系统 node
 NODE_RUNTIME_TYPE=""    # nvm | system | ""
@@ -265,7 +265,7 @@ fi
 # ---- 构造服务列表（顺序即启动顺序） ----------------------------------------
 # 每条: tmux会话名|工作目录|启动命令|端口|健康检查等待秒数
 SERVICES=()
-LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)
+LEGACY_SERVICE_SESSIONS=(guard_room security_vlm unified_frontend)
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH"; then
   SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python main.py --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
@@ -277,14 +277,6 @@ if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
   SERVICES+=("unified_backend|${PROJECT_ROOT}|${UNIFIED_BACKEND_RUNTIME} -m unified_backend.run_server --host 127.0.0.1 --port 5000|5000|${WAIT_UNIFIED_BACKEND}")
 else
   SERVICES+=("unified_backend|${PROJECT_ROOT}|__DEP_MISSING__|5000|${WAIT_UNIFIED_BACKEND}")
-fi
-
-if [[ "$NODE_RUNTIME_TYPE" == "nvm" ]]; then
-  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|source ${NODE_RUNTIME_PATH} && nvm use ${NODE_VERSION} >/dev/null && npm run dev|3000|${WAIT_UNIFIED_FRONTEND}")
-elif [[ "$NODE_RUNTIME_TYPE" == "system" ]]; then
-  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|npm run dev|3000|${WAIT_UNIFIED_FRONTEND}")
-else
-  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|__DEP_MISSING__|3000|${WAIT_UNIFIED_FRONTEND}")
 fi
 
 # ---- 端口监听检查 ----------------------------------------------------------
@@ -314,7 +306,6 @@ wait_port() {
 SERVICES_HEALTH=(
   "aivision|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
   "unified_backend|http://127.0.0.1:5000/api/health|json:status=ok"
-  "unified_frontend|http://127.0.0.1:3000/|http2xx"
 )
 
 # health 探测参数
@@ -492,9 +483,9 @@ suggest_fix_from_log() {
     if [[ -n "$env_name" && -n "$CONDA_SH_PATH" ]]; then
       hint "缺少 Python 包 '${pkg:-?}'。执行："
       if [[ "$name" == "aivision" ]]; then
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt"
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS}"
       else
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt -c ${PYTHON_CONSTRAINTS}"
       fi
     else
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
@@ -511,7 +502,7 @@ suggest_fix_from_log() {
   elif echo "$log" | grep -qE 'CUDA.*error|no CUDA-capable device'; then
     hint "GPU 不可用（可能不致命）。如需 GPU 请检查: nvidia-smi"
   elif echo "$log" | grep -qE 'ImportError.*cannot import name'; then
-    hint "依赖版本不匹配，建议重装: pip install -r ${workdir}/requirements.txt --upgrade"
+    hint "依赖版本不匹配，建议按锁重装: pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS} --upgrade"
   elif echo "$log" | grep -qE 'No such file or directory.*\.env'; then
     hint "缺少配置文件 .env，请从老机器拷贝或从示例创建"
   elif echo "$log" | grep -qE 'No such file or directory.*config'; then
@@ -534,13 +525,13 @@ suggest_dep_fix() {
         hint "conda 环境 '${AIVISION_ENV}' 不存在。执行："
         hint "  source ${CONDA_SH_PATH}"
         hint "  conda create -n ${AIVISION_ENV} python=3.11 -y"
-        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt"
+        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS}"
       fi
       ;;
     unified_backend)
       hint "未找到 unified_backend Conda 环境或可用 Python。建议执行："
       hint "  conda create -n ${UNIFIED_BACKEND_ENV} python=3.11 -y"
-      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
+      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt -c ${PYTHON_CONSTRAINTS}"
       hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_ENV 或 UNIFIED_BACKEND_PYTHON"
       ;;
     unified_frontend)
@@ -555,6 +546,35 @@ suggest_dep_fix() {
       fi
       ;;
   esac
+}
+
+# ---- 生产前端构建 ----------------------------------------------------------
+build_frontend_static() {
+  local workdir="${PROJECT_ROOT}/unified_frontend"
+  local build_script="${PROJECT_ROOT}/scripts/build_frontend.sh"
+
+  echo
+  log "─── unified_frontend（生产静态构建）───"
+  if [[ -z "$NODE_RUNTIME_TYPE" ]]; then
+    miss "未找到 Node ${NODE_VERSION}，无法构建当前版本前端"
+    suggest_dep_fix "unified_frontend" "$workdir"
+    return 2
+  fi
+  if [[ ! -x "$build_script" ]]; then
+    err "前端构建脚本不存在或不可执行: ${build_script}"
+    return 3
+  fi
+  if [[ ! -d "${workdir}/node_modules" ]]; then
+    cfg "unified_frontend 缺少 node_modules"
+    hint "安装锁定依赖: cd ${workdir} && npm ci"
+    return 2
+  fi
+
+  if [[ "$NODE_RUNTIME_TYPE" == "nvm" ]]; then
+    bash -c "source '${NODE_RUNTIME_PATH}' && nvm use '${NODE_VERSION}' >/dev/null && bash '${build_script}'"
+  else
+    bash "$build_script"
+  fi
 }
 
 # ---- 启动前配置文件检查 ----------------------------------------------------
@@ -587,14 +607,7 @@ precheck_one() {
       fi
       if [[ -n "$CONDA_SH_PATH" ]] && ! conda_env_exists "$SECURITY_VLM_WORKER_ENV" "$CONDA_SH_PATH"; then
         cfg "Security VLM 按需推理环境 '${SECURITY_VLM_WORKER_ENV}' 不存在；AiVision 可启动，但安检检测无法开启"
-        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt"
-      fi
-      ;;
-    unified_frontend)
-      if [[ ! -d "${workdir}/node_modules" ]]; then
-        cfg "${name} 缺少 node_modules"
-        hint "安装依赖: cd ${workdir} && npm ci"
-        issues=$((issues + 1))
+        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt -c ${PYTHON_CONSTRAINTS}"
       fi
       ;;
   esac
@@ -721,7 +734,7 @@ handle_legacy_service_sessions() {
   if [[ $FORCE -ne 1 ]]; then
     err "检测到旧版独立视觉服务 tmux: ${running[*]}"
     hint "为避免新旧检测重复运行，请先执行: bash ${PROJECT_ROOT}/scripts/stop.sh"
-    hint "也可以使用 --force，由启动脚本清理旧会话后启动三服务架构"
+    hint "也可以使用 --force，由启动脚本清理旧会话后启动生产静态前端架构"
     return 1
   fi
 
@@ -781,7 +794,7 @@ main() {
   elif [[ "$NODE_RUNTIME_TYPE" == "system" ]]; then
     ok "  NODE         = system ${NODE_RUNTIME_VERSION} (${NODE_RUNTIME_PATH})"
   else
-    miss "  NODE         = 未找到 nvm 也无 v${NODE_VERSION} 系统 node（unified_frontend 将跳过）"
+    miss "  NODE         = 未找到 nvm 也无 v${NODE_VERSION} 系统 node（前端构建将失败）"
   fi
 
   if [[ -n "$CONDA_SH_PATH" ]]; then
@@ -798,7 +811,8 @@ main() {
   log "  AIVISION_ENV = ${AIVISION_ENV}"
   log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
   log "  SECURITY_VLM_WORKER_ENV = ${SECURITY_VLM_WORKER_ENV}"
-  log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND} fe=${WAIT_UNIFIED_FRONTEND}"
+  log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND}"
+  log "  PYTHON_LOCK  = ${PYTHON_CONSTRAINTS}"
 
   # AUTH_SECRET 状态
   if [[ "$AUTH_SECRET_SOURCE" == "reuse" ]]; then
@@ -822,9 +836,15 @@ main() {
   # 提示如何覆盖
   if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UNIFIED_BACKEND_RUNTIME" ]]; then
     echo
-    warn "部分依赖未探测到，对应服务将跳过。"
+    warn "部分依赖未探测到，对应服务会跳过；缺少 Node 时前端构建会停止本次启动。"
     warn "如需手动指定路径，请复制 scripts/start.env.example 为 scripts/cold_start.env"
   fi
+
+  if ! build_frontend_static; then
+    err "前端生产构建失败；现有 dist 未被替换，停止启动以避免前后端版本不一致。"
+    exit 5
+  fi
+  ok "unified_frontend 已生成生产静态产物（由 Nginx 托管，不启动 Vite/tmux）"
 
   local total=0 ready_cnt=0 fail_cnt=0 dep_cnt=0 skip_cnt=0 degraded_cnt=0
   declare -A RESULT
@@ -856,7 +876,7 @@ main() {
   # ---- 汇总 ---------------------------------------------------------------
   echo
   echo "============================================================"
-  echo " 启动汇总  共 ${total}  就绪 ${ready_cnt}  跳过 ${skip_cnt}  降级 ${degraded_cnt}  失败 ${fail_cnt} (含依赖缺失 ${dep_cnt})"
+  echo " 启动汇总  运行服务 ${total}  就绪 ${ready_cnt}  跳过 ${skip_cnt}  降级 ${degraded_cnt}  失败 ${fail_cnt} (含依赖缺失 ${dep_cnt})"
   echo "============================================================"
   printf " %-18s %-6s %-10s %-10s %s\n" "服务" "端口" "tmux" "端口监听" "状态"
   printf " %-18s %-6s %-10s %-10s %s\n" "----" "----" "----" "--------" "----"
@@ -875,6 +895,7 @@ main() {
     esac
     printf " %-18s %-6s %-10s %-10s %b\n" "$name" "$port" "$tmux_st" "$port_st" "$svc_st"
   done
+  printf " %-18s %-6s %-10s %-10s %b\n" "unified_frontend" "80/443" "静态文件" "Nginx" "${C_GRN}BUILT${C_RST}"
   echo "============================================================"
   if [[ $degraded_cnt -gt 0 ]]; then
     warn "有 ${degraded_cnt} 个服务处于 DEGRADED（端口在但 health 未就绪）。"
@@ -882,7 +903,7 @@ main() {
     warn "  持续 DEGRADED 请 tmux attach 排查。"
   fi
   echo "查看日志: tmux attach -t <服务名>  （Ctrl+B 然后 D 退出窗口）"
-  echo "停止全部: bash ${PROJECT_ROOT}/scripts/stop.sh"
+  echo "停止后端: bash ${PROJECT_ROOT}/scripts/stop.sh（Nginx 静态前端不由本脚本关停）"
   echo "查询状态: bash ${PROJECT_ROOT}/scripts/status.sh"
   echo "部署清单: cat ${PROJECT_ROOT}/scripts/DEPLOY.md"
 
