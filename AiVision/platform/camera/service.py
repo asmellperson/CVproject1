@@ -26,6 +26,26 @@ _MAX_WRITE_ATTEMPTS = 3
 _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 
 
+def _load_function_states(session, camera_ids: list[int], specs: dict) -> dict[int, dict[str, bool]]:
+    """按功能表批量读取摄像头启用状态，查询次数只随功能数量增长。"""
+    states = {
+        camera_id: {feature_name: False for feature_name in specs}
+        for camera_id in camera_ids
+    }
+    if not camera_ids:
+        return states
+
+    for feature_name, spec in specs.items():
+        rows = (
+            session.query(spec.orm_class.camera_id, spec.orm_class.enable)
+            .filter(spec.orm_class.camera_id.in_(camera_ids))
+            .all()
+        )
+        for camera_id, enabled in rows:
+            states[camera_id][feature_name] = bool(enabled)
+    return states
+
+
 def _database_error_code(exc: OperationalError) -> int | None:
     args = getattr(exc.orig, "args", ())
     if args and isinstance(args[0], int):
@@ -61,19 +81,15 @@ class CameraService:
                 query = query.filter(AiCameraConfig.department == department)
             cameras = query.order_by(AiCameraConfig.id).all()
             specs = all_specs()
-            results = []
-            for cam in cameras:
-                # 收集每个功能在此摄像头上是否启用
-                functions = {}
-                for fname, spec in specs.items():
-                    cfg = (
-                        session.query(spec.orm_class)
-                        .filter_by(camera_id=cam.id)
-                        .first()
-                    )
-                    functions[fname] = bool(cfg.enable) if cfg is not None else False
-                results.append(self._to_dict(cam, functions))
-            return results
+            function_states = _load_function_states(
+                session,
+                [cam.id for cam in cameras],
+                specs,
+            )
+            return [
+                self._to_dict(cam, function_states[cam.id])
+                for cam in cameras
+            ]
         finally:
             session.close()
 
@@ -85,14 +101,7 @@ class CameraService:
             if cam is None:
                 return None
             specs = all_specs()
-            functions = {}
-            for fname, spec in specs.items():
-                cfg = (
-                    session.query(spec.orm_class)
-                    .filter_by(camera_id=cam.id)
-                    .first()
-                )
-                functions[fname] = bool(cfg.enable) if cfg is not None else False
+            functions = _load_function_states(session, [cam.id], specs)[cam.id]
             return self._to_dict(cam, functions)
         finally:
             session.close()

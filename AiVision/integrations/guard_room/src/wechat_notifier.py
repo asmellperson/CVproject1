@@ -16,7 +16,6 @@ import queue
 import threading
 from typing import Callable, Optional
 
-import cv2
 import numpy as np
 
 from .wechat_sender import send_message

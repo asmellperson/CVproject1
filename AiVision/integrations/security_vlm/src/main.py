@@ -854,8 +854,10 @@ def _overlay_on_frame(
             )
             color = (0, 255, 0) if belongs_to_roi else (128, 128, 128)
             thickness = 2 if belongs_to_roi else 1
-            x1 = int(person_box[0] * sx); y1 = int(person_box[1] * sy)
-            x2 = int(person_box[2] * sx); y2 = int(person_box[3] * sy)
+            x1 = int(person_box[0] * sx)
+            y1 = int(person_box[1] * sy)
+            x2 = int(person_box[2] * sx)
+            y2 = int(person_box[3] * sy)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             cv2.putText(frame, f"id={t.get('track_id', '-')}",
                         (x1, max(16, y1 - 4)),

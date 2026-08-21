@@ -59,6 +59,21 @@ def camera_read_department(user: dict, requested_department: str | None) -> str 
     return str(department)
 
 
+def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, Any]:
+    """普通用户只读取运行所需元数据，摄像头连接地址仅管理员可见。"""
+    response = dict(camera)
+    if user.get("role") != "admin":
+        response.pop("url", None)
+    return response
+
+
+def camera_list_response_for_user(
+    cameras: list[dict[str, Any]],
+    user: dict,
+) -> list[dict[str, Any]]:
+    return [camera_response_for_user(camera, user) for camera in cameras]
+
+
 def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
     """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
     camera = camera_service.get_camera(key)
@@ -68,7 +83,7 @@ def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
         department = user.get("department")
         if not department or camera.get("department") != department:
             raise HTTPException(status_code=403, detail="camera department permission required")
-    return camera
+    return camera_response_for_user(camera, user)
 
 
 @router.get("")
@@ -77,8 +92,11 @@ def list_cameras(
     user: dict = Depends(get_current_user),
     camera_service=Depends(get_camera_service),
 ) -> list[dict[str, Any]]:
-    return camera_service.list_cameras(
-        department=camera_read_department(user, department)
+    return camera_list_response_for_user(
+        camera_service.list_cameras(
+            department=camera_read_department(user, department)
+        ),
+        user,
     )
 
 

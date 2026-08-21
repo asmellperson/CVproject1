@@ -11,7 +11,7 @@ import numpy as np
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-import capture_worker
+import capture_worker  # noqa: E402
 
 
 class FragmentedStream:

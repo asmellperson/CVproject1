@@ -675,7 +675,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraDialogMode('edit')
     setCameraToEdit(camera)
     setCameraName(camera.name)
-    setCameraUrl(camera.url)
+    setCameraUrl(camera.url || '')
     setCameraFormError('')
     setCameraDialogOpen(true)
   }

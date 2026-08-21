@@ -9,7 +9,6 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import delete
 
 from core.cache import config_cache
-from core.db import session_scope, get_session
 from core.events import ConfigChangeEvent
 from features import all_specs
 from platform.department.orm import AiDepartment, AiFeatureDepartment

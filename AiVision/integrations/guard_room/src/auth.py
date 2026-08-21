@@ -8,4 +8,4 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from auth.auth import *  # noqa: F401,F403
+from auth.auth import *  # noqa: E402,F401,F403

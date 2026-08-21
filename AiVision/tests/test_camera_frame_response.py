@@ -86,13 +86,17 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 default_list = await client.get(prefix)
                 assert default_list.status_code == 200
                 assert [item["camera_id"] for item in default_list.json()] == [1]
-                assert default_list.json()[0]["url"] == "rtsp://general/one"
+                assert "url" not in default_list.json()[0]
                 assert (await client.get(
                     prefix,
                     params={"department": "electronics_electrician"},
                 )).status_code == 403
-                assert (await client.get(f"{prefix}/1")).status_code == 200
-                assert (await client.get(f"{prefix}/camera_1")).status_code == 200
+                camera_by_id = await client.get(f"{prefix}/1")
+                camera_by_shm = await client.get(f"{prefix}/camera_1")
+                assert camera_by_id.status_code == 200
+                assert camera_by_shm.status_code == 200
+                assert "url" not in camera_by_id.json()
+                assert "url" not in camera_by_shm.json()
                 assert (await client.get(f"{prefix}/2")).status_code == 403
                 assert (await client.get(f"{prefix}/camera_2")).status_code == 403
 
@@ -101,12 +105,18 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
             for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
                 all_cameras = await client.get(prefix)
                 assert [item["camera_id"] for item in all_cameras.json()] == [1, 2]
+                assert [item["url"] for item in all_cameras.json()] == [
+                    "rtsp://general/one",
+                    "rtsp://other/two",
+                ]
                 filtered = await client.get(
                     prefix,
                     params={"department": "electronics_electrician"},
                 )
                 assert [item["camera_id"] for item in filtered.json()] == [2]
-                assert (await client.get(f"{prefix}/camera_2")).status_code == 200
+                admin_camera = await client.get(f"{prefix}/camera_2")
+                assert admin_camera.status_code == 200
+                assert admin_camera.json()["url"] == "rtsp://other/two"
 
     asyncio.run(scenario())
 

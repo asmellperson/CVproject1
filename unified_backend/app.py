@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -70,6 +71,25 @@ from unified_backend.proxy import (  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_PLATFORM_STATUS_MAX_WORKERS = 16
+
+
+def _platform_status_max_workers() -> int:
+    raw_value = os.getenv(
+        "UNIFIED_STATUS_MAX_WORKERS",
+        str(_DEFAULT_PLATFORM_STATUS_MAX_WORKERS),
+    )
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        return _DEFAULT_PLATFORM_STATUS_MAX_WORKERS
+
+
+_PLATFORM_STATUS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_platform_status_max_workers(),
+    thread_name_prefix="platform-status",
+)
 
 
 class AlarmDispositionUpdateRequest(BaseModel):
@@ -261,6 +281,24 @@ def _get_json(
         return True, response.json(), latency_ms, None
     except Exception as exc:
         return False, None, None, str(exc)
+
+
+def _get_json_concurrently(
+    calls: dict[str, tuple[str, str, Request | None]],
+) -> dict[str, tuple[bool, dict | list | None, float | None, str | None]]:
+    """在平台状态专属的有界线程池中并发执行多个同步上游探测。"""
+    keys = list(calls)
+    futures = [
+        _PLATFORM_STATUS_EXECUTOR.submit(
+            _get_json,
+            calls[key][0],
+            calls[key][1],
+            request=calls[key][2],
+        )
+        for key in keys
+    ]
+    results = [future.result() for future in futures]
+    return dict(zip(keys, results, strict=True))
 
 
 def _get_upstream_json(base_url: str, path: str, request: Request, *, timeout: float = 3.0) -> dict | list | None:
@@ -1001,23 +1039,41 @@ def create_app() -> FastAPI:
     def platform_status(request: Request):
         now = _now()
 
-        guard_health_ok, _guard_health, guard_latency, guard_health_error = _get_json(
-            guard_room_url,
-            "/api/health",
-            request=request,
+        upstream = _get_json_concurrently(
+            {
+                "guard_health": (guard_room_url, "/api/health", request),
+                "guard_status": (guard_room_url, "/api/status", request),
+                "guard_sites": (guard_room_url, "/api/sites", request),
+                "ai_health": (aivision_url, "/api/v2/runtime/health", None),
+                "ai_status": (aivision_url, "/api/v2/runtime/status", request),
+                "ai_cameras": (aivision_url, "/api/v2/cameras", request),
+                "vlm_health": (security_vlm_url, "/health", request),
+            }
         )
-        _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = _get_json(guard_room_url, "/api/status", request=request)
-        guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = _get_json(guard_room_url, "/api/sites", request=request)
+        guard_health_ok, _guard_health, guard_latency, guard_health_error = upstream["guard_health"]
+        _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = upstream["guard_status"]
+        guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = upstream["guard_sites"]
         guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
         guard_site_statuses: dict[int, dict[str, Any]] = {}
         guard_site_status_errors: dict[int, str] = {}
         if guard_sites_ok:
+            site_ids: list[int] = []
             for site in _guard_site_items(guard_sites):
                 try:
                     site_id = int(site.get("id"))
                 except (TypeError, ValueError):
                     continue
-                _ok, site_status, _latency, _error = _get_json(guard_room_url, f"/api/sites/{site_id}/status", request=request)
+                site_ids.append(site_id)
+            site_results = _get_json_concurrently({
+                str(site_id): (
+                    guard_room_url,
+                    f"/api/sites/{site_id}/status",
+                    request,
+                )
+                for site_id in site_ids
+            })
+            for site_id in site_ids:
+                _ok, site_status, _latency, _error = site_results[str(site_id)]
                 if _ok and isinstance(site_status, dict):
                     guard_site_statuses[site_id] = site_status
                 else:
@@ -1039,9 +1095,9 @@ def create_app() -> FastAPI:
             )
         )
 
-        ai_health_ok, ai_health, ai_latency, ai_health_error = _get_json(aivision_url, "/api/v2/runtime/health")
-        _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = _get_json(aivision_url, "/api/v2/runtime/status", request=request)
-        _ai_cam_ok, ai_cameras, _ai_cam_latency, _ai_cam_error = _get_json(aivision_url, "/api/v2/cameras", request=request)
+        ai_health_ok, ai_health, ai_latency, ai_health_error = upstream["ai_health"]
+        _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = upstream["ai_status"]
+        _ai_cam_ok, ai_cameras, _ai_cam_latency, _ai_cam_error = upstream["ai_cameras"]
         if not isinstance(ai_status, dict) and isinstance(ai_health, dict):
             ai_status = ai_health
         ai_running_cameras = ai_status.get("running_cameras", []) if isinstance(ai_status, dict) else []
@@ -1051,11 +1107,7 @@ def create_app() -> FastAPI:
         ai_enabled_camera_count = sum(1 for camera in ai_camera_items if camera.get("enabled") and _camera_functions_enabled(camera))
         ai_feature_status = _aivision_feature_status(ai_camera_items, ai_running_cameras)
 
-        vlm_ok, vlm_health, vlm_latency, vlm_error = _get_json(
-            security_vlm_url,
-            "/health",
-            request=request,
-        )
+        vlm_ok, vlm_health, vlm_latency, vlm_error = upstream["vlm_health"]
         vlm_running = bool(vlm_health.get("running")) if isinstance(vlm_health, dict) else False
         vlm_capture = vlm_health.get("capture", {}) if isinstance(vlm_health, dict) else {}
         vlm_detector = vlm_health.get("detector", {}) if isinstance(vlm_health, dict) else {}

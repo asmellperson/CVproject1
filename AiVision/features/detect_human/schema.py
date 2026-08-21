@@ -1,6 +1,6 @@
 """features/detect_human/schema.py"""
 from typing import List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class HumanValueSchema(BaseModel):

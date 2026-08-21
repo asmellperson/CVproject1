@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import { Pause } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
@@ -34,12 +34,8 @@ export function SecurityVideoPanel({
   const streamImageRef = useRef<HTMLImageElement | null>(null)
   const setStreamImageRef = useCallback((node: HTMLImageElement | null) => {
     streamImageRef.current = node
-    if (typeof imageRef === 'function') {
-      imageRef(node)
-    } else if (imageRef) {
-      imageRef.current = node
-    }
-  }, [imageRef])
+  }, [])
+  useImperativeHandle(imageRef, () => streamImageRef.current as HTMLImageElement)
 
   const streamUrl = camera?.running
     ? securityVlmCameraVideoUrl(department, camera.camera_id, kind, nonce)

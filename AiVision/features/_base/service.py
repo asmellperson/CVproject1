@@ -15,7 +15,6 @@ from sqlalchemy import or_
 from core.db import session_scope, get_session
 from core.events import config_event_bus, ConfigChangeEvent
 from core.cache import config_cache
-from core.logger import logger
 from features._base.spec import FeatureSpec
 from platform.camera.orm import AiCameraConfig
 

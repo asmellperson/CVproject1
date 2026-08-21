@@ -15,7 +15,7 @@ export type AiVisionCamera = {
   id: string
   name: string
   shm_name: string
-  url: string
+  url?: string
   camera_id: number
   fps?: number
   enabled: boolean

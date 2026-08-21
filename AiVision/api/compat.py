@@ -25,6 +25,7 @@ from api.deps import (
 )
 from api.v2.cameras import (
     build_camera_frame_response,
+    camera_list_response_for_user,
     camera_read_department,
     get_camera_for_user,
 )
@@ -397,8 +398,11 @@ def compat_list_cameras(
     user: dict = Depends(get_current_user),
     camera_service=Depends(get_camera_service),
 ):
-    return camera_service.list_cameras(
-        department=camera_read_department(user, department)
+    return camera_list_response_for_user(
+        camera_service.list_cameras(
+            department=camera_read_department(user, department)
+        ),
+        user,
     )
 
 

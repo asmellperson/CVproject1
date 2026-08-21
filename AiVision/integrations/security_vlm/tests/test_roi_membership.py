@@ -14,8 +14,8 @@ try:
 except ModuleNotFoundError:
     roi_geometry = None
 
-import session_worker
-import main as security_main
+import session_worker  # noqa: E402
+import main as security_main  # noqa: E402
 
 
 def test_roi_geometry_module_exists():

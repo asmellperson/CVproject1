@@ -7,9 +7,8 @@
 """
 from __future__ import annotations
 
-from typing import Iterable, Sequence, Tuple
+from typing import Iterable, Tuple
 
-import cv2
 import numpy as np
 
 from .types import BBox

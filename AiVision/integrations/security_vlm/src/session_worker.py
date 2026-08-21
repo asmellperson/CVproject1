@@ -20,7 +20,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -180,8 +180,10 @@ def compute_fingerprint(frame, box):
     """
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = [int(v) for v in box]
-    x1 = max(0, x1); y1 = max(0, y1)
-    x2 = min(w, x2); y2 = min(h, y2)
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(w, x2)
+    y2 = min(h, y2)
     if x2 - x1 < 10 or y2 - y1 < 20:
         return None
 

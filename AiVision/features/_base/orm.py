@@ -10,9 +10,9 @@ features/_base/orm.py
 """
 from __future__ import annotations
 from sqlalchemy import (
-    Column, Integer, Boolean, Float, String, JSON, TIMESTAMP, ForeignKey, text
+    Column, Integer, Boolean, Float, String, TIMESTAMP, ForeignKey, text
 )
-from sqlalchemy.orm import declared_attr, relationship
+from sqlalchemy.orm import declared_attr
 from core.db import Base
 
 

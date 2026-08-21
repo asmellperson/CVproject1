@@ -126,6 +126,7 @@ def service_db(monkeypatch):
     yield SimpleNamespace(
         service=LogisticsChannelService(),
         camera_service=CameraService(),
+        engine=engine,
         factory=factory,
         notifications=notifications,
     )
@@ -158,6 +159,36 @@ def _events(service_db, change_type):
         for item in service_db.notifications
         if item[0] == "event" and item[1].change_type == change_type
     ]
+
+
+def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
+    first_id = _seed_camera(
+        service_db,
+        "camera-one",
+        enabled_features=("detect_human",),
+    )
+    second_id = _seed_camera(
+        service_db,
+        "camera-two",
+        enabled_features=("detect_phone",),
+    )
+    select_statements: list[str] = []
+
+    def track_selects(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    event.listen(service_db.engine, "before_cursor_execute", track_selects)
+    try:
+        cameras = service_db.camera_service.list_cameras()
+    finally:
+        event.remove(service_db.engine, "before_cursor_execute", track_selects)
+
+    cameras_by_id = {camera["camera_id"]: camera for camera in cameras}
+    assert cameras_by_id[first_id]["functions"]["detect_human"] is True
+    assert cameras_by_id[first_id]["functions"]["detect_phone"] is False
+    assert cameras_by_id[second_id]["functions"]["detect_phone"] is True
+    assert len(select_statements) == 1 + len(all_specs())
 
 
 BASE_FEATURE = "detect_logistics_single_person"

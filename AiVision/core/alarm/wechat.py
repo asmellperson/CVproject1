@@ -9,7 +9,6 @@ core/alarm/wechat.py
     WECHAT_AGENT_ID
 """
 from __future__ import annotations
-import base64
 import os
 from io import BytesIO
 from typing import Optional
