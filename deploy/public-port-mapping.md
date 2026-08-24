@@ -5,7 +5,7 @@
 运维侧只需要开放：
 
 ```text
-80 / 443 -> 项目服务器 Nginx
+3000 -> 项目服务器 Nginx
 ```
 
 以下两个应用端口都只允许本机访问，不要开放到公网：
@@ -15,14 +15,14 @@
 7862  AiVision（含 Guard Room 与 Security VLM API）
 ```
 
-`3000` 仅供开发人员手动执行 `npm run dev` 时使用，生产启动脚本不会监听该端口。
+前端只保留 `3000` 这一个项目端口。生产环境由 Nginx 监听，启动脚本不会运行 Vite 开发服务。
 
 Guard Room 和 Security VLM 不再监听 5001、8000。
 
 ## 项目服务器内部结构
 
 ```text
-公网 80/443
+公网/内网 3000
   -> Nginx
       /                 -> unified_frontend/dist
       /api/             -> 127.0.0.1:5000
@@ -71,7 +71,7 @@ python main.py --host 127.0.0.1 --port 7862
 
 ```bash
 curl -i http://127.0.0.1:5000/api/health
-curl -i https://aicv.fudar.com/api/health
+curl -i http://127.0.0.1:3000/api/health
 ```
 
 统一后端应返回：

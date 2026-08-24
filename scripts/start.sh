@@ -895,7 +895,7 @@ main() {
     esac
     printf " %-18s %-6s %-10s %-10s %b\n" "$name" "$port" "$tmux_st" "$port_st" "$svc_st"
   done
-  printf " %-18s %-6s %-10s %-10s %b\n" "unified_frontend" "80/443" "静态文件" "Nginx" "${C_GRN}BUILT${C_RST}"
+  printf " %-18s %-6s %-10s %-10s %b\n" "unified_frontend" "3000" "静态文件" "Nginx" "${C_GRN}BUILT${C_RST}"
   echo "============================================================"
   if [[ $degraded_cnt -gt 0 ]]; then
     warn "有 ${degraded_cnt} 个服务处于 DEGRADED（端口在但 health 未就绪）。"

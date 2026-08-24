@@ -121,7 +121,7 @@ systemctl enable --now nginx
 systemctl reload nginx
 ```
 
-生产公网只开放 Nginx 的 80/443；不再开放或监听前端开发端口 3000。
+生产环境只需为本项目开放 Nginx 的 3000 端口，不再设置第二个前端端口。
 
 ## 5. 业务配置文件（**必须从老机器拷贝**）
 
@@ -268,7 +268,7 @@ bash scripts/start.sh --force  # 重建前端并重启两个后端
 |------|-----------|---------|---------|
 | aivision（含 Guard Room / Security VLM API） | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
 | unified_backend（5000） | `GET /api/health` | `json:status=ok` | 统一 API 服务已启动 |
-| unified_frontend（Nginx 静态文件） | `GET http://127.0.0.1/` | `http2xx` | `dist/index.html` 存在且 Nginx 返回 2xx |
+| unified_frontend（Nginx 静态文件） | `GET http://127.0.0.1:3000/` | `http2xx` | `dist/index.html` 存在且 Nginx 返回 2xx |
 
 ### 三种启动状态
 

@@ -12,8 +12,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${FUDA_CVP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FRONTEND_DIST="${PROJECT_ROOT}/unified_frontend/dist"
-FRONTEND_STATIC_PORT="${FRONTEND_STATIC_PORT:-80}"
-FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1/}"
+FRONTEND_STATIC_PORT="${FRONTEND_STATIC_PORT:-3000}"
+FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:3000/}"
 
 # 服务名|端口|health_url|judge_rule
 # judge_rule:
@@ -199,7 +199,7 @@ for entry in "${SERVICES[@]}"; do
   printf " %-18s %-6s %-19s %-19s %-19s %s\n" "$name" "$port" "$tmux_st" "$port_st" "$health_st" "$pid"
 done
 
-# 前端是 Nginx 托管的静态产物，不再要求 tmux/Vite 3000 端口。
+# 前端是 Nginx 托管的静态产物，不再要求 tmux/Vite 开发服务。
 frontend_artifact_st="${C_RED}缺失${C_RST}"
 frontend_port_st="${C_RED}未监听${C_RST}"
 frontend_health_st="-"

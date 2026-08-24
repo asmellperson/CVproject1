@@ -43,12 +43,18 @@ done
   fail "production startup must build the static frontend"
 [[ "$status_script" == *'${FRONTEND_DIST}/index.html'* ]] || \
   fail "status.sh must verify the built frontend artifact"
+[[ "$status_script" == *'FRONTEND_STATIC_PORT="${FRONTEND_STATIC_PORT:-3000}"'* ]] || \
+  fail "status.sh must monitor the dedicated production frontend port 3000"
+[[ "$status_script" == *'FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:3000/}"'* ]] || \
+  fail "status.sh must probe the production frontend on port 3000"
 [[ "$frontend_build_script" == *'mktemp -d'* ]] || \
   fail "frontend production build must use an isolated temporary directory"
 [[ "$frontend_build_script" == *'mv -- "$BUILD_DIR" "$DIST_DIR"'* ]] || \
   fail "frontend production build must atomically switch the completed dist"
 [[ "$nginx_config" == *"unified_frontend/dist"* && "$nginx_config" == *"try_files "*"/index.html"* ]] || \
   fail "Nginx must serve the built SPA from unified_frontend/dist"
+[[ "$nginx_config" == *"listen 3000;"* && "$nginx_config" != *"listen 80;"* ]] || \
+  fail "production Nginx must use the project's dedicated port 3000 without claiming port 80"
 [[ "$nginx_config" != *"127.0.0.1:3000"* ]] || \
   fail "production Nginx must not proxy to the Vite development server"
 [[ "$start_script" == *"scripts/migrate_visual_integrations.sh"* ]] || \

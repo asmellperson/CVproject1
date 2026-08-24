@@ -44,7 +44,7 @@ Fuda_CVPreject_V3/
 
 | 服务 | 默认端口 | 启动目录 | 主要入口 |
 | --- | ---: | --- | --- |
-| 统一前端 | `80/443` | `unified_frontend/dist` | `bash scripts/build_frontend.sh` + Nginx |
+| 统一前端 | `3000` | `unified_frontend/dist` | `bash scripts/build_frontend.sh` + Nginx |
 | 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
 | AiVision 视觉业务层 | `7862` | `AiVision` | `conda activate aivision && python main.py` |
 
@@ -54,7 +54,7 @@ Fuda_CVPreject_V3/
 浏览器
   |
   v
-Nginx -> unified_frontend/dist (React 静态页面, :80/443)
+Nginx -> unified_frontend/dist (React 静态页面, :3000)
   |
   v
 unified_backend (:5000)
@@ -596,6 +596,12 @@ bash scripts/build_frontend.sh
 nginx -t && systemctl reload nginx
 ```
 
+生产环境默认访问：
+
+```text
+http://<服务器IP>:3000
+```
+
 以下 Vite 命令只用于本地开发调试，不是生产启动方式：
 
 ```bash
@@ -604,7 +610,7 @@ npm ci
 npm run dev
 ```
 
-默认访问：
+开发调试同样使用 3000；运行前必须先停止占用该端口的 Nginx，二者不能同时启动：
 
 ```text
 http://<服务器IP>:3000
@@ -643,7 +649,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 1. 运行 `bash scripts/status.sh`，确认 `dist/index.html` 存在、Nginx 正在监听且首页返回 2xx。
 2. 执行 `nginx -t`，并确认加载的是 `deploy/nginx/aicv-unified-backend.conf` 对应配置。
 3. 浏览器 Network 里看失败的是静态资源，还是 `/api`、`/aivision`、`/security-vlm` 请求。
-4. 只有本地开发模式才检查 `npm run dev`、3000 端口和 `vite.config.ts` 代理。
+4. 只有本地开发模式才检查 `npm run dev`、3000 端口和 `vite.config.ts` 代理；开发模式与生产 Nginx 不同时运行。
 
 ### 11.2 登录失败
 
