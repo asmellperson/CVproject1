@@ -512,8 +512,18 @@ const adminModuleGroups = [
   },
   {
     id: 'precious_metal_recycling',
-    label: '贵金属回收事业部',
+    label: '伟达公司',
     pages: departmentPermissions.precious_metal_recycling.pages,
+  },
+  {
+    id: 'haoda_company',
+    label: '皓达公司',
+    pages: [],
+  },
+  {
+    id: 'fulida_company',
+    label: '福力达公司',
+    pages: [],
   },
   {
     id: 'research_institute',
@@ -546,6 +556,8 @@ const sidebarChildMeta: Record<string, { tone: NavTone; icon: typeof Building2 }
   electronics_electrician: { tone: 'yellow', icon: Zap },
   electrical_components: { tone: 'purple', icon: Cpu },
   precious_metal_recycling: { tone: 'gold', icon: Gem },
+  haoda_company: { tone: 'magenta', icon: Building2 },
+  fulida_company: { tone: 'teal', icon: Building2 },
   research_institute: { tone: 'green', icon: FlaskConical },
   shared: { tone: 'blue', icon: PackageOpen },
 }
