@@ -5,8 +5,11 @@
 运维侧只需要开放：
 
 ```text
-3000 -> 项目服务器 Nginx
+https://aicv.fudar.com/ -> 公网网关/域名转发 -> 项目服务器内网 IP:3000 -> Vite 前端
 ```
+
+手机等外网设备统一访问 `https://aicv.fudar.com/`。项目服务器的 3000 是网关转发目标，
+不是要求用户直接访问的公网地址。
 
 以下两个应用端口都只允许本机访问，不要开放到公网：
 
@@ -15,16 +18,18 @@
 7862  AiVision（含 Guard Room 与 Security VLM API）
 ```
 
-前端只保留 `3000` 这一个项目端口。生产环境由 Nginx 监听，启动脚本不会运行 Vite 开发服务。
+前端只保留 `3000` 这一个项目端口，由 `unified_frontend` tmux 中的 Vite 监听。
 
 Guard Room 和 Security VLM 不再监听 5001、8000。
 
 ## 项目服务器内部结构
 
 ```text
-公网/内网 3000
-  -> Nginx
-      /                 -> unified_frontend/dist
+公网 https://aicv.fudar.com/
+  -> 公网网关/域名转发
+  -> 项目服务器内网 3000
+  -> Vite
+      /                 -> unified_frontend
       /api/             -> 127.0.0.1:5000
       /aivision/        -> 127.0.0.1:5000
       /security-vlm/    -> 127.0.0.1:5000
@@ -56,8 +61,8 @@ cd /usr/zyy/Fuda_CVPreject_V3
 bash scripts/start.sh
 ```
 
-启动脚本会先在临时目录完成前端构建，再原子切换 `dist`；构建失败时保留旧版本，
-也不会启动后端，避免前后端版本不一致。前端不再创建 tmux 会话。
+启动脚本会创建 `unified_frontend` tmux，并用 Vite 监听 `0.0.0.0:3000`；
+`status.sh` 会同时检查 tmux、端口和首页 HTTP 状态。
 
 手动排障时，AiVision 必须使用 Conda：
 

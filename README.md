@@ -8,11 +8,13 @@
 
 ## 1. 项目定位
 
-本仓库是一个统一的 AI 视频监控平台，公网入口是：
+本仓库是一个统一的 AI 视频监控平台，公网访问入口是：
 
 ```text
 https://aicv.fudar.com/
 ```
+
+公网网关将该域名的 HTTPS 请求转发到项目服务器的 Vite `3000` 端口。
 
 平台把多个视觉检测能力整合到一个前端里，主要覆盖三类业务：
 
@@ -23,7 +25,7 @@ https://aicv.fudar.com/
 | 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
-整体上，这是“一个静态前端 + 一个统一后端 + 一个视觉业务后端”的三层项目。Guard Room 和
+整体上，这是“一个 Vite 前端 + 一个统一后端 + 一个视觉业务后端”的三层项目。Guard Room 和
 Security VLM 的源码、API 与生命周期都属于 AiVision，不再是仓库顶层的独立项目或服务。
 
 ## 2. 仓库顶层结构
@@ -40,11 +42,11 @@ Fuda_CVPreject_V3/
 └── PROJECT_ARCHITECTURE.md
 ```
 
-生产环境只有两个项目 tmux 运行服务；前端先构建为静态文件，再由系统 Nginx 托管：
+生产环境统一管理三个 tmux 运行服务，前端由 Vite 直接提供：
 
 | 服务 | 默认端口 | 启动目录 | 主要入口 |
 | --- | ---: | --- | --- |
-| 统一前端 | `3000` | `unified_frontend/dist` | `bash scripts/build_frontend.sh` + Nginx |
+| 统一前端 | `3000` | `unified_frontend` | `npm run dev`（由 `scripts/start.sh` 启动） |
 | 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
 | AiVision 视觉业务层 | `7862` | `AiVision` | `conda activate aivision && python main.py` |
 
@@ -54,7 +56,7 @@ Fuda_CVPreject_V3/
 浏览器
   |
   v
-Nginx -> unified_frontend/dist (React 静态页面, :3000)
+Vite -> unified_frontend (React 页面与 API 代理, :3000)
   |
   v
 unified_backend (:5000)
@@ -583,37 +585,23 @@ ROI 热加载逻辑：前端 `POST /api/rois` 后写入 `staff_identity_dir/<vid
 
 ### 10.1 前端
 
-生产环境由统一启动脚本构建静态文件，并交给 Nginx 托管：
+生产环境由统一启动脚本在 tmux 中启动 Vite：
 
 ```bash
 bash scripts/start.sh
 ```
 
-也可以只重新发布前端：
-
-```bash
-bash scripts/build_frontend.sh
-nginx -t && systemctl reload nginx
-```
-
-生产环境默认访问：
-
-```text
-http://<服务器IP>:3000
-```
-
-以下 Vite 命令只用于本地开发调试，不是生产启动方式：
+也可以只启动前端排障：
 
 ```bash
 cd unified_frontend
-npm ci
-npm run dev
+npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-开发调试同样使用 3000；运行前必须先停止占用该端口的 Nginx，二者不能同时启动：
+生产环境公网访问：
 
 ```text
-http://<服务器IP>:3000
+https://aicv.fudar.com/
 ```
 
 临时改端口：
@@ -646,10 +634,10 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 
 ### 11.1 页面打不开
 
-1. 运行 `bash scripts/status.sh`，确认 `dist/index.html` 存在、Nginx 正在监听且首页返回 2xx。
-2. 执行 `nginx -t`，并确认加载的是 `deploy/nginx/aicv-unified-backend.conf` 对应配置。
+1. 运行 `bash scripts/status.sh`，确认 `unified_frontend` tmux 存在、3000 正在监听且首页返回 2xx。
+2. 执行 `tmux attach -t unified_frontend`，查看 Vite 启动日志。
 3. 浏览器 Network 里看失败的是静态资源，还是 `/api`、`/aivision`、`/security-vlm` 请求。
-4. 只有本地开发模式才检查 `npm run dev`、3000 端口和 `vite.config.ts` 代理；开发模式与生产 Nginx 不同时运行。
+4. 检查 `npm run dev`、3000 端口和 `vite.config.ts` 代理配置。
 
 ### 11.2 登录失败
 
@@ -744,10 +732,10 @@ AiVision/integrations/security_vlm/configs/config.yaml
 
 ## 13. 最重要的心智模型
 
-这个项目由三个逻辑层组成；生产运行态是 Nginx 静态前端加两个项目后端服务：
+这个项目由三个逻辑层组成；生产运行态是 Vite 前端加两个项目后端服务：
 
 ```text
-unified_frontend = 构建后由 Nginx 承载的门面和操作台
+unified_frontend = Vite 承载的门面、操作台与前端 API 代理
 unified_backend  = 统一鉴权、聚合与 API 网关
 AiVision         = 通用视觉能力 + Guard Room + Security VLM
 ```

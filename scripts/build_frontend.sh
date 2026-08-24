@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 原子构建 unified_frontend/dist，供生产 Nginx 静态托管。
+# 可选：原子构建 unified_frontend/dist，用于手动检查生产构建产物。
 
 set -euo pipefail
 

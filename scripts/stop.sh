@@ -2,9 +2,9 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：kill 2 个后端运行服务，并清理迁移前遗留的开发前端/视觉服务会话。
+# 作用：kill 3 个运行服务，并清理迁移前遗留的视觉服务会话。
 # 用法：
-#   bash scripts/stop.sh            # 关停全部后端服务
+#   bash scripts/stop.sh            # 关停全部服务
 #   bash scripts/stop.sh -y         # 跳过确认，直接关停
 # 注意：这是破坏性操作，会让线上服务下线。
 #
@@ -16,8 +16,8 @@
 
 set -u
 
-SERVICES=(unified_backend aivision)
-LEGACY_SERVICES=(unified_frontend security_vlm guard_room)
+SERVICES=(unified_backend aivision unified_frontend)
+LEGACY_SERVICES=(security_vlm guard_room)
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
@@ -51,7 +51,7 @@ fi
 
 echo "${C_YLW}[WARN]${C_RST} 即将关停以下 tmux 会话："
 for s in "${RUNNING[@]}"; do echo "        - $s"; done
-echo "${C_RED}[WARN]${C_RST} 后端 API 和检测服务将下线；Nginx 静态前端不会被关停"
+echo "${C_RED}[WARN]${C_RST} 前端、后端 API 和检测服务都将下线"
 
 if [[ $YES -ne 1 ]]; then
   read -r -p "确认继续？输入 yes 继续: " ans

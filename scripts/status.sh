@@ -2,7 +2,7 @@
 # =============================================================================
 # 福达视觉平台 - 服务状态查询脚本
 # -----------------------------------------------------------------------------
-# 作用：查询 2 个后端 tmux 服务，以及 Nginx 静态前端产物和 health 状态。
+# 作用：查询 3 个 tmux 服务的端口与 health 状态。
 # 用法：bash scripts/status.sh
 # 只读：不修改任何状态。
 # =============================================================================
@@ -11,9 +11,6 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${FUDA_CVP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FRONTEND_DIST="${PROJECT_ROOT}/unified_frontend/dist"
-FRONTEND_STATIC_PORT="${FRONTEND_STATIC_PORT:-3000}"
-FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:3000/}"
 
 # 服务名|端口|health_url|judge_rule
 # judge_rule:
@@ -23,6 +20,7 @@ FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:3000/}"
 SERVICES=(
   "aivision|7862|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
   "unified_backend|5000|http://127.0.0.1:5000/api/health|json:status=ok"
+  "unified_frontend|3000|http://127.0.0.1:3000/|http2xx"
 )
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-3}"
@@ -199,55 +197,14 @@ for entry in "${SERVICES[@]}"; do
   printf " %-18s %-6s %-19s %-19s %-19s %s\n" "$name" "$port" "$tmux_st" "$port_st" "$health_st" "$pid"
 done
 
-# 前端是 Nginx 托管的静态产物，不再要求 tmux/Vite 开发服务。
-frontend_artifact_st="${C_RED}缺失${C_RST}"
-frontend_port_st="${C_RED}未监听${C_RST}"
-frontend_health_st="-"
-frontend_pid="-"
-frontend_ready=1
-
-if [[ -s "${FRONTEND_DIST}/index.html" ]]; then
-  frontend_artifact_st="${C_GRN}静态文件${C_RST}"
-else
-  frontend_ready=0
-fi
-
-frontend_listen_line=$(ss -tlnp 2>/dev/null | awk -v p=":${FRONTEND_STATIC_PORT}\$" '$4 ~ p {print; exit}')
-if [[ -n "$frontend_listen_line" ]]; then
-  frontend_port_st="${C_GRN}监听中${C_RST}"
-  frontend_pid=$(echo "$frontend_listen_line" | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)
-  frontend_pid=${frontend_pid:-"-"}
-  if [[ "$HEALTH_TOOL" != "none" ]]; then
-    frontend_result="$(probe "$FRONTEND_HEALTH_URL" "$HEALTH_TIMEOUT")"
-    frontend_code="${frontend_result%%$'\t'*}"
-    if [[ "$frontend_code" =~ ^2 ]]; then
-      frontend_health_st="${C_GRN}就绪${C_RST}"
-    else
-      frontend_health_st="${C_RED}HTTP${frontend_code}${C_RST}"
-      frontend_ready=0
-    fi
-  else
-    frontend_health_st="${C_DIM}跳过${C_RST}"
-  fi
-else
-  frontend_ready=0
-fi
-
-if [[ $frontend_ready -ne 1 ]]; then
-  ALL_OK=0
-fi
-printf " %-18s %-6s %-19b %-19b %-19b %s\n" \
-  "unified_frontend" "$FRONTEND_STATIC_PORT" "$frontend_artifact_st" \
-  "$frontend_port_st" "$frontend_health_st" "$frontend_pid"
-
 echo "============================================================================"
 if [[ $ALL_OK -eq 1 && $DEGRADED -eq 0 ]]; then
-  echo "${C_GRN}[ OK ]${C_RST} 后端服务与 Nginx 静态前端全部正常"
+  echo "${C_GRN}[ OK ]${C_RST} 三个 tmux 服务全部正常"
   exit 0
 elif [[ $ALL_OK -eq 1 ]]; then
   echo "${C_YLW}[WARN]${C_RST} 端口正常但有服务 health 降级（可能模型未就绪）。建议: tmux attach -t <服务名>"
   exit 0
 else
-  echo "${C_YLW}[WARN]${C_RST} 有服务或静态前端异常。可执行: bash scripts/start.sh，并检查 Nginx 配置"
+  echo "${C_YLW}[WARN]${C_RST} 有服务异常。可执行: bash scripts/start.sh，并用 tmux attach -t <服务名> 查看日志"
   exit 1
 fi

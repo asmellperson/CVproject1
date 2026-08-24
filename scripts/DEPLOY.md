@@ -13,7 +13,7 @@
 ## 0. 系统包
 
 ```bash
-apt update && apt install -y tmux iproute2 curl wget vim nginx
+apt update && apt install -y tmux iproute2 curl wget vim
 ```
 
 ## 1. 拷贝项目代码
@@ -104,24 +104,17 @@ cd /srv/Fuda_CVPreject/unified_frontend
 npm ci          # 用 package-lock.json 严格安装；首次也可用 npm install
 ```
 
-生产环境不要执行 `npm run dev` 或 `npm run preview`。`scripts/start.sh` 会调用
-`scripts/build_frontend.sh`，在临时目录构建成功后原子切换 `dist`。
+`scripts/start.sh` 会在 `unified_frontend` tmux 中执行 `npm run dev`，固定监听
+`0.0.0.0:3000`。不需要安装或配置 Nginx。
+公网入口保持为 `https://aicv.fudar.com/`，由现有公网网关/域名转发到项目服务器的
+TCP 3000；用户不直接访问公网 `:3000`。
 
-### 配置 Nginx 静态托管
-
-示例配置中的项目路径是 `/usr/zyy/Fuda_CVPreject_V3`。如果实际部署在 `/srv/Fuda_CVPreject`，
-安装时替换根目录：
+如果从曾使用 Nginx 托管前端的版本升级，只移除本项目的旧配置，不要停止其他项目共用的 Nginx：
 
 ```bash
-sed 's#/usr/zyy/Fuda_CVPreject_V3#/srv/Fuda_CVPreject#g' \
-  /srv/Fuda_CVPreject/deploy/nginx/aicv-unified-backend.conf \
-  > /etc/nginx/conf.d/aicv-unified-backend.conf
-nginx -t
-systemctl enable --now nginx
-systemctl reload nginx
+rm -f /etc/nginx/conf.d/aicv-unified-backend.conf
+nginx -t && systemctl reload nginx
 ```
-
-生产环境只需为本项目开放 Nginx 的 3000 端口，不再设置第二个前端端口。
 
 ## 5. 业务配置文件（**必须从老机器拷贝**）
 
@@ -221,8 +214,8 @@ tmux show-environment -t unified_backend AUTH_SECRET
 # aivision 应有
 tmux show-environment -t aivision AUTH_SECRET
 
-# 前端是 Nginx 静态文件，不存在 unified_frontend tmux 会话
-tmux has-session -t unified_frontend 2>&1
+# unified_frontend 应有独立 tmux 会话
+tmux has-session -t unified_frontend
 ```
 
 ### 注意
@@ -248,16 +241,15 @@ bash scripts/start.sh
 观察输出：
 - **环境探测结果** 一段全是 `[ OK ]` 就说明依赖都对上了
 - 任一服务出现 `[MISSING DEPS]` / `[MISSING CONFIG]` / `[FAIL]`，**控制台会直接给出修复命令**，按提示执行后再跑一次
-- 最后启动汇总中 `aivision`、`unified_backend` 为 `READY`，
-  `unified_frontend` 为 `BUILT` 即代码侧启动成功
-- 再运行 `bash scripts/status.sh`，确认 Nginx 静态前端为“就绪”
+- 最后启动汇总中 `aivision`、`unified_backend`、`unified_frontend` 均为 `READY`
+- 再运行 `bash scripts/status.sh`，确认三个 tmux 服务均为“就绪”
 
 后续日常运维：
 
 ```bash
 bash scripts/status.sh         # 查询状态（含 health 就绪探测）
-bash scripts/stop.sh           # 关停两个后端 tmux；不关 Nginx
-bash scripts/start.sh --force  # 重建前端并重启两个后端
+bash scripts/stop.sh           # 关停三个 tmux 服务
+bash scripts/start.sh --force  # 重启前端和两个后端
 ```
 
 ## 8.5 健康检查与就绪状态
@@ -268,7 +260,7 @@ bash scripts/start.sh --force  # 重建前端并重启两个后端
 |------|-----------|---------|---------|
 | aivision（含 Guard Room / Security VLM API） | `GET /api/v2/runtime/health` | `json:ok=true` | orchestrator 已启动 + 至少 1 个推理模型在跑 |
 | unified_backend（5000） | `GET /api/health` | `json:status=ok` | 统一 API 服务已启动 |
-| unified_frontend（Nginx 静态文件） | `GET http://127.0.0.1:3000/` | `http2xx` | `dist/index.html` 存在且 Nginx 返回 2xx |
+| unified_frontend（Vite） | `GET http://127.0.0.1:3000/` | `http2xx` | tmux 存在、3000 监听且首页返回 2xx |
 
 ### 三种启动状态
 

@@ -12,8 +12,7 @@ fail() {
 start_script="$(<"$PROJECT_ROOT/scripts/start.sh")"
 status_script="$(<"$PROJECT_ROOT/scripts/status.sh")"
 stop_script="$(<"$PROJECT_ROOT/scripts/stop.sh")"
-frontend_build_script="$(<"$PROJECT_ROOT/scripts/build_frontend.sh")"
-nginx_config="$(<"$PROJECT_ROOT/deploy/nginx/aicv-unified-backend.conf")"
+vite_config="$(<"$PROJECT_ROOT/unified_frontend/vite.config.ts")"
 aivision_app="$(<"$PROJECT_ROOT/AiVision/api/app.py")"
 managed_visual_services="$(<"$PROJECT_ROOT/AiVision/platform/visual_services/managed.py")"
 security_vlm_main="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/src/main.py")"
@@ -31,32 +30,26 @@ for removed_port in 5001 8000; do
     fail "status.sh must not monitor port ${removed_port}"
 done
 
-[[ "$stop_script" == *"SERVICES=(unified_backend aivision)"* ]] || \
-  fail "stop.sh must manage exactly the two backend runtime services"
-[[ "$stop_script" == *"LEGACY_SERVICES=(unified_frontend security_vlm guard_room)"* ]] || \
-  fail "stop.sh must clean the retired Vite and visual service sessions"
-[[ "$start_script" == *"LEGACY_SERVICE_SESSIONS=(guard_room security_vlm unified_frontend)"* ]] || \
+[[ "$stop_script" == *"SERVICES=(unified_backend aivision unified_frontend)"* ]] || \
+  fail "stop.sh must manage the frontend and two backend runtime services"
+[[ "$stop_script" == *"LEGACY_SERVICES=(security_vlm guard_room)"* ]] || \
+  fail "stop.sh must clean only the retired visual service sessions"
+[[ "$start_script" == *"LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)"* ]] || \
   fail "start.sh must detect legacy visual service sessions"
-[[ "$start_script" != *"npm run dev"* && "$start_script" != *"|3000|"* ]] || \
-  fail "production startup must not launch the Vite development server"
-[[ "$start_script" == *"scripts/build_frontend.sh"* ]] || \
-  fail "production startup must build the static frontend"
-[[ "$status_script" == *'${FRONTEND_DIST}/index.html'* ]] || \
-  fail "status.sh must verify the built frontend artifact"
-[[ "$status_script" == *'FRONTEND_STATIC_PORT="${FRONTEND_STATIC_PORT:-3000}"'* ]] || \
-  fail "status.sh must monitor the dedicated production frontend port 3000"
-[[ "$status_script" == *'FRONTEND_HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:3000/}"'* ]] || \
-  fail "status.sh must probe the production frontend on port 3000"
-[[ "$frontend_build_script" == *'mktemp -d'* ]] || \
-  fail "frontend production build must use an isolated temporary directory"
-[[ "$frontend_build_script" == *'mv -- "$BUILD_DIR" "$DIST_DIR"'* ]] || \
-  fail "frontend production build must atomically switch the completed dist"
-[[ "$nginx_config" == *"unified_frontend/dist"* && "$nginx_config" == *"try_files "*"/index.html"* ]] || \
-  fail "Nginx must serve the built SPA from unified_frontend/dist"
-[[ "$nginx_config" == *"listen 3000;"* && "$nginx_config" != *"listen 80;"* ]] || \
-  fail "production Nginx must use the project's dedicated port 3000 without claiming port 80"
-[[ "$nginx_config" != *"127.0.0.1:3000"* ]] || \
-  fail "production Nginx must not proxy to the Vite development server"
+[[ "$start_script" == *"npm run dev -- --host 0.0.0.0 --port 3000"* && "$start_script" == *"|3000|"* ]] || \
+  fail "start.sh must launch unified_frontend through Vite on port 3000"
+[[ "$start_script" == *'端口 ${port} 已被非 ${name} tmux 进程占用'* ]] || \
+  fail "start.sh must reject a foreign process occupying a managed service port"
+[[ "$start_script" != *"build_frontend_static"* && "$start_script" != *"scripts/build_frontend.sh"* ]] || \
+  fail "start.sh must not build an Nginx static frontend"
+[[ "$status_script" == *"unified_frontend|3000|http://127.0.0.1:3000/|http2xx"* ]] || \
+  fail "status.sh must monitor the Vite frontend tmux service on port 3000"
+[[ "$status_script" != *"FRONTEND_DIST"* && "$status_script" != *"Nginx"* ]] || \
+  fail "status.sh must not retain Nginx static frontend checks"
+[[ "$vite_config" == *"host: '0.0.0.0'"* && "$vite_config" == *"strictPort: true"* ]] || \
+  fail "Vite must accept remote clients and fail clearly when port 3000 is occupied"
+[[ ! -e "$PROJECT_ROOT/deploy/nginx/aicv-unified-backend.conf" ]] || \
+  fail "the project-specific Nginx frontend config must be removed"
 [[ "$start_script" == *"scripts/migrate_visual_integrations.sh"* ]] || \
   fail "start.sh must direct legacy source layouts through the safe migration script"
 [[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/guard-room"* ]] || \
@@ -82,4 +75,4 @@ done
 [[ "$security_vlm_config" != *"port: 8000"* ]] || \
   fail "Security VLM config must not advertise the removed Web port"
 
-echo "PASS: two runtime services plus static frontend topology"
+echo "PASS: three tmux services with Vite frontend topology"
