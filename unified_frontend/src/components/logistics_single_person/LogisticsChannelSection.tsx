@@ -17,7 +17,7 @@ const FEATURE_DEPARTMENT_LABELS: Record<LogisticsFeatureName, string> = {
   detect_logistics_single_person: '通用电气事业部',
   detect_logistics_single_person_electronics_electrician: '电子电工事业部',
   detect_logistics_single_person_electrical_components: '电气部件事业部',
-  detect_logistics_single_person_precious_metal_recycling: '贵金属回收事业部',
+  detect_logistics_single_person_precious_metal_recycling: '伟达公司',
 }
 
 export function LogisticsChannelSection({ feature, title }: LogisticsChannelSectionProps) {

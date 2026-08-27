@@ -135,7 +135,7 @@ class DepartmentService:
             {"name": "research_institute", "display_name": "福达新材院"},
             {"name": "electronics_electrician", "display_name": "电子电工"},
             {"name": "electrical_components", "display_name": "电气部件事业部"},
-            {"name": "precious_metal_recycling", "display_name": "贵金属回收事业部"},
+            {"name": "precious_metal_recycling", "display_name": "伟达公司"},
             {"name": "haoda_company", "display_name": "皓达公司"},
         ]
         for seed in seed_departments:

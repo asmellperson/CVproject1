@@ -44,7 +44,7 @@ export const navGroups: NavGroup[] = [
       { id: 'security-vlm-general-electric', label: '安检流程规范检测', icon: ShieldAlert, description: '通用电气安检流程规范监控与 ROI 配置' },
       { id: 'security-vlm-electronics-electrician', label: '安检流程规范检测', icon: ShieldAlert, description: '电子电工安检流程规范监控与 ROI 配置' },
       { id: 'security-vlm-electrical-components', label: '安检流程规范检测', icon: ShieldAlert, description: '电气部件安检流程规范监控与 ROI 配置' },
-      { id: 'security-vlm-precious-metal-recycling', label: '安检流程规范检测', icon: ShieldAlert, description: '贵金属回收安检流程规范监控与 ROI 配置' },
+      { id: 'security-vlm-precious-metal-recycling', label: '安检流程规范检测', icon: ShieldAlert, description: '伟达公司安检流程规范监控与 ROI 配置' },
       { id: 'guard-behavior-general-electric', label: '保安行为规范检测', icon: ShieldCheck, description: '通用电气保安行为规范监控与配置' },
       { id: 'guard-behavior-electronics-electrician', label: '保安行为规范检测', icon: ShieldCheck, description: '电子电工保安行为规范监控与配置' },
       { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
@@ -55,7 +55,7 @@ export const navGroups: NavGroup[] = [
       { id: 'logistics-single-person-detection', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
       { id: 'logistics-single-person-electronics-electrician-detection', label: '物流通道单人检测', icon: UsersRound, description: '电子电工物流通道单人监控与配置入口' },
       { id: 'logistics-single-person-electrical-components-detection', label: '物流通道单人检测', icon: UsersRound, description: '电气部件物流通道单人监控与配置入口' },
-      { id: 'logistics-single-person-precious-metal-recycling-detection', label: '物流通道单人检测', icon: UsersRound, description: '贵金属回收物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-precious-metal-recycling-detection', label: '物流通道单人检测', icon: UsersRound, description: '伟达公司物流通道单人监控与配置入口' },
       { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
       
     ],

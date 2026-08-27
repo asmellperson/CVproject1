@@ -88,3 +88,11 @@ test('adds a Haoda-scoped dwell page without copying the existing camera scope',
   assert.match(sidebar, /pages: departmentPermissions\.haoda_company\.pages/)
   assert.match(app, /case 'haoda-human-detection'/)
 })
+
+test('keeps the selected camera when ROI save emits a camera refresh event', () => {
+  assert.match(page, /const selectedCameraRef = useRef\(''\)/)
+  assert.match(page, /enabledCameras\.find\(\(camera\) => camera\.shm_name === selectedCameraRef\.current\)/)
+  assert.match(page, /\|\| enabledCameras\[0\]/)
+  assert.match(page, /selectedCameraRef\.current = payload\.camera\.shm_name/)
+  assert.match(page, /selectedCameraRef\.current = cameraName/)
+})

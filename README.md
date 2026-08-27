@@ -281,7 +281,7 @@ AiVision/integrations/guard_room/config/config.example.yaml
 | `detect_logistics_single_person` | 通用电气物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 | `detect_logistics_single_person_electronics_electrician` | 电子电工物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 | `detect_logistics_single_person_electrical_components` | 电气部件物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
-| `detect_logistics_single_person_precious_metal_recycling` | 贵金属回收物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
+| `detect_logistics_single_person_precious_metal_recycling` | 伟达公司物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 
 ### 7.2 features-first 架构
 

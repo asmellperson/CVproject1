@@ -17,6 +17,9 @@ from features.detect_logistics_single_person_electronics_electrician.consumer im
 from features.detect_logistics_single_person_precious_metal_recycling.consumer import (
     LogisticsSinglePersonPreciousMetalRecyclingConsumer,
 )
+from features.detect_logistics_single_person_precious_metal_recycling import (
+    SPEC as WEIDA_LOGISTICS_SPEC,
+)
 
 
 LOGISTICS_CONSUMER_CLASSES = (
@@ -79,6 +82,10 @@ def test_all_logistics_consumers_share_the_common_implementation(consumer_class)
     assert issubclass(consumer_class, LogisticsSinglePersonConsumerBase)
     assert "_process" not in consumer_class.__dict__
     assert "post_process" not in consumer_class.__dict__
+
+
+def test_legacy_precious_metal_feature_uses_weida_company_display_name():
+    assert WEIDA_LOGISTICS_SPEC.display_name == "物流通道单人检测（伟达公司）"
 
 
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)

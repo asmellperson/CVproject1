@@ -79,9 +79,16 @@ const electricalComponentsUser = {
 
 const preciousMetalRecyclingUser = {
   employee_id: 'u3',
-  name: '贵金属回收用户',
+  name: '伟达公司用户',
   role: 'viewer',
   department: 'precious_metal_recycling',
+}
+
+const weidaAliasUser = {
+  employee_id: 'u4',
+  name: '伟达公司别名用户',
+  role: 'viewer',
+  department: '伟达公司',
 }
 
 if (getUserDepartment(electricalComponentsUser) !== 'electrical_components') {
@@ -90,6 +97,10 @@ if (getUserDepartment(electricalComponentsUser) !== 'electrical_components') {
 
 if (getUserDepartment(preciousMetalRecyclingUser) !== 'precious_metal_recycling') {
   throw new Error('expected precious_metal_recycling department to normalize')
+}
+
+if (getUserDepartment(weidaAliasUser) !== 'precious_metal_recycling') {
+  throw new Error('expected 伟达公司 alias to normalize')
 }
 
 if (!hasPageAccess(electricalComponentsUser, 'logistics-single-person-electrical-components-detection')) {

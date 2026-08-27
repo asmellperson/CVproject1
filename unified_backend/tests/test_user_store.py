@@ -132,6 +132,20 @@ def test_accepts_haoda_company_viewer_department(tmp_path):
     assert created["department"] == "haoda_company"
 
 
+def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
+    store, _legacy_path = _store(tmp_path)
+
+    created = store.create_user(
+        employee_id="20003",
+        name="伟达公司用户",
+        role="viewer",
+        department="伟达公司",
+        password_hash="hash-weida",
+    )
+
+    assert created["department"] == "precious_metal_recycling"
+
+
 def test_rejects_invalid_or_duplicate_users(tmp_path):
     store, _legacy_path = _store(tmp_path)
 

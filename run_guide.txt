@@ -117,7 +117,7 @@ conda create -n security_vlm python=3.11 -y
 conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt -c requirements-python311.lock
 
 物流通道单人检测上线说明：
-- 通用电气、电子电工、电气部件、贵金属回收四个模块都在各自前端配置页按“物流通道”管理。
+- 通用电气、电子电工、电气部件、伟达公司四个模块都在各自前端配置页按“物流通道”管理。
 - 每个通道最多绑定 9 路摄像头，画面自动使用单画面、左右、2×2 或 3×3 布局；ROI 按摄像头独立保存。
 - 检测时间段、无人/多人持续时间和报警配置按通道独立设置。
 - 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警。

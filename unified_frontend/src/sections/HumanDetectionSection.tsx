@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
@@ -171,6 +171,7 @@ export function HumanDetectionSection({
   const [cameraLoading, setCameraLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cameraAction, setCameraAction] = useState(false)
+  const selectedCameraRef = useRef('')
 
   const getCameraDisplayName = (shmName: string, fallback?: string, source: AiVisionCamera[] = cameras) => {
     const key = shmName.trim()
@@ -189,6 +190,7 @@ export function HumanDetectionSection({
     try {
       const payload = await getAiVisionFeatureConfig(feature, shmName)
       const config = payload.config as HumanConfig
+      selectedCameraRef.current = payload.camera.shm_name
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
       setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, source)} 的人员逗留检测配置。`)
@@ -204,17 +206,23 @@ export function HumanDetectionSection({
     try {
       const items = await getAiVisionCameras(cameraDepartment)
       setCameras(items)
-      const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, feature))
+      const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
+      const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current)
+        || enabledCameras[0]
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
+        selectedCameraRef.current = ''
+        setForm((prev) => ({ ...prev, cameraName: '' }))
         setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
         return
       }
       if (!nextCamera) {
+        selectedCameraRef.current = ''
         setForm((prev) => ({ ...prev, cameraName: '' }))
         setMessage('当前人员逗留检测未添加摄像头，请先添加摄像头。')
         return
       }
+      selectedCameraRef.current = nextCamera
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
       await loadConfig(nextCamera, items)
     } catch (error) {
@@ -241,6 +249,7 @@ export function HumanDetectionSection({
   }
 
   const addCameraToFeature = async (cameraName: string) => {
+    selectedCameraRef.current = cameraName.trim()
     setCameraAction(true)
     setMessage('正在添加摄像头并启用人员逗留检测...')
     try {
@@ -265,8 +274,10 @@ export function HumanDetectionSection({
       const items = await refreshCameraList()
       const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, feature))?.shm_name || ''
       if (form.cameraName === cameraName && nextCamera) {
+        selectedCameraRef.current = nextCamera
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
+        selectedCameraRef.current = ''
         setHumanConfig(defaultHumanConfig)
         setForm({ ...defaultForm, cameraName: '' })
       }
@@ -360,6 +371,7 @@ export function HumanDetectionSection({
     try {
       const payload = await saveAiVisionFeatureConfig(feature, shmName, nextConfig)
       const config = payload.config as HumanConfig
+      selectedCameraRef.current = payload.camera.shm_name
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
       const items = await refreshCameraList()
@@ -437,12 +449,14 @@ export function HumanDetectionSection({
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {
+                  selectedCameraRef.current = cameraName
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
                 }}
                 onAddCamera={addCameraToFeature}
                 onRemoveCamera={removeCameraFromFeature}
                 onConfigCopied={(cameraName) => {
+                  selectedCameraRef.current = cameraName
                   setForm((prev) => ({ ...prev, cameraName }))
                   return loadConfig(cameraName)
                 }}
@@ -479,6 +493,7 @@ export function HumanDetectionSection({
                     <Select
                       value={form.cameraName}
                       onValueChange={(value) => {
+                        selectedCameraRef.current = value
                         setForm((prev) => ({ ...prev, cameraName: value }))
                         loadConfig(value)
                       }}

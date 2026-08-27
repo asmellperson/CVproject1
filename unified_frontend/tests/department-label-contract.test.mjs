@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const frontendRoot = new URL('../', import.meta.url)
 const read = (path) => readFile(new URL(path, frontendRoot), 'utf8')
-const [sidebar, home, users, audit, intrusion, face, phone, human, haodaHuman, door] = await Promise.all([
+const [sidebar, home, users, audit, intrusion, face, phone, human, haodaHuman, door, securityVlm, alarms, statistics, logistics, nav, permissions] = await Promise.all([
   read('src/components/Sidebar.tsx'),
   read('src/sections/HomeSection.tsx'),
   read('src/sections/UserManagementSection.tsx'),
@@ -15,6 +15,12 @@ const [sidebar, home, users, audit, intrusion, face, phone, human, haodaHuman, d
   read('src/sections/HumanDetectionSection.tsx'),
   read('src/sections/HaodaHumanDetectionSection.tsx'),
   read('src/sections/DoorDetectionSection.tsx'),
+  read('src/sections/SecurityVlmSection.tsx'),
+  read('src/sections/AlarmsSection.tsx'),
+  read('src/sections/StatisticsSection.tsx'),
+  read('src/components/logistics_single_person/LogisticsChannelSection.tsx'),
+  read('src/lib/nav.ts'),
+  read('src/auth/permissions.ts'),
 ])
 
 test('uses the current materials institute name throughout active frontend views', () => {
@@ -22,6 +28,15 @@ test('uses the current materials institute name throughout active frontend views
     assert.match(source, /福达新材院/)
     assert.doesNotMatch(source, /人工智能研究院/)
   }
+})
+
+test('uses the current Weida company name throughout active frontend views', () => {
+  for (const source of [sidebar, home, users, audit, securityVlm, alarms, statistics, logistics, nav]) {
+    assert.match(source, /伟达公司/)
+    assert.doesNotMatch(source, /贵金属回收/)
+  }
+  assert.match(permissions, /title: '物流通道单人检测（伟达公司）'/)
+  assert.doesNotMatch(permissions, /title: '物流通道单人检测（贵金属回收）'/)
 })
 
 test('keeps the requested first-level company directories in sidebar order', () => {

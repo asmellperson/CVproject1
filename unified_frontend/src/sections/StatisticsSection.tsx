@@ -89,7 +89,7 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'detect_logistics_single_person', name: '物流通道单人', value: 0, color: '#0f766e' },
   { event_type: 'detect_logistics_single_person_electronics_electrician', name: '物流通道单人（电子电工）', value: 0, color: '#0f766e' },
   { event_type: 'detect_logistics_single_person_electrical_components', name: '物流通道单人（电气部件）', value: 0, color: '#0f766e' },
-  { event_type: 'detect_logistics_single_person_precious_metal_recycling', name: '物流通道单人（贵金属回收）', value: 0, color: '#0f766e' },
+  { event_type: 'detect_logistics_single_person_precious_metal_recycling', name: '物流通道单人（伟达公司）', value: 0, color: '#0f766e' },
   { event_type: 'guard_absent', name: '保安离岗', value: 0, color: '#dc2626' },
   { event_type: 'guard_phone_use', name: '保安玩手机', value: 0, color: '#ea580c' },
   { event_type: 'guard_prone_sleep', name: '保安趴睡', value: 0, color: '#ca8a04' },

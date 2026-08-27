@@ -133,7 +133,7 @@ const moduleEntries = [
   },
   {
     id: 'logistics-single-person-precious-metal-recycling-detection',
-    title: '物流通道单人检测入口（贵金属回收）',
+    title: '物流通道单人检测入口（伟达公司）',
   },
   {
     id: 'phone-detection',
@@ -175,7 +175,7 @@ const departmentOptions: Array<{ value: Exclude<Department, 'all'>; label: strin
   { value: 'research_institute', label: '福达新材院' },
   { value: 'electronics_electrician', label: '电子电工事业部' },
   { value: 'electrical_components', label: '电气部件事业部' },
-  { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
+  { value: 'precious_metal_recycling', label: '伟达公司' },
   { value: 'haoda_company', label: '皓达公司' },
 ]
 
@@ -241,7 +241,7 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_logistics_single_person: '物流单人',
   detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
   detect_logistics_single_person_electrical_components: '物流单人（电气部件）',
-  detect_logistics_single_person_precious_metal_recycling: '物流单人（贵金属回收）',
+  detect_logistics_single_person_precious_metal_recycling: '物流单人（伟达公司）',
   detect_phone: '手机使用',
 }
 
@@ -295,7 +295,7 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'general_electric') return '通用电气视图'
   if (department === 'electronics_electrician') return '电子电工视图'
   if (department === 'electrical_components') return '电气部件视图'
-  if (department === 'precious_metal_recycling') return '贵金属回收视图'
+  if (department === 'precious_metal_recycling') return '伟达公司视图'
   if (department === 'haoda_company') return '皓达公司视图'
   if (department === 'research_institute') return '福达新材院视图'
   if (department === 'all') return '全局视图'

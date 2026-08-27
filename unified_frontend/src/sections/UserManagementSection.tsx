@@ -60,7 +60,7 @@ const departments: Array<{ value: Exclude<AdminUserDepartment, 'all'>; label: st
   { value: 'research_institute', label: '福达新材院' },
   { value: 'electronics_electrician', label: '电子电工事业部' },
   { value: 'electrical_components', label: '电气部件事业部' },
-  { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
+  { value: 'precious_metal_recycling', label: '伟达公司' },
   { value: 'haoda_company', label: '皓达公司' },
 ]
 
@@ -70,7 +70,7 @@ const departmentLabels: Record<AdminUserDepartment, string> = {
   research_institute: '福达新材院',
   electronics_electrician: '电子电工事业部',
   electrical_components: '电气部件事业部',
-  precious_metal_recycling: '贵金属回收事业部',
+  precious_metal_recycling: '伟达公司',
   haoda_company: '皓达公司',
 }
 

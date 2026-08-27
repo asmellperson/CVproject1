@@ -168,7 +168,7 @@ const DEPARTMENT_LABELS: Record<SecurityVlmDepartment, string> = {
   general_electric: '通用电气事业部',
   electronics_electrician: '电子电工事业部',
   electrical_components: '电气部件事业部',
-  precious_metal_recycling: '贵金属回收事业部',
+  precious_metal_recycling: '伟达公司',
 }
 
 export function SecurityVlmSection({
