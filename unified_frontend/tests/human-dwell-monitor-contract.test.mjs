@@ -12,6 +12,7 @@ const view = await read('src/components/human_dwell/HumanDwellMonitorView.tsx').
 const monitor = await read('src/components/AiVisionMonitor.tsx')
 const page = await read('src/sections/HumanDetectionSection.tsx')
 const haodaPage = await read('src/sections/HaodaHumanDetectionSection.tsx')
+const cameraManager = await read('src/components/FeatureCameraManager.tsx')
 const nav = await read('src/lib/nav.ts')
 const sidebar = await read('src/components/Sidebar.tsx')
 const app = await read('src/App.tsx')
@@ -77,13 +78,16 @@ test('preserves frame lifecycle and configuration behavior', () => {
   ]) assert.match(page, new RegExp(binding))
 })
 
-test('adds a Haoda-scoped dwell page without copying the existing camera scope', () => {
+test('offers the global camera pool without copying cameras into the Haoda feature', () => {
   assert.match(haodaPage, /feature="detect_human_haoda"/)
   assert.match(haodaPage, /department="haoda_company"/)
-  assert.match(haodaPage, /cameraDepartment="haoda_company"/)
+  assert.doesNotMatch(haodaPage, /cameraDepartment=/)
   assert.match(haodaPage, /departmentLabel="皓达公司"/)
   assert.match(page, /getAiVisionCameras\(cameraDepartment\)/)
   assert.match(page, /isAiVisionFeatureEnabled\(camera, feature\)/)
+  assert.match(cameraManager, /从平台全局摄像头池选择/)
+  assert.match(cameraManager, /加入当前功能不会修改摄像头的所属事业部或公司/)
+  assert.match(cameraManager, /createAiVisionFeatureCamera\(feature, \{[\s\S]*?department,[\s\S]*?enabled: true/)
   assert.match(nav, /id: 'haoda-human-detection'/)
   assert.match(sidebar, /pages: departmentPermissions\.haoda_company\.pages/)
   assert.match(app, /case 'haoda-human-detection'/)

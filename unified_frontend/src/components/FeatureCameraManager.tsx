@@ -194,7 +194,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从已有摄像头加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">选择平台汇总里维护的摄像头，并加入当前检测功能。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">从平台全局摄像头池选择；加入当前功能不会修改摄像头的所属事业部或公司。</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Select
@@ -227,7 +227,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">新建摄像头并加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">直接新建摄像头，并在保存后启用当前检测功能。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">新摄像头归属当前页面对应的事业部或公司，并在保存后启用当前检测功能。</div>
           </div>
           <Button
             className="gap-2"
