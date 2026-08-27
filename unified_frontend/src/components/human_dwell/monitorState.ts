@@ -67,10 +67,11 @@ export function filterTodayHumanDwellAlarms(
   alarms: AlarmEvent[],
   cameraKey: string,
   cameraName: string,
+  feature = 'detect_human',
   now = new Date(),
 ) {
   return alarms.filter((alarm) =>
-    alarm.event_type === 'detect_human'
+    alarm.event_type === feature
     && (alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName))
     && isSameLocalDay(alarm.created_at, now),
   )

@@ -123,3 +123,26 @@ if (alarmEventTypesByPage['logistics-single-person-electrical-components-detecti
 if (alarmEventTypesByPage['logistics-single-person-precious-metal-recycling-detection']?.join(',') !== 'detect_logistics_single_person_precious_metal_recycling') {
   throw new Error('expected precious metal recycling logistics page to map to its alarm event type')
 }
+
+const haodaUser = {
+  employee_id: 'u4',
+  name: '皓达公司用户',
+  role: 'viewer',
+  department: 'haoda_company',
+}
+
+if (getUserDepartment(haodaUser) !== 'haoda_company') {
+  throw new Error('expected haoda_company department to normalize')
+}
+
+if (!hasPageAccess(haodaUser, 'haoda-human-detection')) {
+  throw new Error('expected Haoda users to access their human dwell page')
+}
+
+if (hasPageAccess(haodaUser, 'human-detection')) {
+  throw new Error('expected Haoda users to be isolated from the general electric human dwell page')
+}
+
+if (alarmEventTypesByPage['haoda-human-detection']?.join(',') !== 'detect_human_haoda') {
+  throw new Error('expected Haoda human dwell page to map to its independent alarm event type')
+}

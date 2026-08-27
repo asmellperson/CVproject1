@@ -25,7 +25,6 @@ test('each ordinary AiVision page supplies its business department to camera cre
     ['src/sections/IntrusionDetectionSection.tsx', 'research_institute'],
     ['src/sections/DoorDetectionSection.tsx', 'general_electric'],
     ['src/sections/FaceDetectionSection.tsx', 'research_institute'],
-    ['src/sections/HumanDetectionSection.tsx', 'general_electric'],
     ['src/sections/PhoneDetectionSection.tsx', 'research_institute'],
   ])
 
@@ -34,6 +33,15 @@ test('each ordinary AiVision page supplies its business department to camera cre
     assert.match(source, /<FeatureCameraManager/)
     assert.match(source, new RegExp(`department="${department}"`))
   }
+
+  const [human, haodaHuman] = await Promise.all([
+    readFrontendSource('src/sections/HumanDetectionSection.tsx'),
+    readFrontendSource('src/sections/HaodaHumanDetectionSection.tsx'),
+  ])
+  assert.match(human, /<FeatureCameraManager/)
+  assert.match(human, /department = 'general_electric'/)
+  assert.match(human, /department=\{department\}/)
+  assert.match(haodaHuman, /department="haoda_company"/)
 })
 
 test('guard and security configuration pages keep their camera creation entrypoints', async () => {

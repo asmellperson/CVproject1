@@ -135,6 +135,7 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "detect_phone": {"name": "手机检测", "color": "#f97316"},
     "detect_face": {"name": "人脸检测", "color": "#8b5cf6"},
     "detect_human": {"name": "人体逗留", "color": "#2563eb"},
+    "detect_human_haoda": {"name": "人体逗留（皓达公司）", "color": "#1d4ed8"},
     "detect_logistics_single_person": {"name": "物流通道单人检测", "color": "#0f766e"},
     "detect_logistics_single_person_electronics_electrician": {
         "name": "物流通道单人检测（电子电工）",
@@ -194,6 +195,9 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "security_vlm_error",
         "detect_logistics_single_person_precious_metal_recycling",
     },
+    "haoda_company": {
+        "detect_human_haoda",
+    },
 }
 
 SECURITY_VLM_DEPARTMENTS = (
@@ -215,6 +219,11 @@ DEPARTMENT_ALIASES = {
     "electrical components": "electrical_components",
     "precious-metal-recycling": "precious_metal_recycling",
     "precious metal recycling": "precious_metal_recycling",
+    "haoda": "haoda_company",
+    "haoda-company": "haoda_company",
+    "haoda company": "haoda_company",
+    "皓达": "haoda_company",
+    "皓达公司": "haoda_company",
 }
 
 
@@ -890,7 +899,7 @@ def _camera_feature_enabled(camera: dict, feature: str) -> bool:
 
 def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
     running_camera_names = {str(item) for item in running_cameras}
-    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_phone")
+    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_human_haoda", "detect_phone")
     status: dict[str, dict[str, int]] = {}
     for feature in feature_names:
         configured_cameras = [

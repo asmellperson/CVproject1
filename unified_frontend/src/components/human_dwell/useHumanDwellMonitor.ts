@@ -13,10 +13,12 @@ const ALARM_POLL_MS = 5000
 
 export function useHumanDwellMonitor({
   enabled,
+  feature,
   selectedCamera,
   selectedCameraName,
 }: {
   enabled: boolean
+  feature: string
   selectedCamera: string
   selectedCameraName: string
 }) {
@@ -29,7 +31,7 @@ export function useHumanDwellMonitor({
     setStatusState(null)
     setEventState(null)
     previousRef.current = null
-  }, [enabled, selectedCamera])
+  }, [enabled, feature, selectedCamera])
 
   useEffect(() => {
     if (!enabled || !selectedCamera) return
@@ -38,7 +40,7 @@ export function useHumanDwellMonitor({
 
     const loadStatus = async () => {
       try {
-        const nextStatus = await getAiVisionHumanDwellStatus(selectedCamera)
+        const nextStatus = await getAiVisionHumanDwellStatus(selectedCamera, feature)
         if (!mounted) return
         setStatusState({ cameraKey: selectedCamera, value: nextStatus })
 
@@ -69,7 +71,7 @@ export function useHumanDwellMonitor({
       mounted = false
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [enabled, selectedCamera])
+  }, [enabled, feature, selectedCamera])
 
   useEffect(() => {
     if (!enabled || !selectedCamera) return
@@ -78,7 +80,7 @@ export function useHumanDwellMonitor({
 
     const loadAlarms = async () => {
       try {
-        const nextAlarms = await getAlarms(1000, ['detect_human'])
+        const nextAlarms = await getAlarms(1000, [feature])
         if (mounted) setAlarms(nextAlarms)
       } catch {
         // Keep the last successful alarm list when polling fails.
@@ -92,11 +94,11 @@ export function useHumanDwellMonitor({
       mounted = false
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [enabled, selectedCamera])
+  }, [enabled, feature, selectedCamera])
 
   const todayAlarms = useMemo(
-    () => filterTodayHumanDwellAlarms(alarms, selectedCamera, selectedCameraName),
-    [alarms, selectedCamera, selectedCameraName],
+    () => filterTodayHumanDwellAlarms(alarms, selectedCamera, selectedCameraName, feature),
+    [alarms, feature, selectedCamera, selectedCameraName],
   )
 
   return {

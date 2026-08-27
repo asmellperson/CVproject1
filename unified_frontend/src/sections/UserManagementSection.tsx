@@ -61,6 +61,7 @@ const departments: Array<{ value: Exclude<AdminUserDepartment, 'all'>; label: st
   { value: 'electronics_electrician', label: '电子电工事业部' },
   { value: 'electrical_components', label: '电气部件事业部' },
   { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
+  { value: 'haoda_company', label: '皓达公司' },
 ]
 
 const departmentLabels: Record<AdminUserDepartment, string> = {
@@ -70,6 +71,7 @@ const departmentLabels: Record<AdminUserDepartment, string> = {
   electronics_electrician: '电子电工事业部',
   electrical_components: '电气部件事业部',
   precious_metal_recycling: '贵金属回收事业部',
+  haoda_company: '皓达公司',
 }
 
 type EditorForm = {

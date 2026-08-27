@@ -27,6 +27,7 @@ _EVENT_DISPLAY = {
     "detect_phone":  "手机违规",
     "detect_door":   "大门状态",
     "detect_human":  "人员逗留",
+    "detect_human_haoda": "人体逗留（皓达公司）",
     "detect_logistics_single_person": "物流通道单人异常",
     "detect_logistics_single_person_electronics_electrician": "物流通道单人异常（电子电工）",
     "detect_logistics_single_person_electrical_components": "物流通道单人异常（电气部件）",

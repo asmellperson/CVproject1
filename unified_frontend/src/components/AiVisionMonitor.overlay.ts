@@ -88,7 +88,7 @@ export function buildAiVisionMonitorOverlay({
     || feature === 'detect_logistics_single_person_electrical_components'
     || feature === 'detect_logistics_single_person_precious_metal_recycling'
     ? []
-    : feature === 'detect_human' && roiPolygons.length === 0 && Array.isArray(region) && region.length >= 4
+    : (feature === 'detect_human' || feature === 'detect_human_haoda') && roiPolygons.length === 0 && Array.isArray(region) && region.length >= 4
       ? normalizePolygons(region)
       : roiPolygons
 

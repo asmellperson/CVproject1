@@ -116,6 +116,10 @@ const moduleEntries = [
     title: '人员逗留检测入口',
   },
   {
+    id: 'haoda-human-detection',
+    title: '人体逗留检测入口（皓达公司）',
+  },
+  {
     id: 'logistics-single-person-detection',
     title: '物流通道单人检测入口',
   },
@@ -172,6 +176,7 @@ const departmentOptions: Array<{ value: Exclude<Department, 'all'>; label: strin
   { value: 'electronics_electrician', label: '电子电工事业部' },
   { value: 'electrical_components', label: '电气部件事业部' },
   { value: 'precious_metal_recycling', label: '贵金属回收事业部' },
+  { value: 'haoda_company', label: '皓达公司' },
 ]
 
 const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
@@ -217,6 +222,7 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
+  'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human_haoda' },
   'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
   'logistics-single-person-electronics-electrician-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electronics_electrician' },
   'logistics-single-person-electrical-components-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electrical_components' },
@@ -231,6 +237,7 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_door: '大门开关',
   detect_face: '人脸检测',
   detect_human: '人员逗留',
+  detect_human_haoda: '人体逗留（皓达公司）',
   detect_logistics_single_person: '物流单人',
   detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
   detect_logistics_single_person_electrical_components: '物流单人（电气部件）',
@@ -289,6 +296,7 @@ function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
   if (department === 'electronics_electrician') return '电子电工视图'
   if (department === 'electrical_components') return '电气部件视图'
   if (department === 'precious_metal_recycling') return '贵金属回收视图'
+  if (department === 'haoda_company') return '皓达公司视图'
   if (department === 'research_institute') return '福达新材院视图'
   if (department === 'all') return '全局视图'
   return '权限视图'

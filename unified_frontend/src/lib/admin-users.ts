@@ -7,6 +7,7 @@ export type AdminUserDepartment =
   | 'electronics_electrician'
   | 'electrical_components'
   | 'precious_metal_recycling'
+  | 'haoda_company'
 
 export type AdminUser = {
   employee_id: string

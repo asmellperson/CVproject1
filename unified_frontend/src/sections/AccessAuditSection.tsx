@@ -21,6 +21,7 @@ const departmentLabels: Record<string, string> = {
   electronics_electrician: '电子电工事业部',
   electrical_components: '电气部件事业部',
   precious_metal_recycling: '贵金属回收事业部',
+  haoda_company: '皓达公司',
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {

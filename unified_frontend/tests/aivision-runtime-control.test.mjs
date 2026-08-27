@@ -10,7 +10,6 @@ test('ordinary AiVision pages share the same runtime control', async () => {
     ['IntrusionDetectionSection.tsx', 'blocks'],
     ['DoorDetectionSection.tsx', 'detect_door'],
     ['FaceDetectionSection.tsx', 'detect_face'],
-    ['HumanDetectionSection.tsx', 'detect_human'],
     ['PhoneDetectionSection.tsx', 'detect_phone'],
   ])
 
@@ -19,6 +18,13 @@ test('ordinary AiVision pages share the same runtime control', async () => {
     assert.match(source, /AiVisionFeatureRuntimeControl/)
     assert.match(source, new RegExp(`feature="${feature}" isAdmin=\\{isAdmin\\}`))
   }
+
+  const [humanPage, haodaPage] = await Promise.all([
+    read('src/sections/HumanDetectionSection.tsx'),
+    read('src/sections/HaodaHumanDetectionSection.tsx'),
+  ])
+  assert.match(humanPage, /AiVisionFeatureRuntimeControl feature=\{feature\} isAdmin=\{isAdmin\}/)
+  assert.match(haodaPage, /feature="detect_human_haoda"/)
 })
 
 test('runtime control polls status and exposes separate admin start and stop actions', async () => {

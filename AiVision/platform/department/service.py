@@ -136,6 +136,7 @@ class DepartmentService:
             {"name": "electronics_electrician", "display_name": "电子电工"},
             {"name": "electrical_components", "display_name": "电气部件事业部"},
             {"name": "precious_metal_recycling", "display_name": "贵金属回收事业部"},
+            {"name": "haoda_company", "display_name": "皓达公司"},
         ]
         for seed in seed_departments:
             department = self.get_department(session, seed["name"])

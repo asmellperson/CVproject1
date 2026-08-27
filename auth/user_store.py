@@ -17,6 +17,7 @@ ALLOWED_VIEWER_DEPARTMENTS = {
     "electronics_electrician",
     "electrical_components",
     "precious_metal_recycling",
+    "haoda_company",
 }
 DEPARTMENT_ALIASES = {
     "ge": "general_electric",
@@ -28,6 +29,8 @@ DEPARTMENT_ALIASES = {
     "电子电工": "electronics_electrician",
     "电气部件": "electrical_components",
     "贵金属回收": "precious_metal_recycling",
+    "皓达公司": "haoda_company",
+    "皓达": "haoda_company",
 }
 
 

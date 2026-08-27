@@ -118,6 +118,20 @@ def test_create_update_reset_and_delete_user(tmp_path):
         store.get_user_record("20001")
 
 
+def test_accepts_haoda_company_viewer_department(tmp_path):
+    store, _legacy_path = _store(tmp_path)
+
+    created = store.create_user(
+        employee_id="20002",
+        name="皓达公司用户",
+        role="viewer",
+        department="皓达公司",
+        password_hash="hash-haoda",
+    )
+
+    assert created["department"] == "haoda_company"
+
+
 def test_rejects_invalid_or_duplicate_users(tmp_path):
     store, _legacy_path = _store(tmp_path)
 

@@ -72,6 +72,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   })
   const humanDwellMonitor = useHumanDwellMonitor({
     enabled: presentation === 'human-dwell',
+    feature,
     selectedCamera,
     selectedCameraName: selectedCameraInfo?.name || '',
   })

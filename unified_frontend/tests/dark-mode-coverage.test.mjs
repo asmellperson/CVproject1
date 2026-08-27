@@ -60,7 +60,6 @@ test('detection page titles remain readable on dark surfaces', async () => {
   const header = await read('src/components/detection/DetectionPageHeader.tsx')
   assert.match(header, /<h1[^>]*dark:text-slate-100/)
   for (const [file, title] of [
-    ['HumanDetectionSection.tsx', '人员逗留检测'],
     ['IntrusionDetectionSection.tsx', '区域入侵检测'],
     ['FaceDetectionSection.tsx', '人脸检测'],
     ['PhoneDetectionSection.tsx', '手机识别检测'],
@@ -70,6 +69,9 @@ test('detection page titles remain readable on dark surfaces', async () => {
     assert.match(source, /DetectionPageHeader/)
     assert.match(source, new RegExp(`title="${title}"`))
   }
+
+  const human = await read('src/sections/HumanDetectionSection.tsx')
+  assert.match(human, /title = '人员逗留检测'/)
 })
 
 test('guard detection rules heading keeps contrast in dark mode', async () => {

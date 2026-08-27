@@ -41,6 +41,7 @@ type TrendRow = {
   detect_door?: number
   detect_phone?: number
   detect_human?: number
+  detect_human_haoda?: number
   detect_face?: number
   detect_logistics_single_person?: number
   detect_logistics_single_person_electronics_electrician?: number
@@ -84,6 +85,7 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'detect_face', name: '人脸检测', value: 0, color: '#8b5cf6' },
   { event_type: 'detect_phone', name: '手机检测', value: 0, color: '#f97316' },
   { event_type: 'detect_human', name: '人体逗留', value: 0, color: '#2563eb' },
+  { event_type: 'detect_human_haoda', name: '人体逗留（皓达公司）', value: 0, color: '#1d4ed8' },
   { event_type: 'detect_logistics_single_person', name: '物流通道单人', value: 0, color: '#0f766e' },
   { event_type: 'detect_logistics_single_person_electronics_electrician', name: '物流通道单人（电子电工）', value: 0, color: '#0f766e' },
   { event_type: 'detect_logistics_single_person_electrical_components', name: '物流通道单人（电气部件）', value: 0, color: '#0f766e' },
@@ -119,6 +121,7 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     detect_face: toNumber(row?.detect_face),
     detect_phone: toNumber(row?.detect_phone),
     detect_human: toNumber(row?.detect_human),
+    detect_human_haoda: toNumber(row?.detect_human_haoda),
     detect_logistics_single_person: toNumber(row?.detect_logistics_single_person),
     detect_logistics_single_person_electronics_electrician: toNumber(row?.detect_logistics_single_person_electronics_electrician),
     detect_logistics_single_person_electrical_components: toNumber(row?.detect_logistics_single_person_electrical_components),

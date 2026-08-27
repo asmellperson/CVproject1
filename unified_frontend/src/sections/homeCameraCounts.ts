@@ -22,6 +22,7 @@ const AI_VISION_FEATURES = [
   'detect_door',
   'detect_face',
   'detect_human',
+  'detect_human_haoda',
   'detect_logistics_single_person',
   'detect_logistics_single_person_electronics_electrician',
   'detect_logistics_single_person_electrical_components',

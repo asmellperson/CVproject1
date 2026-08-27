@@ -3,8 +3,8 @@ from sqlalchemy import Column, Integer, Float, JSON
 from features._base.orm import FeatureConfigBase
 
 
-class HumanConfigORM(FeatureConfigBase):
-    __tablename__ = "ai_camera_config_detect_human"
+class HumanConfigFieldsMixin:
+    """人体逗留配置字段，供各公司独立配置表复用。"""
 
     CONF_THRESHOLD = Column(Float, default=0.3)
     IOU_THR = Column(Float, default=0.3)
@@ -18,3 +18,7 @@ class HumanConfigORM(FeatureConfigBase):
     AREA_RATIO_THR = Column(Float, default=0.55)
     MATCH_SCORE_THR = Column(Float, default=0.35)
     TRACK_SMOOTH_ALPHA = Column(Float, default=0.7)
+
+
+class HumanConfigORM(HumanConfigFieldsMixin, FeatureConfigBase):
+    __tablename__ = "ai_camera_config_detect_human"

@@ -98,7 +98,7 @@ export type AiVisionLogisticsSinglePersonStatus = {
 
 export type AiVisionHumanDwellStatus = {
   camera_key: string
-  feature: 'detect_human'
+  feature: string
   online: boolean
   count: number | null
   alarm: boolean
@@ -161,9 +161,9 @@ export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string, 
   return (await response.json()) as AiVisionLogisticsSinglePersonStatus
 }
 
-export async function getAiVisionHumanDwellStatus(cameraKey: string) {
+export async function getAiVisionHumanDwellStatus(cameraKey: string, feature = 'detect_human') {
   const response = await fetch(
-    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/detect_human/status`,
+    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/${encodeURIComponent(feature)}/status`,
     { credentials: 'include' },
   )
   if (!response.ok) {

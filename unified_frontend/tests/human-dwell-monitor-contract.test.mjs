@@ -11,27 +11,31 @@ const hook = await read('src/components/human_dwell/useHumanDwellMonitor.ts').ca
 const view = await read('src/components/human_dwell/HumanDwellMonitorView.tsx').catch(() => '')
 const monitor = await read('src/components/AiVisionMonitor.tsx')
 const page = await read('src/sections/HumanDetectionSection.tsx')
+const haodaPage = await read('src/sections/HaodaHumanDetectionSection.tsx')
+const nav = await read('src/lib/nav.ts')
+const sidebar = await read('src/components/Sidebar.tsx')
+const app = await read('src/App.tsx')
 
 test('provides typed dwell status through the existing feature-status route', () => {
   assert.match(api, /export type AiVisionHumanDwellStatus/)
   assert.match(api, /duration_seconds: number \| null/)
   assert.match(api, /threshold_seconds: number \| null/)
   assert.match(api, /getAiVisionHumanDwellStatus/)
-  assert.match(api, /features\/detect_human\/status/)
+  assert.match(api, /features\/\$\{encodeURIComponent\(feature\)\}\/status/)
 })
 
 test('derives timeout and non-alarm leave events without persistence', () => {
   assert.match(state, /人员在区域内逗留 \$\{duration\} 秒，触发告警/)
   assert.match(state, /区域人数 \$\{count\}，停留 \$\{duration\} 秒后离开，未告警/)
   assert.match(state, /filterTodayHumanDwellAlarms/)
-  assert.match(state, /event_type === 'detect_human'/)
+  assert.match(state, /alarm\.event_type === feature/)
   assert.match(state, /previous && !previous\.alarm/)
   assert.doesNotMatch(state, /fetch\(|localStorage|sessionStorage/)
 })
 
 test('polls status and existing alarms serially', () => {
   assert.match(hook, /getAiVisionHumanDwellStatus/)
-  assert.match(hook, /getAlarms\(1000, \['detect_human'\]\)/)
+  assert.match(hook, /getAlarms\(1000, \[feature\]\)/)
   assert.match(hook, /window\.setTimeout\(loadStatus, STATUS_POLL_MS\)/)
   assert.match(hook, /window\.setTimeout\(loadAlarms, ALARM_POLL_MS\)/)
   assert.match(hook, /setEventState\(null\)/)
@@ -64,11 +68,23 @@ test('preserves frame lifecycle and configuration behavior', () => {
   assert.match(monitor, /URL\.revokeObjectURL/)
   assert.match(monitor, /image\.naturalWidth/)
   assert.match(page, /DetectionPageHeader/)
-  assert.match(page, /title="人员逗留检测"/)
+  assert.match(page, /title = '人员逗留检测'/)
   assert.match(page, /区域逗留超时监控面板/)
   assert.match(page, /presentation="human-dwell"/)
   for (const binding of [
-    'requestHumanConfig', 'loadConfig', 'loadCameras', 'saveConfig',
+    'getAiVisionFeatureConfig', 'saveAiVisionFeatureConfig', 'loadConfig', 'loadCameras', 'saveConfig',
     'addCameraToFeature', 'removeCameraFromFeature', 'FeatureCameraManager', 'AiVisionRoiEditor',
   ]) assert.match(page, new RegExp(binding))
+})
+
+test('adds a Haoda-scoped dwell page without copying the existing camera scope', () => {
+  assert.match(haodaPage, /feature="detect_human_haoda"/)
+  assert.match(haodaPage, /department="haoda_company"/)
+  assert.match(haodaPage, /cameraDepartment="haoda_company"/)
+  assert.match(haodaPage, /departmentLabel="皓达公司"/)
+  assert.match(page, /getAiVisionCameras\(cameraDepartment\)/)
+  assert.match(page, /isAiVisionFeatureEnabled\(camera, feature\)/)
+  assert.match(nav, /id: 'haoda-human-detection'/)
+  assert.match(sidebar, /pages: departmentPermissions\.haoda_company\.pages/)
+  assert.match(app, /case 'haoda-human-detection'/)
 })

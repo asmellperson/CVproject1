@@ -29,6 +29,7 @@ _TYPE_META = {
     7: {"event_type": "detect_logistics_single_person_electronics_electrician", "label": "物流通道单人检测（电子电工）", "color": "#0f766e"},
     8: {"event_type": "detect_logistics_single_person_electrical_components", "label": "物流通道单人检测（电气部件）", "color": "#0f766e"},
     9: {"event_type": "detect_logistics_single_person_precious_metal_recycling", "label": "物流通道单人检测（贵金属回收）", "color": "#0f766e"},
+    10: {"event_type": "detect_human_haoda", "label": "人体逗留检测（皓达公司）", "color": "#1d4ed8"},
 }
 _DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64748b"}
 _MAX_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。

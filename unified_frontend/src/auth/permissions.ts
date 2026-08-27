@@ -1,7 +1,7 @@
 import type { AuthUser } from '@/auth/auth-context'
 import type { NavGroup, NavItem } from '@/lib/nav'
 
-export type Department = 'general_electric' | 'research_institute' | 'electronics_electrician' | 'electrical_components' | 'precious_metal_recycling' | 'all'
+export type Department = 'general_electric' | 'research_institute' | 'electronics_electrician' | 'electrical_components' | 'precious_metal_recycling' | 'haoda_company' | 'all'
 export type UserRole = 'admin' | 'viewer'
 export type PageId =
   | 'overview'
@@ -18,6 +18,7 @@ export type PageId =
   | 'door-detection'
   | 'face-detection'
   | 'human-detection'
+  | 'haoda-human-detection'
   | 'logistics-single-person-detection'
   | 'logistics-single-person-electronics-electrician-detection'
   | 'logistics-single-person-electrical-components-detection'
@@ -100,6 +101,9 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
       },
     },
   },
+  haoda_company: {
+    pages: ['overview', 'haoda-human-detection', 'alarms', 'statistics'],
+  },
 }
 
 export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
@@ -115,6 +119,7 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'door-detection': ['detect_door'],
   'face-detection': ['detect_face'],
   'human-detection': ['detect_human'],
+  'haoda-human-detection': ['detect_human_haoda'],
   'logistics-single-person-detection': ['detect_logistics_single_person'],
   'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person_electronics_electrician'],
   'logistics-single-person-electrical-components-detection': ['detect_logistics_single_person_electrical_components'],
@@ -148,6 +153,13 @@ const departmentAliases: Record<string, Department> = {
   preciousMetalRecycling: 'precious_metal_recycling',
   'precious-metal-recycling': 'precious_metal_recycling',
   pmr: 'precious_metal_recycling',
+  haoda_company: 'haoda_company',
+  'haoda company': 'haoda_company',
+  haodaCompany: 'haoda_company',
+  'haoda-company': 'haoda_company',
+  haoda: 'haoda_company',
+  '皓达': 'haoda_company',
+  '皓达公司': 'haoda_company',
 }
 
 const roleAliases: Record<string, UserRole> = {
@@ -172,6 +184,7 @@ const pageIds = new Set<string>([
   'door-detection',
   'face-detection',
   'human-detection',
+  'haoda-human-detection',
   'logistics-single-person-detection',
   'logistics-single-person-electronics-electrician-detection',
   'logistics-single-person-electrical-components-detection',

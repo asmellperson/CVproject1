@@ -15,7 +15,14 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import {
+  getAiVisionCameras,
+  getAiVisionFeatureConfig,
+  isAiVisionFeatureEnabled,
+  saveAiVisionFeatureConfig,
+  type AiVisionCamera,
+  type AiVisionFeatureConfig,
+} from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -33,8 +40,7 @@ function LazyConfigFallback({ label }: { label: string }) {
   )
 }
 
-type HumanConfig = {
-  enable: boolean
+type HumanConfig = AiVisionFeatureConfig & {
   value: {
     cap_interval?: number
     alarm_interval?: number
@@ -52,14 +58,6 @@ type HumanConfig = {
     TRACK_SMOOTH_ALPHA?: number
   }
   alarm: NormalizedFeatureAlarmConfig
-}
-
-type HumanConfigResponse = {
-  camera_id: number
-  name: string
-  shm_name: string
-  camera_enable: boolean
-  detect_human: HumanConfig
 }
 
 const defaultForm = {
@@ -129,10 +127,10 @@ function bboxFromRoiJson(roiJson: string, fallback = '[100,100,500,500]') {
   }
 }
 
-function toForm(payload: HumanConfigResponse) {
-  const value = payload.detect_human.value
+function toForm(shmName: string, config: HumanConfig) {
+  const value = config.value
   return {
-    cameraName: payload.shm_name,
+    cameraName: shmName,
     roiPos: formatJson(value.roi_pos ?? [100, 100, 500, 500]),
     region: formatJson(value.region ?? [100, 100, 500, 500]),
     confidenceThreshold: String(value.CONF_THRESHOLD ?? 0.3),
@@ -149,25 +147,21 @@ function toForm(payload: HumanConfigResponse) {
   }
 }
 
-async function requestHumanConfig(shmName: string, init?: RequestInit) {
-  const response = await fetch(`/api/ai/human-config/${encodeURIComponent(shmName)}`, { ...init, credentials: 'include' })
-  if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` ${detail}` : ''}`)
-  }
-  const payload = (await response.json()) as HumanConfigResponse | HumanConfig
-  if ('detect_human' in payload) return payload
-  return {
-    camera_id: 0,
-    name: shmName,
-    shm_name: shmName,
-    camera_enable: true,
-    detect_human: payload,
-  }
+export type HumanDetectionSectionProps = {
+  feature?: 'detect_human' | 'detect_human_haoda'
+  department?: string
+  cameraDepartment?: string
+  title?: string
+  departmentLabel?: string
 }
 
-export function HumanDetectionSection() {
+export function HumanDetectionSection({
+  feature = 'detect_human',
+  department = 'general_electric',
+  cameraDepartment,
+  title = '人员逗留检测',
+  departmentLabel = '通用电气事业部',
+}: HumanDetectionSectionProps = {}) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [humanConfig, setHumanConfig] = useState<HumanConfig>(defaultHumanConfig)
@@ -193,10 +187,11 @@ export function HumanDetectionSection() {
     setLoading(true)
     setMessage('正在读取当前配置...')
     try {
-      const payload = await requestHumanConfig(shmName)
-      setHumanConfig(payload.detect_human)
-      setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人员逗留检测配置。`)
+      const payload = await getAiVisionFeatureConfig(feature, shmName)
+      const config = payload.config as HumanConfig
+      setHumanConfig(config)
+      setForm(toForm(payload.camera.shm_name, config))
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, source)} 的人员逗留检测配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -207,9 +202,9 @@ export function HumanDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(cameraDepartment)
       setCameras(items)
-      const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))
+      const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, feature))
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
         setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
@@ -240,7 +235,7 @@ export function HumanDetectionSection() {
   }, [])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(cameraDepartment)
     setCameras(items)
     return items
   }
@@ -249,12 +244,8 @@ export function HumanDetectionSection() {
     setCameraAction(true)
     setMessage('正在添加摄像头并启用人员逗留检测...')
     try {
-      const payload = await requestHumanConfig(cameraName)
-      await requestHumanConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_human, enable: true }),
-      })
+      const payload = await getAiVisionFeatureConfig(feature, cameraName)
+      await saveAiVisionFeatureConfig(feature, cameraName, { ...payload.config, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
       setMessage(`添加成功：${cameraName} 已启用人员逗留检测。`)
@@ -269,14 +260,10 @@ export function HumanDetectionSection() {
     setCameraAction(true)
     setMessage('正在停用该摄像头的人员逗留检测...')
     try {
-      const payload = await requestHumanConfig(cameraName)
-      await requestHumanConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_human, enable: false }),
-      })
+      const payload = await getAiVisionFeatureConfig(feature, cameraName)
+      await saveAiVisionFeatureConfig(feature, cameraName, { ...payload.config, enable: false })
       const items = await refreshCameraList()
-      const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))?.shm_name || ''
+      const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, feature))?.shm_name || ''
       if (form.cameraName === cameraName && nextCamera) {
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
@@ -371,15 +358,12 @@ export function HumanDetectionSection() {
     setSaving(true)
     setMessage('正在保存配置...')
     try {
-      const payload = await requestHumanConfig(shmName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      })
-      setHumanConfig(payload.detect_human)
-      setForm(toForm(payload))
+      const payload = await saveAiVisionFeatureConfig(feature, shmName, nextConfig)
+      const config = payload.config as HumanConfig
+      setHumanConfig(config)
+      setForm(toForm(payload.camera.shm_name, config))
       const items = await refreshCameraList()
-      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的人员逗留检测配置已更新。`)
+      setMessage(`保存成功：${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, items)} 的人员逗留检测配置已更新。`)
     } catch (error) {
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -419,20 +403,20 @@ export function HumanDetectionSection() {
     setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
-  const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_human'))
+  const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
 
   return (
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
-          title="人员逗留检测"
+          title={title}
           subtitle="区域逗留超时监控面板"
-          departmentLabel="通用电气事业部"
-          runtimeControl={<AiVisionFeatureRuntimeControl feature="detect_human" isAdmin={isAdmin} />}
+          departmentLabel={departmentLabel}
+          runtimeControl={<AiVisionFeatureRuntimeControl feature={feature} isAdmin={isAdmin} />}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="人员逗留检测监控" feature="detect_human" presentation="human-dwell" />
+          <AiVisionMonitor title={`${title}监控`} feature={feature} department={cameraDepartment} presentation="human-dwell" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
@@ -448,8 +432,8 @@ export function HumanDetectionSection() {
             <TabsContent value="camera" className="space-y-6">
               <FeatureCameraManager
                 cameras={cameras}
-                feature="detect_human"
-                department="general_electric"
+                feature={feature}
+                department={department}
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {
@@ -482,7 +466,7 @@ export function HumanDetectionSection() {
 
             <TabsContent value="params" className="space-y-6">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪、区域与过滤参数。" actions={<Badge variant="outline">AiVision detect_human</Badge>} />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪、区域与过滤参数。" actions={<Badge variant="outline">AiVision {feature}</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}

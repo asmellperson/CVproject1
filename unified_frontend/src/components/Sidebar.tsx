@@ -518,7 +518,7 @@ const adminModuleGroups = [
   {
     id: 'haoda_company',
     label: '皓达公司',
-    pages: [],
+    pages: departmentPermissions.haoda_company.pages,
   },
   {
     id: 'fulida_company',

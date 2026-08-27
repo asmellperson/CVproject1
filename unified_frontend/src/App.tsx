@@ -45,6 +45,9 @@ const FaceDetectionSection = lazy(() =>
 const HumanDetectionSection = lazy(() =>
   import('@/sections/HumanDetectionSection').then((module) => ({ default: module.HumanDetectionSection })),
 )
+const HaodaHumanDetectionSection = lazy(() =>
+  import('@/sections/HaodaHumanDetectionSection').then((module) => ({ default: module.HaodaHumanDetectionSection })),
+)
 const LogisticsSinglePersonDetectionSection = lazy(() =>
   import('@/sections/LogisticsSinglePersonDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonDetectionSection })),
 )
@@ -136,6 +139,8 @@ function App() {
         return <FaceDetectionSection />
       case 'human-detection':
         return <HumanDetectionSection />
+      case 'haoda-human-detection':
+        return <HaodaHumanDetectionSection />
       case 'logistics-single-person-detection':
         return <LogisticsSinglePersonDetectionSection />
       case 'logistics-single-person-electronics-electrician-detection':
