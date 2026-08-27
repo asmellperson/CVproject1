@@ -283,6 +283,12 @@ AiVision/integrations/guard_room/config/config.example.yaml
 | `detect_logistics_single_person_electrical_components` | 电气部件物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 | `detect_logistics_single_person_precious_metal_recycling` | 伟达公司物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
 
+#### 手机使用检测全链路
+
+下图展示了手机使用检测从 React 前端、统一后端、AiVision 配置系统，到实时视觉推理、空间关联、跟踪、时间判断与告警展示的完整链路：
+
+![手机使用检测全链路流程图](./docs/diagrams/手机使用检测全链路流程图.png)
+
 ### 7.2 features-first 架构
 
 AiVision 的核心设计是 features-first：

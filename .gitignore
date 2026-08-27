@@ -191,6 +191,7 @@ nohup.out
 !unified_frontend/public/平台总览动画-蓝白版-poster.jpg
 *.jpeg
 *.png
+!/docs/diagrams/*.png
 !unified_frontend/public/mascot.png
 !unified_frontend/public/assets/overview/overview-mascot-poster.png
 !unified_frontend/public/assets/overview/overview-mascot-final.png
