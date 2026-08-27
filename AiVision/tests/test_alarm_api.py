@@ -75,6 +75,7 @@ def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():
     assert item.subject_type == "camera"
     assert item.subject_id == "camera_7"
     assert item.subject_name == "七号摄像头"
+    assert item.event_label == "人员违规逗留检测"
     assert item.camera_no == "camera_7"
     assert item.camera_name == "七号摄像头"
     assert item.channel_id is None

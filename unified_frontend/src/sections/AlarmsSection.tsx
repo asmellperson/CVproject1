@@ -183,8 +183,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         { eventType: 'detect_door', label: '大门开关', icon: <DoorOpen className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
         { eventType: 'detect_face', label: '人脸检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
         { eventType: 'detect_phone', label: '手机检测', icon: <Smartphone className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
-        { eventType: 'detect_human', label: '人体逗留', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
-        { eventType: 'detect_human_haoda', label: '人体逗留（皓达公司）', icon: <UserRound className="w-6 h-6 text-blue-700" />, valueClassName: 'text-blue-700' },
+        { eventType: 'detect_human', label: '人员违规逗留检测', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
+        { eventType: 'detect_human_haoda', label: '人员违规逗留检测（皓达公司）', icon: <UserRound className="w-6 h-6 text-blue-700" />, valueClassName: 'text-blue-700' },
         { eventType: 'detect_logistics_single_person', label: '物流通道单人', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
         { eventType: 'detect_logistics_single_person_electronics_electrician', label: '物流通道单人（电子电工）', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
         { eventType: 'detect_logistics_single_person_electrical_components', label: '物流通道单人（电气部件）', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
@@ -209,9 +209,9 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
       case 'detect_face':
         return <Badge className="bg-violet-600">人脸检测</Badge>
       case 'detect_human':
-        return <Badge className="bg-blue-600">人体逗留</Badge>
+        return <Badge className="bg-blue-600">人员违规逗留检测</Badge>
       case 'detect_human_haoda':
-        return <Badge className="bg-blue-700">人体逗留（皓达公司）</Badge>
+        return <Badge className="bg-blue-700">人员违规逗留检测（皓达公司）</Badge>
       case 'detect_logistics_single_person':
         return <Badge className="bg-teal-700">物流通道单人</Badge>
       case 'detect_logistics_single_person_electronics_electrician':

@@ -4,7 +4,7 @@ from features._base.orm import FeatureConfigBase
 
 
 class HumanConfigFieldsMixin:
-    """人体逗留配置字段，供各公司独立配置表复用。"""
+    """人员违规逗留检测配置字段，供各公司独立配置表复用。"""
 
     CONF_THRESHOLD = Column(Float, default=0.3)
     IOU_THR = Column(Float, default=0.3)

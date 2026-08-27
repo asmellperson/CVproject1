@@ -159,7 +159,7 @@ export function HumanDetectionSection({
   feature = 'detect_human',
   department = 'general_electric',
   cameraDepartment,
-  title = '人员逗留检测',
+  title = '人员违规逗留检测',
   departmentLabel = '通用电气事业部',
 }: HumanDetectionSectionProps = {}) {
   const { isAdmin } = useAuth()
@@ -193,7 +193,7 @@ export function HumanDetectionSection({
       selectedCameraRef.current = payload.camera.shm_name
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, source)} 的人员逗留检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, source)} 的人员违规逗留检测配置。`)
     } catch (error) {
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -219,7 +219,7 @@ export function HumanDetectionSection({
       if (!nextCamera) {
         selectedCameraRef.current = ''
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前人员逗留检测未添加摄像头，请先添加摄像头。')
+        setMessage('当前人员违规逗留检测未添加摄像头，请先添加摄像头。')
         return
       }
       selectedCameraRef.current = nextCamera
@@ -251,13 +251,13 @@ export function HumanDetectionSection({
   const addCameraToFeature = async (cameraName: string) => {
     selectedCameraRef.current = cameraName.trim()
     setCameraAction(true)
-    setMessage('正在添加摄像头并启用人员逗留检测...')
+    setMessage('正在添加摄像头并启用人员违规逗留检测...')
     try {
       const payload = await getAiVisionFeatureConfig(feature, cameraName)
       await saveAiVisionFeatureConfig(feature, cameraName, { ...payload.config, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用人员逗留检测。`)
+      setMessage(`添加成功：${cameraName} 已启用人员违规逗留检测。`)
     } catch (error) {
       setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -267,7 +267,7 @@ export function HumanDetectionSection({
 
   const removeCameraFromFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在停用该摄像头的人员逗留检测...')
+    setMessage('正在停用该摄像头的人员违规逗留检测...')
     try {
       const payload = await getAiVisionFeatureConfig(feature, cameraName)
       await saveAiVisionFeatureConfig(feature, cameraName, { ...payload.config, enable: false })
@@ -281,7 +281,7 @@ export function HumanDetectionSection({
         setHumanConfig(defaultHumanConfig)
         setForm({ ...defaultForm, cameraName: '' })
       }
-      setMessage(`停用成功：${cameraName} 已关闭人员逗留检测。`)
+      setMessage(`停用成功：${cameraName} 已关闭人员违规逗留检测。`)
     } catch (error) {
       setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -375,7 +375,7 @@ export function HumanDetectionSection({
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
       const items = await refreshCameraList()
-      setMessage(`保存成功：${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, items)} 的人员逗留检测配置已更新。`)
+      setMessage(`保存成功：${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, items)} 的人员违规逗留检测配置已更新。`)
     } catch (error) {
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -466,7 +466,7 @@ export function HumanDetectionSection({
             <TabsContent value="roi" className="space-y-6">
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
-                  title="人体逗留 ROI 绘制"
+                  title="人员违规逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}

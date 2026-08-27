@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
-from core.alarm.wechat import WeChatNotifier
+from core.alarm.wechat import WeChatNotifier, _EVENT_DISPLAY
 
 
 class FakeResponse:
@@ -12,6 +12,11 @@ class FakeResponse:
 
     def json(self):
         return self._payload
+
+
+def test_wechat_human_alarm_uses_personnel_violation_dwell_name():
+    assert _EVENT_DISPLAY["detect_human"] == "人员违规逗留检测"
+    assert _EVENT_DISPLAY["detect_human_haoda"] == "人员违规逗留检测（皓达公司）"
 
 
 def test_wechat_alarm_uses_single_news_card(monkeypatch):

@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from unified_backend.app import (  # noqa: E402
+    ALARM_TYPE_META,
     DEPARTMENT_EVENT_TYPES,
     _build_alarm_statistics,
     _normalize_aivision_alarm,
@@ -97,6 +98,11 @@ def test_legacy_camera_alarm_contract_remains_compatible():
     assert normalized["video_url"] is None
     assert normalized["metadata"] == {}
     assert normalized["channel_id"] is None
+
+
+def test_human_dwell_alarm_names_are_consistent_across_departments():
+    assert ALARM_TYPE_META["detect_human"]["name"] == "人员违规逗留检测"
+    assert ALARM_TYPE_META["detect_human_haoda"]["name"] == "人员违规逗留检测（皓达公司）"
 
 
 @pytest.mark.parametrize("metadata", [None, "broken", [], 17])

@@ -178,7 +178,7 @@ export function HumanDwellMonitorView({
         <Card className={cn(CARD_CLASS, 'overflow-hidden lg:col-span-2')}>
           <CardHeader className="border-b border-slate-100 p-4 dark:border-slate-800 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white dark:bg-blue-700"><Video className="h-5 w-5" /></span><div className="min-w-0"><CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">人员逗留检测监控</CardTitle><p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p></div></div>
+              <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132C72] text-white dark:bg-blue-700"><Video className="h-5 w-5" /></span><div className="min-w-0"><CardTitle className="truncate text-base font-bold text-slate-950 dark:text-slate-100">人员违规逗留检测监控</CardTitle><p className="mt-0.5 truncate text-xs text-slate-400">{cameraKey || 'cam'} · {cameraName}</p></div></div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className={cn('rounded-full border-0 px-2.5 py-1 shadow-none', alarm ? 'bg-rose-50 text-rose-600' : count !== null && count > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500')}>区域 {countText} 人</Badge>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-500">FPS {fps?.toFixed(1) ?? '--'}</span>

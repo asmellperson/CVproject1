@@ -113,11 +113,11 @@ const moduleEntries = [
   },
   {
     id: 'human-detection',
-    title: '人员逗留检测入口',
+    title: '人员违规逗留检测入口',
   },
   {
     id: 'haoda-human-detection',
-    title: '人体逗留检测入口（皓达公司）',
+    title: '人员违规逗留检测入口（皓达公司）',
   },
   {
     id: 'logistics-single-person-detection',
@@ -236,8 +236,8 @@ const aiVisionFeatureLabels: Record<string, string> = {
   blocks: '区域入侵',
   detect_door: '大门开关',
   detect_face: '人脸检测',
-  detect_human: '人员逗留',
-  detect_human_haoda: '人体逗留（皓达公司）',
+  detect_human: '人员违规逗留检测',
+  detect_human_haoda: '人员违规逗留检测（皓达公司）',
   detect_logistics_single_person: '物流单人',
   detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
   detect_logistics_single_person_electrical_components: '物流单人（电气部件）',

@@ -12,6 +12,9 @@ const view = await read('src/components/human_dwell/HumanDwellMonitorView.tsx').
 const monitor = await read('src/components/AiVisionMonitor.tsx')
 const page = await read('src/sections/HumanDetectionSection.tsx')
 const haodaPage = await read('src/sections/HaodaHumanDetectionSection.tsx')
+const home = await read('src/sections/HomeSection.tsx')
+const alarms = await read('src/sections/AlarmsSection.tsx')
+const statistics = await read('src/sections/StatisticsSection.tsx')
 const cameraManager = await read('src/components/FeatureCameraManager.tsx')
 const nav = await read('src/lib/nav.ts')
 const sidebar = await read('src/components/Sidebar.tsx')
@@ -47,7 +50,7 @@ test('polls status and existing alarms serially', () => {
 test('renders the approved dwell dashboard and cyan ROI overlay', () => {
   for (const label of [
     '摄像头状态', '区域当前人数', '逗留阈值', '今日逗留告警次数',
-    '监控对象', '判定说明', '实时事件', '人员逗留检测监控', '逗留超时告警',
+    '监控对象', '判定说明', '实时事件', '人员违规逗留检测监控', '逗留超时告警',
   ]) assert.match(view, new RegExp(label))
   assert.match(view, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
   assert.match(view, /ResizableMonitorLayout id="human-dwell"/)
@@ -69,13 +72,20 @@ test('preserves frame lifecycle and configuration behavior', () => {
   assert.match(monitor, /URL\.revokeObjectURL/)
   assert.match(monitor, /image\.naturalWidth/)
   assert.match(page, /DetectionPageHeader/)
-  assert.match(page, /title = '人员逗留检测'/)
+  assert.match(page, /title = '人员违规逗留检测'/)
   assert.match(page, /区域逗留超时监控面板/)
   assert.match(page, /presentation="human-dwell"/)
   for (const binding of [
     'getAiVisionFeatureConfig', 'saveAiVisionFeatureConfig', 'loadConfig', 'loadCameras', 'saveConfig',
     'addCameraToFeature', 'removeCameraFromFeature', 'FeatureCameraManager', 'AiVisionRoiEditor',
   ]) assert.match(page, new RegExp(binding))
+})
+
+test('uses the personnel violation dwell name across user-facing views', () => {
+  for (const source of [nav, home, page, haodaPage, view, alarms, statistics]) {
+    assert.match(source, /人员违规逗留检测/)
+    assert.doesNotMatch(source, /人体逗留|人员逗留检测/)
+  }
 })
 
 test('offers the global camera pool without copying cameras into the Haoda feature', () => {

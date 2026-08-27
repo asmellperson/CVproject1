@@ -5,6 +5,8 @@ from features.detect_human_haoda import SPEC as HAODA_HUMAN_SPEC
 
 def test_haoda_human_detection_reuses_algorithm_with_independent_config_table():
     assert HAODA_HUMAN_SPEC.name == "detect_human_haoda"
+    assert HUMAN_SPEC.display_name == "人员违规逗留检测"
+    assert HAODA_HUMAN_SPEC.display_name == "人员违规逗留检测（皓达公司）"
     assert all_specs()["detect_human_haoda"] is HAODA_HUMAN_SPEC
     assert HAODA_HUMAN_SPEC.consumer_cls is HUMAN_SPEC.consumer_cls
     assert HAODA_HUMAN_SPEC.config_schema is HUMAN_SPEC.config_schema

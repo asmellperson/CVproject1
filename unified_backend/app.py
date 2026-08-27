@@ -134,8 +134,8 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "detect_door": {"name": "大门开关", "color": "#f59e0b"},
     "detect_phone": {"name": "手机检测", "color": "#f97316"},
     "detect_face": {"name": "人脸检测", "color": "#8b5cf6"},
-    "detect_human": {"name": "人体逗留", "color": "#2563eb"},
-    "detect_human_haoda": {"name": "人体逗留（皓达公司）", "color": "#1d4ed8"},
+    "detect_human": {"name": "人员违规逗留检测", "color": "#2563eb"},
+    "detect_human_haoda": {"name": "人员违规逗留检测（皓达公司）", "color": "#1d4ed8"},
     "detect_logistics_single_person": {"name": "物流通道单人检测", "color": "#0f766e"},
     "detect_logistics_single_person_electronics_electrician": {
         "name": "物流通道单人检测（电子电工）",

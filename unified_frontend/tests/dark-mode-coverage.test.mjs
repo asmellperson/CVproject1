@@ -71,7 +71,7 @@ test('detection page titles remain readable on dark surfaces', async () => {
   }
 
   const human = await read('src/sections/HumanDetectionSection.tsx')
-  assert.match(human, /title = '人员逗留检测'/)
+  assert.match(human, /title = '人员违规逗留检测'/)
 })
 
 test('guard detection rules heading keeps contrast in dark mode', async () => {

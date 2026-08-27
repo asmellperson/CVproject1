@@ -1,4 +1,4 @@
-"""皓达公司人体逗留检测的独立配置表。"""
+"""皓达公司人员违规逗留检测的独立配置表。"""
 
 from features._base.orm import FeatureConfigBase
 from features.detect_human.orm import HumanConfigFieldsMixin
