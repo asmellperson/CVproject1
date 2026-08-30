@@ -111,12 +111,19 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
             employee_id="20001",
             name="电子电工用户",
             role="viewer",
-            department="electronics_electrician",
+            departments=[
+                "electronics_electrician",
+                "electrical_components",
+            ],
             password="initial-password",
         ),
         admin,
     )
     assert created["user"]["department"] == "electronics_electrician"
+    assert created["user"]["departments"] == [
+        "electronics_electrician",
+        "electrical_components",
+    ]
     _assert_no_password_material(created)
 
     updated = update_user(
@@ -131,6 +138,7 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
     )
     assert updated["user"]["role"] == "admin"
     assert updated["user"]["department"] == "all"
+    assert updated["user"]["departments"] == ["all"]
 
     reset = reset_password(
         "20001",

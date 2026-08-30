@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 
@@ -94,6 +95,7 @@ def test_create_update_reset_and_delete_user(tmp_path):
         "name": "电子电工用户",
         "role": "viewer",
         "department": "electronics_electrician",
+        "departments": ["electronics_electrician"],
         "enabled": True,
         "auth_version": 1,
     }
@@ -108,6 +110,7 @@ def test_create_update_reset_and_delete_user(tmp_path):
     )
     assert updated["role"] == "admin"
     assert updated["department"] == "all"
+    assert updated["departments"] == ["all"]
 
     reset = store.update_password_hash("20001", "hash-reset")
     assert reset["auth_version"] == 2
@@ -146,6 +149,84 @@ def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
     assert created["department"] == "precious_metal_recycling"
 
 
+def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
+    store, _legacy_path = _store(tmp_path)
+
+    created = store.create_user(
+        employee_id="20004",
+        name="跨事业部负责人",
+        role="viewer",
+        department=None,
+        departments=[
+            "electronics_electrician",
+            "electrical_components",
+            "electronics_electrician",
+        ],
+        password_hash="hash-multi",
+    )
+
+    assert created["department"] == "electronics_electrician"
+    assert created["departments"] == [
+        "electronics_electrician",
+        "electrical_components",
+    ]
+
+    updated = store.update_user(
+        "20004",
+        actor_employee_id="10001",
+        name="跨公司负责人",
+        role="viewer",
+        department=None,
+        departments=["伟达公司", "皓达公司"],
+        enabled=True,
+    )
+
+    assert updated["department"] == "precious_metal_recycling"
+    assert updated["departments"] == [
+        "precious_metal_recycling",
+        "haoda_company",
+    ]
+
+
+def test_backfills_departments_when_opening_legacy_sqlite_database(tmp_path):
+    database_path = tmp_path / "runtime" / "auth_users.db"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE auth_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO auth_metadata(key, value) VALUES ('legacy_json_imported', '1');
+            CREATE TABLE auth_users (
+                employee_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL,
+                department TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                password_hash TEXT,
+                auth_version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO auth_users(
+                employee_id, name, role, department, enabled, auth_version
+            ) VALUES ('legacy-viewer', '旧账号', 'viewer', 'general_electric', 1, 1);
+            """
+        )
+
+    store = UserStore(
+        database_path=database_path,
+        legacy_json_path=tmp_path / "missing.json",
+    )
+
+    assert store.list_users()[0]["departments"] == ["general_electric"]
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(auth_users)")
+        }
+    assert "departments" in columns
+
+
 def test_rejects_invalid_or_duplicate_users(tmp_path):
     store, _legacy_path = _store(tmp_path)
 
@@ -171,6 +252,15 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
             name="错误事业部",
             role="viewer",
             department="unknown",
+            password_hash="hash",
+        )
+    with pytest.raises(UserValidationError, match="至少选择一个"):
+        store.create_user(
+            employee_id="30003",
+            name="空事业部",
+            role="viewer",
+            department=None,
+            departments=[],
             password_hash="hash",
         )
 

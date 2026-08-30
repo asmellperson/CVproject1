@@ -6,6 +6,7 @@ export type AuthUser = {
   name: string
   role: UserRole | string
   department?: Department | string | null
+  departments?: Array<Department | string>
   capabilities?: {
     view_access_audit?: boolean
   }

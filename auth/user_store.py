@@ -77,32 +77,66 @@ def _normalize_required(value: object, label: str) -> str:
     return normalized
 
 
-def _normalize_role_department(
+def _normalize_role_departments(
     role: object,
     department: object,
-) -> tuple[str, str]:
+    departments: object = None,
+) -> tuple[str, list[str]]:
     normalized_role = str(role or "").strip().lower()
     if normalized_role not in ALLOWED_ROLES:
         raise UserValidationError("角色必须是 admin 或 viewer")
     if normalized_role == "admin":
-        return normalized_role, "all"
+        return normalized_role, ["all"]
 
-    normalized_department = str(department or "").strip()
-    normalized_department = DEPARTMENT_ALIASES.get(
-        normalized_department,
-        normalized_department,
-    )
-    if normalized_department not in ALLOWED_VIEWER_DEPARTMENTS:
-        raise UserValidationError("普通用户必须选择有效事业部")
-    return normalized_role, normalized_department
+    if departments is None:
+        raw_departments = [department]
+    elif isinstance(departments, (list, tuple)):
+        raw_departments = list(departments)
+    else:
+        raise UserValidationError("事业部必须是数组")
+
+    normalized_departments: list[str] = []
+    for raw_department in raw_departments:
+        normalized_department = str(raw_department or "").strip()
+        normalized_department = DEPARTMENT_ALIASES.get(
+            normalized_department,
+            DEPARTMENT_ALIASES.get(
+                normalized_department.lower(),
+                normalized_department,
+            ),
+        )
+        if normalized_department not in ALLOWED_VIEWER_DEPARTMENTS:
+            raise UserValidationError("普通用户必须选择有效事业部")
+        if normalized_department not in normalized_departments:
+            normalized_departments.append(normalized_department)
+    if not normalized_departments:
+        raise UserValidationError("普通用户必须至少选择一个有效事业部")
+    return normalized_role, normalized_departments
+
+
+def _encode_departments(departments: list[str]) -> str:
+    return json.dumps(departments, ensure_ascii=False, separators=(",", ":"))
+
+
+def _decode_departments(value: object, fallback: object) -> list[str]:
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, list) and decoded:
+        return [str(item) for item in decoded]
+    normalized_fallback = str(fallback or "").strip()
+    return [normalized_fallback] if normalized_fallback else []
 
 
 def _public_user(row: sqlite3.Row) -> dict[str, Any]:
+    departments = _decode_departments(row["departments"], row["department"])
     return {
         "employee_id": row["employee_id"],
         "name": row["name"],
         "role": row["role"],
         "department": row["department"],
+        "departments": departments,
         "enabled": bool(row["enabled"]),
         "auth_version": int(row["auth_version"]),
     }
@@ -159,6 +193,7 @@ class UserStore:
                         name TEXT NOT NULL UNIQUE,
                         role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
                         department TEXT NOT NULL,
+                        departments TEXT NOT NULL DEFAULT '[]',
                         enabled INTEGER NOT NULL DEFAULT 1,
                         password_hash TEXT,
                         auth_version INTEGER NOT NULL DEFAULT 1,
@@ -167,6 +202,40 @@ class UserStore:
                     )
                     """
                 )
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute(
+                        "PRAGMA table_info(auth_users)"
+                    ).fetchall()
+                }
+                if "departments" not in columns:
+                    connection.execute(
+                        "ALTER TABLE auth_users "
+                        "ADD COLUMN departments TEXT NOT NULL DEFAULT '[]'"
+                    )
+                for row in connection.execute(
+                    "SELECT employee_id, role, department, departments "
+                    "FROM auth_users"
+                ).fetchall():
+                    role, departments = _normalize_role_departments(
+                        row["role"],
+                        row["department"],
+                        _decode_departments(
+                            row["departments"],
+                            row["department"],
+                        ),
+                    )
+                    connection.execute(
+                        "UPDATE auth_users "
+                        "SET role = ?, department = ?, departments = ? "
+                        "WHERE employee_id = ?",
+                        (
+                            role,
+                            departments[0],
+                            _encode_departments(departments),
+                            row["employee_id"],
+                        ),
+                    )
                 migrated = connection.execute(
                     "SELECT value FROM auth_metadata WHERE key = ?",
                     ("legacy_json_imported",),
@@ -208,9 +277,10 @@ class UserStore:
             employee_id = _normalize_required(raw_user.get("employee_id"), "工号")
             name = _normalize_required(raw_user.get("name"), "姓名")
             try:
-                role, department = _normalize_role_department(
+                role, departments = _normalize_role_departments(
                     raw_user.get("role", "viewer"),
                     raw_user.get("department"),
+                    raw_user.get("departments"),
                 )
             except UserValidationError as exc:
                 raise UserStoreError(f"首次迁移用户 {employee_id} 无效: {exc}") from exc
@@ -225,7 +295,8 @@ class UserStore:
                     employee_id,
                     name,
                     role,
-                    department,
+                    departments[0],
+                    _encode_departments(departments),
                     int(bool(raw_user.get("enabled", False))),
                     raw_user.get("password_hash") or None,
                     max(1, int(raw_user.get("auth_version", 1) or 1)),
@@ -235,9 +306,9 @@ class UserStore:
         connection.executemany(
             """
             INSERT INTO auth_users(
-                employee_id, name, role, department, enabled,
+                employee_id, name, role, department, departments, enabled,
                 password_hash, auth_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             normalized_users,
         )
@@ -247,7 +318,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT employee_id, name, role, department, enabled,
+                SELECT employee_id, name, role, department, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 ORDER BY employee_id
@@ -260,7 +331,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
-                SELECT employee_id, name, role, department, enabled,
+                SELECT employee_id, name, role, department, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 WHERE employee_id = ?
@@ -279,7 +350,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
-                SELECT employee_id, name, role, department, enabled,
+                SELECT employee_id, name, role, department, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 WHERE enabled = 1 AND (employee_id = ? OR name = ?)
@@ -297,13 +368,15 @@ class UserStore:
         role: str,
         department: str | None,
         password_hash: str,
+        departments: list[str] | None = None,
     ) -> dict[str, Any]:
         self.initialize()
         normalized_employee_id = _normalize_required(employee_id, "工号")
         normalized_name = _normalize_required(name, "姓名")
-        normalized_role, normalized_department = _normalize_role_department(
+        normalized_role, normalized_departments = _normalize_role_departments(
             role,
             department,
+            departments,
         )
         if not password_hash:
             raise UserValidationError("密码哈希不能为空")
@@ -324,15 +397,16 @@ class UserStore:
             connection.execute(
                 """
                 INSERT INTO auth_users(
-                    employee_id, name, role, department, enabled,
+                    employee_id, name, role, department, departments, enabled,
                     password_hash, auth_version
-                ) VALUES (?, ?, ?, ?, 1, ?, 1)
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, 1)
                 """,
                 (
                     normalized_employee_id,
                     normalized_name,
                     normalized_role,
-                    normalized_department,
+                    normalized_departments[0],
+                    _encode_departments(normalized_departments),
                     password_hash,
                 ),
             )
@@ -355,14 +429,16 @@ class UserStore:
         role: str,
         department: str | None,
         enabled: bool,
+        departments: list[str] | None = None,
     ) -> dict[str, Any]:
         self.initialize()
         normalized_employee_id = _normalize_required(employee_id, "工号")
         normalized_actor = _normalize_required(actor_employee_id, "当前管理员工号")
         normalized_name = _normalize_required(name, "姓名")
-        normalized_role, normalized_department = _normalize_role_department(
+        normalized_role, normalized_departments = _normalize_role_departments(
             role,
             department,
+            departments,
         )
         normalized_enabled = bool(enabled)
 
@@ -396,14 +472,15 @@ class UserStore:
             connection.execute(
                 """
                 UPDATE auth_users
-                SET name = ?, role = ?, department = ?, enabled = ?,
+                SET name = ?, role = ?, department = ?, departments = ?, enabled = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE employee_id = ?
                 """,
                 (
                     normalized_name,
                     normalized_role,
-                    normalized_department,
+                    normalized_departments[0],
+                    _encode_departments(normalized_departments),
                     int(normalized_enabled),
                     normalized_employee_id,
                 ),

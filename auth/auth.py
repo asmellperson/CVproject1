@@ -158,11 +158,16 @@ def load_auth_users() -> list[dict[str, Any]]:
 
 
 def _public_user(item: dict[str, Any]) -> dict[str, Any]:
+    department = item.get("department")
+    departments = item.get("departments")
+    if not isinstance(departments, list) or not departments:
+        departments = [department] if department else []
     return {
         "employee_id": str(item.get("employee_id", "")).strip(),
         "name": str(item.get("name", "")),
         "role": str(item.get("role", "viewer")),
-        "department": item.get("department"),
+        "department": department,
+        "departments": departments,
         "auth_version": int(item.get("auth_version", 1) or 1),
     }
 
@@ -232,6 +237,7 @@ def create_token(user: dict[str, Any]) -> str:
         "name": user.get("name", ""),
         "role": user.get("role", "viewer"),
         "department": user.get("department"),
+        "departments": user.get("departments"),
         "auth_version": int(user.get("auth_version", 1) or 1),
         "iat": now,
     }
@@ -337,6 +343,7 @@ def create_auth_user(
     role: str,
     department: str | None,
     password: str,
+    departments: list[str] | None = None,
 ) -> dict[str, Any]:
     if len(password) < 6:
         raise UserValidationError("初始密码至少需要 6 位")
@@ -346,6 +353,7 @@ def create_auth_user(
         role=role,
         department=department,
         password_hash=_password_hash(password),
+        departments=departments,
     )
 
 
@@ -357,6 +365,7 @@ def update_auth_user(
     role: str,
     department: str | None,
     enabled: bool,
+    departments: list[str] | None = None,
 ) -> dict[str, Any]:
     return get_user_store().update_user(
         employee_id,
@@ -365,6 +374,7 @@ def update_auth_user(
         role=role,
         department=department,
         enabled=enabled,
+        departments=departments,
     )
 
 

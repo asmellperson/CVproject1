@@ -4,10 +4,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from unified_backend.app import (
+    _allowed_event_types_for_user,
     _can_access_security_vlm,
     _can_mutate_security_vlm,
     _count_guard_site_cameras,
     _guard_alarm_paths,
+    _guard_departments_for_user,
     _guard_site_runtime_summary,
     _normalize_guard_alarm,
     _normalize_security_vlm_alarm,
@@ -78,6 +80,43 @@ def test_security_vlm_viewer_can_only_read_own_department():
         "POST",
         "/security-vlm/api/departments/electronics_electrician/cameras",
     ) is False
+
+
+def test_multi_department_viewer_receives_union_of_scoped_permissions():
+    viewer = {
+        "role": "viewer",
+        "department": "general_electric",
+        "departments": ["general_electric", "electronics_electrician"],
+    }
+
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/departments/general_electric/history",
+    ) is True
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/departments/electronics_electrician/history",
+    ) is True
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/departments/electrical_components/history",
+    ) is False
+    assert _guard_departments_for_user(viewer) == [
+        "general_electric",
+        "electronics_electrician",
+    ]
+    allowed_event_types = _allowed_event_types_for_user(viewer)
+    assert allowed_event_types is not None
+    assert "detect_human" in allowed_event_types
+    assert "detect_logistics_single_person_electronics_electrician" in allowed_event_types
+    assert _can_access_security_vlm(
+        viewer,
+        "GET",
+        "/security-vlm/api/history",
+    ) is True
 
 
 def test_security_vlm_alarm_sources_are_department_scoped():

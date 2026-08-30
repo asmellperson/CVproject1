@@ -2,6 +2,8 @@ import {
   alarmEventTypesByPage,
   departmentPermissions,
   getUserDepartment,
+  getUserDepartments,
+  getAccessibleAlarmEventTypes,
   hasPageAccess,
   type PageId,
 } from './permissions'
@@ -68,6 +70,35 @@ if (hasPageAccess(electronicsUser, 'security-vlm-general-electric')) {
 
 if (alarmEventTypesByPage['guard-behavior-electronics-electrician']?.join(',') !== 'guard_absent,guard_phone_use,guard_prone_sleep') {
   throw new Error('expected electronics guard page to map to guard alarm event types')
+}
+
+const multiDepartmentUser = {
+  employee_id: 'leader-1',
+  name: '跨事业部负责人',
+  role: 'viewer',
+  department: 'general_electric',
+  departments: ['general_electric', 'electronics_electrician'],
+}
+
+if (getUserDepartments(multiDepartmentUser).join(',') !== 'general_electric,electronics_electrician') {
+  throw new Error('expected all assigned departments to normalize')
+}
+
+if (!hasPageAccess(multiDepartmentUser, 'human-detection')) {
+  throw new Error('expected multi-department user to access the general electric page')
+}
+
+if (!hasPageAccess(multiDepartmentUser, 'guard-behavior-electronics-electrician')) {
+  throw new Error('expected multi-department user to access the electronics page')
+}
+
+if (hasPageAccess(multiDepartmentUser, 'face-detection')) {
+  throw new Error('expected multi-department user to remain isolated from unassigned departments')
+}
+
+const multiDepartmentAlarmTypes = getAccessibleAlarmEventTypes(multiDepartmentUser) ?? []
+if (!multiDepartmentAlarmTypes.includes('detect_human') || !multiDepartmentAlarmTypes.includes('detect_logistics_single_person_electronics_electrician')) {
+  throw new Error('expected alarm permissions to be the union of assigned departments')
 }
 
 const electricalComponentsUser = {

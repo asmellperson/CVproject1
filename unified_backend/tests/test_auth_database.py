@@ -68,6 +68,7 @@ def test_migrated_default_password_user_login_and_token_version(monkeypatch, tmp
     user = verify_login("10001", "legacy-password")
     assert user is not None
     assert user["auth_version"] == 1
+    assert user["departments"] == ["all"]
     token = create_token(user)
     assert get_current_user_from_request(_request_with_token(token))["employee_id"] == "10001"
 

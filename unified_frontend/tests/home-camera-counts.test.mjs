@@ -80,7 +80,7 @@ test('home overview aggregates every camera source and exposes partial failures'
   assert.match(source, /const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null/)
   assert.match(source, /cameraStatusReady \? `\$\{cameraInventorySummary\.cameraOnline\}\/\$\{cameraInventorySummary\.cameraTotal\}` : '加载中'/)
   assert.match(source, /Promise\.allSettled\(\[getAiVisionCameras\(\), guardRequest\]\)/)
-  assert.match(source, /getGuardRoomSites\(isAdmin \|\| department === 'all' \? undefined : department\)/)
+  assert.match(source, /visibleGuardDepartments\.map\(\(itemDepartment\) => getGuardRoomSites\(itemDepartment\)\)/)
   assert.match(source, /cameras: \(await getSecurityVlmCameras\(itemDepartment\)\)\.cameras/)
   assert.match(source, /setCameraInventoryPartial\([\s\S]*?securityResults\.some\(\(result\) => result\.status === 'rejected'\)/)
   assert.match(source, /setCameraInventoryLoaded\(true\)/)

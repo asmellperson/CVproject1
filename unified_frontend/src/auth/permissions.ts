@@ -218,10 +218,26 @@ export function getUserRole(user: AuthUser | null | undefined): UserRole | null 
   return roleAliases[rawRole] ?? roleAliases[rawRole.toLowerCase()] ?? null
 }
 
-export function getUserDepartment(user: AuthUser | null | undefined): Department | null {
-  const rawDepartment = normalizeKey(user?.department)
+function normalizeDepartment(value: unknown): Department | null {
+  const rawDepartment = normalizeKey(value)
   if (!rawDepartment) return null
   return departmentAliases[rawDepartment] ?? departmentAliases[rawDepartment.toLowerCase()] ?? null
+}
+
+export function getUserDepartments(user: AuthUser | null | undefined): Department[] {
+  const rawDepartments = Array.isArray(user?.departments) && user.departments.length > 0
+    ? user.departments
+    : [user?.department]
+  const departments: Department[] = []
+  rawDepartments.forEach((value) => {
+    const department = normalizeDepartment(value)
+    if (department && !departments.includes(department)) departments.push(department)
+  })
+  return departments
+}
+
+export function getUserDepartment(user: AuthUser | null | undefined): Department | null {
+  return getUserDepartments(user)[0] ?? null
 }
 
 export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
@@ -235,20 +251,28 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string)
   if (role === 'admin') return true
   if (!user || role !== 'viewer') return false
 
-  const department = getUserDepartment(user)
-  if (!department) return false
-  if (department === 'all') return true
+  const departments = getUserDepartments(user)
+  if (departments.length === 0) return false
+  if (departments.includes('all')) return true
 
-  return departmentPermissions[department]?.pages.includes(normalizedPageId) ?? false
+  return departments.some((department) => (
+    department !== 'all'
+    && departmentPermissions[department]?.pages.includes(normalizedPageId)
+  ))
 }
 
 export function getPageDisplayOverride(user: AuthUser | null | undefined, pageId: string) {
   if (getUserRole(user) === 'admin') return undefined
-  const department = getUserDepartment(user)
-  if (!department || department === 'all') return undefined
+  const departments = getUserDepartments(user)
+  if (departments.length === 0 || departments.includes('all')) return undefined
   const normalizedPageId = normalizePageId(pageId)
   if (!normalizedPageId) return undefined
-  return departmentPermissions[department]?.displayOverrides?.[normalizedPageId]
+  for (const department of departments) {
+    if (department === 'all') continue
+    const override = departmentPermissions[department]?.displayOverrides?.[normalizedPageId]
+    if (override) return override
+  }
+  return undefined
 }
 
 function applyDisplayOverride<T extends { id: string; label?: string; title?: string; description?: string }>(
@@ -290,9 +314,9 @@ export function getAccessibleAlarmEventTypes(user: AuthUser | null | undefined):
   if (role === 'admin') return null
   if (!user || role !== 'viewer') return []
 
-  const department = getUserDepartment(user)
-  if (department === 'all') return null
-  if (!department) return []
+  const departments = getUserDepartments(user)
+  if (departments.includes('all')) return null
+  if (departments.length === 0) return []
 
   const allowed = new Set<string>()
   for (const [pageId, eventTypes] of Object.entries(alarmEventTypesByPage)) {

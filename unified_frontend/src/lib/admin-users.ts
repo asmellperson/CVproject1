@@ -14,6 +14,7 @@ export type AdminUser = {
   name: string
   role: AdminUserRole
   department: AdminUserDepartment
+  departments: AdminUserDepartment[]
   enabled: boolean
   auth_version: number
 }
@@ -22,14 +23,14 @@ export type CreateAdminUserInput = {
   employee_id: string
   name: string
   role: AdminUserRole
-  department: AdminUserDepartment | null
+  departments: AdminUserDepartment[] | null
   password: string
 }
 
 export type UpdateAdminUserInput = {
   name: string
   role: AdminUserRole
-  department: AdminUserDepartment | null
+  departments: AdminUserDepartment[] | null
   enabled: boolean
 }
 

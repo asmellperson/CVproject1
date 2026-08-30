@@ -36,6 +36,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -55,7 +56,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-const departments: Array<{ value: Exclude<AdminUserDepartment, 'all'>; label: string }> = [
+type SelectableDepartment = Exclude<AdminUserDepartment, 'all'>
+
+const departments: Array<{ value: SelectableDepartment; label: string }> = [
   { value: 'general_electric', label: '通用电气事业部' },
   { value: 'research_institute', label: '福达新材院' },
   { value: 'electronics_electrician', label: '电子电工事业部' },
@@ -78,7 +81,7 @@ type EditorForm = {
   employeeId: string
   name: string
   role: AdminUserRole
-  department: Exclude<AdminUserDepartment, 'all'>
+  departments: SelectableDepartment[]
   password: string
   confirmPassword: string
 }
@@ -87,7 +90,7 @@ const emptyEditorForm: EditorForm = {
   employeeId: '',
   name: '',
   role: 'viewer',
-  department: 'general_electric',
+  departments: ['general_electric'],
   password: '',
   confirmPassword: '',
 }
@@ -98,6 +101,14 @@ const compactActionClass =
 function getAvatarLabel(name: string) {
   const normalizedName = name.trim()
   return normalizedName.slice(-1) || '用'
+}
+
+function getManagedUserDepartments(user: AdminUser): SelectableDepartment[] {
+  const assigned = user.departments.filter(
+    (department): department is SelectableDepartment => department !== 'all',
+  )
+  if (assigned.length > 0) return assigned
+  return user.department === 'all' ? [] : [user.department]
 }
 
 export function UserManagementSection() {
@@ -148,7 +159,7 @@ export function UserManagementSection() {
       employeeId: target.employee_id,
       name: target.name,
       role: target.role,
-      department: target.department === 'all' ? 'general_electric' : target.department,
+      departments: getManagedUserDepartments(target),
       password: '',
       confirmPassword: '',
     })
@@ -173,13 +184,17 @@ export function UserManagementSection() {
         return
       }
     }
+    if (editorForm.role === 'viewer' && editorForm.departments.length === 0) {
+      setError('普通用户至少需要选择一个事业部或公司。')
+      return
+    }
     setBusy(true)
     try {
       if (editingUser) {
         await updateAdminUser(editingUser.employee_id, {
           name: editorForm.name.trim(),
           role: editorForm.role,
-          department: editorForm.role === 'admin' ? null : editorForm.department,
+          departments: editorForm.role === 'admin' ? null : editorForm.departments,
           enabled: editingUser.enabled,
         })
         toast.success('用户信息已更新')
@@ -188,7 +203,7 @@ export function UserManagementSection() {
           employee_id: editorForm.employeeId.trim(),
           name: editorForm.name.trim(),
           role: editorForm.role,
-          department: editorForm.role === 'admin' ? null : editorForm.department,
+          departments: editorForm.role === 'admin' ? null : editorForm.departments,
           password: editorForm.password,
         })
         toast.success('用户已添加')
@@ -210,7 +225,7 @@ export function UserManagementSection() {
       await updateAdminUser(target.employee_id, {
         name: target.name,
         role: target.role,
-        department: target.department,
+        departments: target.role === 'admin' ? null : getManagedUserDepartments(target),
         enabled: !target.enabled,
       })
       toast.success(target.enabled ? '用户已禁用' : '用户已启用')
@@ -343,7 +358,7 @@ export function UserManagementSection() {
                   <TableHead className="h-11 pl-6 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">工号</TableHead>
                   <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">姓名</TableHead>
                   <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">角色</TableHead>
-                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">事业部</TableHead>
+                  <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">事业部 / 公司</TableHead>
                   <TableHead className="h-11 text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">状态</TableHead>
                   <TableHead className="h-11 min-w-[230px] pr-6 text-right text-[11px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-500">操作</TableHead>
                 </TableRow>
@@ -388,9 +403,13 @@ export function UserManagementSection() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
-                          {departmentLabels[item.department] || item.department}
-                        </span>
+                        <div className="flex max-w-[320px] flex-wrap gap-1.5">
+                          {item.departments.map((department) => (
+                            <span key={department} className="inline-flex rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                              {departmentLabels[department] || department}
+                            </span>
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -469,11 +488,11 @@ export function UserManagementSection() {
       </Card>
 
       <Dialog open={editorOpen} onOpenChange={(open) => !busy && setEditorOpen(open)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingUser ? '编辑用户' : '添加用户'}</DialogTitle>
             <DialogDescription>
-              {editingUser ? '修改姓名、角色和所属事业部。' : '设置用户身份和初始登录密码。'}
+              {editingUser ? '修改姓名、角色和负责的事业部或公司。' : '设置用户身份、负责范围和初始登录密码。'}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleEditorSubmit}>
@@ -512,22 +531,37 @@ export function UserManagementSection() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="user-department">事业部</Label>
-                <select
-                  id="user-department"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
-                  value={editorForm.role === 'admin' ? 'all' : editorForm.department}
-                  disabled={editorForm.role === 'admin'}
-                  onChange={(event) => setEditorForm((value) => ({
-                    ...value,
-                    department: event.target.value as EditorForm['department'],
-                  }))}
+                <Label id="user-departments-label">负责范围（可多选）</Label>
+                <div
+                  role="group"
+                  aria-labelledby="user-departments-label"
+                  className="grid gap-2 rounded-lg border border-input bg-background p-3 sm:grid-cols-2"
                 >
-                  {editorForm.role === 'admin' && <option value="all">全部事业部</option>}
-                  {departments.map((department) => (
-                    <option key={department.value} value={department.value}>{department.label}</option>
-                  ))}
-                </select>
+                  {editorForm.role === 'admin' ? (
+                    <div className="col-span-full text-sm text-muted-foreground">管理员默认负责全部事业部和公司。</div>
+                  ) : departments.map((department) => {
+                    const checkboxId = `user-department-${department.value}`
+                    return (
+                      <label
+                        key={department.value}
+                        htmlFor={checkboxId}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <Checkbox
+                          id={checkboxId}
+                          checked={editorForm.departments.includes(department.value)}
+                          onCheckedChange={(checked) => setEditorForm((value) => ({
+                            ...value,
+                            departments: checked === true
+                              ? [...value.departments, department.value]
+                              : value.departments.filter((item) => item !== department.value),
+                          }))}
+                        />
+                        <span>{department.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
             </div>
             {!editingUser && (

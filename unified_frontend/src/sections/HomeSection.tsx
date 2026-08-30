@@ -37,6 +37,7 @@ import {
   filterHomeModulesByPermission,
   getAccessibleAlarmEventTypes,
   getUserDepartment,
+  getUserDepartments,
   type Department,
 } from '@/auth/permissions'
 import {
@@ -291,14 +292,16 @@ function getAlarmLocation(alarm: AlarmEvent) {
   return alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
-function departmentLabel(department: ReturnType<typeof getUserDepartment>) {
+function departmentLabel(departments: Department[]) {
+  if (departments.includes('all')) return '全局视图'
+  if (departments.length > 1) return `${departments.length} 个事业部 / 公司视图`
+  const department = departments[0] ?? null
   if (department === 'general_electric') return '通用电气视图'
   if (department === 'electronics_electrician') return '电子电工视图'
   if (department === 'electrical_components') return '电气部件视图'
   if (department === 'precious_metal_recycling') return '伟达公司视图'
   if (department === 'haoda_company') return '皓达公司视图'
   if (department === 'research_institute') return '福达新材院视图'
-  if (department === 'all') return '全局视图'
   return '权限视图'
 }
 
@@ -469,6 +472,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraActionKey, setCameraActionKey] = useState('')
   const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
   const [cameraDeleteError, setCameraDeleteError] = useState('')
+  const userDepartments = useMemo(() => getUserDepartments(user), [user])
   const department = getUserDepartment(user)
   const visiblePageIds = useMemo(
     () => new Set(visibleModuleEntries.map((entry) => entry.id)),
@@ -480,6 +484,13 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   )
   const guardRoomVisible = useMemo(
     () => Object.values(guardPageByDepartment).some((pageId) => pageId && visiblePageIds.has(pageId)),
+    [visiblePageIds],
+  )
+  const visibleGuardDepartments = useMemo(
+    () => cameraSourceDepartments.guard_room.filter((item) => {
+      const pageId = guardPageByDepartment[item]
+      return pageId ? visiblePageIds.has(pageId) : false
+    }),
     [visiblePageIds],
   )
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
@@ -596,9 +607,15 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   }
 
   const loadCameraInventory = useCallback(async () => {
-    const guardRequest = guardRoomVisible
-      ? getGuardRoomSites(isAdmin || department === 'all' ? undefined : department)
-      : Promise.resolve([])
+    const guardRequest = !guardRoomVisible
+      ? Promise.resolve([])
+      : isAdmin || userDepartments.includes('all')
+        ? getGuardRoomSites()
+        : Promise.all(
+          visibleGuardDepartments.map((itemDepartment) => getGuardRoomSites(itemDepartment)),
+        ).then((departmentSites) => Array.from(new Map(
+          departmentSites.flat().map((site) => [site.id, site]),
+        ).values()))
     const securityRequest = Promise.allSettled(
       visibleSecurityDepartments.map(async (itemDepartment) => ({
         department: itemDepartment,
@@ -633,7 +650,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       || securityResults.some((result) => result.status === 'rejected'),
     )
     setCameraInventoryLoaded(true)
-  }, [department, guardRoomVisible, isAdmin, visibleSecurityDepartments])
+  }, [guardRoomVisible, isAdmin, userDepartments, visibleGuardDepartments, visibleSecurityDepartments])
 
   const allowedCameraDepartments = cameraSourceDepartments[cameraSource]
   const guardSiteOptions = guardRoomSites.filter((site) => site.department === cameraDepartment)
@@ -822,7 +839,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           <div className="relative z-[3] flex min-h-[240px] items-center justify-center px-3 py-5 text-center sm:min-h-[280px] sm:px-10 sm:py-7 lg:px-14 2xl:min-h-[380px] 2xl:px-20 2xl:py-10">
             <div className="relative z-[3] flex -translate-y-3 flex-col items-center justify-center sm:-translate-y-4">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
-                {departmentLabel(department)}
+                {departmentLabel(userDepartments)}
               </Badge>
               <h2 className="whitespace-nowrap text-[clamp(1rem,4.5vw,3rem)] font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] dark:text-white dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.55)] 2xl:text-6xl">
                 福达 AI 视觉安全监管平台
@@ -1121,7 +1138,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 </div>
               </div>
               <Badge className="border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100 dark:hover:bg-blue-950/50">
-                {departmentLabel(department)}
+                {departmentLabel(userDepartments)}
               </Badge>
             </div>
 
