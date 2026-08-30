@@ -34,10 +34,12 @@ function LazyConfigFallback({ label }: { label: string }) {
   )
 }
 
+type PhoneRoiPos = number[][][]
+
 type PhoneConfig = {
   enable: boolean
   value: {
-    roi_pos: number[][]
+    roi_pos: PhoneRoiPos
     cap_interval?: number
     alarm_interval?: number
     CONF_THRESHOLD?: number
@@ -95,6 +97,14 @@ const defaultPhoneConfig: PhoneConfig = {
 
 function formatJson(value: unknown) {
   return JSON.stringify(value || [])
+}
+
+function normalizePhoneRoiPos(value: unknown[]): PhoneRoiPos {
+  const first = value[0]
+  if (Array.isArray(first) && first.length > 0 && !Array.isArray(first[0])) {
+    return [value as number[][]]
+  }
+  return value as PhoneRoiPos
 }
 
 function toForm(payload: PhoneConfigResponse) {
@@ -304,7 +314,7 @@ export function PhoneDetectionSection() {
       enable: true,
       value: {
         ...phoneConfig.value,
-        roi_pos: roiPos as number[][],
+        roi_pos: normalizePhoneRoiPos(roiPos),
         CONF_THRESHOLD: confidenceThreshold,
         PERSON_CONF_THRESHOLD: personConfidenceThreshold,
         IOU_THR: iouThreshold,
