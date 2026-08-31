@@ -3,7 +3,7 @@
 
 import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
-import { departmentPermissions, filterNavGroupsByPermission } from '@/auth/permissions'
+import { departmentPermissions, filterNavGroupsByPermission, getUserDepartments } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
@@ -642,19 +642,24 @@ function itemTone(itemId: string): NavTone {
  * 返回：NavGroup[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
  * 调用关系：
  *   - 调用方：`unified_frontend/src/components/Sidebar.tsx` 的 `Sidebar` 调用本符号
- *   - 内部调用：`filterNavGroupsByPermission`、`find`、`Map`、`map`、`Set`、`flatMap`、`get`、`add`、`filter`、`has` 等共 11 个调用。
+ *   - 内部调用：`filterNavGroupsByPermission`、`getUserDepartments`、`find`、`Map`、`map`、`Set`、`flatMap`、`get`、`add`、`filter`、`has`。
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
 function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
   const visibleGroups = filterNavGroupsByPermission(user, navGroups)
-  if (!isAdmin) return visibleGroups
+  const userDepartments = new Set<string>(getUserDepartments(user))
+  const shouldGroupByDepartment = isAdmin || userDepartments.size > 1
+  if (!shouldGroupByDepartment) return visibleGroups
 
   const modules = visibleGroups.find((group) => group.id === 'modules')
   if (!modules) return visibleGroups
 
   const moduleItemsById = new Map(modules.items.map((item) => [item.id, item]))
   const groupedIds = new Set<string>()
-  const children = adminModuleGroups.map((group) => {
+  const visibleModuleGroups = isAdmin || userDepartments.has('all')
+    ? adminModuleGroups
+    : adminModuleGroups.filter((group) => userDepartments.has(group.id))
+  const children = visibleModuleGroups.map((group) => {
     const items = group.pages.flatMap((pageId) => {
       const item = moduleItemsById.get(pageId)
       if (!item) return []

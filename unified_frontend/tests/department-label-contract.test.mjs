@@ -73,6 +73,14 @@ test('keeps the requested first-level company directories in sidebar order', () 
   )
 })
 
+test('groups capability navigation by assigned department for multi-department viewers', () => {
+  assert.match(sidebar, /getUserDepartments/)
+  assert.match(sidebar, /const userDepartments = new Set<string>\(getUserDepartments\(user\)\)/)
+  assert.match(sidebar, /const shouldGroupByDepartment = isAdmin \|\| userDepartments\.size > 1/)
+  assert.match(sidebar, /if \(!shouldGroupByDepartment\) return visibleGroups/)
+  assert.match(sidebar, /adminModuleGroups\.filter\(\(group\) => userDepartments\.has\(group\.id\)\)/)
+})
+
 test('shows human dwell and door detection under their actual navigation owners', () => {
   assert.match(human, /departmentLabel = '通用电气事业部'/)
   assert.match(haodaHuman, /departmentLabel="皓达公司"/)
