@@ -73,6 +73,44 @@ class FakeService:
     def list_channels(self, feature):
         return {"items": [deepcopy(value) for value in self.channels[feature].values()]}
 
+    # 功能：按摄像头 ID 聚合指定物流功能的测试通道成员，模拟业务服务的安全清单输出。
+    # 参数：
+    #   - `self`：当前测试服务实例
+    #   - `feature_names`（list[str] | tuple[str, ...]）：待汇总的授权物流功能
+    # 返回：list[dict]；返回按物理摄像头去重的测试清单。
+    # 调用关系：
+    #   - 调用方：`list_logistics_camera_inventory` 路由调用本方法
+    #   - 内部调用：`dict.setdefault`、`deepcopy`、`list.sort`。
+    # 副作用/注意事项：仅读取当前实例的内存通道数据，不包含 RTSP 地址。
+    def list_camera_inventory(self, feature_names):
+        inventory = {}
+        for feature in feature_names:
+            for channel in self.channels[feature].values():
+                for member in channel["members"]:
+                    camera_id = member["camera_id"]
+                    item = inventory.setdefault(camera_id, {
+                        "camera_id": camera_id,
+                        "name": f"物流摄像头 {camera_id}",
+                        "shm_name": f"camera_{camera_id}",
+                        "department": api.LOGISTICS_FEATURE_DEPARTMENTS[feature],
+                        "enabled": True,
+                        "memberships": [],
+                    })
+                    item["memberships"].append({
+                        "feature_name": feature,
+                        "channel_id": channel["id"],
+                        "channel_name": channel["name"],
+                        "enabled": bool(channel["enabled"] and member["enabled"]),
+                    })
+        items = list(inventory.values())
+        for item in items:
+            item["memberships"].sort(key=lambda membership: (
+                membership["feature_name"],
+                membership["channel_id"],
+            ))
+        items.sort(key=lambda item: item["camera_id"])
+        return deepcopy(items)
+
     # 功能：读取或查询 `get_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -553,6 +591,7 @@ def _seed(service, feature=FEATURES[0], name="一号通道"):
 def test_router_exposes_full_channel_contract_and_app_registers_it():
     paths = {(route.path, method) for route in api.router.routes for method in route.methods}
     expected = {
+        ("/api/v2/logistics-channels/inventory", "GET"),
         ("/api/v2/logistics-channels/{feature}", "GET"),
         ("/api/v2/logistics-channels/{feature}", "POST"),
         ("/api/v2/logistics-channels/{feature}/{channel_id}", "GET"),
@@ -599,6 +638,101 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
                 "content"
             ]["application/json"]["schema"]
             assert schema.get("$ref") or schema.get("type") == "object"
+
+
+# 功能：验证物流摄像头清单按通道成员关系汇总，并严格裁剪到多事业部用户授权范围。
+# 参数：
+#   - `monkeypatch`：pytest 补丁夹具，用于让同步 FastAPI 路由在受限测试环境内执行
+# 返回：None；通过 HTTP 响应断言验证清单去重、权限、在线状态与敏感字段过滤。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
+#   - 内部调用：`FakeService`、`FakeCameraService`、`FakeOrchestrator`、`FastAPI`、`httpx.AsyncClient`、`asyncio.run`。
+# 副作用/注意事项：只操作内存 ASGI 应用和测试数据，不连接生产数据库或摄像头。
+def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates(monkeypatch):
+    service = FakeService()
+    orchestrator = FakeOrchestrator()
+    orchestrator.status = {
+        "camera_states": {
+            "7": {"camera_id": 7, "online": True},
+        },
+    }
+    channel_specs = (
+        ("detect_logistics_single_person", "通用物流通道", 7),
+        (
+            "detect_logistics_single_person_electrical_components",
+            "电气部件物流通道",
+            8,
+        ),
+        (
+            "detect_logistics_single_person_electronics_electrician",
+            "电子电工物流通道",
+            9,
+        ),
+    )
+    channel_ids = {}
+    for feature, name, camera_id in channel_specs:
+        channel = _seed(service, feature=feature, name=name)
+        channel_ids[feature] = channel["id"]
+        service.add_existing_camera(feature, channel["id"], camera_id)
+    service.add_existing_camera(
+        "detect_logistics_single_person_electrical_components",
+        channel_ids["detect_logistics_single_person_electrical_components"],
+        7,
+    )
+
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
+    app.dependency_overrides[api.get_current_orchestrator] = lambda: orchestrator
+    app.dependency_overrides[api.get_current_user] = lambda: {
+        "role": "viewer",
+        "department": "general_electric",
+        "departments": ["general_electric", "electrical_components"],
+    }
+
+    # 功能：在当前线程执行 FastAPI 同步依赖，避免受限测试环境创建 worker thread。
+    # 参数：
+    #   - `func`：待执行的同步函数
+    #   - `*args`：传递给同步函数的位置参数
+    #   - `**_kwargs`：AnyIO 附加参数，本测试无需使用
+    # 返回：object；返回同步函数的执行结果。
+    # 调用关系：
+    #   - 调用方：AnyIO 在线程桥接同步路由时调用本函数
+    #   - 内部调用：`func`。
+    # 副作用/注意事项：仅改变本测试中的执行方式，不修改应用逻辑。
+    async def inline_run_sync(func, *args, **_kwargs):
+        return func(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
+
+    # 功能：请求物流摄像头清单并校验 viewer 与 admin 的授权结果。
+    # 参数：无。
+    # 返回：None；所有校验通过后正常结束。
+    # 调用关系：
+    #   - 调用方：本测试末尾通过 `asyncio.run` 调用
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient.get`、`response.json`。
+    # 副作用/注意事项：只向内存 ASGI 应用发起请求，不访问外部网络。
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/v2/logistics-channels/inventory")
+            assert response.status_code == 200
+            items = response.json()["items"]
+            assert [item["camera_id"] for item in items] == [7, 8]
+            assert all("url" not in item for item in items)
+            assert items[0]["online"] is True
+            assert items[0]["memberships"][0]["channel_name"] == "通用物流通道"
+            assert len(items[0]["memberships"]) == 2
+            assert items[1]["department"] == "electrical_components"
+
+            app.dependency_overrides[api.get_current_user] = lambda: ADMIN
+            admin_response = await client.get("/api/v2/logistics-channels/inventory")
+            assert admin_response.status_code == 200
+            assert [
+                item["camera_id"] for item in admin_response.json()["items"]
+            ] == [7, 8, 9]
+
+    asyncio.run(scenario())
 
 
 # 功能：验证 `test_fastapi_response_field_filters_and_rejects_invalid_output` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明

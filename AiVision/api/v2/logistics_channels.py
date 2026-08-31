@@ -26,6 +26,7 @@ from platform.logistics_channel.constants import (
 )
 from platform.logistics_channel.schema import (
     LogisticsChannelAlarmListResponse,
+    LogisticsCameraInventoryResponse,
     LogisticsChannelConfigUpdate,
     LogisticsChannelCreate,
     LogisticsChannelDetailResponse,
@@ -59,30 +60,51 @@ class LogisticsChannelPutRequest(LogisticsChannelUpdate):
     config: LogisticsChannelConfigUpdate | None = None
 
 
-# 功能：实现 `_require_feature_access` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：根据角色和多事业部授权，列出当前用户可读取的全部物流检测功能。
 # 参数：
-#   - `feature`（str）：`feature` 对应的业务输入值
 #   - `user`（dict）：当前用户或待处理用户对象
-# 返回：str；返回通过权限校验的物流功能标识。
+# 返回：list[str]；返回有权访问的物流功能标识，顺序与 `LOGISTICS_FEATURES` 一致。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channels` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `create_channel`
-#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
-#         `update_channel` 调用本符号；另有 14 处静态调用
-#   - 内部调用：`user.get`、`isinstance`、`HTTPException`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def _require_feature_access(feature: str, user: dict) -> str:
-    if feature not in LOGISTICS_FEATURES:
-        raise HTTPException(status_code=404, detail="logistics feature not found")
+#   - 调用方：`_require_feature_access` 与 `list_logistics_camera_inventory` 调用本符号
+#   - 内部调用：`user.get`、`isinstance`、`str.strip`、`list`。
+# 副作用/注意事项：无外部副作用；管理员或含 `all` 授权的用户返回全部物流功能。
+def _accessible_logistics_features(user: dict) -> list[str]:
+    """返回当前用户有权读取的物流功能集合。"""
     if user.get("role") == "admin":
-        return feature
-    expected_department = LOGISTICS_FEATURE_DEPARTMENTS[feature]
+        return list(LOGISTICS_FEATURES)
     raw_departments = user.get("departments")
-    departments = (
+    candidates = (
         raw_departments
         if isinstance(raw_departments, list) and raw_departments
         else [user.get("department")]
     )
-    if expected_department not in departments:
+    departments = {
+        str(department or "").strip()
+        for department in candidates
+        if str(department or "").strip()
+    }
+    if "all" in departments:
+        return list(LOGISTICS_FEATURES)
+    return [
+        feature
+        for feature in LOGISTICS_FEATURES
+        if LOGISTICS_FEATURE_DEPARTMENTS[feature] in departments
+    ]
+
+
+# 功能：校验用户是否有权访问指定物流功能，并返回通过校验的功能标识。
+# 参数：
+#   - `feature`（str）：待访问的物流功能标识
+#   - `user`（dict）：当前用户或待处理用户对象
+# 返回：str；返回通过权限校验的物流功能标识。
+# 调用关系：
+#   - 调用方：物流通道列表、详情、配置、成员、状态、画面和告警等路由调用本符号
+#   - 内部调用：`_accessible_logistics_features`、`HTTPException`。
+# 副作用/注意事项：功能不存在时抛出 404，无事业部权限时抛出 403。
+def _require_feature_access(feature: str, user: dict) -> str:
+    if feature not in LOGISTICS_FEATURES:
+        raise HTTPException(status_code=404, detail="logistics feature not found")
+    if feature not in _accessible_logistics_features(user):
         raise HTTPException(status_code=403, detail="feature department permission required")
     return feature
 
@@ -125,6 +147,59 @@ def _get_channel_or_404(service, feature: str, channel_id: int) -> dict:
     if channel is None:
         raise HTTPException(status_code=404, detail="logistics channel not found")
     return channel
+
+
+# 功能：汇总当前用户有权访问的物流通道摄像头，按物理摄像头 ID 去重并返回安全字段。
+# 参数：
+#   - `user`（dict）：当前登录用户，使用其多事业部权限筛选物流功能
+#   - `service`：物流通道服务，用于读取通道及成员关系
+#   - `orchestrator`：运行编排器，用于读取通道内单路摄像头在线状态
+# 返回：LogisticsCameraInventoryResponse；不含 RTSP 地址的物流摄像头清单。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/inventory')` 注册；首页平台汇总通过前端物流 API 调用
+#   - 内部调用：`_accessible_logistics_features`、`service.list_camera_inventory`、`orchestrator.get_logistics_channel_status`、`LogisticsCameraInventoryResponse.model_validate`。
+# 副作用/注意事项：只读数据库与运行时快照；同一摄像头跨通道或跨功能出现时合并，绝不返回连接地址。
+@router.get("/inventory", response_model=LogisticsCameraInventoryResponse)
+def list_logistics_camera_inventory(
+    user: dict = Depends(get_current_user),
+    service=Depends(get_logistics_channel_service),
+    orchestrator=Depends(get_current_orchestrator),
+) -> LogisticsCameraInventoryResponse:
+    items = service.list_camera_inventory(
+        _accessible_logistics_features(user)
+    )
+    status_by_channel: dict[tuple[str, int], dict[str, Any]] = {}
+    for item in items:
+        item["online"] = False
+        camera_id = item["camera_id"]
+        for membership in item["memberships"]:
+            feature = membership["feature_name"]
+            channel_id = membership["channel_id"]
+            channel_key = (feature, channel_id)
+            if channel_key not in status_by_channel:
+                status_by_channel[channel_key] = (
+                    orchestrator.get_logistics_channel_status(feature, channel_id)
+                    or {}
+                )
+            camera_states = status_by_channel[channel_key].get(
+                "camera_states",
+                {},
+            )
+            if not isinstance(camera_states, dict):
+                camera_states = {}
+            state = camera_states.get(
+                str(camera_id),
+                camera_states.get(camera_id, {}),
+            )
+            if not isinstance(state, dict):
+                state = {}
+            membership["online"] = bool(
+                membership["enabled"] and state.get("online", False)
+            )
+            item["online"] = bool(
+                item["online"] or membership["online"]
+            )
+    return LogisticsCameraInventoryResponse.model_validate({"items": items})
 
 
 # 功能：读取或查询 `list_channels` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明

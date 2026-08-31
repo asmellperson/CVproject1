@@ -390,6 +390,70 @@ BASE_FEATURE = "detect_logistics_single_person"
 EE_FEATURE = "detect_logistics_single_person_electronics_electrician"
 
 
+# 功能：验证物流摄像头清单使用固定次数批量查询，并按摄像头 ID 合并跨功能成员关系。
+# 参数：
+#   - `service_db`：隔离的物流通道与摄像头测试数据库
+# 返回：None；通过断言验证安全字段、去重结果、成员关系和查询次数。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
+#   - 内部调用：`_seed_camera`、`service.create_channel`、`service.add_existing_camera`、`event.listen`、`service.list_camera_inventory`、`event.remove`。
+# 副作用/注意事项：只读写测试内存数据库；断言响应不包含摄像头 URL。
+def test_logistics_camera_inventory_batches_and_deduplicates_memberships(service_db):
+    shared_camera_id = _seed_camera(
+        service_db,
+        "shared-logistics-camera",
+        department="general_electric",
+    )
+    ee_camera_id = _seed_camera(
+        service_db,
+        "ee-logistics-camera",
+        department="electronics_electrician",
+    )
+    base_channel = service_db.service.create_channel(BASE_FEATURE, "通用物流通道")
+    ee_channel = service_db.service.create_channel(EE_FEATURE, "电子电工物流通道")
+    service_db.service.add_existing_camera(
+        BASE_FEATURE,
+        base_channel["id"],
+        shared_camera_id,
+    )
+    service_db.service.add_existing_camera(
+        EE_FEATURE,
+        ee_channel["id"],
+        shared_camera_id,
+    )
+    service_db.service.add_existing_camera(
+        EE_FEATURE,
+        ee_channel["id"],
+        ee_camera_id,
+    )
+    select_statements: list[str] = []
+
+    # 功能：记录清单读取期间的 SELECT 语句，验证 eager loading 查询次数固定。
+    # 参数：
+    #   - `_connection`、`_cursor`、`_parameters`、`_context`、`_many`：SQLAlchemy 事件上下文，本测试不读取
+    #   - `statement`（str）：当前执行的 SQL 文本
+    # 返回：None；仅在 SELECT 时追加记录。
+    # 调用关系：
+    #   - 调用方：SQLAlchemy `before_cursor_execute` 事件触发本函数
+    #   - 内部调用：`statement.lstrip`、`str.startswith`、`select_statements.append`。
+    # 副作用/注意事项：仅修改测试局部列表，不影响 SQL 执行。
+    def track_selects(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    event.listen(service_db.engine, "before_cursor_execute", track_selects)
+    try:
+        items = service_db.service.list_camera_inventory([BASE_FEATURE, EE_FEATURE])
+    finally:
+        event.remove(service_db.engine, "before_cursor_execute", track_selects)
+
+    assert [item["camera_id"] for item in items] == [shared_camera_id, ee_camera_id]
+    assert len(items[0]["memberships"]) == 2
+    assert items[1]["department"] == "electronics_electrician"
+    assert all("url" not in item for item in items)
+    assert len(select_statements) == 3
+
+
 # 功能：验证 `test_channel_crud_is_scoped_by_feature` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值

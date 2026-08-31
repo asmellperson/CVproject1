@@ -71,7 +71,14 @@ import {
 } from '@/lib/security-vlm'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
 import type { GuardRoomCamera, GuardRoomSite } from '@/types'
-import { getCameraInventorySummary, getLoadedAiVisionFeatureCounts, type FeatureCameraCounts } from './homeCameraCounts'
+import { getLogisticsCameraInventory } from '@/components/logistics_single_person/api'
+import type { LogisticsFeatureName } from '@/components/logistics_single_person/types'
+import {
+  getCameraInventorySummary,
+  getLoadedAiVisionFeatureCounts,
+  mergeAiVisionAndLogisticsCameras,
+  type FeatureCameraCounts,
+} from './homeCameraCounts'
 
 interface HomeSectionProps {
   onNavigate: (page: string) => void
@@ -205,6 +212,13 @@ const securityPageByDepartment: Record<SecurityVlmDepartment, string> = {
 const guardPageByDepartment: Partial<Record<Department, string>> = {
   general_electric: 'guard-behavior-general-electric',
   electronics_electrician: 'guard-behavior-electronics-electrician',
+}
+
+const logisticsPageByFeature: Record<LogisticsFeatureName, string> = {
+  detect_logistics_single_person: 'logistics-single-person-detection',
+  detect_logistics_single_person_electronics_electrician: 'logistics-single-person-electronics-electrician-detection',
+  detect_logistics_single_person_electrical_components: 'logistics-single-person-electrical-components-detection',
+  detect_logistics_single_person_precious_metal_recycling: 'logistics-single-person-precious-metal-recycling-detection',
 }
 
 type ServiceKey = keyof PlatformStatus['services']
@@ -678,6 +692,8 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
   const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
+  const [logisticsCameras, setLogisticsCameras] = useState<Awaited<ReturnType<typeof getLogisticsCameraInventory>>['items']>([])
+  const [logisticsCamerasLoaded, setLogisticsCamerasLoaded] = useState(false)
   const [guardRoomSites, setGuardRoomSites] = useState<GuardRoomSite[]>([])
   const [securityVlmCameras, setSecurityVlmCameras] = useState<SecurityCameraInventoryItem[]>([])
   const [cameraInventoryLoaded, setCameraInventoryLoaded] = useState(false)
@@ -723,20 +739,35 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     [visiblePageIds],
   )
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
+  const mergedAiVisionCameras = useMemo(
+    () => mergeAiVisionAndLogisticsCameras(aiVisionCameras, logisticsCameras),
+    [aiVisionCameras, logisticsCameras],
+  )
   const aiVisionFeatureCounts = useMemo(
-    () => getLoadedAiVisionFeatureCounts(aiVisionCameras, aiVisionCamerasLoaded),
-    [aiVisionCameras, aiVisionCamerasLoaded],
+    () => getLoadedAiVisionFeatureCounts(
+      mergedAiVisionCameras,
+      aiVisionCamerasLoaded || logisticsCamerasLoaded,
+    ),
+    [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras],
   )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
-    const aiVisionItems = aiVisionCameras.map((camera) => ({
+    const aiVisionItems = mergedAiVisionCameras.map((camera) => ({
       key: `aivision:${getAiVisionCameraKey(camera)}`,
       source: 'aivision' as const,
       name: camera.name,
       identifier: camera.shm_name,
       department: camera.department,
+      detail: camera.inventoryOnly
+        ? `物流通道：${Array.from(new Set(
+          (camera.logisticsMemberships || []).map((membership) => membership.channel_name),
+        )).join('、')}`
+        : undefined,
       featureLabels: getAiVisionCameraFeatureLabels(camera),
-      aiVisionCamera: camera,
+      pageId: camera.inventoryOnly
+        ? logisticsPageByFeature[camera.logisticsMemberships?.[0]?.feature_name as LogisticsFeatureName]
+        : undefined,
+      aiVisionCamera: camera.inventoryOnly ? undefined : camera,
     }))
     const guardItems = guardRoomSites.flatMap((site) => site.cameras.map((camera) => ({
       key: `guard_room:${site.id}:${camera.id}`,
@@ -761,10 +792,10 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       securityVlmCamera: camera,
     }))
     return [...aiVisionItems, ...guardItems, ...securityItems]
-  }, [aiVisionCameras, guardRoomSites, securityVlmCameras])
+  }, [guardRoomSites, mergedAiVisionCameras, securityVlmCameras])
   const cameraInventorySummary = useMemo(() => {
     const aiVisionSummary = getCameraInventorySummary(
-      aiVisionCameras,
+      mergedAiVisionCameras,
       platformStatus?.services.aivision.running_cameras,
       platformStatus?.services.aivision.online_camera_count,
     )
@@ -781,7 +812,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       cameraOnline,
       cameraOffline: Math.max(0, cameraTotal - cameraOnline),
     }
-  }, [aiVisionCameras, guardRoomSites, platformStatus, securityVlmCameras])
+  }, [guardRoomSites, mergedAiVisionCameras, platformStatus, securityVlmCameras])
   const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null
   const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
 
@@ -851,8 +882,12 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
         cameras: (await getSecurityVlmCameras(itemDepartment)).cameras,
       })),
     )
-    const [[aiVisionResult, guardResult], securityResults] = await Promise.all([
-      Promise.allSettled([getAiVisionCameras(), guardRequest]),
+    const [[aiVisionResult, guardResult, logisticsResult], securityResults] = await Promise.all([
+      Promise.allSettled([
+        getAiVisionCameras(),
+        guardRequest,
+        getLogisticsCameraInventory(),
+      ]),
       securityRequest,
     ])
 
@@ -861,6 +896,12 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
       setAiVisionCamerasLoaded(true)
     } else {
       setAiVisionCamerasLoaded(false)
+    }
+    if (logisticsResult.status === 'fulfilled') {
+      setLogisticsCameras(logisticsResult.value.items)
+      setLogisticsCamerasLoaded(true)
+    } else {
+      setLogisticsCamerasLoaded(false)
     }
     if (guardResult.status === 'fulfilled') {
       setGuardRoomSites(guardResult.value)
@@ -876,6 +917,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraInventoryPartial(
       aiVisionResult.status === 'rejected'
       || guardResult.status === 'rejected'
+      || logisticsResult.status === 'rejected'
       || securityResults.some((result) => result.status === 'rejected'),
     )
     setCameraInventoryLoaded(true)
@@ -1117,7 +1159,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                       全部摄像头
                     </div>
                     <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      共 {platformCameras.length} 路；已汇总 AiVision、保安行为和安检流程摄像头。
+                      共 {platformCameras.length} 路；已汇总 AiVision、物流通道、保安行为和安检流程摄像头。
                       {cameraInventoryPartial ? ' 部分来源暂不可用。' : ''}
                     </div>
                   </div>

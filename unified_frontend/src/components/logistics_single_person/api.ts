@@ -6,6 +6,7 @@ import type {
   CreateLogisticsChannelPayload,
   LogisticsCameraConfigPayload,
   LogisticsCameraConfigResponse,
+  LogisticsCameraInventoryResponse,
   LogisticsChannelAlarmListResponse,
   LogisticsChannelConfigPayload,
   LogisticsChannelDetail,
@@ -135,6 +136,18 @@ const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number)
     ? featurePath
     : `${featurePath}/${encodeURIComponent(String(channelId))}`
 }
+
+/**
+ * 功能：读取当前用户授权范围内、按物理摄像头去重的物流通道摄像头清单。
+ * 参数：无。
+ * 返回：Promise<LogisticsCameraInventoryResponse>；返回不含 RTSP 地址的物流摄像头及通道成员关系。
+ * 调用关系：
+ *   - 调用方：`HomeSection` 的平台摄像头汇总加载流程调用本符号
+ *   - 内部调用：`apiGet`。
+ * 副作用/注意事项：发起只读网络请求；权限范围由后端依据当前登录用户统一裁剪。
+ */
+export const getLogisticsCameraInventory = () =>
+  apiGet<LogisticsCameraInventoryResponse>('/v2/logistics-channels/inventory')
 
 /**
  * 功能：实现 `memberCameraConfigPath` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明

@@ -60,6 +60,28 @@ export type LogisticsChannelMember = {
   updated_at: string | null
 }
 
+export type LogisticsCameraInventoryMembership = {
+  feature_name: LogisticsFeatureName
+  channel_id: number
+  channel_name: string
+  enabled: boolean
+  online: boolean
+}
+
+export type LogisticsCameraInventoryItem = {
+  camera_id: number
+  name: string
+  shm_name: string
+  department: string | null
+  enabled: boolean
+  online: boolean
+  memberships: LogisticsCameraInventoryMembership[]
+}
+
+export type LogisticsCameraInventoryResponse = {
+  items: LogisticsCameraInventoryItem[]
+}
+
 export type LogisticsChannelCameraStatus = {
   camera_id: number
   camera_name: string

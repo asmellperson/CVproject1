@@ -93,11 +93,11 @@ test('keeps cameras in one scroller with a responsive two-column grid and hover 
   assert.match(cameraList, /onClick=\{\(\) => onNavigate\(camera\.pageId!\)\}/)
 })
 
-test('aggregates three camera sources and routes overview creation to the selected backend', () => {
+test('aggregates every camera source including logistics and routes overview creation to the selected backend', () => {
   assert.match(homeSection, /source: 'aivision' as const/)
   assert.match(homeSection, /source: 'guard_room' as const/)
   assert.match(homeSection, /source: 'security_vlm' as const/)
-  assert.match(homeSection, /已汇总 AiVision、保安行为和安检流程摄像头/)
+  assert.match(homeSection, /已汇总 AiVision、物流通道、保安行为和安检流程摄像头/)
   assert.match(homeSection, /<Label htmlFor="overview-camera-source">目标能力<\/Label>/)
   assert.match(homeSection, /<Label htmlFor="overview-camera-department">所属事业部<\/Label>/)
   assert.match(homeSection, /cameraSource === 'guard_room'[\s\S]*?<Label htmlFor="overview-camera-guard-site">所属保安室<\/Label>/)

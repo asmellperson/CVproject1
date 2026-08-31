@@ -253,6 +253,75 @@ class LogisticsChannelService:
         finally:
             session.close()
 
+    # 功能：批量读取指定物流功能的全部通道成员，按物理摄像头 ID 去重并生成安全清单。
+    # 参数：
+    #   - `self`（LogisticsChannelService）：当前物流通道服务实例
+    #   - `feature_names`（list[str] | tuple[str, ...]）：已完成上层权限裁剪的物流功能标识
+    # 返回：list[dict]；返回摄像头基础信息及其通道成员关系，不包含连接地址。
+    # 调用关系：
+    #   - 调用方：`api/v2/logistics_channels.py` 的 `list_logistics_camera_inventory` 调用本方法
+    #   - 内部调用：`require_logistics_feature`、`get_session`、`selectinload`、`session.query`、`dict.setdefault`、`list.sort`、`session.close`。
+    # 副作用/注意事项：只读数据库；通过 eager loading 固定查询次数，同一摄像头跨通道或跨功能时只返回一个清单项。
+    def list_camera_inventory(
+        self,
+        feature_names: list[str] | tuple[str, ...],
+    ) -> list[dict]:
+        features = tuple(dict.fromkeys(
+            require_logistics_feature(feature)
+            for feature in feature_names
+        ))
+        if not features:
+            return []
+        session = get_session()
+        try:
+            channels = (
+                session.query(LogisticsChannel)
+                .options(
+                    selectinload(LogisticsChannel.cameras)
+                    .selectinload(LogisticsChannelCamera.camera)
+                )
+                .filter(LogisticsChannel.feature_name.in_(features))
+                .order_by(
+                    LogisticsChannel.feature_name,
+                    LogisticsChannel.sort_order,
+                    LogisticsChannel.id,
+                )
+                .all()
+            )
+            inventory: dict[int, dict] = {}
+            for channel in channels:
+                for member in channel.cameras:
+                    camera = member.camera
+                    if camera is None:
+                        continue
+                    item = inventory.setdefault(camera.id, {
+                        "camera_id": camera.id,
+                        "name": camera.name,
+                        "shm_name": camera.shm_name,
+                        "department": (
+                            camera.department
+                            or LOGISTICS_FEATURE_DEPARTMENTS[channel.feature_name]
+                        ),
+                        "enabled": bool(camera.enable),
+                        "memberships": [],
+                    })
+                    item["memberships"].append({
+                        "feature_name": channel.feature_name,
+                        "channel_id": channel.id,
+                        "channel_name": channel.name,
+                        "enabled": bool(channel.enabled and member.enabled),
+                    })
+            items = list(inventory.values())
+            for item in items:
+                item["memberships"].sort(key=lambda membership: (
+                    membership["feature_name"],
+                    membership["channel_id"],
+                ))
+            items.sort(key=lambda item: item["camera_id"])
+            return items
+        finally:
+            session.close()
+
     # 功能：读取或查询 `get_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例

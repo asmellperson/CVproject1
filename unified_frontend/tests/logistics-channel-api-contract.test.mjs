@@ -39,6 +39,8 @@ test('declares the four isolated logistics features and exact response DTO field
     'offending_camera_ids', 'detection_start', 'detection_end', 'confidence_threshold',
   ]) assert.match(types, new RegExp(field))
   assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\[\]/)
+  assert.match(types, /type LogisticsCameraInventoryItem/)
+  assert.match(types, /memberships: LogisticsCameraInventoryMembership\[\]/)
 })
 
 test('uses canonical encoded v2 resource URLs for the complete client', () => {
@@ -53,6 +55,8 @@ test('uses canonical encoded v2 resource URLs for the complete client', () => {
   assert.match(api, /apiPut<LogisticsChannelDetail>/)
   assert.match(api, /apiDelete<LogisticsChannelOkResponse>/)
   assert.match(api, /memberCameraConfigPath/)
+  assert.match(api, /getLogisticsCameraInventory/)
+  assert.match(api, /\/v2\/logistics-channels\/inventory/)
   assert.match(api, /cameraId: number/)
   assert.doesNotMatch(api, /cameraKey: string \| number/)
 })

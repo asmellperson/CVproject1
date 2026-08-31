@@ -432,6 +432,62 @@ class LogisticsChannelListResponse(BaseModel):
     items: list[LogisticsChannelResponse]
 
 
+# 功能：描述摄像头与一个物流通道的成员关系及当前在线状态；输入与输出详见下方说明
+# 参数：
+#   - `feature_name`（LogisticsFeatureName）：物流检测功能标识
+#   - `channel_id`（int）：物流通道唯一标识
+#   - `channel_name`（str）：物流通道名称
+#   - `enabled`（bool）：通道和成员是否均已启用
+#   - `online`（bool）：该摄像头在此通道的最新运行状态是否在线
+# 返回：LogisticsCameraInventoryMembership；返回结构化的物流摄像头成员关系。
+# 调用关系：
+#   - 调用方：`api/v2/logistics_channels.py` 的 `list_logistics_camera_inventory` 构造本模型；前端首页读取其序列化结果
+#   - 内部调用：不调用其他项目函数，仅进行字段声明与 Pydantic 校验。
+# 副作用/注意事项：无外部副作用；不包含摄像头连接地址等敏感字段。
+class LogisticsCameraInventoryMembership(BaseModel):
+    feature_name: LogisticsFeatureName
+    channel_id: int
+    channel_name: str
+    enabled: bool
+    online: bool
+
+
+# 功能：描述平台汇总所需的一路物流摄像头安全清单；输入与输出详见下方说明
+# 参数：
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `name`（str）：摄像头名称
+#   - `shm_name`（str）：摄像头共享内存标识
+#   - `department`（str | None）：摄像头事业部归属
+#   - `enabled`（bool）：摄像头主配置是否启用
+#   - `online`（bool）：任一授权物流通道中的最新在线状态
+#   - `memberships`（list[LogisticsCameraInventoryMembership]）：授权范围内的物流通道成员关系
+# 返回：LogisticsCameraInventoryItem；返回不含 RTSP 地址的物流摄像头清单项。
+# 调用关系：
+#   - 调用方：`api/v2/logistics_channels.py` 的 `list_logistics_camera_inventory` 构造本模型；前端首页消费其字段
+#   - 内部调用：`Field`。
+# 副作用/注意事项：无外部副作用；同一物理摄像头可包含多个通道成员关系。
+class LogisticsCameraInventoryItem(BaseModel):
+    camera_id: int
+    name: str
+    shm_name: str
+    department: str | None = None
+    enabled: bool
+    online: bool
+    memberships: list[LogisticsCameraInventoryMembership] = Field(default_factory=list)
+
+
+# 功能：封装当前用户有权查看的物流摄像头清单；输入与输出详见下方说明
+# 参数：
+#   - `items`（list[LogisticsCameraInventoryItem]）：按物理摄像头去重后的安全清单
+# 返回：LogisticsCameraInventoryResponse；作为 `/api/v2/logistics-channels/inventory` 的响应体。
+# 调用关系：
+#   - 调用方：`api/v2/logistics_channels.py` 的 `list_logistics_camera_inventory` 返回本模型
+#   - 内部调用：`Field`。
+# 副作用/注意事项：无外部副作用；响应不包含 URL、账号或密码。
+class LogisticsCameraInventoryResponse(BaseModel):
+    items: list[LogisticsCameraInventoryItem] = Field(default_factory=list)
+
+
 # 功能：定义 `LogisticsChannelDetailResponse` 类，封装数据结构相关的状态、约束与操作
 # 参数：
 #   - `config`（LogisticsChannelConfigResponse）：运行配置对象
