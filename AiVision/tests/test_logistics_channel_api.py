@@ -700,6 +700,21 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 "/api/v2/logistics-channels/"
                 "detect_logistics_single_person_electronics_electrician"
             )).status_code == 403
+            multi_department_viewer = {
+                "role": "viewer",
+                "department": "general_electric",
+                "departments": ["general_electric", "electrical_components"],
+            }
+            app.dependency_overrides[api.get_current_user] = lambda: multi_department_viewer
+            assert (await client.get(
+                "/api/v2/logistics-channels/"
+                "detect_logistics_single_person_electrical_components"
+            )).status_code == 200
+            assert (await client.get(
+                "/api/v2/logistics-channels/"
+                "detect_logistics_single_person_electronics_electrician"
+            )).status_code == 403
+            app.dependency_overrides[api.get_current_user] = lambda: viewer
             member_config_url = f"{base}/{channel_id}/cameras/7/config"
             member_config = await client.get(member_config_url)
             assert member_config.status_code == 200

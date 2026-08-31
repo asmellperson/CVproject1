@@ -63,12 +63,12 @@ class LogisticsChannelPutRequest(LogisticsChannelUpdate):
 # 参数：
 #   - `feature`（str）：`feature` 对应的业务输入值
 #   - `user`（dict）：当前用户或待处理用户对象
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 返回：str；返回通过权限校验的物流功能标识。
 # 调用关系：
 #   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channels` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `create_channel`
 #         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
 #         `update_channel` 调用本符号；另有 14 处静态调用
-#   - 内部调用：`HTTPException`、`user.get`。
+#   - 内部调用：`user.get`、`isinstance`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _require_feature_access(feature: str, user: dict) -> str:
     if feature not in LOGISTICS_FEATURES:
@@ -76,7 +76,13 @@ def _require_feature_access(feature: str, user: dict) -> str:
     if user.get("role") == "admin":
         return feature
     expected_department = LOGISTICS_FEATURE_DEPARTMENTS[feature]
-    if user.get("department") != expected_department:
+    raw_departments = user.get("departments")
+    departments = (
+        raw_departments
+        if isinstance(raw_departments, list) and raw_departments
+        else [user.get("department")]
+    )
+    if expected_department not in departments:
         raise HTTPException(status_code=403, detail="feature department permission required")
     return feature
 
