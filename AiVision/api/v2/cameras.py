@@ -19,6 +19,7 @@ from api.auth import get_current_user, require_admin
 from api.deps import get_camera_service, get_current_orchestrator
 from core.logger import logger
 from core.settings import settings
+from platform.camera.service import camera_access_departments
 
 
 router = APIRouter(prefix="/api/v2/cameras", tags=["cameras"])
@@ -150,7 +151,7 @@ def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, An
 # 返回：list[dict[str, Any]]；返回当前用户授权事业部内的摄像头列表，viewer 响应不含连接地址。
 # 调用关系：
 #   - 调用方：`AiVision/api/v2/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
-#   - 内部调用：`user.get`、`set`、`_camera_departments_for_user`、`camera.get`、`camera_response_for_user`。
+#   - 内部调用：`user.get`、`set`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def camera_list_response_for_user(
     cameras: list[dict[str, Any]],
@@ -161,7 +162,7 @@ def camera_list_response_for_user(
         departments = set(_camera_departments_for_user(user))
         visible_cameras = [
             camera for camera in cameras
-            if camera.get("department") in departments
+            if not departments.isdisjoint(camera_access_departments(camera))
         ]
     return [camera_response_for_user(camera, user) for camera in visible_cameras]
 
@@ -176,7 +177,7 @@ def camera_list_response_for_user(
 #   - 调用方：`AiVision/api/v2/cameras.py` 的 `get_camera` 调用本符号；`AiVision/api/v2/cameras.py` 的 `get_camera_frame_jpg`
 #         调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg`
 #         调用本符号；另有 1 处静态调用
-#   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera.get`、`camera_response_for_user`。
+#   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
     """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
@@ -184,8 +185,8 @@ def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     if user.get("role") != "admin":
-        departments = _camera_departments_for_user(user)
-        if not departments or camera.get("department") not in departments:
+        departments = set(_camera_departments_for_user(user))
+        if not departments or departments.isdisjoint(camera_access_departments(camera)):
             raise HTTPException(status_code=403, detail="camera department permission required")
     return camera_response_for_user(camera, user)
 

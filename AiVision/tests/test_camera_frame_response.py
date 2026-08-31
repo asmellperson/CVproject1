@@ -110,6 +110,16 @@ class PermissionCameraService:
                 "shm_name": "camera_3", "url": "rtsp://unauthorized/three",
                 "enabled": True, "department": "electrical_components", "functions": {},
             },
+            {
+                "id": "camera_4", "camera_id": 4, "name": "历史通用电气摄像头",
+                "shm_name": "camera_4", "url": "rtsp://legacy/general",
+                "enabled": True, "department": None, "functions": {"detect_human": True},
+            },
+            {
+                "id": "camera_5", "camera_id": 5, "name": "历史研究院摄像头",
+                "shm_name": "camera_5", "url": "rtsp://legacy/research",
+                "enabled": True, "department": "", "functions": {"detect_face": True},
+            },
         ]
 
     # 功能：读取或查询 `list_cameras` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
@@ -124,7 +134,10 @@ class PermissionCameraService:
     def list_cameras(self, department=None):
         if department is None:
             return list(self.cameras)
-        return [item for item in self.cameras if item["department"] == department]
+        return [
+            item for item in self.cameras
+            if department in cameras_module.camera_access_departments(item)
+        ]
 
     # 功能：读取或查询 `get_camera` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -196,7 +209,7 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
             for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
                 default_list = await client.get(prefix)
                 assert default_list.status_code == 200
-                assert [item["camera_id"] for item in default_list.json()] == [1]
+                assert [item["camera_id"] for item in default_list.json()] == [1, 4]
                 assert "url" not in default_list.json()[0]
                 assert (await client.get(
                     prefix,
@@ -208,8 +221,10 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 assert camera_by_shm.status_code == 200
                 assert "url" not in camera_by_id.json()
                 assert "url" not in camera_by_shm.json()
+                assert (await client.get(f"{prefix}/camera_4")).status_code == 200
                 assert (await client.get(f"{prefix}/2")).status_code == 403
                 assert (await client.get(f"{prefix}/camera_2")).status_code == 403
+                assert (await client.get(f"{prefix}/camera_5")).status_code == 403
 
             multi_department_viewer = {
                 "role": "viewer",
@@ -220,7 +235,7 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
             for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
                 authorized_cameras = await client.get(prefix)
                 assert authorized_cameras.status_code == 200
-                assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2]
+                assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2, 4]
                 assert all("url" not in item for item in authorized_cameras.json())
                 second_department = await client.get(
                     prefix,
@@ -235,15 +250,25 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 )).status_code == 403
                 assert (await client.get(f"{prefix}/camera_3")).status_code == 403
 
+            research_viewer = {"role": "viewer", "department": "research_institute"}
+            app.dependency_overrides[cameras_module.get_current_user] = lambda: research_viewer
+            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+                research_cameras = await client.get(prefix)
+                assert [item["camera_id"] for item in research_cameras.json()] == [5]
+                assert (await client.get(f"{prefix}/camera_5")).status_code == 200
+                assert (await client.get(f"{prefix}/camera_4")).status_code == 403
+
             admin = {"role": "admin", "department": None}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: admin
             for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
                 all_cameras = await client.get(prefix)
-                assert [item["camera_id"] for item in all_cameras.json()] == [1, 2, 3]
+                assert [item["camera_id"] for item in all_cameras.json()] == [1, 2, 3, 4, 5]
                 assert [item["url"] for item in all_cameras.json()] == [
                     "rtsp://general/one",
                     "rtsp://other/two",
                     "rtsp://unauthorized/three",
+                    "rtsp://legacy/general",
+                    "rtsp://legacy/research",
                 ]
                 filtered = await client.get(
                     prefix,

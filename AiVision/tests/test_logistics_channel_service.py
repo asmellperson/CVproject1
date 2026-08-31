@@ -335,6 +335,57 @@ def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
     assert len(select_statements) == 1 + len(all_specs())
 
 
+# 功能：验证历史空归属摄像头会按已启用功能推导事业部，同时显式归属始终优先。
+# 参数：
+#   - `service_db`（未显式标注）：隔离的摄像头与物流服务测试数据库
+# 返回：None；通过断言验证按事业部查询结果。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
+#   - 内部调用：`_seed_camera`、`service_db.camera_service.list_cameras`、`set`。
+# 副作用/注意事项：仅写入测试内存数据库，不修改生产数据。
+def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
+    _seed_camera(
+        service_db,
+        "legacy-general",
+        department=None,
+        enabled_features=("detect_human",),
+    )
+    _seed_camera(
+        service_db,
+        "legacy-research",
+        department=None,
+        enabled_features=("detect_face",),
+    )
+    _seed_camera(
+        service_db,
+        "legacy-shared",
+        department=None,
+        enabled_features=("detect_phone",),
+    )
+    _seed_camera(
+        service_db,
+        "explicit-research",
+        department="research_institute",
+        enabled_features=("detect_human",),
+    )
+
+    general_names = {
+        camera["name"]
+        for camera in service_db.camera_service.list_cameras("general_electric")
+    }
+    research_names = {
+        camera["name"]
+        for camera in service_db.camera_service.list_cameras("research_institute")
+    }
+
+    assert general_names == {"legacy-general", "legacy-shared"}
+    assert research_names == {
+        "legacy-research",
+        "legacy-shared",
+        "explicit-research",
+    }
+
+
 BASE_FEATURE = "detect_logistics_single_person"
 EE_FEATURE = "detect_logistics_single_person_electronics_electrician"
 

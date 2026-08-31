@@ -29,6 +29,48 @@ _MAX_WRITE_ATTEMPTS = 3
 _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 
 
+# 功能：解析摄像头所属的有效事业部；显式归属优先，历史空归属摄像头按已启用功能的事业部声明推导。
+# 参数：
+#   - `camera`（dict）：摄像头响应对象，包含 `department` 与 `functions` 字段
+#   - `specs`（dict | None）：功能注册表；默认读取 `all_specs()`
+# 返回：set[str]；返回该摄像头允许归属的事业部标识集合。
+# 调用关系：
+#   - 调用方：`CameraService.list_cameras`、`api/v2/cameras.py` 的摄像头列表与详情权限校验调用本符号
+#   - 内部调用：`camera.get`、`str`、`strip`、`isinstance`、`all_specs`、`getattr`、`set.add`。
+# 副作用/注意事项：不修改摄像头或数据库；仅在显式归属为空时启用历史兼容推导，未启用任何功能时返回空集合。
+def camera_access_departments(
+    camera: dict,
+    specs: dict | None = None,
+) -> set[str]:
+    explicit_department = str(camera.get("department") or "").strip()
+    if explicit_department:
+        return {explicit_department}
+
+    functions = camera.get("functions")
+    if isinstance(functions, dict):
+        enabled_features = {
+            str(feature_name)
+            for feature_name, enabled in functions.items()
+            if enabled
+        }
+    elif isinstance(functions, (list, tuple, set)):
+        enabled_features = {str(feature_name) for feature_name in functions}
+    else:
+        enabled_features = set()
+
+    feature_specs = specs if specs is not None else all_specs()
+    departments: set[str] = set()
+    for feature_name in enabled_features:
+        spec = feature_specs.get(feature_name)
+        if spec is None:
+            continue
+        for department in getattr(spec, "departments", ()):
+            normalized = str(department or "").strip()
+            if normalized:
+                departments.add(normalized)
+    return departments
+
+
 # 功能：按功能表批量读取摄像头启用状态，查询次数只随功能数量增长；输入与输出详见下方说明
 # 参数：
 #   - `session`（未显式标注）：数据库会话或运行会话
@@ -119,7 +161,7 @@ class CameraService:
     # 返回：list[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_session`、`session.query`、`query.filter`、`query.order_by(AiCameraConfig.id).all`、`query.order_by`、`all_specs`、`_load_function_states`、`self._to_dict`、`session.close`。
+    #   - 内部调用：`get_session`、`session.query`、`query.filter`、`or_`、`query.order_by(AiCameraConfig.id).all`、`all_specs`、`_load_function_states`、`self._to_dict`、`camera_access_departments`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def list_cameras(self, department: Optional[str] = None) -> list[dict]:
         """返回摄像头列表(基础信息 + 各功能启用状态)，可选按部门过滤"""
@@ -127,7 +169,11 @@ class CameraService:
         try:
             query = session.query(AiCameraConfig)
             if department:
-                query = query.filter(AiCameraConfig.department == department)
+                query = query.filter(or_(
+                    AiCameraConfig.department == department,
+                    AiCameraConfig.department.is_(None),
+                    AiCameraConfig.department == "",
+                ))
             cameras = query.order_by(AiCameraConfig.id).all()
             specs = all_specs()
             function_states = _load_function_states(
@@ -135,10 +181,16 @@ class CameraService:
                 [cam.id for cam in cameras],
                 specs,
             )
-            return [
+            items = [
                 self._to_dict(cam, function_states[cam.id])
                 for cam in cameras
             ]
+            if department:
+                items = [
+                    camera for camera in items
+                    if department in camera_access_departments(camera, specs)
+                ]
+            return items
         finally:
             session.close()
 
