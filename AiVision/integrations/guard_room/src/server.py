@@ -221,8 +221,7 @@ def _normalize_department(value: object) -> str:
 #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site`
 #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_config`
 #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_status` 调用本符号；另有 8 处静态调用
-#   - 内部调用：`_normalize_department`、`isinstance`、`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`HTTPException`。
+#   - 内部调用：`_normalize_department`、`isinstance`、`str(user.get('role') or '').strip().lower`、`user.get`、`append`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _department_scope(requested_department: str | None, user: object) -> str:
     requested = _normalize_department(requested_department)
@@ -233,12 +232,22 @@ def _department_scope(requested_department: str | None, user: object) -> str:
     if role == "admin":
         return requested
 
-    user_department = _normalize_department(user.get("department"))
-    if not user_department or user_department == "all":
+    raw_departments = user.get("departments")
+    candidates = (
+        raw_departments
+        if isinstance(raw_departments, list) and raw_departments
+        else [user.get("department")]
+    )
+    user_departments: list[str] = []
+    for candidate in candidates:
+        department = _normalize_department(candidate)
+        if department and department not in user_departments:
+            user_departments.append(department)
+    if not user_departments or "all" in user_departments:
         return requested
-    if requested and requested != user_department:
+    if requested and requested not in user_departments:
         raise HTTPException(status_code=403, detail="无权访问该部门保安室")
-    return requested or user_department
+    return requested or user_departments[0]
 
 
 # 功能：实现 `_require_site_visible` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明

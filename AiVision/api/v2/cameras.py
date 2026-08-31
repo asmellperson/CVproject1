@@ -29,6 +29,29 @@ _jpeg_cache: dict[tuple[Any, ...], bytes] = {}
 _jpeg_cache_order: list[tuple[Any, ...]] = []
 
 
+# 功能：提取当前用户可访问的全部事业部；输入用户字典，输出去重后的事业部标识列表。
+# 参数：
+#   - `user`（dict）：当前用户对象，兼容多事业部 `departments` 与旧版单事业部 `department` 字段
+# 返回：list[str]；返回用户可访问的事业部标识，保持原始授权顺序并去除空值与重复值。
+# 调用关系：
+#   - 调用方：`camera_read_department`、`camera_list_response_for_user`、`get_camera_for_user` 调用本符号以统一摄像头读取权限
+#   - 内部调用：`user.get`、`isinstance`、`str`、`strip`、`append`。
+# 副作用/注意事项：不修改用户对象；缺少有效事业部时返回空列表。
+def _camera_departments_for_user(user: dict) -> list[str]:
+    raw_departments = user.get("departments")
+    candidates = (
+        raw_departments
+        if isinstance(raw_departments, list) and raw_departments
+        else [user.get("department")]
+    )
+    departments: list[str] = []
+    for candidate in candidates:
+        department = str(candidate or "").strip()
+        if department and department not in departments:
+            departments.append(department)
+    return departments
+
+
 # 功能：定义 `CameraCreateRequest` 类，封装`cameras` 模块相关的状态、约束与操作
 # 参数：
 #   - `name`（str）：业务对象名称
@@ -83,21 +106,23 @@ class CameraUpdateRequest(BaseModel):
 # 参数：
 #   - `user`（dict）：当前用户或待处理用户对象
 #   - `requested_department`（str | None）：`requested_department` 对应的业务输入值
-# 返回：str | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 返回：str | None；返回下推给摄像头服务的部门过滤值，多事业部且未指定部门时返回 None 并由响应层执行授权集合过滤。
 # 调用关系：
 #   - 调用方：`AiVision/api/v2/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
-#   - 内部调用：`user.get`、`HTTPException`、`str`。
+#   - 内部调用：`user.get`、`_camera_departments_for_user`、`len`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def camera_read_department(user: dict, requested_department: str | None) -> str | None:
     """返回当前用户可读取的部门过滤值。"""
     if user.get("role") == "admin":
         return requested_department
-    department = user.get("department")
-    if not department:
+    departments = _camera_departments_for_user(user)
+    if not departments:
         raise HTTPException(status_code=403, detail="camera department permission required")
-    if requested_department is not None and requested_department != department:
-        raise HTTPException(status_code=403, detail="camera department permission required")
-    return str(department)
+    if requested_department is not None:
+        if requested_department not in departments:
+            raise HTTPException(status_code=403, detail="camera department permission required")
+        return requested_department
+    return departments[0] if len(departments) == 1 else None
 
 
 # 功能：普通用户只读取运行所需元数据，摄像头连接地址仅管理员可见；输入与输出详见下方说明
@@ -122,16 +147,23 @@ def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, An
 # 参数：
 #   - `cameras`（list[dict[str, Any]]）：`cameras` 对应的业务输入值
 #   - `user`（dict）：当前用户或待处理用户对象
-# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 返回：list[dict[str, Any]]；返回当前用户授权事业部内的摄像头列表，viewer 响应不含连接地址。
 # 调用关系：
 #   - 调用方：`AiVision/api/v2/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
-#   - 内部调用：`camera_response_for_user`。
+#   - 内部调用：`user.get`、`set`、`_camera_departments_for_user`、`camera.get`、`camera_response_for_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def camera_list_response_for_user(
     cameras: list[dict[str, Any]],
     user: dict,
 ) -> list[dict[str, Any]]:
-    return [camera_response_for_user(camera, user) for camera in cameras]
+    visible_cameras = cameras
+    if user.get("role") != "admin":
+        departments = set(_camera_departments_for_user(user))
+        visible_cameras = [
+            camera for camera in cameras
+            if camera.get("department") in departments
+        ]
+    return [camera_response_for_user(camera, user) for camera in visible_cameras]
 
 
 # 功能：按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门；输入与输出详见下方说明
@@ -144,7 +176,7 @@ def camera_list_response_for_user(
 #   - 调用方：`AiVision/api/v2/cameras.py` 的 `get_camera` 调用本符号；`AiVision/api/v2/cameras.py` 的 `get_camera_frame_jpg`
 #         调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg`
 #         调用本符号；另有 1 处静态调用
-#   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`camera.get`、`camera_response_for_user`。
+#   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera.get`、`camera_response_for_user`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
     """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
@@ -152,8 +184,8 @@ def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     if user.get("role") != "admin":
-        department = user.get("department")
-        if not department or camera.get("department") != department:
+        departments = _camera_departments_for_user(user)
+        if not departments or camera.get("department") not in departments:
             raise HTTPException(status_code=403, detail="camera department permission required")
     return camera_response_for_user(camera, user)
 

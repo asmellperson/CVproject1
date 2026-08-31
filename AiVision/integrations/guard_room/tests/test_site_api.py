@@ -5,6 +5,9 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.db import configure_for_tests
@@ -243,6 +246,19 @@ def test_site_api_routes_scope_sites_by_department(tmp_path):
 
     assert [item["name"] for item in list_sites(department="general_electric")["items"]] == ["通用电气保安室"]
     assert [item["name"] for item in list_sites(department="electronics_electrician")["items"]] == ["电子电工保安室"]
+
+    multi_department_viewer = {
+        "role": "viewer",
+        "department": "general_electric",
+        "departments": ["general_electric", "electronics_electrician"],
+    }
+    assert [item["name"] for item in list_sites(
+        department="electronics_electrician",
+        _user=multi_department_viewer,
+    )["items"]] == ["电子电工保安室"]
+    with pytest.raises(HTTPException) as caught:
+        list_sites(department="electrical_components", _user=multi_department_viewer)
+    assert caught.value.status_code == 403
 
 
 # 功能：验证 `test_site_api_routes_update_and_delete_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
