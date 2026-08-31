@@ -1,3 +1,6 @@
+# 文件说明：实现资源清理相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/process_cleanup.py
 启动前清理上一轮 AiVision 遗留的采集/推理子进程。
@@ -14,6 +17,16 @@ from typing import Iterable
 from core.logger import logger
 
 
+# 功能：定义 `_ProcessHit` 类，封装资源清理相关的状态、约束与操作
+# 参数：
+#   - `pid`（int）：`pid` 对应的业务输入值
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `cmdline`（str）：`cmdline` 对应的业务输入值
+# 返回：_ProcessHit；返回新建的 `_ProcessHit` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `_find_residual_processes` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _ProcessHit:
     pid: int
@@ -21,6 +34,17 @@ class _ProcessHit:
     cmdline: str
 
 
+# 功能：清理本项目上一轮残留的 Camera/ModelWorker/ffmpeg 进程；输入与输出详见下方说明
+# 参数：
+#   - `camera_shm_names`（Iterable[str]）：`camera_shm_names` 对应的业务输入值
+#   - `camera_urls`（Iterable[str]）：`camera_urls` 对应的业务输入值
+#   - `model_names`（Iterable[str]）：`model_names` 对应的业务输入值
+#   - `terminate_timeout`（float）：`terminate_timeout` 对应的业务输入值；默认值为 `3.0`
+# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::start` 调用本符号
+#   - 内部调用：`str`、`_find_residual_processes`、`logger.warning`、`_safe_kill`、`time.time`、`max`、`_is_alive`、`time.sleep`、`list`、`len`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
 def cleanup_aivision_residual_processes(
     camera_shm_names: Iterable[str],
     camera_urls: Iterable[str],
@@ -64,6 +88,17 @@ def cleanup_aivision_residual_processes(
     return len(hits)
 
 
+# 功能：读取或查询 `_find_residual_processes` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `camera_keys`（set[str]）：`camera_keys` 对应的业务输入值
+#   - `urls`（set[str]）：`urls` 对应的业务输入值
+#   - `models`（set[str]）：`models` 对应的业务输入值
+# 返回：list[_ProcessHit]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `cleanup_aivision_residual_processes` 调用本符号
+#   - 内部调用：`os.getpid`、`set`、`Path('/proc').iterdir`、`Path`、`proc_dir.name.isdigit`、`int`、`_read_cmdline`、`_match_process`、`seen.add`、`hits.append`
+#          等共 11 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _find_residual_processes(camera_keys: set[str], urls: set[str], models: set[str]) -> list[_ProcessHit]:
     current_pid = os.getpid()
     hits: list[_ProcessHit] = []
@@ -85,6 +120,15 @@ def _find_residual_processes(camera_keys: set[str], urls: set[str], models: set[
     return hits
 
 
+# 功能：读取或查询 `_read_cmdline` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `proc_dir`（Path）：`proc_dir` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `_find_residual_processes` 调用本符号
+#   - 内部调用：`(proc_dir / 'cmdline').read_bytes`、`raw.replace(b'\x00', b' ').decode(errors='replace').strip`、`raw.replace(b'\x00', b'
+#          ').decode`、`raw.replace`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _read_cmdline(proc_dir: Path) -> str:
     try:
         raw = (proc_dir / "cmdline").read_bytes()
@@ -93,6 +137,17 @@ def _read_cmdline(proc_dir: Path) -> str:
     return raw.replace(b"\x00", b" ").decode(errors="replace").strip()
 
 
+# 功能：处理 `_match_process` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `cmdline`（str）：`cmdline` 对应的业务输入值
+#   - `camera_keys`（set[str]）：`camera_keys` 对应的业务输入值
+#   - `urls`（set[str]）：`urls` 对应的业务输入值
+#   - `models`（set[str]）：`models` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `_find_residual_processes` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _match_process(cmdline: str, camera_keys: set[str], urls: set[str], models: set[str]) -> str:
     for shm_name in camera_keys:
         if f"Camera[{shm_name}]" in cmdline:
@@ -110,6 +165,14 @@ def _match_process(cmdline: str, camera_keys: set[str], urls: set[str], models: 
     return ""
 
 
+# 功能：检查或判断 `_is_alive` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `pid`（int）：`pid` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `cleanup_aivision_residual_processes` 调用本符号
+#   - 内部调用：`os.kill`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _is_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -120,6 +183,15 @@ def _is_alive(pid: int) -> bool:
         return True
 
 
+# 功能：实现 `_safe_kill` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `pid`（int）：`pid` 对应的业务输入值
+#   - `sig`（signal.Signals）：`sig` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/core/process_cleanup.py` 的 `cleanup_aivision_residual_processes` 调用本符号
+#   - 内部调用：`os.kill`、`logger.warning`。
+# 副作用/注意事项：会向日志系统输出运行或异常信息。
 def _safe_kill(pid: int, sig: signal.Signals):
     try:
         os.kill(pid, sig)

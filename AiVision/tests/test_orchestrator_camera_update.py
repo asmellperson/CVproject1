@@ -1,3 +1,6 @@
+# 文件说明：包含摄像头的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import importlib
 import sys
 import threading
@@ -9,6 +12,17 @@ sys.modules.pop("platform", None)
 Orchestrator = importlib.import_module("platform.orchestrator").Orchestrator
 
 
+# 功能：初始化或配置 `_orchestrator_without_init` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_runtime_status_exposes_worker_and_consumer_inference_state`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_camera_runtime_alert_types_share_one_repeat_interval`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_camera_display_update_does_not_restart_runtime`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_camera_runtime_update_restarts_runtime` 调用本符号；另有 10
+#         处静态调用
+#   - 内部调用：`object.__new__`、`threading.RLock`、`SimpleNamespace`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _orchestrator_without_init():
     orchestrator = object.__new__(Orchestrator)
     orchestrator.consumers = {}
@@ -22,6 +36,14 @@ def _orchestrator_without_init():
     return orchestrator
 
 
+# 功能：验证 `test_runtime_status_exposes_worker_and_consumer_inference_state` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`importlib.import_module`、`monkeypatch.setattr`、`orchestrator.runtime_status`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch):
     orchestrator = _orchestrator_without_init()
     orchestrator._started = True
@@ -61,6 +83,14 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
     }
 
 
+# 功能：验证 `test_camera_runtime_alert_types_share_one_repeat_interval` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`sent.append`、`threading.Lock`、`importlib.import_module`、`monkeypatch.setattr`、`orchestrator._send_system_exception_alert`、`len`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
 def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
     orchestrator = _orchestrator_without_init()
     sent = []
@@ -102,6 +132,14 @@ def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
     assert len(sent) == 3
 
 
+# 功能：验证 `test_camera_display_update_does_not_restart_runtime` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_display_update_does_not_restart_runtime(monkeypatch):
     orchestrator = _orchestrator_without_init()
     restart_calls = []
@@ -142,6 +180,14 @@ def test_camera_display_update_does_not_restart_runtime(monkeypatch):
     assert refresh_calls == [3]
 
 
+# 功能：验证 `test_camera_runtime_update_restarts_runtime` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_runtime_update_restarts_runtime(monkeypatch):
     orchestrator = _orchestrator_without_init()
     restart_calls = []
@@ -179,6 +225,14 @@ def test_camera_runtime_update_restarts_runtime(monkeypatch):
     assert restart_calls == ["3_mq7r35ho"]
 
 
+# 功能：验证 `test_camera_remove_refreshes_logistics_runtime_before_removal` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`calls.append`、`SimpleNamespace`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
     orchestrator = _orchestrator_without_init()
     calls = []
@@ -200,6 +254,14 @@ def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
     assert calls == [("refresh", 3), ("remove", "3_mq7r35ho")]
 
 
+# 功能：验证 `test_prefixed_logistics_feature_event_reaches_exact_consumer` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
     orchestrator = _orchestrator_without_init()
     calls = []
@@ -238,6 +300,14 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
     assert restart_calls == ["7_logistics"]
 
 
+# 功能：验证 `test_logistics_service_feature_event_restarts_orchestrator_with_shm` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`status_calls.append`、`monkeypatch.setattr`、`restart_calls.append`、`service_module.LogisticsChannelService._notify_channel_changed`、`service_module._CameraRef`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypatch):
     import platform.logistics_channel.service as service_module
 
@@ -280,6 +350,13 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
     assert restart_calls == ["7_logistics"]
 
 
+# 功能：验证 `test_logistics_channel_event_refreshes_runtime` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_channel_event_refreshes_runtime():
     orchestrator = _orchestrator_without_init()
     calls = []
@@ -300,6 +377,14 @@ def test_logistics_channel_event_refreshes_runtime():
     assert calls == [("detect_logistics_single_person", 12)]
 
 
+# 功能：验证 `test_logistics_camera_config_event_clears_channel_runtime_state` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch):
     orchestrator = _orchestrator_without_init()
     calls = []
@@ -325,15 +410,48 @@ def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch)
     assert calls == [(feature, 7), ("consumer", 7)]
 
 
+# 功能：验证 `test_start_consumers_injects_runtime_only_into_logistics_features` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`object`、`monkeypatch.setattr`、`orchestrator._start_consumers`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatch):
     import platform.orchestrator as orchestrator_module
 
     created = {}
 
+    # 功能：定义 `FakeConsumer` 类，封装摄像头相关的状态、约束与操作
+    # 参数：
+    #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+    # 返回：FakeConsumer；返回新建的 `FakeConsumer` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeConsumer:
+        # 功能：初始化或配置 `__init__` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+        # 返回：None；初始化当前实例，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def __init__(self, **kwargs):
             created[kwargs["spec"].name] = kwargs
 
+        # 功能：启动或执行 `start` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def start(self):
             pass
 
@@ -368,15 +486,48 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
     assert "logistics_runtime" not in created[ordinary.name]
 
 
+# 功能：验证 `test_start_consumers_skips_persistently_disabled_ordinary_feature` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`monkeypatch.setattr`、`orchestrator._start_consumers`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatch):
     import platform.orchestrator as orchestrator_module
 
     started = []
 
+    # 功能：定义 `FakeConsumer` 类，封装摄像头相关的状态、约束与操作
+    # 参数：
+    #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+    # 返回：FakeConsumer；返回新建的 `FakeConsumer` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeConsumer:
+        # 功能：初始化或配置 `__init__` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+        # 返回：None；初始化当前实例，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def __init__(self, **kwargs):
             self.feature_name = kwargs["spec"].name
 
+        # 功能：启动或执行 `start` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`started.append`。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def start(self):
             self.running = True
             started.append(self.feature_name)
@@ -399,6 +550,14 @@ def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatc
     assert orchestrator.consumers == {}
 
 
+# 功能：验证 `test_feature_stop_persists_state_and_keeps_shared_camera_running` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`stopped.append`、`camera_calls.append`、`monkeypatch.setattr`、`persisted.append`、`orchestrator.set_feature_enabled`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_feature_stop_persists_state_and_keeps_shared_camera_running(monkeypatch):
     import platform.orchestrator as orchestrator_module
 
@@ -452,6 +611,13 @@ def test_feature_stop_persists_state_and_keeps_shared_camera_running(monkeypatch
     assert camera_calls == [("update", "camera_1", True)]
 
 
+# 功能：验证 `test_logistics_feature_cannot_use_global_runtime_switch` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`orchestrator.set_feature_enabled`、`str`、`AssertionError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def test_logistics_feature_cannot_use_global_runtime_switch():
     orchestrator = _orchestrator_without_init()
 
@@ -463,6 +629,15 @@ def test_logistics_feature_cannot_use_global_runtime_switch():
         raise AssertionError("物流检测不应允许使用全局能力开关")
 
 
+# 功能：验证 `test_stop_continues_all_cleanup_after_logistics_runtime_failure` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `caplog`（未显式标注）：`caplog` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`monkeypatch.setattr`、`orchestrator.stop`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch, caplog):
     import core.db as db_module
     import platform.orchestrator as orchestrator_module
@@ -474,6 +649,13 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
         "detect_test": SimpleNamespace(stop=lambda: calls.append("consumer"))
     }
 
+    # 功能：停止并释放 `fail_logistics_stop` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`calls.append`、`RuntimeError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def fail_logistics_stop():
         calls.append("logistics")
         raise RuntimeError("巡检线程停止超时")

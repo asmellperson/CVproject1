@@ -1,3 +1,6 @@
+# 文件说明：封装业务服务的业务规则与持久化访问。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """物流通道配置、成员绑定与旧配置迁移服务。"""
 from __future__ import annotations
 
@@ -37,10 +40,30 @@ _MAX_WRITE_ATTEMPTS = 3
 _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 
 
+# 功能：非锁定预读后的成员归属已变化，需要用新事务重新确定锁集合；输入与输出详见下方说明
+# 参数：无。
+# 返回：_MembershipLockSetChanged；返回新建的 `_MembershipLockSetChanged` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的
+#         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class _MembershipLockSetChanged(RuntimeError):
     """非锁定预读后的成员归属已变化，需要用新事务重新确定锁集合。"""
 
 
+# 功能：定义 `_DiscoveredMembership` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `member_id`（int）：`member_id` 对应业务对象的唯一标识
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `feature_name`（str）：`feature_name` 对应的业务输入值
+# 返回：_DiscoveredMembership；返回新建的 `_DiscoveredMembership` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_discover_memberships` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _DiscoveredMembership:
     member_id: int
@@ -49,29 +72,81 @@ class _DiscoveredMembership:
     feature_name: str
 
 
+# 功能：定义 `_MembershipDiscovery` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `members`（tuple[_DiscoveredMembership, ...]）：`members` 对应的业务输入值
+#   - `camera_scope`（tuple[int, ...]）：`camera_scope` 对应的业务输入值
+#   - `channel_scope`（tuple[int, ...]）：`channel_scope` 对应的业务输入值
+# 返回：_MembershipDiscovery；返回新建的 `_MembershipDiscovery` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_discover_memberships` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _MembershipDiscovery:
     members: tuple[_DiscoveredMembership, ...]
     camera_scope: tuple[int, ...]
     channel_scope: tuple[int, ...]
 
+    # 功能：实现 `member_ids` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：tuple[int, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`tuple`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def member_ids(self) -> tuple[int, ...]:
         return tuple(member.member_id for member in self.members)
 
+    # 功能：实现 `member_channel_ids` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：tuple[int, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`tuple`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def member_channel_ids(self) -> tuple[int, ...]:
         return tuple(member.channel_id for member in self.members)
 
+    # 功能：实现 `member_camera_ids` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：tuple[int, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`tuple`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def member_camera_ids(self) -> tuple[int, ...]:
         return tuple(member.camera_id for member in self.members)
 
+    # 功能：实现 `expected_pairs` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：set[tuple[int, int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def expected_pairs(self) -> set[tuple[int, int]]:
         return {(member.member_id, member.channel_id) for member in self.members}
 
 
+# 功能：定义 `_LockedMembershipState` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `channels`（dict[int, LogisticsChannel]）：`channels` 对应的业务输入值
+#   - `cameras`（dict[int, AiCameraConfig]）：`cameras` 对应的业务输入值
+#   - `members`（list[LogisticsChannelCamera]）：`members` 对应的业务输入值
+# 返回：_LockedMembershipState；返回新建的 `_LockedMembershipState` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _LockedMembershipState:
     channels: dict[int, LogisticsChannel]
@@ -79,12 +154,40 @@ class _LockedMembershipState:
     members: list[LogisticsChannelCamera]
 
 
+# 功能：定义 `_CameraRef` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `shm_name`（str）：摄像头共享内存名称
+# 返回：_CameraRef；返回新建的 `_CameraRef` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel::delete`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::add_existing_camera::add`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的
+#         `LogisticsChannelService::create_camera_and_bind::create_and_bind` 实例化本符号；`AiVision/platform/logistics_channel/service.py`
+#         的 `LogisticsChannelService::move_camera::move` 实例化本符号；另有 2 处静态调用
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _CameraRef:
     camera_id: int
     shm_name: str
 
 
+# 功能：定义 `_PendingNotification` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `feature_name`（str）：`feature_name` 对应的业务输入值
+#   - `camera_refs`（tuple[_CameraRef, ...]）：`camera_refs` 对应的业务输入值
+#   - `feature_action`（str | None）：`feature_action` 对应的业务输入值
+#   - `camera_added`（_CameraRef | None）：`camera_added` 对应的业务输入值
+# 返回：_PendingNotification；返回新建的 `_PendingNotification` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的
+#         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_notify_channel_changed` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _PendingNotification:
     channel_id: int
@@ -94,6 +197,17 @@ class _PendingNotification:
     camera_added: _CameraRef | None = None
 
 
+# 功能：定义 `MigrationSummary` 类，封装业务服务相关的状态、约束与操作
+# 参数：
+#   - `created`（int）：`created` 对应的业务输入值
+#   - `skipped`（int）：`skipped` 对应的业务输入值
+#   - `failed`（int）：`failed` 对应的业务输入值
+#   - `errors`（tuple[str, ...]）：`errors` 对应的业务输入值
+# 返回：MigrationSummary；返回新建的 `MigrationSummary` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::migrate_existing_feature_cameras` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class MigrationSummary:
     created: int
@@ -102,9 +216,27 @@ class MigrationSummary:
     errors: tuple[str, ...] = ()
 
 
+# 功能：物流通道配置与摄像头成员管理入口；输入与输出详见下方说明
+# 参数：无。
+# 返回：LogisticsChannelService；返回新建的 `LogisticsChannelService` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_service.py` 的 `service_db` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LogisticsChannelService:
     """物流通道配置与摄像头成员管理入口。"""
 
+    # 功能：读取或查询 `list_channels` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`get_session`、`session.query(LogisticsChannel).filter_by(feature_name=feature_name).order_by(LogisticsChannel.sort_order,
+    #          LogisticsChannel.id).all`、`session.query(LogisticsChannel).filter_by(feature_name=feature_name).order_by`、`session.query(LogisticsChannel).filter_by`、`session.query`、`LogisticsChannelListResponse.model_validate({'items':
+    #          channels}).model_dump`、`LogisticsChannelListResponse.model_validate`、`session.close`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def list_channels(self, feature_name: str) -> dict:
         feature_name = require_logistics_feature(feature_name)
         session = get_session()
@@ -121,6 +253,20 @@ class LogisticsChannelService:
         finally:
             session.close()
 
+    # 功能：读取或查询 `get_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号；另有
+    #         5 处静态调用
+    #   - 内部调用：`require_logistics_feature`、`get_session`、`self._query_channel`、`self._detail`、`session.close`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_channel(self, feature_name: str, channel_id: int) -> dict | None:
         feature_name = require_logistics_feature(feature_name)
         session = get_session()
@@ -130,12 +276,32 @@ class LogisticsChannelService:
         finally:
             session.close()
 
+    # 功能：创建或构建 `create_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `name`（str）：业务对象名称
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`(name or
+    #          '').strip`、`ValueError`、`self._run_write_transaction`、`self._channel_integrity_value_error`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def create_channel(self, feature_name: str, name: str) -> dict:
         feature_name = require_logistics_feature(feature_name)
         normalized_name = (name or "").strip()
         if not normalized_name:
             raise ValueError("通道名称不能为空")
 
+        # 功能：创建或构建 `create` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`session.query(LogisticsChannel).filter_by(feature_name=feature_name,
+        #          name=normalized_name).first`、`session.query(LogisticsChannel).filter_by`、`session.query`、`ValueError`、`LogisticsChannel`、`session.add`、`session.flush`。
+        # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
         def create(session):
             duplicate = (
                 session.query(LogisticsChannel)
@@ -158,11 +324,30 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：更新或保存 `update_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（Any）：接口或事件携带的业务数据
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`self._reject_none`、`self._run_write_transaction`、`self._channel_integrity_value_error`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def update_channel(self, feature_name: str, channel_id: int, payload: Any) -> dict | None:
         feature_name = require_logistics_feature(feature_name)
         values = self._payload_dict(payload)
         self._reject_none(values, ("enabled", "sort_order"))
 
+        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_channels`、`channels.get`、`self._apply_channel_values`、`session.flush`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def update(session):
             channels = self._lock_channels(session, [channel_id])
             channel = channels.get(channel_id)
@@ -183,12 +368,38 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：删除或清理 `delete_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._run_membership_transaction`、`self._notify_channel_changed`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def delete_channel(self, feature_name: str, channel_id: int) -> bool:
         feature_name = require_logistics_feature(feature_name)
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(channel_ids=(channel_id,))
 
+        # 功能：删除或清理 `delete` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`tuple`、`_CameraRef`、`sorted`、`self._set_feature_enabled`、`session.delete`。
+        # 副作用/注意事项：可能读取或修改数据库事务。
         def delete(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -223,6 +434,17 @@ class LogisticsChannelService:
         )
         return True
 
+    # 功能：更新或保存 `update_config` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（Any）：接口或事件携带的业务数据
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`self._reject_none`、`self._run_write_transaction`、`ValueError`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def update_config(self, feature_name: str, channel_id: int, payload: Any) -> dict | None:
         feature_name = require_logistics_feature(feature_name)
         values = self._payload_dict(payload)
@@ -235,6 +457,14 @@ class LogisticsChannelService:
             "alarm_interval",
         ))
 
+        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_channels`、`channels.get`、`self._apply_config_values`、`session.flush`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def update(session):
             channels = self._lock_channels(session, [channel_id])
             channel = channels.get(channel_id)
@@ -255,6 +485,18 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：在单事务内更新通道元数据和检测配置，并只发布一次刷新事件；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `channel_payload`（Any）：`channel_payload` 对应的业务输入值
+    #   - `config_payload`（Any | None）：`config_payload` 对应的业务输入值
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`self._reject_none`、`self._run_write_transaction`、`self._channel_integrity_value_error`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def update_channel_and_config(
         self,
         feature_name: str,
@@ -276,6 +518,14 @@ class LogisticsChannelService:
             "alarm_interval",
         ))
 
+        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_channels`、`channels.get`、`self._apply_channel_values`、`self._apply_config_values`、`session.flush`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def update(session):
             channels = self._lock_channels(session, [channel_id])
             channel = channels.get(channel_id)
@@ -303,6 +553,17 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：创建或构建 `add_existing_camera` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._run_membership_transaction`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def add_existing_camera(
         self,
         feature_name: str,
@@ -311,12 +572,31 @@ class LogisticsChannelService:
     ) -> dict:
         feature_name = require_logistics_feature(feature_name)
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
+        # 功能：创建或构建 `add` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::start`
+        #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_install_feature_locked`
+        #         调用本符号；`scripts/.comment_annotator.py` 的 `dependencies` 调用本符号；`scripts/.comment_annotator.py` 的 `order` 调用本符号；另有 5
+        #         处静态调用
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`state.cameras.get`、`self._insert_locked_member`、`_CameraRef`。
+        # 副作用/注意事项：校验或执行失败时会主动抛出异常。
         def add(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -356,6 +636,17 @@ class LogisticsChannelService:
         )
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：创建或构建 `create_camera_and_bind` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（Any）：接口或事件携带的业务数据
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`values.get`、`ValueError`、`self._run_membership_transaction`、`self._binding_integrity_value_error`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def create_camera_and_bind(
         self,
         feature_name: str,
@@ -372,9 +663,25 @@ class LogisticsChannelService:
             )
         values["department"] = expected_department
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(channel_ids=(channel_id,))
 
+        # 功能：创建或构建 `create_and_bind` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`self._require_capacity`、`camera_service.create_camera_record`、`self._insert_locked_member`、`_CameraRef`。
+        # 副作用/注意事项：校验或执行失败时会主动抛出异常。
         def create_and_bind(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -411,6 +718,17 @@ class LogisticsChannelService:
         )
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：实现 `move_camera` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `target_channel_id`（int）：`target_channel_id` 对应业务对象的唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._run_membership_transaction`、`_PendingNotification`、`notifications.append`、`self._publish_notifications`、`self.get_channel`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def move_camera(
         self,
         feature_name: str,
@@ -419,12 +737,29 @@ class LogisticsChannelService:
     ) -> dict:
         feature_name = require_logistics_feature(feature_name)
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(target_channel_id,),
             )
 
+        # 功能：实现 `move` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`state.cameras.get`、`len`、`self._require_capacity`、`self._next_sort_order`、`bool`、`session.delete`、`session.flush`
+        #          等共 14 个调用。
+        # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
         def move(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -481,6 +816,17 @@ class LogisticsChannelService:
         self._publish_notifications(notifications)
         return self.get_channel(feature_name, target_channel_id)
 
+    # 功能：实现 `reorder_members` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_ids`（list[int]）：`camera_ids` 对应的业务输入值
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`list`、`len`、`set`、`ValueError`、`self._run_membership_transaction`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def reorder_members(
         self,
         feature_name: str,
@@ -492,9 +838,25 @@ class LogisticsChannelService:
         if len(requested_ids) != len(set(requested_ids)):
             raise ValueError("camera_ids 不可重复")
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(channel_ids=(channel_id,))
 
+        # 功能：实现 `reorder` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`len`、`set`、`enumerate`、`session.flush`。
+        # 副作用/注意事项：校验或执行失败时会主动抛出异常。
         def reorder(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -520,6 +882,18 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：原子更新成员参与状态，并只发布一次通道刷新事件；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `enabled`（bool）：是否启用相应能力
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._run_membership_transaction`、`self._notify_channel_changed`、`self.get_channel`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def set_member_enabled(
         self,
         feature_name: str,
@@ -530,12 +904,28 @@ class LogisticsChannelService:
         """原子更新成员参与状态，并只发布一次通道刷新事件。"""
         feature_name = require_logistics_feature(feature_name)
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
+        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`next`、`bool`、`session.flush`。
+        # 副作用/注意事项：校验或执行失败时会主动抛出异常。
         def update(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -563,6 +953,17 @@ class LogisticsChannelService:
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
+    # 功能：删除或清理 `remove_camera` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._run_membership_transaction`、`self._notify_channel_changed`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def remove_camera(
         self,
         feature_name: str,
@@ -571,12 +972,28 @@ class LogisticsChannelService:
     ) -> bool:
         feature_name = require_logistics_feature(feature_name)
 
+        # 功能：实现 `discover` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._discover_memberships`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def discover():
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
+        # 功能：删除或清理 `remove` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `session`（未显式标注）：数据库会话或运行会话
+        #   - `discovery`（未显式标注）：`discovery` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`state.cameras.get`、`next`、`session.delete`、`self._set_feature_enabled`、`_CameraRef`。
+        # 副作用/注意事项：可能读取或修改数据库事务。
         def remove(session, discovery):
             state = self._lock_membership_state(
                 session,
@@ -615,6 +1032,15 @@ class LogisticsChannelService:
         )
         return True
 
+    # 功能：实现 `migrate_existing_feature_cameras` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：MigrationSummary；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`get_session`、`sorted`、`all_specs`、`read_session.query(spec.orm_class.camera_id).filter(spec.orm_class.enable.is_(True)).order_by(spec.orm_class.camera_id).all`、`read_session.query(spec.orm_class.camera_id).filter(spec.orm_class.enable.is_(True)).order_by`、`read_session.query(spec.orm_class.camera_id).filter`、`read_session.query`、`spec.orm_class.enable.is_`、`candidates.extend`、`read_session.close`
+    #          等共 17 个调用。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def migrate_existing_feature_cameras(self) -> MigrationSummary:
         candidates: list[tuple[str, int]] = []
         read_session = get_session()
@@ -727,6 +1153,18 @@ class LogisticsChannelService:
             self._publish_notifications(pending_notifications)
         return MigrationSummary(created, skipped, failed, tuple(errors))
 
+    # 功能：实现 `_payload_dict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `payload`（Any）：接口或事件携带的业务数据
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind` 调用本符号；另有 1
+    #         处静态调用
+    #   - 内部调用：`isinstance`、`dict`、`hasattr`、`payload.model_dump`、`TypeError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @staticmethod
     def _payload_dict(payload: Any) -> dict:
         if payload is None:
@@ -737,6 +1175,23 @@ class LogisticsChannelService:
             return payload.model_dump(exclude_unset=True)
         raise TypeError("payload 必须是 dict 或 Pydantic model")
 
+    # 功能：实现 `_apply_channel_values` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `channel`（LogisticsChannel）：`channel` 对应的业务输入值
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `values`（dict）：`values` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel::update`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #         调用本符号
+    #   - 内部调用：`(values['name'] or '').strip`、`ValueError`、`session.query(LogisticsChannel).filter(LogisticsChannel.feature_name ==
+    #          feature_name, LogisticsChannel.name == name, LogisticsChannel.id !=
+    #          channel_id).first`、`session.query(LogisticsChannel).filter`、`session.query`、`setattr`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _apply_channel_values(
         self,
         session,
@@ -765,6 +1220,18 @@ class LogisticsChannelService:
             if field in values:
                 setattr(channel, field, values[field])
 
+    # 功能：实现 `_apply_config_values` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（LogisticsChannel）：`channel` 对应的业务输入值
+    #   - `values`（dict）：`values` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config::update`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #         调用本符号
+    #   - 内部调用：`setattr`、`values.get`、`self._payload_dict`、`bool`、`alarm.get`、`horn.get`、`wechat.get`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
         for field in (
             "detection_start",
@@ -792,6 +1259,17 @@ class LogisticsChannelService:
             channel.wechat_enable = bool(wechat.get("enabled", False))
             channel.wechat_user = wechat.get("user", "")
 
+    # 功能：读取或查询 `_query_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::get_channel` 调用本符号
+    #   - 内部调用：`session.query(LogisticsChannel).options(selectinload(LogisticsChannel.cameras)).filter_by(feature_name=feature_name,
+    #          id=channel_id).first`、`session.query(LogisticsChannel).options(selectinload(LogisticsChannel.cameras)).filter_by`、`session.query(LogisticsChannel).options`、`session.query`、`selectinload`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _query_channel(session, feature_name: str, channel_id: int):
         return (
@@ -801,6 +1279,17 @@ class LogisticsChannelService:
             .first()
         )
 
+    # 功能：每次尝试都创建新 session，并完整重跑锁定与业务校验；输入与输出详见下方说明
+    # 参数：
+    #   - `operation`（未显式标注）：`operation` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号
+    #   - 内部调用：`range`、`session_scope`、`operation`、`_database_error_code`、`logger.warning`、`sleep`、`RuntimeError`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     @staticmethod
     def _run_write_transaction(operation):
         """每次尝试都创建新 session，并完整重跑锁定与业务校验。"""
@@ -819,6 +1308,18 @@ class LogisticsChannelService:
             sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
         raise RuntimeError("unreachable")
 
+    # 功能：每次尝试先用已关闭短 session discovery，再开启全新正式事务；输入与输出详见下方说明
+    # 参数：
+    #   - `discover`（未显式标注）：`discover` 对应的业务输入值
+    #   - `operation`（未显式标注）：`operation` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::add_existing_camera`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera` 调用本符号；另有 6 处静态调用
+    #   - 内部调用：`range`、`discover`、`session_scope`、`operation`、`_database_error_code`、`logger.warning`、`sleep`、`RuntimeError`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     @staticmethod
     def _run_membership_transaction(discover, operation):
         """每次尝试先用已关闭短 session discovery，再开启全新正式事务。"""
@@ -841,6 +1342,18 @@ class LogisticsChannelService:
             sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
         raise RuntimeError("unreachable")
 
+    # 功能：实现 `_channel_integrity_value_error` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `exc`（IntegrityError）：`exc` 对应的业务输入值
+    # 返回：ValueError；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_binding_integrity_value_error`
+    #         调用本符号
+    #   - 内部调用：`str(exc.orig or exc).lower`、`str`、`ValueError`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _channel_integrity_value_error(exc: IntegrityError) -> ValueError:
         message = str(exc.orig or exc).lower()
@@ -854,6 +1367,15 @@ class LogisticsChannelService:
             return ValueError("同一功能下通道名称已存在")
         return ValueError("物流通道数据约束冲突")
 
+    # 功能：实现 `_binding_integrity_value_error` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `cls`（未显式标注）：当前类对象
+    #   - `exc`（IntegrityError）：`exc` 对应的业务输入值
+    # 返回：ValueError；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind` 调用本符号
+    #   - 内部调用：`str(exc.orig or exc).lower`、`str`、`_camera_integrity_value_error`、`cls._channel_integrity_value_error`、`ValueError`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @classmethod
     def _binding_integrity_value_error(cls, exc: IntegrityError) -> ValueError:
         message = str(exc.orig or exc).lower()
@@ -864,12 +1386,36 @@ class LogisticsChannelService:
             return channel_error
         return ValueError("物流通道绑定数据约束冲突")
 
+    # 功能：实现 `_reject_none` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `values`（dict）：`values` 对应的业务输入值
+    #   - `fields`（tuple[str, ...]）：`fields` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号
+    #   - 内部调用：`ValueError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @staticmethod
     def _reject_none(values: dict, fields: tuple[str, ...]) -> None:
         for field in fields:
             if field in values and values[field] is None:
                 raise ValueError(f"{field} 不可为 None")
 
+    # 功能：锁层级 1：所有既有 channel 必须按 ID 升序先锁定；输入与输出详见下方说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `channel_ids`（未显式标注）：`channel_ids` 对应的业务输入值
+    # 返回：dict[int, LogisticsChannel]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel::update`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config::update`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state` 调用本符号；另有 1
+    #         处静态调用
+    #   - 内部调用：`sorted`、`set`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by(LogisticsChannel.id).with_for_update().all`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by(LogisticsChannel.id).with_for_update`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by`、`session.query(LogisticsChannel).filter`、`session.query`、`LogisticsChannel.id.in_`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _lock_channels(session, channel_ids) -> dict[int, LogisticsChannel]:
         """锁层级 1：所有既有 channel 必须按 ID 升序先锁定。"""
@@ -885,6 +1431,15 @@ class LogisticsChannelService:
         )
         return {row.id: row for row in rows}
 
+    # 功能：锁层级 2：channel 全部锁定后，再按 ID 升序锁 camera；输入与输出详见下方说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `camera_ids`（未显式标注）：`camera_ids` 对应的业务输入值
+    # 返回：dict[int, AiCameraConfig]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state` 调用本符号
+    #   - 内部调用：`sorted`、`set`、`session.query(AiCameraConfig).filter(AiCameraConfig.id.in_(ids)).order_by(AiCameraConfig.id).with_for_update().all`、`session.query(AiCameraConfig).filter(AiCameraConfig.id.in_(ids)).order_by(AiCameraConfig.id).with_for_update`、`session.query(AiCameraConfig).filter(AiCameraConfig.id.in_(ids)).order_by`、`session.query(AiCameraConfig).filter`、`session.query`、`AiCameraConfig.id.in_`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _lock_cameras(session, camera_ids) -> dict[int, AiCameraConfig]:
         """锁层级 2：channel 全部锁定后，再按 ID 升序锁 camera。"""
@@ -900,6 +1455,16 @@ class LogisticsChannelService:
         )
         return {row.id: row for row in rows}
 
+    # 功能：迁移专用例外：锁 camera 后只写新 channel，不获取既有 channel 锁；输入与输出详见下方说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的
+    #         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one` 调用本符号
+    #   - 内部调用：`session.query(AiCameraConfig).filter_by(id=camera_id).with_for_update().first`、`session.query(AiCameraConfig).filter_by(id=camera_id).with_for_update`、`session.query(AiCameraConfig).filter_by`、`session.query`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _lock_migration_camera(session, camera_id: int):
         """迁移专用例外：锁 camera 后只写新 channel，不获取既有 channel 锁。"""
@@ -910,6 +1475,20 @@ class LogisticsChannelService:
             .first()
         )
 
+    # 功能：在独立短 session 中发现锁集合；返回前一定关闭该 session；输入与输出详见下方说明
+    # 参数：
+    #   - `camera_ids`（未显式标注）：`camera_ids` 对应的业务输入值；默认值为 `()`
+    #   - `channel_ids`（未显式标注）：`channel_ids` 对应的业务输入值；默认值为 `()`
+    # 返回：_MembershipDiscovery；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel::discover`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::add_existing_camera::discover`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind::discover`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::discover` 调用本符号；另有 4
+    #         处静态调用
+    #   - 内部调用：`tuple`、`sorted`、`set`、`get_session`、`conditions.append`、`LogisticsChannelCamera.camera_id.in_`、`LogisticsChannelCamera.channel_id.in_`、`_MembershipDiscovery`、`session.query(LogisticsChannelCamera).filter(or_(*conditions)).order_by(LogisticsChannelCamera.id).all`、`session.query(LogisticsChannelCamera).filter(or_(*conditions)).order_by`
+    #          等共 19 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _discover_memberships(
         *,
@@ -956,6 +1535,21 @@ class LogisticsChannelService:
         finally:
             session.close()
 
+    # 功能：仅锁 membership 表；MySQL 编译结果不得包含 JOIN；输入与输出详见下方说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `member_ids`（未显式标注）：`member_ids` 对应的业务输入值；默认值为 `()`
+    #   - `camera_ids`（未显式标注）：`camera_ids` 对应的业务输入值；默认值为 `()`
+    #   - `channel_ids`（未显式标注）：`channel_ids` 对应的业务输入值；默认值为 `()`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的
+    #         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_service.py` 的
+    #         `test_membership_locking_sql_is_current_read_without_channel_join` 调用本符号
+    #   - 内部调用：`conditions.append`、`LogisticsChannelCamera.id.in_`、`tuple`、`LogisticsChannelCamera.camera_id.in_`、`LogisticsChannelCamera.channel_id.in_`、`session.query`、`query.filter`、`or_`、`query.order_by(LogisticsChannelCamera.id).with_for_update`、`query.order_by`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _build_membership_lock_query(
         session,
@@ -979,6 +1573,24 @@ class LogisticsChannelService:
             query = query.filter(LogisticsChannelCamera.id.in_(()))
         return query.order_by(LogisticsChannelCamera.id).with_for_update()
 
+    # 功能：MySQL RR 正式事务：channels→cameras→memberships 全部 current read；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `discovery`（_MembershipDiscovery）：`discovery` 对应的业务输入值
+    #   - `required_channel_ids`（未显式标注）：`required_channel_ids` 对应的业务输入值；默认值为 `()`
+    #   - `required_camera_ids`（未显式标注）：`required_camera_ids` 对应的业务输入值；默认值为 `()`
+    # 返回：_LockedMembershipState；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel::delete`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::add_existing_camera::add`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的
+    #         `LogisticsChannelService::create_camera_and_bind::create_and_bind`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::move` 调用本符号；另有 3 处静态调用
+    #   - 内部调用：`sorted`、`self._lock_channels`、`self._lock_cameras`、`self._build_membership_lock_query(session,
+    #          member_ids=discovery.member_ids, camera_ids=discovery.camera_scope,
+    #          channel_ids=discovery.channel_scope).all`、`self._build_membership_lock_query`、`_MembershipLockSetChanged`、`_LockedMembershipState`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _lock_membership_state(
         self,
         session,
@@ -1011,16 +1623,45 @@ class LogisticsChannelService:
             raise _MembershipLockSetChanged()
         return _LockedMembershipState(channels, cameras, members)
 
+    # 功能：实现 `_detail` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `channel`（LogisticsChannel）：`channel` 对应的业务输入值
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::get_channel` 调用本符号
+    #   - 内部调用：`LogisticsChannelDetailResponse.model_validate(channel).model_dump`、`LogisticsChannelDetailResponse.model_validate`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _detail(channel: LogisticsChannel) -> dict:
         return LogisticsChannelDetailResponse.model_validate(channel).model_dump(mode="python")
 
+    # 功能：实现 `_require_capacity` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `members`（list[LogisticsChannelCamera]）：`members` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind::create_and_bind`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::move`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_insert_locked_member` 调用本符号
+    #   - 内部调用：`sum`、`ValueError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @staticmethod
     def _require_capacity(members: list[LogisticsChannelCamera], channel_id: int) -> None:
         member_count = sum(member.channel_id == channel_id for member in members)
         if member_count >= MAX_CAMERAS_PER_CHANNEL:
             raise ValueError(f"每个物流通道最多绑定 {MAX_CAMERAS_PER_CHANNEL} 路摄像头")
 
+    # 功能：实现 `_next_sort_order` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `members`（list[LogisticsChannelCamera]）：`members` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::move`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_insert_locked_member` 调用本符号
+    #   - 内部调用：`max`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _next_sort_order(members: list[LogisticsChannelCamera], channel_id: int) -> int:
         sort_orders = [
@@ -1030,6 +1671,21 @@ class LogisticsChannelService:
         ]
         return 0 if not sort_orders else max(sort_orders) + 1
 
+    # 功能：实现 `_insert_locked_member` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `channel`（未显式标注）：`channel` 对应的业务输入值
+    #   - `camera`（未显式标注）：摄像头配置或实体
+    #   - `members`（未显式标注）：`members` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::add_existing_camera::add`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的
+    #         `LogisticsChannelService::create_camera_and_bind::create_and_bind` 调用本符号
+    #   - 内部调用：`self._require_capacity`、`session.add`、`LogisticsChannelCamera`、`self._next_sort_order`、`self._set_feature_enabled`、`session.flush`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def _insert_locked_member(self, session, feature_name, channel, camera, members) -> None:
         self._require_capacity(members, channel.id)
         session.add(LogisticsChannelCamera(
@@ -1041,6 +1697,20 @@ class LogisticsChannelService:
         self._set_feature_enabled(session, feature_name, camera.id, True)
         session.flush()
 
+    # 功能：更新或保存 `_set_feature_enabled` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `session`（未显式标注）：数据库会话或运行会话
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `enabled`（bool）：是否启用相应能力
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel::delete`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::move`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::remove_camera::remove`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_insert_locked_member` 调用本符号
+    #   - 内部调用：`all_specs`、`session.query(spec.orm_class).filter_by(camera_id=camera_id).first`、`session.query(spec.orm_class).filter_by`、`session.query`、`spec.orm_class`、`session.add`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     @staticmethod
     def _set_feature_enabled(session, feature_name: str, camera_id: int, enabled: bool):
         spec = all_specs()[feature_name]
@@ -1052,6 +1722,21 @@ class LogisticsChannelService:
             cfg.enable = enabled
         return cfg
 
+    # 功能：仅在事务提交后调用；通知异常记录告警但不破坏已提交事务；输入与输出详见下方说明
+    # 参数：
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_refs`（tuple[_CameraRef, ...]）：`camera_refs` 对应的业务输入值；默认值为 `()`
+    #   - `feature_action`（str | None）：`feature_action` 对应的业务输入值；默认值为 `None`
+    #   - `camera_added`（_CameraRef | None）：`camera_added` 对应的业务输入值；默认值为 `None`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config` 调用本符号；另有 7 处静态调用
+    #   - 内部调用：`LogisticsChannelService._publish_notifications`、`_PendingNotification`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _notify_channel_changed(
         channel_id: int,
@@ -1072,6 +1757,16 @@ class LogisticsChannelService:
             )
         ])
 
+    # 功能：一次重载缓存后发布一批已提交事务的事件；输入与输出详见下方说明
+    # 参数：
+    #   - `notifications`（list[_PendingNotification]）：`notifications` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::migrate_existing_feature_cameras`
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_notify_channel_changed` 调用本符号
+    #   - 内部调用：`config_cache.reload`、`config_event_bus.publish`、`ConfigChangeEvent`、`logger.warning`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     @staticmethod
     def _publish_notifications(notifications: list[_PendingNotification]) -> None:
         """一次重载缓存后发布一批已提交事务的事件。"""

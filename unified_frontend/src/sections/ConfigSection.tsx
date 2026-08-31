@@ -1,3 +1,6 @@
+// 文件说明：实现配置的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -226,6 +229,16 @@ type AppConfigPatch = {
   wechat?: Partial<AppConfigPayload['wechat']>
 }
 
+/**
+ * 功能：实现 `mergeConfig` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `data`（AppConfigPatch | null | undefined）：待处理的数据
+ * 返回：AppConfigPayload；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload {
   return {
     video: { ...defaultConfig.video, ...(data?.video || {}) },
@@ -238,6 +251,17 @@ function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload 
   }
 }
 
+/**
+ * 功能：读取或查询 `getErrorMessage` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `error`（unknown）：待报告、转换或判断的异常对象
+ *   - `fallback`（string）：`fallback` 对应的业务输入值
+ * 返回：string；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message
   return fallback
@@ -251,13 +275,64 @@ type ConfigSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   siteError?: string
+  /**
+   * 功能：处理 `onSelectSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `siteId`（number）：保安室站点唯一标识
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectSite: (siteId: number) => void
   department?: string
+  /**
+   * 功能：创建或构建 `onCreateSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `name`（string）：业务对象名称
+   * 返回：Promise<GuardRoomSite>；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+   *   - 内部调用：`GuardRoomSite`。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onCreateSite: (name: string) => Promise<GuardRoomSite>
+  /**
+   * 功能：删除或清理 `onDeleteSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `siteId`（number）：保安室站点唯一标识
+   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onDeleteSite: (siteId: number) => Promise<void>
+  /**
+   * 功能：处理 `onSitesChanged` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void | Promise<void>；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSitesChanged?: () => void | Promise<void>
 }
 
+/**
+ * 功能：渲染 `ConfigSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（ConfigSectionProps）：React 组件属性对象；解构字段包括 site, sites, selectedSiteId, loadingSites, siteError, onSelectSite,
+ *     department, onCreateSite
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`useState`、`useCallback`、`async`、`setConfig`、`getGuardRoomSiteConfig`、`mergeConfig`、`useEffect`、`setLoading`、`loadConfig`
+ *          等共 93 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
+ */
 function ConfigSection({
   site,
   sites,
@@ -362,6 +437,16 @@ function ConfigSection({
   }
 
 // 轮询 /api/status 直到 running=true 或超时
+/**
+ * 功能：实现 `waitUntilRunning` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `timeoutMs`（number）：`timeoutMs` 对应的时间间隔或时长
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
+ *   - 内部调用：`Error`、`now`、`getGuardRoomSiteStatus`、`Promise`、`setTimeout`。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
+ */
 async function waitUntilRunning(timeoutMs: number) {
   if (!site) throw new Error('请先选择保安室')
   const deadline = Date.now() + timeoutMs
@@ -1296,6 +1381,16 @@ const ruleToneStyles: Record<RuleTone, {
   },
 }
 
+/**
+ * 功能：渲染 `RuleGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, icon, Icon, tone, children, title, string, icon
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Icon`、`Label`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function RuleGroup({
   title,
   icon: Icon,
@@ -1321,6 +1416,16 @@ function RuleGroup({
   )
 }
 
+/**
+ * 功能：渲染 `Field` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, children, label, string, children, React, ReactNode
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`Label`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
@@ -1330,6 +1435,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+/**
+ * 功能：渲染 `SwitchRow` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 id, label, description, checked, onChange, id, string, label
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`Label`、`Switch`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SwitchRow({
   id,
   label,
@@ -1354,6 +1469,16 @@ function SwitchRow({
   )
 }
 
+/**
+ * 功能：渲染 `SliderRow` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, description, value, min, max, step, onChange, tone
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`isFinite`、`return`、`cn`、`onChange`、`Label`、`Slider`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SliderRow({
   title,
   description,

@@ -1,3 +1,6 @@
+# 文件说明：实现会话处理、后台任务相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 ================================================================================
 session_worker.py —— 指纹锁定 + 交互检测版
@@ -40,10 +43,29 @@ from roi_geometry import (
 _STOP = threading.Event()
 
 
+# 功能：实现 `_signal_handler` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `signum`（未显式标注）：`signum` 对应的业务输入值
+#   - `frame`（未显式标注）：待处理的视频图像帧
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_STOP.set`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _signal_handler(signum, frame):
     _STOP.set()
 
 
+# 功能：逐项规范化 ROI；坏项保留同名旧值或忽略；输入与输出详见下方说明
+# 参数：
+#   - `rois`（未显式标注）：`rois` 对应的业务输入值
+#   - `previous`（Optional[Dict[str, List[List[float]]]]）：`previous` 对应的业务输入值；默认值为 `None`
+# 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `reload_rois`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 调用本符号
+#   - 内部调用：`isinstance`、`ValueError`、`rois.items`、`str`、`normalize_roi_points`、`print`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _normalize_roi_mapping(
     rois,
     previous: Optional[Dict[str, List[List[float]]]] = None,
@@ -70,6 +92,19 @@ def _normalize_roi_mapping(
     return normalized
 
 
+# 功能：按 mtime 热加载 ROI，并保留多边形的全部顶点；输入与输出详见下方说明
+# 参数：
+#   - `roi_path`（Path）：`roi_path` 对应的业务输入值
+#   - `roi_cache`（Dict[str, List[List[float]]]）：`roi_cache` 对应的业务输入值
+#   - `roi_mtime`（float）：`roi_mtime` 对应的业务输入值
+#   - `frame_width`（float | None）：`frame_width` 对应的业务输入值；默认值为 `None`
+#   - `frame_height`（float | None）：`frame_height` 对应的业务输入值；默认值为 `None`
+# 返回：Tuple[Dict[str, List[List[float]]], float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 调用本符号
+#   - 内部调用：`Path`、`path.exists`、`path.stat`、`json.loads`、`path.read_text`、`isinstance`、`ValueError`、`raw.get`、`_normalize_roi_mapping`、`set`
+#          等共 20 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def reload_rois(
     roi_path: Path,
     roi_cache: Dict[str, List[List[float]]],
@@ -140,17 +175,44 @@ def reload_rois(
 # 几何工具
 # =====================================================================================
 
+# 功能：实现 `bbox_center` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `box`（未显式标注）：`box` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_center(box):
     x1, y1, x2, y2 = box
     return (x1 + x2) / 2, (y1 + y2) / 2
 
 
+# 功能：实现 `bbox_distance` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `a`（未显式标注）：`a` 对应的业务输入值
+#   - `b`（未显式标注）：`b` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_find_interacting_pair`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_still_interacting` 调用本符号
+#   - 内部调用：`bbox_center`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_distance(a, b):
     ax, ay = bbox_center(a)
     bx, by = bbox_center(b)
     return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
 
+# 功能：实现 `bbox_iou` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `a`（未显式标注）：`a` 对应的业务输入值
+#   - `b`（未显式标注）：`b` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`max`、`min`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_iou(a, b):
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
@@ -164,6 +226,14 @@ def bbox_iou(a, b):
     return inter / max(ua, 1e-6)
 
 
+# 功能：实现 `bbox_size` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `box`（未显式标注）：`box` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_size(box):
     x1, y1, x2, y2 = box
     return (x2 - x1) * (y2 - y1)
@@ -173,6 +243,16 @@ def bbox_size(box):
 # 指纹：颜色直方图 + 几何特征
 # =====================================================================================
 
+# 功能：截取 person bbox 的上半身 + 下半身各算一个 HSV 直方图,；输入与输出详见下方说明
+# 参数：
+#   - `frame`（未显式标注）：待处理的视频图像帧
+#   - `box`（未显式标注）：`box` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_refind_by_fingerprint`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+#   - 内部调用：`int`、`max`、`min`、`hist`、`float`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def compute_fingerprint(frame, box):
     """
     截取 person bbox 的上半身 + 下半身各算一个 HSV 直方图,
@@ -192,6 +272,16 @@ def compute_fingerprint(frame, box):
     upper = crop[:mid]
     lower = crop[mid:]
 
+    # 功能：实现 `hist` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `img`（未显式标注）：`img` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `compute_fingerprint` 调用本符号
+    #   - 内部调用：`np.zeros`、`cv2.cvtColor`、`cv2.calcHist([hsv], [0], None, [16], [0,
+    #          180]).flatten`、`cv2.calcHist`、`cv2.calcHist([hsv], [1], None, [16], [0, 256]).flatten`、`cv2.calcHist([hsv], [2],
+    #          None, [16], [0, 256]).flatten`、`np.concatenate`、`np.linalg.norm`、`(feat / n).astype`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def hist(img):
         if img.size == 0:
             return np.zeros(48, dtype=np.float32)
@@ -212,6 +302,15 @@ def compute_fingerprint(frame, box):
     }
 
 
+# 功能：余弦相似度 + 几何相似度的加权；输入与输出详见下方说明
+# 参数：
+#   - `fp1`（未显式标注）：`fp1` 对应的业务输入值
+#   - `fp2`（未显式标注）：`fp2` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_refind_by_fingerprint` 调用本符号
+#   - 内部调用：`float`、`min`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def fingerprint_similarity(fp1, fp2):
     """余弦相似度 + 几何相似度的加权"""
     if fp1 is None or fp2 is None:
@@ -227,6 +326,15 @@ def fingerprint_similarity(fp1, fp2):
 # 数据结构
 # =====================================================================================
 
+# 功能：记录某个 track_id 最近的 bbox 序列,用于交互检测；输入与输出详见下方说明
+# 参数：
+#   - `boxes`（deque）：`boxes` 对应的业务输入值
+#   - `last_seen`（float）：`last_seen` 对应的业务输入值
+# 返回：TrackHist；返回新建的 `TrackHist` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_update_track_hist` 实例化本符号
+#   - 内部调用：`field`、`deque`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class TrackHist:
     """记录某个 track_id 最近的 bbox 序列,用于交互检测"""
@@ -234,6 +342,28 @@ class TrackHist:
     last_seen: float = 0.0
 
 
+# 功能：定义 `PairSession` 类，封装会话处理、后台任务相关的状态、约束与操作
+# 参数：
+#   - `session_id`（str）：`session_id` 对应业务对象的唯一标识
+#   - `roi_name`（str）：`roi_name` 对应的业务输入值
+#   - `roi_box`（List[float]）：`roi_box` 对应的业务输入值
+#   - `init_track_a`（int）：`init_track_a` 对应的业务输入值
+#   - `init_track_b`（int）：`init_track_b` 对应的业务输入值
+#   - `fp_a`（Dict）：`fp_a` 对应的业务输入值
+#   - `fp_b`（Dict）：`fp_b` 对应的业务输入值
+#   - `last_box_a`（List[float]）：`last_box_a` 对应的业务输入值
+#   - `last_box_b`（List[float]）：`last_box_b` 对应的业务输入值
+#   - `start_ts`（float）：`start_ts` 对应的业务输入值
+#   - `last_match_ts`（float）：`last_match_ts` 对应的业务输入值
+#   - `last_interact_ts`（float）：`last_interact_ts` 对应的业务输入值
+#   - `end_ts`（float）：`end_ts` 对应的业务输入值
+#   - `keyframes`（List[np.ndarray]）：`keyframes` 对应的业务输入值
+#   - `last_kf_ts`（float）：`last_kf_ts` 对应的业务输入值
+# 返回：PairSession；返回新建的 `PairSession` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 实例化本符号
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class PairSession:
     session_id: str
@@ -261,6 +391,18 @@ class PairSession:
     last_kf_ts: float = 0.0
 
 
+# 功能：定义 `RoiState` 类，封装会话处理、后台任务相关的状态、约束与操作
+# 参数：
+#   - `roi_name`（str）：`roi_name` 对应的业务输入值
+#   - `track_hists`（Dict[int, TrackHist]）：`track_hists` 对应的业务输入值
+#   - `candidate_pair`（Optional[Tuple[int, int]]）：`candidate_pair` 对应的业务输入值
+#   - `candidate_hold`（int）：`candidate_hold` 对应的业务输入值
+#   - `active`（Optional[PairSession]）：`active` 对应的业务输入值
+# 返回：RoiState；返回新建的 `RoiState` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 实例化本符号
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class RoiState:
     roi_name: str
@@ -280,8 +422,27 @@ class RoiState:
 # 主逻辑
 # =====================================================================================
 
+# 功能：定义 `PairSessionManager` 类，封装会话处理、后台任务相关的状态、约束与操作
+# 参数：
+#   - `cfg`（未显式标注）：运行配置对象
+#   - `pending_dir`（未显式标注）：`pending_dir` 对应的业务输入值
+# 返回：PairSessionManager；返回新建的 `PairSessionManager` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class PairSessionManager:
 
+    # 功能：初始化或配置 `__init__` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `cfg`（未显式标注）：运行配置对象
+    #   - `pending_dir`（未显式标注）：`pending_dir` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`cfg.get`、`require_department`、`data_cfg.get`、`str`、`int`、`s.get`、`float`、`min`、`max`、`ValueError` 等共 12 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def __init__(self, cfg, pending_dir):
         s = cfg["session"]
         data_cfg = cfg.get("data", {}) or {}
@@ -336,6 +497,20 @@ class PairSessionManager:
         self.roi_states: Dict[str, RoiState] = {}
         self.session_id = 0
 
+    # 功能：按进入/保持阈值返回当前 ROI 的人体轨迹；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `tracks`（未显式标注）：`tracks` 对应的业务输入值
+    #   - `roi`（未显式标注）：感兴趣区域的坐标集合
+    #   - `active`（bool）：`active` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_roi_membership.py` 的
+    #         `test_session_manager_uses_looser_overlap_for_active_session` 调用本符号
+    #   - 内部调用：`isinstance`、`len`、`all`、`normalize_roi_points`、`bbox_belongs_to_normalized_roi`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _tracks_for_roi(self, tracks, roi, active: bool):
         """按进入/保持阈值返回当前 ROI 的人体轨迹。"""
         try:
@@ -365,6 +540,15 @@ class PairSessionManager:
             )
         ]
 
+    # 功能：移除已删除 ROI 的状态；活动会话直接取消且不进入 VLM 队列；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `rois`（未显式标注）：`rois` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`set`、`sorted`、`self.roi_states.pop`、`print`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _reconcile_rois(self, rois) -> None:
         """移除已删除 ROI 的状态；活动会话直接取消且不进入 VLM 队列。"""
         removed_names = set(self.roi_states) - set(rois)
@@ -382,6 +566,16 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 1) 更新 track 历史（用于交互检测）
     # ---------------------------------------------------------------------------------
+    # 功能：更新或保存 `_update_track_hist` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `st`（RoiState）：`st` 对应的业务输入值
+    #   - `tracks_in_roi`（未显式标注）：`tracks_in_roi` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`time.time`、`TrackHist`、`st.track_hists[tid].boxes.append`、`st.track_hists.items`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _update_track_hist(self, st: RoiState, tracks_in_roi):
         now = time.time()
         for t in tracks_in_roi:
@@ -400,6 +594,16 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 2) 计算单个 track 在最近 1 秒的位移量
     # ---------------------------------------------------------------------------------
+    # 功能：实现 `_recent_motion` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `st`（RoiState）：`st` 对应的业务输入值
+    #   - `tid`（未显式标注）：`tid` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_find_interacting_pair` 调用本符号
+    #   - 内部调用：`st.track_hists.get`、`len`、`time.time`、`bbox_center`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _recent_motion(self, st: RoiState, tid):
         th = st.track_hists.get(tid)
         if th is None or len(th.boxes) < 2:
@@ -415,6 +619,16 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 3) 找最佳 pair：要求"贴近 + 至少一方有动作"
     # ---------------------------------------------------------------------------------
+    # 功能：读取或查询 `_find_interacting_pair` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `st`（RoiState）：`st` 对应的业务输入值
+    #   - `tracks_in_roi`（未显式标注）：`tracks_in_roi` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`len`、`range`、`bbox_distance`、`self._recent_motion`、`max`、`abs`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _find_interacting_pair(self, st: RoiState, tracks_in_roi):
         if len(tracks_in_roi) < 2:
             return None
@@ -462,6 +676,17 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 4) 在当前帧的 ROI 内人群中,用指纹找回锁定的 pair
     # ---------------------------------------------------------------------------------
+    # 功能：返回 (box_a, box_b, found_a, found_b),允许任一方暂时丢失；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `sess`（PairSession）：`sess` 对应的业务输入值
+    #   - `tracks_in_roi`（未显式标注）：`tracks_in_roi` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`compute_fingerprint`、`fingerprint_similarity`、`candidates.append`、`score`、`a_scores.sort`、`b_scores.append`、`b_scores.sort`、`self._ema_fp`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _refind_by_fingerprint(self, frame, sess: PairSession, tracks_in_roi):
         """
         返回 (box_a, box_b, found_a, found_b),允许任一方暂时丢失。
@@ -480,6 +705,16 @@ class PairSessionManager:
             return None, None, False, False
 
         # 加位置约束：和上次 box 的 IoU 加权
+        # 功能：实现 `score` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `cand`（未显式标注）：`cand` 对应的业务输入值
+        #   - `last_box`（未显式标注）：`last_box` 对应的业务输入值
+        #   - `sim`（未显式标注）：`sim` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_refind_by_fingerprint` 调用本符号
+        #   - 内部调用：`bbox_iou`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def score(cand, last_box, sim):
             box = cand[0]
             iou = bbox_iou(box, last_box)
@@ -514,6 +749,16 @@ class PairSessionManager:
 
         return box_a, box_b, best_a is not None, best_b is not None
 
+    # 功能：实现 `_ema_fp` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `old`（未显式标注）：`old` 对应的业务输入值
+    #   - `new`（未显式标注）：`new` 对应的业务输入值
+    #   - `alpha`（未显式标注）：`alpha` 对应的业务输入值；默认值为 `0.1`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_refind_by_fingerprint` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _ema_fp(old, new, alpha=0.1):
         if old is None:
@@ -528,6 +773,18 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 5) 判断当前 box_a / box_b 是否仍在交互
     # ---------------------------------------------------------------------------------
+    # 功能：实现 `_still_interacting` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `st`（RoiState）：`st` 对应的业务输入值
+    #   - `sess`（PairSession）：`sess` 对应的业务输入值
+    #   - `box_a`（未显式标注）：`box_a` 对应的业务输入值
+    #   - `box_b`（未显式标注）：`box_b` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`bbox_distance`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _still_interacting(self, st: RoiState, sess: PairSession, box_a, box_b):
         if box_a is None or box_b is None:
             return False
@@ -545,6 +802,17 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 6) 裁剪关键帧
     # ---------------------------------------------------------------------------------
+    # 功能：实现 `_crop_pair` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `box_a`（未显式标注）：`box_a` 对应的业务输入值
+    #   - `box_b`（未显式标注）：`box_b` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`min`、`max`、`int`、`frame[y1:y2, x1:x2].copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _crop_pair(self, frame, box_a, box_b):
         if box_a is None and box_b is None:
             return None
@@ -564,6 +832,15 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 7) 落盘
     # ---------------------------------------------------------------------------------
+    # 功能：实现 `_finalize` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `sess`（PairSession）：`sess` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+    #   - 内部调用：`len`、`path.with_suffix`、`open`、`pickle.dump`、`time.time`、`temp_path.replace`、`temp_path.unlink`、`print`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def _finalize(self, sess: PairSession):
         if len(sess.keyframes) < 2:
             return  # 太少帧不送 VLM,直接丢
@@ -592,6 +869,22 @@ class PairSessionManager:
     # ---------------------------------------------------------------------------------
     # 8) 主更新
     # ---------------------------------------------------------------------------------
+    # 功能：实现 `step` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `tracks`（未显式标注）：`tracks` 对应的业务输入值
+    #   - `rois`（未显式标注）：`rois` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_roi_membership.py` 的
+    #         `test_new_pair_session_keeps_polygon_bounds_as_roi_box`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_roi_membership.py` 的
+    #         `test_deleted_roi_cancels_active_session_without_pending_task` 调用本符号
+    #   - 内部调用：`time.time`、`self._reconcile_rois`、`rois.items`、`RoiState`、`self._tracks_for_roi`、`self._update_track_hist`、`self._find_interacting_pair`、`compute_fingerprint`、`PairSession`、`time.time_ns`
+    #          等共 18 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def step(self, frame, tracks, rois):
         now = time.time()
         self._reconcile_rois(rois)
@@ -704,6 +997,14 @@ class PairSessionManager:
 # 主入口（基本同你原来的,加了心跳上报）
 # =====================================================================================
 
+# 功能：实现 `main` 对应的会话处理、后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`yaml.safe_load`、`open`、`Path`、`ResultStore`、`signal.signal`、`FrameHubReader`、`framehub_wait_timeout`
+#          等共 29 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)

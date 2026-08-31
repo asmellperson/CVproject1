@@ -1,3 +1,6 @@
+# 文件说明：实现几何计算相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # geometry.py
 """
 几何计算工具模块。
@@ -17,6 +20,15 @@ from .types import BBox
 Point = Tuple[int, int]
 
 
+# 功能：计算两个检测框的交并比（IoU）；输入与输出详见下方说明
+# 参数：
+#   - `a`（BBox）：`a` 对应的业务输入值
+#   - `b`（BBox）：`b` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`max`、`min`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_iou(a: BBox, b: BBox) -> float:
     """计算两个检测框的交并比（IoU）。
 
@@ -50,17 +62,42 @@ def bbox_iou(a: BBox, b: BBox) -> float:
     return inter / denom if denom > 0 else 0.0
 
 
+# 功能：返回检测框的中心点坐标 (cx, cy)；输入与输出详见下方说明
+# 参数：
+#   - `bbox`（BBox）：`bbox` 对应的业务输入值
+# 返回：Tuple[float, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_center(bbox: BBox) -> Tuple[float, float]:
     """返回检测框的中心点坐标 (cx, cy)。"""
     x1, y1, x2, y2 = bbox
     return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 
+# 功能：返回检测框的高度（像素），最小值为 1，避免后续做除数时出现零除；输入与输出详见下方说明
+# 参数：
+#   - `bbox`（BBox）：`bbox` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`float`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_height(bbox: BBox) -> float:
     """返回检测框的高度（像素），最小值为 1，避免后续做除数时出现零除。"""
     return float(max(1, bbox[3] - bbox[1]))
 
 
+# 功能：计算两个中心点之间的欧氏距离（像素）；输入与输出详见下方说明
+# 参数：
+#   - `a`（Tuple[float, float]）：`a` 对应的业务输入值
+#   - `b`（Tuple[float, float]）：`b` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`float`、`np.linalg.norm`、`np.array`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def center_distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     """计算两个中心点之间的欧氏距离（像素）。
 
@@ -74,6 +111,14 @@ def center_distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return float(np.linalg.norm(np.array(a, dtype=np.float32) - np.array(b, dtype=np.float32)))
 
 
+# 功能：将多边形顶点列表转换为 OpenCV 所需的 int32 numpy 数组；输入与输出详见下方说明
+# 参数：
+#   - `polygon`（Iterable[Point]）：`polygon` 对应的业务输入值
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`np.array`、`list`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def polygon_to_np(polygon: Iterable[Point]) -> np.ndarray:
     """将多边形顶点列表转换为 OpenCV 所需的 int32 numpy 数组。
 

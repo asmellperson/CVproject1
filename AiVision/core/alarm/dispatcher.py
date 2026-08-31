@@ -1,3 +1,6 @@
+# 文件说明：实现事件分发相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/alarm/dispatcher.py
 统一告警分发器 — 把"判断该不该告警 + 触发哪些通道"从 Consumer 里抽出来。
@@ -24,6 +27,29 @@ from core.alarm.horn import Horn
 from core.alarm.wechat import WeChatNotifier
 
 
+# 功能：单次告警请求的数据载体，由 Consumer 构造后提交给 AlarmDispatcher；输入与输出详见下方说明
+# 参数：
+#   - `feature_name`（str）：`feature_name` 对应的业务输入值
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `frame`（np.ndarray）：待处理的视频图像帧
+#   - `violation_type`（int）：`violation_type` 对应的业务输入值
+#   - `alarm_config`（dict）：`alarm_config` 对应的业务输入值
+#   - `camera_key`（str）：`camera_key` 对应的业务输入值
+#   - `subject_type`（str）：`subject_type` 对应的业务输入值
+#   - `subject_id`（str）：`subject_id` 对应业务对象的唯一标识
+#   - `subject_name`（str）：`subject_name` 对应的业务输入值
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `metadata`（dict）：`metadata` 对应的业务输入值
+# 返回：AlarmRequest；返回新建的 `AlarmRequest` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_cooldown_uses_logistics_channel_subject::request`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_forwards_subject_metadata_to_violation_writer`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_attaches_pending_shared_evidence_video`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的
+#         `test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default::request` 实例化本符号；另有 5 处静态调用
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class AlarmRequest:
     """
@@ -55,6 +81,17 @@ class AlarmRequest:
     metadata: dict = field(default_factory=dict)
 
 
+# 功能：全局告警分发器（单例）；输入与输出详见下方说明
+# 参数：无。
+# 返回：AlarmDispatcher；返回新建的 `AlarmDispatcher` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_cooldown_uses_logistics_channel_subject`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_forwards_subject_metadata_to_violation_writer`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的 `test_dispatcher_attaches_pending_shared_evidence_video`
+#         实例化本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的
+#         `test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default` 实例化本符号；另有 5 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmDispatcher:
     """
     全局告警分发器（单例）。
@@ -71,6 +108,14 @@ class AlarmDispatcher:
         通过全局单例 alarm_dispatcher.maybe_dispatch() 提交告警请求。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的事件分发逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`queue.Queue`、`threading.Thread`、`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self):
         # ---- 外部依赖（由 Orchestrator 通过 configure() 注入）----
         self.horn_dict: dict[int, Horn] = {}          # horn_id → Horn 实例映射
@@ -91,6 +136,18 @@ class AlarmDispatcher:
         self._last_alarm: dict[tuple[str, str, str], float] = {}
         self._lock = threading.Lock()
 
+    # 功能：注入运行时依赖，并启动微信后台发送线程；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `horn_dict`（dict[int, Horn]）：`horn_dict` 对应的业务输入值
+    #   - `wechat`（Optional[WeChatNotifier]）：`wechat` 对应的业务输入值
+    #   - `violation_writer`（未显式标注）：`violation_writer` 对应的业务输入值
+    #   - `evidence_recorder`（未显式标注）：`evidence_recorder` 对应的业务输入值；默认值为 `None`
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._wechat_thread.start`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
     def configure(
         self,
         horn_dict: dict[int, Horn],
@@ -116,6 +173,16 @@ class AlarmDispatcher:
     #  核心入口                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：冷却检查 + 告警分发的统一入口，Consumer 检测到违规时调用此方法；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `request`（AlarmRequest）：当前 HTTP 请求及上下文
+    #   - `alarm_interval`（float）：`alarm_interval` 对应的时间间隔或时长；默认值为 `5.0`
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._cooldown_key`、`time.time`、`self._last_alarm.get`、`self._execute`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def maybe_dispatch(
         self,
         request: AlarmRequest,
@@ -148,10 +215,31 @@ class AlarmDispatcher:
         self._execute(request)
         return True
 
+    # 功能：清除指定摄像头和功能的告警冷却状态；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.reset_subject_cooldown`、`str`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def reset_cooldown(self, camera_id: int, feature_name: str) -> None:
         """清除指定摄像头和功能的告警冷却状态。"""
         self.reset_subject_cooldown("camera", str(camera_id), feature_name)
 
+    # 功能：清除摄像头或通道主体的告警冷却状态；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `subject_type`（str）：`subject_type` 对应的业务输入值
+    #   - `subject_id`（str）：`subject_id` 对应业务对象的唯一标识
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::reset_cooldown` 调用本符号
+    #   - 内部调用：`self._last_alarm.pop`、`str`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def reset_subject_cooldown(
         self,
         subject_type: str,
@@ -162,6 +250,14 @@ class AlarmDispatcher:
         with self._lock:
             self._last_alarm.pop((subject_type, str(subject_id), feature_name), None)
 
+    # 功能：实现 `_cooldown_key` 对应的事件分发逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（AlarmRequest）：当前 HTTP 请求及上下文
+    # 返回：tuple[str, str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::maybe_dispatch` 调用本符号
+    #   - 内部调用：`str`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _cooldown_key(request: AlarmRequest) -> tuple[str, str, str]:
         subject_type = request.subject_type or "camera"
@@ -172,6 +268,21 @@ class AlarmDispatcher:
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：按 alarm_config 中各通道的 enable 开关，依次触发喇叭、微信、SQL 三条链路；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `req`（AlarmRequest）：`req` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::maybe_dispatch`
+    #         调用本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的
+    #         `test_dispatcher_forwards_subject_metadata_to_violation_writer` 调用本符号；`AiVision/tests/test_alarm_config_hot_update.py`
+    #         的 `test_dispatcher_attaches_pending_shared_evidence_video` 调用本符号；`AiVision/tests/test_alarm_config_hot_update.py` 的
+    #         `test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default` 调用本符号；另有 3 处静态调用
+    #   - 内部调用：`alarm.get`、`(wechat_cfg.get('parm') or
+    #          {}).get`、`wechat_cfg.get`、`bool`、`isinstance`、`sql_cfg.get`、`self.evidence_recorder.start_alarm`、`logger.warning`、`horn_cfg.get`、`(horn_cfg.get('parm')
+    #          or {}).get` 等共 15 个调用。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _execute(self, req: AlarmRequest):
         """
         按 alarm_config 中各通道的 enable 开关，依次触发喇叭、微信、SQL 三条链路。
@@ -243,6 +354,16 @@ class AlarmDispatcher:
             except queue.Full:
                 logger.warning(f"[Alarm] 微信告警队列满，丢弃 {req.feature_name}")
 
+    # 功能：向支持新字段的 writer 传通道元数据，并兼容旧式 writer 适配器；输入与输出详见下方说明
+    # 参数：
+    #   - `writer_method`（未显式标注）：`writer_method` 对应的业务输入值
+    #   - `req`（AlarmRequest）：`req` 对应的业务输入值
+    #   - `video_path`（str | None）：`video_path` 对应的业务输入值；默认值为 `None`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::_execute` 调用本符号
+    #   - 内部调用：`str`、`inspect.signature`、`any`、`signature.parameters.values`、`values.items`、`writer_method`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     @staticmethod
     def _write_violation(
         writer_method,
@@ -279,6 +400,17 @@ class AlarmDispatcher:
             pass
         return writer_method(**values)
 
+    # 功能：实现 `_alarm_card_urls` 对应的事件分发逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `alarm_id`（object | None）：`alarm_id` 对应业务对象的唯一标识
+    # 返回：tuple[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::_wechat_loop` 调用本符号；`AiVision/tests/test_wechat_news_card.py`
+    #         的 `test_dispatcher_persists_card_record_when_sql_is_disabled` 调用本符号；`AiVision/tests/test_wechat_news_card.py` 的
+    #         `test_dispatcher_builds_public_image_and_detail_urls` 调用本符号
+    #   - 内部调用：`settings.alarm.wechat_card_base_url.rstrip`、`str`、`quote`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     def _alarm_card_urls(self, alarm_id: object | None) -> tuple[str, str]:
         if not alarm_id:
             return "", ""
@@ -291,6 +423,14 @@ class AlarmDispatcher:
         detail_url = f"{base_url}/?page=alarms&alarmId={detail_id}"
         return image_url, detail_url
 
+    # 功能：微信后台发送线程的主循环（守护线程，随主进程退出自动结束）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._wechat_queue.get`、`len`、`cv2.imencode`、`logger.warning`、`self._alarm_card_urls`、`getattr`、`self.wechat.send`、`buffer.tobytes`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _wechat_loop(self):
         """
         微信后台发送线程的主循环（守护线程，随主进程退出自动结束）。

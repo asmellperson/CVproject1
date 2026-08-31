@@ -1,3 +1,6 @@
+# 文件说明：定义类型契约的数据结构与类型契约。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # types.py
 """
 全局共享数据类型模块。
@@ -20,6 +23,24 @@ BBox = Tuple[int, int, int, int]    # 检测框 (x1, y1, x2, y2)，左上 + 右�
 # 检测与跟踪
 # ---------------------------------------------------------------------------
 
+# 功能：单个目标的检测结果；输入与输出详见下方说明
+# 参数：
+#   - `cls_id`（int）：`cls_id` 对应业务对象的唯一标识
+#   - `conf`（float）：`conf` 对应的业务输入值
+#   - `bbox`（BBox）：`bbox` 对应的业务输入值
+#   - `track_id`（Optional[int]）：目标跟踪标识
+# 返回：Detection；返回新建的 `Detection` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的
+#         `test_status_reports_guards_separately_from_all_detected_people`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_vehicle_detection.py` 的
+#         `test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leaves`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_vehicle_detection.py` 的
+#         `test_vehicle_behavior_keeps_checked_state_after_short_vehicle_detection_drop` 实例化本符号；另有 14 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class Detection:
     """单个目标的检测结果。
@@ -35,6 +56,14 @@ class Detection:
     bbox: BBox
     track_id: Optional[int] = None
 
+    # 功能：返回检测框的中心点坐标 (cx, cy)；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Tuple[float, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def center(self) -> Tuple[float, float]:
         """返回检测框的中心点坐标 (cx, cy)。"""
@@ -42,6 +71,25 @@ class Detection:
         return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 
+# 功能：单个跟踪目标的历史状态（当前未被核心流水线使用，保留供扩展）；输入与输出详见下方说明
+# 参数：
+#   - `track_id`（int）：目标跟踪标识
+#   - `last_bbox`（BBox）：`last_bbox` 对应的业务输入值
+#   - `last_center`（Tuple[float, float]）：`last_center` 对应的业务输入值
+#   - `last_timestamp`（float）：`last_timestamp` 对应的业务输入值
+#   - `motion_score`（float）：`motion_score` 对应的业务输入值
+#   - `in_post_roi`（bool）：`in_post_roi` 对应的业务输入值
+#   - `head_down_frames`（int）：`head_down_frames` 对应的业务输入值
+#   - `phone_frames`（int）：`phone_frames` 对应的业务输入值
+#   - `drowsy_frames`（int）：`drowsy_frames` 对应的业务输入值
+#   - `visible`（bool）：`visible` 对应的业务输入值
+#   - `history_centers`（List[Tuple[float, float]]）：`history_centers` 对应的业务输入值
+#   - `extra`（Dict[str, float]）：`extra` 对应的业务输入值
+# 返回：PersonState；返回新建的 `PersonState` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class PersonState:
     """单个跟踪目标的历史状态（当前未被核心流水线使用，保留供扩展）。
@@ -77,6 +125,20 @@ class PersonState:
     extra: Dict[str, float] = field(default_factory=dict)  # 扩展字段，避免频繁修改 dataclass
 
 
+# 功能：单帧推理的完整上下文（当前未被核心流水线使用，保留供扩展）；输入与输出详见下方说明
+# 参数：
+#   - `timestamp_s`（float）：以秒表示的流时间戳
+#   - `frame_index`（int）：视频流中的帧序号
+#   - `fps`（float）：`fps` 对应的业务输入值
+#   - `detections`（List[Detection]）：`detections` 对应的业务输入值
+#   - `persons`（List[Detection]）：`persons` 对应的业务输入值
+#   - `phones`（List[Detection]）：`phones` 对应的业务输入值
+#   - `pose_features`（Dict[int, Dict[str, float]]）：`pose_features` 对应的业务输入值
+# 返回：FrameContext；返回新建的 `FrameContext` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class FrameContext:
     """单帧推理的完整上下文（当前未被核心流水线使用，保留供扩展）。
@@ -105,6 +167,28 @@ class FrameContext:
 # 报警事件
 # ---------------------------------------------------------------------------
 
+# 功能：报警事件的完整描述，贯穿从触发到推送的完整生命周期；输入与输出详见下方说明
+# 参数：
+#   - `event_type`（str）：事件类型标识
+#   - `timestamp_s`（float）：以秒表示的流时间戳
+#   - `frame_index`（int）：视频流中的帧序号
+#   - `track_id`（Optional[int]）：目标跟踪标识
+#   - `confidence`（float）：模型预测或规则判断的置信度
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `image_path`（Optional[str]）：`image_path` 对应的业务输入值
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `video_path`（Optional[str]）：`video_path` 对应的业务输入值
+#   - `video_status`（str）：`video_status` 对应的业务输入值
+# 返回：AlarmEvent；返回新建的 `AlarmEvent` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/alarms.py` 的 `AlarmManager::emit`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_media_cleanup.py` 的
+#         `test_cleanup_rejects_symlinks_and_alarm_manager_prunes_memory`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_manager.py` 的
+#         `test_runtime_manager_enriches_status_frame_and_alarms_with_site_metadata`
+#         实例化本符号；`unified_frontend/src/components/human_dwell/monitorState.ts` 的 `filterTodayHumanDwellAlarms` 引用本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class AlarmEvent:
     """报警事件的完整描述，贯穿从触发到推送的完整生命周期。

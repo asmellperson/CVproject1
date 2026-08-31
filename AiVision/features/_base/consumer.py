@@ -1,3 +1,6 @@
+# 文件说明：实现视频帧消费与检测的帧消费、判定与告警衔接逻辑。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 features/_base/consumer.py
 功能消费者基类 — 业务逻辑处理框架。
@@ -41,6 +44,19 @@ _FRAME_CHANGE_SAMPLE_STEP = 4
 _FRAME_CHANGE_BLUR_KERNEL = (5, 5)
 
 
+# 功能：所有功能消费者的基类，每个功能对应一个独立的 Consumer 线程；输入与输出详见下方说明
+# 参数：
+#   - `spec`（FeatureSpec）：`spec` 对应的业务输入值
+#   - `infer_dict`（dict）：`infer_dict` 对应的业务输入值
+#   - `result_queue`（未显式标注）：`result_queue` 对应的业务输入值
+#   - `latest_frames`（dict[str, np.ndarray]）：`latest_frames` 对应的业务输入值
+#   - `is_camera_active`（未显式标注）：`is_camera_active` 对应的业务输入值
+#   - `runtime_alert_handler`（Callable[[str, str, str, str], None] | None）：`runtime_alert_handler` 对应的回调处理器；默认值为 `None`
+# 返回：BaseFunctionConsumer；返回新建的 `BaseFunctionConsumer` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class BaseFunctionConsumer(ABC):
     """
     所有功能消费者的基类，每个功能对应一个独立的 Consumer 线程。
@@ -61,6 +77,20 @@ class BaseFunctionConsumer(ABC):
         进程退出时调用 stop()，守护线程随主进程自动回收。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `spec`（FeatureSpec）：`spec` 对应的业务输入值
+    #   - `infer_dict`（dict）：`infer_dict` 对应的业务输入值
+    #   - `result_queue`（未显式标注）：`result_queue` 对应的业务输入值
+    #   - `latest_frames`（dict[str, np.ndarray]）：`latest_frames` 对应的业务输入值
+    #   - `is_camera_active`（未显式标注）：`is_camera_active` 对应的业务输入值
+    #   - `runtime_alert_handler`（Callable[[str, str, str, str], None] | None）：`runtime_alert_handler` 对应的回调处理器；默认值为 `None`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`defaultdict`、`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         spec: FeatureSpec,
@@ -116,6 +146,14 @@ class BaseFunctionConsumer(ABC):
     #  生命周期                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：启动 Consumer 守护线程；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._load_initial_configs`、`threading.Thread`、`self._thread.start`、`logger.info`、`len`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def start(self):
         """
         启动 Consumer 守护线程。
@@ -133,11 +171,27 @@ class BaseFunctionConsumer(ABC):
             f"[{self.feature_name}] Consumer 已启动，监控 {len(self.config_cache)} 个摄像头"
         )
 
+    # 功能：通知主循环退出；守护线程会随主进程自动回收，无需 join；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def stop(self):
         """通知主循环退出；守护线程会随主进程自动回收，无需 join。"""
         self.running = False
         logger.info(f"[{self.feature_name}] Consumer 已停止")
 
+    # 功能：从全局缓存加载本 feature 已启用的所有摄像头配置；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::start` 调用本符号
+    #   - 内部调用：`config_cache.get_all_function_configs().items`、`config_cache.get_all_function_configs`、`cfg.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _load_initial_configs(self):
         """
         从全局缓存加载本 feature 已启用的所有摄像头配置。
@@ -152,6 +206,15 @@ class BaseFunctionConsumer(ABC):
     #  配置变更回调（由 Orchestrator 路由事件触发）                          #
     # ------------------------------------------------------------------ #
 
+    # 功能：热更新指定摄像头的功能配置；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`config_cache.get_function_config`、`alarm_dispatcher.reset_cooldown`、`self._masks.pop`、`self._masks_roi_input.pop`、`self._masks_frame_shape.pop`、`self._roi_polygon_cache.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_config(self, camera_id: int):
         """
         热更新指定摄像头的功能配置。
@@ -169,6 +232,17 @@ class BaseFunctionConsumer(ABC):
             self._masks_frame_shape.pop(camera_id, None)
             self._roi_polygon_cache.pop(camera_id, None)
 
+    # 功能：响应摄像头功能启用/禁用事件；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `enabled`（bool）：是否启用相应能力
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`config_cache.get_function_config`、`self.config_cache.pop`、`(cfg or
+    #          {}).get`、`self.result_dict.pop`、`self.result_updated_at.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_status(self, camera_id: int, enabled: bool):
         """
         响应摄像头功能启用/禁用事件。
@@ -191,6 +265,15 @@ class BaseFunctionConsumer(ABC):
     #  主循环                                                               #
     # ------------------------------------------------------------------ #
 
+    # 功能：Consumer 主循环，每轮 sleep 50ms（约 20fps 上限），流程如下:；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._collect_async_results`、`list`、`self.config_cache.keys`、`self.config_cache[cam_id].get`、`self.is_camera_active`、`self.latest_frames.get`、`self.config_cache.get`、`self._should_process_now`、`self._get_roi`、`self._frame_changed`
+    #          等共 22 个调用。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _run(self):
         """
         Consumer 主循环，每轮 sleep 50ms（约 20fps 上限），流程如下:
@@ -252,6 +335,16 @@ class BaseFunctionConsumer(ABC):
     #  抽象方法（子类必须实现）                                              #
     # ------------------------------------------------------------------ #
 
+    # 功能：核心业务处理，接收裁剪后的 ROI 帧列表，返回每个 ROI 的判定结果；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `roi_list`（list[np.ndarray]）：`roi_list` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：list[tuple[bool, dict]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @abstractmethod
     def _process(self, roi_list: list[np.ndarray], camera_id: int) -> list[tuple[bool, dict]]:
         """
@@ -263,6 +356,16 @@ class BaseFunctionConsumer(ABC):
                 detail_dict— 可视化或日志所需的业务细节（由子类定义结构）。
         """
 
+    # 功能：在原始帧上叠加检测结果的可视化标注（边框、标签、热区等）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `result`（list）：`result` 对应的业务输入值
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @abstractmethod
     def post_process(self, camera_id: int, result: list) -> np.ndarray:
         """
@@ -272,6 +375,20 @@ class BaseFunctionConsumer(ABC):
             带标注的 BGR 图像帧，写入 result_dict 后供前端预览。
         """
 
+    # 功能：发送或分发 `_notify_runtime_alert` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_type`（str）：事件类型标识
+    #   - `detail`（str）：`detail` 对应的业务输入值
+    #   - `target_name`（str | None）：`target_name` 对应的业务输入值；默认值为 `None`
+    #   - `target_key`（str | None）：`target_key` 对应的业务输入值；默认值为 `None`
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号；`AiVision/features/_base/consumer.py` 的
+    #         `BaseFunctionConsumer::_record_inference_outcomes` 调用本符号
+    #   - 内部调用：`threading.Thread(target=_send, daemon=True,
+    #          name=f'feature-runtime-alert-{self.feature_name}').start`、`threading.Thread`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
     def _notify_runtime_alert(
         self,
         event_type: str,
@@ -284,6 +401,13 @@ class BaseFunctionConsumer(ABC):
         if handler is None:
             return
 
+        # 功能：发送或分发 `_send` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`handler`、`logger.warning`。
+        # 副作用/注意事项：会向日志系统输出运行或异常信息。
         def _send():
             try:
                 handler(
@@ -301,6 +425,19 @@ class BaseFunctionConsumer(ABC):
             name=f"feature-runtime-alert-{self.feature_name}",
         ).start()
 
+    # 功能：按模型和摄像头记录结果；连续异常达到阈值时发送一次限频告警；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `model_name`（str）：`model_name` 对应的业务输入值
+    #   - `outcomes`（list[dict]）：`outcomes` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::dispatch_inference_sync`
+    #         调用本符号；`AiVision/tests/test_inference_outcomes.py` 的 `test_consecutive_failures_emit_one_alert_and_are_exposed` 调用本符号
+    #   - 内部调用：`time.monotonic`、`str`、`outcome.get`、`time.time`、`defaultdict`、`last_failure.get`、`self._inference_last_alert_at.get`、`dict`、`self.config_cache.get(camera_id,
+    #          {}).get`、`self.config_cache.get` 等共 12 个调用。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _record_inference_outcomes(
         self,
         *,
@@ -375,6 +512,14 @@ class BaseFunctionConsumer(ABC):
             target_key=f"{self.feature_name}:{model_name}:{camera_id}",
         )
 
+    # 功能：返回可序列化的推理结果统计快照，供运行状态接口使用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_inference_outcomes.py` 的 `test_consecutive_failures_emit_one_alert_and_are_exposed` 调用本符号
+    #   - 内部调用：`sorted`、`self._inference_outcome_counts_by_target.items`、`targets.append`、`dict`、`self._inference_consecutive_failures.get`、`self._inference_last_status.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def inference_status(self) -> dict:
         """返回可序列化的推理结果统计快照，供运行状态接口使用。"""
         with self._inference_status_lock:
@@ -402,6 +547,17 @@ class BaseFunctionConsumer(ABC):
     #  告警处理                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：判定是否触发告警，并通过 alarm_dispatcher 分发到各通道；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `result`（list）：`result` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：`self.config_cache.get`、`self._should_alarm`、`cfg.get`、`alarm_dispatcher.maybe_dispatch`、`AlarmRequest`、`self.frame_cache.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _handle_alarm(self, camera_id: int, result: list, frame: np.ndarray):
         """
         判定是否触发告警，并通过 alarm_dispatcher 分发到各通道。
@@ -450,6 +606,17 @@ class BaseFunctionConsumer(ABC):
             alarm_interval=cfg.get("alarm_interval", 5.0),
         )
 
+    # 功能：默认告警判定：result 中任意一项 alarm_flag 为 True 即触发；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `result`（list）：`result` 对应的业务输入值
+    #   - `cfg`（dict）：运行配置对象
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_handle_alarm` 调用本符号
+    #   - 内部调用：`bool`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _should_alarm(self, camera_id: int, result: list, cfg: dict) -> bool:
         """
         默认告警判定：result 中任意一项 alarm_flag 为 True 即触发。
@@ -466,6 +633,16 @@ class BaseFunctionConsumer(ABC):
                 return True
         return False
 
+    # 功能：控制在画面无显著变化时是否仍按 cap_interval 周期处理；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `cfg`（dict）：运行配置对象
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         """
         控制在画面无显著变化时是否仍按 cap_interval 周期处理。
@@ -475,10 +652,29 @@ class BaseFunctionConsumer(ABC):
         """
         return False
 
+    # 功能：控制当前摄像头本轮是否进入检测流程，默认不做时间限制；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `cfg`（dict）：运行配置对象
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
         """控制当前摄像头本轮是否进入检测流程，默认不做时间限制。"""
         return True
 
+    # 功能：兼容两种配置结构：；输入与输出详见下方说明
+    # 参数：
+    #   - `cfg`（dict）：运行配置对象
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号；`AiVision/features/_base/consumer.py` 的
+    #         `BaseFunctionConsumer::_get_roi` 调用本符号；`AiVision/features/detect_phone/consumer.py` 的 `PhoneConsumer::_process` 调用本符号
+    #   - 内部调用：`isinstance`、`cfg.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _value_config(cfg: dict) -> dict:
         """
@@ -495,6 +691,14 @@ class BaseFunctionConsumer(ABC):
     #  ROI 工具                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：将多种格式的 roi_pos 统一归一化为 [[polygon], [polygon], ...] 格式；输入与输出详见下方说明
+    # 参数：
+    #   - `roi_pos`（未显式标注）：`roi_pos` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_rebuild_masks` 调用本符号
+    #   - 内部调用：`isinstance`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _normalize_roi_pos(roi_pos):
         """
@@ -517,10 +721,30 @@ class BaseFunctionConsumer(ABC):
         # 已是多边形列表 [[[x,y],...], ...]
         return roi_pos
 
+    # 功能：返回当前摄像头缓存的多边形列表，供子类绘制 ROI 边框使用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._roi_polygon_cache.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _get_roi_polygons(self, camera_id: int):
         """返回当前摄像头缓存的多边形列表，供子类绘制 ROI 边框使用。"""
         return self._roi_polygon_cache.get(camera_id, [])
 
+    # 功能：按配置裁剪帧中的 ROI 区域，返回各多边形的掩码裁剪结果；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：list[np.ndarray]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：`self.config_cache.get`、`self._value_config`、`value_cfg.get`、`isinstance`、`roi_pos_raw.tolist`、`tuple`、`self._masks_roi_input.get`、`self._masks_frame_shape.get`、`self._rebuild_masks`、`roi_list.append`
+    #          等共 11 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _get_roi(self, camera_id: int, frame: np.ndarray) -> list[np.ndarray]:
         """
         按配置裁剪帧中的 ROI 区域，返回各多边形的掩码裁剪结果。
@@ -556,6 +780,18 @@ class BaseFunctionConsumer(ABC):
             roi_list.append(cv2.bitwise_and(cropped, cropped, mask=mask))
         return roi_list
 
+    # 功能：根据多边形坐标预计算裁剪掩码，缓存至 _masks[camera_id]；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `roi_pos_raw`（未显式标注）：`roi_pos_raw` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_get_roi` 调用本符号
+    #   - 内部调用：`self.pre_roi.pop`、`self.blur_roi.pop`、`self.frame_change_samples.pop`、`self._normalize_roi_pos`、`enumerate`、`np.array`、`logger.warning`、`arr[:,
+    #          0].min`、`arr[:, 1].min`、`arr[:, 0].max` 等共 18 个调用。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _rebuild_masks(self, camera_id: int, frame: np.ndarray, roi_pos_raw):
         """
         根据多边形坐标预计算裁剪掩码，缓存至 _masks[camera_id]。
@@ -619,6 +855,17 @@ class BaseFunctionConsumer(ABC):
             masks.append((mask, y_min, y_max, x_min, x_max))
         self._masks[camera_id] = masks
 
+    # 功能：相似帧快速跳过检测，避免对静止画面重复推理；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `roi_list`（list[np.ndarray]）：`roi_list` 对应的业务输入值
+    #   - `threshold`（float）：`threshold` 对应的业务输入值；默认值为 `0.005`
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：`len`、`self._initialize_frame_change_state`、`enumerate`、`self._frame_change_sample`、`cv2.absdiff`、`quick.mean`、`cv2.GaussianBlur`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _frame_changed(self, camera_id: int, roi_list: list[np.ndarray], threshold: float = 0.005) -> bool:
         """
         相似帧快速跳过检测，避免对静止画面重复推理。
@@ -661,6 +908,15 @@ class BaseFunctionConsumer(ABC):
                 return True
         return False
 
+    # 功能：先 4 倍下采样再模糊，生成仅用于快速帧差判断的小图；输入与输出详见下方说明
+    # 参数：
+    #   - `roi`（np.ndarray）：感兴趣区域的坐标集合
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_frame_changed`
+    #         调用本符号；`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_initialize_frame_change_state` 调用本符号
+    #   - 内部调用：`np.ascontiguousarray`、`cv2.GaussianBlur`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _frame_change_sample(roi: np.ndarray) -> np.ndarray:
         """先 4 倍下采样再模糊，生成仅用于快速帧差判断的小图。"""
@@ -669,6 +925,16 @@ class BaseFunctionConsumer(ABC):
         )
         return cv2.GaussianBlur(sampled, _FRAME_CHANGE_BLUR_KERNEL, 0)
 
+    # 功能：初始化帧差小图，同时保留业务处理依赖的完整模糊帧；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `roi_list`（list[np.ndarray]）：`roi_list` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_frame_changed` 调用本符号
+    #   - 内部调用：`list`、`self._frame_change_sample`、`cv2.GaussianBlur`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _initialize_frame_change_state(self, camera_id: int, roi_list: list[np.ndarray]) -> None:
         """初始化帧差小图，同时保留业务处理依赖的完整模糊帧。"""
         self.pre_roi[camera_id] = list(roi_list)
@@ -685,6 +951,24 @@ class BaseFunctionConsumer(ABC):
     #  推理调度                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：同步推理调度：将所有 ROI 投入推理队列，阻塞等待全部结果后返回；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `model_name`（str）：`model_name` 对应的业务输入值
+    #   - `roi_list`（list[np.ndarray]）：`roi_list` 对应的业务输入值
+    #   - `task_meta`（Optional[dict]）：`task_meta` 对应的业务输入值；默认值为 `None`
+    #   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `0.8`
+    # 返回：list[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_inference_outcomes.py` 的 `test_dispatch_reports_model_unavailable_for_every_roi`
+    #         调用本符号；`AiVision/tests/test_inference_outcomes.py` 的 `test_dispatch_reports_queue_full_without_losing_roi_identity`
+    #         调用本符号；`AiVision/tests/test_inference_outcomes.py` 的
+    #         `test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout` 调用本符号；`AiVision/tests/test_inference_outcomes.py`
+    #         的 `test_consecutive_failures_emit_one_alert_and_are_exposed` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`time.monotonic_ns`、`enumerate`、`build_inference_result`、`self._record_inference_outcomes`、`set`、`int`、`self.infer_dict[model_name].put`、`pending.add`、`time.monotonic`、`self.result_queue.get`
+    #          等共 18 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def dispatch_inference_sync(
         self,
         camera_id: int,
@@ -807,6 +1091,14 @@ class BaseFunctionConsumer(ABC):
         )
         return results
 
+    # 功能：收集已完成的异步推理结果（扩展点，当前暂未使用）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_run` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _collect_async_results(self):
         """
         收集已完成的异步推理结果（扩展点，当前暂未使用）。

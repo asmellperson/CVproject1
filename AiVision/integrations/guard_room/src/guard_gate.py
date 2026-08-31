@@ -1,3 +1,6 @@
+# 文件说明：实现`guard_gate` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # guard_gate.py
 """
 保安识别结果平滑模块。
@@ -11,6 +14,14 @@ from __future__ import annotations
 from typing import Dict
 
 
+# 功能：逐目标的保安识别结果保持器；输入与输出详见下方说明
+# 参数：
+#   - `hold_seconds`（float）：`hold_seconds` 对应的时间间隔或时长；默认值为 `1.0`
+# 返回：GuardGate；返回新建的 `GuardGate` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class GuardGate:
     """逐目标的保安识别结果保持器。
 
@@ -19,6 +30,15 @@ class GuardGate:
     仍返回 True（视为保安在场）。
     """
 
+    # 功能：hold_seconds: 正识别结果的保持时长（秒）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `hold_seconds`（float）：`hold_seconds` 对应的时间间隔或时长；默认值为 `1.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, hold_seconds: float = 1.0):
         """
         Args:
@@ -28,6 +48,17 @@ class GuardGate:
         self.hold_seconds = hold_seconds
         self.last_positive_ts: Dict[int, float] = {}   # track_id → 最近一次识别为保安的时间戳
 
+    # 功能：查询目标当前是否应视为保安（含保持窗口）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `track_id`（int | None）：目标跟踪标识
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `is_guard_now`（bool）：`is_guard_now` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.last_positive_ts.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def keep(self, track_id: int | None, timestamp_s: float, is_guard_now: bool) -> bool:
         """查询目标当前是否应视为保安（含保持窗口）。
 

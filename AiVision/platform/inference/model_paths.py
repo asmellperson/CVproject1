@@ -1,3 +1,6 @@
+# 文件说明：实现模型相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """本机模型路径配置。
 
 模型文件路径会随部署服务器变化，不能依赖数据库中的 ai_model.path。
@@ -23,6 +26,16 @@ except Exception:  # pragma: no cover - 仅在缺少 PyYAML 的环境下触发
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+# 功能：定义 `ModelPathResolution` 类，封装模型相关的状态、约束与操作
+# 参数：
+#   - `path`（str）：目标路径
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `database_path`（str）：`database_path` 对应的业务输入值
+# 返回：ModelPathResolution；返回新建的 `ModelPathResolution` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `resolve_model_path` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class ModelPathResolution:
     path: str
@@ -30,6 +43,14 @@ class ModelPathResolution:
     database_path: str
 
 
+# 功能：计算或解析 `_resolve_config_path` 对应的模型逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path_value`（str）：`path_value` 对应的业务输入值
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `load_model_path_overrides` 调用本符号
+#   - 内部调用：`Path(path_value).expanduser`、`Path`、`path.is_absolute`、`(_PROJECT_ROOT / path).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _resolve_config_path(path_value: str) -> Path:
     path = Path(path_value).expanduser()
     if path.is_absolute():
@@ -37,6 +58,14 @@ def _resolve_config_path(path_value: str) -> Path:
     return (_PROJECT_ROOT / path).resolve()
 
 
+# 功能：读取或查询 `_read_config` 对应的模型逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path`（Path）：目标路径
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `load_model_path_overrides` 调用本符号
+#   - 内部调用：`path.exists`、`path.suffix.lower`、`json.loads`、`path.read_text`、`logger.warning`、`yaml.safe_load`、`isinstance`。
+# 副作用/注意事项：会向日志系统输出运行或异常信息。
 def _read_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -56,6 +85,14 @@ def _read_config(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+# 功能：读取本机模型路径覆盖表，返回 {model_name: path}；输入与输出详见下方说明
+# 参数：无。
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `resolve_model_path` 调用本符号
+#   - 内部调用：`_resolve_config_path`、`_read_config`、`raw.get`、`isinstance`、`section.items`、`item.get`、`path_value.strip`、`str`、`logger.info`、`',
+#          '.join` 等共 12 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
 @lru_cache(maxsize=1)
 def load_model_path_overrides() -> dict[str, str]:
     """读取本机模型路径覆盖表，返回 {model_name: path}。"""
@@ -82,6 +119,15 @@ def load_model_path_overrides() -> dict[str, str]:
     return overrides
 
 
+# 功能：返回模型实际加载路径；输入与输出详见下方说明
+# 参数：
+#   - `model_cfg`（dict[str, Any]）：`model_cfg` 对应的业务输入值
+# 返回：ModelPathResolution；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `apply_model_path_override` 调用本符号；`AiVision/platform/inference/service.py`
+#         的 `ModelService::_to_dict` 调用本符号
+#   - 内部调用：`str`、`model_cfg.get`、`load_model_path_overrides().get`、`load_model_path_overrides`、`ModelPathResolution`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_model_path(model_cfg: dict[str, Any]) -> ModelPathResolution:
     """返回模型实际加载路径。
 
@@ -103,6 +149,14 @@ def resolve_model_path(model_cfg: dict[str, Any]) -> ModelPathResolution:
     )
 
 
+# 功能：复制模型配置，并把 path 替换成 worker 应加载的本机路径；输入与输出详见下方说明
+# 参数：
+#   - `model_cfg`（dict[str, Any]）：`model_cfg` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/inference/base_worker.py` 的 `BaseModelWorker::__init__` 调用本符号
+#   - 内部调用：`resolve_model_path`、`str`、`model_cfg.get`、`RuntimeError`、`dict`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def apply_model_path_override(model_cfg: dict[str, Any]) -> dict[str, Any]:
     """复制模型配置，并把 path 替换成 worker 应加载的本机路径。"""
     resolution = resolve_model_path(model_cfg)

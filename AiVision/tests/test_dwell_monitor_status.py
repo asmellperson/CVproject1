@@ -1,13 +1,42 @@
+# 文件说明：包含监控展示的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 from types import SimpleNamespace
 
 from features._base.dwell_consumer import build_dwell_monitor_snapshot
 
 
+# 功能：定义 `FakeTracker` 类，封装监控展示相关的状态、约束与操作
+# 参数：
+#   - `tracks`（未显式标注）：`tracks` 对应的业务输入值
+# 返回：FakeTracker；返回新建的 `FakeTracker` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_dwell_monitor_status.py` 的 `test_dwell_snapshot_counts_visible_tracks_and_longest_duration`
+#         实例化本符号；`AiVision/tests/test_dwell_monitor_status.py` 的 `test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks`
+#         实例化本符号；`AiVision/tests/test_dwell_monitor_status.py` 的 `test_dwell_snapshot_ignores_trackers_for_removed_rois` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeTracker:
+    # 功能：初始化或配置 `__init__` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `tracks`（未显式标注）：`tracks` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, tracks):
         self.tracks = tracks
 
 
+# 功能：验证 `test_dwell_snapshot_counts_visible_tracks_and_longest_duration` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeTracker`、`SimpleNamespace`、`build_dwell_monitor_snapshot`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dwell_snapshot_counts_visible_tracks_and_longest_duration():
     trackers = {
         (7, 0): FakeTracker({
@@ -38,6 +67,13 @@ def test_dwell_snapshot_counts_visible_tracks_and_longest_duration():
     }
 
 
+# 功能：验证 `test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`build_dwell_monitor_snapshot`、`FakeTracker`、`SimpleNamespace`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks():
     snapshot = build_dwell_monitor_snapshot(
         {(7, 0): FakeTracker({1: SimpleNamespace(first_seen=90.0, lost=2, alarmed=True)})},
@@ -54,6 +90,13 @@ def test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks():
     assert snapshot["reason"] == "normal"
 
 
+# 功能：验证 `test_dwell_snapshot_ignores_trackers_for_removed_rois` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`build_dwell_monitor_snapshot`、`FakeTracker`、`SimpleNamespace`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dwell_snapshot_ignores_trackers_for_removed_rois():
     snapshot = build_dwell_monitor_snapshot(
         {

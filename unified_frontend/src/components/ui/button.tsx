@@ -1,3 +1,6 @@
+// 文件说明：封装可复用的`button` 模块 React 基础组件。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -36,6 +39,18 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * 功能：渲染 `Button` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, variant, default, size, default, asChild, false, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ROIDrawer.tsx` 的 `ROIDrawer` 调用本符号；`unified_frontend/src/components/ui/calendar.tsx` 的
+ *         `CalendarDayButton` 调用本符号；`unified_frontend/src/components/ui/carousel.tsx` 的 `CarouselPrevious`
+ *         调用本符号；`unified_frontend/src/components/ui/carousel.tsx` 的 `CarouselNext` 调用本符号；另有 2 处静态调用
+ *   - 内部调用：`return`、`cn`、`buttonVariants`、`Comp`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function Button({
   className,
   variant = "default",

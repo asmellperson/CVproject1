@@ -1,3 +1,6 @@
+# 文件说明：定义数据库模型的持久化模型、数据库连接或存取能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """SQLAlchemy ORM models for Guard Room sites and grouped cameras."""
 from __future__ import annotations
 
@@ -18,6 +21,13 @@ from sqlalchemy.orm import relationship
 from .db import Base
 
 
+# 功能：A named guard room / monitoring area under the guard behavior feature；输入与输出详见下方说明
+# 参数：无。
+# 返回：GuardRoomSite；返回新建的 `GuardRoomSite` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::create_site` 实例化本符号
+#   - 内部调用：`UniqueConstraint`、`Column`、`String`、`text`、`relationship`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class GuardRoomSite(Base):
     """A named guard room / monitoring area under the guard behavior feature."""
 
@@ -55,6 +65,13 @@ class GuardRoomSite(Base):
     )
 
 
+# 功能：A camera that belongs to one guard room site；输入与输出详见下方说明
+# 参数：无。
+# 返回：GuardRoomCamera；返回新建的 `GuardRoomCamera` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::create_camera` 实例化本符号
+#   - 内部调用：`UniqueConstraint`、`Column`、`ForeignKey`、`String`、`text`、`relationship`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class GuardRoomCamera(Base):
     """A camera that belongs to one guard room site."""
 
@@ -85,6 +102,16 @@ class GuardRoomCamera(Base):
     site = relationship("GuardRoomSite", back_populates="cameras")
 
 
+# 功能：Per-site configuration sections compatible with ``AppConfig``；输入与输出详见下方说明
+# 参数：无。
+# 返回：GuardRoomSiteConfig；返回新建的 `GuardRoomSiteConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::create_site`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::update_site_config`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_site_service.py` 的
+#         `test_site_service_replaces_orphan_config_when_sqlite_reuses_site_id` 实例化本符号
+#   - 内部调用：`Column`、`ForeignKey`、`text`、`relationship`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class GuardRoomSiteConfig(Base):
     """Per-site configuration sections compatible with ``AppConfig``."""
 

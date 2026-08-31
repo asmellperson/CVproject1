@@ -1,3 +1,6 @@
+# 文件说明：实现`consensus` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # consensus.py
 """
 多摄像头行为共识模块。
@@ -26,6 +29,19 @@ from .behavior import RuleDecision
 # 数据结构
 # ---------------------------------------------------------------------------
 
+# 功能：单路摄像头在某一帧的完整判断结果，作为共识层的输入单元；输入与输出详见下方说明
+# 参数：
+#   - `camera_id`（str）：摄像头唯一标识
+#   - `camera_online`（bool）：`camera_online` 对应的业务输入值
+#   - `guard_present`（bool）：`guard_present` 对应的业务输入值
+#   - `phone`（RuleDecision）：`phone` 对应的业务输入值
+#   - `prone_sleep`（RuleDecision）：`prone_sleep` 对应的业务输入值
+#   - `vehicle_unattended`（RuleDecision）：`vehicle_unattended` 对应的业务输入值
+# 返回：CameraDecisionBundle；返回新建的 `CameraDecisionBundle` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class CameraDecisionBundle:
     """单路摄像头在某一帧的完整判断结果，作为共识层的输入单元。
@@ -50,6 +66,16 @@ class CameraDecisionBundle:
 # 共识引擎
 # ---------------------------------------------------------------------------
 
+# 功能：多路摄像头行为共识引擎；输入与输出详见下方说明
+# 参数：
+#   - `guard_hold_seconds`（float）：`guard_hold_seconds` 对应的时间间隔或时长；默认值为 `1.3`
+#   - `absent_alarm_seconds`（float）：`absent_alarm_seconds` 对应的时间间隔或时长；默认值为 `60.0`
+#   - `behavior_sync_seconds`（float）：`behavior_sync_seconds` 对应的时间间隔或时长；默认值为 `1.5`
+# 返回：MultiCameraConsensus；返回新建的 `MultiCameraConsensus` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class MultiCameraConsensus:
     """多路摄像头行为共识引擎。
 
@@ -62,6 +88,17 @@ class MultiCameraConsensus:
 
     """
 
+    # 功能：guard_hold_seconds:    保安出现后的时间戳保持窗口（秒）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `guard_hold_seconds`（float）：`guard_hold_seconds` 对应的时间间隔或时长；默认值为 `1.3`
+    #   - `absent_alarm_seconds`（float）：`absent_alarm_seconds` 对应的时间间隔或时长；默认值为 `60.0`
+    #   - `behavior_sync_seconds`（float）：`behavior_sync_seconds` 对应的时间间隔或时长；默认值为 `1.5`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         guard_hold_seconds: float = 1.3,
@@ -88,6 +125,16 @@ class MultiCameraConsensus:
         # 记录"全部摄像头均未见保安"状态的起始时间戳；None 表示当前有摄像头看到保安
         self.no_guard_started_at: float | None = None
 
+    # 功能：执行一次多摄像头共识裁决；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `cameras`（Dict[str, CameraDecisionBundle]）：`cameras` 对应的业务输入值
+    # 返回：Dict[str, RuleDecision]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`RuleDecision`、`cameras.items`、`online_cameras.items`、`self.last_guard_seen_ts.get`、`online_cameras.keys`、`any`、`recent_guard.values`、`max`、`'/'.join`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def update(
         self,
         timestamp_s: float,

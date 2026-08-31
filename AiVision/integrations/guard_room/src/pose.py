@@ -1,3 +1,6 @@
+# 文件说明：实现`pose` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # pose.py
 """
 姿态估计模块。
@@ -26,6 +29,17 @@ from .types import Detection
 from .ultralytics_compat import yolo_precision_kwargs
 
 
+# 功能：基于 YOLO-Pose 的姿态估计器；输入与输出详见下方说明
+# 参数：
+#   - `model_path`（str）：`model_path` 对应的业务输入值
+#   - `device`（str）：`device` 对应的业务输入值；默认值为 `''`
+#   - `imgsz`（int）：`imgsz` 对应的业务输入值；默认值为 `640`
+#   - `half`（bool）：`half` 对应的业务输入值；默认值为 `True`
+# 返回：PoseEstimator；返回新建的 `PoseEstimator` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class PoseEstimator:
     """基于 YOLO-Pose 的姿态估计器。
 
@@ -42,6 +56,18 @@ class PoseEstimator:
     KP_LEFT_WRIST = 9
     KP_RIGHT_WRIST = 10
 
+    # 功能：model_path: YOLO-Pose 权重文件路径（.pt）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `model_path`（str）：`model_path` 对应的业务输入值
+    #   - `device`（str）：`device` 对应的业务输入值；默认值为 `''`
+    #   - `imgsz`（int）：`imgsz` 对应的业务输入值；默认值为 `640`
+    #   - `half`（bool）：`half` 对应的业务输入值；默认值为 `True`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path(model_path).exists`、`Path`、`YOLO`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         model_path: str,
@@ -64,6 +90,17 @@ class PoseEstimator:
         self.enabled = Path(model_path).exists()    # 文件不存在时静默降级，不抛异常
         self.model = YOLO(model_path) if self.enabled else None
 
+    # 功能：对整帧做一次姿态推理，返回按 track_id 索引的姿态特征字典；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame_bgr`（np.ndarray）：`frame_bgr` 对应的业务输入值
+    #   - `persons`（List[Detection]）：`persons` 对应的业务输入值
+    #   - `conf`（float）：`conf` 对应的业务输入值；默认值为 `0.3`
+    # 返回：Dict[int, Dict[str, float]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_estimate_pose` 调用本符号
+    #   - 内部调用：`self.model.predict`、`yolo_precision_kwargs`、`len`、`kpts_data.cpu().numpy`、`kpts_data.cpu`、`results[0].boxes.xyxy.cpu().numpy`、`results[0].boxes.xyxy.cpu`、`self._match_pose_to_person`、`self._extract_features`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def infer_frame(
         self,
         frame_bgr: np.ndarray,
@@ -132,6 +169,16 @@ class PoseEstimator:
 
         return features
 
+    # 功能：用 IoU 将检测器的人体框与姿态模型的检测框对齐，返回最佳匹配的索引；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `person_bbox`（tuple[int, int, int, int]）：`person_bbox` 对应的业务输入值
+    #   - `pose_bboxes`（np.ndarray）：`pose_bboxes` 对应的业务输入值
+    # 返回：int | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/pose.py` 的 `PoseEstimator::infer_frame` 调用本符号
+    #   - 内部调用：`len`、`enumerate`、`max`、`min`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _match_pose_to_person(
         self,
         person_bbox: tuple[int, int, int, int],
@@ -180,6 +227,18 @@ class PoseEstimator:
 
         return best_idx if best_iou > 0.3 else None    # IoU 阈值 0.3：低于此值视为错误匹配
 
+    # 功能：从 17 个关键点计算 BehaviorEngine 所需的姿态特征；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `kpts`（np.ndarray）：`kpts` 对应的业务输入值
+    #   - `person`（Detection）：`person` 对应的业务输入值
+    #   - `frame_w`（int）：`frame_w` 对应的业务输入值
+    #   - `frame_h`（int）：`frame_h` 对应的业务输入值
+    # 返回：Dict[str, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/pose.py` 的 `PoseEstimator::infer_frame` 调用本符号
+    #   - 内部调用：`max`、`abs`、`float`、`bbox_height`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _extract_features(
         self,
         kpts: np.ndarray,
@@ -245,6 +304,14 @@ class PoseEstimator:
             "person_h": bbox_height(person.bbox),
         }
 
+    # 功能：释放模型占用的 GPU/CPU 内存，程序退出前调用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def close(self) -> None:
         """释放模型占用的 GPU/CPU 内存，程序退出前调用。"""
         self.model = None

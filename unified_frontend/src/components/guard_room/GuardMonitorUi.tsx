@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { LucideIcon } from 'lucide-react'
 import { CheckCircle2, CircleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,6 +14,16 @@ const statToneClasses: Record<StatTone, { icon: string; ping: string }> = {
   rose: { icon: 'bg-rose-50 text-rose-600', ping: 'bg-rose-500' },
 }
 
+/**
+ * 功能：渲染 `GuardMonitorStatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, value, detail, icon, Icon, tone, ping, false
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Icon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function GuardMonitorStatCard({
   label,
   value,
@@ -46,6 +59,16 @@ export function GuardMonitorStatCard({
   )
 }
 
+/**
+ * 功能：渲染 `GuardDetectionStatusRow` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, icon, Icon, state, stateLabel, label, string, icon
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Icon`、`CheckCircle2`、`CircleAlert`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function GuardDetectionStatusRow({
   label,
   icon: Icon,
@@ -80,6 +103,16 @@ export function GuardDetectionStatusRow({
   )
 }
 
+/**
+ * 功能：渲染 `GuardVideoStatusPill` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, state, neutral, showDot, false, label, string, state
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function GuardVideoStatusPill({
   label,
   state = 'neutral',

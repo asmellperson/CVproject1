@@ -1,3 +1,6 @@
+# 文件说明：包含`test_vlm_multicamera` 模块的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import json
 import pickle
 import queue
@@ -12,6 +15,13 @@ import session_worker
 import vlm_worker
 
 
+# 功能：验证 `test_session_framehub_wait_timeout_covers_slow_rtsp_startup` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker.framehub_wait_timeout`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_session_framehub_wait_timeout_covers_slow_rtsp_startup():
     assert session_worker.framehub_wait_timeout({}) == 30.0
     assert session_worker.framehub_wait_timeout({
@@ -19,6 +29,15 @@ def test_session_framehub_wait_timeout_covers_slow_rtsp_startup():
     }) == 45.0
 
 
+# 功能：验证 `test_finalized_session_contains_camera_identity` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker.PairSessionManager`、`session_worker.PairSession`、`np.zeros`、`manager._finalize`、`pickle.loads`、`(tmp_path
+#          / 'session-1.pkl').read_bytes`、`list`、`tmp_path.glob`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_finalized_session_contains_camera_identity(tmp_path):
     cfg = {
         "data": {
@@ -56,11 +75,36 @@ def test_finalized_session_contains_camera_identity(tmp_path):
     assert list(tmp_path.glob("*.tmp")) == []
 
 
+# 功能：更新或保存 `_write_pending` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path`（Path）：目标路径
+#   - `enqueue_ts`（float）：`enqueue_ts` 对应的业务输入值；默认值为 `100.0`
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_multicamera_scanner_round_robins_and_deduplicates_full_paths`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_legacy_pending_tasks_are_moved_into_global_processing`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_preexisting_processing_tasks_are_marked_for_crash_recovery` 调用本符号；另有 3 处静态调用
+#   - 内部调用：`path.parent.mkdir`、`path.write_bytes`、`pickle.dumps`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _write_pending(path: Path, enqueue_ts: float = 100.0):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pickle.dumps({"enqueue_ts": enqueue_ts}))
 
 
+# 功能：验证 `test_multicamera_scanner_round_robins_and_deduplicates_full_paths` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`path.name.split`、`len`、`str`、`all`
+#          等共 12 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_multicamera_scanner_round_robins_and_deduplicates_full_paths(tmp_path):
     camera_root = tmp_path / "cameras"
     _write_pending(camera_root / "camera-a" / "pending" / "same.pkl")
@@ -90,6 +134,14 @@ def test_multicamera_scanner_round_robins_and_deduplicates_full_paths(tmp_path):
     assert list(camera_root.glob("*/pending/*.pkl")) == []
 
 
+# 功能：验证 `test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`vlm_worker.cleanup_stale_pending`、`valid.exists`、`expired.exists`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired(tmp_path):
     pending = tmp_path / "pending"
     valid = pending / "valid.pkl"
@@ -108,6 +160,15 @@ def test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired(tmp_path
     assert not expired.exists()
 
 
+# 功能：验证 `test_legacy_pending_tasks_are_moved_into_global_processing` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`vlm_worker.migrate_legacy_pending`、`task.exists`、`(processing /
+#          'legacy-default__legacy-session.pkl').exists`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_legacy_pending_tasks_are_moved_into_global_processing(tmp_path):
     legacy_pending = tmp_path / "session_pending"
     processing = tmp_path / "global" / "processing"
@@ -121,6 +182,14 @@ def test_legacy_pending_tasks_are_moved_into_global_processing(tmp_path):
     assert (processing / "legacy-default__legacy-session.pkl").exists()
 
 
+# 功能：验证 `test_preexisting_processing_tasks_are_marked_for_crash_recovery` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`vlm_worker.mark_recovered_processing`、`(processing / 'camera-a__session.pkl.recovered').exists`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_preexisting_processing_tasks_are_marked_for_crash_recovery(tmp_path):
     processing = tmp_path / "global" / "processing"
     task = processing / "camera-a__session.pkl"
@@ -132,6 +201,13 @@ def test_preexisting_processing_tasks_are_marked_for_crash_recovery(tmp_path):
     assert (processing / "camera-a__session.pkl.recovered").exists()
 
 
+# 功能：验证 `test_pending_payload_without_department_defaults_to_general_electric` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.payload_department`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_pending_payload_without_department_defaults_to_general_electric():
     assert vlm_worker.payload_department({}) == "general_electric"
     assert (
@@ -140,6 +216,14 @@ def test_pending_payload_without_department_defaults_to_general_electric():
     )
 
 
+# 功能：验证 `test_scanner_discovers_new_department_and_legacy_pending_paths` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`path.name.rsplit`、`next`、`path.name.endswith`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_scanner_discovers_new_department_and_legacy_pending_paths(tmp_path):
     runtime_root = tmp_path / "runtime"
     legacy_task = runtime_root / "cameras" / "legacy-camera" / "pending" / "old.pkl"
@@ -192,6 +276,15 @@ def test_scanner_discovers_new_department_and_legacy_pending_paths(tmp_path):
     assert legacy_claim.parent == runtime_root / "global" / "processing"
 
 
+# 功能：验证 `test_department_processing_collision_stays_in_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`all`、`list`、`(runtime_root
+#          / 'global' / 'processing').glob`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_department_processing_collision_stays_in_department(tmp_path):
     runtime_root = tmp_path / "runtime"
     pending_task = (
@@ -223,6 +316,14 @@ def test_department_processing_collision_stays_in_department(tmp_path):
     assert list((runtime_root / "global" / "processing").glob("*.pkl")) == []
 
 
+# 功能：验证 `test_scanner_rejects_and_cleans_unknown_department_pending` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.empty`、`unknown_task.exists`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_scanner_rejects_and_cleans_unknown_department_pending(tmp_path):
     runtime_root = tmp_path / "runtime"
     unknown_task = (
@@ -244,6 +345,14 @@ def test_scanner_rejects_and_cleans_unknown_department_pending(tmp_path):
     assert not unknown_task.exists()
 
 
+# 功能：验证 `test_department_pending_requires_explicit_matching_payload_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`vlm_worker.validate_pending_payload_department`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_department_pending_requires_explicit_matching_payload_department(tmp_path):
     processing_dir = (
         tmp_path
@@ -271,6 +380,14 @@ def test_department_pending_requires_explicit_matching_payload_department(tmp_pa
     )
 
 
+# 功能：验证 `test_legacy_processing_without_department_defaults_to_general_electric` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.validate_pending_payload_department`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_legacy_processing_without_department_defaults_to_general_electric(tmp_path):
     task = (
         tmp_path
@@ -290,6 +407,15 @@ def test_legacy_processing_without_department_defaults_to_general_electric(tmp_p
     ) == "general_electric"
 
 
+# 功能：验证 `test_same_named_tasks_in_two_departments_do_not_collide` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`task.parent.mkdir`、`task.write_bytes`、`pickle.dumps`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`set`、`vlm_worker.validate_pending_payload_department`
+#          等共 12 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_same_named_tasks_in_two_departments_do_not_collide(tmp_path):
     runtime_root = tmp_path / "runtime"
     departments = ("general_electric", "electronics_electrician")
@@ -326,6 +452,19 @@ def test_same_named_tasks_in_two_departments_do_not_collide(tmp_path):
     } == set(departments)
 
 
+# 功能：实现 `_valid_department_payload` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `**overrides`（未显式标注）：`overrides` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的 `test_pending_parser_rejects_missing_session_id`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_pending_parser_rejects_invalid_enqueue_timestamp`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_invalid_pending_load_cleans_task_and_markers_before_processing`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的 `_write_full_pending` 调用本符号；另有 3 处静态调用
+#   - 内部调用：`payload.update`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _valid_department_payload(**overrides):
     payload = {
         "department": "general_electric",
@@ -343,6 +482,18 @@ def _valid_department_payload(**overrides):
     return payload
 
 
+# 功能：实现 `_general_processing_task` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的 `test_pending_parser_rejects_missing_session_id`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_pending_parser_rejects_invalid_enqueue_timestamp`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_invalid_pending_load_cleans_task_and_markers_before_processing` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _general_processing_task(tmp_path):
     return (
         tmp_path
@@ -355,6 +506,14 @@ def _general_processing_task(tmp_path):
     )
 
 
+# 功能：验证 `test_pending_parser_rejects_missing_session_id` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_valid_department_payload`、`payload.pop`、`pytest.raises`、`vlm_worker.normalize_pending_payload`、`_general_processing_task`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_pending_parser_rejects_missing_session_id(tmp_path):
     payload = _valid_department_payload()
     payload.pop("session_id")
@@ -366,6 +525,15 @@ def test_pending_parser_rejects_missing_session_id(tmp_path):
         )
 
 
+# 功能：验证 `test_pending_parser_rejects_invalid_enqueue_timestamp` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `enqueue_ts`（未显式标注）：`enqueue_ts` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`vlm_worker.normalize_pending_payload`、`_valid_department_payload`、`_general_processing_task`、`pytest.mark.parametrize`、`float`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.parametrize(
     "enqueue_ts",
     ["not-a-number", float("inf"), 10 ** 400],
@@ -384,6 +552,15 @@ def test_pending_parser_rejects_invalid_enqueue_timestamp(
         )
 
 
+# 功能：验证 `test_invalid_pending_load_cleans_task_and_markers_before_processing` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_general_processing_task`、`task.parent.mkdir`、`_valid_department_payload`、`invalid_payload.pop`、`task.write_bytes`、`pickle.dumps`、`task.with_suffix`、`started.touch`、`recovered.touch`、`vlm_worker.load_validated_pending_task`
+#          等共 15 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_invalid_pending_load_cleans_task_and_markers_before_processing(
     tmp_path,
 ):
@@ -412,6 +589,24 @@ def test_invalid_pending_load_cleans_task_and_markers_before_processing(
     assert not recovered.exists()
 
 
+# 功能：更新或保存 `_write_full_pending` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path`（Path）：目标路径
+#   - `department`（str）：业务部门名称或标识
+#   - `camera_id`（str）：摄像头唯一标识
+#   - `**overrides`（未显式标注）：`overrides` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_department_scanner_is_fair_across_departments_and_cameras`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_recovered_processing_round_robins_cameras_within_department`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
+#         `test_worker_get_fairly_selects_late_department_after_general_backlog` 调用本符号；另有 5 处静态调用
+#   - 内部调用：`_valid_department_payload`、`path.parent.mkdir`、`path.write_bytes`、`pickle.dumps`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _write_full_pending(path: Path, *, department: str, camera_id: str, **overrides):
     payload = _valid_department_payload(
         department=department,
@@ -424,6 +619,15 @@ def _write_full_pending(path: Path, *, department: str, camera_id: str, **overri
     return path
 
 
+# 功能：验证 `test_department_scanner_is_fair_across_departments_and_cameras` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`{'ge-a': ('1.pkl', '2.pkl'), 'ge-b': ('1.pkl',
+#          '2.pkl')}.items`、`_write_full_pending`、`queue.Queue`、`vlm_worker.DepartmentPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_department_scanner_is_fair_across_departments_and_cameras(tmp_path):
     departments_root = tmp_path / "custom" / "departments"
     for camera_id, task_names in {
@@ -477,6 +681,14 @@ def test_department_scanner_is_fair_across_departments_and_cameras(tmp_path):
     )
 
 
+# 功能：验证 `test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_full_pending`、`queue.Queue`、`vlm_worker.DepartmentPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`valid.exists`、`decoy.exists`、`task_q.empty`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy(tmp_path):
     departments_root = tmp_path / "custom" / "departments"
     valid = _write_full_pending(
@@ -513,6 +725,14 @@ def test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy(tmp_p
     assert task_q.empty()
 
 
+# 功能：验证 `test_recovered_processing_round_robins_cameras_within_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_full_pending`、`queue.Queue`、`vlm_worker.DepartmentPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_recovered_processing_round_robins_cameras_within_department(tmp_path):
     departments_root = tmp_path / "departments"
     processing_root = (
@@ -540,6 +760,14 @@ def test_recovered_processing_round_robins_cameras_within_department(tmp_path):
     ] == ["camera-a", "camera-b"]
 
 
+# 功能：验证 `test_worker_get_fairly_selects_late_department_after_general_backlog` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentFairTaskQueue`、`vlm_worker.DepartmentPendingScanner`、`_write_full_pending`、`scanner.scan_once`、`vlm_worker.queued_department_counts`、`task_q.get`、`task_q.task_done`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_worker_get_fairly_selects_late_department_after_general_backlog(
     tmp_path,
 ):
@@ -587,6 +815,14 @@ def test_worker_get_fairly_selects_late_department_after_general_backlog(
     task_q.task_done()
 
 
+# 功能：验证 `test_worker_get_fairly_selects_late_camera_after_camera_backlog` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentFairTaskQueue`、`range`、`task_q.put`、`vlm_worker.PendingTask`、`task_q.get`、`task_q.task_done`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_worker_get_fairly_selects_late_camera_after_camera_backlog(tmp_path):
     task_q = vlm_worker.DepartmentFairTaskQueue()
     for index in range(4):
@@ -610,6 +846,14 @@ def test_worker_get_fairly_selects_late_camera_after_camera_backlog(tmp_path):
     task_q.task_done()
 
 
+# 功能：验证 `test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_full_pending`、`vlm_worker.DepartmentFairTaskQueue`、`vlm_worker.DepartmentPendingScanner`、`scanner.scan_once`、`task_q.qsize`、`task_q.get`、`pending_b.exists`、`task_q.task_done`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera(
     tmp_path,
 ):
@@ -652,6 +896,14 @@ def test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera(
     task_q.task_done()
 
 
+# 功能：验证 `test_new_processing_identity_requires_matching_department_and_camera` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.PendingTask`、`pytest.raises`、`vlm_worker.normalize_pending_payload`、`_valid_department_payload`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_new_processing_identity_requires_matching_department_and_camera(tmp_path):
     task = vlm_worker.PendingTask(
         "general_electric",
@@ -677,6 +929,14 @@ def test_new_processing_identity_requires_matching_department_and_camera(tmp_pat
         )
 
 
+# 功能：验证 `test_legacy_task_rejects_explicit_non_general_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.PendingTask`、`pytest.raises`、`vlm_worker.normalize_pending_payload`、`_valid_department_payload`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_legacy_task_rejects_explicit_non_general_department(tmp_path):
     task = vlm_worker.PendingTask(
         "general_electric",
@@ -695,6 +955,16 @@ def test_legacy_task_rejects_explicit_non_general_department(tmp_path):
         )
 
 
+# 功能：验证 `test_invalid_task_identifiers_are_rejected_and_cleaned` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `field`（未显式标注）：`field` 对应的业务输入值
+#   - `value`（未显式标注）：待转换、校验或写入的值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.PendingTask`、`_valid_department_payload`、`task_path.parent.mkdir`、`task_path.write_bytes`、`pickle.dumps`、`vlm_worker.load_validated_pending_task`、`task_path.exists`、`pytest.mark.parametrize`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -726,6 +996,15 @@ def test_invalid_task_identifiers_are_rejected_and_cleaned(
     assert not task_path.exists()
 
 
+# 功能：验证 `test_department_results_accumulators_are_fully_isolated` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentResultStores`、`vlm_worker.DepartmentAccumulators`、`datetime.now().strftime`、`datetime.now`、`accumulators.get('general_electric').record`、`accumulators.get`、`accumulators.get('electronics_electrician').record`、`stores.get('general_electric').read`、`stores.get`、`stores.get('electronics_electrician').read`
+#          等共 11 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_department_results_accumulators_are_fully_isolated(tmp_path):
     stores = vlm_worker.DepartmentResultStores(tmp_path)
     accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
@@ -770,6 +1049,17 @@ def test_department_results_accumulators_are_fully_isolated(tmp_path):
     assert stores.budget_store.runtime_dir == tmp_path / "_shared"
 
 
+# 功能：验证 `test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root` 对应的`test_vlm_multicamera`
+#    模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.VLMWorkerPaths.from_config`、`(project_root / 'runtime').resolve`、`(project_root / 'runtime' / 'custom' /
+#          'departments').resolve`、`(project_root / 'runtime' / 'legacy-cameras').resolve`、`(project_root / 'data' / 'custom' /
+#          'departments').resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root(
     tmp_path,
 ):
@@ -799,6 +1089,16 @@ def test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root(
     ).resolve()
 
 
+# 功能：验证 `test_real_claim_process_partition_clip_history_stats_and_cleanup` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_write_full_pending`、`np.zeros`、`queue.Queue`、`vlm_worker.DepartmentPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`vlm_worker.DepartmentResultStores`、`vlm_worker.DepartmentAccumulators`、`SimpleNamespace`、`monkeypatch.setattr`
+#          等共 20 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_real_claim_process_partition_clip_history_stats_and_cleanup(
     tmp_path,
     monkeypatch,
@@ -867,6 +1167,15 @@ def test_real_claim_process_partition_clip_history_stats_and_cleanup(
     assert not task.path.exists()
 
 
+# 功能：验证 `test_completion_record_identity_mismatch_is_rejected_without_vlm_call` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentResultStores`、`vlm_worker.DepartmentAccumulators`、`_write_full_pending`、`stores.results_dir`、`result_path.parent.mkdir`、`result_path.write_text`、`json.dumps`、`vlm_worker.PendingTaskProcessor`、`SimpleNamespace`、`calls.append`
+#          等共 14 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_completion_record_identity_mismatch_is_rejected_without_vlm_call(tmp_path):
     stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
     accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
@@ -918,6 +1227,15 @@ def test_completion_record_identity_mismatch_is_rejected_without_vlm_call(tmp_pa
     assert result_path.exists()
 
 
+# 功能：验证 `test_corrupt_completion_preserves_task_markers_and_result` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentResultStores`、`vlm_worker.DepartmentAccumulators`、`_write_full_pending`、`task_path.with_suffix`、`started.touch`、`recovered.touch`、`stores.results_dir`、`result_path.parent.mkdir`、`result_path.write_text`、`vlm_worker.PendingTaskProcessor`
+#          等共 18 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_corrupt_completion_preserves_task_markers_and_result(tmp_path):
     stores = vlm_worker.DepartmentResultStores(tmp_path / "data")
     accumulators = vlm_worker.DepartmentAccumulators(stores, max_history=10)
@@ -970,6 +1288,16 @@ def test_corrupt_completion_preserves_task_markers_and_result(tmp_path):
     assert result_path.read_text(encoding="utf-8") == "{broken"
 
 
+# 功能：验证 `test_corrupt_department_state_is_isolated_and_preserved` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `corrupt_payload`（未显式标注）：`corrupt_payload` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`vlm_worker.DepartmentResultStores`、`stores.get`、`corrupt_store._path`、`state_path.write_text`、`vlm_worker.DepartmentAccumulators`、`dict`、`accumulators.write_all`、`state_path.read_text`、`accumulators.get`、`corrupt_store.read`
+#          等共 20 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 @pytest.mark.parametrize("corrupt_payload", ["{broken", "[]"])
 def test_corrupt_department_state_is_isolated_and_preserved(
     tmp_path,

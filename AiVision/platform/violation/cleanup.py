@@ -1,3 +1,6 @@
+# 文件说明：实现资源清理相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """AiVision 报警图片、视频与数据库记录的一致性清理。"""
 from __future__ import annotations
 
@@ -17,6 +20,18 @@ CLEANUP_BATCH_SIZE = 500
 QUOTA_GRACE_SECONDS = 10 * 60
 
 
+# 功能：一次报警图片清理的统计结果；输入与输出详见下方说明
+# 参数：
+#   - `removed_files`（int）：`removed_files` 对应的业务输入值
+#   - `removed_bytes`（int）：`removed_bytes` 对应的业务输入值
+#   - `removed_records`（int）：`removed_records` 对应的业务输入值
+#   - `skipped_unsafe_paths`（int）：`skipped_unsafe_paths` 对应的业务输入值
+#   - `failed_files`（int）：`failed_files` 对应的业务输入值
+# 返回：MediaCleanupStats；返回新建的 `MediaCleanupStats` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class MediaCleanupStats:
     """一次报警图片清理的统计结果。"""
@@ -28,9 +43,32 @@ class MediaCleanupStats:
     failed_files: int = 0
 
 
+# 功能：按保留天数和容量上限清理报警媒体及关联数据库记录；输入与输出详见下方说明
+# 参数：
+#   - `data_path`（str | Path）：`data_path` 对应的业务输入值
+#   - `retention_days`（int）：`retention_days` 对应的业务输入值
+#   - `max_bytes`（int）：`max_bytes` 对应的业务输入值
+#   - `session_scope_factory`（未显式标注）：`session_scope_factory` 对应的业务输入值；默认值为 `session_scope`
+# 返回：ViolationMediaCleaner；返回新建的 `ViolationMediaCleaner` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::__init__` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ViolationMediaCleaner:
     """按保留天数和容量上限清理报警媒体及关联数据库记录。"""
 
+    # 功能：初始化或配置 `__init__` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `data_path`（str | Path）：`data_path` 对应的业务输入值
+    #   - `retention_days`（int）：`retention_days` 对应的业务输入值
+    #   - `max_bytes`（int）：`max_bytes` 对应的业务输入值
+    #   - `session_scope_factory`（未显式标注）：`session_scope_factory` 对应的业务输入值；默认值为 `session_scope`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path(data_path).expanduser().resolve`、`Path(data_path).expanduser`、`Path`、`max`、`int`、`threading.Lock`、`self.data_path.mkdir`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         data_path: str | Path,
@@ -46,6 +84,16 @@ class ViolationMediaCleaner:
         self._lock = threading.Lock()
         self.data_path.mkdir(parents=True, exist_ok=True)
 
+    # 功能：删除或清理 `cleanup` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `now`（datetime.datetime | None）：`now` 对应的业务输入值；默认值为 `None`
+    # 返回：MediaCleanupStats；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::_delete_old` 调用本符号
+    #   - 内部调用：`MediaCleanupStats`、`self._lock.acquire`、`logger.info`、`datetime.datetime.now`、`datetime.timedelta`、`self._delete_expired_records`、`self._delete_expired_orphans`、`cutoff.timestamp`、`self._enforce_size_limit`、`cleanup_now.timestamp`
+    #          等共 13 个调用。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def cleanup(self, now: datetime.datetime | None = None) -> MediaCleanupStats:
         stats = MediaCleanupStats()
         if not self._lock.acquire(blocking=False):
@@ -70,6 +118,19 @@ class ViolationMediaCleaner:
             self._lock.release()
         return stats
 
+    # 功能：删除或清理 `_delete_expired_records` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `cutoff`（datetime.datetime）：`cutoff` 对应的业务输入值
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
+    #   - 内部调用：`self._session_scope`、`session.query(AiViolationImage).filter`、`session.query`、`query.filter`、`query.order_by(AiViolationImage.create_time.asc(),
+    #          AiViolationImage.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiViolationImage.create_time.asc(),
+    #          AiViolationImage.id.asc()).limit`、`query.order_by`、`AiViolationImage.create_time.asc`、`AiViolationImage.id.asc`、`int`
+    #          等共 13 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def _delete_expired_records(
         self,
         cutoff: datetime.datetime,
@@ -116,6 +177,16 @@ class ViolationMediaCleaner:
                         stats.removed_files += int(image_bytes > 0) + int(video_bytes > 0)
                         stats.removed_bytes += removed_bytes
 
+    # 功能：删除或清理 `_delete_expired_orphans` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `cutoff_timestamp`（float）：`cutoff_timestamp` 对应的业务输入值
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
+    #   - 内部调用：`self._media_files`、`path.stat`、`candidates.append`、`range`、`len`、`self._referenced_paths`、`str`、`self._remove_managed_file`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _delete_expired_orphans(
         self,
         cutoff_timestamp: float,
@@ -142,6 +213,19 @@ class ViolationMediaCleaner:
                     stats.removed_files += 1
                     stats.removed_bytes += removed_bytes
 
+    # 功能：实现 `_enforce_size_limit` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    #   - `now_timestamp`（float）：`now_timestamp` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
+    #   - 内部调用：`self._media_size`、`self._session_scope`、`session.query`、`query.filter`、`query.order_by(AiViolationImage.create_time.asc(),
+    #          AiViolationImage.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiViolationImage.create_time.asc(),
+    #          AiViolationImage.id.asc()).limit`、`query.order_by`、`AiViolationImage.create_time.asc`、`AiViolationImage.id.asc`、`int`
+    #          等共 17 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def _enforce_size_limit(
         self,
         stats: MediaCleanupStats,
@@ -211,6 +295,17 @@ class ViolationMediaCleaner:
                 f"current_gb={total_bytes / GIB:.2f} max_gb={self.max_bytes / GIB:.2f}"
             )
 
+    # 功能：删除或清理 `_delete_quota_orphans` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `total_bytes`（int）：`total_bytes` 对应的业务输入值
+    #   - `quota_cutoff`（float）：`quota_cutoff` 对应的业务输入值
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit` 调用本符号
+    #   - 内部调用：`sorted`、`self._media_files`、`range`、`len`、`self._referenced_paths`、`str`、`path.stat`、`self._remove_managed_file`、`max`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _delete_quota_orphans(
         self,
         total_bytes: int,
@@ -241,6 +336,16 @@ class ViolationMediaCleaner:
                     total_bytes = max(0, total_bytes - removed_bytes)
         return total_bytes
 
+    # 功能：实现 `_referenced_paths` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `paths`（list[Path]）：`paths` 对应的业务输入值
+    # 返回：set[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_orphans`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_quota_orphans` 调用本符号
+    #   - 内部调用：`str`、`self._session_scope`、`session.query(AiViolationImage.image_path).filter(AiViolationImage.image_path.in_(raw_paths)).all`、`session.query(AiViolationImage.image_path).filter`、`session.query`、`AiViolationImage.image_path.in_`、`session.query(AiViolationImage.video_path).filter(AiViolationImage.video_path.in_(raw_paths)).all`、`session.query(AiViolationImage.video_path).filter`、`AiViolationImage.video_path.in_`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _referenced_paths(self, paths: list[Path]) -> set[str]:
         raw_paths = [str(path) for path in paths]
         with self._session_scope() as session:
@@ -263,6 +368,17 @@ class ViolationMediaCleaner:
             }
             return image_paths | video_paths
 
+    # 功能：删除或清理 `_remove_optional_managed_file` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `raw_path`（str | Path | None）：`raw_path` 对应的业务输入值
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    # 返回：tuple[bool, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit` 调用本符号
+    #   - 内部调用：`self._remove_managed_file`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _remove_optional_managed_file(
         self,
         raw_path: str | Path | None,
@@ -272,6 +388,19 @@ class ViolationMediaCleaner:
             return True, 0
         return self._remove_managed_file(raw_path, stats)
 
+    # 功能：删除或清理 `_remove_managed_file` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `raw_path`（str | Path）：`raw_path` 对应的业务输入值
+    #   - `stats`（MediaCleanupStats）：`stats` 对应的业务输入值
+    # 返回：tuple[bool, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_orphans`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_quota_orphans` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`Path(raw_path).expanduser().resolve`、`Path(raw_path).expanduser`、`Path`、`path.is_relative_to`、`logger.warning`、`path.exists`、`path.is_file`、`path.stat`、`path.unlink`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息。
     def _remove_managed_file(
         self,
         raw_path: str | Path,
@@ -301,6 +430,16 @@ class ViolationMediaCleaner:
             logger.warning(f"[ViolationWriter] 删除报警图片失败 path={path}: {exc}")
             return False, 0
 
+    # 功能：实现 `_media_files` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：list[Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_orphans`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_quota_orphans`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_media_size` 调用本符号
+    #   - 内部调用：`self.data_path.rglob`、`path.is_symlink`、`path.is_file`、`path.suffix.lower`、`files.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _media_files(self) -> list[Path]:
         files: list[Path] = []
         for path in self.data_path.rglob("*"):
@@ -313,6 +452,14 @@ class ViolationMediaCleaner:
                 continue
         return files
 
+    # 功能：实现 `_media_size` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit` 调用本符号
+    #   - 内部调用：`self._media_files`、`path.stat`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _media_size(self) -> int:
         total = 0
         for path in self._media_files():
@@ -322,6 +469,14 @@ class ViolationMediaCleaner:
                 continue
         return total
 
+    # 功能：删除或清理 `_remove_empty_directories` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
+    #   - 内部调用：`sorted`、`self.data_path.rglob`、`path.is_dir`、`len`、`path.rmdir`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _remove_empty_directories(self) -> None:
         directories = sorted(
             (path for path in self.data_path.rglob("*") if path.is_dir()),
@@ -334,6 +489,14 @@ class ViolationMediaCleaner:
             except OSError:
                 continue
 
+    # 功能：实现 `_safe_mtime` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（Path）：目标路径
+    # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`path.stat`、`float`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _safe_mtime(path: Path) -> float:
         try:

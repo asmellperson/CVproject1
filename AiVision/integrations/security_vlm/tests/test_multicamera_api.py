@@ -1,3 +1,6 @@
+# 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import json
 from pathlib import Path
 
@@ -9,34 +12,118 @@ import camera_registry
 import main
 
 
+# 功能：定义 `FakeRuntimeManager` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：FakeRuntimeManager；返回新建的 `FakeRuntimeManager` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeRuntimeManager:
+    # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`set`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.running = set()
         self.shutdown_called = False
 
+    # 功能：启动或执行 `start` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::restart` 调用本符号
+    #   - 内部调用：`self.running.add`、`self._result`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def start(self, department, camera_id):
         self.running.add((department, camera_id))
         return self._result(department, camera_id, True, "running")
 
+    # 功能：停止并释放 `stop` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.running.discard`、`self._result`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def stop(self, department, camera_id):
         self.running.discard((department, camera_id))
         return self._result(department, camera_id, True, "stopped")
 
+    # 功能：实现 `restart` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.start`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def restart(self, department, camera_id):
         return self.start(department, camera_id)
 
+    # 功能：启动或执行 `start_all` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def start_all(self, department):
         return {"ok": True, "results": {}}
 
+    # 功能：停止并释放 `stop_all` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def stop_all(self, department):
         self.running = {
             key for key in self.running if key[0] != department
         }
         return {"ok": True, "results": {}}
 
+    # 功能：检查或判断 `is_running` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::status`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::_result` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def is_running(self, department, camera_id):
         return (department, camera_id) in self.running
 
+    # 功能：实现 `status` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.is_running`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def status(self, department, camera_id):
         running = self.is_running(department, camera_id)
         return {
@@ -53,13 +140,42 @@ class FakeRuntimeManager:
             "restart_at": None,
         }
 
+    # 功能：实现 `reconcile` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def reconcile(self):
         return None
 
+    # 功能：停止并释放 `shutdown` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.running.clear`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def shutdown(self):
         self.shutdown_called = True
         self.running.clear()
 
+    # 功能：实现 `_result` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `ok`（未显式标注）：`ok` 对应的业务输入值
+    #   - `message`（未显式标注）：用于展示、记录或发送的文本消息
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `FakeRuntimeManager::stop` 调用本符号
+    #   - 内部调用：`self.is_running`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _result(self, department, camera_id, ok, message):
         return {
             "ok": ok,
@@ -71,6 +187,22 @@ class FakeRuntimeManager:
         }
 
 
+# 功能：创建或构建 `make_service` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `input_video`（未显式标注）：`input_video` 对应的业务输入值；默认值为 `''`
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_department_cameras_are_isolated_and_legacy_is_deprecated`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_department_update_and_bulk_control_invalidate_frame_hub_cache`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_camera_crud_redaction_and_running_conflicts`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_department_capacity_same_id_roi_history_and_delete_are_isolated` 调用本符号；另有 5 处静态调用
+#   - 内部调用：`str`、`config_path.write_text`、`yaml.safe_dump`、`camera_registry.CameraRegistry`、`Path`、`FakeRuntimeManager`、`main.AppService`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def make_service(tmp_path, *, input_video=""):
     config = {
         "project": {"root": str(tmp_path)},
@@ -116,6 +248,24 @@ def make_service(tmp_path, *, input_video=""):
     return service, runtime_manager
 
 
+# 功能：更新或保存 `set_capture_dimensions` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `service`（未显式标注）：`service` 对应的业务输入值
+#   - `camera_id`（未显式标注）：摄像头唯一标识
+#   - `width`（未显式标注）：`width` 对应的业务输入值；默认值为 `200`
+#   - `height`（未显式标注）：`height` 对应的业务输入值；默认值为 `100`
+#   - `department`（未显式标注）：业务部门名称或标识；默认值为 `main.GENERAL_ELECTRIC`
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_department_capacity_same_id_roi_history_and_delete_are_isolated`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的 `test_camera_scoped_rois_and_history_filter`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_legacy_hikvision_roi_migrates_and_mixed_streams_scale_independently`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_multicamera_api.py` 的
+#         `test_roi_save_requires_capture_dimensions_and_validates_geometry` 调用本符号
+#   - 内部调用：`service.camera_store(camera_id, department).write`、`service.camera_store`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def set_capture_dimensions(
     service,
     camera_id,
@@ -129,6 +279,14 @@ def set_capture_dimensions(
     )
 
 
+# 功能：验证 `test_department_cameras_are_isolated_and_legacy_is_deprecated` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`client.post`、`created.json`、`legacy.json`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_department_cameras_are_isolated_and_legacy_is_deprecated(tmp_path):
     service, _runtime_manager = make_service(tmp_path)
@@ -157,6 +315,15 @@ async def test_department_cameras_are_isolated_and_legacy_is_deprecated(tmp_path
         assert (await client.get(f"{base}/unknown/cameras")).status_code == 400
 
 
+# 功能：验证 `test_department_update_and_bulk_control_invalidate_frame_hub_cache` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`(await client.post(base, json={'name': 'A',
+#          'rtsp_url': 'rtsp://camera-a/Streaming/Channels/101'})).json`、`client.post`、`object`、`client.put`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_department_update_and_bulk_control_invalidate_frame_hub_cache(
     tmp_path,
@@ -189,6 +356,16 @@ async def test_department_update_and_bulk_control_invalidate_frame_hub_cache(
         assert cache_key not in service._frame_hubs
 
 
+# 功能：验证 `test_app_service_resolves_department_roots_and_reads_general_results` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`fake_main.parent.mkdir`、`monkeypatch.setattr`、`str`、`config_path.write_text`、`yaml.safe_dump`、`camera_registry.CameraRegistry`、`main.AppService`、`FakeRuntimeManager`、`(project_root
+#          / 'runtime').resolve`、`(project_root / 'runtime' / 'custom' / 'departments').resolve` 等共 12 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_app_service_resolves_department_roots_and_reads_general_results(
     tmp_path,
     monkeypatch,
@@ -239,6 +416,14 @@ def test_app_service_resolves_department_roots_and_reads_general_results(
     )
 
 
+# 功能：验证 `test_camera_crud_redaction_and_running_conflicts` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`client.post`、`created_response.json`、`client.get`、`credentials_response.json`、`client.put`、`client.delete`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
     service, runtime_manager = make_service(tmp_path)
@@ -287,6 +472,18 @@ async def test_camera_crud_redaction_and_running_conflicts(tmp_path):
         assert (await client.get(f"/api/cameras/{camera_id}")).status_code == 404
 
 
+# 功能：验证 `test_department_capacity_same_id_roi_history_and_delete_are_isolated` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`camera_registry.uuid.UUID`、`httpx.AsyncClient`、`monkeypatch.context`、`patch.setattr`、`(await
+#          client.post(f'{base}/{electronics}/cameras', json={'name': '共享名称', 'rtsp_url':
+#          'rtsp://electronics/stream'})).json`、`client.post`、`(await client.post(f'{base}/{components}/cameras', json={'name':
+#          '共享名称', 'rtsp_url': 'rtsp://components/stream'})).json` 等共 30 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_department_capacity_same_id_roi_history_and_delete_are_isolated(
     tmp_path,
@@ -419,6 +616,16 @@ async def test_department_capacity_same_id_roi_history_and_delete_are_isolated(
         )).status_code == 404
 
 
+# 功能：验证 `test_camera_test_controls_health_and_unknown_ids` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`client.post`、`tested.json`、`(await
+#          client.post('/api/cameras', json={'name': 'A', 'rtsp_url': 'rtsp://camera-a/stream'})).json`、`(await
+#          client.post(f'/api/cameras/{camera_id}/control/start')).json`、`(await client.get('/health')).json`、`client.get`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_camera_test_controls_health_and_unknown_ids(tmp_path):
     service, _runtime_manager = make_service(tmp_path)
@@ -459,6 +666,18 @@ async def test_camera_test_controls_health_and_unknown_ids(tmp_path):
         assert (await client.get("/video/missing/original")).status_code == 404
 
 
+# 功能：验证 `test_camera_scoped_rois_and_history_filter` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`(await client.post('/api/cameras',
+#          json={'name': 'A', 'rtsp_url': 'rtsp://camera-a/stream'})).json`、`client.post`、`(await client.post('/api/cameras',
+#          json={'name': 'B', 'rtsp_url':
+#          'rtsp://camera-b/stream'})).json`、`set_capture_dimensions`、`json.loads`、`service.roi_path(camera_a['camera_id']).read_text`
+#          等共 18 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_camera_scoped_rois_and_history_filter(tmp_path):
     service, _runtime_manager = make_service(tmp_path)
@@ -547,6 +766,18 @@ async def test_camera_scoped_rois_and_history_filter(tmp_path):
         assert [item["session_id"] for item in history] == ["a1"]
 
 
+# 功能：验证 `test_legacy_hikvision_roi_migrates_and_mixed_streams_scale_independently` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`(await client.post(base, json={'name':
+#          '子码流工位', 'rtsp_url': 'rtsp://camera-a/Streaming/Channels/102'})).json`、`client.post`、`(await client.post(base,
+#          json={'name': '主码流工位', 'rtsp_url':
+#          'rtsp://camera-b/Streaming/Channels/101'})).json`、`set_capture_dimensions`、`service.roi_path(camera['camera_id'],
+#          department).write_text`、`service.roi_path` 等共 18 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_legacy_hikvision_roi_migrates_and_mixed_streams_scale_independently(
     tmp_path,
@@ -613,6 +844,17 @@ async def test_legacy_hikvision_roi_migrates_and_mixed_streams_scale_independent
         ).exists()
 
 
+# 功能：验证 `test_roi_save_requires_capture_dimensions_and_validates_geometry` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`(await client.post('/api/cameras',
+#          json={'name': 'A', 'rtsp_url':
+#          'rtsp://camera-a/stream'})).json`、`client.post`、`missing_dimensions.json`、`float`、`service.camera_store(camera_id).write`、`service.camera_store`
+#          等共 15 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_path):
     service, _runtime_manager = make_service(tmp_path)
@@ -695,6 +937,16 @@ async def test_roi_save_requires_capture_dimensions_and_validates_geometry(tmp_p
         assert "重复" in rounded_duplicate.json()["detail"]
 
 
+# 功能：验证 `test_legacy_config_migrates_camera_and_roi_aliases` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`staff_dir.mkdir`、`(staff_dir /
+#          'stream_staff_rois.json').write_text`、`json.dumps`、`make_service`、`main.create_app`、`httpx.ASGITransport`、`httpx.AsyncClient`、`(await
+#          client.get('/api/cameras')).json`、`client.get`、`(await client.get('/api/rois')).json` 等共 12 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 @pytest.mark.asyncio
 async def test_legacy_config_migrates_camera_and_roi_aliases(tmp_path):
     staff_dir = tmp_path / "staff_rois"

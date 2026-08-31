@@ -1,3 +1,6 @@
+// 文件说明：实现`StatisticsSection` 模块的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -97,20 +100,66 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'security_vlm_error', name: '安检判定错误', value: 0, color: '#d97706' },
 ]
 
+/**
+ * 功能：转换或规范化 `toRecord` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ * 返回：Record<string, unknown> | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/StatisticsSection.tsx` 的 `normalizeTrendRow`
+ *         调用本符号；`unified_frontend/src/sections/StatisticsSection.tsx` 的 `normalizeStatistics` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null
   return value as Record<string, unknown>
 }
 
+/**
+ * 功能：转换或规范化 `toNumber` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ * 返回：number；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Number`、`isFinite`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function toNumber(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
 }
 
+/**
+ * 功能：转换或规范化 `toString` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ *   - `fallback`（未显式标注）：`fallback` 对应的业务输入值；声明包含默认值 `''`
+ * 返回：string；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/StatisticsSection.tsx` 的 `normalizeTrendRow`
+ *         调用本符号；`unified_frontend/src/sections/StatisticsSection.tsx` 的 `normalizeStatistics`
+ *         调用本符号；`unified_frontend/tests/feature-monitor-dashboards.test.mjs` 的 `importTypeScript`
+ *         调用本符号；`unified_frontend/tests/home-camera-counts.test.mjs` 的 `importTypeScript` 调用本符号；另有 6 处静态调用
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function toString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+/**
+ * 功能：转换或规范化 `normalizeTrendRow` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ *   - `labelKey`（'day' | 'time'）：`labelKey` 对应的业务输入值
+ * 返回：TrendRow；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/StatisticsSection.tsx` 的 `normalizeStatistics` 调用本符号
+ *   - 内部调用：`toRecord`、`toString`、`toNumber`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
   const row = toRecord(value)
   return {
@@ -134,6 +183,16 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
   }
 }
 
+/**
+ * 功能：转换或规范化 `normalizeStatistics` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `data`（unknown）：待处理的数据
+ * 返回：AiVisionStatistics；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/StatisticsSection.tsx` 的 `StatisticsSection` 调用本符号
+ *   - 内部调用：`toRecord`、`isArray`、`toNumber`、`toString`、`map`、`normalizeTrendRow`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeStatistics(data: unknown): AiVisionStatistics {
   const root = toRecord(data)
   const summary = toRecord(root?.summary)
@@ -175,10 +234,31 @@ function normalizeStatistics(data: unknown): AiVisionStatistics {
   }
 }
 
+/**
+ * 功能：转换或规范化 `formatTime` 对应的`StatisticsSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `timestamp?`（string）：事件或帧对应的时间戳
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/StatisticsSection.tsx` 的 `StatisticsSection`
+ *         调用本符号；`unified_frontend/src/sections/AlarmsSection.tsx` 的 `AlarmsSection` 调用本符号
+ *   - 内部调用：`Date`、`toLocaleString`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatTime(timestamp?: string) {
   return timestamp ? new Date(timestamp).toLocaleString('zh-CN') : '-'
 }
 
+/**
+ * 功能：渲染 `StatisticsSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：无。
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`useState`、`useMemo`、`getAccessibleAlarmEventTypes`、`Set`、`useEffect`、`async`、`getStatistics`、`setStats`、`normalizeStatistics`
+ *          等共 49 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
+ */
 export function StatisticsSection() {
   const { user } = useAuth()
   const [stats, setStats] = useState<AiVisionStatistics>(EMPTY)
@@ -388,6 +468,16 @@ export function StatisticsSection() {
   )
 }
 
+/**
+ * 功能：渲染 `SummaryCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, value, sub, icon, title, string, value, number
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`Card`、`CardContent`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SummaryCard({
   title,
   value,

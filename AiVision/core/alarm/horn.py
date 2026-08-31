@@ -1,3 +1,6 @@
+# 文件说明：实现`horn` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/alarm/horn.py
 IP 喇叭设备控制 — 通过 HTTP API 触发语音告警。
@@ -12,6 +15,14 @@ import requests
 from core.logger import logger
 
 
+# 功能：单个 IP 喇叭设备的控制器；输入与输出详见下方说明
+# 参数：
+#   - `config`（dict）：运行配置对象
+# 返回：Horn；返回新建的 `Horn` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::load_runtime_instances` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class Horn:
     """
     单个 IP 喇叭设备的控制器。
@@ -27,6 +38,15 @@ class Horn:
         心跳线程与业务线程共享 status 标志，status 仅做可见性用途，无需额外同步。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的`horn` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `config`（dict）：运行配置对象
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`config.get`、`threading.Event`、`threading.Lock`、`self.connect`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self, config: dict):
         # ---- 设备连接参数 ----
         self.url: str = config.get("horn_url", "")          # HTTP API 根地址，末尾须带 /
@@ -51,6 +71,17 @@ class Horn:
         # 构造时立即尝试登录；失败时 status=False，后续 play() 仍可安全调用
         self.connect()
 
+    # 功能：向设备发起登录请求，获取 access_key / access_id 并更新 status；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/horn.py` 的 `Horn::__init__` 调用本符号；`AiVision/core/db.py` 的 `_ensure_database_exists`
+    #         调用本符号；`AiVision/integrations/guard_room/src/db.py` 的 `ping`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的
+    #         `test_database_migration_preserves_records_and_is_idempotent` 调用本符号；另有 7 处静态调用
+    #   - 内部调用：`requests.post`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def connect(self) -> bool:
         """
         向设备发起登录请求，获取 access_key / access_id 并更新 status。
@@ -83,6 +114,14 @@ class Horn:
     #  心跳保活                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：启动后台心跳守护线程，每隔 _heart_interval 秒向设备发送在线心跳；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::load_runtime_instances` 调用本符号
+    #   - 内部调用：`self._heart_thread.is_alive`、`self._stop_event.clear`、`threading.Thread`、`self._heart_thread.start`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def start_heartbeat(self):
         """
         启动后台心跳守护线程，每隔 _heart_interval 秒向设备发送在线心跳。
@@ -95,6 +134,14 @@ class Horn:
         self._heart_thread = threading.Thread(target=self._heart_loop, daemon=True)
         self._heart_thread.start()
 
+    # 功能：通知心跳线程退出并等待其结束（最多 2 秒）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::stop` 调用本符号
+    #   - 内部调用：`self._stop_event.set`、`self._heart_thread.join`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def stop_heartbeat(self):
         """
         通知心跳线程退出并等待其结束（最多 2 秒）。
@@ -105,6 +152,14 @@ class Horn:
         if self._heart_thread:
             self._heart_thread.join(timeout=2)
 
+    # 功能：心跳线程主循环；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.is_set`、`self._send_heart`、`self._stop_event.wait`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息。
     def _heart_loop(self):
         """
         心跳线程主循环。
@@ -120,6 +175,14 @@ class Horn:
                 self.status = False
             self._stop_event.wait(self._heart_interval)  # 可被 stop_heartbeat() 提前唤醒
 
+    # 功能：向设备端 /online 接口发送一次心跳以维持 Session 活跃；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/horn.py` 的 `Horn::_heart_loop` 调用本符号
+    #   - 内部调用：`requests.post`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息。
     def _send_heart(self):
         """
         向设备端 /online 接口发送一次心跳以维持 Session 活跃。
@@ -141,6 +204,15 @@ class Horn:
     #  告警触发                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：触发设备上预录制的语音任务；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_id`（str | int）：`event_id` 对应业务对象的唯一标识
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::_execute` 调用本符号
+    #   - 内部调用：`time.time`、`requests.post`、`logger.warning`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def play(self, event_id: str | int):
         """
         触发设备上预录制的语音任务。

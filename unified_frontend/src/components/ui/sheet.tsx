@@ -1,31 +1,84 @@
+// 文件说明：封装可复用的`sheet` 模块 React 基础组件。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import * as React from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * 功能：渲染 `Sheet` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Root>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号
+ *   - 内部调用：`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
 }
 
+/**
+ * 功能：渲染 `SheetTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Trigger>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetTrigger({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Trigger>) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
 }
 
+/**
+ * 功能：渲染 `SheetClose` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Close>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetClose({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Close>) {
   return <SheetPrimitive.Close data-slot="sheet-close" {...props} />
 }
 
+/**
+ * 功能：渲染 `SheetPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sheet.tsx` 的 `SheetContent` 调用本符号
+ *   - 内部调用：`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetPortal({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Portal>) {
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
 }
 
+/**
+ * 功能：渲染 `SheetOverlay` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Overlay>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sheet.tsx` 的 `SheetContent` 调用本符号
+ *   - 内部调用：`return`、`cn`、`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetOverlay({
   className,
   ...props
@@ -42,6 +95,16 @@ function SheetOverlay({
   )
 }
 
+/**
+ * 功能：渲染 `SheetContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, children, side, right, props, React, ComponentProps, typeof
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号
+ *   - 内部调用：`return`、`cn`、`SheetPortal`、`SheetOverlay`、`SheetPrimitive`、`XIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetContent({
   className,
   children,
@@ -79,6 +142,16 @@ function SheetContent({
   )
 }
 
+/**
+ * 功能：渲染 `SheetHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -89,6 +162,16 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * 功能：渲染 `SheetFooter` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -99,6 +182,16 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * 功能：渲染 `SheetTitle` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Title>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号
+ *   - 内部调用：`return`、`cn`、`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetTitle({
   className,
   ...props
@@ -112,6 +205,16 @@ function SheetTitle({
   )
 }
 
+/**
+ * 功能：渲染 `SheetDescription` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SheetPrimitive.Description>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号
+ *   - 内部调用：`return`、`cn`、`SheetPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SheetDescription({
   className,
   ...props

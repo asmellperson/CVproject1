@@ -1,3 +1,6 @@
+# 文件说明：实现`yolo_detector` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 platform/inference/workers/yolo_detector.py
 通用 YOLO 检测 Worker — 一个类替代旧代码假设的
@@ -22,9 +25,24 @@ from core.logger import logger
 from platform.inference.base_worker import BaseModelWorker
 
 
+# 功能：通用 YOLO 目标检测 Worker；输入与输出详见下方说明
+# 参数：无。
+# 返回：YoloDetectorWorker；返回新建的 `YoloDetectorWorker` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class YoloDetectorWorker(BaseModelWorker):
     """通用 YOLO 目标检测 Worker"""
 
+    # 功能：读取或查询 `load_model` 对应的`yolo_detector` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Any；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`YOLO`、`self._parse_meta`、`set`、`meta.get`、`float`、`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def load_model(self) -> Any:
         from ultralytics import YOLO
 
@@ -45,6 +63,14 @@ class YoloDetectorWorker(BaseModelWorker):
         )
         return model
 
+    # 功能：转换或规范化 `_parse_meta` 对应的`yolo_detector` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/inference/workers/yolo_detector.py` 的 `YoloDetectorWorker::load_model` 调用本符号
+    #   - 内部调用：`self.model_cfg.get`、`json.loads`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _parse_meta(self) -> dict:
         desc = self.model_cfg.get("description") or ""
         try:
@@ -52,6 +78,18 @@ class YoloDetectorWorker(BaseModelWorker):
         except (ValueError, TypeError):
             return {}
 
+    # 功能：实现 `infer` 对应的`yolo_detector` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `model`（Any）：模型配置或实例
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `task_meta`（dict）：`task_meta` 对应的业务输入值
+    # 返回：list[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`float`、`task_meta.get`、`model.predict`、`len`、`r.boxes.xyxy.cpu().numpy().tolist`、`r.boxes.xyxy.cpu().numpy`、`r.boxes.xyxy.cpu`、`r.boxes.conf.cpu().numpy().tolist`、`r.boxes.conf.cpu().numpy`、`r.boxes.conf.cpu`
+    #          等共 17 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def infer(self, model: Any, frame, task_meta: dict) -> list[dict]:
         # 让请求方在 task_meta 里覆盖默认 conf/iou
         conf = float(task_meta.get("conf", self._default_conf))

@@ -1,3 +1,6 @@
+# 文件说明：实现企业微信通知相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/alarm/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
@@ -35,6 +38,16 @@ _EVENT_DISPLAY = {
 }
 
 
+# 功能：企业微信应用消息发送器；输入与输出详见下方说明
+# 参数：
+#   - `corp_id`（Optional[str]）：`corp_id` 对应业务对象的唯一标识；默认值为 `None`
+#   - `corp_secret`（Optional[str]）：`corp_secret` 对应的业务输入值；默认值为 `None`
+#   - `agent_id`（Optional[int]）：`agent_id` 对应业务对象的唯一标识；默认值为 `None`
+# 返回：WeChatNotifier；返回新建的 `WeChatNotifier` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class WeChatNotifier:
     """
     企业微信应用消息发送器。
@@ -51,6 +64,17 @@ class WeChatNotifier:
         不影响其他告警通道（喇叭、SQL）的正常执行。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `corp_id`（Optional[str]）：`corp_id` 对应业务对象的唯一标识；默认值为 `None`
+    #   - `corp_secret`（Optional[str]）：`corp_secret` 对应的业务输入值；默认值为 `None`
+    #   - `agent_id`（Optional[int]）：`agent_id` 对应业务对象的唯一标识；默认值为 `None`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`os.environ.get`、`int`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         corp_id: Optional[str] = None,
@@ -68,6 +92,15 @@ class WeChatNotifier:
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：向企业微信接口换取 access_token；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Optional[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号；`AiVision/core/alarm/wechat.py` 的
+    #         `WeChatNotifier::send_text` 调用本符号
+    #   - 内部调用：`requests.get`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _get_token(self) -> Optional[str]:
         """
         向企业微信接口换取 access_token。
@@ -99,6 +132,16 @@ class WeChatNotifier:
             logger.warning(f"[WeChat] 获取 access_token 失败: {e}")
             return None
 
+    # 功能：将 JPEG 图片上传为企业微信临时素材，获取 media_id；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `token`（str）：用于认证或续接请求的令牌
+    #   - `image_bytes`（bytes）：`image_bytes` 对应的业务输入值
+    # 返回：Optional[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号
+    #   - 内部调用：`requests.post`、`BytesIO`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _upload_image(self, token: str, image_bytes: bytes) -> Optional[str]:
         """
         将 JPEG 图片上传为企业微信临时素材，获取 media_id。
@@ -130,6 +173,20 @@ class WeChatNotifier:
             logger.warning(f"[WeChat] 上传图片失败: {e}")
             return None
 
+    # 功能：发送单条企业微信图文消息，缩略图与详情页均使用平台 URL；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `token`（str）：用于认证或续接请求的令牌
+    #   - `recipients`（str）：`recipients` 对应的业务输入值
+    #   - `title`（str）：`title` 对应的业务输入值
+    #   - `description`（str）：`description` 对应的业务输入值
+    #   - `detail_url`（str）：`detail_url` 对应的业务输入值
+    #   - `image_url`（str）：`image_url` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号
+    #   - 内部调用：`requests.post`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _send_news_card(
         self,
         *,
@@ -173,6 +230,20 @@ class WeChatNotifier:
     #  核心入口                                                             #
     # ------------------------------------------------------------------ #
 
+    # 功能：向指定接收人发送告警通知；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_name`（str）：`camera_name` 对应的业务输入值
+    #   - `image_jpeg_bytes`（bytes）：`image_jpeg_bytes` 对应的业务输入值
+    #   - `recipients`（str）：`recipients` 对应的业务输入值
+    #   - `image_url`（str）：`image_url` 对应的业务输入值；默认值为 `''`
+    #   - `detail_url`（str）：`detail_url` 对应的业务输入值；默认值为 `''`
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._get_token`、`logger.info`、`_EVENT_DISPLAY.get`、`self._send_news_card`、`self._upload_image`、`requests.post`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def send(
         self,
         feature_name: str,
@@ -268,6 +339,16 @@ class WeChatNotifier:
             except Exception as e:
                 logger.warning(f"[WeChat] 发送图片失败: {e}")
 
+    # 功能：发送纯 Markdown 文本消息,用于系统运行状态类通知；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `content`（str）：`content` 对应的业务输入值
+    #   - `recipients`（str）：`recipients` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/api/app.py` 的 `_send_api_exception_alert::_send` 调用本符号
+    #   - 内部调用：`self._get_token`、`logger.info`、`requests.post`、`resp.json`、`data.get`、`logger.warning`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def send_text(self, content: str, recipients: str):
         """
         发送纯 Markdown 文本消息,用于系统运行状态类通知。

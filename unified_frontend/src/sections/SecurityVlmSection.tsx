@@ -1,3 +1,6 @@
+// 文件说明：实现`SecurityVlmSection` 模块的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -82,11 +85,32 @@ type RoiDraftRect = {
   ey: number
 }
 
+/**
+ * 功能：转换或规范化 `formatNumber` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value?`（number）：待转换、校验或写入的值
+ *   - `suffix`（未显式标注）：`suffix` 对应的业务输入值；声明包含默认值 `''`
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `SecurityVlmSection` 调用本符号
+ *   - 内部调用：`isFinite`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatNumber(value?: number, suffix = '') {
   if (!Number.isFinite(value)) return `0${suffix}`
   return `${value}${suffix}`
 }
 
+/**
+ * 功能：实现 `statusBadge` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `status?`（string）：当前或目标状态值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `HistoryTable` 调用本符号
+ *   - 内部调用：`Badge`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function statusBadge(status?: string) {
   if (status === 'compliant') return <Badge className="bg-emerald-600">合规</Badge>
   if (status === 'non_compliant') return <Badge variant="destructive">不合规</Badge>
@@ -94,16 +118,47 @@ function statusBadge(status?: string) {
   return <Badge variant="secondary">未知</Badge>
 }
 
+/**
+ * 功能：实现 `logSecurityVlmError` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `action`（string）：`action` 对应的业务输入值
+ *   - `error`（unknown）：待报告、转换或判断的异常对象
+ * 返回：void（由实现推断）；仅执行处理流程，不返回业务数据。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `SecurityVlmSection` 调用本符号
+ *   - 内部调用：`error`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function logSecurityVlmError(action: string, error: unknown) {
   console.error(`[SecurityVlm] ${action}`, error)
 }
 
+/**
+ * 功能：实现 `boolMark` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value?`（boolean | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `HistoryTable` 调用本符号
+ *   - 内部调用：`CheckCircle2`、`XCircle`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function boolMark(value?: boolean | null) {
   if (value === true) return <CheckCircle2 className="h-4 w-4 text-emerald-600" />
   if (value === false) return <XCircle className="h-4 w-4 text-slate-300" />
   return <span className="text-slate-400">-</span>
 }
 
+/**
+ * 功能：实现 `nextRoiName` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `names`（string[]）：`names` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `SecurityVlmSection` 调用本符号
+ *   - 内部调用：`Set`、`has`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function nextRoiName(names: string[]) {
   const used = new Set(names)
   let index = 1
@@ -111,10 +166,30 @@ function nextRoiName(names: string[]) {
   return `security_staff_${index}`
 }
 
+/**
+ * 功能：检查或判断 `isFiniteNumber` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ * 返回：value is number；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `normalizeRoi` 调用本符号
+ *   - 内部调用：`isFinite`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+/**
+ * 功能：转换或规范化 `normalizeRoi` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `values`（SecurityVlmRoiValue）：`values` 对应的业务输入值
+ * 返回：SecurityVlmRoiPolygon | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `normalizeRois` 调用本符号
+ *   - 内部调用：`every`、`min`、`max`、`isArray`、`isFiniteNumber`、`push`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeRoi(values: SecurityVlmRoiValue): SecurityVlmRoiPolygon | null {
   const entries: unknown[] = values
   if (entries.length === 4 && entries.every(isFiniteNumber)) {
@@ -142,6 +217,16 @@ function normalizeRoi(values: SecurityVlmRoiValue): SecurityVlmRoiPolygon | null
   return points
 }
 
+/**
+ * 功能：转换或规范化 `normalizeRois` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `values?`（SecurityVlmRoiMap）：`values` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `SecurityVlmSection` 调用本符号
+ *   - 内部调用：`entries`、`normalizeRoi`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeRois(values?: SecurityVlmRoiMap) {
   const normalized: Record<string, SecurityVlmRoiPolygon> = {}
   for (const [name, roi] of Object.entries(values || {})) {
@@ -151,6 +236,16 @@ function normalizeRois(values?: SecurityVlmRoiMap) {
   return normalized
 }
 
+/**
+ * 功能：转换或规范化 `rectangleToPolygon` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `values`（[number, number, number, number]）：`values` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/SecurityVlmSection.tsx` 的 `SecurityVlmSection` 调用本符号
+ *   - 内部调用：`round`、`min`、`max`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function rectangleToPolygon(values: [number, number, number, number]) {
   const [rawX1, rawY1, rawX2, rawY2] = values
   const x1 = Math.round(Math.min(rawX1, rawX2))
@@ -160,6 +255,16 @@ function rectangleToPolygon(values: [number, number, number, number]) {
   return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]] satisfies SecurityVlmRoiPolygon
 }
 
+/**
+ * 功能：转换或规范化 `formatRoi` 对应的`SecurityVlmSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `points`（SecurityVlmRoiPolygon）：`points` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`map`、`join`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatRoi(points: SecurityVlmRoiPolygon) {
   return points.map(([x, y]) => `(${x}, ${y})`).join(', ')
 }
@@ -171,6 +276,17 @@ const DEPARTMENT_LABELS: Record<SecurityVlmDepartment, string> = {
   precious_metal_recycling: '伟达公司',
 }
 
+/**
+ * 功能：渲染 `SecurityVlmSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 department, department, SecurityVlmDepartment
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`useState`、`now`、`useRef`、`useCallback`、`find`、`Number`、`Boolean`、`useMemo`、`securityVlmCameraVideoUrl` 等共 126
+ *          个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
+ */
 export function SecurityVlmSection({
   department,
 }: {
@@ -1017,6 +1133,16 @@ export function SecurityVlmSection({
   )
 }
 
+/**
+ * 功能：渲染 `StatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, value, icon, valueClassName, title, string, value, string
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function StatCard({
   title,
   value,
@@ -1041,6 +1167,16 @@ function StatCard({
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
+/**
+ * 功能：渲染 `HistoryTable` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 items, cameras, items, SecurityVlmHistoryItem, cameras, SecurityVlmCamera
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`filter`、`max`、`ceil`、`min`、`slice`、`useMemo`、`push`、`return`、`setCameraFilter` 等共 42 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
+ */
 function HistoryTable({
   items,
   cameras,

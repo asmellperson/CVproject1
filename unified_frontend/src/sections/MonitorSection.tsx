@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -37,10 +40,30 @@ const POLL_MS = 1000
 const FRAME_REFRESH_MS = 200
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
+/**
+ * 功能：实现 `withFrameNonce` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `url`（string）：目标接口、媒体流或页面地址
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/MonitorSection.tsx` 的 `MonitorSection` 调用本符号
+ *   - 内部调用：`includes`、`now`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function withFrameNonce(url: string) {
   return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`
 }
 
+/**
+ * 功能：实现 `alarmText` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `type?`（string）：`type` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/MonitorSection.tsx` 的 `MonitorSection` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function alarmText(type?: string) {
   switch (type) {
     case 'absent':
@@ -61,10 +84,31 @@ type MonitorSectionProps = {
   sites: GuardRoomSite[]
   selectedSiteId: number | null
   loadingSites: boolean
+  /**
+   * 功能：处理 `onSelectSite` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `siteId`（number）：保安室站点唯一标识
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectSite: (siteId: number) => void
   department?: string
 }
 
+/**
+ * 功能：渲染 `MonitorSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（MonitorSectionProps）：React 组件属性对象；解构字段包括 site, sites, selectedSiteId, loadingSites, onSelectSite, department
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`useRef`、`useCallback`、`revokeObjectURL`、`useEffect`、`setStatus`、`setLoading`、`async`、`getGuardRoomSiteStatus`、`fetchStatus`
+ *          等共 65 个调用。
+ * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
+ */
 export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, department }: MonitorSectionProps) {
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [loading, setLoading] = useState(true)

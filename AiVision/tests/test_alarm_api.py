@@ -1,3 +1,6 @@
+# 文件说明：包含告警、接口访问的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import importlib
 import sys
 from datetime import datetime
@@ -8,6 +11,16 @@ sys.modules.pop("platform", None)
 alarms = importlib.import_module("api.v2.alarms")
 
 
+# 功能：实现 `_channel_row` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `**overrides`（未显式标注）：`overrides` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_alarm_api.py` 的 `test_event_dict_and_response_schema_keep_channel_alarm_fields`
+#         调用本符号；`AiVision/tests/test_alarm_api.py` 的 `test_event_dict_strictly_validates_both_camera_id_lists`
+#         调用本符号；`AiVision/tests/test_alarm_api.py` 的 `test_event_dict_skips_oversized_camera_ids_without_response_failure` 调用本符号
+#   - 内部调用：`datetime`、`values.update`、`SimpleNamespace`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _channel_row(**overrides):
     values = {
         "id": 42,
@@ -38,6 +51,13 @@ def _channel_row(**overrides):
     return SimpleNamespace(**values)
 
 
+# 功能：验证 `test_event_dict_and_response_schema_keep_channel_alarm_fields` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`alarms._event_dict`、`_channel_row`、`alarms.AlarmListResponse.model_validate`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     event = alarms._event_dict(_channel_row(), {})
     response = alarms.AlarmListResponse.model_validate({"items": [event]})
@@ -61,6 +81,13 @@ def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     assert item.video_status == "ready"
 
 
+# 功能：验证 `test_event_dict_and_response_schema_keep_legacy_camera_fallbacks` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SimpleNamespace`、`alarms._event_dict`、`alarms.AlarmListResponse.model_validate`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():
     row = SimpleNamespace(
         id=7,
@@ -83,6 +110,13 @@ def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():
     assert item.camera_ids == []
 
 
+# 功能：验证 `test_event_dict_strictly_validates_both_camera_id_lists` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`list`、`alarms._event_dict`、`_channel_row`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_event_dict_strictly_validates_both_camera_id_lists():
     raw_ids = [10.9, -1, 0, True, "10", "010", " 11 ", 11, "-2", "+3", "1e2", "", None]
     metadata = {
@@ -96,6 +130,13 @@ def test_event_dict_strictly_validates_both_camera_id_lists():
     assert event["offending_camera_ids"] == [10, 11]
 
 
+# 功能：验证 `test_event_dict_skips_oversized_camera_ids_without_response_failure` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`str`、`_channel_row`、`list`、`alarms._event_dict`、`alarms.AlarmListResponse.model_validate`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_event_dict_skips_oversized_camera_ids_without_response_failure():
     upper_bound = 2**31 - 1
     raw_ids = ["9" * 5000, upper_bound, str(upper_bound + 1)]

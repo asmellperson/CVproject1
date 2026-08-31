@@ -1,3 +1,6 @@
+# 文件说明：实现感兴趣区域、几何计算相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """Security VLM 共用的 ROI 标准化、校验与多边形几何判定。"""
 
 import math
@@ -11,10 +14,31 @@ ROI_COORD_DECIMALS = 2
 DEFAULT_MAX_VERTICES = 64
 
 
+# 功能：检查或判断 `_is_sequence` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（Any）：待转换、校验或写入的值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `normalize_roi_points`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `point_in_polygon`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `validate_rois` 调用本符号
+#   - 内部调用：`isinstance`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _is_sequence(value: Any) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
+# 功能：实现 `_finite_float` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（Any）：待转换、校验或写入的值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `normalize_roi_points`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `scale_roi_mapping`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `roi_mapping_exceeds_bounds`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `point_in_polygon` 调用本符号；另有 1 处静态调用
+#   - 内部调用：`isinstance`、`ValueError`、`float`、`math.isfinite`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _finite_float(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("坐标必须是 JSON 数字")
@@ -27,6 +51,15 @@ def _finite_float(value: Any) -> float:
     return result
 
 
+# 功能：返回排序后的 (x1, y1, x2, y2)；无效输入返回 None；输入与输出详见下方说明
+# 参数：
+#   - `values`（Sequence[float]）：`values` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_roi_overlap_ratio_normalized`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_belongs_to_normalized_roi` 调用本符号
+#   - 内部调用：`len`、`float`、`range`、`all`、`math.isfinite`、`min`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_rect(values: Sequence[float]):
     """返回排序后的 (x1, y1, x2, y2)；无效输入返回 None。"""
     try:
@@ -40,6 +73,17 @@ def _normalize_rect(values: Sequence[float]):
     return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
 
 
+# 功能：把旧矩形或多边形 ROI 规范化为 ``[[x, y], ...]``；输入与输出详见下方说明
+# 参数：
+#   - `values`（Any）：`values` 对应的业务输入值
+# 返回：Polygon；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `scale_roi_mapping`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `roi_mapping_exceeds_bounds`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `polygon_area`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `roi_bounds` 调用本符号；另有 9 处静态调用
+#   - 内部调用：`_is_sequence`、`ValueError`、`len`、`any`、`_finite_float`、`sorted`、`enumerate`、`points.append`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def normalize_roi_points(values: Any) -> Polygon:
     """把旧矩形或多边形 ROI 规范化为 ``[[x, y], ...]``。"""
     if not _is_sequence(values):
@@ -67,6 +111,19 @@ def normalize_roi_points(values: Any) -> Polygon:
     return points
 
 
+# 功能：按每台摄像头的源/目标帧尺寸缩放 ROI，保持多边形顶点结构；输入与输出详见下方说明
+# 参数：
+#   - `rois`（Any）：`rois` 对应的业务输入值
+#   - `source_width`（float）：`source_width` 对应的业务输入值
+#   - `source_height`（float）：`source_height` 对应的业务输入值
+#   - `target_width`（float）：`target_width` 对应的业务输入值
+#   - `target_height`（float）：`target_height` 对应的业务输入值
+# 返回：dict[str, Polygon]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `reload_rois` 调用本符号
+#   - 内部调用：`_finite_float`、`any`、`ValueError`、`isinstance`、`rois.items`、`str`、`round`、`normalize_roi_points`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def scale_roi_mapping(
     rois: Any,
     source_width: float,
@@ -101,6 +158,17 @@ def scale_roi_mapping(
     return scaled
 
 
+# 功能：判断任一 ROI 坐标是否明显超出当前帧，用于旧文件安全迁移；输入与输出详见下方说明
+# 参数：
+#   - `rois`（Any）：`rois` 对应的业务输入值
+#   - `width`（float）：`width` 对应的业务输入值
+#   - `height`（float）：`height` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois`
+#         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_migrate_legacy_roi_dimensions` 调用本符号
+#   - 内部调用：`_finite_float`、`ValueError`、`isinstance`、`any`、`rois.values`、`normalize_roi_points`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def roi_mapping_exceeds_bounds(rois: Any, width: float, height: float) -> bool:
     """判断任一 ROI 坐标是否明显超出当前帧，用于旧文件安全迁移。"""
     frame_width = _finite_float(width)
@@ -116,6 +184,14 @@ def roi_mapping_exceeds_bounds(rois: Any, width: float, height: float) -> bool:
     )
 
 
+# 功能：使用鞋带公式计算多边形面积；输入与输出详见下方说明
+# 参数：
+#   - `points`（Any）：`points` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`normalize_roi_points`、`enumerate`、`len`、`abs`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def polygon_area(points: Any) -> float:
     """使用鞋带公式计算多边形面积。"""
     polygon = normalize_roi_points(points)
@@ -128,6 +204,14 @@ def polygon_area(points: Any) -> float:
     return abs(signed_twice_area) / 2.0
 
 
+# 功能：返回 ROI 多边形的外接矩形 ``[x1, y1, x2, y2]``；输入与输出详见下方说明
+# 参数：
+#   - `points`（Any）：`points` 对应的业务输入值
+# 返回：list[float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::step` 调用本符号
+#   - 内部调用：`normalize_roi_points`、`min`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def roi_bounds(points: Any) -> list[float]:
     """返回 ROI 多边形的外接矩形 ``[x1, y1, x2, y2]``。"""
     polygon = normalize_roi_points(points)
@@ -136,6 +220,18 @@ def roi_bounds(points: Any) -> list[float]:
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
+# 功能：处理 `_point_on_segment` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `point`（Sequence[float]）：`point` 对应的业务输入值
+#   - `start`（Sequence[float]）：`start` 对应的业务输入值
+#   - `end`（Sequence[float]）：`end` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `point_in_normalized_polygon`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_segments_intersect_or_touch`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_validate_simple_polygon` 调用本符号
+#   - 内部调用：`max`、`abs`、`min`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _point_on_segment(
     point: Sequence[float],
     start: Sequence[float],
@@ -162,6 +258,16 @@ def _point_on_segment(
     )
 
 
+# 功能：判断点是否在已标准化多边形内部；边界点也视为内部；输入与输出详见下方说明
+# 参数：
+#   - `point`（Sequence[float]）：`point` 对应的业务输入值
+#   - `polygon`（Polygon）：`polygon` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `point_in_polygon`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_belongs_to_normalized_roi` 调用本符号
+#   - 内部调用：`enumerate`、`len`、`_point_on_segment`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def point_in_normalized_polygon(point: Sequence[float], polygon: Polygon) -> bool:
     """判断点是否在已标准化多边形内部；边界点也视为内部。"""
     px, py = point
@@ -179,6 +285,15 @@ def point_in_normalized_polygon(point: Sequence[float], polygon: Polygon) -> boo
     return inside
 
 
+# 功能：判断点是否在多边形内部；位于边界上的点也视为内部；输入与输出详见下方说明
+# 参数：
+#   - `point`（Any）：`point` 对应的业务输入值
+#   - `roi`（Any）：感兴趣区域的坐标集合
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_is_sequence`、`len`、`_finite_float`、`normalize_roi_points`、`point_in_normalized_polygon`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def point_in_polygon(point: Any, roi: Any) -> bool:
     """判断点是否在多边形内部；位于边界上的点也视为内部。"""
     try:
@@ -191,6 +306,15 @@ def point_in_polygon(point: Any, roi: Any) -> bool:
     return point_in_normalized_polygon((px, py), polygon)
 
 
+# 功能：用 Sutherland–Hodgman 把简单多边形裁剪到轴对齐矩形；输入与输出详见下方说明
+# 参数：
+#   - `polygon`（Polygon）：`polygon` 对应的业务输入值
+#   - `rect`（Sequence[float]）：`rect` 对应的业务输入值
+# 返回：Polygon；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_roi_overlap_ratio_normalized` 调用本符号
+#   - 内部调用：`clip`、`at_x`、`at_y`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _clip_polygon_to_rect(
     polygon: Polygon,
     rect: Sequence[float],
@@ -198,6 +322,16 @@ def _clip_polygon_to_rect(
     """用 Sutherland–Hodgman 把简单多边形裁剪到轴对齐矩形。"""
     x1, y1, x2, y2 = rect
 
+    # 功能：实现 `clip` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `vertices`（Polygon）：`vertices` 对应的业务输入值
+    #   - `inside`（未显式标注）：`inside` 对应的业务输入值
+    #   - `intersection`（未显式标注）：`intersection` 对应的业务输入值
+    # 返回：Polygon；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_clip_polygon_to_rect` 调用本符号
+    #   - 内部调用：`inside`、`result.append`、`intersection`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def clip(
         vertices: Polygon,
         inside,
@@ -220,6 +354,16 @@ def _clip_polygon_to_rect(
             previous_inside = current_inside
         return result
 
+    # 功能：实现 `at_x` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `start`（Point）：`start` 对应的业务输入值
+    #   - `end`（Point）：`end` 对应的业务输入值
+    #   - `x`（float）：`x` 对应的业务输入值
+    # 返回：Point；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_clip_polygon_to_rect` 调用本符号
+    #   - 内部调用：`abs`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def at_x(start: Point, end: Point, x: float) -> Point:
         dx = end[0] - start[0]
         if abs(dx) <= 1e-12:
@@ -227,6 +371,16 @@ def _clip_polygon_to_rect(
         ratio = (x - start[0]) / dx
         return [x, start[1] + ratio * (end[1] - start[1])]
 
+    # 功能：实现 `at_y` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `start`（Point）：`start` 对应的业务输入值
+    #   - `end`（Point）：`end` 对应的业务输入值
+    #   - `y`（float）：`y` 对应的业务输入值
+    # 返回：Point；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_clip_polygon_to_rect` 调用本符号
+    #   - 内部调用：`abs`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def at_y(start: Point, end: Point, y: float) -> Point:
         dy = end[1] - start[1]
         if abs(dy) <= 1e-12:
@@ -256,6 +410,16 @@ def _clip_polygon_to_rect(
     )
 
 
+# 功能：实现 `_area_of_normalized_polygon` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `polygon`（Polygon）：`polygon` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_roi_overlap_ratio_normalized`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_belongs_to_normalized_roi`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `validate_rois` 调用本符号
+#   - 内部调用：`len`、`enumerate`、`abs`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _area_of_normalized_polygon(polygon: Polygon) -> float:
     if len(polygon) < 3:
         return 0.0
@@ -268,6 +432,16 @@ def _area_of_normalized_polygon(polygon: Polygon) -> float:
     return abs(signed_twice_area) / 2.0
 
 
+# 功能：计算人体框与已标准化 ROI 的交叠率；输入与输出详见下方说明
+# 参数：
+#   - `person_box`（未显式标注）：`person_box` 对应的业务输入值
+#   - `polygon`（Polygon）：`polygon` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_roi_overlap_ratio`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_belongs_to_normalized_roi` 调用本符号
+#   - 内部调用：`_normalize_rect`、`_area_of_normalized_polygon`、`_clip_polygon_to_rect`、`min`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_roi_overlap_ratio_normalized(person_box, polygon: Polygon) -> float:
     """计算人体框与已标准化 ROI 的交叠率。"""
     box = _normalize_rect(person_box)
@@ -283,6 +457,15 @@ def bbox_roi_overlap_ratio_normalized(person_box, polygon: Polygon) -> float:
     return min(1.0, _area_of_normalized_polygon(clipped) / box_area)
 
 
+# 功能：计算 person_box 与 ROI 交集面积占 person_box 面积的比例；输入与输出详见下方说明
+# 参数：
+#   - `person_box`（未显式标注）：`person_box` 对应的业务输入值
+#   - `roi`（未显式标注）：感兴趣区域的坐标集合
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`normalize_roi_points`、`bbox_roi_overlap_ratio_normalized`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_roi_overlap_ratio(person_box, roi) -> float:
     """计算 person_box 与 ROI 交集面积占 person_box 面积的比例。"""
     try:
@@ -292,6 +475,18 @@ def bbox_roi_overlap_ratio(person_box, roi) -> float:
     return bbox_roi_overlap_ratio_normalized(person_box, polygon)
 
 
+# 功能：使用已标准化 ROI 执行中心点或交叠率归属判定；输入与输出详见下方说明
+# 参数：
+#   - `person_box`（未显式标注）：`person_box` 对应的业务输入值
+#   - `polygon`（Polygon）：`polygon` 对应的业务输入值
+#   - `min_overlap_ratio`（float）：`min_overlap_ratio` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `bbox_belongs_to_roi`
+#         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `_overlay_on_frame`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `PairSessionManager::_tracks_for_roi` 调用本符号
+#   - 内部调用：`_normalize_rect`、`_area_of_normalized_polygon`、`point_in_normalized_polygon`、`float`、`math.isfinite`、`min`、`max`、`bbox_roi_overlap_ratio_normalized`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_belongs_to_normalized_roi(
     person_box,
     polygon: Polygon,
@@ -326,6 +521,16 @@ def bbox_belongs_to_normalized_roi(
     return overlap_ratio > 0.0 and overlap_ratio >= threshold
 
 
+# 功能：中心点在 ROI 内或人体框重叠率达到阈值时，判定属于 ROI；输入与输出详见下方说明
+# 参数：
+#   - `person_box`（未显式标注）：`person_box` 对应的业务输入值
+#   - `roi`（未显式标注）：感兴趣区域的坐标集合
+#   - `min_overlap_ratio`（float）：`min_overlap_ratio` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`normalize_roi_points`、`bbox_belongs_to_normalized_roi`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
     """中心点在 ROI 内或人体框重叠率达到阈值时，判定属于 ROI。"""
     try:
@@ -339,6 +544,17 @@ def bbox_belongs_to_roi(person_box, roi, min_overlap_ratio: float) -> bool:
     )
 
 
+# 功能：实现 `_cross` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `start`（Point）：`start` 对应的业务输入值
+#   - `end`（Point）：`end` 对应的业务输入值
+#   - `point`（Point）：`point` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_segments_intersect_or_touch`
+#         调用本符号；`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_validate_simple_polygon` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _cross(start: Point, end: Point, point: Point) -> float:
     return (
         (end[0] - start[0]) * (point[1] - start[1])
@@ -346,6 +562,17 @@ def _cross(start: Point, end: Point, point: Point) -> float:
     )
 
 
+# 功能：实现 `_segments_intersect_or_touch` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `first_start`（Point）：`first_start` 对应的业务输入值
+#   - `first_end`（Point）：`first_end` 对应的业务输入值
+#   - `second_start`（Point）：`second_start` 对应的业务输入值
+#   - `second_end`（Point）：`second_end` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `_validate_simple_polygon` 调用本符号
+#   - 内部调用：`_cross`、`max`、`abs`、`_point_on_segment`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _segments_intersect_or_touch(
     first_start: Point,
     first_end: Point,
@@ -400,6 +627,15 @@ def _segments_intersect_or_touch(
     )
 
 
+# 功能：检查或判断 `_validate_simple_polygon` 对应的感兴趣区域、几何计算逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `points`（Polygon）：`points` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/roi_geometry.py` 的 `validate_rois` 调用本符号
+#   - 内部调用：`tuple`、`len`、`ValueError`、`enumerate`、`max`、`abs`、`_cross`、`_point_on_segment`、`range`、`_segments_intersect_or_touch`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _validate_simple_polygon(name: str, points: Polygon) -> None:
     unique_points = {tuple(point) for point in points}
     if len(unique_points) < 3:
@@ -448,6 +684,19 @@ def _validate_simple_polygon(name: str, points: Polygon) -> None:
                 )
 
 
+# 功能：校验并规范化一组命名 ROI；输入与输出详见下方说明
+# 参数：
+#   - `rois`（Any）：`rois` 对应的业务输入值
+#   - `width`（Any）：`width` 对应的业务输入值
+#   - `height`（Any）：`height` 对应的业务输入值
+#   - `min_area`（Any）：`min_area` 对应的业务输入值
+#   - `max_vertices`（Any）：`max_vertices` 对应的业务输入值；默认值为 `DEFAULT_MAX_VERTICES`
+# 返回：dict[str, Polygon]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::save_rois` 调用本符号
+#   - 内部调用：`isinstance`、`ValueError`、`_finite_float`、`rois.items`、`str(raw_name).strip`、`str`、`_is_sequence`、`len`、`normalize_roi_points`、`round`
+#          等共 13 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def validate_rois(
     rois: Any,
     width: Any,

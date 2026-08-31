@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 文件说明：提供`migrate_visual_integrations` 模块的命令行运维或验证流程。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # 将旧版根目录中的 Guard Room / Security VLM 本地资产合并进 AiVision。
 # 不覆盖任何同名目标；冲突时在移动前终止，交由管理员确认。
 
@@ -13,6 +16,15 @@ if [[ -z "$PROJECT_ROOT" || "$PROJECT_ROOT" == "/" ]]; then
   exit 2
 fi
 
+# 功能：检查或判断 `check_tree_conflicts` 对应的`migrate_visual_integrations` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / source`（Shell 字符串）：`source` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/migrate_visual_integrations.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 check_tree_conflicts() {
   local source="$1" destination="$2"
   local source_path name destination_path
@@ -34,6 +46,15 @@ check_tree_conflicts() {
   done < <(find "$source" -mindepth 1 -maxdepth 1 -print0)
 }
 
+# 功能：实现 `move_tree` 对应的`migrate_visual_integrations` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / source`（Shell 字符串）：`source` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/migrate_visual_integrations.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 move_tree() {
   local source="$1" destination="$2"
   local source_path name destination_path
@@ -54,6 +75,14 @@ move_tree() {
   rmdir -- "$source"
 }
 
+# 功能：实现 `detect_conda_sh` 对应的`migrate_visual_integrations` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 detect_conda_sh() {
   local candidate base
   if [[ -n "${CONDA_SH:-}" && -f "$CONDA_SH" ]]; then
@@ -81,12 +110,30 @@ detect_conda_sh() {
   return 1
 }
 
+# 功能：实现 `conda_env_exists` 对应的`migrate_visual_integrations` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / env_name`（Shell 字符串）：`env_name` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/lib/unified_backend_runtime.sh` 的脚本流程调用本函数；`scripts/migrate_visual_integrations.sh` 的脚本流程调用本函数；`scripts/start.sh`
+#         的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 conda_env_exists() {
   local env_name="$1" conda_sh="$2" output
   output="$(bash -c "source '$conda_sh' 2>/dev/null && conda env list 2>/dev/null")" || return 1
   echo "$output" | awk '{print $1}' | grep -qx "$env_name"
 }
 
+# 功能：实现 `migrate_guard_room_data` 对应的`migrate_visual_integrations` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 migrate_guard_room_data() {
   local target_env="$PROJECT_ROOT/AiVision/.env"
   local conda_sh

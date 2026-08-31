@@ -1,3 +1,6 @@
+// 文件说明：实现`DoorDetectionSection` 模块的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
@@ -25,6 +28,16 @@ const AiVisionModelConfig = lazy(() =>
   import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })),
 )
 
+/**
+ * 功能：渲染 `LazyConfigFallback` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, label, string
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function LazyConfigFallback({ label }: { label: string }) {
   return (
     <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
@@ -97,10 +110,30 @@ const defaultDoorConfig: DoorConfig = {
   },
 }
 
+/**
+ * 功能：转换或规范化 `formatRoi` 对应的`DoorDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `roiPos`（number[][]）：`roiPos` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`stringify`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatRoi(roiPos: number[][]) {
   return JSON.stringify(roiPos || [])
 }
 
+/**
+ * 功能：转换或规范化 `toForm` 对应的`DoorDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `payload`（DoorConfigResponse）：接口或事件携带的业务数据
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`formatRoi`、`String`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function toForm(payload: DoorConfigResponse) {
   return {
     cameraName: payload.shm_name,
@@ -115,6 +148,17 @@ function toForm(payload: DoorConfigResponse) {
   }
 }
 
+/**
+ * 功能：实现 `requestDoorConfig` 对应的`DoorDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `shmName`（string）：摄像头共享内存名称
+ *   - `init?`（RequestInit）：请求初始化选项
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/DoorDetectionSection.tsx` 的 `DoorDetectionSection` 调用本符号
+ *   - 内部调用：`fetch`、`encodeURIComponent`、`dispatchEvent`、`Event`、`text`、`Error`、`json`。
+ * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
+ */
 async function requestDoorConfig(shmName: string, init?: RequestInit) {
   const response = await fetch(`/api/ai/door-config/${encodeURIComponent(shmName)}`, { ...init, credentials: 'include' })
   if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
@@ -133,6 +177,16 @@ async function requestDoorConfig(shmName: string, init?: RequestInit) {
   }
 }
 
+/**
+ * 功能：渲染 `DoorDetectionSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：无。
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`useState`、`trim`、`find`、`async`、`setMessage`、`setLoading`、`requestDoorConfig`、`setDoorConfig`、`setForm` 等共 67
+ *          个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
+ */
 export function DoorDetectionSection() {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)

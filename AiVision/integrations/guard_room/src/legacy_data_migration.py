@@ -1,3 +1,6 @@
+# 文件说明：实现数据迁移相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """Migrate legacy Guard Room metadata into the AiVision-owned database.
 
 The standalone Guard Room process loaded ``guard_room/.env`` while the
@@ -54,10 +57,32 @@ _CONFIG_COLUMNS = {
 }
 
 
+# 功能：Raised when legacy Guard Room data cannot be migrated safely；输入与输出详见下方说明
+# 参数：无。
+# 返回：LegacyMigrationError；返回新建的 `LegacyMigrationError` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `database_url_from_values`
+#         实例化本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_create_engine`
+#         实例化本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_ensure_target_schema`
+#         实例化本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_json_dict` 实例化本符号；另有 5 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LegacyMigrationError(RuntimeError):
     """Raised when legacy Guard Room data cannot be migrated safely."""
 
 
+# 功能：定义 `LegacyCameraRecord` 类，封装数据迁移相关的状态、约束与操作
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `rtsp_url`（str）：`rtsp_url` 对应的业务输入值
+#   - `enabled`（bool）：是否启用相应能力
+#   - `sort_order`（int）：`sort_order` 对应的业务输入值
+# 返回：LegacyCameraRecord；返回新建的 `LegacyCameraRecord` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_load_database_records`
+#         实例化本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_yaml_camera_records` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class LegacyCameraRecord:
     name: str
@@ -66,6 +91,21 @@ class LegacyCameraRecord:
     sort_order: int = 0
 
 
+# 功能：定义 `LegacySiteRecord` 类，封装数据迁移相关的状态、约束与操作
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `department`（str）：业务部门名称或标识
+#   - `enabled`（bool）：是否启用相应能力
+#   - `sort_order`（int）：`sort_order` 对应的业务输入值
+#   - `description`（str | None）：`description` 对应的业务输入值
+#   - `cameras`（tuple[LegacyCameraRecord, ...]）：`cameras` 对应的业务输入值
+#   - `config`（Mapping[str, Mapping[str, Any]]）：运行配置对象
+# 返回：LegacySiteRecord；返回新建的 `LegacySiteRecord` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_load_database_records`
+#         实例化本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_merge_yaml_camera_fallback` 实例化本符号
+#   - 内部调用：`field`、`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class LegacySiteRecord:
     name: str
@@ -77,6 +117,20 @@ class LegacySiteRecord:
     config: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
+# 功能：Counts from one idempotent migration run；输入与输出详见下方说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `sites_created`（int）：`sites_created` 对应的业务输入值
+#   - `sites_matched`（int）：`sites_matched` 对应的业务输入值
+#   - `cameras_created`（int）：`cameras_created` 对应的业务输入值
+#   - `cameras_matched`（int）：`cameras_matched` 对应的业务输入值
+#   - `camera_conflicts`（int）：`camera_conflicts` 对应的业务输入值
+#   - `configs_created`（int）：`configs_created` 对应的业务输入值
+# 返回：MigrationReport；返回新建的 `MigrationReport` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_apply_records` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class MigrationReport:
     """Counts from one idempotent migration run."""
@@ -89,11 +143,27 @@ class MigrationReport:
     camera_conflicts: int = 0
     configs_created: int = 0
 
+    # 功能：实现 `changed` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`bool`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def changed(self) -> bool:
         return bool(self.sites_created or self.cameras_created or self.configs_created)
 
 
+# 功能：Read simple KEY=VALUE entries without mutating ``os.environ``；输入与输出详见下方说明
+# 参数：
+#   - `path`（Path）：目标路径
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `resolve_project_urls` 调用本符号
+#   - 内部调用：`path.is_file`、`path.read_text(encoding='utf-8').splitlines`、`path.read_text`、`raw_line.strip`、`line.startswith`、`line.split`、`key.strip`、`value.strip().strip('"').strip`、`value.strip().strip`、`value.strip`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def read_env_file(path: Path) -> dict[str, str]:
     """Read simple KEY=VALUE entries without mutating ``os.environ``."""
     if not path.is_file():
@@ -112,6 +182,19 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+# 功能：Resolve the same Guard Room database precedence used at runtime；输入与输出详见下方说明
+# 参数：
+#   - `values`（Mapping[str, str]）：`values` 对应的业务输入值
+#   - `base_dir`（Path）：`base_dir` 对应的业务输入值
+#   - `sqlite_fallback`（Path | None）：`sqlite_fallback` 对应的业务输入值；默认值为 `None`
+# 返回：URL | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `resolve_project_urls` 调用本符号
+#   - 内部调用：`str(values.get('GUARD_ROOM_DATABASE_URL') or
+#          '').strip`、`str`、`values.get`、`_resolve_relative_sqlite`、`make_url`、`str(values.get('MYSQL_DB_URL') or
+#          '').strip`、`str(values.get('MYSQL_DB_USER') or '').strip`、`str(values.get('MYSQL_DB_NAME') or
+#          '').strip`、`str(values.get('MYSQL_DB_PORT') or '3306').strip`、`int` 等共 14 个调用。
+# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 def database_url_from_values(
     values: Mapping[str, str],
     *,
@@ -149,6 +232,15 @@ def database_url_from_values(
     return URL.create("sqlite", database=str(sqlite_fallback.resolve()))
 
 
+# 功能：计算或解析 `_resolve_relative_sqlite` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `url`（URL）：目标接口、媒体流或页面地址
+#   - `base_dir`（Path）：`base_dir` 对应的业务输入值
+# 返回：URL；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `database_url_from_values` 调用本符号
+#   - 内部调用：`url.drivername.startswith`、`Path`、`path.is_absolute`、`url.set`、`str`、`(base_dir / path).resolve`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _resolve_relative_sqlite(url: URL, base_dir: Path) -> URL:
     if not url.drivername.startswith("sqlite"):
         return url
@@ -161,10 +253,28 @@ def _resolve_relative_sqlite(url: URL, base_dir: Path) -> URL:
     return url.set(database=str((base_dir / path).resolve()))
 
 
+# 功能：实现 `_same_database` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `first`（URL | str）：`first` 对应的业务输入值
+#   - `second`（URL | str）：`second` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`make_url`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _same_database(first: URL | str, second: URL | str) -> bool:
     return make_url(first) == make_url(second)
 
 
+# 功能：创建或构建 `_create_engine` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `url`（URL | str）：目标接口、媒体流或页面地址
+#   - `source`（bool）：`source` 对应的业务输入值；默认值为 `False`
+# 返回：Engine；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`make_url`、`parsed.drivername.startswith`、`Path(database).is_file`、`Path`、`LegacyMigrationError`、`create_engine`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
 def _create_engine(url: URL | str, *, source: bool = False) -> Engine:
     parsed = make_url(url)
     if source and parsed.drivername.startswith("sqlite"):
@@ -174,6 +284,14 @@ def _create_engine(url: URL | str, *, source: bool = False) -> Engine:
     return create_engine(parsed, pool_pre_ping=not parsed.drivername.startswith("sqlite"), future=True)
 
 
+# 功能：Create current tables and add the one column absent from early schemas；输入与输出详见下方说明
+# 参数：
+#   - `engine`（Engine）：`engine` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`Base.metadata.create_all`、`inspect`、`inspector.get_table_names`、`LegacyMigrationError`、`inspector.get_columns`、`engine.begin`、`connection.execute`、`text`。
+# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 def _ensure_target_schema(engine: Engine) -> None:
     """Create current tables and add the one column absent from early schemas."""
     Base.metadata.create_all(bind=engine)
@@ -195,6 +313,14 @@ def _ensure_target_schema(engine: Engine) -> None:
         connection.execute(text(ddl))
 
 
+# 功能：实现 `_json_dict` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（Any）：待转换、校验或写入的值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_load_database_records` 调用本符号
+#   - 内部调用：`isinstance`、`deepcopy`、`dict`、`json.loads`、`LegacyMigrationError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _json_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return deepcopy(dict(value))
@@ -208,6 +334,15 @@ def _json_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+# 功能：实现 `_clean_video_sources` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `video`（Mapping[str, Any]）：`video` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_load_default_sections`
+#         调用本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_merge_sections` 调用本符号
+#   - 内部调用：`deepcopy`、`dict`、`range`、`cleaned.pop`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _clean_video_sources(video: Mapping[str, Any]) -> dict[str, Any]:
     cleaned = deepcopy(dict(video))
     cleaned["source"] = ""
@@ -216,6 +351,14 @@ def _clean_video_sources(video: Mapping[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
+# 功能：读取或查询 `_load_default_sections` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `config_path`（Path）：`config_path` 对应的业务输入值
+# 返回：dict[str, dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`config_path.is_file`、`LegacyMigrationError`、`AppConfig.from_yaml(config_path).to_dict`、`AppConfig.from_yaml`、`deepcopy`、`dict`、`data.get`、`_clean_video_sources`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _load_default_sections(config_path: Path) -> dict[str, dict[str, Any]]:
     if not config_path.is_file():
         raise LegacyMigrationError(f"Guard Room 配置文件不存在: {config_path}")
@@ -225,6 +368,17 @@ def _load_default_sections(config_path: Path) -> dict[str, dict[str, Any]]:
     return sections
 
 
+# 功能：实现 `_merge_sections` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `defaults`（Mapping[str, Mapping[str, Any]]）：`defaults` 对应的业务输入值
+#   - `legacy`（Mapping[str, Mapping[str, Any]]）：`legacy` 对应的业务输入值
+#   - `site_name`（str）：`site_name` 对应的业务输入值
+# 返回：dict[str, dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_apply_records` 调用本符号
+#   - 内部调用：`deepcopy`、`dict`、`defaults.get`、`values.update`、`legacy.get`、`_clean_video_sources`、`str(merged['wechat'].get('camera_name')
+#          or '').strip`、`str`、`merged['wechat'].get`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def _merge_sections(
     defaults: Mapping[str, Mapping[str, Any]],
     legacy: Mapping[str, Mapping[str, Any]],
@@ -242,6 +396,15 @@ def _merge_sections(
     return merged
 
 
+# 功能：读取或查询 `_load_database_records` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `engine`（Engine）：`engine` 对应的业务输入值
+# 返回：list[LegacySiteRecord]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`inspect`、`set`、`inspector.get_table_names`、`selected.append`、`MetaData`、`metadata.reflect`、`metadata.tables.get`、`engine.connect`、`dict`、`connection.execute`
+#          等共 32 个调用。
+# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 def _load_database_records(engine: Engine) -> list[LegacySiteRecord]:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -317,6 +480,14 @@ def _load_database_records(engine: Engine) -> list[LegacySiteRecord]:
     return sorted(records, key=lambda site: (site.sort_order, site.name))
 
 
+# 功能：实现 `_yaml_camera_records` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `config_path`（Path）：`config_path` 对应的业务输入值
+# 返回：tuple[LegacyCameraRecord, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_merge_yaml_camera_fallback` 调用本符号
+#   - 内部调用：`AppConfig.from_yaml`、`range`、`getattr`、`str(value).strip`、`str`、`sources.append`、`str(video.source).strip`、`tuple`、`LegacyCameraRecord`、`enumerate`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _yaml_camera_records(config_path: Path) -> tuple[LegacyCameraRecord, ...]:
     cfg = AppConfig.from_yaml(config_path)
     video = cfg.video
@@ -336,6 +507,18 @@ def _yaml_camera_records(config_path: Path) -> tuple[LegacyCameraRecord, ...]:
     )
 
 
+# 功能：实现 `_merge_yaml_camera_fallback` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `records`（Sequence[LegacySiteRecord]）：`records` 对应的业务输入值
+#   - `config_path`（Path）：`config_path` 对应的业务输入值
+#   - `default_sections`（Mapping[str, Mapping[str, Any]]）：`default_sections` 对应的业务输入值
+#   - `legacy_site_name`（str | None）：`legacy_site_name` 对应的业务输入值
+# 返回：tuple[list[LegacySiteRecord], bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`any`、`list`、`_yaml_camera_records`、`len`、`LegacyMigrationError`、`LegacySiteRecord`、`str(default_sections.get('wechat',
+#          {}).get('camera_name') or '').strip`、`str`、`default_sections.get('wechat', {}).get`、`default_sections.get` 等共 11 个调用。
+# 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。
 def _merge_yaml_camera_fallback(
     records: Sequence[LegacySiteRecord],
     *,
@@ -382,12 +565,32 @@ def _merge_yaml_camera_fallback(
     ], True
 
 
+# 功能：实现 `_target_config_values` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `sections`（Mapping[str, Mapping[str, Any]]）：`sections` 对应的业务输入值
+# 返回：dict[str, dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_apply_records` 调用本符号
+#   - 内部调用：`deepcopy`、`dict`、`sections.get`、`_CONFIG_COLUMNS.items`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _target_config_values(
     sections: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     return {column: deepcopy(dict(sections.get(section) or {})) for section, column in _CONFIG_COLUMNS.items()}
 
 
+# 功能：实现 `_apply_records` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `engine`（Engine）：`engine` 对应的业务输入值
+#   - `records`（Sequence[LegacySiteRecord]）：`records` 对应的业务输入值
+#   - `defaults`（Mapping[str, Mapping[str, Any]]）：`defaults` 对应的业务输入值
+#   - `source`（str）：`source` 对应的业务输入值
+# 返回：MigrationReport；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `migrate_legacy_data` 调用本符号
+#   - 内部调用：`MigrationReport`、`engine.begin`、`dict`、`connection.execute`、`select`、`str`、`row.get`、`cameras_by_site.setdefault(int(row['site_id']),
+#          []).append`、`cameras_by_site.setdefault`、`int` 等共 28 个调用。
+# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 def _apply_records(
     engine: Engine,
     records: Sequence[LegacySiteRecord],
@@ -506,6 +709,18 @@ def _apply_records(
     return report
 
 
+# 功能：Merge legacy database/YAML records into the target database；输入与输出详见下方说明
+# 参数：
+#   - `target_url`（URL | str）：`target_url` 对应的业务输入值
+#   - `source_url`（URL | str | None）：`source_url` 对应的业务输入值
+#   - `config_path`（Path）：`config_path` 对应的业务输入值
+#   - `legacy_site_name`（str | None）：`legacy_site_name` 对应的业务输入值；默认值为 `None`
+# 返回：MigrationReport；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `main` 调用本符号
+#   - 内部调用：`Path(config_path).resolve`、`Path`、`_load_default_sections`、`_create_engine`、`_ensure_target_schema`、`_same_database`、`_load_database_records`、`_merge_yaml_camera_fallback`、`_apply_records`、`source_engine.dispose`
+#          等共 11 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def migrate_legacy_data(
     *,
     target_url: URL | str,
@@ -546,6 +761,14 @@ def migrate_legacy_data(
         target_engine.dispose()
 
 
+# 功能：绘制或渲染 `_overlay_runtime_database_values` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `file_values`（Mapping[str, str]）：`file_values` 对应的业务输入值
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `resolve_project_urls` 调用本符号
+#   - 内部调用：`dict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _overlay_runtime_database_values(file_values: Mapping[str, str]) -> dict[str, str]:
     values = dict(file_values)
     for key in _DATABASE_ENV_KEYS:
@@ -554,6 +777,14 @@ def _overlay_runtime_database_values(file_values: Mapping[str, str]) -> dict[str
     return values
 
 
+# 功能：Resolve legacy source, AiVision target, and real Guard config paths；输入与输出详见下方说明
+# 参数：
+#   - `project_root`（Path）：`project_root` 对应的业务输入值
+# 返回：tuple[URL | None, URL, Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `main` 调用本符号
+#   - 内部调用：`Path(project_root).resolve`、`Path`、`_overlay_runtime_database_values`、`read_env_file`、`database_url_from_values`、`LegacyMigrationError`、`next`、`path.is_file`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def resolve_project_urls(project_root: Path) -> tuple[URL | None, URL, Path]:
     """Resolve legacy source, AiVision target, and real Guard config paths."""
     project_root = Path(project_root).resolve()
@@ -585,6 +816,13 @@ def resolve_project_urls(project_root: Path) -> tuple[URL | None, URL, Path]:
     return source_url, target_url, module_root / "config" / "config.yaml"
 
 
+# 功能：创建或构建 `_build_parser` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：argparse.ArgumentParser；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `main` 调用本符号
+#   - 内部调用：`Path(__file__).resolve`、`Path`、`argparse.ArgumentParser`、`parser.add_argument`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _build_parser() -> argparse.ArgumentParser:
     module_path = Path(__file__).resolve()
     parser = argparse.ArgumentParser(description="迁移旧版保安行为规范检测的保安室与摄像头数据")
@@ -601,6 +839,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# 功能：实现 `main` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `argv`（Sequence[str] | None）：`argv` 对应的业务输入值；默认值为 `None`
+# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_build_parser().parse_args`、`_build_parser`、`resolve_project_urls`、`make_url`、`args.config.resolve`、`migrate_legacy_data`、`print`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:

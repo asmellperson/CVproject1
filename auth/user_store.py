@@ -1,3 +1,6 @@
+# 文件说明：封装`user_store` 模块的 React 状态与副作用。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """SQLite-backed user storage with one-time legacy JSON migration."""
 from __future__ import annotations
 
@@ -40,22 +43,62 @@ DEPARTMENT_ALIASES = {
 }
 
 
+# 功能：Base error for user persistence failures；输入与输出详见下方说明
+# 参数：无。
+# 返回：UserStoreError；返回新建的 `UserStoreError` 实例。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::_migrate_legacy_users` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserStoreError(RuntimeError):
     """Base error for user persistence failures."""
 
 
+# 功能：A user payload is invalid；输入与输出详见下方说明
+# 参数：无。
+# 返回：UserValidationError；返回新建的 `UserValidationError` 实例。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `_normalize_required` 实例化本符号；`auth/user_store.py` 的 `_normalize_role_departments`
+#         实例化本符号；`auth/user_store.py` 的 `UserStore::create_user` 实例化本符号；`auth/user_store.py` 的 `UserStore::update_password_hash`
+#         实例化本符号；另有 2 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserValidationError(UserStoreError):
     """A user payload is invalid."""
 
 
+# 功能：A mutation violates uniqueness or administrator safety constraints；输入与输出详见下方说明
+# 参数：无。
+# 返回：UserConflictError；返回新建的 `UserConflictError` 实例。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::create_user` 实例化本符号；`auth/user_store.py` 的 `UserStore::update_user`
+#         实例化本符号；`auth/user_store.py` 的 `UserStore::delete_user` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserConflictError(UserStoreError):
     """A mutation violates uniqueness or administrator safety constraints."""
 
 
+# 功能：The requested user does not exist；输入与输出详见下方说明
+# 参数：无。
+# 返回：UserNotFoundError；返回新建的 `UserNotFoundError` 实例。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::get_user_record` 实例化本符号；`auth/user_store.py` 的 `UserStore::update_user`
+#         实例化本符号；`auth/user_store.py` 的 `UserStore::update_password_hash` 实例化本符号；`auth/user_store.py` 的 `UserStore::delete_user`
+#         实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserNotFoundError(UserStoreError):
     """The requested user does not exist."""
 
 
+# 功能：实现 `default_database_path` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::__init__` 调用本符号；`auth/auth.py` 的 `get_auth_users_database_path` 调用本符号
+#   - 内部调用：`os.getenv`、`Path`、`Path(__file__).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def default_database_path() -> Path:
     raw = os.getenv("AUTH_USERS_DB")
     if raw:
@@ -63,6 +106,13 @@ def default_database_path() -> Path:
     return Path(__file__).resolve().parents[1] / "runtime" / "auth" / "auth_users.db"
 
 
+# 功能：实现 `default_legacy_json_path` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::__init__` 调用本符号
+#   - 内部调用：`os.getenv`、`Path`、`Path(__file__).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def default_legacy_json_path() -> Path:
     raw = os.getenv("AUTH_USERS_FILE")
     if raw:
@@ -70,6 +120,17 @@ def default_legacy_json_path() -> Path:
     return Path(__file__).resolve().parent / "auth_users.json"
 
 
+# 功能：转换或规范化 `_normalize_required` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+#   - `label`（str）：`label` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::_migrate_legacy_users` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user`
+#         调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash`
+#         调用本符号；另有 1 处静态调用
+#   - 内部调用：`str(value or '').strip`、`str`、`UserValidationError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _normalize_required(value: object, label: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -77,6 +138,19 @@ def _normalize_required(value: object, label: str) -> str:
     return normalized
 
 
+# 功能：转换或规范化 `_normalize_role_departments` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `role`（object）：`role` 对应的业务输入值
+#   - `department`（object）：业务部门名称或标识
+#   - `departments`（object）：`departments` 对应的业务输入值；默认值为 `None`
+# 返回：tuple[str, list[str]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::_migrate_legacy_users`
+#         调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号
+#   - 内部调用：`str(role or '').strip().lower`、`str(role or
+#          '').strip`、`str`、`UserValidationError`、`isinstance`、`list`、`str(raw_department or
+#          '').strip`、`DEPARTMENT_ALIASES.get`、`normalized_department.lower`、`normalized_departments.append`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _normalize_role_departments(
     role: object,
     department: object,
@@ -114,10 +188,28 @@ def _normalize_role_departments(
     return normalized_role, normalized_departments
 
 
+# 功能：实现 `_encode_departments` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `departments`（list[str]）：`departments` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::_migrate_legacy_users`
+#         调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号
+#   - 内部调用：`json.dumps`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _encode_departments(departments: list[str]) -> str:
     return json.dumps(departments, ensure_ascii=False, separators=(",", ":"))
 
 
+# 功能：实现 `_decode_departments` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+#   - `fallback`（object）：`fallback` 对应的业务输入值
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `_public_user` 调用本符号；`auth/user_store.py` 的 `UserStore::initialize` 调用本符号
+#   - 内部调用：`isinstance`、`json.loads`、`str`、`str(fallback or '').strip`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _decode_departments(value: object, fallback: object) -> list[str]:
     try:
         decoded = json.loads(value) if isinstance(value, str) else value
@@ -129,6 +221,14 @@ def _decode_departments(value: object, fallback: object) -> list[str]:
     return [normalized_fallback] if normalized_fallback else []
 
 
+# 功能：实现 `_public_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `row`（sqlite3.Row）：`row` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_decode_departments`、`bool`、`int`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _public_user(row: sqlite3.Row) -> dict[str, Any]:
     departments = _decode_departments(row["departments"], row["department"])
     return {
@@ -142,13 +242,42 @@ def _public_user(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+# 功能：实现 `_user_record` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `row`（sqlite3.Row）：`row` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::get_user_record` 调用本符号；`auth/user_store.py` 的 `UserStore::find_enabled_user` 调用本符号
+#   - 内部调用：`_public_user`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _user_record(row: sqlite3.Row) -> dict[str, Any]:
     item = _public_user(row)
     item["password_hash"] = row["password_hash"]
     return item
 
 
+# 功能：定义 `UserStore` 类，封装`user_store` 模块相关的状态、约束与操作
+# 参数：
+#   - `database_path`（str | Path | None）：`database_path` 对应的业务输入值；默认值为 `None`
+#   - `legacy_json_path`（str | Path | None）：`legacy_json_path` 对应的业务输入值；默认值为 `None`
+# 返回：UserStore；返回新建的 `UserStore` 实例。
+# 调用关系：
+#   - 调用方：`auth/auth.py` 的 `get_user_store` 实例化本符号；`unified_backend/tests/test_user_store.py` 的 `_store`
+#         实例化本符号；`unified_backend/tests/test_user_store.py` 的 `test_backfills_departments_when_opening_legacy_sqlite_database`
+#         实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserStore:
+    # 功能：初始化或配置 `__init__` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `database_path`（str | Path | None）：`database_path` 对应的业务输入值；默认值为 `None`
+    #   - `legacy_json_path`（str | Path | None）：`legacy_json_path` 对应的业务输入值；默认值为 `None`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path`、`default_database_path`、`default_legacy_json_path`、`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         *,
@@ -160,6 +289,16 @@ class UserStore:
         self._initialize_lock = threading.Lock()
         self._initialized = False
 
+    # 功能：实现 `_connect` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：sqlite3.Connection；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::list_users`
+    #         调用本符号；`auth/user_store.py` 的 `UserStore::get_user_record` 调用本符号；`auth/user_store.py` 的 `UserStore::find_enabled_user`
+    #         调用本符号；另有 4 处静态调用
+    #   - 内部调用：`sqlite3.connect`、`connection.execute`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=10)
         connection.row_factory = sqlite3.Row
@@ -167,6 +306,19 @@ class UserStore:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    # 功能：初始化或配置 `initialize` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/user_store.py` 的 `UserStore::list_users` 调用本符号；`auth/user_store.py` 的 `UserStore::get_user_record`
+    #         调用本符号；`auth/user_store.py` 的 `UserStore::find_enabled_user` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user`
+    #         调用本符号；另有 3 处静态调用
+    #   - 内部调用：`self.database_path.parent.mkdir`、`self._connect`、`connection.execute`、`str`、`connection.execute('PRAGMA
+    #          table_info(auth_users)').fetchall`、`connection.execute('SELECT employee_id, role, department, departments FROM
+    #          auth_users').fetchall`、`_normalize_role_departments`、`_decode_departments`、`_encode_departments`、`connection.execute('SELECT
+    #          value FROM auth_metadata WHERE key = ?', ('legacy_json_imported',)).fetchone` 等共 14 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def initialize(self) -> None:
         if self._initialized:
             return
@@ -254,6 +406,16 @@ class UserStore:
             finally:
                 connection.close()
 
+    # 功能：实现 `_migrate_legacy_users` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `connection`（sqlite3.Connection）：`connection` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号
+    #   - 内部调用：`json.loads`、`self.legacy_json_path.read_text`、`UserStoreError`、`isinstance`、`set`、`_normalize_required`、`raw_user.get`、`_normalize_role_departments`、`employee_ids.add`、`names.add`
+    #          等共 16 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def _migrate_legacy_users(self, connection: sqlite3.Connection) -> None:
         try:
             payload = json.loads(self.legacy_json_path.read_text(encoding="utf-8"))
@@ -313,6 +475,19 @@ class UserStore:
             normalized_users,
         )
 
+    # 功能：读取或查询 `list_users` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/auth.py` 的 `load_auth_users` 调用本符号；`auth/auth.py` 的 `list_auth_users`
+    #         调用本符号；`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_user_routes_cover_full_lifecycle`
+    #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_migrates_legacy_json_once_and_then_reads_only_database`
+    #         调用本符号；另有 1 处静态调用
+    #   - 内部调用：`self.initialize`、`closing`、`self._connect`、`connection.execute('\n                SELECT employee_id, name, role,
+    #          department, departments, enabled,\n                       password_hash, auth_version\n                FROM
+    #          auth_users\n                ORDER BY employee_id\n                ').fetchall`、`connection.execute`、`_public_user`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def list_users(self) -> list[dict[str, Any]]:
         self.initialize()
         with closing(self._connect()) as connection:
@@ -326,6 +501,20 @@ class UserStore:
             ).fetchall()
         return [_public_user(row) for row in rows]
 
+    # 功能：读取或查询 `get_user_record` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user`
+    #         调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash` 调用本符号；`auth/auth.py` 的 `change_own_password` 调用本符号；另有 2
+    #         处静态调用
+    #   - 内部调用：`self.initialize`、`closing`、`self._connect`、`connection.execute('\n                SELECT employee_id, name, role,
+    #          department, departments, enabled,\n                       password_hash, auth_version\n                FROM
+    #          auth_users\n                WHERE employee_id = ?\n                ',
+    #          (str(employee_id).strip(),)).fetchone`、`connection.execute`、`str(employee_id).strip`、`str`、`UserNotFoundError`、`_user_record`。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def get_user_record(self, employee_id: str) -> dict[str, Any]:
         self.initialize()
         with closing(self._connect()) as connection:
@@ -342,6 +531,18 @@ class UserStore:
             raise UserNotFoundError("用户不存在")
         return _user_record(row)
 
+    # 功能：读取或查询 `find_enabled_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `identifier`（str）：`identifier` 对应的业务输入值
+    # 返回：dict[str, Any] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.initialize`、`str(identifier).strip`、`str`、`closing`、`self._connect`、`connection.execute('\n
+    #          SELECT employee_id, name, role, department, departments, enabled,\n                       password_hash,
+    #          auth_version\n                FROM auth_users\n                WHERE enabled = 1 AND (employee_id = ? OR name = ?)\n
+    #          LIMIT 1\n                ', (normalized, normalized)).fetchone`、`connection.execute`、`_user_record`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def find_enabled_user(self, identifier: str) -> dict[str, Any] | None:
         self.initialize()
         normalized = str(identifier).strip()
@@ -360,6 +561,26 @@ class UserStore:
             ).fetchone()
         return _user_record(row) if row is not None else None
 
+    # 功能：创建或构建 `create_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `name`（str）：业务对象名称
+    #   - `role`（str）：`role` 对应的业务输入值
+    #   - `department`（str | None）：业务部门名称或标识
+    #   - `password_hash`（str）：`password_hash` 对应的业务输入值
+    #   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/auth.py` 的 `create_auth_user` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
+    #         `test_admin_user_routes_cover_full_lifecycle` 调用本符号；`unified_backend/tests/test_user_store.py` 的
+    #         `test_create_update_reset_and_delete_user` 调用本符号；`unified_backend/tests/test_user_store.py` 的
+    #         `test_accepts_haoda_company_viewer_department` 调用本符号；另有 5 处静态调用
+    #   - 内部调用：`self.initialize`、`_normalize_required`、`_normalize_role_departments`、`UserValidationError`、`self._connect`、`connection.execute`、`connection.execute('SELECT
+    #          1 FROM auth_users WHERE employee_id = ?',
+    #          (normalized_employee_id,)).fetchone`、`UserConflictError`、`connection.execute('SELECT 1 FROM auth_users WHERE name =
+    #          ?', (normalized_name,)).fetchone`、`_encode_departments` 等共 15 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def create_user(
         self,
         *,
@@ -420,6 +641,28 @@ class UserStore:
             self.get_user_record(normalized_employee_id)
         )
 
+    # 功能：更新或保存 `update_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `actor_employee_id`（str）：`actor_employee_id` 对应业务对象的唯一标识
+    #   - `name`（str）：业务对象名称
+    #   - `role`（str）：`role` 对应的业务输入值
+    #   - `department`（str | None）：业务部门名称或标识
+    #   - `enabled`（bool）：是否启用相应能力
+    #   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/auth.py` 的 `update_auth_user` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
+    #         `test_admin_user_routes_cover_full_lifecycle` 调用本符号；`unified_backend/tests/test_user_store.py` 的
+    #         `test_create_update_reset_and_delete_user` 调用本符号；`unified_backend/tests/test_user_store.py` 的
+    #         `test_creates_and_updates_viewer_with_multiple_departments` 调用本符号；另有 2 处静态调用
+    #   - 内部调用：`self.initialize`、`_normalize_required`、`_normalize_role_departments`、`bool`、`self._connect`、`connection.execute`、`connection.execute('SELECT
+    #          * FROM auth_users WHERE employee_id = ?',
+    #          (normalized_employee_id,)).fetchone`、`UserNotFoundError`、`UserConflictError`、`connection.execute('\n
+    #          SELECT 1 FROM auth_users\n                WHERE name = ? AND employee_id <> ?\n                ', (normalized_name,
+    #          normalized_employee_id)).fetchone` 等共 18 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def update_user(
         self,
         employee_id: str,
@@ -493,6 +736,18 @@ class UserStore:
             connection.close()
         return _public_without_password(self.get_user_record(normalized_employee_id))
 
+    # 功能：更新或保存 `update_password_hash` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `password_hash`（str）：`password_hash` 对应的业务输入值
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/auth.py` 的 `change_own_password` 调用本符号；`auth/auth.py` 的 `reset_auth_user_password`
+    #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_create_update_reset_and_delete_user` 调用本符号
+    #   - 内部调用：`self.initialize`、`_normalize_required`、`UserValidationError`、`self._connect`、`connection.execute`、`UserNotFoundError`、`connection.commit`、`connection.rollback`、`connection.close`、`_public_without_password`
+    #          等共 11 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def update_password_hash(
         self,
         employee_id: str,
@@ -524,6 +779,22 @@ class UserStore:
             connection.close()
         return _public_without_password(self.get_user_record(normalized_employee_id))
 
+    # 功能：删除或清理 `delete_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `actor_employee_id`（str）：`actor_employee_id` 对应业务对象的唯一标识
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/auth.py` 的 `delete_auth_user` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
+    #         `test_admin_user_routes_cover_full_lifecycle` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
+    #         `test_admin_route_maps_self_delete_to_conflict` 调用本符号；`unified_backend/tests/test_user_store.py` 的
+    #         `test_create_update_reset_and_delete_user` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`self.initialize`、`_normalize_required`、`UserConflictError`、`self._connect`、`connection.execute`、`connection.execute('SELECT
+    #          * FROM auth_users WHERE employee_id = ?',
+    #          (normalized_employee_id,)).fetchone`、`UserNotFoundError`、`bool`、`self._enabled_admin_count`、`connection.commit` 等共 12
+    #          个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def delete_user(
         self,
         employee_id: str,
@@ -562,6 +833,15 @@ class UserStore:
         finally:
             connection.close()
 
+    # 功能：实现 `_enabled_admin_count` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `connection`（sqlite3.Connection）：`connection` 对应的业务输入值
+    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`auth/user_store.py` 的 `UserStore::update_user` 调用本符号；`auth/user_store.py` 的 `UserStore::delete_user` 调用本符号
+    #   - 内部调用：`connection.execute("\n            SELECT COUNT(*) AS count\n            FROM auth_users\n            WHERE role =
+    #          'admin' AND enabled = 1\n            ").fetchone`、`connection.execute`、`int`。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     @staticmethod
     def _enabled_admin_count(connection: sqlite3.Connection) -> int:
         row = connection.execute(
@@ -574,6 +854,15 @@ class UserStore:
         return int(row["count"])
 
 
+# 功能：实现 `_public_without_password` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `record`（dict[str, Any]）：`record` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user`
+#         调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash` 调用本符号
+#   - 内部调用：`record.items`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _public_without_password(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value

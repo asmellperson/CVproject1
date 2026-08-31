@@ -1,3 +1,6 @@
+# 文件说明：实现`drawing` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # drawing.py
 """
 画面标注工具模块。
@@ -16,6 +19,16 @@ from .geometry import polygon_to_np
 from .types import AlarmEvent, Detection
 
 
+# 功能：在画面上绘制封闭多边形区域及其标签；输入与输出详见下方说明
+# 参数：
+#   - `frame`（np.ndarray）：待处理的视频图像帧
+#   - `polygon`（Sequence[tuple[int, int]]）：`polygon` 对应的业务输入值
+#   - `label`（str）：`label` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_draw_camera` 调用本符号
+#   - 内部调用：`len`、`polygon_to_np(polygon).reshape`、`polygon_to_np`、`cv2.polylines`、`cv2.putText`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def draw_polygon(
     frame: np.ndarray,
     polygon: Sequence[tuple[int, int]],
@@ -39,6 +52,17 @@ def draw_polygon(
     cv2.putText(frame, label, (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
 
+# 功能：在画面上绘制单个检测框及其标签；输入与输出详见下方说明
+# 参数：
+#   - `frame`（np.ndarray）：待处理的视频图像帧
+#   - `det`（Detection）：`det` 对应的业务输入值
+#   - `label`（str）：`label` 对应的业务输入值
+#   - `color`（未显式标注）：`color` 对应的业务输入值；默认值为 `(0, 255, 0)`
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_draw_camera` 调用本符号
+#   - 内部调用：`cv2.rectangle`、`cv2.putText`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def draw_detection(
     frame: np.ndarray,
     det: Detection,
@@ -59,6 +83,16 @@ def draw_detection(
     cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
 
+# 功能：在画面左上角逐行绘制调试信息；输入与输出详见下方说明
+# 参数：
+#   - `frame`（np.ndarray）：待处理的视频图像帧
+#   - `lines`（Iterable[str]）：`lines` 对应的业务输入值
+#   - `origin`（未显式标注）：`origin` 对应的业务输入值；默认值为 `(20, 30)`
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`enumerate`、`cv2.putText`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def draw_debug_text(
     frame: np.ndarray,
     lines: Iterable[str],
@@ -79,6 +113,15 @@ def draw_debug_text(
         cv2.putText(frame, line, (x, y + idx * 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 180, 255), 2)
 
 
+# 功能：在画面顶部绘制红色报警横幅，显示报警类型与原因；输入与输出详见下方说明
+# 参数：
+#   - `frame`（np.ndarray）：待处理的视频图像帧
+#   - `event`（Optional[AlarmEvent]）：待处理的事件对象
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+#   - 内部调用：`cv2.rectangle`、`cv2.putText`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def draw_alarm_banner(
     frame: np.ndarray,
     event: Optional[AlarmEvent],

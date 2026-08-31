@@ -1,3 +1,6 @@
+// 文件说明：实现`AccessAuditSection` 模块的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
@@ -34,11 +37,31 @@ const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 })
 
+/**
+ * 功能：转换或规范化 `formatDateTime` 对应的`AccessAuditSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/AccessAuditSection.tsx` 的 `AccessAuditSection` 调用本符号
+ *   - 内部调用：`Date`、`isNaN`、`getTime`、`format`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatDateTime(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : dateTimeFormatter.format(date)
 }
 
+/**
+ * 功能：渲染 `AccessAuditSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：无。
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`useState`、`useCallback`、`async`、`setLoading`、`setError`、`setItems`、`listAccessAudit`、`useEffect`、`loadItems`
+ *          等共 28 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
+ */
 export function AccessAuditSection() {
   const { user } = useAuth()
   const canViewAccessAudit = user?.capabilities?.view_access_audit === true

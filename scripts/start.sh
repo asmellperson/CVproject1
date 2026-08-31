@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 文件说明：提供`start` 模块的命令行运维或验证流程。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # =============================================================================
 # 福达视觉平台 - 冷启动脚本
 # -----------------------------------------------------------------------------
@@ -49,13 +52,77 @@ else
   C_RED=""; C_GRN=""; C_YLW=""; C_BLU=""; C_DIM=""; C_RST=""
 fi
 
+# 功能：实现 `log` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 log()  { echo "${C_BLU}[INFO]${C_RST} $*"; }
+# 功能：实现 `ok` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 ok()   { echo "${C_GRN}[ OK ]${C_RST} $*"; }
+# 功能：实现 `warn` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 warn() { echo "${C_YLW}[WARN]${C_RST} $*"; }
+# 功能：实现 `err` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 err()  { echo "${C_RED}[FAIL]${C_RST} $*"; }
+# 功能：实现 `skip` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数；`scripts/status.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 skip() { echo "${C_DIM}[SKIP]${C_RST} $*"; }
+# 功能：实现 `miss` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 miss() { echo "${C_RED}[MISSING DEPS]${C_RST} $*"; }
+# 功能：实现 `cfg` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 cfg()  { echo "${C_YLW}[MISSING CONFIG]${C_RST} $*"; }
+# 功能：实现 `hint` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 hint() { echo "  ${C_DIM}→${C_RST} $*"; }
 
 # ---- 参数解析 --------------------------------------------------------------
@@ -80,6 +147,14 @@ done
 
 # ---- 动态探测函数 ----------------------------------------------------------
 
+# 功能：实现 `detect_nvm_sh` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 detect_nvm_sh() {
   if [[ -n "${NVM_SH:-}" && -f "$NVM_SH" ]]; then echo "$NVM_SH"; return 0; fi
   for p in "${NVM_DIR:-}/nvm.sh" "$HOME/.nvm/nvm.sh" \
@@ -90,6 +165,14 @@ detect_nvm_sh() {
 }
 
 # 系统 node 探测：版本主号需匹配 NODE_VERSION
+# 功能：实现 `detect_system_node` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 detect_system_node() {
   local node_ver="${NODE_VERSION:-20}"
   if command -v node >/dev/null 2>&1; then
@@ -104,6 +187,14 @@ detect_system_node() {
   return 1
 }
 
+# 功能：实现 `detect_conda_sh` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 detect_conda_sh() {
   if [[ -n "${CONDA_SH:-}" && -f "$CONDA_SH" ]]; then echo "$CONDA_SH"; return 0; fi
   for p in "$HOME/miniconda3/etc/profile.d/conda.sh" \
@@ -123,6 +214,16 @@ detect_conda_sh() {
   return 1
 }
 
+# 功能：实现 `conda_env_exists` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / env_name`（Shell 字符串）：`env_name` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/lib/unified_backend_runtime.sh` 的脚本流程调用本函数；`scripts/migrate_visual_integrations.sh` 的脚本流程调用本函数；`scripts/start.sh`
+#         的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 conda_env_exists() {
   local env_name="$1" conda_sh="$2"
   # 用子 shell source conda 后检查，不污染当前 shell
@@ -143,6 +244,14 @@ AUTH_SECRET_SOURCE=""    # reuse | new
 AUTH_SECRET_FP=""        # sha256 前 8 位
 AUTH_SECRET_FILE=""
 
+# 功能：检查或判断 `ensure_auth_secret` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`、`warn`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 ensure_auth_secret() {
   AUTH_SECRET_FILE="$SCRIPT_DIR/auth_secret"
 
@@ -205,6 +314,14 @@ ensure_auth_secret() {
 # tmux 是否支持 `new -e KEY=VAL`（>= 3.2）
 # 0=不支持（用 export prepend 兜底），1=支持
 TMUX_SUPPORTS_ENV=0
+# 功能：实现 `detect_tmux_env_support` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务。
 detect_tmux_env_support() {
   local v major minor
   v="$(tmux -V 2>/dev/null | awk '{print $2}')"
@@ -222,6 +339,14 @@ detect_tmux_env_support() {
 }
 
 # 判断某服务是否需要 AUTH_SECRET 注入
+# 功能：实现 `needs_auth_secret` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1`（Shell 字符串）：第 1 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 needs_auth_secret() {
   case "$1" in
     unified_backend|aivision) return 0 ;;
@@ -289,12 +414,30 @@ else
 fi
 
 # ---- 端口监听检查 ----------------------------------------------------------
+# 功能：实现 `port_listening` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / port`（Shell 字符串）：`port` 对应的业务输入值
+#   - `$4`（Shell 字符串）：第 4 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限。
 port_listening() {
   local port="$1"
   ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"
 }
 
 # ---- 轮询等待端口（每 1s 检测，最多 max 秒） -------------------------------
+# 功能：实现 `wait_port` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / port`（Shell 字符串）：`port` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`port_listening`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 wait_port() {
   local port="$1" max="$2" elapsed=0
   while [[ $elapsed -lt $max ]]; do
@@ -326,6 +469,14 @@ HEALTH_PROBE_TIMEOUT="${HEALTH_PROBE_TIMEOUT:-3}"    # 单次 HTTP 超时秒
 # 探测工具链（首次调用时确定）
 HEALTH_TOOL=""
 
+# 功能：实现 `detect_health_tool` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能访问网络或调用包管理工具。
 detect_health_tool() {
   if command -v curl >/dev/null 2>&1; then
     HEALTH_TOOL="curl"
@@ -339,6 +490,15 @@ detect_health_tool() {
 }
 
 # http_fetch_simple URL TIMEOUT  -> 输出 "CODE\tBODY" (失败时 CODE=000)
+# 功能：读取或查询 `http_fetch_simple` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / url`（Shell 字符串）：目标接口、媒体流或页面地址
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能访问网络或调用包管理工具；失败时通过 Shell 返回码影响上层流程。
 http_fetch_simple() {
   local url="$1" timeout="$2"
   case "$HEALTH_TOOL" in
@@ -382,6 +542,15 @@ PYEOF
 }
 
 # eval_rule RULE BODY  -> 0=match, 1=no match
+# 功能：实现 `eval_rule` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / rule`（Shell 字符串）：`rule` 对应的业务输入值
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数；`scripts/status.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 eval_rule() {
   local rule="$1" body="$2"
   case "$rule" in
@@ -424,6 +593,14 @@ PYEOF
 }
 
 # get_health_rule NAME  -> 输出 "url|rule"，找不到返回非零
+# 功能：读取或查询 `get_health_rule` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 get_health_rule() {
   local name="$1" entry
   for entry in "${SERVICES_HEALTH[@]}"; do
@@ -438,6 +615,14 @@ get_health_rule() {
 
 # probe_health NAME  -> 0=READY, 1=DEGRADED, 2=配置缺失/跳过
 # 轮询 HEALTH_PROBE_MAX 次，每次间隔 HEALTH_PROBE_INTERVAL 秒
+# 功能：实现 `probe_health` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`detect_health_tool`、`eval_rule`、`get_health_rule`、`http_fetch_simple`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 probe_health() {
   local name="$1"
   local conf url rule
@@ -477,6 +662,15 @@ probe_health() {
 }
 
 # ---- 从 tmux 日志推断修复建议 ----------------------------------------------
+# 功能：实现 `suggest_fix_from_log` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`hint`、`log`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能访问网络或调用包管理工具；可能启动、停止或检查外部进程/服务。
 suggest_fix_from_log() {
   local name="$1" workdir="$2"
   local log
@@ -523,6 +717,15 @@ suggest_fix_from_log() {
 }
 
 # ---- 依赖缺失时的具体修复提示 ----------------------------------------------
+# 功能：实现 `suggest_dep_fix` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`hint`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能访问网络或调用包管理工具。
 suggest_dep_fix() {
   local name="$1" workdir="$2"
   case "$name" in
@@ -560,6 +763,16 @@ suggest_dep_fix() {
 
 # ---- 启动前配置文件检查 ----------------------------------------------------
 # 返回 0 表示检查通过；非 0 表示有缺失（仍允许继续尝试启动）
+# 功能：实现 `precheck_one` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+#   - `$3`（Shell 字符串）：第 3 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`cfg`、`conda_env_exists`、`hint`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能访问网络或调用包管理工具；失败时通过 Shell 返回码影响上层流程。
 precheck_one() {
   local name="$1" workdir="$2" cmd="$3"
   local issues=0
@@ -609,6 +822,18 @@ precheck_one() {
 #   3 = WORKDIR_MISSING（工作目录不存在）
 #   4 = CRASHED（tmux 起了但端口未监听）
 #   5 = DEGRADED（端口监听但 health 探测失败，模型/runtime 未就绪）
+# 功能：启动或执行 `start_one` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$1 / name`（Shell 字符串）：业务对象名称
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+#   - `$3`（Shell 字符串）：第 3 个位置参数
+#   - `$4`（Shell 字符串）：第 4 个位置参数
+#   - `$5`（Shell 字符串）：第 5 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
+#   - 内部调用：`err`、`hint`、`log`、`miss`、`needs_auth_secret`、`ok`、`port_listening`、`precheck_one`、`probe_health`、`skip` 等共 14 个调用。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务；失败时通过 Shell 返回码影响上层流程。
 start_one() {
   local name="$1" workdir="$2" cmd="$3" port="$4" wait_s="$5"
 
@@ -719,6 +944,14 @@ start_one() {
   return 0
 }
 
+# 功能：处理 `handle_legacy_service_sessions` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
+#   - 内部调用：`err`、`hint`、`warn`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务；失败时通过 Shell 返回码影响上层流程。
 handle_legacy_service_sessions() {
   local legacy running=()
   for legacy in "${LEGACY_SERVICE_SESSIONS[@]}"; do
@@ -744,6 +977,14 @@ handle_legacy_service_sessions() {
   done
 }
 
+# 功能：处理 `handle_legacy_source_layout` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
+#   - 内部调用：`err`、`hint`。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 handle_legacy_source_layout() {
   local legacy_paths=()
   [[ -d "${PROJECT_ROOT}/guard_room" ]] && legacy_paths+=("guard_room")
@@ -757,6 +998,15 @@ handle_legacy_source_layout() {
 }
 
 # ---- 主流程 ----------------------------------------------------------------
+# 功能：实现 `main` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `$2`（Shell 字符串）：第 2 个位置参数
+# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
+# 调用关系：
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数；`scripts/tests/test_service_topology.sh` 的脚本流程调用本函数
+#   - 内部调用：`detect_health_tool`、`detect_tmux_env_support`、`ensure_auth_secret`、`err`、`fail`、`log`、`miss`、`ok`、`port_listening`、`start_one`
+#          等共 11 个调用。
+# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务；失败时通过 Shell 返回码影响上层流程。
 main() {
   log "福达视觉平台冷启动脚本 - $(date '+%F %T')"
   log "模式: $([[ $FORCE -eq 1 ]] && echo '强制重启 (--force)' || echo '安全跳过 (默认)')${NO_CHECK:+, 跳过健康检查}"

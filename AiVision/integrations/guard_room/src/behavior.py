@@ -1,3 +1,6 @@
+# 文件说明：实现`behavior` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # behavior.py
 """
 行为规则引擎模块。
@@ -28,6 +31,20 @@ from typing import Deque
 # 数据结构
 # ---------------------------------------------------------------------------
 
+# 功能：单条规则的判断结果；输入与输出详见下方说明
+# 参数：
+#   - `active`（bool）：`active` 对应的业务输入值
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `confidence`（float）：模型预测或规则判断的置信度
+#   - `track_id`（int | None）：目标跟踪标识
+# 返回：RuleDecision；返回新建的 `RuleDecision` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update`
+#         实例化本符号；`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::_phone_rule`
+#         实例化本符号；`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::_prone_sleep_rule`
+#         实例化本符号；`AiVision/integrations/guard_room/src/consensus.py` 的 `MultiCameraConsensus::update` 实例化本符号；另有 2 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class RuleDecision:
     """单条规则的判断结果。
@@ -44,6 +61,24 @@ class RuleDecision:
     track_id: int | None = None
 
 
+# 功能：单个跟踪目标的跨帧运行时状态；输入与输出详见下方说明
+# 参数：
+#   - `track_id`（int）：目标跟踪标识
+#   - `last_bbox`（tuple[int, int, int, int]）：`last_bbox` 对应的业务输入值
+#   - `last_center`（tuple[float, float]）：`last_center` 对应的业务输入值
+#   - `last_seen_ts`（float）：`last_seen_ts` 对应的业务输入值
+#   - `motion_score`（float）：`motion_score` 对应的业务输入值
+#   - `phone_hit_ts`（Deque[float]）：`phone_hit_ts` 对应的业务输入值
+#   - `phone_active_seconds`（float）：`phone_active_seconds` 对应的时间间隔或时长
+#   - `last_phone_eval_ts`（float）：`last_phone_eval_ts` 对应的业务输入值
+#   - `last_phone_positive_ts`（float）：`last_phone_positive_ts` 对应的业务输入值
+#   - `prone_frames`（int）：`prone_frames` 对应的业务输入值
+#   - `head_down_frames`（int）：`head_down_frames` 对应的业务输入值
+# 返回：PersonRuntimeState；返回新建的 `PersonRuntimeState` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update` 实例化本符号
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class PersonRuntimeState:
     """单个跟踪目标的跨帧运行时状态。
@@ -82,11 +117,32 @@ class PersonRuntimeState:
 # 几何辅助函数
 # ---------------------------------------------------------------------------
 
+# 功能：计算两点间欧氏距离（像素）；输入与输出详见下方说明
+# 参数：
+#   - `a`（tuple[float, float]）：`a` 对应的业务输入值
+#   - `b`（tuple[float, float]）：`b` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update`
+#         调用本符号；`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::_phone_rule` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
     """计算两点间欧氏距离（像素）。"""
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
 
+# 功能：判断点是否在向外扩展后的矩形区域内；输入与输出详见下方说明
+# 参数：
+#   - `point`（tuple[float, float]）：`point` 对应的业务输入值
+#   - `bbox`（tuple[int, int, int, int]）：`bbox` 对应的业务输入值
+#   - `pad_x`（float）：`pad_x` 对应的业务输入值
+#   - `pad_y`（float）：`pad_y` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::_phone_rule` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _inside_expand(
     point: tuple[float, float],
     bbox: tuple[int, int, int, int],
@@ -112,6 +168,14 @@ def _inside_expand(
 # 行为引擎主体
 # ---------------------------------------------------------------------------
 
+# 功能：逐帧行为分析引擎；输入与输出详见下方说明
+# 参数：
+#   - `config`（AppConfig）：运行配置对象
+# 返回：BehaviorEngine；返回新建的 `BehaviorEngine` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class BehaviorEngine:
     """逐帧行为分析引擎。
 
@@ -123,11 +187,35 @@ class BehaviorEngine:
         - absent_started_at：记录画面首次出现"无人"状态的时间戳。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的`behavior` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `config`（AppConfig）：运行配置对象
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, config: AppConfig):
         self.cfg = config
         self.person_states: Dict[int, PersonRuntimeState] = {}  # track_id → 运行时状态
         self.absent_started_at: float | None = None             # None 表示当前画面有人
 
+    # 功能：执行一次行为分析，返回全部规则的判断结果；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `fps`（float）：`fps` 对应的业务输入值
+    #   - `frame_shape`（tuple[int, int, int]）：`frame_shape` 对应的业务输入值
+    #   - `persons`（List[Detection]）：`persons` 对应的业务输入值
+    #   - `phones`（List[Detection]）：`phones` 对应的业务输入值
+    #   - `pose_features`（Dict[int, Dict[str, float]]）：`pose_features` 对应的业务输入值
+    # 返回：Dict[str, RuleDecision]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._cleanup_states`、`RuleDecision`、`min`、`max`、`int`、`self.person_states.get`、`PersonRuntimeState`、`_distance`、`pose_features.get`、`self._phone_rule`
+    #          等共 11 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def update(
         self,
         *,
@@ -223,6 +311,20 @@ class BehaviorEngine:
     # 规则实现
     # -----------------------------------------------------------------------
 
+    # 功能：手机使用检测规则；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `state`（PersonRuntimeState）：`state` 对应的业务输入值
+    #   - `person`（Detection）：`person` 对应的业务输入值
+    #   - `phones`（List[Detection]）：`phones` 对应的业务输入值
+    #   - `pose_features`（Dict[str, float]）：`pose_features` 对应的业务输入值
+    #   - `fps`（float）：`fps` 对应的业务输入值
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    # 返回：RuleDecision；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update` 调用本符号
+    #   - 内部调用：`max`、`self._head_point`、`_inside_expand`、`_distance`、`min`、`state.phone_hit_ts.append`、`state.phone_hit_ts.popleft`、`len`、`RuleDecision`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _phone_rule(
         self,
         state: PersonRuntimeState,
@@ -327,6 +429,19 @@ class BehaviorEngine:
 
         return RuleDecision()
 
+    # 功能：趴睡检测规则；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `state`（PersonRuntimeState）：`state` 对应的业务输入值
+    #   - `person`（Detection）：`person` 对应的业务输入值
+    #   - `pose_features`（Dict[str, float]）：`pose_features` 对应的业务输入值
+    #   - `fps`（float）：`fps` 对应的业务输入值
+    #   - `frame_h`（int）：`frame_h` 对应的业务输入值
+    # 返回：RuleDecision；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update` 调用本符号
+    #   - 内部调用：`max`、`float`、`pose_features.get`、`min`、`RuleDecision`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _prone_sleep_rule(
         self,
         state: PersonRuntimeState,
@@ -384,6 +499,15 @@ class BehaviorEngine:
             )
         return RuleDecision()
 
+    # 功能：清理超过 TTL 未出现的目标状态，防止内存随跟踪 ID 无限增长；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::update` 调用本符号
+    #   - 内部调用：`self.person_states.items`、`self.person_states.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _cleanup_states(self, timestamp_s: float) -> None:
         """清理超过 TTL 未出现的目标状态，防止内存随跟踪 ID 无限增长。
 
@@ -398,6 +522,15 @@ class BehaviorEngine:
         for track_id in stale_ids:
             self.person_states.pop(track_id, None)
 
+    # 功能：估计头部坐标（像素绝对值）；输入与输出详见下方说明
+    # 参数：
+    #   - `person`（Detection）：`person` 对应的业务输入值
+    #   - `pose_features`（Dict[str, float]）：`pose_features` 对应的业务输入值
+    # 返回：Tuple[float, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/behavior.py` 的 `BehaviorEngine::_phone_rule` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _head_point(person: Detection, pose_features: Dict[str, float]) -> Tuple[float, float]:
         """估计头部坐标（像素绝对值）。

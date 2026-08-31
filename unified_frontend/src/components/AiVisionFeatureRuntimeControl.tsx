@@ -1,3 +1,6 @@
+// 文件说明：实现运行时的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useState } from 'react'
 
 import { DetectionRuntimeControl, type DetectionRuntimeState } from '@/components/detection/DetectionRuntimeControl'
@@ -17,6 +20,17 @@ type Props = {
   isAdmin: boolean
 }
 
+/**
+ * 功能：渲染 `AiVisionFeatureRuntimeControl` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（Props）：React 组件属性对象；解构字段包括 feature, isAdmin
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`async`、`getAiVisionCapabilities`、`find`、`Error`、`setStatus`、`setError`、`useSerialPoll`、`loadStatus`、`String`
+ *          等共 18 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
+ */
 export function AiVisionFeatureRuntimeControl({ feature, isAdmin }: Props) {
   const [status, setStatus] = useState<AiVisionCapabilityStatus | null>(null)
   const [busyAction, setBusyAction] = useState<'start' | 'stop' | null>(null)

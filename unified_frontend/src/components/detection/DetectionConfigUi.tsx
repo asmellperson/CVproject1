@@ -1,3 +1,6 @@
+// 文件说明：实现配置的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { ComponentType, ReactNode } from 'react'
 import { RefreshCw, Save } from 'lucide-react'
 
@@ -27,6 +30,16 @@ export const DETECTION_CONFIG_CONTENT_CLASS = [
   'dark:[&_[data-slot=input]]:bg-slate-950/40 dark:[&_[data-slot=select-trigger]]:bg-slate-950/40 dark:[&_[data-slot=textarea]]:bg-slate-950/40',
 ].join(' ')
 
+/**
+ * 功能：渲染 `DetectionConfigTabsList` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 children, className, children, ReactNode, className, string
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`TabsList`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionConfigTabsList({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <TabsList className={cn(
@@ -38,6 +51,16 @@ export function DetectionConfigTabsList({ children, className }: { children: Rea
   )
 }
 
+/**
+ * 功能：渲染 `DetectionConfigTab` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 value, icon, Icon, children, disabled, value, string, icon
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`TabsTrigger`、`Icon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionConfigTab({ value, icon: Icon, children, disabled }: { value: string; icon: IconType; children: ReactNode; disabled?: boolean }) {
   return (
     <TabsTrigger
@@ -51,6 +74,16 @@ export function DetectionConfigTab({ value, icon: Icon, children, disabled }: { 
   )
 }
 
+/**
+ * 功能：渲染 `DetectionConfigCardHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 icon, Icon, tone, title, description, actions, className, icon
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`CardHeader`、`Icon`、`CardTitle`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionConfigCardHeader({
   icon: Icon,
   tone,
@@ -82,10 +115,30 @@ export function DetectionConfigCardHeader({
   )
 }
 
+/**
+ * 功能：渲染 `DetectionConfigCardContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 children, className, children, ReactNode, className, string
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`cn`、`CardContent`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionConfigCardContent({ children, className }: { children: ReactNode; className?: string }) {
   return <CardContent className={cn(DETECTION_CONFIG_CONTENT_CLASS, className)}>{children}</CardContent>
 }
 
+/**
+ * 功能：渲染 `DetectionFormSection` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, hint, children, className, title, string, hint, string
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionFormSection({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
   return (
     <section className={cn('space-y-4', className)}>
@@ -99,6 +152,16 @@ export function DetectionFormSection({ title, hint, children, className }: { tit
   )
 }
 
+/**
+ * 功能：渲染 `DetectionSaveBar` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 message, loading, saving, disabled, onReload, onSave, reloadLabel, saveLabel
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Button`、`RefreshCw`、`Save`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionSaveBar({
   message,
   loading,

@@ -1,3 +1,6 @@
+# 文件说明：实现配置相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # config.py
 """
 应用配置模块。
@@ -31,6 +34,31 @@ import yaml
 # 子配置 dataclass
 # ---------------------------------------------------------------------------
 
+# 功能：视频输入与录制输出配置；输入与输出详见下方说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `source_cam1`（str）：`source_cam1` 对应的业务输入值
+#   - `source_cam2`（str）：`source_cam2` 对应的业务输入值
+#   - `source_cam3`（str）：`source_cam3` 对应的业务输入值
+#   - `process_every_n_frames`（int）：`process_every_n_frames` 对应的业务输入值
+#   - `output_dir`（str）：`output_dir` 对应的业务输入值
+#   - `save_annotated_video`（bool）：`save_annotated_video` 对应的业务输入值
+#   - `annotated_video_fps`（int）：`annotated_video_fps` 对应的业务输入值
+#   - `reconnect_seconds`（float）：`reconnect_seconds` 对应的时间间隔或时长
+#   - `jpeg_quality`（int）：`jpeg_quality` 对应的业务输入值
+#   - `camera_buffer_size`（int）：`camera_buffer_size` 对应的数量或大小
+#   - `alarm_media_retention_days`（int）：`alarm_media_retention_days` 对应的业务输入值
+#   - `alarm_media_max_gb`（float）：`alarm_media_max_gb` 对应的业务输入值
+#   - `alarm_media_cleanup_interval_minutes`（int）：`alarm_media_cleanup_interval_minutes` 对应的时间间隔或时长
+# 返回：VideoConfig；返回新建的 `VideoConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class VideoConfig:
     """视频输入与录制输出配置。
@@ -73,6 +101,35 @@ class VideoConfig:
     alarm_media_cleanup_interval_minutes: int = 60
 
 
+# 功能：模型路径与推理超参数配置；输入与输出详见下方说明
+# 参数：
+#   - `detector_model`（str）：`detector_model` 对应的业务输入值
+#   - `vehicle_detector_model`（str）：`vehicle_detector_model` 对应的业务输入值
+#   - `uniform_cls_model`（str）：`uniform_cls_model` 对应的业务输入值
+#   - `pose_model_task`（str）：`pose_model_task` 对应的业务输入值
+#   - `detector_conf`（float）：`detector_conf` 对应的业务输入值
+#   - `phone_conf`（float）：`phone_conf` 对应的业务输入值
+#   - `vehicle_conf`（float）：`vehicle_conf` 对应的业务输入值
+#   - `detector_iou`（float）：`detector_iou` 对应的业务输入值
+#   - `detector_imgsz`（int）：`detector_imgsz` 对应的业务输入值
+#   - `vehicle_imgsz`（int）：`vehicle_imgsz` 对应的业务输入值
+#   - `phone_crop_imgsz`（int）：`phone_crop_imgsz` 对应的业务输入值
+#   - `phone_full_frame_imgsz`（int）：`phone_full_frame_imgsz` 对应的业务输入值
+#   - `pose_imgsz`（int）：`pose_imgsz` 对应的业务输入值
+#   - `use_half`（bool）：`use_half` 对应的业务输入值
+#   - `tracker`（str）：`tracker` 对应的业务输入值
+#   - `device`（str）：`device` 对应的业务输入值
+#   - `uniform_cls_imgsz`（int）：`uniform_cls_imgsz` 对应的业务输入值
+#   - `uniform_cls_conf`（float）：`uniform_cls_conf` 对应的业务输入值
+# 返回：ModelConfig；返回新建的 `ModelConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class ModelConfig:
     """模型路径与推理超参数配置。
@@ -115,6 +172,19 @@ class ModelConfig:
     uniform_cls_conf: float = 0.75
 
 
+# 功能：画面分辨率配置，用于坐标归一化与区域判断；输入与输出详见下方说明
+# 参数：
+#   - `frame_width`（int）：`frame_width` 对应的业务输入值
+#   - `frame_height`（int）：`frame_height` 对应的业务输入值
+# 返回：RoomConfig；返回新建的 `RoomConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class RoomConfig:
     """画面分辨率配置，用于坐标归一化与区域判断。
@@ -127,6 +197,43 @@ class RoomConfig:
     frame_height: int = 1080
 
 
+# 功能：行为规则阈值与报警冷却配置；输入与输出详见下方说明
+# 参数：
+#   - `absent_seconds`（int）：`absent_seconds` 对应的时间间隔或时长
+#   - `phone_seconds`（int）：`phone_seconds` 对应的时间间隔或时长
+#   - `prone_sleep_seconds`（int）：`prone_sleep_seconds` 对应的时间间隔或时长
+#   - `vehicle_occlusion_seconds`（float）：`vehicle_occlusion_seconds` 对应的时间间隔或时长
+#   - `phone_near_person_px`（int）：`phone_near_person_px` 对应的业务输入值
+#   - `phone_near_head_px`（int）：`phone_near_head_px` 对应的业务输入值
+#   - `vehicle_near_px`（int）：`vehicle_near_px` 对应的业务输入值
+#   - `vehicle_roi`（list[list[float]]）：`vehicle_roi` 对应的业务输入值
+#   - `vehicle_exit_direction`（str）：`vehicle_exit_direction` 对应的业务输入值
+#   - `vehicle_direction_min_delta_ratio`（float）：`vehicle_direction_min_delta_ratio` 对应的业务输入值
+#   - `vehicle_reassociate_seconds`（float）：`vehicle_reassociate_seconds` 对应的时间间隔或时长
+#   - `static_motion_threshold`（float）：`static_motion_threshold` 对应的业务输入值
+#   - `prone_head_down_ratio_threshold`（float）：`prone_head_down_ratio_threshold` 对应的业务输入值
+#   - `prone_bbox_height_ratio_threshold`（float）：`prone_bbox_height_ratio_threshold` 对应的业务输入值
+#   - `prone_consecutive_frames`（int）：`prone_consecutive_frames` 对应的业务输入值
+#   - `state_ttl_seconds`（int）：`state_ttl_seconds` 对应的时间间隔或时长
+#   - `phone_window_seconds`（int）：`phone_window_seconds` 对应的时间间隔或时长
+#   - `phone_min_hits_in_window`（int）：`phone_min_hits_in_window` 对应的业务输入值
+#   - `phone_grace_seconds`（int）：`phone_grace_seconds` 对应的时间间隔或时长
+#   - `guard_hold_seconds`（float）：`guard_hold_seconds` 对应的时间间隔或时长
+#   - `dual_sync_seconds`（float）：`dual_sync_seconds` 对应的时间间隔或时长
+#   - `absent_alarm_seconds`（float）：`absent_alarm_seconds` 对应的时间间隔或时长
+#   - `alarm_cooldown_absent`（int）：`alarm_cooldown_absent` 对应的业务输入值
+#   - `alarm_cooldown_phone`（int）：`alarm_cooldown_phone` 对应的业务输入值
+#   - `alarm_cooldown_prone_sleep`（int）：`alarm_cooldown_prone_sleep` 对应的业务输入值
+#   - `alarm_cooldown_vehicle_unattended`（int）：`alarm_cooldown_vehicle_unattended` 对应的业务输入值
+# 返回：RuleConfig；返回新建的 `RuleConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class RuleConfig:
     """行为规则阈值与报警冷却配置。
@@ -206,6 +313,22 @@ class RuleConfig:
     alarm_cooldown_vehicle_unattended: int = 300
 
 
+# 功能：YOLO 检测模型的类别 ID 映射；输入与输出详见下方说明
+# 参数：
+#   - `person`（int）：`person` 对应的业务输入值
+#   - `play_phone`（int）：`play_phone` 对应的业务输入值
+#   - `vehicle_bicycle`（int）：`vehicle_bicycle` 对应的业务输入值
+#   - `vehicle_car`（int）：`vehicle_car` 对应的业务输入值
+#   - `vehicle_motorcycle`（int）：`vehicle_motorcycle` 对应的业务输入值
+# 返回：ClassConfig；返回新建的 `ClassConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class ClassConfig:
     """YOLO 检测模型的类别 ID 映射。
@@ -224,6 +347,27 @@ class ClassConfig:
     vehicle_motorcycle: int = 3
 
 
+# 功能：运行时行为开关，通常不写入生产 YAML，仅用于本地调试；输入与输出详见下方说明
+# 参数：
+#   - `show_window`（bool）：`show_window` 对应的业务输入值
+#   - `debug`（bool）：`debug` 对应的业务输入值
+#   - `draw_debug`（bool）：`draw_debug` 对应的业务输入值
+#   - `max_alarm_history`（int）：`max_alarm_history` 对应的业务输入值
+#   - `infer_max_workers`（int）：`infer_max_workers` 对应的业务输入值
+#   - `share_phone_detector`（bool）：`share_phone_detector` 对应的业务输入值
+#   - `share_pose_estimator`（bool）：`share_pose_estimator` 对应的业务输入值
+#   - `phone_detect_mode`（str）：`phone_detect_mode` 对应的业务输入值
+#   - `enable_vehicle_unattended`（bool）：`enable_vehicle_unattended` 对应的业务输入值
+#   - `vehicle_camera_id`（str）：`vehicle_camera_id` 对应业务对象的唯一标识
+# 返回：RuntimeConfig；返回新建的 `RuntimeConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class RuntimeConfig:
     """运行时行为开关，通常不写入生产 YAML，仅用于本地调试。
@@ -254,6 +398,27 @@ class RuntimeConfig:
     vehicle_camera_id: str = "cam1"
 
 
+# 功能：企业微信应用消息推送配置；输入与输出详见下方说明
+# 参数：
+#   - `enable`（bool）：`enable` 对应的业务输入值
+#   - `corpid`（str）：`corpid` 对应的业务输入值
+#   - `corpsecret`（str）：`corpsecret` 对应的业务输入值
+#   - `agentid`（int）：`agentid` 对应的业务输入值
+#   - `alarm_user`（str）：`alarm_user` 对应的业务输入值
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `clip_seconds`（float）：`clip_seconds` 对应的时间间隔或时长
+#   - `enable_phone`（bool）：`enable_phone` 对应的业务输入值
+#   - `enable_absent`（bool）：`enable_absent` 对应的业务输入值
+#   - `enable_prone_sleep`（bool）：`enable_prone_sleep` 对应的业务输入值
+# 返回：WeChatConfig；返回新建的 `WeChatConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `AppConfig::from_yaml`
+#         实例化本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class WeChatConfig:
     """企业微信应用消息推送配置。
@@ -289,6 +454,24 @@ class WeChatConfig:
 # 顶层配置聚合
 # ---------------------------------------------------------------------------
 
+# 功能：应用全局配置，聚合所有子配置；输入与输出详见下方说明
+# 参数：
+#   - `video`（VideoConfig）：`video` 对应的业务输入值
+#   - `models`（ModelConfig）：`models` 对应的业务输入值
+#   - `room`（RoomConfig）：`room` 对应的业务输入值
+#   - `rules`（RuleConfig）：`rules` 对应的业务输入值
+#   - `classes`（ClassConfig）：`classes` 对应的业务输入值
+#   - `runtime`（RuntimeConfig）：`runtime` 对应的业务输入值
+#   - `wechat`（WeChatConfig）：`wechat` 对应的业务输入值
+# 返回：AppConfig；返回新建的 `AppConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_app_config_from_sections`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的 `_config`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_runtime_paths.py` 的 `_config` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class AppConfig:
     """应用全局配置，聚合所有子配置。
@@ -303,6 +486,19 @@ class AppConfig:
     runtime: RuntimeConfig
     wechat: WeChatConfig
 
+    # 功能：返回有效摄像头的 (名称, 源地址) 列表；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：list[tuple[str, str]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/state.py` 的 `AppState::__init__`
+    #         调用本符号；`AiVision/integrations/guard_room/src/state.py` 的 `AppState::set_config`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_site_service.py` 的
+    #         `test_site_service_creates_site_cameras_and_app_config` 调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的
+    #         `GuardRoomRuntime::start` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`range`、`(getattr(video, f'source_cam{idx}', '') or '').strip`、`getattr`、`sources.append`、`(video.source or
+    #          '').strip`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def camera_sources(self) -> list[tuple[str, str]]:
         """返回有效摄像头的 (名称, 源地址) 列表。
 
@@ -328,6 +524,22 @@ class AppConfig:
         fallback = (video.source or "").strip()
         return [("cam1", fallback)] if fallback else []
 
+    # 功能：从 YAML 文件加载并构造 AppConfig；输入与输出详见下方说明
+    # 参数：
+    #   - `cls`（未显式标注）：当前类对象
+    #   - `path`（str | Path）：目标路径
+    # 返回：'AppConfig'；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_load_default_config`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_vehicle_detection.py` 的
+    #         `test_vehicle_behavior_does_not_alarm_when_guard_appears_before_vehicle_leaves`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_vehicle_detection.py` 的
+    #         `test_vehicle_behavior_keeps_checked_state_after_short_vehicle_detection_drop`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_vehicle_detection.py` 的
+    #         `test_vehicle_behavior_reassociates_checked_vehicle_that_reappears_along_exit_direction` 调用本符号；另有 14 处静态调用
+    #   - 内部调用：`open`、`yaml.safe_load`、`dict`、`data.get`、`video_data.get`、`cls`、`VideoConfig`、`ModelConfig`、`RoomConfig`、`RuleConfig`
+    #          等共 13 个调用。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
     @classmethod
     def from_yaml(cls, path: str | Path) -> "AppConfig":
         """从 YAML 文件加载并构造 AppConfig。
@@ -359,6 +571,17 @@ class AppConfig:
             wechat=WeChatConfig(**(data.get("wechat") or {})),
         )
 
+    # 功能：将完整配置序列化为嵌套字典，可直接用于 json.dump 或写回 YAML；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::_config_sections`
+    #         调用本符号；`AiVision/integrations/guard_room/src/state.py` 的 `AppState::get_config_dict`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的 `_seed_legacy_database`
+    #         调用本符号；`AiVision/integrations/guard_room/src/legacy_data_migration.py` 的 `_load_default_sections` 调用本符号
+    #   - 内部调用：`asdict`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def to_dict(self) -> dict[str, Any]:
         """将完整配置序列化为嵌套字典，可直接用于 json.dump 或写回 YAML。"""
         return {
@@ -372,6 +595,21 @@ class AppConfig:
         }
 
 
+# 功能：返回供推理运行时使用的副本，并把 Guard 本地路径锚定到项目目录；输入与输出详见下方说明
+# 参数：
+#   - `config`（AppConfig）：运行配置对象
+#   - `project_root`（str | Path）：`project_root` 对应的业务输入值
+# 返回：AppConfig；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime_manager.py` 的 `GuardRoomRuntimeManager::_get_or_create_context`
+#         调用本符号；`AiVision/integrations/guard_room/tests/test_runtime_paths.py` 的
+#         `test_runtime_paths_are_anchored_without_changing_persisted_config`
+#         调用本符号；`AiVision/integrations/guard_room/tests/test_runtime_paths.py` 的
+#         `test_runtime_paths_keep_urls_device_indexes_and_absolute_paths` 调用本符号；`AiVision/integrations/guard_room/src/server.py` 的
+#         `create_app` 调用本符号
+#   - 内部调用：`deepcopy`、`Path(project_root).resolve`、`Path`、`output_dir.is_absolute`、`str`、`output_dir.resolve`、`setattr`、`local_path`、`getattr`、`range`
+#          等共 11 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_runtime_paths(config: AppConfig, project_root: str | Path) -> AppConfig:
     """返回供推理运行时使用的副本，并把 Guard 本地路径锚定到项目目录。
 
@@ -381,6 +619,16 @@ def resolve_runtime_paths(config: AppConfig, project_root: str | Path) -> AppCon
     resolved = deepcopy(config)
     root = Path(project_root).resolve()
 
+    # 功能：实现 `local_path` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `value`（str）：待转换、校验或写入的值
+    #   - `require_path_hint`（bool）：`require_path_hint` 对应的业务输入值；默认值为 `False`
+    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/config.py` 的 `resolve_runtime_paths` 调用本符号
+    #   - 内部调用：`str(value or '').strip`、`str`、`Path`、`path.is_absolute`、`(root /
+    #          path).resolve`、`len`、`raw.startswith`、`candidate.exists`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def local_path(value: str, *, require_path_hint: bool = False) -> str:
         raw = str(value or "").strip()
         if not raw:

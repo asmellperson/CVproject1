@@ -1,3 +1,6 @@
+# 文件说明：实现`logger` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/logger.py
 日志模块 — 提供全局日志器,支持按功能名过滤 debug 输出。
@@ -29,6 +32,13 @@ for _name in [
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 
+# 功能：项目全局日志器，在标准 logging.Logger 基础上增加按功能名过滤 debug 的能力；输入与输出详见下方说明
+# 参数：无。
+# 返回：_Logger；返回新建的 `_Logger` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class _Logger:
     """
     项目全局日志器，在标准 logging.Logger 基础上增加按功能名过滤 debug 的能力。
@@ -42,11 +52,26 @@ class _Logger:
         而非本封装层。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`logging.getLogger`、`self._logger.setLevel`、`self._parse_debug_features`。
+    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def __init__(self):
         self._logger = logging.getLogger("aivision")
         self._logger.setLevel(logging.INFO)  # 默认 INFO，debug 由白名单单独控制
         self._debug_features = self._parse_debug_features()
 
+    # 功能：从环境变量 DEBUG_FEATURES 解析 debug 白名单；输入与输出详见下方说明
+    # 参数：无。
+    # 返回：set[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/logger.py` 的 `_Logger::__init__` 调用本符号
+    #   - 内部调用：`os.environ.get('DEBUG_FEATURES', '').strip`、`os.environ.get`、`set`、`x.strip`、`raw.split`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _parse_debug_features() -> set[str]:
         """
@@ -65,6 +90,16 @@ class _Logger:
             return set()
         return {x.strip() for x in raw.split(",") if x.strip()}
 
+    # 功能：输出功能级 debug 日志（白名单控制）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（str）：`feature` 对应的业务输入值
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._logger.debug`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def set_debug_message(self, feature: str, msg: str):
         """
         输出功能级 debug 日志（白名单控制）。
@@ -80,10 +115,55 @@ class _Logger:
             self._logger.debug(f"[{feature}] {msg}", stacklevel=2)
 
     # 标准日志方法，透传 stacklevel=2 使行号指向调用方而非本层
+    # 功能：实现 `debug` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/core/logger.py` 的 `_Logger::set_debug_message` 调用本符号
+    #   - 内部调用：`self._logger.debug`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def debug(self, msg: str):     self._logger.debug(msg, stacklevel=2)
+    # 功能：实现 `info` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._logger.info`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def info(self, msg: str):      self._logger.info(msg, stacklevel=2)
+    # 功能：实现 `warning` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._logger.warning`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def warning(self, msg: str):   self._logger.warning(msg, stacklevel=2)
+    # 功能：实现 `error` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._logger.error`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def error(self, msg: str):     self._logger.error(msg, stacklevel=2)
+    # 功能：实现 `exception` 对应的`logger` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `msg`（str）：`msg` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._logger.exception`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def exception(self, msg: str): self._logger.exception(msg, stacklevel=2)
 
 

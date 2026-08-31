@@ -1,3 +1,6 @@
+# 文件说明：实现企业微信通知相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # wechat_sender.py
 """
 企业微信消息发送模块。
@@ -33,6 +36,14 @@ import requests
 WECHAT_IP_DENIED_ERRCODE = 60020
 
 
+# 功能：从企业微信错误信息中提取"from ip: x.x.x.x"的 IP 地址；输入与输出详见下方说明
+# 参数：
+#   - `errmsg`（str）：`errmsg` 对应的业务输入值
+# 返回：Optional[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `_describe_wechat_error` 调用本符号
+#   - 内部调用：`re.search`、`match.group`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _extract_wechat_from_ip(errmsg: str) -> Optional[str]:
     """从企业微信错误信息中提取"from ip: x.x.x.x"的 IP 地址。
 
@@ -43,6 +54,15 @@ def _extract_wechat_from_ip(errmsg: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+# 功能：将企业微信 API 的错误响应转换为人类可读的诊断信息；输入与输出详见下方说明
+# 参数：
+#   - `action`（str）：`action` 对应的业务输入值
+#   - `result`（Dict）：`result` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `send_message` 调用本符号
+#   - 内部调用：`result.get`、`_extract_wechat_from_ip`、`str`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def _describe_wechat_error(action: str, result: Dict) -> str:
     """将企业微信 API 的错误响应转换为人类可读的诊断信息。
 
@@ -75,6 +95,14 @@ def _describe_wechat_error(action: str, result: Dict) -> str:
 # 图片上传（Base64）—— 当前注释掉，保留供后续启用
 # ---------------------------------------------------------------------------
 
+# 功能：将 Base64 编码的图片上传到企业微信临时素材库；输入与输出详见下方说明
+# 参数：
+#   - `access_token`（str）：`access_token` 对应的业务输入值
+# 返回：Base64WeChatUploader；返回新建的 `Base64WeChatUploader` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class Base64WeChatUploader:
     """将 Base64 编码的图片上传到企业微信临时素材库。
 
@@ -82,10 +110,28 @@ class Base64WeChatUploader:
     当前发送流程已改为仅发视频，此类暂未被 send_message() 调用。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `access_token`（str）：`access_token` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, access_token: str):
         self.access_token = access_token
         self.base_url = "https://qyapi.weixin.qq.com/cgi-bin/media/upload"
 
+    # 功能：解析 Base64 字符串，返回 (纯 Base64 数据, 图片格式, MIME 类型)；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `base64_string`（str）：`base64_string` 对应的业务输入值
+    # 返回：tuple[str, str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `Base64WeChatUploader::upload_base64_image` 调用本符号
+    #   - 内部调用：`re.match`、`match.group`、`base64_string.split`、`base64_string.startswith`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def extract_base64_data(self, base64_string: str) -> tuple[str, str, str]:
         """解析 Base64 字符串，返回 (纯 Base64 数据, 图片格式, MIME 类型)。
 
@@ -118,6 +164,16 @@ class Base64WeChatUploader:
             return pure_base64, "gif", "image/gif"
         return pure_base64, "jpeg", "image/jpeg"   # 兜底：默认 JPEG
 
+    # 功能：上传图片到企业微信临时素材库，返回 API 响应字典；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `base64_data`（str）：`base64_data` 对应的业务输入值
+    #   - `filename`（Optional[str]）：`filename` 对应的业务输入值；默认值为 `None`
+    # 返回：Dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.extract_base64_data`、`base64.b64decode`、`int`、`time.time`、`BytesIO`、`requests.post`、`self._handle_response`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     def upload_base64_image(self, base64_data: str, filename: Optional[str] = None) -> Dict:
         """上传图片到企业微信临时素材库，返回 API 响应字典。
 
@@ -140,6 +196,14 @@ class Base64WeChatUploader:
         except Exception as e:
             return {"errcode": -1, "errmsg": f"upload_base64_image failed: {e}"}
 
+    # 功能：将 HTTP 响应解析为字典；解析失败时返回统一的错误格式；输入与输出详见下方说明
+    # 参数：
+    #   - `response`（requests.Response）：待读取或更新的 HTTP 响应
+    # 返回：Dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `Base64WeChatUploader::upload_base64_image` 调用本符号
+    #   - 内部调用：`response.json`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _handle_response(response: requests.Response) -> Dict:
         """将 HTTP 响应解析为字典；解析失败时返回统一的错误格式。"""
@@ -153,6 +217,15 @@ class Base64WeChatUploader:
 # 核心 API 调用
 # ---------------------------------------------------------------------------
 
+# 功能：向企业微信获取 access_token（调用凭证）；输入与输出详见下方说明
+# 参数：
+#   - `corpid`（str）：`corpid` 对应的业务输入值
+#   - `corpsecret`（str）：`corpsecret` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `send_message` 调用本符号
+#   - 内部调用：`requests.get`、`resp.json`、`result.get`、`RuntimeError`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。
 def get_access_token(corpid: str, corpsecret: str) -> str:
     """向企业微信获取 access_token（调用凭证）。
 
@@ -178,6 +251,15 @@ def get_access_token(corpid: str, corpsecret: str) -> str:
     return access_token
 
 
+# 功能：将本地 MP4 文件上传到企业微信临时素材库；输入与输出详见下方说明
+# 参数：
+#   - `access_token`（str）：`access_token` 对应的业务输入值
+#   - `video_path`（str）：`video_path` 对应的业务输入值
+# 返回：Dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/wechat_sender.py` 的 `send_message` 调用本符号
+#   - 内部调用：`Path`、`path.exists`、`open`、`requests.post`、`resp.json`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息。
 def upload_video_file(access_token: str, video_path: str) -> Dict:
     """将本地 MP4 文件上传到企业微信临时素材库。
 
@@ -214,6 +296,18 @@ def upload_video_file(access_token: str, video_path: str) -> Dict:
         return {"errcode": -1, "errmsg": f"invalid response: {resp.text}"}
 
 
+# 功能：发送报警视频消息到企业微信；输入与输出详见下方说明
+# 参数：
+#   - `data`（dict）：待处理的数据
+#   - `alarm_user`（str）：`alarm_user` 对应的业务输入值
+#   - `corpid`（str）：`corpid` 对应的业务输入值
+#   - `corpsecret`（str）：`corpsecret` 对应的业务输入值
+#   - `agentid`（int）：`agentid` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/wechat_notifier.py` 的 `WeChatNotifier::_worker` 调用本符号
+#   - 内部调用：`data.get`、`print`、`get_access_token`、`event_dict.get`、`upload_video_file`、`video_result.get`、`_describe_wechat_error`、`requests.post`、`resp.json`、`result.get`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def send_message(
     data: dict,
     alarm_user: str,

@@ -1,3 +1,6 @@
+# 文件说明：实现配置相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/settings.py
 统一配置入口 — Pydantic Settings,替代散落的 os.getenv 调用。
@@ -18,6 +21,21 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# 功能：数据库连接配置；输入与输出详见下方说明
+# 参数：
+#   - `enable`（bool）：`enable` 对应的业务输入值
+#   - `url`（str）：目标接口、媒体流或页面地址
+#   - `port`（int）：`port` 对应的业务输入值
+#   - `user`（str）：当前用户或待处理用户对象
+#   - `password`（str）：`password` 对应的业务输入值
+#   - `name`（str）：业务对象名称
+#   - `charset`（str）：`charset` 对应的业务输入值
+#   - `auto_create`（bool）：`auto_create` 对应的业务输入值
+# 返回：DatabaseSettings；返回新建的 `DatabaseSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DatabaseSettings(BaseSettings):
     """
     数据库连接配置。
@@ -35,6 +53,14 @@ class DatabaseSettings(BaseSettings):
     # True 时若目标数据库不存在则自动 CREATE DATABASE（见 core.db._ensure_database_exists）
     auto_create: bool = Field(False,      alias="AUTO_CREATE_DB")
 
+    # 功能：拼装 SQLAlchemy 连接 URL，供 create_engine() 直接使用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def sqlalchemy_url(self) -> str:
         """拼装 SQLAlchemy 连接 URL，供 create_engine() 直接使用。"""
@@ -46,6 +72,24 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：本地文件存储配置；输入与输出详见下方说明
+# 参数：
+#   - `data_path`（str）：`data_path` 对应的业务输入值
+#   - `max_event_count`（int）：`max_event_count` 对应的数量或大小
+#   - `flush_interval_seconds`（int）：`flush_interval_seconds` 对应的时间间隔或时长
+#   - `alarm_media_retention_days`（int）：`alarm_media_retention_days` 对应的业务输入值
+#   - `alarm_media_max_gb`（float）：`alarm_media_max_gb` 对应的业务输入值
+#   - `alarm_media_cleanup_interval_minutes`（int）：`alarm_media_cleanup_interval_minutes` 对应的时间间隔或时长
+#   - `alarm_clip_enabled`（bool）：`alarm_clip_enabled` 对应的业务输入值
+#   - `alarm_clip_pre_seconds`（float）：`alarm_clip_pre_seconds` 对应的时间间隔或时长
+#   - `alarm_clip_post_seconds`（float）：`alarm_clip_post_seconds` 对应的时间间隔或时长
+#   - `alarm_clip_fps`（float）：`alarm_clip_fps` 对应的业务输入值
+#   - `alarm_clip_max_width`（int）：`alarm_clip_max_width` 对应的业务输入值
+# 返回：StorageSettings；返回新建的 `StorageSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class StorageSettings(BaseSettings):
     """
     本地文件存储配置。
@@ -75,6 +119,20 @@ class StorageSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：全局告警通道开关与凭据；输入与输出详见下方说明
+# 参数：
+#   - `horn_enable`（bool）：`horn_enable` 对应的业务输入值
+#   - `horn_url`（str）：`horn_url` 对应的业务输入值
+#   - `wechat_enable`（bool）：`wechat_enable` 对应的业务输入值
+#   - `wechat_corp_id`（str）：`wechat_corp_id` 对应业务对象的唯一标识
+#   - `wechat_corp_secret`（str）：`wechat_corp_secret` 对应的业务输入值
+#   - `wechat_agent_id`（int）：`wechat_agent_id` 对应业务对象的唯一标识
+#   - `wechat_card_base_url`（str）：`wechat_card_base_url` 对应的业务输入值
+# 返回：AlarmSettings；返回新建的 `AlarmSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmSettings(BaseSettings):
     """
     全局告警通道开关与凭据。
@@ -95,6 +153,16 @@ class AlarmSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：FastAPI 服务器配置；输入与输出详见下方说明
+# 参数：
+#   - `host`（str）：`host` 对应的业务输入值
+#   - `port`（int）：`port` 对应的业务输入值
+#   - `cors_origins`（list[str]）：`cors_origins` 对应的业务输入值
+# 返回：ApiSettings；返回新建的 `ApiSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ApiSettings(BaseSettings):
     """
     FastAPI 服务器配置。
@@ -109,6 +177,24 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：AiVision 主进程的图像处理运行参数；输入与输出详见下方说明
+# 参数：
+#   - `opencv_threads`（int）：`opencv_threads` 对应的业务输入值
+#   - `slow_frame_log_seconds`（float）：`slow_frame_log_seconds` 对应的时间间隔或时长
+#   - `logistics_status_stale_seconds`（float）：`logistics_status_stale_seconds` 对应的时间间隔或时长
+#   - `inference_alert_consecutive_failures`（int）：`inference_alert_consecutive_failures` 对应的业务输入值
+#   - `inference_alert_cooldown_seconds`（float）：`inference_alert_cooldown_seconds` 对应的时间间隔或时长
+#   - `model_worker_ready_timeout_seconds`（float）：`model_worker_ready_timeout_seconds` 对应的时间间隔或时长
+#   - `model_worker_watchdog_interval_seconds`（float）：`model_worker_watchdog_interval_seconds` 对应的时间间隔或时长
+#   - `model_worker_restart_max_attempts`（int）：`model_worker_restart_max_attempts` 对应的业务输入值
+#   - `model_worker_restart_backoff_seconds`（float）：`model_worker_restart_backoff_seconds` 对应的时间间隔或时长
+#   - `model_worker_restart_max_backoff_seconds`（float）：`model_worker_restart_max_backoff_seconds` 对应的时间间隔或时长
+#   - `model_worker_restart_reset_seconds`（float）：`model_worker_restart_reset_seconds` 对应的时间间隔或时长
+# 返回：RuntimeSettings；返回新建的 `RuntimeSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class RuntimeSettings(BaseSettings):
     """
     AiVision 主进程的图像处理运行参数。
@@ -170,6 +256,15 @@ class RuntimeSettings(BaseSettings):
 _AIVISION_ROOT = Path(__file__).resolve().parents[1]
 
 
+# 功能：由 AiVision 同一进程承载的扩展视觉能力配置；输入与输出详见下方说明
+# 参数：
+#   - `guard_room_config_path`（Path）：`guard_room_config_path` 对应的业务输入值
+#   - `security_vlm_config_path`（Path）：`security_vlm_config_path` 对应的业务输入值
+# 返回：ManagedVisualServiceSettings；返回新建的 `ManagedVisualServiceSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ManagedVisualServiceSettings(BaseSettings):
     """由 AiVision 同一进程承载的扩展视觉能力配置。"""
 
@@ -185,6 +280,14 @@ class ManagedVisualServiceSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：本机模型路径配置；输入与输出详见下方说明
+# 参数：
+#   - `config_path`（str）：`config_path` 对应的业务输入值
+# 返回：ModelPathSettings；返回新建的 `ModelPathSettings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
+#   - 内部调用：`Field`、`SettingsConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ModelPathSettings(BaseSettings):
     """
     本机模型路径配置。
@@ -197,6 +300,13 @@ class ModelPathSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+# 功能：配置聚合根，将各子配置组合为单一访问点；输入与输出详见下方说明
+# 参数：无。
+# 返回：Settings；返回新建的 `Settings` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/settings.py` 的 `get_settings` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class Settings:
     """
     配置聚合根，将各子配置组合为单一访问点。
@@ -206,6 +316,14 @@ class Settings:
         settings.db.sqlalchemy_url
         settings.alarm.horn_enable
     """
+    # 功能：初始化或配置 `__init__` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`DatabaseSettings`、`StorageSettings`、`AlarmSettings`、`ApiSettings`、`RuntimeSettings`、`ManagedVisualServiceSettings`、`ModelPathSettings`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.db      = DatabaseSettings()
         self.storage = StorageSettings()
@@ -216,6 +334,13 @@ class Settings:
         self.model_paths = ModelPathSettings()
 
 
+# 功能：返回全局 Settings 单例（lru_cache 保证只实例化一次）；输入与输出详见下方说明
+# 参数：无。
+# 返回：Settings；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`Settings`、`lru_cache`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """

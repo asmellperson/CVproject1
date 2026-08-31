@@ -1,3 +1,6 @@
+// 文件说明：封装可复用的`field` 模块 React 基础组件。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useMemo } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -5,6 +8,16 @@ import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 
+/**
+ * 功能：渲染 `FieldSet` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"fieldset">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
     <fieldset
@@ -19,6 +32,16 @@ function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   )
 }
 
+/**
+ * 功能：渲染 `FieldLegend` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, variant, legend, props, React, ComponentProps, legend, variant
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldLegend({
   className,
   variant = "legend",
@@ -39,6 +62,16 @@ function FieldLegend({
   )
 }
 
+/**
+ * 功能：渲染 `FieldGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -76,6 +109,17 @@ const fieldVariants = cva(
   }
 )
 
+/**
+ * 功能：渲染 `Field` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>）：React 组件属性对象；解构字段包括 className, orientation,
+ *     vertical, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`fieldVariants`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function Field({
   className,
   orientation = "vertical",
@@ -92,6 +136,16 @@ function Field({
   )
 }
 
+/**
+ * 功能：渲染 `FieldContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -105,6 +159,16 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * 功能：渲染 `FieldLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof Label>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Label`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldLabel({
   className,
   ...props
@@ -123,6 +187,16 @@ function FieldLabel({
   )
 }
 
+/**
+ * 功能：渲染 `FieldTitle` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -136,6 +210,16 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * 功能：渲染 `FieldDescription` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"p">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
@@ -151,6 +235,16 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
   )
 }
 
+/**
+ * 功能：渲染 `FieldSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 children, className, props, React, ComponentProps, div, children, React
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Separator`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldSeparator({
   children,
   className,
@@ -181,6 +275,16 @@ function FieldSeparator({
   )
 }
 
+/**
+ * 功能：渲染 `FieldError` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, children, errors, props, React, ComponentProps, div, errors
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useMemo`、`Map`、`map`、`values`、`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function FieldError({
   className,
   children,

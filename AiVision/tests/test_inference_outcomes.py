@@ -1,3 +1,6 @@
+# 文件说明：包含模型推理的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 from __future__ import annotations
 
 import queue
@@ -20,15 +23,59 @@ from platform.inference.contracts import (
 )
 
 
+# 功能：定义 `OutcomeConsumer` 类，封装模型推理相关的状态、约束与操作
+# 参数：无。
+# 返回：OutcomeConsumer；返回新建的 `OutcomeConsumer` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_inference_outcomes.py` 的 `_consumer` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class OutcomeConsumer(BaseFunctionConsumer):
+    # 功能：处理 `_process` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `roi_list`（未显式标注）：`roi_list` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _process(self, roi_list, camera_id):
         return []
 
+    # 功能：处理 `post_process` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `result`（未显式标注）：`result` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def post_process(self, camera_id, result):
         return None
 
 
+# 功能：定义 `OutcomeWorker` 类，封装模型推理相关的状态、约束与操作
+# 参数：
+#   - `should_fail`（bool）：`should_fail` 对应的业务输入值；默认值为 `False`
+# 返回：OutcomeWorker；返回新建的 `OutcomeWorker` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_inference_outcomes.py` 的 `test_worker_distinguishes_success_from_model_error` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class OutcomeWorker(BaseModelWorker):
+    # 功能：初始化或配置 `__init__` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `should_fail`（bool）：`should_fail` 对应的业务输入值；默认值为 `False`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`super().__init__`、`super`、`queue.Queue`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, *, should_fail: bool = False):
         super().__init__(
             infer_queue=queue.Queue(),
@@ -38,15 +85,43 @@ class OutcomeWorker(BaseModelWorker):
         )
         self.should_fail = should_fail
 
+    # 功能：读取或查询 `load_model` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`object`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def load_model(self):
         return object()
 
+    # 功能：实现 `infer` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `model`（未显式标注）：模型配置或实例
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `task_meta`（未显式标注）：`task_meta` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`RuntimeError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def infer(self, model, frame, task_meta):
         if self.should_fail:
             raise RuntimeError("broken inference")
         return [{"type": "person", "confidence": 0.9}]
 
 
+# 功能：实现 `_consumer` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `infer_dict`（dict）：`infer_dict` 对应的业务输入值
+#   - `result_queue`（queue.Queue | None）：`result_queue` 对应的业务输入值；默认值为 `None`
+# 返回：OutcomeConsumer；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`OutcomeConsumer`、`SimpleNamespace`、`queue.Queue`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _consumer(infer_dict: dict, result_queue: queue.Queue | None = None) -> OutcomeConsumer:
     return OutcomeConsumer(
         spec=SimpleNamespace(name="outcome-test"),
@@ -57,6 +132,14 @@ def _consumer(infer_dict: dict, result_queue: queue.Queue | None = None) -> Outc
     )
 
 
+# 功能：实现 `_task` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `roi_id`（int）：`roi_id` 对应业务对象的唯一标识；默认值为 `0`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_inference_outcomes.py` 的 `test_worker_distinguishes_success_from_model_error` 调用本符号
+#   - 内部调用：`np.zeros`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _task(roi_id: int = 0) -> dict:
     return {
         "roi_id": roi_id,
@@ -68,6 +151,13 @@ def _task(roi_id: int = 0) -> dict:
     }
 
 
+# 功能：验证 `test_worker_distinguishes_success_from_model_error` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`OutcomeWorker()._execute_task`、`OutcomeWorker`、`object`、`_task`、`OutcomeWorker(should_fail=True)._execute_task`。
+# 副作用/注意事项：可能读取或修改数据库事务。
 def test_worker_distinguishes_success_from_model_error():
     success = OutcomeWorker()._execute_task(object(), _task())
     failure = OutcomeWorker(should_fail=True)._execute_task(object(), _task())
@@ -83,6 +173,13 @@ def test_worker_distinguishes_success_from_model_error():
     assert failure["detections"] == []
 
 
+# 功能：验证 `test_dispatch_reports_model_unavailable_for_every_roi` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatch_reports_model_unavailable_for_every_roi():
     consumer = _consumer({})
 
@@ -97,6 +194,13 @@ def test_dispatch_reports_model_unavailable_for_every_roi():
     assert {item["error_code"] for item in results} == {INFERENCE_ERROR_UNAVAILABLE}
 
 
+# 功能：验证 `test_dispatch_reports_queue_full_without_losing_roi_identity` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`queue.Queue`、`infer_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatch_reports_queue_full_without_losing_roi_identity():
     infer_queue = queue.Queue(maxsize=1)
     infer_queue.put({"occupied": True})
@@ -114,6 +218,14 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
     assert results[0]["detections"] == []
 
 
+# 功能：验证 `test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`queue.Queue`、`result_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypatch):
     monkeypatch.setattr("features._base.consumer.time.monotonic_ns", lambda: 123)
     infer_queue = queue.Queue()
@@ -145,6 +257,14 @@ def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypat
     }
 
 
+# 功能：验证 `test_consecutive_failures_emit_one_alert_and_are_exposed` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`_consumer`、`queue.Queue`、`alerts.append`、`range`、`consumer.dispatch_inference_sync`、`np.zeros`、`consumer.inference_status`、`len`、`consumer._record_inference_outcomes`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
     monkeypatch.setattr(
         "features._base.consumer.settings.runtime.inference_alert_consecutive_failures",

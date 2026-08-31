@@ -1,3 +1,6 @@
+# 文件说明：实现摄像头、运行时相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """安检多摄像头运行目录和子进程配置快照。"""
 
 from __future__ import annotations
@@ -29,6 +32,15 @@ _RESTART_BACKOFF_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
 LOGGER = logging.getLogger(__name__)
 
 
+# 功能：所有配置路径统一相对 security_vlm 项目根解析；输入与输出详见下方说明
+# 参数：
+#   - `path`（str | Path）：目标路径
+#   - `project_root`（Path）：`project_root` 对应的业务输入值
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`Path`、`candidate.is_absolute`、`candidate.resolve`、`(Path(project_root) / candidate).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_path(path: str | Path, project_root: Path) -> Path:
     """所有配置路径统一相对 security_vlm 项目根解析。"""
     candidate = Path(path)
@@ -39,6 +51,17 @@ def resolve_path(path: str | Path, project_root: Path) -> Path:
     )
 
 
+# 功能：一台摄像头独占的运行时路径；输入与输出详见下方说明
+# 参数：
+#   - `departments_root`（Path）：`departments_root` 对应的业务输入值
+#   - `department`（str）：业务部门名称或标识
+#   - `camera_id`（str）：摄像头唯一标识
+# 返回：CameraRuntimePaths；返回新建的 `CameraRuntimePaths` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_paths`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::camera_runtime_dir` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class CameraRuntimePaths:
     """一台摄像头独占的运行时路径。"""
@@ -47,6 +70,14 @@ class CameraRuntimePaths:
     department: str
     camera_id: str
 
+    # 功能：初始化或配置 `__post_init__` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`object.__setattr__`、`Path`、`require_department`、`validate_camera_id`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def __post_init__(self) -> None:
         object.__setattr__(self, "departments_root", Path(self.departments_root))
         object.__setattr__(
@@ -60,10 +91,26 @@ class CameraRuntimePaths:
             validate_camera_id(self.camera_id),
         )
 
+    # 功能：实现 `department_runtime_dir` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def department_runtime_dir(self) -> Path:
         return self.departments_root / self.department
 
+    # 功能：实现 `runtime_dir` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def runtime_dir(self) -> Path:
         return (
@@ -72,15 +119,42 @@ class CameraRuntimePaths:
             / self.camera_id
         )
 
+    # 功能：实现 `pending_dir` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def pending_dir(self) -> Path:
         return self.runtime_dir / "pending"
 
+    # 功能：实现 `config_path` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def config_path(self) -> Path:
         return self.runtime_dir / "worker_config.yaml"
 
 
+# 功能：从全局配置生成一台摄像头专用且互不共享引用的配置；输入与输出详见下方说明
+# 参数：
+#   - `base_cfg`（dict）：`base_cfg` 对应的业务输入值
+#   - `camera`（dict）：摄像头配置或实体
+#   - `paths`（CameraRuntimePaths）：`paths` 对应的业务输入值
+#   - `staff_identity_dir`（Path | None）：`staff_identity_dir` 对应的业务输入值；默认值为 `None`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_start_runtime` 调用本符号
+#   - 内部调用：`copy.deepcopy`、`snapshot.setdefault`、`str`、`Path(staff_identity_dir).resolve`、`Path`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_camera_config(
     base_cfg: dict,
     camera: dict,
@@ -106,6 +180,15 @@ def build_camera_config(
     return snapshot
 
 
+# 功能：原子写入只允许文件所有者读取的 worker 配置；输入与输出详见下方说明
+# 参数：
+#   - `snapshot`（dict）：`snapshot` 对应的业务输入值
+#   - `path`（Path）：目标路径
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_start_runtime` 调用本符号
+#   - 内部调用：`Path`、`config_path.parent.mkdir`、`config_path.with_name`、`uuid.uuid4`、`temp_path.write_text`、`yaml.safe_dump`、`os.chmod`、`temp_path.replace`、`temp_path.unlink`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def write_camera_config(snapshot: dict, path: Path) -> None:
     """原子写入只允许文件所有者读取的 worker 配置。"""
     config_path = Path(path)
@@ -122,6 +205,21 @@ def write_camera_config(snapshot: dict, path: Path) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+# 功能：一台摄像头的期望状态和子进程句柄；输入与输出详见下方说明
+# 参数：
+#   - `department`（str）：业务部门名称或标识
+#   - `camera_id`（str）：摄像头唯一标识
+#   - `config_path`（Path）：`config_path` 对应的业务输入值
+#   - `desired_running`（bool）：`desired_running` 对应的业务输入值
+#   - `processes`（dict[str, subprocess.Popen]）：`processes` 对应的业务输入值
+#   - `restart_attempts`（int）：`restart_attempts` 对应的业务输入值
+#   - `restart_at`（float | None）：`restart_at` 对应的业务输入值
+#   - `last_error`（str）：`last_error` 对应的业务输入值
+# 返回：CameraRuntime；返回新建的 `CameraRuntime` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class CameraRuntime:
     """一台摄像头的期望状态和子进程句柄。"""
@@ -136,9 +234,43 @@ class CameraRuntime:
     last_error: str = ""
 
 
+# 功能：管理每摄像头 worker 进程组以及唯一的全局 VLM worker；输入与输出详见下方说明
+# 参数：
+#   - `base_cfg`（dict）：`base_cfg` 对应的业务输入值
+#   - `project_root`（Path）：`project_root` 对应的业务输入值
+#   - `base_config_path`（Path）：`base_config_path` 对应的业务输入值
+#   - `camera_provider`（Callable[[str], list[dict]]）：`camera_provider` 对应的业务输入值
+#   - `popen_factory`（Callable）：`popen_factory` 对应的业务输入值；默认值为 `subprocess.Popen`
+#   - `sleep`（Callable[[float], None]）：`sleep` 对应的业务输入值；默认值为 `time.sleep`
+#   - `clock`（Callable[[], float]）：`clock` 对应的业务输入值；默认值为 `time.time`
+#   - `start_monitor`（bool）：`start_monitor` 对应的业务输入值；默认值为 `True`
+#   - `monitor_interval_sec`（float）：`monitor_interval_sec` 对应的时间间隔或时长；默认值为 `1.0`
+# 返回：CameraRuntimeManager；返回新建的 `CameraRuntimeManager` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::__init__` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraRuntimeManager:
     """管理每摄像头 worker 进程组以及唯一的全局 VLM worker。"""
 
+    # 功能：初始化或配置 `__init__` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `base_cfg`（dict）：`base_cfg` 对应的业务输入值
+    #   - `project_root`（Path）：`project_root` 对应的业务输入值
+    #   - `base_config_path`（Path）：`base_config_path` 对应的业务输入值
+    #   - `camera_provider`（Callable[[str], list[dict]]）：`camera_provider` 对应的业务输入值
+    #   - `popen_factory`（Callable）：`popen_factory` 对应的业务输入值；默认值为 `subprocess.Popen`
+    #   - `sleep`（Callable[[float], None]）：`sleep` 对应的业务输入值；默认值为 `time.sleep`
+    #   - `clock`（Callable[[], float]）：`clock` 对应的业务输入值；默认值为 `time.time`
+    #   - `start_monitor`（bool）：`start_monitor` 对应的业务输入值；默认值为 `True`
+    #   - `monitor_interval_sec`（float）：`monitor_interval_sec` 对应的时间间隔或时长；默认值为 `1.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`copy.deepcopy`、`Path(project_root).resolve`、`Path`、`resolve_path`、`self.base_cfg['runtime'].get`、`(self.base_cfg.get('departments',
+    #          {}) or {}).get`、`self.base_cfg.get`、`int`、`ValueError`、`threading.RLock` 等共 15 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def __init__(
         self,
         *,
@@ -211,6 +343,18 @@ class CameraRuntimeManager:
             )
             self._monitor_thread.start()
 
+    # 功能：启动或执行 `start` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::restart`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start_all` 调用本符号
+    #   - 内部调用：`require_department`、`validate_camera_id`、`self._get_camera`、`self._paths`、`self.runtimes.get`、`self._active_runtime_count`、`CameraRuntime`、`self._result`、`self._runtime_is_running`、`self._detach_runtime_processes`
+    #          等共 16 个调用。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def start(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
@@ -312,6 +456,18 @@ class CameraRuntimeManager:
             self._terminate_processes(failed_processes)
             return result
 
+    # 功能：停止并释放 `stop` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::restart`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop_all` 调用本符号
+    #   - 内部调用：`require_department`、`validate_camera_id`、`self.runtimes.get`、`self._get_camera`、`self._paths`、`CameraRuntime`、`self._detach_runtime_processes`、`self._has_active_camera`、`self._detach_vlm`、`self._result`
+    #          等共 12 个调用。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def stop(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
@@ -348,6 +504,16 @@ class CameraRuntimeManager:
             self._terminate_process(vlm, "vlm", timeout=125.0)
         return result
 
+    # 功能：实现 `restart` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_department`、`self.stop`、`self.start`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def restart(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         with self._department_gates[department]:
@@ -356,6 +522,15 @@ class CameraRuntimeManager:
                 return stopped
             return self.start(department, camera_id)
 
+    # 功能：启动或执行 `start_all` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_department`、`list`、`self.camera_provider`、`str`、`self.start`、`all`、`results.values`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def start_all(self, department: str) -> dict:
         department = require_department(department)
         with self._department_gates[department]:
@@ -381,6 +556,15 @@ class CameraRuntimeManager:
             "results": results,
         }
 
+    # 功能：停止并释放 `stop_all` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_department`、`str`、`self.camera_provider`、`self.stop`、`all`、`results.values`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def stop_all(self, department: str) -> dict:
         department = require_department(department)
         with self._department_gates[department]:
@@ -403,6 +587,16 @@ class CameraRuntimeManager:
             "results": results,
         }
 
+    # 功能：检查或判断 `is_running` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_department`、`validate_camera_id`、`self.runtimes.get`、`bool`、`self._runtime_is_running`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def is_running(self, department: str, camera_id: str) -> bool:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
@@ -410,6 +604,16 @@ class CameraRuntimeManager:
             runtime = self.runtimes.get((department, camera_id))
             return bool(runtime and self._runtime_is_running(runtime))
 
+    # 功能：实现 `status` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_department`、`validate_camera_id`、`self.runtimes.get`、`self._runtime_is_running`、`process.poll`、`runtime.processes.items`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def status(self, department: str, camera_id: str) -> dict:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
@@ -438,6 +642,16 @@ class CameraRuntimeManager:
                 "restart_at": runtime.restart_at,
             }
 
+    # 功能：实现 `vlm_status` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+    #         `test_vlm_start_failure_marks_camera_start_degraded_and_schedules_retry`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_state` 调用本符号
+    #   - 内部调用：`self.vlm_process.poll`、`self._has_active_camera`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def vlm_status(self) -> dict:
         with self._lock:
             running = (
@@ -452,6 +666,15 @@ class CameraRuntimeManager:
                 "last_error": self.vlm_last_error,
             }
 
+    # 功能：检测意外退出，并按有界退避重启完整摄像头进程组；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_monitor_loop` 调用本符号
+    #   - 内部调用：`self.clock`、`self.runtimes.values`、`self._get_camera`、`self._paths`、`self._start_runtime`、`self._ensure_vlm`、`str`、`process_groups.append`、`self._detach_runtime_processes`、`self._schedule_restart`
+    #          等共 19 个调用。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def reconcile(self) -> None:
         """检测意外退出，并按有界退避重启完整摄像头进程组。"""
         now = self.clock()
@@ -534,6 +757,14 @@ class CameraRuntimeManager:
         if vlm_to_stop is not None:
             self._terminate_process(vlm_to_stop, "vlm", timeout=125.0)
 
+    # 功能：停止并释放 `shutdown` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._monitor_stop.set`、`self._monitor_thread.join`、`self.runtimes.values`、`process_groups.append`、`self._detach_runtime_processes`、`self._detach_vlm`、`self._terminate_processes`、`self._terminate_process`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def shutdown(self) -> None:
         with self._lock:
             self._shutting_down = True
@@ -552,6 +783,18 @@ class CameraRuntimeManager:
         if vlm is not None:
             self._terminate_process(vlm, "vlm", timeout=125.0)
 
+    # 功能：启动或执行 `_start_runtime` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    #   - `camera`（dict）：摄像头配置或实体
+    #   - `paths`（CameraRuntimePaths）：`paths` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号
+    #   - 内部调用：`RuntimeError`、`reset_frame_hub`、`build_camera_config`、`write_camera_config`、`runtime.processes.clear`、`str`、`os.environ.copy`、`self.popen_factory`、`self.sleep`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def _start_runtime(
         self,
         runtime: CameraRuntime,
@@ -593,6 +836,15 @@ class CameraRuntimeManager:
         runtime.restart_at = None
         runtime.last_error = ""
 
+    # 功能：检查或判断 `_ensure_vlm` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号
+    #   - 内部调用：`self.clock`、`self.vlm_process.poll`、`self._schedule_vlm_restart`、`str`、`self.popen_factory`、`os.environ.copy`、`LOGGER.exception`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _ensure_vlm(self) -> bool:
         now = self.clock()
         if self.vlm_process is not None:
@@ -634,6 +886,14 @@ class CameraRuntimeManager:
             LOGGER.exception("启动全局 VLM worker 失败")
             return False
 
+    # 功能：停止并释放 `_stop_vlm` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._terminate_process`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def _stop_vlm(self) -> None:
         if self.vlm_process is None:
             self.vlm_restart_at = None
@@ -650,6 +910,16 @@ class CameraRuntimeManager:
         self.vlm_restart_attempts = 0
         self.vlm_last_error = ""
 
+    # 功能：实现 `_detach_vlm` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::shutdown` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def _detach_vlm(self):
         process = self.vlm_process
         self.vlm_process = None
@@ -658,6 +928,17 @@ class CameraRuntimeManager:
         self.vlm_last_error = ""
         return process
 
+    # 功能：实现 `_terminate_processes` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `processes`（dict[str, subprocess.Popen]）：`processes` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::shutdown` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`processes.get`、`CameraRuntimeManager._terminate_process`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
     def _terminate_processes(processes: dict[str, subprocess.Popen]) -> None:
         for name in _STOP_ORDER:
@@ -665,15 +946,48 @@ class CameraRuntimeManager:
             if process is not None:
                 CameraRuntimeManager._terminate_process(process, name)
 
+    # 功能：实现 `_detach_runtime_processes` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    # 返回：dict[str, subprocess.Popen]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::shutdown` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _detach_runtime_processes(runtime: CameraRuntime) -> dict[str, subprocess.Popen]:
         processes = runtime.processes
         runtime.processes = {}
         return processes
 
+    # 功能：实现 `_terminate_runtime_processes` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._terminate_processes`、`self._detach_runtime_processes`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def _terminate_runtime_processes(self, runtime: CameraRuntime) -> None:
         self._terminate_processes(self._detach_runtime_processes(runtime))
 
+    # 功能：处理 `_terminate_process` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `process`（subprocess.Popen）：`process` 对应的业务输入值
+    #   - `name`（str）：业务对象名称
+    #   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `10.0`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::shutdown`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_stop_vlm` 调用本符号；另有 2 处静态调用
+    #   - 内部调用：`process.poll`、`process.terminate`、`LOGGER.exception`、`process.wait`、`LOGGER.warning`、`process.kill`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     @staticmethod
     def _terminate_process(
         process: subprocess.Popen,
@@ -699,6 +1013,16 @@ class CameraRuntimeManager:
             except Exception:
                 LOGGER.exception("强制终止后回收 %s worker 失败", name)
 
+    # 功能：实现 `_schedule_restart` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号
+    #   - 内部调用：`min`、`len`、`self.clock`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _schedule_restart(self, runtime: CameraRuntime) -> None:
         delay_index = min(
             runtime.restart_attempts,
@@ -707,6 +1031,14 @@ class CameraRuntimeManager:
         runtime.restart_at = self.clock() + _RESTART_BACKOFF_SECONDS[delay_index]
         runtime.restart_attempts += 1
 
+    # 功能：实现 `_schedule_vlm_restart` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_ensure_vlm` 调用本符号
+    #   - 内部调用：`min`、`len`、`self.clock`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def _schedule_vlm_restart(self) -> None:
         delay_index = min(
             self.vlm_restart_attempts,
@@ -717,6 +1049,14 @@ class CameraRuntimeManager:
         )
         self.vlm_restart_attempts += 1
 
+    # 功能：实现 `_monitor_loop` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._monitor_stop.wait`、`self.reconcile`、`LOGGER.exception`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _monitor_loop(self) -> None:
         while not self._monitor_stop.wait(self._monitor_interval_sec):
             try:
@@ -724,6 +1064,16 @@ class CameraRuntimeManager:
             except Exception:
                 LOGGER.exception("摄像头运行时后台巡检失败")
 
+    # 功能：检查或判断 `_has_active_camera` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::vlm_status`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号
+    #   - 内部调用：`any`、`self._runtime_is_running`、`self.runtimes.values`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _has_active_camera(self) -> bool:
         return any(
             runtime.desired_running
@@ -734,6 +1084,14 @@ class CameraRuntimeManager:
             for runtime in self.runtimes.values()
         )
 
+    # 功能：实现 `_active_runtime_count` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start` 调用本符号
+    #   - 内部调用：`sum`、`self.runtimes.values`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _active_runtime_count(self) -> int:
         return sum(
             1
@@ -741,12 +1099,35 @@ class CameraRuntimeManager:
             if runtime.desired_running
         )
 
+    # 功能：检查或判断 `_runtime_is_running` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::is_running`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::status`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号；另有 2 处静态调用
+    #   - 内部调用：`len`、`all`、`process.poll`、`runtime.processes.values`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
     def _runtime_is_running(runtime: CameraRuntime) -> bool:
         return len(runtime.processes) == len(_WORKER_SCRIPTS) and all(
             process.poll() is None for process in runtime.processes.values()
         )
 
+    # 功能：读取或查询 `_get_camera` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile` 调用本符号
+    #   - 内部调用：`validate_camera_id`、`next`、`self.camera_provider`、`str`、`camera.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _get_camera(self, department: str, camera_id: str) -> dict | None:
         wanted = validate_camera_id(camera_id)
         return next(
@@ -758,6 +1139,20 @@ class CameraRuntimeManager:
             None,
         )
 
+    # 功能：实现 `_paths` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `department`（str）：业务部门名称或标识
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：CameraRuntimePaths；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::reconcile`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+    #         `test_manager_removes_stale_framehub_before_starting_workers` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`CameraRuntimePaths`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _paths(
         self,
         department: str,
@@ -769,6 +1164,17 @@ class CameraRuntimeManager:
             camera_id,
         )
 
+    # 功能：实现 `_result` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `runtime`（CameraRuntime）：`runtime` 对应的业务输入值
+    #   - `ok`（bool）：`ok` 对应的业务输入值
+    #   - `message`（str）：用于展示、记录或发送的文本消息
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::stop` 调用本符号
+    #   - 内部调用：`CameraRuntimeManager._runtime_is_running`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _result(runtime: CameraRuntime, ok: bool, message: str) -> dict:
         return {

@@ -1,3 +1,6 @@
+// 文件说明：实现告警、配置的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { Bell } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -17,10 +20,40 @@ type AlarmPushConfigProps = {
   disabled?: boolean
   saving?: boolean
   message?: string
+  /**
+   * 功能：处理 `onChange` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `alarm`（FeatureAlarmConfig）：`alarm` 对应的业务输入值
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onChange: (alarm: FeatureAlarmConfig) => void
+  /**
+   * 功能：更新或保存 `onSave` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSave?: () => void
 }
 
+/**
+ * 功能：渲染 `AlarmPushConfig` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（AlarmPushConfigProps）：React 组件属性对象；解构字段包括 alarm, disabled, saving, message, onChange, onSave
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`normalizeFeatureAlarmConfig`、`onChange`、`return`、`updateWechat`、`cn`、`Card`、`DetectionConfigCardHeader`、`DetectionConfigCardContent`、`Switch`、`Label`
+ *          等共 12 个调用。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, onSave }: AlarmPushConfigProps) {
   const merged = normalizeFeatureAlarmConfig(alarm)
 

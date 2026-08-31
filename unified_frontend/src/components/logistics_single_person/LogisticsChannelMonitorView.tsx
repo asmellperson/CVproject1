@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { LucideIcon } from 'lucide-react'
 import { Activity, AlertTriangle, BellRing, Camera, Info, RefreshCw, Users, Video } from 'lucide-react'
 
@@ -34,6 +37,16 @@ const reasonPresentation: Record<LogisticsChannelReason, { label: string; classN
 
 type StatTone = 'emerald' | 'indigo' | 'amber' | 'rose' | 'slate'
 
+/**
+ * 功能：渲染 `StatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, value, detail, icon, Icon, tone, indigo, label
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`StatTone`、`Icon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function StatCard({
   label,
   value,
@@ -67,6 +80,17 @@ function StatCard({
   )
 }
 
+/**
+ * 功能：实现 `unknownReason` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `reason`（string | null）：`reason` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelMonitorView.tsx` 的 `LogisticsChannelMonitorView`
+ *         调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function unknownReason(reason: string | null) {
   if (!reason) return '等待检测结果'
   if (reason === 'offline') return '摄像头离线'
@@ -76,6 +100,17 @@ function unknownReason(reason: string | null) {
   return reason
 }
 
+/**
+ * 功能：转换或规范化 `formatCameraUpdatedAt` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（number | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelMonitorView.tsx` 的 `LogisticsChannelMonitorView`
+ *         调用本符号
+ *   - 内部调用：`isFinite`、`Date`、`isNaN`、`getTime`、`toLocaleString`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatCameraUpdatedAt(value: number | null) {
   if (value === null || !Number.isFinite(value) || value <= 0) return '暂无更新时间'
   const timestampMs = value < 1_000_000_000_000 ? value * 1000 : value
@@ -84,6 +119,16 @@ function formatCameraUpdatedAt(value: number | null) {
   return `更新于 ${date.toLocaleString('zh-CN', { hour12: false })}`
 }
 
+/**
+ * 功能：转换或规范化 `formatClock` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Date`、`isNaN`、`getTime`、`toLocaleTimeString`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatClock(value: string | null) {
   if (!value) return '--'
   const parsed = new Date(value)
@@ -92,6 +137,17 @@ function formatClock(value: string | null) {
     : parsed.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
+/**
+ * 功能：实现 `eventPresentation` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `reason`（LogisticsChannelStatusEvent['reason']）：`reason` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelMonitorView.tsx` 的 `LogisticsChannelMonitorView`
+ *         调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function eventPresentation(reason: LogisticsChannelStatusEvent['reason']) {
   if (reason === 'empty') return { label: '所有摄像头明确无人，触发通道告警', danger: true }
   if (reason === 'multiple') return { label: '单路摄像头出现多人，触发通道告警', danger: true }
@@ -113,10 +169,41 @@ export type LogisticsChannelMonitorViewProps = {
   loading: boolean
   error: string | null
   frameError: string | null
+  /**
+   * 功能：处理 `onSelectChannel` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `channelId`（number）：`channelId` 对应业务对象的唯一标识
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectChannel: (channelId: number) => void
+  /**
+   * 功能：处理 `onRefresh` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onRefresh: () => void
 }
 
+/**
+ * 功能：渲染 `LogisticsChannelMonitorView` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（LogisticsChannelMonitorViewProps）：React 组件属性对象；解构字段包括 feature, title, channels, selectedChannelId, selectedChannel,
+ *     selectedChannelDetail, status, frameUrl
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`map`、`String`、`filter`、`Boolean`、`join`、`getLogisticsFramePresentation`、`return`、`formatClock`、`onSelectChannel`、`Number`
+ *          等共 34 个调用。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function LogisticsChannelMonitorView({
   feature,
   title,

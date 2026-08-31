@@ -1,3 +1,6 @@
+// 文件说明：实现感兴趣区域的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,13 +29,42 @@ type GuardRoomVehicleRoiEditorProps = {
   saving?: boolean
   message?: string
   minRoiArea?: number
+  /**
+   * 功能：处理 `onChange` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `roi`（VehicleRoiPoint[]）：感兴趣区域的坐标集合
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onChange: (roi: VehicleRoiPoint[]) => void
+  /**
+   * 功能：更新或保存 `onSave` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSave: () => void
 }
 
 const DRAG_THRESHOLD_PX = 8
 const DEFAULT_MIN_ROI_AREA = 2500
 
+/**
+ * 功能：实现 `roundPoint` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `point`（ImagePoint）：`point` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`round`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function roundPoint(point: ImagePoint) {
   return {
     x: Math.round(point.x),
@@ -40,6 +72,16 @@ function roundPoint(point: ImagePoint) {
   }
 }
 
+/**
+ * 功能：转换或规范化 `pointsToRect` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `points`（ImagePoint[]）：`points` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`map`、`round`、`min`、`max`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function pointsToRect(points: ImagePoint[]) {
   const xs = points.map((point) => point.x)
   const ys = points.map((point) => point.y)
@@ -51,6 +93,16 @@ function pointsToRect(points: ImagePoint[]) {
   ]
 }
 
+/**
+ * 功能：转换或规范化 `rectToPoints` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `rect`（number[]）：`rect` 对应的业务输入值
+ * 返回：ImagePoint[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function rectToPoints(rect: number[]): ImagePoint[] {
   const [x1, y1, x2, y2] = rect
   return [
@@ -61,6 +113,18 @@ function rectToPoints(rect: number[]): ImagePoint[] {
   ]
 }
 
+/**
+ * 功能：渲染 `GuardRoomVehicleRoiEditor` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（GuardRoomVehicleRoiEditorProps）：React 组件属性对象；解构字段包括 siteId, department, cameraId, cameraLabel, roi, fallbackSize,
+ *     disabled, saving
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`safeImageSize`、`vehicleRoiToImagePoints`、`useMemo`、`guardRoomSiteCameraFrameUrl`、`useEffect`、`setImageSize`、`setPoints`、`map`、`onChange`
+ *          等共 48 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
+ */
 export function GuardRoomVehicleRoiEditor({
   siteId,
   department,

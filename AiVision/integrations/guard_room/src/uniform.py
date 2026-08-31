@@ -1,3 +1,6 @@
+# 文件说明：实现`uniform` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # uniform.py
 """
 制服识别分类器模块。
@@ -25,6 +28,21 @@ from PIL import Image
 from timm.data import create_transform, resolve_data_config
 
 
+# 功能：单人制服识别分类器；输入与输出详见下方说明
+# 参数：
+#   - `model_path`（str）：`model_path` 对应的业务输入值
+#   - `device`（str）：`device` 对应的业务输入值；默认值为 `'0'`
+#   - `imgsz`（int）：`imgsz` 对应的业务输入值；默认值为 `224`
+#   - `conf_thres`（float）：`conf_thres` 对应的业务输入值；默认值为 `0.8`
+#   - `expand_ratio`（float）：`expand_ratio` 对应的业务输入值；默认值为 `0.1`
+#   - `model_name`（str）：`model_name` 对应的业务输入值；默认值为 `'hf_hub:timm/convnextv2_tiny.fcmae_ft_in22k_in1k'`
+#   - `positive_class_name`（str）：`positive_class_name` 对应的业务输入值；默认值为 `'uniform'`
+#   - `use_half`（bool）：`use_half` 对应的业务输入值；默认值为 `False`
+# 返回：UniformClassifier；返回新建的 `UniformClassifier` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UniformClassifier:
     """单人制服识别分类器。
 
@@ -32,6 +50,23 @@ class UniformClassifier:
     返回 (is_guard, confidence) 二元组；UniformCache 负责缓存结果以避免重复推理。
     """
 
+    # 功能：model_path:          checkpoint 文件路径（.pt），必须包含 model_state_dict 和 class_to_idx；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `model_path`（str）：`model_path` 对应的业务输入值
+    #   - `device`（str）：`device` 对应的业务输入值；默认值为 `'0'`
+    #   - `imgsz`（int）：`imgsz` 对应的业务输入值；默认值为 `224`
+    #   - `conf_thres`（float）：`conf_thres` 对应的业务输入值；默认值为 `0.8`
+    #   - `expand_ratio`（float）：`expand_ratio` 对应的业务输入值；默认值为 `0.1`
+    #   - `model_name`（str）：`model_name` 对应的业务输入值；默认值为 `'hf_hub:timm/convnextv2_tiny.fcmae_ft_in22k_in1k'`
+    #   - `positive_class_name`（str）：`positive_class_name` 对应的业务输入值；默认值为 `'uniform'`
+    #   - `use_half`（bool）：`use_half` 对应的业务输入值；默认值为 `False`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`torch.cuda.is_available`、`torch.device`、`bool`、`torch.load`、`isinstance`、`ValueError`、`type`、`KeyError`、`self.class_to_idx.items`、`len`
+    #          等共 20 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def __init__(
         self,
         model_path: str,
@@ -125,6 +160,15 @@ class UniformClassifier:
         print("[INFO] positive_class_idx =", self.positive_class_idx)
         print("[INFO] conf_thres =", self.conf_thres)
 
+    # 功能：尝试多个候选模型名构建 timm 模型结构；输入与输出详见下方说明
+    # 参数：
+    #   - `model_name`（str）：`model_name` 对应的业务输入值
+    #   - `num_classes`（int）：`num_classes` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/uniform.py` 的 `UniformClassifier::__init__` 调用本符号
+    #   - 内部调用：`model_name.replace`、`timm.create_model`、`print`、`RuntimeError`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     @staticmethod
     def _build_model(model_name: str, num_classes: int):
         """尝试多个候选模型名构建 timm 模型结构。
@@ -157,6 +201,17 @@ class UniformClassifier:
 
         raise RuntimeError(f"无法构建模型结构，最后错误: {last_err}")
 
+    # 功能：对单个人体目标进行制服识别推理；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `bbox`（tuple[int, int, int, int]）：`bbox` 对应的业务输入值
+    # 返回：Tuple[bool, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `UniformCache::get_or_infer` 调用本符号
+    #   - 内部调用：`max`、`int`、`min`、`cv2.cvtColor`、`Image.fromarray`、`self.transform(image).unsqueeze(0).to`、`self.transform(image).unsqueeze`、`self.transform`、`tensor.half`、`torch.no_grad`
+    #          等共 14 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def predict_person(
         self,
         frame: np.ndarray,
@@ -214,6 +269,14 @@ class UniformClassifier:
         is_guard = conf >= self.conf_thres
         return is_guard, conf
 
+    # 功能：释放模型引用，便于运行时停止后回收显存；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def close(self) -> None:
         """释放模型引用，便于运行时停止后回收显存。"""
         self.model = None

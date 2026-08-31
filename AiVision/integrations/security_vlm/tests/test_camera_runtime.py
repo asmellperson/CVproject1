@@ -1,3 +1,6 @@
+# 文件说明：包含摄像头、运行时的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import stat
 import threading
 from pathlib import Path
@@ -15,10 +18,25 @@ GENERAL = "general_electric"
 ELECTRONICS = "electronics_electrician"
 
 
+# 功能：验证 `test_camera_runtime_module_exists` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_runtime_module_exists():
     assert camera_runtime is not None, "camera_runtime module is required"
 
 
+# 功能：验证 `test_camera_runtime_paths_are_scoped_by_camera` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`camera_runtime.CameraRuntimePaths`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_camera_runtime_paths_are_scoped_by_camera(tmp_path):
     departments_root = tmp_path / "runtime" / "custom" / "departments"
@@ -51,6 +69,14 @@ def test_camera_runtime_paths_are_scoped_by_camera(tmp_path):
     )
 
 
+# 功能：验证 `test_camera_runtime_paths_reject_unsafe_camera_ids` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`camera_runtime.CameraRuntimePaths`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_camera_runtime_paths_reject_unsafe_camera_ids(tmp_path):
     for camera_id in ("", ".", "..", "../camera-a", "camera/a", "camera a"):
@@ -58,6 +84,14 @@ def test_camera_runtime_paths_reject_unsafe_camera_ids(tmp_path):
             camera_runtime.CameraRuntimePaths(tmp_path, GENERAL, camera_id)
 
 
+# 功能：验证 `test_build_camera_config_is_isolated_from_base_config` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`camera_runtime.CameraRuntimePaths`、`camera_runtime.build_camera_config`、`str`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_build_camera_config_is_isolated_from_base_config(tmp_path):
     base_cfg = {
@@ -91,6 +125,14 @@ def test_build_camera_config_is_isolated_from_base_config(tmp_path):
     assert base_cfg["data"]["video_id"] == "legacy"
 
 
+# 功能：验证 `test_build_camera_config_uses_department_roi_directory` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`camera_runtime.CameraRuntimePaths`、`camera_runtime.build_camera_config`、`str`、`roi_dir.resolve`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_build_camera_config_uses_department_roi_directory(tmp_path):
     base_cfg = {
@@ -121,6 +163,14 @@ def test_build_camera_config_uses_department_roi_directory(tmp_path):
     assert base_cfg["data"]["staff_identity_dir"] == "data/annotations/staff_rois"
 
 
+# 功能：验证 `test_write_camera_config_is_atomic_and_owner_only` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`camera_runtime.write_camera_config`、`yaml.safe_load`、`config_path.read_text`、`stat.S_IMODE`、`config_path.stat`、`list`、`config_path.parent.glob`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_write_camera_config_is_atomic_and_owner_only(tmp_path):
     config_path = tmp_path / "runtime" / "worker_config.yaml"
@@ -133,28 +183,99 @@ def test_write_camera_config_is_atomic_and_owner_only(tmp_path):
     assert list(config_path.parent.glob("*.tmp")) == []
 
 
+# 功能：定义 `FakeProcess` 类，封装摄像头、运行时相关的状态、约束与操作
+# 参数：
+#   - `name`（未显式标注）：业务对象名称
+#   - `events`（未显式标注）：`events` 对应的业务输入值
+# 返回：FakeProcess；返回新建的 `FakeProcess` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeProcess:
+    # 功能：初始化或配置 `__init__` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `name`（未显式标注）：业务对象名称
+    #   - `events`（未显式标注）：`events` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, name, events):
         self.name = name
         self.events = events
         self.returncode = None
 
+    # 功能：实现 `poll` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def poll(self):
         return self.returncode
 
+    # 功能：实现 `terminate` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.events.append`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def terminate(self):
         self.events.append(("terminate", self.name))
         self.returncode = 0
 
+    # 功能：实现 `wait` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timeout`（未显式标注）：允许操作等待的最长秒数；默认值为 `None`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.events.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def wait(self, timeout=None):
         self.events.append(("wait", self.name))
         return self.returncode
 
+    # 功能：实现 `kill` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.events.append`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def kill(self):
         self.events.append(("kill", self.name))
         self.returncode = -9
 
 
+# 功能：创建或构建 `make_manager` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `cameras`（未显式标注）：`cameras` 对应的业务输入值
+#   - `failing_camera_id`（未显式标注）：`failing_camera_id` 对应业务对象的唯一标识；默认值为 `None`
+#   - `fail_vlm`（未显式标注）：`fail_vlm` 对应的业务输入值；默认值为 `False`
+#   - `max_running_cameras`（未显式标注）：`max_running_cameras` 对应的业务输入值；默认值为 `16`
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+#         `test_manager_starts_camera_workers_in_order_and_vlm_once`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+#         `test_manager_removes_stale_framehub_before_starting_workers`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+#         `test_stopping_one_camera_leaves_other_running_and_stops_vlm_last`
+#         调用本符号；`AiVision/integrations/security_vlm/tests/test_camera_runtime.py` 的
+#         `test_start_all_continues_after_one_camera_fails` 调用本符号；另有 13 处静态调用
+#   - 内部调用：`isinstance`、`list`、`str`、`camera_runtime.CameraRuntimeManager`、`cameras_by_department.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def make_manager(
     tmp_path,
     cameras,
@@ -171,6 +292,16 @@ def make_manager(
         else {GENERAL: list(cameras)}
     )
 
+    # 功能：实现 `popen` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `command`（未显式标注）：`command` 对应的业务输入值
+    #   - `cwd`（未显式标注）：`cwd` 对应的业务输入值；默认值为 `None`
+    #   - `env`（未显式标注）：`env` 对应的业务输入值；默认值为 `None`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path`、`command.index`、`RuntimeError`、`events.append`、`FakeProcess`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def popen(command, cwd=None, env=None):
         script_name = Path(command[1]).stem
         camera_id = "global"
@@ -210,6 +341,14 @@ def make_manager(
     return manager, events, clock
 
 
+# 功能：验证 `test_manager_starts_camera_workers_in_order_and_vlm_once` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`manager.is_running`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_manager_starts_camera_workers_in_order_and_vlm_once(tmp_path):
     cameras = [
@@ -239,6 +378,15 @@ def test_manager_starts_camera_workers_in_order_and_vlm_once(tmp_path):
     )
 
 
+# 功能：验证 `test_manager_removes_stale_framehub_before_starting_workers` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager._paths`、`paths.runtime_dir.mkdir`、`(paths.runtime_dir /
+#          name).write_bytes`、`manager.start`、`(paths.runtime_dir / name).exists`、`paths.config_path.exists`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_manager_removes_stale_framehub_before_starting_workers(tmp_path):
     cameras = [
@@ -257,18 +405,57 @@ def test_manager_removes_stale_framehub_before_starting_workers(tmp_path):
     assert paths.config_path.exists()
 
 
+# 功能：验证 `test_force_killed_worker_is_waited_for_reaping` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SlowProcess`、`camera_runtime.CameraRuntimeManager._terminate_process`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_force_killed_worker_is_waited_for_reaping():
     events = []
 
+    # 功能：定义 `SlowProcess` 类，封装摄像头、运行时相关的状态、约束与操作
+    # 参数：无。
+    # 返回：SlowProcess；返回新建的 `SlowProcess` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class SlowProcess(FakeProcess):
+        # 功能：初始化或配置 `__init__` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；初始化当前实例，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`super().__init__`、`super`。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def __init__(self):
             super().__init__("slow", events)
             self.wait_calls = 0
 
+        # 功能：实现 `terminate` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`events.append`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def terminate(self):
             events.append(("terminate", self.name))
 
+        # 功能：实现 `wait` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `timeout`（未显式标注）：允许操作等待的最长秒数；默认值为 `None`
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`events.append`、`TimeoutError`。
+        # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
         def wait(self, timeout=None):
             self.wait_calls += 1
             events.append(("wait", self.name, timeout))
@@ -283,6 +470,14 @@ def test_force_killed_worker_is_waited_for_reaping():
     assert ("wait", "slow", 2.0) in events
 
 
+# 功能：验证 `test_stopping_one_camera_leaves_other_running_and_stops_vlm_last` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start_all`、`events.clear`、`manager.stop`、`manager.is_running`、`manager.vlm_process.poll`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_stopping_one_camera_leaves_other_running_and_stops_vlm_last(tmp_path):
     cameras = [
@@ -310,6 +505,14 @@ def test_stopping_one_camera_leaves_other_running_and_stops_vlm_last(tmp_path):
     )
 
 
+# 功能：验证 `test_start_all_continues_after_one_camera_fails` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start_all`、`manager.is_running`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_start_all_continues_after_one_camera_fails(tmp_path):
     cameras = [
@@ -329,6 +532,14 @@ def test_start_all_continues_after_one_camera_fails(tmp_path):
     assert manager.is_running(GENERAL, "camera-b") is True
 
 
+# 功能：验证 `test_unexpected_exit_uses_bounded_backoff_and_user_stop_cancels_restart` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`range`、`manager.reconcile`、`delays.append`、`manager.stop`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_unexpected_exit_uses_bounded_backoff_and_user_stop_cancels_restart(tmp_path):
     cameras = [
@@ -353,6 +564,14 @@ def test_unexpected_exit_uses_bounded_backoff_and_user_stop_cancels_restart(tmp_
     assert runtime.restart_at is None
 
 
+# 功能：验证 `test_explicit_start_cleans_up_partially_alive_old_group` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`events.clear`、`manager.is_running`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_explicit_start_cleans_up_partially_alive_old_group(tmp_path):
     cameras = [
@@ -374,6 +593,14 @@ def test_explicit_start_cleans_up_partially_alive_old_group(tmp_path):
     assert manager.is_running(GENERAL, "camera-a") is True
 
 
+# 功能：验证 `test_vlm_start_failure_marks_camera_start_degraded_and_schedules_retry` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`manager.vlm_status`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_vlm_start_failure_marks_camera_start_degraded_and_schedules_retry(tmp_path):
     cameras = [
@@ -392,6 +619,14 @@ def test_vlm_start_failure_marks_camera_start_degraded_and_schedules_retry(tmp_p
     assert "vlm failed" in vlm["last_error"]
 
 
+# 功能：验证 `test_same_camera_id_runs_independently_in_two_departments` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_same_camera_id_runs_independently_in_two_departments(tmp_path):
     shared_camera = {
@@ -420,6 +655,14 @@ def test_same_camera_id_runs_independently_in_two_departments(tmp_path):
     assert ELECTRONICS in electronics_runtime.config_path.parts
 
 
+# 功能：验证 `test_start_all_and_stop_all_only_affect_requested_department` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start_all`、`manager.stop_all`、`manager.is_running`、`manager.vlm_process.poll`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_start_all_and_stop_all_only_affect_requested_department(tmp_path):
     cameras = {
@@ -441,6 +684,14 @@ def test_start_all_and_stop_all_only_affect_requested_department(tmp_path):
     assert manager.vlm_process.poll() is None
 
 
+# 功能：验证 `test_total_runtime_limit_and_duplicate_start_idempotency` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`len`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_total_runtime_limit_and_duplicate_start_idempotency(tmp_path):
     shared_camera = {
@@ -472,6 +723,14 @@ def test_total_runtime_limit_and_duplicate_start_idempotency(tmp_path):
     assert "上限" in over_limit["message"]
 
 
+# 功能：验证 `test_manager_rejects_unknown_department_and_unsafe_camera_id` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`pytest.raises`、`manager.start`、`manager.status`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_manager_rejects_unknown_department_and_unsafe_camera_id(tmp_path):
     manager, _events, _clock = make_manager(tmp_path, [])
@@ -483,6 +742,16 @@ def test_manager_rejects_unknown_department_and_unsafe_camera_id(tmp_path):
             manager.status(GENERAL, camera_id)
 
 
+# 功能：验证 `test_manager_resolves_relative_roots_from_security_vlm_project` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`camera_runtime.CameraRuntimeManager`、`(project_root / 'runtime').resolve`、`(project_root / 'runtime' /
+#          'legacy-cameras').resolve`、`(project_root / 'runtime' / 'custom' / 'departments').resolve`、`(project_root / 'data' /
+#          'custom' / 'departments').resolve`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
     project_root = tmp_path / "security_vlm"
@@ -520,6 +789,16 @@ def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
     ).resolve()
 
 
+# 功能：验证 `test_started_session_worker_reads_the_same_department_roi_directory` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`yaml.safe_load`、`manager._paths(GENERAL,
+#          'camera-a').config_path.read_text`、`manager._paths`、`str`、`(manager.departments_data_root / GENERAL /
+#          'rois').resolve`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_started_session_worker_reads_the_same_department_roi_directory(tmp_path):
     cameras = [
@@ -537,6 +816,14 @@ def test_started_session_worker_reads_the_same_department_roi_directory(tmp_path
     )
 
 
+# 功能：验证 `test_vlm_command_passes_exact_department_and_legacy_roots` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`next`、`vlm_command.index`、`str`、`pytest.mark.skipif`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_vlm_command_passes_exact_department_and_legacy_roots(tmp_path):
     cameras = [
@@ -559,6 +846,15 @@ def test_vlm_command_passes_exact_department_and_legacy_roots(tmp_path):
     )
 
 
+# 功能：验证 `test_stop_all_linearizes_against_concurrent_start` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`threading.Event`、`threading.Thread`、`start_result.update`、`stop_thread.start`、`stop_entered.wait`、`start_thread.start`、`allow_stop.set`、`stop_thread.join`
+#          等共 15 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_stop_all_linearizes_against_concurrent_start(tmp_path):
     cameras = [
@@ -571,6 +867,15 @@ def test_stop_all_linearizes_against_concurrent_start(tmp_path):
     stop_entered = threading.Event()
     allow_stop = threading.Event()
 
+    # 功能：停止并释放 `blocked_stop` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `department`（未显式标注）：业务部门名称或标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`stop_entered.set`、`allow_stop.wait`、`original_stop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def blocked_stop(department, camera_id):
         stop_entered.set()
         assert allow_stop.wait(timeout=2)
@@ -598,6 +903,15 @@ def test_stop_all_linearizes_against_concurrent_start(tmp_path):
         assert manager.is_running(GENERAL, "camera-b") is True
 
 
+# 功能：验证 `test_shutdown_rejects_concurrent_and_future_starts` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`manager.start`、`threading.Event`、`threading.Thread`、`concurrent.update`、`shutdown_thread.start`、`entered.wait`、`start_thread.start`、`release.set`、`shutdown_thread.join`
+#          等共 16 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
     cameras = [
@@ -610,6 +924,14 @@ def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
     release = threading.Event()
     original_terminate = manager._terminate_processes
 
+    # 功能：实现 `blocked_terminate` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `processes`（未显式标注）：`processes` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`entered.set`、`release.wait`、`original_terminate`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def blocked_terminate(processes):
         entered.set()
         assert release.wait(timeout=2)
@@ -638,6 +960,15 @@ def test_shutdown_rejects_concurrent_and_future_starts(tmp_path):
     assert all(not runtime.desired_running for runtime in manager.runtimes.values())
 
 
+# 功能：验证 `test_slow_stop_does_not_hold_cross_department_global_lock` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`threading.Event`、`camera_runtime.CameraRuntime`、`SlowProcess`、`FakeProcess`、`threading.Thread`、`stop_thread.start`、`wait_entered.wait`、`probe_thread.start`、`probe_done.wait`
+#          等共 15 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
     manager, events, _clock = make_manager(
@@ -662,10 +993,34 @@ def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
     wait_entered = threading.Event()
     release_wait = threading.Event()
 
+    # 功能：定义 `SlowProcess` 类，封装摄像头、运行时相关的状态、约束与操作
+    # 参数：无。
+    # 返回：SlowProcess；返回新建的 `SlowProcess` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class SlowProcess(FakeProcess):
+        # 功能：实现 `terminate` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self.events.append`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def terminate(self):
             self.events.append(("terminate", self.name))
 
+        # 功能：实现 `wait` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `timeout`（未显式标注）：允许操作等待的最长秒数；默认值为 `None`
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`wait_entered.set`、`release_wait.wait`。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def wait(self, timeout=None):
             wait_entered.set()
             assert release_wait.wait(timeout=2)
@@ -699,6 +1054,13 @@ def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
     probe_done = threading.Event()
     probe_result = []
 
+    # 功能：实现 `probe_other_department` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`probe_result.append`、`manager.is_running`、`probe_done.set`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def probe_other_department():
         probe_result.append(manager.is_running(ELECTRONICS, "camera-b"))
         probe_done.set()
@@ -714,6 +1076,15 @@ def test_slow_stop_does_not_hold_cross_department_global_lock(tmp_path):
     assert not stop_thread.is_alive()
 
 
+# 功能：验证 `test_reconcile_waits_for_old_group_before_same_camera_restart` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`make_manager`、`threading.Event`、`FakeProcess`、`camera_runtime.CameraRuntime`、`SlowProcess`、`threading.Thread`、`start_result.update`、`manager.start`、`reconcile_thread.start`、`wait_entered.wait`
+#          等共 18 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
 def test_reconcile_waits_for_old_group_before_same_camera_restart(tmp_path):
     cameras = [
@@ -723,10 +1094,34 @@ def test_reconcile_waits_for_old_group_before_same_camera_restart(tmp_path):
     wait_entered = threading.Event()
     release_wait = threading.Event()
 
+    # 功能：定义 `SlowProcess` 类，封装摄像头、运行时相关的状态、约束与操作
+    # 参数：无。
+    # 返回：SlowProcess；返回新建的 `SlowProcess` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class SlowProcess(FakeProcess):
+        # 功能：实现 `terminate` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；仅执行处理流程，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self.events.append`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def terminate(self):
             self.events.append(("terminate", self.name))
 
+        # 功能：实现 `wait` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `timeout`（未显式标注）：允许操作等待的最长秒数；默认值为 `None`
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`wait_entered.set`、`release_wait.wait`。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def wait(self, timeout=None):
             wait_entered.set()
             assert release_wait.wait(timeout=2)

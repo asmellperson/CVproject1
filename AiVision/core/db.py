@@ -1,3 +1,6 @@
+# 文件说明：定义`db` 模块的持久化模型、数据库连接或存取能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/db.py
 SQLAlchemy 引擎、会话、Base 声明。
@@ -20,6 +23,14 @@ _engine = None
 _session_factory: sessionmaker | None = None
 
 
+# 功能：提取 SQLAlchemy Column 的标量默认值，用于补列后的存量数据回填；输入与输出详见下方说明
+# 参数：
+#   - `column`（未显式标注）：`column` 对应的业务输入值
+# 返回：object | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/core/db.py` 的 `ensure_schema_compatible` 调用本符号
+#   - 内部调用：`isinstance`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _scalar_default(column) -> object | None:
     """
     提取 SQLAlchemy Column 的标量默认值，用于补列后的存量数据回填。
@@ -42,6 +53,13 @@ def _scalar_default(column) -> object | None:
     return None
 
 
+# 功能：获取全局 SQLAlchemy Engine（单例，延迟创建）；输入与输出详见下方说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_ensure_database_exists`、`create_engine`、`logger.info`。
+# 副作用/注意事项：会修改全局或闭包状态；会向日志系统输出运行或异常信息。
 def get_engine():
     """
     获取全局 SQLAlchemy Engine（单例，延迟创建）。
@@ -72,6 +90,13 @@ def get_engine():
     return _engine
 
 
+# 功能：获取全局 Session 工厂（单例，延迟创建）；输入与输出详见下方说明
+# 参数：无。
+# 返回：sessionmaker；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`sessionmaker`、`get_engine`。
+# 副作用/注意事项：会修改全局或闭包状态。
 def get_session_factory() -> sessionmaker:
     """
     获取全局 Session 工厂（单例，延迟创建）。
@@ -93,6 +118,13 @@ def get_session_factory() -> sessionmaker:
     return _session_factory
 
 
+# 功能：创建并返回一个新的数据库会话；输入与输出详见下方说明
+# 参数：无。
+# 返回：Session；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`get_session_factory()`、`get_session_factory`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_session() -> Session:
     """
     创建并返回一个新的数据库会话。
@@ -105,6 +137,13 @@ def get_session() -> Session:
     return get_session_factory()()
 
 
+# 功能：提供自动事务管理的上下文管理器；输入与输出详见下方说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`get_session`、`session.commit`、`session.rollback`、`session.close`。
+# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 @contextlib.contextmanager
 def session_scope():
     """
@@ -129,6 +168,13 @@ def session_scope():
         session.close()
 
 
+# 功能：根据所有已注册 ORM 模型在数据库中创建对应的表（不存在时创建，已存在时跳过）；输入与输出详见下方说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`Base.metadata.create_all`、`get_engine`、`logger.info`。
+# 副作用/注意事项：会向日志系统输出运行或异常信息。
 def create_all_tables():
     """
     根据所有已注册 ORM 模型在数据库中创建对应的表（不存在时创建，已存在时跳过）。
@@ -141,6 +187,14 @@ def create_all_tables():
     logger.info("[DB] 数据库表已创建/验证")
 
 
+# 功能：Additive-only Schema 修补 — 补齐旧库中缺失的列，不删除或修改已有列；输入与输出详见下方说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::start` 调用本符号
+#   - 内部调用：`get_engine`、`Base.metadata.create_all`、`inspect`、`engine.begin`、`set`、`inspector.get_table_names`、`inspector.get_columns`、`str`、`CreateColumn(column).compile`、`CreateColumn`
+#          等共 14 个调用。
+# 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
 def ensure_schema_compatible():
     """
     Additive-only Schema 修补 — 补齐旧库中缺失的列，不删除或修改已有列。
@@ -213,6 +267,13 @@ def ensure_schema_compatible():
         logger.info("[DB] Schema 兼容检查通过，无需补字段")
 
 
+# 功能：当 settings.db.auto_create 为 True 时，若目标数据库不存在则自动创建；输入与输出详见下方说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/core/db.py` 的 `get_engine` 调用本符号
+#   - 内部调用：`create_engine`、`temp_engine.connect`、`conn.execute`、`text`、`result.fetchone`、`conn.commit`、`logger.info`、`temp_engine.dispose`。
+# 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
 def _ensure_database_exists():
     """
     当 settings.db.auto_create 为 True 时，若目标数据库不存在则自动创建。
@@ -242,6 +303,13 @@ def _ensure_database_exists():
         temp_engine.dispose()  # 释放临时连接，不污染全局连接池
 
 
+# 功能：优雅关闭全局数据库连接池；输入与输出详见下方说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_engine.dispose`、`logger.info`。
+# 副作用/注意事项：会修改全局或闭包状态；会向日志系统输出运行或异常信息。
 def dispose():
     """
     优雅关闭全局数据库连接池。

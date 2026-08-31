@@ -1,3 +1,6 @@
+# 文件说明：定义运行时的 HTTP 接口、依赖注入或应用装配。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 api/v2/runtime.py
 运行状态、健康检查接口。
@@ -16,12 +19,30 @@ from core.system_config import system_config_service
 router = APIRouter(prefix="/api/v2/runtime", tags=["runtime"])
 
 
+# 功能：定义 `ExceptionAlertSettings` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `wechat_enable`（bool）：`wechat_enable` 对应的业务输入值
+#   - `wechat_user`（str）：`wechat_user` 对应的业务输入值
+#   - `repeat_interval_minutes`（int）：`repeat_interval_minutes` 对应的时间间隔或时长
+# 返回：ExceptionAlertSettings；返回新建的 `ExceptionAlertSettings` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ExceptionAlertSettings(BaseModel):
     wechat_enable: bool = False
     wechat_user: str = ""
     repeat_interval_minutes: int = 60
 
 
+# 功能：健康检查端点；输入与输出详见下方说明
+# 参数：
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/health')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`orchestrator.runtime_status`、`bool`、`status.get`、`len`、`inference.get`、`worker_status.get`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/health")
 def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
     """健康检查端点。
@@ -48,16 +69,42 @@ def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
     }
 
 
+# 功能：实现 `runtime_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/status')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`orchestrator.runtime_status`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/status")
 def runtime_status(orchestrator=Depends(get_current_orchestrator)) -> dict:
     return orchestrator.runtime_status()
 
 
+# 功能：读取或查询 `list_capabilities` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/capabilities')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`orchestrator.list_feature_runtime_statuses`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/capabilities")
 def list_capabilities(orchestrator=Depends(get_current_orchestrator)) -> dict:
     return {"items": orchestrator.list_feature_runtime_statuses()}
 
 
+# 功能：更新或保存 `_set_capability_state` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `enabled`（bool）：是否启用相应能力
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/runtime.py` 的 `start_capability` 调用本符号；`AiVision/api/v2/runtime.py` 的 `stop_capability` 调用本符号
+#   - 内部调用：`orchestrator.set_feature_enabled`、`HTTPException`、`str`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _set_capability_state(feature: str, enabled: bool, orchestrator) -> dict:
     try:
         return orchestrator.set_feature_enabled(feature, enabled)
@@ -67,6 +114,16 @@ def _set_capability_state(feature: str, enabled: bool, orchestrator) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+# 功能：启动或执行 `start_capability` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.post('/capabilities/{feature}/start')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_set_capability_state`、`router.post`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.post("/capabilities/{feature}/start")
 def start_capability(
     feature: str,
@@ -76,6 +133,16 @@ def start_capability(
     return _set_capability_state(feature, True, orchestrator)
 
 
+# 功能：停止并释放 `stop_capability` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.post('/capabilities/{feature}/stop')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_set_capability_state`、`router.post`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.post("/capabilities/{feature}/stop")
 def stop_capability(
     feature: str,
@@ -85,11 +152,27 @@ def stop_capability(
     return _set_capability_state(feature, False, orchestrator)
 
 
+# 功能：读取或查询 `get_exception_alert` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/exception-alert')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`system_config_service.get_exception_alert`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/exception-alert")
 def get_exception_alert() -> dict:
     return system_config_service.get_exception_alert()
 
 
+# 功能：更新或保存 `update_exception_alert` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `payload`（ExceptionAlertSettings）：接口或事件携带的业务数据
+#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/exception-alert')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`system_config_service.save_exception_alert`、`payload.model_dump`、`HTTPException`、`str`、`router.put`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put("/exception-alert")
 def update_exception_alert(
     payload: ExceptionAlertSettings,

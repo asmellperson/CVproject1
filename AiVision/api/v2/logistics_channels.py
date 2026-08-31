@@ -1,3 +1,6 @@
+# 文件说明：定义`logistics_channels` 模块的 HTTP 接口、依赖注入或应用装配。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """物流通道 CRUD、成员、运行状态和拼接画面 API。"""
 from __future__ import annotations
 
@@ -41,6 +44,14 @@ from platform.violation.orm import AiViolationImage
 router = APIRouter(prefix="/api/v2/logistics-channels", tags=["logistics-channels"])
 
 
+# 功能：通道元数据和通道级检测配置的一次更新；输入与输出详见下方说明
+# 参数：
+#   - `config`（LogisticsChannelConfigUpdate | None）：运行配置对象
+# 返回：LogisticsChannelPutRequest；返回新建的 `LogisticsChannelPutRequest` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`ConfigDict`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LogisticsChannelPutRequest(LogisticsChannelUpdate):
     """通道元数据和通道级检测配置的一次更新。"""
 
@@ -48,6 +59,17 @@ class LogisticsChannelPutRequest(LogisticsChannelUpdate):
     config: LogisticsChannelConfigUpdate | None = None
 
 
+# 功能：实现 `_require_feature_access` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `user`（dict）：当前用户或待处理用户对象
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channels` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `create_channel`
+#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#         `update_channel` 调用本符号；另有 14 处静态调用
+#   - 内部调用：`HTTPException`、`user.get`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _require_feature_access(feature: str, user: dict) -> str:
     if feature not in LOGISTICS_FEATURES:
         raise HTTPException(status_code=404, detail="logistics feature not found")
@@ -59,6 +81,16 @@ def _require_feature_access(feature: str, user: dict) -> str:
     return feature
 
 
+# 功能：实现 `_raise_service_error` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `exc`（ValueError）：`exc` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `create_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#         `update_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `update_channel_config`
+#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `add_camera` 调用本符号；另有 3 处静态调用
+#   - 内部调用：`str`、`any`、`HTTPException`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _raise_service_error(exc: ValueError) -> None:
     detail = str(exc)
     if "不存在" in detail:
@@ -70,6 +102,18 @@ def _raise_service_error(exc: ValueError) -> None:
     raise HTTPException(status_code=code, detail=detail) from exc
 
 
+# 功能：读取或查询 `_get_channel_or_404` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `service`（未显式标注）：`service` 对应的业务输入值
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#         `_require_channel_member` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel_status`
+#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel_frame` 调用本符号；另有 2 处静态调用
+#   - 内部调用：`service.get_channel`、`HTTPException`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _get_channel_or_404(service, feature: str, channel_id: int) -> dict:
     channel = service.get_channel(feature, channel_id)
     if channel is None:
@@ -77,6 +121,16 @@ def _get_channel_or_404(service, feature: str, channel_id: int) -> dict:
     return channel
 
 
+# 功能：读取或查询 `list_channels` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelListResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}', response_model=LogisticsChannelListResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`LogisticsChannelListResponse.model_validate`、`service.list_channels`、`_require_feature_access`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/{feature}", response_model=LogisticsChannelListResponse)
 def list_channels(
     feature: str,
@@ -88,6 +142,18 @@ def list_channels(
     )
 
 
+# 功能：创建或构建 `create_channel` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `payload`（LogisticsChannelCreate）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.post('/{feature}', status_code=status.HTTP_201_CREATED,
+#         response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`LogisticsChannelDetailResponse.model_validate`、`service.create_channel`、`_raise_service_error`、`router.post`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.post(
     "/{feature}",
     status_code=status.HTTP_201_CREATED,
@@ -108,6 +174,17 @@ def create_channel(
         _raise_service_error(exc)
 
 
+# 功能：读取或查询 `get_channel` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}', response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`LogisticsChannelDetailResponse.model_validate`、`_get_channel_or_404`、`_require_feature_access`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
 def get_channel(
     feature: str,
@@ -120,6 +197,18 @@ def get_channel(
     )
 
 
+# 功能：更新或保存 `update_channel` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `payload`（LogisticsChannelPutRequest）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}', response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`payload.model_dump`、`service.update_channel_and_config`、`HTTPException`、`LogisticsChannelDetailResponse.model_validate`、`_raise_service_error`、`router.put`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
 def update_channel(
     feature: str,
@@ -144,6 +233,19 @@ def update_channel(
         _raise_service_error(exc)
 
 
+# 功能：更新或保存 `update_channel_config` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `payload`（LogisticsChannelConfigUpdate）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/config', response_model=LogisticsChannelDetailResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`service.update_config`、`_raise_service_error`、`HTTPException`、`LogisticsChannelDetailResponse.model_validate`、`router.put`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put(
     "/{feature}/{channel_id}/config",
     response_model=LogisticsChannelDetailResponse,
@@ -165,6 +267,17 @@ def update_channel_config(
     return LogisticsChannelDetailResponse.model_validate(result)
 
 
+# 功能：删除或清理 `delete_channel` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelOkResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.delete('/{feature}/{channel_id}', response_model=LogisticsChannelOkResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`service.delete_channel`、`HTTPException`、`LogisticsChannelOkResponse`、`router.delete`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.delete("/{feature}/{channel_id}", response_model=LogisticsChannelOkResponse)
 def delete_channel(
     feature: str,
@@ -178,6 +291,19 @@ def delete_channel(
     return LogisticsChannelOkResponse(ok=True)
 
 
+# 功能：创建或构建 `add_camera` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `payload`（LogisticsChannelMemberCreate）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.post('/{feature}/{channel_id}/cameras', response_model=LogisticsChannelDetailResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`service.add_existing_camera`、`service.create_camera_and_bind`、`LogisticsChannelDetailResponse.model_validate`、`_raise_service_error`、`router.post`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.post(
     "/{feature}/{channel_id}/cameras",
     response_model=LogisticsChannelDetailResponse,
@@ -200,6 +326,19 @@ def add_camera(
         _raise_service_error(exc)
 
 
+# 功能：实现 `reorder_cameras` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `payload`（LogisticsChannelMemberOrder）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/cameras/order', response_model=LogisticsChannelDetailResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`LogisticsChannelDetailResponse.model_validate`、`service.reorder_members`、`_raise_service_error`、`router.put`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.put(
     "/{feature}/{channel_id}/cameras/order",
     response_model=LogisticsChannelDetailResponse,
@@ -220,6 +359,19 @@ def reorder_cameras(
         _raise_service_error(exc)
 
 
+# 功能：实现 `move_camera` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/cameras/{camera_id}', response_model=LogisticsChannelDetailResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`LogisticsChannelDetailResponse.model_validate`、`service.move_camera`、`_raise_service_error`、`router.put`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.put(
     "/{feature}/{channel_id}/cameras/{camera_id}",
     response_model=LogisticsChannelDetailResponse,
@@ -240,6 +392,20 @@ def move_camera(
         _raise_service_error(exc)
 
 
+# 功能：更新或保存 `set_camera_enabled` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `payload`（LogisticsChannelMemberEnabledUpdate）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/cameras/{camera_id}/enabled',
+#         response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`LogisticsChannelDetailResponse.model_validate`、`service.set_member_enabled`、`_raise_service_error`、`router.put`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.put(
     "/{feature}/{channel_id}/cameras/{camera_id}/enabled",
     response_model=LogisticsChannelDetailResponse,
@@ -266,6 +432,18 @@ def set_camera_enabled(
         _raise_service_error(exc)
 
 
+# 功能：实现 `_require_channel_member` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `service`（未显式标注）：`service` 对应的业务输入值
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `get_member_camera_config` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#         `update_member_camera_config` 调用本符号
+#   - 内部调用：`_get_channel_or_404`、`any`、`int`、`channel.get`、`HTTPException`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _require_channel_member(service, feature: str, channel_id: int, camera_id: int) -> dict:
     channel = _get_channel_or_404(service, feature, channel_id)
     if not any(
@@ -276,6 +454,20 @@ def _require_channel_member(service, feature: str, channel_id: int, camera_id: i
     return channel
 
 
+# 功能：读取或查询 `get_member_camera_config` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+# 返回：FeatureConfigResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/cameras/{camera_id}/config', response_model=FeatureConfigResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`feature_service.get_config`、`all_specs`、`str`、`HTTPException`、`FeatureConfigResponse`、`router.get`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get(
     "/{feature}/{channel_id}/cameras/{camera_id}/config",
     response_model=FeatureConfigResponse,
@@ -296,6 +488,22 @@ def get_member_camera_config(
     return FeatureConfigResponse(**result)
 
 
+# 功能：更新或保存 `update_member_camera_config` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `payload`（dict）：接口或事件携带的业务数据
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+# 返回：FeatureConfigResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/cameras/{camera_id}/config', response_model=FeatureConfigResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`all_specs`、`spec.config_schema.model_validate(payload).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_service.save_config`、`str`、`FeatureConfigResponse`
+#          等共 11 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put(
     "/{feature}/{channel_id}/cameras/{camera_id}/config",
     response_model=FeatureConfigResponse,
@@ -322,6 +530,19 @@ def update_member_camera_config(
     return FeatureConfigResponse(**result)
 
 
+# 功能：删除或清理 `remove_camera` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelOkResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.delete('/{feature}/{channel_id}/cameras/{camera_id}', response_model=LogisticsChannelOkResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`service.remove_camera`、`HTTPException`、`LogisticsChannelOkResponse`、`router.delete`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.delete(
     "/{feature}/{channel_id}/cameras/{camera_id}",
     response_model=LogisticsChannelOkResponse,
@@ -339,6 +560,19 @@ def remove_camera(
     return LogisticsChannelOkResponse(ok=True)
 
 
+# 功能：读取或查询 `get_channel_status` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+# 返回：LogisticsChannelRuntimeStatusResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/status', response_model=LogisticsChannelRuntimeStatusResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`_get_channel_or_404`、`orchestrator.get_logistics_channel_status`、`LogisticsChannelRuntimeStatusResponse.model_validate`、`channel.get`、`router.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get(
     "/{feature}/{channel_id}/status",
     response_model=LogisticsChannelRuntimeStatusResponse,
@@ -369,6 +603,22 @@ def get_channel_status(
     })
 
 
+# 功能：读取或查询 `get_channel_frame` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `quality`（int）：`quality` 对应的业务输入值；默认值为 `Query(85, ge=1, le=100)`
+#   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
+#   - `max_height`（int | None）：`max_height` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
+# 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/frame.jpg')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Query`、`Depends`、`_require_feature_access`、`_get_channel_or_404`、`orchestrator.get_logistics_channel_frame`、`HTTPException`、`encode_frame_to_jpeg`、`headers.update`、`frame_size_headers`、`Response`
+#          等共 11 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get("/{feature}/{channel_id}/frame.jpg")
 def get_channel_frame(
     feature: str,
@@ -401,6 +651,14 @@ def get_channel_frame(
     )
 
 
+# 功能：实现 `_alarm_dict` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `row`（AiViolationImage）：`row` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channel_alarms` 调用本符号
+#   - 内部调用：`str`、`(row.event_metadata or {}).get`、`int`、`row.create_time.isoformat`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
     return {
         "id": str(row.id),
@@ -414,6 +672,17 @@ def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
     }
 
 
+# 功能：读取或查询 `_channel_alarm_query` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `session`（未显式标注）：数据库会话或运行会话
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channel_alarms` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#         `channel_statistics` 调用本符号
+#   - 内部调用：`session.query(AiViolationImage).filter`、`session.query`、`str`、`all_specs`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _channel_alarm_query(session, feature: str, channel_id: int):
     return session.query(AiViolationImage).filter(
         AiViolationImage.subject_type == "logistics_channel",
@@ -422,6 +691,24 @@ def _channel_alarm_query(session, feature: str, channel_id: int):
     )
 
 
+# 功能：读取或查询 `list_channel_alarms` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `limit`（int）：返回或处理的最大记录数；默认值为 `Query(200, ge=1, le=1000)`
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelAlarmListResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/alarms', response_model=LogisticsChannelAlarmListResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Query`、`Depends`、`_require_feature_access`、`_get_channel_or_404`、`get_session`、`_channel_alarm_query(session, feature,
+#          channel_id).order_by(AiViolationImage.create_time.desc(),
+#          AiViolationImage.id.desc()).limit(limit).all`、`_channel_alarm_query(session, feature,
+#          channel_id).order_by(AiViolationImage.create_time.desc(),
+#          AiViolationImage.id.desc()).limit`、`_channel_alarm_query(session, feature,
+#          channel_id).order_by`、`_channel_alarm_query`、`AiViolationImage.create_time.desc` 等共 15 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get(
     "/{feature}/{channel_id}/alarms",
     response_model=LogisticsChannelAlarmListResponse,
@@ -447,6 +734,22 @@ def list_channel_alarms(
         session.close()
 
 
+# 功能：实现 `channel_statistics` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `feature`（str）：`feature` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `days`（int）：`days` 对应的业务输入值；默认值为 `Query(7, ge=1, le=90)`
+#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
+# 返回：LogisticsChannelStatisticsResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/statistics', response_model=LogisticsChannelStatisticsResponse)`
+#         注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Query`、`Depends`、`_require_feature_access`、`_get_channel_or_404`、`dt.datetime.now`、`now.replace`、`dt.timedelta`、`get_session`、`_channel_alarm_query(session,
+#          feature, channel_id).filter(AiViolationImage.create_time >=
+#          range_start).order_by(AiViolationImage.create_time.asc()).all`、`_channel_alarm_query(session, feature,
+#          channel_id).filter(AiViolationImage.create_time >= range_start).order_by` 等共 23 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @router.get(
     "/{feature}/{channel_id}/statistics",
     response_model=LogisticsChannelStatisticsResponse,

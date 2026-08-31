@@ -1,3 +1,6 @@
+# 文件说明：实现后台任务相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 ================================================================================
 capture_worker.py —— RTSP 视频采集子进程
@@ -43,6 +46,14 @@ from frame_hub import FrameHubWriter, ResultStore  # noqa: E402
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
+# 功能：改进程名,方便 ps / top 里识别(安装了 setproctitle 才生效)；输入与输出详见下方说明
+# 参数：
+#   - `title`（str）：`title` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`setproctitle`、`str`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def set_process_title(title: str) -> None:
     """改进程名,方便 ps / top 里识别(安装了 setproctitle 才生效)"""
     try:
@@ -52,21 +63,55 @@ def set_process_title(title: str) -> None:
         pass
 
 
+# 功能：读取或查询 `load_yaml` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path`（Path）：目标路径
+# 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`open`、`yaml.safe_load`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
+# 功能：相对路径以项目根为基准解析；输入与输出详见下方说明
+# 参数：
+#   - `p`（str）：`p` 对应的业务输入值
+#   - `base`（Path）：`base` 对应的业务输入值
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`Path`、`pp.is_absolute`、`pp.resolve`、`(base / pp).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_path(p: str, base: Path) -> Path:
     """相对路径以项目根为基准解析"""
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
 
 
+# 功能：检查或判断 `_is_rtsp_source` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`str(source).lower().startswith`、`str(source).lower`、`str`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _is_rtsp_source(source: str) -> bool:
     return str(source).lower().startswith(("rtsp://", "rtsps://"))
 
 
+# 功能：构造稳定解码 HEVC RTSP 的 FFmpeg rawvideo 命令；输入与输出详见下方说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `target_fps`（float）：`target_fps` 对应的业务输入值
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_open` 调用本符号
+#   - 内部调用：`_is_rtsp_source`、`command.extend`、`str`、`max`、`float`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_ffmpeg_command(source: str, target_fps: float) -> list[str]:
     """构造稳定解码 HEVC RTSP 的 FFmpeg rawvideo 命令。"""
     command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
@@ -85,6 +130,15 @@ def build_ffmpeg_command(source: str, target_fps: float) -> list[str]:
     return command
 
 
+# 功能：从管道读取恰好 size 字节；提前 EOF 时返回 None；输入与输出详见下方说明
+# 参数：
+#   - `stream`（未显式标注）：`stream` 对应的业务输入值
+#   - `size`（int）：`size` 对应的数量或大小
+# 返回：bytes | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_read_one_frame` 调用本符号
+#   - 内部调用：`int`、`bytearray`、`stream.read`、`chunks.extend`、`len`、`bytes`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def read_exact(stream, size: int) -> bytes | None:
     """从管道读取恰好 size 字节；提前 EOF 时返回 None。"""
     remaining = int(size)
@@ -101,6 +155,16 @@ def read_exact(stream, size: int) -> bytes | None:
     return bytes(chunks)
 
 
+# 功能：使用 ffprobe 获取视频尺寸，返回 (height, width, channels)；输入与输出详见下方说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `runner`（未显式标注）：`runner` 对应的业务输入值；默认值为 `None`
+# 返回：tuple[int, int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_is_rtsp_source`、`command.extend`、`str`、`run`、`json.loads(result.stdout or
+#          '{}').get`、`json.loads`、`int`、`streams[0].get`、`RuntimeError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def probe_video_shape(source: str, runner=None) -> tuple[int, int, int]:
     """使用 ffprobe 获取视频尺寸，返回 (height, width, channels)。"""
     command = ["ffprobe", "-v", "error"]
@@ -135,6 +199,15 @@ def probe_video_shape(source: str, runner=None) -> tuple[int, int, int]:
 _STOP = threading.Event()
 
 
+# 功能：实现 `_signal_handler` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `signum`（未显式标注）：`signum` 对应的业务输入值
+#   - `frame`（未显式标注）：待处理的视频图像帧
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_STOP.set`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _signal_handler(signum, frame):
     _STOP.set()
 
@@ -142,6 +215,19 @@ def _signal_handler(signum, frame):
 # ---------------------------------------------------------------------------
 # RtspCapture —— 后台线程拉流 + 自动重连
 # ---------------------------------------------------------------------------
+# 功能：后台线程从 FFmpeg rawvideo 管道读取完整 BGR 帧,把最新一帧用锁保护起来；输入与输出详见下方说明
+# 参数：
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `target_fps`（float）：`target_fps` 对应的业务输入值；默认值为 `10.0`
+#   - `log_prefix`（str）：`log_prefix` 对应的业务输入值；默认值为 `'[capture]'`
+#   - `process_factory`（未显式标注）：`process_factory` 对应的业务输入值；默认值为 `None`
+#   - `probe_runner`（未显式标注）：`probe_runner` 对应的业务输入值；默认值为 `None`
+#   - `sleep_fn`（未显式标注）：`sleep_fn` 对应的业务输入值；默认值为 `None`
+# 返回：RtspCapture；返回新建的 `RtspCapture` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `main` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class RtspCapture:
     """
     后台线程从 FFmpeg rawvideo 管道读取完整 BGR 帧,把最新一帧用锁保护起来。
@@ -152,6 +238,20 @@ class RtspCapture:
         - 等待 1 秒后重新拉起 FFmpeg
     """
 
+    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `source`（str）：`source` 对应的业务输入值
+    #   - `target_fps`（float）：`target_fps` 对应的业务输入值；默认值为 `10.0`
+    #   - `log_prefix`（str）：`log_prefix` 对应的业务输入值；默认值为 `'[capture]'`
+    #   - `process_factory`（未显式标注）：`process_factory` 对应的业务输入值；默认值为 `None`
+    #   - `probe_runner`（未显式标注）：`probe_runner` 对应的业务输入值；默认值为 `None`
+    #   - `sleep_fn`（未显式标注）：`sleep_fn` 对应的业务输入值；默认值为 `None`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`str`、`max`、`float`、`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         source: str,
@@ -176,6 +276,18 @@ class RtspCapture:
         self.stop_flag = False
         self.thread = None
 
+    # 功能：探测分辨率并启动 FFmpeg rawvideo 子进程；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::start`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_loop`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_capture_worker_ffmpeg.py` 的
+    #         `RtspCaptureLifecycleTests::test_capture_uses_ffmpeg_and_reads_a_complete_bgr_frame` 调用本符号
+    #   - 内部调用：`probe_video_shape`、`build_ffmpeg_command`、`self._process_factory`、`RuntimeError`、`threading.Thread(target=self._drain_stderr,
+    #          args=(self.process,), daemon=True).start`、`threading.Thread`、`time.time`、`print`、`self._close_process`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def _open(self) -> bool:
         """探测分辨率并启动 FFmpeg rawvideo 子进程。"""
         try:
@@ -215,6 +327,16 @@ class RtspCapture:
             )
             return False
 
+    # 功能：消费 FFmpeg stderr，避免管道写满，并隐藏 RTSP 凭据；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `process`（未显式标注）：`process` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`process.stderr.readline`、`raw_line.decode('utf-8',
+    #          errors='replace').strip`、`raw_line.decode`、`print`、`message.replace`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
     def _drain_stderr(self, process) -> None:
         """消费 FFmpeg stderr，避免管道写满，并隐藏 RTSP 凭据。"""
         if process.stderr is None:
@@ -232,6 +354,17 @@ class RtspCapture:
                     flush=True,
                 )
 
+    # 功能：从当前 FFmpeg 管道读取并复制一帧 BGR 图像；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_loop`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_capture_worker_ffmpeg.py` 的
+    #         `RtspCaptureLifecycleTests::test_capture_uses_ffmpeg_and_reads_a_complete_bgr_frame` 调用本符号
+    #   - 内部调用：`int`、`np.prod`、`read_exact`、`np.frombuffer(raw, dtype=np.uint8).reshape(self.frame_shape).copy`、`np.frombuffer(raw,
+    #          dtype=np.uint8).reshape`、`np.frombuffer`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _read_one_frame(self):
         """从当前 FFmpeg 管道读取并复制一帧 BGR 图像。"""
         process = self.process
@@ -243,6 +376,18 @@ class RtspCapture:
             return None
         return np.frombuffer(raw, dtype=np.uint8).reshape(self.frame_shape).copy()
 
+    # 功能：终止并回收当前 FFmpeg 子进程及其管道；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_open`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::_loop`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::release`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_capture_worker_ffmpeg.py` 的
+    #         `RtspCaptureLifecycleTests::test_close_process_terminates_running_ffmpeg` 调用本符号
+    #   - 内部调用：`process.poll`、`process.terminate`、`process.wait`、`process.kill`、`getattr`、`callable`、`close`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def _close_process(self) -> None:
         """终止并回收当前 FFmpeg 子进程及其管道。"""
         process = self.process
@@ -268,6 +413,14 @@ class RtspCapture:
                 except OSError:
                     pass
 
+    # 功能：启动或执行 `start` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._open`、`RuntimeError`、`threading.Thread`、`self.thread.start`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def start(self):
         if not self._open():
             raise RuntimeError("无法通过 FFmpeg 打开视频源")
@@ -275,6 +428,15 @@ class RtspCapture:
         self.thread.start()
         return self
 
+    # 功能：后台线程主循环；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_capture_worker_ffmpeg.py` 的
+    #         `RtspCaptureLifecycleTests::test_incomplete_frame_restarts_ffmpeg_before_publishing` 调用本符号
+    #   - 内部调用：`self._open`、`self._sleep`、`self._read_one_frame`、`print`、`self._close_process`、`time.time`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
     def _loop(self):
         """后台线程主循环"""
         while not self.stop_flag:
@@ -302,6 +464,14 @@ class RtspCapture:
                 self.frame = frame
                 self.frame_id += 1
 
+    # 功能：供主线程调用,拿最新帧的拷贝 (避免被后台线程覆盖)；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `RtspCapture::wait_first_frame` 调用本符号
+    #   - 内部调用：`self.frame.copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def read(self):
         """供主线程调用,拿最新帧的拷贝 (避免被后台线程覆盖)"""
         with self.lock:
@@ -309,6 +479,15 @@ class RtspCapture:
                 return False, None, -1
             return True, self.frame.copy(), self.frame_id
 
+    # 功能：阻塞等首帧,主要为了拿到分辨率以初始化 FrameHubWriter；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `15.0`
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `main` 调用本符号
+    #   - 内部调用：`time.time`、`self.read`、`time.sleep`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def wait_first_frame(self, timeout: float = 15.0) -> bool:
         """阻塞等首帧,主要为了拿到分辨率以初始化 FrameHubWriter"""
         t0 = time.time()
@@ -319,6 +498,14 @@ class RtspCapture:
             time.sleep(0.1)
         return False
 
+    # 功能：停止并释放 `release` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._close_process`、`self.thread.join`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def release(self):
         self.stop_flag = True
         self._close_process()
@@ -329,6 +516,14 @@ class RtspCapture:
 # ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
+# 功能：实现 `main` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`set_process_title`、`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`Path(__file__).resolve`、`Path`、`resolve_path`、`load_yaml`、`str`、`Path(cfg['runtime']['dir']).resolve`
+#          等共 30 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def main():
     set_process_title("security_vlm[capture]")
     parser = argparse.ArgumentParser()

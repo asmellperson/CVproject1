@@ -1,3 +1,6 @@
+# 文件说明：实现告警相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # alarm_clip_recorder.py
 """
 报警片段录制模块。
@@ -20,6 +23,22 @@ from .types import AlarmEvent
 from .utils import ensure_dir
 
 
+# 功能：单次报警录制任务的完整状态；输入与输出详见下方说明
+# 参数：
+#   - `event`（AlarmEvent）：待处理的事件对象
+#   - `alarm_user`（str）：`alarm_user` 对应的业务输入值
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `snapshot_frame`（np.ndarray）：`snapshot_frame` 对应的业务输入值
+#   - `start_ts`（float）：`start_ts` 对应的业务输入值
+#   - `end_ts`（float）：`end_ts` 对应的业务输入值
+#   - `video_path`（str）：`video_path` 对应的业务输入值
+#   - `writer`（Optional[cv2.VideoWriter]）：`writer` 对应的业务输入值
+#   - `frames_written`（int）：`frames_written` 对应的业务输入值
+# 返回：AlarmClipTask；返回新建的 `AlarmClipTask` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/alarm_clip_recorder.py` 的 `AlarmClipRecorder::start_clip` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class AlarmClipTask:
     """单次报警录制任务的完整状态。
@@ -50,6 +69,16 @@ class AlarmClipTask:
     frames_written: int = 0
 
 
+# 功能：线程安全的报警视频片段录制器；输入与输出详见下方说明
+# 参数：
+#   - `output_dir`（str | Path）：`output_dir` 对应的业务输入值
+#   - `fps`（int）：`fps` 对应的业务输入值；默认值为 `10`
+#   - `clip_seconds`（float）：`clip_seconds` 对应的时间间隔或时长；默认值为 `5.0`
+# 返回：AlarmClipRecorder；返回新建的 `AlarmClipRecorder` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::__init__` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmClipRecorder:
     """线程安全的报警视频片段录制器。
 
@@ -63,6 +92,17 @@ class AlarmClipRecorder:
     内部使用 threading.Lock 保护任务列表，确保跨线程安全。
     """
 
+    # 功能：初始化录制器；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `output_dir`（str | Path）：`output_dir` 对应的业务输入值
+    #   - `fps`（int）：`fps` 对应的业务输入值；默认值为 `10`
+    #   - `clip_seconds`（float）：`clip_seconds` 对应的时间间隔或时长；默认值为 `5.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`ensure_dir`、`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         output_dir: str | Path,
@@ -82,6 +122,19 @@ class AlarmClipRecorder:
         self._lock = threading.Lock()           # 保护 _tasks 的互斥锁
         self._tasks: List[AlarmClipTask] = []   # 当前所有活跃录制任务
 
+    # 功能：注册一个新的报警录制任务；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event`（AlarmEvent）：待处理的事件对象
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `camera_name`（str）：`camera_name` 对应的业务输入值
+    #   - `alarm_user`（str）：`alarm_user` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`datetime.now().strftime`、`datetime.now`、`str`、`Path`、`AlarmClipTask`、`frame.copy`、`self._tasks.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def start_clip(
         self,
         *,
@@ -121,6 +174,16 @@ class AlarmClipRecorder:
         with self._lock:
             self._tasks.append(task)
 
+    # 功能：将当前帧写入所有活跃录制任务，并返回本轮完成的任务；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    # 返回：list[AlarmClipTask]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`cv2.resize`、`int`、`cv2.VideoWriter_fourcc`、`cv2.VideoWriter`、`task.writer.write`、`task.writer.release`、`finished.append`、`alive.append`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def update(self, frame: np.ndarray, timestamp_s: float) -> list[AlarmClipTask]:
         """将当前帧写入所有活跃录制任务，并返回本轮完成的任务。
 
@@ -176,6 +239,14 @@ class AlarmClipRecorder:
 
         return finished
 
+    # 功能：释放所有未完成任务占用的资源；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`task.writer.release`、`self._tasks.clear`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def close(self) -> None:
         """释放所有未完成任务占用的资源。
 

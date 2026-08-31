@@ -1,3 +1,6 @@
+# 文件说明：实现`spec` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 features/_base/spec.py
 FeatureSpec — 功能元数据声明。
@@ -15,6 +18,21 @@ from pydantic import BaseModel
 from sqlalchemy.orm import DeclarativeBase
 
 
+# 功能：单个功能的全部元数据；输入与输出详见下方说明
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `display_name`（str）：`display_name` 对应的业务输入值
+#   - `consumer_cls`（Type）：`consumer_cls` 对应的业务输入值
+#   - `orm_class`（Type[DeclarativeBase]）：`orm_class` 对应的业务输入值
+#   - `config_schema`（Type[BaseModel]）：`config_schema` 对应的业务输入值
+#   - `required_models`（tuple[str, ...]）：`required_models` 对应的业务输入值
+#   - `violation_type`（int）：`violation_type` 对应的业务输入值
+#   - `departments`（tuple[str, ...]）：`departments` 对应的业务输入值
+# 返回：FeatureSpec；返回新建的 `FeatureSpec` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`field`、`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class FeatureSpec:
     """单个功能的全部元数据"""
@@ -46,6 +64,14 @@ class FeatureSpec:
     departments: tuple[str, ...] = field(default_factory=tuple)
     """默认归属部门列表。空 tuple 表示无默认部门(可由 DB 覆盖)"""
 
+    # 功能：实现 `__repr__` 对应的`spec` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`list`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def __repr__(self) -> str:
         models = list(self.required_models) or "无"
         depts = list(self.departments) or "无"

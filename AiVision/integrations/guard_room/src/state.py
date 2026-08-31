@@ -1,3 +1,6 @@
+# 文件说明：实现状态管理相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # state.py
 """
 应用共享状态模块。
@@ -34,12 +37,35 @@ from .config import AppConfig
 from .types import AlarmEvent, Detection
 
 
+# 功能：运行时与 Web API 之间的线程安全共享状态容器；输入与输出详见下方说明
+# 参数：
+#   - `cfg`（AppConfig）：运行配置对象
+#   - `config_path`（str | Path）：`config_path` 对应的业务输入值
+# 返回：AppState；返回新建的 `AppState` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/tests/test_runtime_phone_conf.py` 的
+#         `test_phone_crop_detection_uses_phone_conf_instead_of_scaled_detector_conf`
+#         实例化本符号；`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的
+#         `test_status_reports_guards_separately_from_all_detected_people` 实例化本符号；`AiVision/integrations/guard_room/src/server.py` 的
+#         `create_app` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AppState:
     """运行时与 Web API 之间的线程安全共享状态容器。
 
     所有公开方法均通过 RLock 保证线程安全，调用方无需外部加锁。
     """
 
+    # 功能：cfg:         初始应用配置，后续可通过 set_config() 热替换；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `cfg`（AppConfig）：运行配置对象
+    #   - `config_path`（str | Path）：`config_path` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`threading.RLock`、`str`、`self._build_placeholder`、`', '.join`、`cfg.camera_sources`、`deque`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self, cfg: AppConfig, config_path: str | Path):
         """
         Args:
@@ -104,6 +130,17 @@ class AppState:
     # 配置管理
     # -----------------------------------------------------------------------
 
+    # 功能：替换当前配置对象（配置热更新时调用）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `cfg`（AppConfig）：运行配置对象
+    #   - `config_path`（str | Path | None）：`config_path` 对应的业务输入值；默认值为 `None`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::update_config` 调用本符号
+    #   - 内部调用：`', '.join`、`cfg.camera_sources`、`str`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def set_config(self, cfg: AppConfig, config_path: str | Path | None = None) -> None:
         """替换当前配置对象（配置热更新时调用）。
 
@@ -123,6 +160,18 @@ class AppState:
     # 运行状态管理
     # -----------------------------------------------------------------------
 
+    # 功能：标记系统运行/停止状态；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `running`（bool）：`running` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/tests/test_runtime_manager.py` 的 `FakeRuntime::start`
+    #         调用本符号；`AiVision/integrations/guard_room/tests/test_runtime_manager.py` 的 `FakeRuntime::stop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::stop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`time.time`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def mark_running(self, running: bool) -> None:
         """标记系统运行/停止状态。
 
@@ -136,6 +185,15 @@ class AppState:
             else:
                 self.started_at = None
 
+    # 功能：记录运行时异常，同时将 running 置为 False；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `message`（str）：用于展示、记录或发送的文本消息
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def set_error(self, message: str) -> None:
         """记录运行时异常，同时将 running 置为 False。
 
@@ -145,11 +203,28 @@ class AppState:
             self.error = message
             self.running = False
 
+    # 功能：清除错误信息，通常在新一轮启动前调用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def clear_error(self) -> None:
         """清除错误信息，通常在新一轮启动前调用。"""
         with self._lock:
             self.error = None
 
+    # 功能：设置摄像头读取警告（如流中断、重连中）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `message`（str）：用于展示、记录或发送的文本消息
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def set_reader_warning(self, message: str) -> None:
         """设置摄像头读取警告（如流中断、重连中）。
 
@@ -158,6 +233,14 @@ class AppState:
         with self._lock:
             self.reader_warning = message
 
+    # 功能：清除摄像头读取警告（摄像头恢复正常后调用）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def clear_reader_warning(self) -> None:
         """清除摄像头读取警告（摄像头恢复正常后调用）。"""
         with self._lock:
@@ -167,6 +250,30 @@ class AppState:
     # 帧与检测结果更新
     # -----------------------------------------------------------------------
 
+    # 功能：将最新标注帧及检测结果写入共享状态，供推流和状态接口读取；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame_bgr`（np.ndarray）：`frame_bgr` 对应的业务输入值
+    #   - `frame_count`（int）：`frame_count` 对应的数量或大小
+    #   - `fps`（float）：`fps` 对应的业务输入值
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `persons`（list[Detection]）：`persons` 对应的业务输入值
+    #   - `guards`（list[Detection] | None）：`guards` 对应的业务输入值；默认值为 `None`
+    #   - `guard_confidence`（float）：`guard_confidence` 对应的业务输入值；默认值为 `0.0`
+    #   - `phones`（list[Detection]）：`phones` 对应的业务输入值
+    #   - `pose_features`（dict[int, dict[str, float]]）：`pose_features` 对应的业务输入值
+    #   - `decisions`（dict[str, Any]）：`decisions` 对应的业务输入值
+    #   - `pose_enabled`（bool）：`pose_enabled` 对应的业务输入值
+    #   - `jpeg_quality`（int）：`jpeg_quality` 对应的业务输入值；默认值为 `80`
+    #   - `vehicles`（list[Detection] | None）：`vehicles` 对应的业务输入值；默认值为 `None`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/tests/test_state_guard_status.py` 的
+    #         `test_status_reports_guards_separately_from_all_detected_people`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`cv2.imencode`、`int`、`max`、`float`、`v.get`、`pose_features.values`、`encoded.tobytes`、`bool`、`time.time`、`self._det_to_dict`
+    #          等共 16 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def update_frame(
         self,
         frame_bgr: np.ndarray,
@@ -255,6 +362,16 @@ class AppState:
                 "stream_time_s": round(timestamp_s, 2),
             }
 
+    # 功能：保存每路摄像头的最新单路 JPEG 帧，供配置页按摄像头绘制 ROI；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frames_by_camera`（dict[str, np.ndarray]）：`frames_by_camera` 对应的业务输入值
+    #   - `jpeg_quality`（int）：`jpeg_quality` 对应的业务输入值；默认值为 `80`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`frames_by_camera.items`、`cv2.imencode`、`int`、`str`、`encoded.tobytes`、`self.camera_jpegs.update`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_camera_frames(
         self,
         frames_by_camera: dict[str, np.ndarray],
@@ -282,6 +399,15 @@ class AppState:
     # 报警管理
     # -----------------------------------------------------------------------
 
+    # 功能：将 AlarmEvent 转换为字典并追加到报警队列；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `alarm`（AlarmEvent）：`alarm` 对应的业务输入值
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`asdict`、`uuid.uuid4`、`datetime.now().isoformat`、`datetime.now`、`self.alarms.appendleft`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def add_alarm(self, alarm: AlarmEvent) -> dict[str, Any]:
         """将 AlarmEvent 转换为字典并追加到报警队列。
 
@@ -302,6 +428,17 @@ class AppState:
             self.alarms.appendleft(payload)     # 最新记录放队列头部，便于 get_alarms 直接截取
         return payload
 
+    # 功能：将录制完成的视频路径回写到对应报警记录，更新状态为 "ready"；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_type`（str）：事件类型标识
+    #   - `frame_index`（int）：视频流中的帧序号
+    #   - `video_path`（str）：`video_path` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`self.last_alarm.get`、`item.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def attach_alarm_video(self, event_type: str, frame_index: int, video_path: str) -> None:
         """将录制完成的视频路径回写到对应报警记录，更新状态为 "ready"。
 
@@ -326,6 +463,16 @@ class AppState:
                     item["video_status"] = "ready"
                     break
 
+    # 功能：将对应报警的视频状态标记为 "failed"；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_type`（str）：事件类型标识
+    #   - `frame_index`（int）：视频流中的帧序号
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.last_alarm.get`、`item.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def mark_alarm_video_failed(self, event_type: str, frame_index: int) -> None:
         """将对应报警的视频状态标记为 "failed"。
 
@@ -352,6 +499,14 @@ class AppState:
     # 数据读取（Web API 调用）
     # -----------------------------------------------------------------------
 
+    # 功能：返回系统完整状态快照，供 /api/status 接口使用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`max`、`time.time`、`round`、`datetime.now().isoformat`、`datetime.now`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_status(self) -> dict[str, Any]:
         """返回系统完整状态快照，供 /api/status 接口使用。
 
@@ -380,11 +535,28 @@ class AppState:
                 **self.latest_detections,   # 展开检测结果到顶层，方便前端直接访问
             }
 
+    # 功能：返回当前配置的完整字典表示（线程安全）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_config`
+    #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::update_config` 调用本符号
+    #   - 内部调用：`self.config.to_dict`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_config_dict(self) -> dict[str, Any]:
         """返回当前配置的完整字典表示（线程安全）。"""
         with self._lock:
             return self.config.to_dict()
 
+    # 功能：返回最新帧的 JPEG 二进制数据（线程安全）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bytes；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_latest_frame(self) -> bytes:
         """返回最新帧的 JPEG 二进制数据（线程安全）。
 
@@ -393,6 +565,15 @@ class AppState:
         with self._lock:
             return self.latest_jpeg
 
+    # 功能：返回指定摄像头最新单路 JPEG；尚无画面时返回该摄像头占位帧；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：bytes；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`str(camera_id or '').strip`、`str`、`self.camera_jpegs.get`、`self._build_placeholder`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_camera_frame(self, camera_id: str) -> bytes:
         """返回指定摄像头最新单路 JPEG；尚无画面时返回该摄像头占位帧。"""
         key = str(camera_id or "").strip()
@@ -400,11 +581,29 @@ class AppState:
             frame = self.camera_jpegs.get(key)
         return frame if frame is not None else self._build_placeholder(f"Waiting for {key or 'camera'}")
 
+    # 功能：返回最近 limit 条报警记录（最新在前）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `50`
+    # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/state.py` 的 `AppState::get_statistics` 调用本符号
+    #   - 内部调用：`list`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_alarms(self, limit: int = 50) -> list[dict[str, Any]]:
         """返回最近 limit 条报警记录（最新在前）。"""
         with self._lock:
             return list(self.alarms)[:limit]
 
+    # 功能：按 alarm_id 查找单条报警记录，不存在时返回 None；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `alarm_id`（str）：`alarm_id` 对应业务对象的唯一标识
+    # 返回：Optional[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_alarm(self, alarm_id: str) -> Optional[dict[str, Any]]:
         """按 alarm_id 查找单条报警记录，不存在时返回 None。"""
         with self._lock:
@@ -413,6 +612,15 @@ class AppState:
                     return item
         return None     # 遍历完未找到，返回 None（在锁外返回也安全，None 是不可变对象）
 
+    # 功能：计算并返回报警统计数据，供图表展示使用；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.get_alarms`、`datetime.now`、`len`、`sum`、`range`、`(now -
+    #          timedelta(days=i)).date`、`timedelta`、`datetime.fromisoformat`、`created_at.date`、`now.date` 等共 12 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_statistics(self) -> dict[str, Any]:
         """计算并返回报警统计数据，供图表展示使用。
 
@@ -478,6 +686,14 @@ class AppState:
     # 静态辅助方法
     # -----------------------------------------------------------------------
 
+    # 功能：将 Detection 对象序列化为 JSON 兼容字典；输入与输出详见下方说明
+    # 参数：
+    #   - `det`（Detection）：`det` 对应的业务输入值
+    # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/state.py` 的 `AppState::update_frame` 调用本符号
+    #   - 内部调用：`float`、`list`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _det_to_dict(det: Detection) -> dict[str, Any]:
         """将 Detection 对象序列化为 JSON 兼容字典。
@@ -491,6 +707,15 @@ class AppState:
             "track_id": det.track_id,
         }
 
+    # 功能：生成带文字提示的深色占位帧（1280×720 JPEG）；输入与输出详见下方说明
+    # 参数：
+    #   - `text`（str）：`text` 对应的业务输入值
+    # 返回：bytes；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/state.py` 的 `AppState::__init__`
+    #         调用本符号；`AiVision/integrations/guard_room/src/state.py` 的 `AppState::get_camera_frame` 调用本符号
+    #   - 内部调用：`np.zeros`、`cv2.putText`、`cv2.imencode`、`encoded.tobytes`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _build_placeholder(text: str) -> bytes:
         """生成带文字提示的深色占位帧（1280×720 JPEG）。

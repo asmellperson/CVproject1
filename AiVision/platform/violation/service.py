@@ -1,3 +1,6 @@
+# 文件说明：封装业务服务的业务规则与持久化访问。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 platform/violation/service.py
 违规图片异步批量写入器 — 替代旧 SQL 类里 run / _commit_batch / insert_alarm 那一坨。
@@ -26,9 +29,24 @@ from .cleanup import GIB, MediaCleanupStats, ViolationMediaCleaner
 from .orm import AiViolationImage
 
 
+# 功能：违规图片落盘 + 数据库异步写入；输入与输出详见下方说明
+# 参数：无。
+# 返回：AsyncViolationWriter；返回新建的 `AsyncViolationWriter` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AsyncViolationWriter:
     """违规图片落盘 + 数据库异步写入"""
 
+    # 功能：初始化或配置 `__init__` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Queue`、`threading.Event`、`Path(settings.storage.data_path).expanduser().resolve`、`Path(settings.storage.data_path).expanduser`、`Path`、`max`、`int`、`float`、`self._data_path.mkdir`、`ViolationMediaCleaner`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
     def __init__(self):
         self._queue: Queue = Queue(maxsize=1000)
         self._stop_event = threading.Event()
@@ -57,6 +75,24 @@ class AsyncViolationWriter:
 
     # ---------- 公开接口 ----------
 
+    # 功能：从 Consumer 调来的入口 — 立即返回,后台线程负责落盘和 DB 写；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `violation_type`（int）：`violation_type` 对应的业务输入值
+    #   - `camera_no`（str）：`camera_no` 对应的业务输入值
+    #   - `subject_type`（str）：`subject_type` 对应的业务输入值；默认值为 `'camera'`
+    #   - `subject_id`（str）：`subject_id` 对应业务对象的唯一标识；默认值为 `''`
+    #   - `subject_name`（str）：`subject_name` 对应的业务输入值；默认值为 `''`
+    #   - `reason`（str）：`reason` 对应的业务输入值；默认值为 `''`
+    #   - `event_metadata`（dict | None）：`event_metadata` 对应的业务输入值；默认值为 `None`
+    #   - `video_path`（str | None）：`video_path` 对应的业务输入值；默认值为 `None`
+    #   - `video_status`（str | None）：`video_status` 对应的业务输入值；默认值为 `None`
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._queue.put_nowait`、`datetime.datetime.now`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def enqueue(
         self,
         frame: np.ndarray,
@@ -86,6 +122,24 @@ class AsyncViolationWriter:
             "ts": datetime.datetime.now(),
         })
 
+    # 功能：同步保存单条违规记录并返回已入库对象；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `violation_type`（int）：`violation_type` 对应的业务输入值
+    #   - `camera_no`（str）：`camera_no` 对应的业务输入值
+    #   - `subject_type`（str）：`subject_type` 对应的业务输入值；默认值为 `'camera'`
+    #   - `subject_id`（str）：`subject_id` 对应业务对象的唯一标识；默认值为 `''`
+    #   - `subject_name`（str）：`subject_name` 对应的业务输入值；默认值为 `''`
+    #   - `reason`（str）：`reason` 对应的业务输入值；默认值为 `''`
+    #   - `event_metadata`（dict | None）：`event_metadata` 对应的业务输入值；默认值为 `None`
+    #   - `video_path`（str | None）：`video_path` 对应的业务输入值；默认值为 `None`
+    #   - `video_status`（str | None）：`video_status` 对应的业务输入值；默认值为 `None`
+    # 返回：AiViolationImage | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._save_image`、`datetime.datetime.now`、`session_scope`、`AiViolationImage`、`session.add`、`session.flush`、`logger.warning`。
+    # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def save_now(
         self,
         *,
@@ -130,6 +184,17 @@ class AsyncViolationWriter:
             logger.warning(f"[ViolationWriter] 同步提交失败: {e}")
             return None
 
+    # 功能：Update the alarm row after its asynchronous evidence clip finishes；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `video_path`（str）：`video_path` 对应的业务输入值
+    #   - `status`（str）：当前或目标状态值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`range`、`session_scope`、`session.query(AiViolationImage).filter(AiViolationImage.video_path ==
+    #          str(video_path)).first`、`session.query(AiViolationImage).filter`、`session.query`、`str`、`logger.warning`、`time.sleep`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def update_video_status(self, video_path: str, status: str) -> None:
         """Update the alarm row after its asynchronous evidence clip finishes."""
         normalized_status = status if status in {"ready", "failed"} else "failed"
@@ -157,6 +222,14 @@ class AsyncViolationWriter:
 
     # ---------- 生命周期 ----------
 
+    # 功能：启动或执行 `start` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._thread.is_alive`、`self._stop_event.clear`、`threading.Thread`、`self._thread.start`、`BackgroundScheduler`、`pytz.timezone`、`self._scheduler.add_job`、`datetime.datetime.now`、`self._scheduler.start`、`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def start(self):
         if self._thread is not None and self._thread.is_alive():
             return
@@ -182,6 +255,14 @@ class AsyncViolationWriter:
             f"interval_minutes={self._cleanup_interval_minutes}"
         )
 
+    # 功能：停止并释放 `stop` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.set`、`self._thread.join`、`self._scheduler.shutdown`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def stop(self):
         self._stop_event.set()
         if self._thread:
@@ -194,6 +275,14 @@ class AsyncViolationWriter:
 
     # ---------- 内部 ----------
 
+    # 功能：启动或执行 `_run` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`time.time`、`self._stop_event.is_set`、`self._queue.get`、`self._save_image`、`batch.append`、`len`、`self._flush_batch`、`batch.clear`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _run(self):
         batch: list[dict] = []
         last_flush = time.time()
@@ -222,6 +311,16 @@ class AsyncViolationWriter:
         if batch:
             self._flush_batch(batch)
 
+    # 功能：同步写盘 — 返回供 DB 入库的行字典,失败返回 None；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `item`（dict）：`item` 对应的业务输入值
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::save_now`
+    #         调用本符号；`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::_run` 调用本符号
+    #   - 内部调用：`str`、`sub.mkdir`、`item['ts'].strftime`、`cv2.imwrite`、`OSError`、`item.get`、`logger.warning`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def _save_image(self, item: dict) -> dict | None:
         """同步写盘 — 返回供 DB 入库的行字典,失败返回 None"""
         try:
@@ -248,6 +347,15 @@ class AsyncViolationWriter:
             logger.warning(f"[ViolationWriter] 落盘失败: {e}")
             return None
 
+    # 功能：实现 `_flush_batch` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `batch`（list[dict]）：`batch` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::_run` 调用本符号
+    #   - 内部调用：`session_scope`、`session.add`、`AiViolationImage`、`logger.info`、`len`、`logger.warning`。
+    # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def _flush_batch(self, batch: list[dict]):
         try:
             with session_scope() as session:
@@ -257,6 +365,15 @@ class AsyncViolationWriter:
         except Exception as e:
             logger.warning(f"[ViolationWriter] 批量提交失败: {e}")
 
+    # 功能：清理过期图片和超出容量上限的最旧图片，并同步删除数据库记录；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `now`（datetime.datetime | None）：`now` 对应的业务输入值；默认值为 `None`
+    # 返回：MediaCleanupStats；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._media_cleaner.cleanup`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _delete_old(self, now: datetime.datetime | None = None) -> MediaCleanupStats:
         """清理过期图片和超出容量上限的最旧图片，并同步删除数据库记录。"""
         return self._media_cleaner.cleanup(now=now)

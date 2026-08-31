@@ -1,3 +1,6 @@
+# 文件说明：实现视频帧相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 ================================================================================
 frame_hub.py —— 共享内存帧库 + 原子 JSON 状态存储
@@ -35,6 +38,15 @@ FRAME_META_NAME = "frame_meta.json"
 FRAME_SLOT_NAMES = ("frame_slot_0.bin", "frame_slot_1.bin")
 
 
+# 功能：撤下旧 FrameHub 路径，避免分辨率变化时截断仍被映射的文件；输入与输出详见下方说明
+# 参数：
+#   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的 `test_frame_hub_resolution_change_keeps_old_mapping_safe`
+#         调用本符号；`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_start_runtime` 调用本符号
+#   - 内部调用：`Path(runtime_dir).resolve`、`Path`、`(root / FRAME_META_NAME).unlink`、`(root / name).unlink`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def reset_frame_hub(runtime_dir: Path) -> None:
     """撤下旧 FrameHub 路径，避免分辨率变化时截断仍被映射的文件。
 
@@ -50,6 +62,15 @@ def reset_frame_hub(runtime_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # JSON 原子读写工具
 # ---------------------------------------------------------------------------
+# 功能：原子写 JSON: 先写到同目录下的唯一临时文件,再用 os.replace 原地替换；输入与输出详见下方说明
+# 参数：
+#   - `path`（Path）：目标路径
+#   - `payload`（Dict[str, Any]）：接口或事件携带的业务数据
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.parent.mkdir`、`NamedTemporaryFile`、`Path`、`json.dump`、`tmp.flush`、`os.replace`、`tmp_path.unlink`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     """
     原子写 JSON: 先写到同目录下的唯一临时文件,再用 os.replace 原地替换。
@@ -76,6 +97,17 @@ def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
             tmp_path.unlink(missing_ok=True)
  
  
+# 功能：安全读 JSON: 文件不存在或解析失败时返回 default,不抛异常；输入与输出详见下方说明
+# 参数：
+#   - `path`（Path）：目标路径
+#   - `default`（Optional[Dict[str, Any]]）：`default` 对应的业务输入值；默认值为 `None`
+# 返回：Optional[Dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `FrameHubReader::_wait_ready`
+#         调用本符号；`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `FrameHubReader::get_latest_meta`
+#         调用本符号；`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `ResultStore::read` 调用本符号
+#   - 内部调用：`path.exists`、`json.loads`、`path.read_text`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def read_json(path: Path, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     安全读 JSON: 文件不存在或解析失败时返回 default,不抛异常。
@@ -93,6 +125,20 @@ def read_json(path: Path, default: Optional[Dict[str, Any]] = None) -> Optional[
 # ---------------------------------------------------------------------------
 # FrameHubWriter —— 由 capture_worker 使用,写最新视频帧
 # ---------------------------------------------------------------------------
+# 功能：采集进程使用: 把最新视频帧写入 /dev/shm 的双缓冲 slot；输入与输出详见下方说明
+# 参数：
+#   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+#   - `height`（int）：`height` 对应的业务输入值
+#   - `width`（int）：`width` 对应的业务输入值
+#   - `channels`（int）：`channels` 对应的业务输入值；默认值为 `3`
+# 返回：FrameHubWriter；返回新建的 `FrameHubWriter` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的 `test_frame_hub_resolution_change_keeps_old_mapping_safe`
+#         实例化本符号；`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
+#         `test_frame_hub_reader_retries_when_meta_precedes_slots::start_writer`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/capture_worker.py` 的 `main` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FrameHubWriter:
     """
     采集进程使用: 把最新视频帧写入 /dev/shm 的双缓冲 slot。
@@ -109,6 +155,18 @@ class FrameHubWriter:
         4. self.next_slot 翻转,下次写另一个 slot
     """
  
+    # 功能：初始化或配置 `__init__` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+    #   - `height`（int）：`height` 对应的业务输入值
+    #   - `width`（int）：`width` 对应的业务输入值
+    #   - `channels`（int）：`channels` 对应的业务输入值；默认值为 `3`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path(runtime_dir).resolve`、`Path`、`self.runtime_dir.mkdir`、`int`、`np.dtype`、`self.meta_path.unlink`、`self._init_slots`、`np.memmap`、`atomic_write_json`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def __init__(self, runtime_dir: Path, height: int, width: int, channels: int = 3):
         self.runtime_dir = Path(runtime_dir).resolve()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +203,14 @@ class FrameHubWriter:
             "dtype": "uint8", "slot_idx": 0, "frame_id": -1, "write_ts": 0.0,
         })
  
+    # 功能：以新 inode 创建固定大小 slot，保留旧 memmap 的访问安全；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `FrameHubWriter::__init__` 调用本符号
+    #   - 内部调用：`path.unlink`、`open`、`f.truncate`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def _init_slots(self) -> None:
         """以新 inode 创建固定大小 slot，保留旧 memmap 的访问安全。"""
         for path in self.slot_paths:
@@ -152,6 +218,16 @@ class FrameHubWriter:
             with open(path, "wb") as f:
                 f.truncate(self.nbytes)
  
+    # 功能：写一帧并切换 slot；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `frame_id`（int）：`frame_id` 对应业务对象的唯一标识
+    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`buf.flush`、`int`、`time.time`、`atomic_write_json`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def write(self, frame: np.ndarray, frame_id: int) -> Dict[str, Any]:
         """
         写一帧并切换 slot。
@@ -176,6 +252,19 @@ class FrameHubWriter:
 # ---------------------------------------------------------------------------
 # FrameHubReader —— 由 detector / session / web MJPEG 使用,只读最新帧
 # ---------------------------------------------------------------------------
+# 功能：下游 worker 使用: 只读最新帧,绝不阻塞写者；输入与输出详见下方说明
+# 参数：
+#   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+#   - `wait_timeout_sec`（float）：`wait_timeout_sec` 对应的业务输入值；默认值为 `15.0`
+# 返回：FrameHubReader；返回新建的 `FrameHubReader` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的 `test_frame_hub_resolution_change_keeps_old_mapping_safe`
+#         实例化本符号；`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
+#         `test_frame_hub_reader_retries_when_meta_precedes_slots`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/detector_worker.py` 的 `main`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_frame_hub` 实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FrameHubReader:
     """
     下游 worker 使用: 只读最新帧,绝不阻塞写者。
@@ -186,6 +275,16 @@ class FrameHubReader:
         3. 从对应 memmap 复制一份出来 (.copy() 防止下次写覆盖)
     """
  
+    # 功能：初始化或配置 `__init__` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+    #   - `wait_timeout_sec`（float）：`wait_timeout_sec` 对应的业务输入值；默认值为 `15.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path(runtime_dir).resolve`、`Path`、`float`、`self._wait_ready`、`int`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, runtime_dir: Path, wait_timeout_sec: float = 15.0):
         self.runtime_dir = Path(runtime_dir).resolve()
         self.meta_path = self.runtime_dir / FRAME_META_NAME
@@ -203,6 +302,14 @@ class FrameHubReader:
         self.channels = int(self.meta["channels"])
         self.dtype = np.uint8
 
+    # 功能：轮询完整 FrameHub，容忍启动或重启期间 meta/slot 短暂不同步；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：tuple[Dict[str, Any], list[np.memmap]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `FrameHubReader::__init__` 调用本符号
+    #   - 内部调用：`time.time`、`read_json`、`all`、`int`、`np.memmap`、`TimeoutError`、`time.sleep`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _wait_ready(self) -> tuple[Dict[str, Any], list[np.memmap]]:
         """轮询完整 FrameHub，容忍启动或重启期间 meta/slot 短暂不同步。"""
         t0 = time.time()
@@ -231,6 +338,17 @@ class FrameHubReader:
                 ) from last_error
             time.sleep(0.05)
  
+    # 功能：每次调用都重新读 meta,获取最新 slot_idx 和 frame_id；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `FrameHubReader::read_frame`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/detector_worker.py` 的 `main`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::_mjpeg`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 调用本符号
+    #   - 内部调用：`read_json`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def get_latest_meta(self) -> Dict[str, Any]:
         """
         每次调用都重新读 meta,获取最新 slot_idx 和 frame_id。
@@ -241,6 +359,20 @@ class FrameHubReader:
             self.meta = meta
         return self.meta
  
+    # 功能：读最新帧。.copy() 是必须的,否则下游处理过程中可能被写者覆盖；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `meta`（Optional[Dict[str, Any]]）：`meta` 对应的业务输入值；默认值为 `None`
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
+    #         `test_frame_hub_resolution_change_keeps_old_mapping_safe`
+    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
+    #         `test_frame_hub_reader_retries_when_meta_precedes_slots`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/detector_worker.py` 的 `main`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::_mjpeg` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`self.get_latest_meta`、`np.asarray(self.buffers[int(meta['slot_idx'])]).copy`、`np.asarray`、`int`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def read_frame(self, meta: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """
         读最新帧。.copy() 是必须的,否则下游处理过程中可能被写者覆盖。
@@ -249,6 +381,15 @@ class FrameHubReader:
         return np.asarray(self.buffers[int(meta["slot_idx"])]).copy()
 
 
+# 功能：返回下游 worker 等待 capture 首帧的统一超时时间；输入与输出详见下方说明
+# 参数：
+#   - `cfg`（Dict[str, Any]）：运行配置对象
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/detector_worker.py` 的 `main`
+#         调用本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 调用本符号
+#   - 内部调用：`cfg.get`、`max`、`float`、`runtime_cfg.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def framehub_wait_timeout(cfg: Dict[str, Any]) -> float:
     """返回下游 worker 等待 capture 首帧的统一超时时间。"""
     runtime_cfg = cfg.get("runtime", {}) or {}
@@ -258,6 +399,17 @@ def framehub_wait_timeout(cfg: Dict[str, Any]) -> float:
 # ---------------------------------------------------------------------------
 # ResultStore —— 跨进程通用 KV 状态存储
 # ---------------------------------------------------------------------------
+# 功能：worker 之间共享 JSON 状态的键值存储 (基于原子文件写)；输入与输出详见下方说明
+# 参数：
+#   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+# 返回：ResultStore；返回新建的 `ResultStore` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentResultStores::__init__`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/detector_worker.py` 的 `main`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::camera_store`
+#         实例化本符号；`AiVision/integrations/security_vlm/src/session_worker.py` 的 `main` 实例化本符号；另有 2 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ResultStore:
     """
     worker 之间共享 JSON 状态的键值存储 (基于原子文件写)。
@@ -278,19 +430,69 @@ class ResultStore:
         vlm_status            VLM 进程心跳
     """
  
+    # 功能：初始化或配置 `__init__` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`Path(runtime_dir).resolve`、`Path`、`self.runtime_dir.mkdir`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def __init__(self, runtime_dir: Path):
         self.runtime_dir = Path(runtime_dir).resolve()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
  
+    # 功能：实现 `_path` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `key`（str）：用于查询、分组或缓存的键
+    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `ResultStore::write`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `ResultStore::read`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/frame_hub.py` 的 `ResultStore::delete`
+    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `read_strict_result_object` 调用本符号；另有 4 处静态调用
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _path(self, key: str) -> Path:
         return self.runtime_dir / f"{key}.json"
  
+    # 功能：更新或保存 `write` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `key`（str）：用于查询、分组或缓存的键
+    #   - `payload`（Dict[str, Any]）：接口或事件携带的业务数据
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`atomic_write_json`、`self._path`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def write(self, key: str, payload: Dict[str, Any]) -> None:
         atomic_write_json(self._path(key), payload)
  
+    # 功能：读取或查询 `read` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `key`（str）：用于查询、分组或缓存的键
+    #   - `default`（Optional[Dict[str, Any]]）：`default` 对应的业务输入值；默认值为 `None`
+    # 返回：Optional[Dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`read_json`、`self._path`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def read(self, key: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         return read_json(self._path(key), default)
  
+    # 功能：删除或清理 `delete` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `key`（str）：用于查询、分组或缓存的键
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._path`、`p.exists`、`p.unlink`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def delete(self, key: str) -> None:
         p = self._path(key)
         if p.exists():

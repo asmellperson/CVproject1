@@ -1,3 +1,6 @@
+// 文件说明：实现页面权限相关的基础能力。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { AuthUser } from '@/auth/auth-context'
 import type { NavGroup, NavItem } from '@/lib/nav'
 
@@ -203,27 +206,82 @@ const pageIds = new Set<string>([
   'user-management',
 ])
 
+/**
+ * 功能：转换或规范化 `normalizePageId` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `pageId`（string）：`pageId` 对应业务对象的唯一标识
+ * 返回：PageId | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `hasPageAccess` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的
+ *         `getPageDisplayOverride` 调用本符号
+ *   - 内部调用：`has`、`return`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizePageId(pageId: string): PageId | null {
   if (!pageIds.has(pageId)) return null
   return (pageId === 'home' ? 'overview' : pageId) as PageId
 }
 
+/**
+ * 功能：转换或规范化 `normalizeKey` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `getUserRole` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的
+ *         `normalizeDepartment` 调用本符号
+ *   - 内部调用：`String`、`trim`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeKey(value: unknown) {
   return String(value ?? '').trim()
 }
 
+/**
+ * 功能：读取或查询 `getUserRole` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ * 返回：UserRole | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `hasPageAccess` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的
+ *         `getPageDisplayOverride` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `getAccessibleAlarmEventTypes` 调用本符号
+ *   - 内部调用：`normalizeKey`、`toLowerCase`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function getUserRole(user: AuthUser | null | undefined): UserRole | null {
   const rawRole = normalizeKey(user?.role)
   if (!rawRole) return null
   return roleAliases[rawRole] ?? roleAliases[rawRole.toLowerCase()] ?? null
 }
 
+/**
+ * 功能：转换或规范化 `normalizeDepartment` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ * 返回：Department | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `getUserDepartments` 调用本符号
+ *   - 内部调用：`normalizeKey`、`toLowerCase`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function normalizeDepartment(value: unknown): Department | null {
   const rawDepartment = normalizeKey(value)
   if (!rawDepartment) return null
   return departmentAliases[rawDepartment] ?? departmentAliases[rawDepartment.toLowerCase()] ?? null
 }
 
+/**
+ * 功能：读取或查询 `getUserDepartments` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ * 返回：Department[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `getUserDepartment` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的
+ *         `hasPageAccess` 调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `getPageDisplayOverride`
+ *         调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `getAccessibleAlarmEventTypes` 调用本符号；另有 1 处静态调用
+ *   - 内部调用：`isArray`、`forEach`、`normalizeDepartment`、`includes`、`push`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function getUserDepartments(user: AuthUser | null | undefined): Department[] {
   const rawDepartments = Array.isArray(user?.departments) && user.departments.length > 0
     ? user.departments
@@ -236,10 +294,33 @@ export function getUserDepartments(user: AuthUser | null | undefined): Departmen
   return departments
 }
 
+/**
+ * 功能：读取或查询 `getUserDepartment` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ * 返回：Department | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
+ *   - 内部调用：`getUserDepartments`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function getUserDepartment(user: AuthUser | null | undefined): Department | null {
   return getUserDepartments(user)[0] ?? null
 }
 
+/**
+ * 功能：检查或判断 `hasPageAccess` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ *   - `pageId`（string）：`pageId` 对应业务对象的唯一标识
+ * 返回：boolean（由实现推断）；返回条件是否成立。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `filterNavGroupsByPermission`
+ *         调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `filterHomeModulesByPermission`
+ *         调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `getAccessibleAlarmEventTypes` 调用本符号
+ *   - 内部调用：`normalizePageId`、`getUserRole`、`getUserDepartments`、`includes`、`some`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
   const normalizedPageId = normalizePageId(pageId)
   if (!normalizedPageId) return false
@@ -261,6 +342,17 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string)
   ))
 }
 
+/**
+ * 功能：读取或查询 `getPageDisplayOverride` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ *   - `pageId`（string）：`pageId` 对应业务对象的唯一标识
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `applyDisplayOverride` 调用本符号
+ *   - 内部调用：`getUserRole`、`getUserDepartments`、`includes`、`normalizePageId`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function getPageDisplayOverride(user: AuthUser | null | undefined, pageId: string) {
   if (getUserRole(user) === 'admin') return undefined
   const departments = getUserDepartments(user)
@@ -275,6 +367,18 @@ export function getPageDisplayOverride(user: AuthUser | null | undefined, pageId
   return undefined
 }
 
+/**
+ * 功能：实现 `applyDisplayOverride` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ *   - `item`（T）：`item` 对应的业务输入值
+ * 返回：T；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/auth/permissions.ts` 的 `filterNavGroupsByPermission`
+ *         调用本符号；`unified_frontend/src/auth/permissions.ts` 的 `filterHomeModulesByPermission` 调用本符号
+ *   - 内部调用：`getPageDisplayOverride`、`T`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function applyDisplayOverride<T extends { id: string; label?: string; title?: string; description?: string }>(
   user: AuthUser | null | undefined,
   item: T,
@@ -288,6 +392,17 @@ function applyDisplayOverride<T extends { id: string; label?: string; title?: st
   return next
 }
 
+/**
+ * 功能：实现 `filterNavGroupsByPermission` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ *   - `groups`（NavGroup[]）：`groups` 对应的业务输入值
+ * 返回：NavGroup[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`map`、`filter`、`hasPageAccess`、`applyDisplayOverride`、`NavItem`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function filterNavGroupsByPermission(user: AuthUser | null | undefined, groups: NavGroup[]): NavGroup[] {
   return groups
     .map((group) => {
@@ -300,6 +415,17 @@ export function filterNavGroupsByPermission(user: AuthUser | null | undefined, g
     .filter((group) => group.items.length > 0 || (group.children?.length ?? 0) > 0)
 }
 
+/**
+ * 功能：实现 `filterHomeModulesByPermission` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ *   - `moduleEntries`（T[]）：`moduleEntries` 对应的业务输入值
+ * 返回：T[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
+ *   - 内部调用：`filter`、`hasPageAccess`、`map`、`applyDisplayOverride`、`T`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function filterHomeModulesByPermission<T extends { id: string; title: string; description?: string }>(
   user: AuthUser | null | undefined,
   moduleEntries: T[],
@@ -309,6 +435,16 @@ export function filterHomeModulesByPermission<T extends { id: string; title: str
     .map((entry) => applyDisplayOverride<T>(user, entry))
 }
 
+/**
+ * 功能：读取或查询 `getAccessibleAlarmEventTypes` 对应的页面权限逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `user`（AuthUser | null | undefined）：当前用户或待处理用户对象
+ * 返回：string[] | null；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
+ *   - 内部调用：`getUserRole`、`getUserDepartments`、`includes`、`Set`、`entries`、`hasPageAccess`、`forEach`、`add`、`from`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function getAccessibleAlarmEventTypes(user: AuthUser | null | undefined): string[] | null {
   const role = getUserRole(user)
   if (role === 'admin') return null

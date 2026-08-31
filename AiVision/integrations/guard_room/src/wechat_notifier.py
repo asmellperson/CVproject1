@@ -1,3 +1,6 @@
+# 文件说明：实现企业微信通知相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # wechat_notifier.py
 """
 企业微信报警推送模块。
@@ -21,12 +24,35 @@ import numpy as np
 from .wechat_sender import send_message
 
 
+# 功能：企业微信报警推送器（异步队列模式）；输入与输出详见下方说明
+# 参数：
+#   - `corpid`（str）：`corpid` 对应的业务输入值
+#   - `corpsecret`（str）：`corpsecret` 对应的业务输入值
+#   - `agentid`（int）：`agentid` 对应的业务输入值
+#   - `queue_size`（int）：`queue_size` 对应的数量或大小；默认值为 `20`
+# 返回：WeChatNotifier；返回新建的 `WeChatNotifier` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class WeChatNotifier:
     """企业微信报警推送器（异步队列模式）。
 
     线程安全：notify_alarm() 可从任意线程调用，推送由专属 _worker 线程串行执行。
     """
 
+    # 功能：corpid:     企业微信企业 ID；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `corpid`（str）：`corpid` 对应的业务输入值
+    #   - `corpsecret`（str）：`corpsecret` 对应的业务输入值
+    #   - `agentid`（int）：`agentid` 对应的业务输入值
+    #   - `queue_size`（int）：`queue_size` 对应的数量或大小；默认值为 `20`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`queue.Queue`、`threading.Event`、`threading.Thread`、`self._thread.start`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self, *, corpid: str, corpsecret: str, agentid: int, queue_size: int = 20):
         """
         Args:
@@ -49,6 +75,14 @@ class WeChatNotifier:
         )
         self._thread.start()
 
+    # 功能：推送工作线程：从队列取任务，调用 send_message()，结果通过回调通知调用方；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.is_set`、`self._queue.get`、`send_message`、`print`、`self._queue.task_done`、`on_result`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     def _worker(self) -> None:
         """推送工作线程：从队列取任务，调用 send_message()，结果通过回调通知调用方。
 
@@ -80,6 +114,20 @@ class WeChatNotifier:
                     except Exception as e:
                         print(f"[WeChatNotifier] 回调异常: {e}")  # 回调本身报错不影响主流程
 
+    # 功能：将报警推送任务加入队列（非阻塞，立即返回）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `camera_name`（str）：`camera_name` 对应的业务输入值
+    #   - `event_name`（str）：`event_name` 对应的业务输入值
+    #   - `alarm_user`（str）：`alarm_user` 对应的业务输入值
+    #   - `video_path`（Optional[str]）：`video_path` 对应的业务输入值；默认值为 `None`
+    #   - `on_result`（Optional[Callable[[bool], None]]）：`on_result` 对应的业务输入值；默认值为 `None`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`on_result`、`self._queue.put`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def notify_alarm(
         self,
         *,
@@ -115,6 +163,14 @@ class WeChatNotifier:
         }
         self._queue.put((data, alarm_user, on_result))  # 队列满时阻塞，背压保护
 
+    # 功能：通知工作线程退出，等待最多 3 秒后返回；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.set`、`self._thread.join`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def stop(self) -> None:
         """通知工作线程退出，等待最多 3 秒后返回。
 

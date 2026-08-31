@@ -1,3 +1,6 @@
+# 文件说明：实现后台任务相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 ================================================================================
 detector_worker.py —— YOLO + ByteTrack 检测/跟踪子进程
@@ -45,6 +48,14 @@ from ultralytics_compat import yolo_precision_kwargs  # noqa: E402
 # ---------------------------------------------------------------------------
 # 工具
 # ---------------------------------------------------------------------------
+# 功能：更新或保存 `set_process_title` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `title`（str）：`title` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`setproctitle`、`str`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def set_process_title(title: str) -> None:
     try:
         from setproctitle import setproctitle
@@ -53,11 +64,28 @@ def set_process_title(title: str) -> None:
         pass
  
  
+# 功能：读取或查询 `load_yaml` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `path`（Path）：目标路径
+# 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`open`、`yaml.safe_load`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
  
  
+# 功能：计算或解析 `resolve_path` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `p`（str）：`p` 对应的业务输入值
+#   - `base`（Path）：`base` 对应的业务输入值
+# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`Path`、`pp.is_absolute`、`pp.resolve`、`(base / pp).resolve`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_path(p: str, base: Path) -> Path:
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
@@ -66,6 +94,15 @@ def resolve_path(p: str, base: Path) -> Path:
 _STOP = threading.Event()
  
  
+# 功能：实现 `_signal_handler` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `signum`（未显式标注）：`signum` 对应的业务输入值
+#   - `frame`（未显式标注）：待处理的视频图像帧
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_STOP.set`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _signal_handler(signum, frame):
     _STOP.set()
  
@@ -73,6 +110,14 @@ def _signal_handler(signum, frame):
 # ---------------------------------------------------------------------------
 # 主程序
 # ---------------------------------------------------------------------------
+# 功能：实现 `main` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`set_process_title`、`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`Path(__file__).resolve`、`Path`、`resolve_path`、`load_yaml`、`Path(cfg['runtime']['dir']).resolve`、`ResultStore`
+#          等共 43 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def main():
     set_process_title("security_vlm[detector]")
     parser = argparse.ArgumentParser()

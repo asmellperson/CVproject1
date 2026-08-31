@@ -1,3 +1,6 @@
+# 文件说明：实现`compositor` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """Render already-annotated camera frames into a logistics-channel mosaic.
 
 This module deliberately performs no inference or channel state classification.
@@ -32,6 +35,24 @@ _CJK_FONT_PATHS = (
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
 )
+# 功能：The latest frame and display metadata for one camera；输入与输出详见下方说明
+# 参数：
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `frame`（np.ndarray | None）：待处理的视频图像帧
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `person_count`（int | None）：`person_count` 对应的数量或大小
+#   - `online`（bool）：`online` 对应的业务输入值
+#   - `detail`（str）：`detail` 对应的业务输入值
+# 返回：CameraTile；返回新建的 `CameraTile` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_camera_tile_is_immutable`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_compose_channel_frame_uses_expected_grid_shapes`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_compose_channel_frame_places_tiles_in_input_order`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的
+#         `test_live_camera_frame_top_pixels_are_not_covered_by_status_banner` 实例化本符号；另有 5 处静态调用
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class CameraTile:
     """The latest frame and display metadata for one camera."""
@@ -45,6 +66,16 @@ class CameraTile:
     detail: str = ""
 
 
+# 功能：Return the fixed rows/columns grid used for one to nine cameras；输入与输出详见下方说明
+# 参数：
+#   - `count`（int）：`count` 对应的数量或大小
+# 返回：tuple[int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `compose_channel_frame`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_layout_for_count_uses_defined_channel_grid`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_layout_for_count_rejects_out_of_range_counts` 调用本符号
+#   - 内部调用：`isinstance`、`ValueError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def layout_for_count(count: int) -> tuple[int, int]:
     """Return the fixed rows/columns grid used for one to nine cameras."""
     if not isinstance(count, Integral) or isinstance(count, bool) or not 1 <= count <= _MAX_CAMERAS:
@@ -58,6 +89,16 @@ def layout_for_count(count: int) -> tuple[int, int]:
     return 3, 3
 
 
+# 功能：实现 `_validated_size` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `target_size`（tuple[int, int]）：`target_size` 对应的数量或大小
+# 返回：tuple[int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `letterbox`
+#         调用本符号；`AiVision/platform/logistics_channel/compositor.py` 的 `render_placeholder`
+#         调用本符号；`AiVision/platform/logistics_channel/compositor.py` 的 `compose_channel_frame` 调用本符号
+#   - 内部调用：`isinstance`、`len`、`ValueError`、`int`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _validated_size(target_size: tuple[int, int]) -> tuple[int, int]:
     if not isinstance(target_size, tuple) or len(target_size) != 2:
         raise ValueError("target_size must be a (width, height) tuple")
@@ -74,6 +115,14 @@ def _validated_size(target_size: tuple[int, int]) -> tuple[int, int]:
     return int(width), int(height)
 
 
+# 功能：实现 `_as_bgr` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `frame`（np.ndarray | None）：待处理的视频图像帧
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `letterbox` 调用本符号
+#   - 内部调用：`isinstance`、`ValueError`、`cv2.cvtColor`、`frame.copy`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _as_bgr(frame: np.ndarray | None) -> np.ndarray:
     if not isinstance(frame, np.ndarray) or frame.dtype != np.uint8 or frame.size == 0:
         raise ValueError("frame must be a non-empty uint8 image")
@@ -88,6 +137,19 @@ def _as_bgr(frame: np.ndarray | None) -> np.ndarray:
     raise ValueError("frame must have 1, 3, or 4 channels")
 
 
+# 功能：Fit a frame into ``target_size`` without stretching it；输入与输出详见下方说明
+# 参数：
+#   - `frame`（np.ndarray | None）：待处理的视频图像帧
+#   - `target_size`（tuple[int, int]）：`target_size` 对应的数量或大小；默认值为 `(640, 360)`
+#   - `fill_color`（tuple[int, int, int]）：`fill_color` 对应的业务输入值；默认值为 `_DEFAULT_FILL_COLOR`
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_render_camera_tile`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_letterbox_preserves_landscape_content_ratio_and_input`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_letterbox_preserves_portrait_content_ratio`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_letterbox_rejects_missing_or_invalid_frames` 调用本符号
+#   - 内部调用：`_validated_size`、`isinstance`、`len`、`ValueError`、`_as_bgr`、`min`、`max`、`round`、`cv2.resize`、`np.full` 等共 11 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def letterbox(
     frame: np.ndarray | None,
     target_size: tuple[int, int] = (640, 360),
@@ -118,18 +180,44 @@ def letterbox(
     return np.ascontiguousarray(canvas)
 
 
+# 功能：实现 `_display_text` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+#   - `fallback`（str）：`fallback` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_draw_text`
+#         调用本符号；`AiVision/platform/logistics_channel/compositor.py` 的 `render_placeholder` 调用本符号
+#   - 内部调用：`str`、`''.join`、`unicodedata.category(character).startswith`、`unicodedata.category`、`visible.strip`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _display_text(value: object, fallback: str) -> str:
     text = str(value or fallback)
     visible = "".join(" " if character in "\n\r" else character for character in text if not unicodedata.category(character).startswith("C"))
     return visible.strip()[:_MAX_TEXT_LENGTH] or fallback
 
 
+# 功能：Resolve CJK font candidates once instead of scanning per rendered frame；输入与输出详见下方说明
+# 参数：无。
+# 返回：tuple[str, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_load_font` 调用本符号
+#   - 内部调用：`tuple`、`Path(path).is_file`、`Path`、`lru_cache`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @lru_cache(maxsize=1)
 def _available_font_paths() -> tuple[str, ...]:
     """Resolve CJK font candidates once instead of scanning per rendered frame."""
     return tuple(path for path in _CJK_FONT_PATHS if Path(path).is_file())
 
 
+# 功能：读取或查询 `_load_font` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `font_path`（str | None）：`font_path` 对应的业务输入值
+#   - `size`（int）：`size` 对应的数量或大小
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_draw_text` 调用本符号
+#   - 内部调用：`_available_font_paths`、`ImageFont.truetype`、`_LOGGER.warning`、`ImageFont.load_default`、`lru_cache`。
+# 副作用/注意事项：会向日志系统输出运行或异常信息。
 @lru_cache(maxsize=32)
 def _load_font(font_path: str | None, size: int):
     if ImageFont is None:
@@ -147,6 +235,17 @@ def _load_font(font_path: str | None, size: int):
         return None
 
 
+# 功能：实现 `_truncate_for_width` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `text`（str）：`text` 对应的业务输入值
+#   - `draw`（未显式标注）：`draw` 对应的业务输入值
+#   - `font`（未显式标注）：`font` 对应的业务输入值
+#   - `max_width`（int | None）：`max_width` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_draw_text` 调用本符号
+#   - 内部调用：`draw.textlength`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _truncate_for_width(text: str, draw, font, max_width: int | None) -> str:
     if max_width is None or max_width <= 0 or draw.textlength(text, font=font) <= max_width:
         return text
@@ -160,6 +259,21 @@ def _truncate_for_width(text: str, draw, font, max_width: int | None) -> str:
     return (truncated + suffix) if truncated else suffix
 
 
+# 功能：Draw Unicode text in-place when possible, with a safe OpenCV fallback；输入与输出详见下方说明
+# 参数：
+#   - `image`（np.ndarray）：待处理的图像数据
+#   - `text`（object）：`text` 对应的业务输入值
+#   - `origin`（tuple[int, int]）：`origin` 对应的业务输入值
+#   - `color`（tuple[int, int, int]）：`color` 对应的业务输入值
+#   - `font_path`（str | None）：`font_path` 对应的业务输入值；默认值为 `None`
+#   - `font_size`（int）：`font_size` 对应的数量或大小；默认值为 `16`
+#   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `None`
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `render_placeholder` 调用本符号
+#   - 内部调用：`_display_text`、`_load_font`、`max`、`cv2.cvtColor`、`Image.fromarray`、`ImageDraw.Draw`、`_truncate_for_width`、`draw.text`、`tuple`、`reversed`
+#          等共 16 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息。
 def _draw_text(
     image: np.ndarray,
     text: object,
@@ -195,6 +309,20 @@ def _draw_text(
     return image
 
 
+# 功能：Create a stable BGR image for offline, waiting, or unusable frames；输入与输出详见下方说明
+# 参数：
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `detail`（str）：`detail` 对应的业务输入值
+#   - `target_size`（tuple[int, int]）：`target_size` 对应的数量或大小；默认值为 `(640, 360)`
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `_render_camera_tile`
+#         调用本符号；`AiVision/platform/logistics_channel/compositor.py` 的 `compose_channel_frame`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_render_placeholder_is_nonempty_bgr_for_unicode_text`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的
+#         `test_placeholder_preserves_unicode_camera_name_and_actual_reason_in_text_renderer` 调用本符号
+#   - 内部调用：`_validated_size`、`np.full`、`cv2.rectangle`、`_display_text`、`max`、`min`、`_draw_text`、`np.ascontiguousarray`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def render_placeholder(camera_name: str, detail: str, target_size: tuple[int, int] = (640, 360)) -> np.ndarray:
     """Create a stable BGR image for offline, waiting, or unusable frames."""
     width, height = _validated_size(target_size)
@@ -208,6 +336,15 @@ def render_placeholder(camera_name: str, detail: str, target_size: tuple[int, in
     return np.ascontiguousarray(canvas)
 
 
+# 功能：绘制或渲染 `_render_camera_tile` 对应的`compositor` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tile`（CameraTile）：`tile` 对应的业务输入值
+#   - `tile_size`（tuple[int, int]）：`tile_size` 对应的数量或大小
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/compositor.py` 的 `compose_channel_frame` 调用本符号
+#   - 内部调用：`render_placeholder`、`letterbox`、`str`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndarray:
     if not tile.online:
         explanation = tile.detail or "offline"
@@ -221,6 +358,20 @@ def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndar
     return image
 
 
+# 功能：Compose the latest camera frames in input order into a fixed grid；输入与输出详见下方说明
+# 参数：
+#   - `tiles`（Iterable[CameraTile]）：`tiles` 对应的业务输入值
+#   - `tile_size`（tuple[int, int]）：`tile_size` 对应的数量或大小；默认值为 `(640, 360)`
+# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_compose_channel_frame_uses_expected_grid_shapes`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_compose_channel_frame_rejects_empty_or_too_many_tiles`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的 `test_compose_channel_frame_places_tiles_in_input_order`
+#         调用本符号；`AiVision/tests/test_logistics_channel_compositor.py` 的
+#         `test_live_camera_frame_top_pixels_are_not_covered_by_status_banner` 调用本符号；另有 4 处静态调用
+#   - 内部调用：`_validated_size`、`list`、`layout_for_count`、`len`、`np.empty`、`render_placeholder`、`range`、`divmod`、`isinstance`、`ValueError`
+#          等共 12 个调用。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def compose_channel_frame(tiles: Iterable[CameraTile], tile_size: tuple[int, int] = (640, 360)) -> np.ndarray:
     """Compose the latest camera frames in input order into a fixed grid."""
     width, height = _validated_size(tile_size)

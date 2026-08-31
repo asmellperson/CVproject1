@@ -1,3 +1,6 @@
+# 文件说明：定义数据库模型的持久化模型、数据库连接或存取能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """物流通道及其摄像头成员的 SQLAlchemy ORM。"""
 from __future__ import annotations
 
@@ -13,6 +16,19 @@ from .constants import (
 )
 
 
+# 功能：一个物流业务功能下的多摄像头检测通道；输入与输出详见下方说明
+# 参数：无。
+# 返回：LogisticsChannel；返回新建的 `LogisticsChannel` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel::create`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的
+#         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_service.py` 的
+#         `test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_service.py` 的
+#         `test_migration_rehearsal_covers_all_four_features_and_preserves_camera_configs` 实例化本符号；另有 2 处静态调用
+#   - 内部调用：`UniqueConstraint`、`Column`、`String`、`ForeignKey`、`text`、`relationship`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LogisticsChannel(Base):
     """一个物流业务功能下的多摄像头检测通道。"""
 
@@ -69,6 +85,18 @@ class LogisticsChannel(Base):
     )
 
 
+# 功能：物流通道与摄像头的成员关系；输入与输出详见下方说明
+# 参数：无。
+# 返回：LogisticsChannelCamera；返回新建的 `LogisticsChannelCamera` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::move_camera::move`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的
+#         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_insert_locked_member`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_service.py` 的
+#         `test_detail_response_adapts_orm_flat_fields_and_camera_relationship` 实例化本符号
+#   - 内部调用：`UniqueConstraint`、`Column`、`ForeignKey`、`text`、`relationship`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LogisticsChannelCamera(Base):
     """物流通道与摄像头的成员关系。"""
 

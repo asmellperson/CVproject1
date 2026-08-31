@@ -1,3 +1,6 @@
+# 文件说明：包含感兴趣区域的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import json
 import math
 from pathlib import Path
@@ -18,10 +21,24 @@ import session_worker  # noqa: E402
 import main as security_main  # noqa: E402
 
 
+# 功能：验证 `test_roi_geometry_module_exists` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_roi_geometry_module_exists():
     assert roi_geometry is not None, "shared roi_geometry module is required"
 
 
+# 功能：验证 `test_legacy_rectangle_is_normalized_to_four_polygon_points` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.normalize_roi_points`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_legacy_rectangle_is_normalized_to_four_polygon_points():
     assert roi_geometry.normalize_roi_points([100, 80, 20, 10]) == [
         [20.0, 10.0],
@@ -31,6 +48,13 @@ def test_legacy_rectangle_is_normalized_to_four_polygon_points():
     ]
 
 
+# 功能：验证 `test_polygon_normalization_area_and_bounds` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.normalize_roi_points`、`roi_geometry.polygon_area`、`pytest.approx`、`roi_geometry.roi_bounds`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_polygon_normalization_area_and_bounds():
     polygon = [[0, 0], [80, 0], [100, 30], [40, 90], [0, 50]]
 
@@ -47,6 +71,13 @@ def test_polygon_normalization_area_and_bounds():
     assert roi_geometry.roi_bounds(normalized) == [0.0, 0.0, 100.0, 90.0]
 
 
+# 功能：验证 `test_roi_mapping_scales_between_per_camera_stream_dimensions` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.scale_roi_mapping`、`roi_geometry.roi_mapping_exceeds_bounds`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_roi_mapping_scales_between_per_camera_stream_dimensions():
     rois = {
         "工位": [[100, 200], [2100, 200], [2100, 1200], [100, 1200]],
@@ -65,6 +96,15 @@ def test_roi_mapping_scales_between_per_camera_stream_dimensions():
     assert roi_geometry.roi_mapping_exceeds_bounds(rois, 2560, 1440) is False
 
 
+# 功能：验证 `test_normalize_roi_points_rejects_malformed_values` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `values`（未显式标注）：`values` 对应的业务输入值
+#   - `error`（未显式标注）：待报告、转换或判断的异常对象
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`roi_geometry.normalize_roi_points`、`pytest.mark.parametrize`、`float`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     "values, error",
     [
@@ -79,12 +119,27 @@ def test_normalize_roi_points_rejects_malformed_values(values, error):
         roi_geometry.normalize_roi_points(values)
 
 
+# 功能：验证 `test_normalize_roi_points_only_accepts_finite_json_numbers` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（未显式标注）：待转换、校验或写入的值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`roi_geometry.normalize_roi_points`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("value", [True, "12.5", 10**400])
 def test_normalize_roi_points_only_accepts_finite_json_numbers(value):
     with pytest.raises(ValueError, match="数字|有限"):
         roi_geometry.normalize_roi_points([[0, 0], [value, 0], [0, 20]])
 
 
+# 功能：验证 `test_validate_rois_normalizes_and_rejects_invalid_geometry` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.validate_rois`、`float`、`pytest.raises`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_validate_rois_normalizes_and_rejects_invalid_geometry():
     assert roi_geometry.validate_rois(
         {"工位 A": [10, 20, 80, 70]},
@@ -117,6 +172,15 @@ def test_validate_rois_normalizes_and_rejects_invalid_geometry():
             )
 
 
+# 功能：验证 `test_validate_rois_rejects_non_simple_or_rounded_duplicate_polygons` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `points`（未显式标注）：`points` 对应的业务输入值
+#   - `message`（未显式标注）：用于展示、记录或发送的文本消息
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`roi_geometry.validate_rois`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     "points, message",
     [
@@ -159,6 +223,13 @@ def test_validate_rois_rejects_non_simple_or_rounded_duplicate_polygons(
         )
 
 
+# 功能：验证 `test_validate_rois_checks_area_after_rounding_final_coordinates` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`roi_geometry.validate_rois`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_validate_rois_checks_area_after_rounding_final_coordinates():
     with pytest.raises(ValueError, match="面积"):
         roi_geometry.validate_rois(
@@ -169,6 +240,13 @@ def test_validate_rois_checks_area_after_rounding_final_coordinates():
         )
 
 
+# 功能：验证 `test_validate_rois_rejects_vertex_count_over_configured_limit` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`math.cos`、`math.sin`、`range`、`pytest.raises`、`roi_geometry.validate_rois`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_validate_rois_rejects_vertex_count_over_configured_limit():
     polygon = [
         [
@@ -188,6 +266,13 @@ def test_validate_rois_rejects_vertex_count_over_configured_limit():
         )
 
 
+# 功能：验证 `test_validate_rois_returns_rounded_persistence_points` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.validate_rois`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_validate_rois_returns_rounded_persistence_points():
     assert roi_geometry.validate_rois(
         {"工位": [[0.004, 0.004], [20.006, 0.004], [0.004, 20.006]]},
@@ -199,6 +284,13 @@ def test_validate_rois_returns_rounded_persistence_points():
     }
 
 
+# 功能：验证 `test_center_inside_counts_even_when_person_overlap_is_small` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`、`roi_geometry.bbox_belongs_to_roi`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_center_inside_counts_even_when_person_overlap_is_small():
     person_box = [-950, 0, 1050, 100]
@@ -208,6 +300,13 @@ def test_center_inside_counts_even_when_person_overlap_is_small():
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
 
 
+# 功能：验证 `test_partial_overlap_uses_person_box_area_for_entry` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`、`roi_geometry.bbox_belongs_to_roi`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_partial_overlap_uses_person_box_area_for_entry():
     person_box = [70, 0, 170, 100]
@@ -217,6 +316,13 @@ def test_partial_overlap_uses_person_box_area_for_entry():
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
 
 
+# 功能：验证 `test_hold_threshold_keeps_edge_person_without_allowing_new_entry` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`、`roi_geometry.bbox_belongs_to_roi`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_hold_threshold_keeps_edge_person_without_allowing_new_entry():
     person_box = [85, 0, 185, 100]
@@ -227,6 +333,13 @@ def test_hold_threshold_keeps_edge_person_without_allowing_new_entry():
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.10)
 
 
+# 功能：验证 `test_disjoint_and_invalid_person_boxes_are_outside` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.bbox_belongs_to_roi`、`roi_geometry.bbox_roi_overlap_ratio`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_disjoint_and_invalid_person_boxes_are_outside():
     roi = [0, 0, 100, 100]
@@ -236,6 +349,13 @@ def test_disjoint_and_invalid_person_boxes_are_outside():
     assert not roi_geometry.bbox_belongs_to_roi([10, 10, 10, 30], roi, 0.0)
 
 
+# 功能：验证 `test_reversed_coordinates_are_normalized` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`、`roi_geometry.bbox_belongs_to_roi`、`pytest.mark.skipif`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_reversed_coordinates_are_normalized():
     person_box = [170, 100, 70, 0]
@@ -245,6 +365,13 @@ def test_reversed_coordinates_are_normalized():
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
 
 
+# 功能：验证 `test_convex_polygon_membership_does_not_use_its_bounding_rectangle` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.point_in_polygon`、`roi_geometry.bbox_belongs_to_roi`、`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_convex_polygon_membership_does_not_use_its_bounding_rectangle():
     triangle = [[0, 0], [100, 0], [0, 100]]
 
@@ -266,6 +393,13 @@ def test_convex_polygon_membership_does_not_use_its_bounding_rectangle():
     )
 
 
+# 功能：验证 `test_concave_polygon_membership_and_overlap_are_exact` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`roi_geometry.point_in_polygon`、`roi_geometry.bbox_belongs_to_roi`、`roi_geometry.bbox_roi_overlap_ratio`、`pytest.approx`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_concave_polygon_membership_and_overlap_are_exact():
     concave = [[0, 0], [100, 0], [100, 40], [40, 40], [40, 100], [0, 100]]
 
@@ -282,6 +416,14 @@ def test_concave_polygon_membership_and_overlap_are_exact():
     ) == pytest.approx(0.25)
 
 
+# 功能：验证 `test_session_manager_uses_looser_overlap_for_active_session` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker.PairSessionManager`、`manager._tracks_for_roi`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
     manager = session_worker.PairSessionManager(
         {
@@ -305,6 +447,14 @@ def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
     assert manager._tracks_for_roi([edge_track], roi, active=True) == [edge_track]
 
 
+# 功能：验证 `test_session_worker_reload_preserves_all_polygon_vertices` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.write_text`、`json.dumps`、`session_worker.reload_rois`、`float`、`path.stat`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_session_worker_reload_preserves_all_polygon_vertices(tmp_path):
     path = tmp_path / "camera_staff_rois.json"
     polygon = [[1, 2], [90, 3], [80, 70], [20, 90], [3, 50]]
@@ -321,6 +471,14 @@ def test_session_worker_reload_preserves_all_polygon_vertices(tmp_path):
     assert mtime == path.stat().st_mtime
 
 
+# 功能：验证 `test_session_worker_reload_scales_roi_to_actual_frame_dimensions` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.write_text`、`json.dumps`、`session_worker.reload_rois`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_session_worker_reload_scales_roi_to_actual_frame_dimensions(tmp_path):
     path = tmp_path / "camera_staff_rois.json"
     path.write_text(
@@ -347,6 +505,14 @@ def test_session_worker_reload_scales_roi_to_actual_frame_dimensions(tmp_path):
     }
 
 
+# 功能：验证 `test_session_worker_does_not_rescale_last_known_good_roi_twice` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.write_text`、`json.dumps`、`session_worker.reload_rois`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_session_worker_does_not_rescale_last_known_good_roi_twice(tmp_path):
     path = tmp_path / "camera_staff_rois.json"
     path.write_text(
@@ -378,6 +544,15 @@ def test_session_worker_does_not_rescale_last_known_good_roi_twice(tmp_path):
     }
 
 
+# 功能：验证 `test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `capsys`（未显式标注）：`capsys` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.write_text`、`json.dumps`、`session_worker.reload_rois`、`path.stat`、`capsys.readouterr`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg(
     tmp_path,
     capsys,
@@ -412,6 +587,14 @@ def test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg(
     assert "保留旧值" in capsys.readouterr().out
 
 
+# 功能：验证 `test_session_worker_default_roi_normalization_ignores_only_bad_items` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `capsys`（未显式标注）：`capsys` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker._normalize_roi_mapping`、`capsys.readouterr`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_session_worker_default_roi_normalization_ignores_only_bad_items(capsys):
     rois = session_worker._normalize_roi_mapping(
         {
@@ -429,6 +612,15 @@ def test_session_worker_default_roi_normalization_ignores_only_bad_items(capsys)
     assert "超大" in output
 
 
+# 功能：验证 `test_session_worker_reload_keeps_whole_cache_for_invalid_json_structure` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `capsys`（未显式标注）：`capsys` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`path.write_text`、`session_worker.reload_rois`、`capsys.readouterr`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_session_worker_reload_keeps_whole_cache_for_invalid_json_structure(
     tmp_path,
     capsys,
@@ -444,6 +636,15 @@ def test_session_worker_reload_keeps_whole_cache_for_invalid_json_structure(
     assert "热加载失败" in capsys.readouterr().out
 
 
+# 功能：验证 `test_new_pair_session_keeps_polygon_bounds_as_roi_box` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker.PairSessionManager`、`monkeypatch.setattr`、`manager.step`、`np.zeros`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch):
     manager = session_worker.PairSessionManager(
         {
@@ -472,6 +673,16 @@ def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch)
     assert manager.roi_states["A"].active.roi_box == [5.0, 5.0, 90.0, 95.0]
 
 
+# 功能：验证 `test_deleted_roi_cancels_active_session_without_pending_task` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `capsys`（未显式标注）：`capsys` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`session_worker.PairSessionManager`、`monkeypatch.setattr`、`np.zeros`、`manager.step`、`manager.roi_states['会删除'].active.keyframes.extend`、`list`、`tmp_path.iterdir`、`capsys.readouterr`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_deleted_roi_cancels_active_session_without_pending_task(
     tmp_path,
     monkeypatch,
@@ -507,6 +718,14 @@ def test_deleted_roi_cancels_active_session_without_pending_task(
     assert "取消" in capsys.readouterr().out
 
 
+# 功能：验证 `test_session_manager_rejects_hold_threshold_above_enter_threshold` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`session_worker.PairSessionManager`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_session_manager_rejects_hold_threshold_above_enter_threshold(tmp_path):
     with pytest.raises(ValueError, match="roi_hold_overlap_ratio"):
         session_worker.PairSessionManager(
@@ -520,7 +739,23 @@ def test_session_manager_rejects_hold_threshold_above_enter_threshold(tmp_path):
         )
 
 
+# 功能：验证 `test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`security_main._overlay_on_frame`、`np.zeros`、`FakeService`、`polygon.tolist`、`len`、`rectangle_colors.count`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypatch):
+    # 功能：定义 `FakeStore` 类，封装感兴趣区域相关的状态、约束与操作
+    # 参数：无。
+    # 返回：FakeStore；返回新建的 `FakeStore` 实例。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_roi_membership.py` 的
+    #         `test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray::FakeService` 实例化本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeStore:
         values = {
             "session_latest": {},
@@ -546,13 +781,37 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
             "vlm_latest_stats": {},
         }
 
+        # 功能：读取或查询 `read` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `key`（未显式标注）：用于查询、分组或缓存的键
+        #   - `default`（未显式标注）：`default` 对应的业务输入值
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self.values.get`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def read(self, key, default):
             return self.values.get(key, default)
 
+    # 功能：定义 `FakeService` 类，封装感兴趣区域相关的状态、约束与操作
+    # 参数：无。
+    # 返回：FakeService；返回新建的 `FakeService` 实例。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`FakeStore`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeService:
         cfg = {"session": {"roi_enter_overlap_ratio": 0.30}}
         store = FakeStore()
 
+        # 功能：读取或查询 `get_rois_cached` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：无。
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         @staticmethod
         def get_rois_cached():
             return {
@@ -573,21 +832,68 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
     outlined_polygons = []
     blend_calls = []
 
+    # 功能：实现 `record_rectangle` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `image`（未显式标注）：待处理的图像数据
+    #   - `point1`（未显式标注）：`point1` 对应的业务输入值
+    #   - `point2`（未显式标注）：`point2` 对应的业务输入值
+    #   - `color`（未显式标注）：`color` 对应的业务输入值
+    #   - `thickness`（未显式标注）：`thickness` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`rectangle_colors.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def record_rectangle(image, point1, point2, color, thickness):
         del point1, point2, thickness
         rectangle_colors.append(color)
         return image
 
+    # 功能：实现 `record_fill_poly` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `image`（未显式标注）：待处理的图像数据
+    #   - `polygons`（未显式标注）：`polygons` 对应的业务输入值
+    #   - `color`（未显式标注）：`color` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`filled_polygons.extend`、`polygon.copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def record_fill_poly(image, polygons, color):
         del color
         filled_polygons.extend(polygon.copy() for polygon in polygons)
         return image
 
+    # 功能：实现 `record_polylines` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `image`（未显式标注）：待处理的图像数据
+    #   - `polygons`（未显式标注）：`polygons` 对应的业务输入值
+    #   - `closed`（未显式标注）：`closed` 对应的业务输入值
+    #   - `color`（未显式标注）：`color` 对应的业务输入值
+    #   - `thickness`（未显式标注）：`thickness` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`outlined_polygons.extend`、`polygon.copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def record_polylines(image, polygons, closed, color, thickness):
         del closed, color, thickness
         outlined_polygons.extend(polygon.copy() for polygon in polygons)
         return image
 
+    # 功能：创建或构建 `record_add_weighted` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `source1`（未显式标注）：`source1` 对应的业务输入值
+    #   - `alpha`（未显式标注）：`alpha` 对应的业务输入值
+    #   - `source2`（未显式标注）：`source2` 对应的业务输入值
+    #   - `beta`（未显式标注）：`beta` 对应的业务输入值
+    #   - `gamma`（未显式标注）：`gamma` 对应的业务输入值
+    #   - `destination`（未显式标注）：`destination` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`blend_calls.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def record_add_weighted(source1, alpha, source2, beta, gamma, destination):
         del source1, alpha, source2, beta, gamma
         blend_calls.append(destination)

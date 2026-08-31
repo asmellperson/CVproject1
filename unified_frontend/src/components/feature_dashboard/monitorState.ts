@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示、状态管理的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { AlarmEvent } from '@/lib/api'
 
 export type FeatureDashboardKey = 'blocks' | 'detect_face' | 'detect_phone' | 'detect_door'
@@ -51,6 +54,16 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
   },
 }
 
+/**
+ * 功能：检查或判断 `isFeatureDashboardKey` 对应的监控展示、状态管理逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string）：待转换、校验或写入的值
+ * 返回：value is FeatureDashboardKey；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/AiVisionMonitor.tsx` 的 `AiVisionMonitor` 调用本符号
+ *   - 内部调用：`hasOwn`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function isFeatureDashboardKey(value: string): value is FeatureDashboardKey {
   return Object.hasOwn(FEATURE_DASHBOARD_PROFILES, value)
 }
@@ -60,6 +73,17 @@ export type CameraFeatureValueState = {
   value: Record<string, unknown>
 }
 
+/**
+ * 功能：计算或解析 `resolveCameraFeatureValue` 对应的监控展示、状态管理逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `state`（CameraFeatureValueState | null）：`state` 对应的业务输入值
+ *   - `selectedCamera`（string）：`selectedCamera` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/AiVisionMonitor.tsx` 的 `AiVisionMonitor` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function resolveCameraFeatureValue(
   state: CameraFeatureValueState | null,
   selectedCamera: string,
@@ -67,6 +91,18 @@ export function resolveCameraFeatureValue(
   return state?.cameraKey === selectedCamera ? state.value : null
 }
 
+/**
+ * 功能：检查或判断 `isFeatureOverlayConfigured` 对应的监控展示、状态管理逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `feature`（FeatureDashboardKey）：`feature` 对应的业务输入值
+ *   - `roiCount`（number）：`roiCount` 对应的数量或大小
+ *   - `alarmLineCount`（number）：`alarmLineCount` 对应的数量或大小
+ * 返回：boolean（由实现推断）；返回条件是否成立。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `FeatureDashboardMonitorView` 调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function isFeatureOverlayConfigured(
   feature: FeatureDashboardKey,
   roiCount: number,
@@ -75,6 +111,17 @@ export function isFeatureOverlayConfigured(
   return feature === 'blocks' ? alarmLineCount > 0 : roiCount > 0
 }
 
+/**
+ * 功能：检查或判断 `isSameLocalDay` 对应的监控展示、状态管理逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string | undefined）：待转换、校验或写入的值
+ *   - `now`（Date）：`now` 对应的业务输入值
+ * 返回：boolean（由实现推断）；返回条件是否成立。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Date`、`isNaN`、`getTime`、`getFullYear`、`getMonth`、`getDate`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function isSameLocalDay(value: string | undefined, now: Date) {
   if (!value) return false
   const parsed = new Date(value)
@@ -84,6 +131,20 @@ function isSameLocalDay(value: string | undefined, now: Date) {
     && parsed.getDate() === now.getDate()
 }
 
+/**
+ * 功能：创建或构建 `buildFeatureAlarmSummary` 对应的监控展示、状态管理逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `alarms`（AlarmEvent[]）：`alarms` 对应的业务输入值
+ *   - `feature`（FeatureDashboardKey）：`feature` 对应的业务输入值
+ *   - `cameraKey`（string）：`cameraKey` 对应的业务输入值
+ *   - `cameraName`（string）：`cameraName` 对应的业务输入值
+ *   - `now`（未显式标注）：`now` 对应的业务输入值；声明包含默认值 `new Date()`
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Date`、`filter`、`isSameLocalDay`、`sort`、`getTime`、`slice`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 export function buildFeatureAlarmSummary(
   alarms: AlarmEvent[],
   feature: FeatureDashboardKey,

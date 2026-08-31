@@ -1,3 +1,6 @@
+# 文件说明：实现`events` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 core/events.py
 配置变更事件总线 — pub/sub 模式,系统内部各组件用它传递配置变更通知。
@@ -16,6 +19,22 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 
+# 功能：配置变更事件的数据载体，由 API/Service 层构造后投入事件总线；输入与输出详见下方说明
+# 参数：
+#   - `change_type`（str）：`change_type` 对应的业务输入值
+#   - `camera_id`（int | None）：摄像头唯一标识
+#   - `camera_name`（str | None）：`camera_name` 对应的业务输入值
+#   - `old_value`（Optional[dict]）：`old_value` 对应的业务输入值
+#   - `new_value`（Optional[dict]）：`new_value` 对应的业务输入值
+# 返回：ConfigChangeEvent；返回新建的 `ConfigChangeEvent` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/core/events.py` 的 `ConfigChangeEvent::publish_departments_changed`
+#         实例化本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_publish_notifications`
+#         实例化本符号；`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_camera_display_update_does_not_restart_runtime`
+#         实例化本符号；`AiVision/tests/test_orchestrator_camera_update.py` 的 `test_camera_runtime_update_restarts_runtime` 实例化本符号；另有 9
+#         处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class ConfigChangeEvent:
     """
@@ -36,6 +55,16 @@ class ConfigChangeEvent:
     old_value: Optional[dict] = None
     new_value: Optional[dict] = None
 
+    # 功能：发布部门配置变更事件，用于刷新缓存与 UI；输入与输出详见下方说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/department/service.py` 的 `DepartmentService::create_department`
+    #         调用本符号；`AiVision/platform/department/service.py` 的 `DepartmentService::update_department`
+    #         调用本符号；`AiVision/platform/department/service.py` 的 `DepartmentService::delete_department`
+    #         调用本符号；`AiVision/platform/department/service.py` 的 `DepartmentService::set_feature_departments` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`ConfigChangeEvent`、`config_event_bus.publish`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def publish_departments_changed():
         """发布部门配置变更事件，用于刷新缓存与 UI。"""
@@ -43,6 +72,13 @@ class ConfigChangeEvent:
         config_event_bus.publish(event)
 
 
+# 功能：线程安全的同步事件总线，支持三种订阅粒度；输入与输出详见下方说明
+# 参数：无。
+# 返回：ConfigEventBus；返回新建的 `ConfigEventBus` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ConfigEventBus:
     """
     线程安全的同步事件总线，支持三种订阅粒度。
@@ -59,6 +95,14 @@ class ConfigEventBus:
         回调在锁外执行，避免监听器内部再调用 publish() 时产生死锁。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的`events` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self):
         # 精确匹配表: {change_type → [listener, ...]}
         self._listeners: dict[str, list[Callable]] = {}
@@ -69,6 +113,16 @@ class ConfigEventBus:
         # 保护上述三个列表的增删操作；回调执行不在锁内
         self._lock = threading.Lock()
 
+    # 功能：注册精确匹配监听器；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `change_type`（str）：`change_type` 对应的业务输入值
+    #   - `listener`（Callable）：`listener` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._listeners.setdefault(change_type, []).append`、`self._listeners.setdefault`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def subscribe(self, change_type: str, listener: Callable):
         """
         注册精确匹配监听器。
@@ -80,6 +134,16 @@ class ConfigEventBus:
         with self._lock:
             self._listeners.setdefault(change_type, []).append(listener)
 
+    # 功能：注册前缀匹配监听器，适用于需要捕获某一功能所有事件的场景；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `prefix`（str）：`prefix` 对应的业务输入值
+    #   - `listener`（Callable）：`listener` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._prefix_listeners.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def subscribe_prefix(self, prefix: str, listener: Callable):
         """
         注册前缀匹配监听器，适用于需要捕获某一功能所有事件的场景。
@@ -95,6 +159,15 @@ class ConfigEventBus:
         with self._lock:
             self._prefix_listeners.append((prefix, listener))
 
+    # 功能：注册通配符监听器，接收总线上投递的所有事件；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `listener`（Callable）：`listener` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::__init__` 调用本符号
+    #   - 内部调用：`self._wildcard_listeners.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def subscribe_wildcard(self, listener: Callable):
         """
         注册通配符监听器，接收总线上投递的所有事件。
@@ -107,6 +180,16 @@ class ConfigEventBus:
         with self._lock:
             self._wildcard_listeners.append(listener)
 
+    # 功能：注销精确匹配监听器；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `change_type`（str）：`change_type` 对应的业务输入值
+    #   - `listener`（Callable）：`listener` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._listeners[change_type].remove`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def unsubscribe(self, change_type: str, listener: Callable):
         """
         注销精确匹配监听器。
@@ -125,6 +208,15 @@ class ConfigEventBus:
                 except ValueError:
                     pass  # 未找到，静默忽略
 
+    # 功能：向总线投递事件，同步调用所有匹配的监听器；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event`（ConfigChangeEvent）：待处理的事件对象
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`list`、`self._listeners.get`、`event.change_type.startswith`、`fn`、`logger.error`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def publish(self, event: ConfigChangeEvent):
         """
         向总线投递事件，同步调用所有匹配的监听器。

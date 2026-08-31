@@ -1,3 +1,6 @@
+# 文件说明：包含摄像头、视频帧的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import importlib
 import sys
 from types import SimpleNamespace
@@ -8,6 +11,21 @@ orchestrator_module = importlib.import_module("platform.orchestrator")
 Orchestrator = orchestrator_module.Orchestrator
 
 
+# 功能：实现 `_orchestrator` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `raw`（未显式标注）：`raw` 对应的业务输入值
+#   - `raw_updated_at`（未显式标注）：`raw_updated_at` 对应的业务输入值
+#   - `annotated`（未显式标注）：`annotated` 对应的业务输入值
+#   - `annotated_updated_at`（未显式标注）：`annotated_updated_at` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_missing_raw_frame_does_not_return_expired_annotated_frame`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_fresh_annotated_frame_is_preferred`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_expired_annotated_frame_falls_back_to_fresh_raw`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_all_expired_frames_return_latest_known_timestamp` 调用本符号
+#   - 内部调用：`object.__new__`、`SimpleNamespace`、`monkeypatch.setattr`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _orchestrator(
     monkeypatch,
     *,
@@ -36,6 +54,14 @@ def _orchestrator(
     return instance
 
 
+# 功能：验证 `test_missing_raw_frame_does_not_return_expired_annotated_frame` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`object`、`_orchestrator`、`instance.get_camera_frame_info`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_missing_raw_frame_does_not_return_expired_annotated_frame(monkeypatch):
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: 100.0)
     annotated = object()
@@ -52,6 +78,14 @@ def test_missing_raw_frame_does_not_return_expired_annotated_frame(monkeypatch):
     ) == (None, 90.0)
 
 
+# 功能：验证 `test_fresh_annotated_frame_is_preferred` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`object`、`_orchestrator`、`instance.get_camera_frame_info`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_fresh_annotated_frame_is_preferred(monkeypatch):
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: 100.0)
     raw, annotated = object(), object()
@@ -68,6 +102,14 @@ def test_fresh_annotated_frame_is_preferred(monkeypatch):
     ) == (annotated, 99.5)
 
 
+# 功能：验证 `test_expired_annotated_frame_falls_back_to_fresh_raw` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`object`、`_orchestrator`、`instance.get_camera_frame_info`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_expired_annotated_frame_falls_back_to_fresh_raw(monkeypatch):
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: 100.0)
     raw, annotated = object(), object()
@@ -84,6 +126,14 @@ def test_expired_annotated_frame_falls_back_to_fresh_raw(monkeypatch):
     ) == (raw, 99.0)
 
 
+# 功能：验证 `test_all_expired_frames_return_latest_known_timestamp` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`monkeypatch.setattr`、`_orchestrator`、`object`、`instance.get_camera_frame_info`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_all_expired_frames_return_latest_known_timestamp(monkeypatch):
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: 100.0)
     instance = _orchestrator(

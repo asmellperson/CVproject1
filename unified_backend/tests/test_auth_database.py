@@ -1,3 +1,6 @@
+# 文件说明：包含认证授权的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 from __future__ import annotations
 
 import json
@@ -14,6 +17,16 @@ from auth.auth import (
 )
 
 
+# 功能：实现 `_request_with_token` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `token`（str）：用于认证或续接请求的令牌
+# 返回：Request；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/tests/test_auth_database.py` 的 `test_migrated_default_password_user_login_and_token_version`
+#         调用本符号；`unified_backend/tests/test_auth_database.py` 的 `test_version_one_token_without_auth_version_remains_compatible`
+#         调用本符号
+#   - 内部调用：`Request`、`f'aicv_auth_token={token}'.encode`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _request_with_token(token: str) -> Request:
     return Request(
         {
@@ -36,6 +49,17 @@ def _request_with_token(token: str) -> Request:
     )
 
 
+# 功能：初始化或配置 `_configure_legacy_user` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`unified_backend/tests/test_auth_database.py` 的 `test_migrated_default_password_user_login_and_token_version`
+#         调用本符号；`unified_backend/tests/test_auth_database.py` 的 `test_version_one_token_without_auth_version_remains_compatible`
+#         调用本符号
+#   - 内部调用：`legacy_path.write_text`、`json.dumps`、`monkeypatch.setenv`、`str`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _configure_legacy_user(monkeypatch, tmp_path):
     legacy_path = tmp_path / "auth_users.json"
     legacy_path.write_text(
@@ -62,6 +86,15 @@ def _configure_legacy_user(monkeypatch, tmp_path):
     monkeypatch.setenv("AUTH_SECRET", "test-auth-secret-with-at-least-32-characters")
 
 
+# 功能：验证 `test_migrated_default_password_user_login_and_token_version` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_configure_legacy_user`、`verify_login`、`create_token`、`get_current_user_from_request`、`_request_with_token`、`change_own_password`、`pytest.raises`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_migrated_default_password_user_login_and_token_version(monkeypatch, tmp_path):
     _configure_legacy_user(monkeypatch, tmp_path)
 
@@ -85,6 +118,15 @@ def test_migrated_default_password_user_login_and_token_version(monkeypatch, tmp
     assert verify_login("10001", "new-password") is not None
 
 
+# 功能：验证 `test_version_one_token_without_auth_version_remains_compatible` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_configure_legacy_user`、`verify_login`、`create_token`、`get_current_user_from_request`、`_request_with_token`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_version_one_token_without_auth_version_remains_compatible(monkeypatch, tmp_path):
     _configure_legacy_user(monkeypatch, tmp_path)
     user = verify_login("10001", "legacy-password")

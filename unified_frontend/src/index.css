@@ -1,3 +1,5 @@
+/* 文件说明：定义`index` 模块的样式规则与响应式/主题表现；仅影响视觉呈现，不参与业务数据处理。 */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

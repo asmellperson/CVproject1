@@ -1,3 +1,6 @@
+# 文件说明：定义告警的 HTTP 接口、依赖注入或应用装配。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """报警记录与统计聚合接口。"""
 from __future__ import annotations
 
@@ -35,6 +38,39 @@ _DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64
 _MAX_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 
 
+# 功能：统一告警列表项，同时兼容旧摄像头告警和通道告警；输入与输出详见下方说明
+# 参数：
+#   - `id`（str）：`id` 对应业务对象的唯一标识
+#   - `event_type`（str）：事件类型标识
+#   - `event_label`（str）：`event_label` 对应的业务输入值
+#   - `violation_type`（int | None）：`violation_type` 对应的业务输入值
+#   - `camera_no`（str）：`camera_no` 对应的业务输入值
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `subject_type`（str）：`subject_type` 对应的业务输入值
+#   - `subject_id`（str | None）：`subject_id` 对应业务对象的唯一标识
+#   - `subject_name`（str | None）：`subject_name` 对应的业务输入值
+#   - `channel_id`（str | None）：`channel_id` 对应业务对象的唯一标识
+#   - `channel_name`（str | None）：`channel_name` 对应的业务输入值
+#   - `reason`（str）：`reason` 对应的业务输入值
+#   - `status`（str | None）：当前或目标状态值
+#   - `confidence`（float）：模型预测或规则判断的置信度
+#   - `created_at`（str | None）：`created_at` 对应的业务输入值
+#   - `image_path`（str | None）：`image_path` 对应的业务输入值
+#   - `image_url`（str）：`image_url` 对应的业务输入值
+#   - `video_path`（str | None）：`video_path` 对应的业务输入值
+#   - `video_status`（str | None）：`video_status` 对应的业务输入值
+#   - `camera_ids`（list[int]）：`camera_ids` 对应的业务输入值
+#   - `camera_names`（dict[str, str]）：`camera_names` 对应的业务输入值
+#   - `camera_counts`（dict[str, int | None]）：`camera_counts` 对应的业务输入值
+#   - `camera_states`（dict[str, dict[str, Any]]）：`camera_states` 对应的业务输入值
+#   - `offending_camera_ids`（list[int]）：`offending_camera_ids` 对应的业务输入值
+#   - `evidence_error`（str | None）：`evidence_error` 对应的业务输入值
+#   - `metadata`（dict[str, Any]）：`metadata` 对应的业务输入值
+# 返回：AlarmEventResponse；返回新建的 `AlarmEventResponse` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`ConfigDict`、`Field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmEventResponse(BaseModel):
     """统一告警列表项，同时兼容旧摄像头告警和通道告警。"""
 
@@ -68,27 +104,67 @@ class AlarmEventResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+# 功能：定义 `AlarmListResponse` 类，封装告警相关的状态、约束与操作
+# 参数：
+#   - `items`（list[AlarmEventResponse]）：`items` 对应的业务输入值
+# 返回：AlarmListResponse；返回新建的 `AlarmListResponse` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`ConfigDict`、`Field`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[AlarmEventResponse] = Field(default_factory=list)
 
 
+# 功能：实现 `_meta` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `violation_type`（int | None）：`violation_type` 对应的业务输入值
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_event_dict` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 内部调用：`_TYPE_META.get`、`int`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _meta(violation_type: int | None) -> dict[str, str]:
     return _TYPE_META.get(int(violation_type or 0), _DEFAULT_META)
 
 
+# 功能：实现 `_camera_names` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `session`（未显式标注）：数据库会话或运行会话
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 内部调用：`session.query(AiCameraConfig.shm_name, AiCameraConfig.name).all`、`session.query`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _camera_names(session) -> dict[str, str]:
     rows = session.query(AiCameraConfig.shm_name, AiCameraConfig.name).all()
     return {shm: name for shm, name in rows if shm}
 
 
+# 功能：实现 `_dict_value` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_channel_alarm_fields` 调用本符号
+#   - 内部调用：`isinstance`、`str`、`value.items`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _dict_value(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     return {str(key): item for key, item in value.items()}
 
 
+# 功能：读取或查询 `_int_list` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：list[int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_channel_alarm_fields` 调用本符号
+#   - 内部调用：`isinstance`、`set`、`item.strip`、`any`、`int`、`seen.add`、`result.append`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _int_list(value: object) -> list[int]:
     if not isinstance(value, list):
         return []
@@ -116,6 +192,15 @@ def _int_list(value: object) -> list[int]:
     return result
 
 
+# 功能：实现 `_channel_alarm_fields` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `metadata`（dict[str, Any]）：`metadata` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_event_dict` 调用本符号
+#   - 内部调用：`_dict_value`、`metadata.get`、`dict`、`raw_states.items`、`isinstance`、`raw_counts.items`、`str`、`explicit_names.items`、`camera_states.items`、`state.get`
+#          等共 12 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _channel_alarm_fields(metadata: dict[str, Any]) -> dict[str, Any]:
     raw_states = _dict_value(metadata.get("camera_states"))
     camera_states = {
@@ -151,6 +236,15 @@ def _channel_alarm_fields(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 功能：实现 `_event_dict` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `row`（AiViolationImage）：`row` 对应的业务输入值
+#   - `cameras`（dict[str, str]）：`cameras` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 内部调用：`_meta`、`getattr`、`isinstance`、`dict`、`str`、`metadata.get`、`cameras.get`、`create_time.isoformat`、`_channel_alarm_fields`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any]:
     meta = _meta(getattr(row, "violation_type", None))
     camera_key = getattr(row, "camera_no", None) or ""
@@ -209,6 +303,17 @@ def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any
     }
 
 
+# 功能：读取或查询 `list_alarms` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `limit`（int）：返回或处理的最大记录数；默认值为 `Query(200, ge=1, le=1000)`
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('', response_model=AlarmListResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Query`、`get_session`、`_camera_names`、`session.query(AiViolationImage).order_by(AiViolationImage.create_time.desc(),
+#          AiViolationImage.id.desc()).limit(limit).all`、`session.query(AiViolationImage).order_by(AiViolationImage.create_time.desc(),
+#          AiViolationImage.id.desc()).limit`、`session.query(AiViolationImage).order_by`、`session.query`、`AiViolationImage.create_time.desc`、`AiViolationImage.id.desc`、`_event_dict`
+#          等共 12 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("", response_model=AlarmListResponse)
 def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     session = get_session()
@@ -225,6 +330,15 @@ def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
         session.close()
 
 
+# 功能：实现 `alarm_image` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm_id`（int）：`alarm_id` 对应业务对象的唯一标识
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{alarm_id}/image')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`get_session`、`session.query(AiViolationImage).filter(AiViolationImage.id ==
+#          alarm_id).first`、`session.query(AiViolationImage).filter`、`session.query`、`HTTPException`、`os.path.exists`、`FileResponse`、`session.close`、`router.get`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get("/{alarm_id}/image")
 def alarm_image(alarm_id: int):
     session = get_session()
@@ -239,6 +353,16 @@ def alarm_image(alarm_id: int):
         session.close()
 
 
+# 功能：实现 `alarm_video` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm_id`（int）：`alarm_id` 对应业务对象的唯一标识
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/{alarm_id}/video')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`get_session`、`session.query(AiViolationImage).filter(AiViolationImage.id ==
+#          alarm_id).first`、`session.query(AiViolationImage).filter`、`session.query`、`HTTPException`、`getattr`、`os.path.exists`、`ensure_browser_compatible_mp4`、`logger.warning`、`FileResponse`
+#          等共 12 个调用。
+# 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
 @router.get("/{alarm_id}/video")
 def alarm_video(alarm_id: int):
     session = get_session()
@@ -261,6 +385,17 @@ def alarm_video(alarm_id: int):
         session.close()
 
 
+# 功能：实现 `alarm_statistics` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `days`（int）：`days` 对应的业务输入值；默认值为 `Query(7, ge=1, le=90)`
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：由 FastAPI 按 `router.get('/statistics/summary')` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Query`、`dt.datetime.now`、`now.replace`、`dt.timedelta`、`get_session`、`_camera_names`、`session.query(AiViolationImage).filter(AiViolationImage.create_time
+#          >=
+#          range_start).order_by(AiViolationImage.create_time.asc()).all`、`session.query(AiViolationImage).filter(AiViolationImage.create_time
+#          >= range_start).order_by`、`session.query(AiViolationImage).filter`、`session.query` 等共 35 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @router.get("/statistics/summary")
 def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     now = dt.datetime.now()

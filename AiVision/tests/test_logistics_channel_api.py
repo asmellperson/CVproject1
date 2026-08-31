@@ -1,3 +1,6 @@
+# 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import asyncio
 import importlib
 import sys
@@ -21,23 +24,78 @@ FEATURES = tuple(sorted(importlib.import_module(
 ADMIN = {"role": "admin", "department": None}
 
 
+# 功能：定义 `FakeService` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：FakeService；返回新建的 `FakeService` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeService:
+    # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.channels = {feature: {} for feature in FEATURES}
         self.next_id = 1
         self.calls = []
         self.error = None
 
+    # 功能：实现 `_raise` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::create_channel`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_config`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::add_existing_camera` 调用本符号
+    #   - 内部调用：`ValueError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _raise(self):
         if self.error:
             raise ValueError(self.error)
 
+    # 功能：读取或查询 `list_channels` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`deepcopy`、`self.channels[feature].values`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def list_channels(self, feature):
         return {"items": [deepcopy(value) for value in self.channels[feature].values()]}
 
+    # 功能：读取或查询 `get_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`deepcopy`、`self.channels[feature].get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_channel(self, feature, channel_id):
         return deepcopy(self.channels[feature].get(channel_id))
 
+    # 功能：创建或构建 `create_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `name`（未显式标注）：业务对象名称
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._raise`、`deepcopy`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def create_channel(self, feature, name):
         self._raise()
         channel_id = self.next_id
@@ -59,6 +117,17 @@ class FakeService:
         self.channels[feature][channel_id] = value
         return deepcopy(value)
 
+    # 功能：更新或保存 `update_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（未显式标注）：接口或事件携带的业务数据
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel_and_config` 调用本符号
+    #   - 内部调用：`self._raise`、`self.channels[feature].get`、`value.update`、`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_channel(self, feature, channel_id, payload):
         self._raise()
         value = self.channels[feature].get(channel_id)
@@ -66,6 +135,17 @@ class FakeService:
             value.update(payload)
         return deepcopy(value)
 
+    # 功能：更新或保存 `update_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（未显式标注）：接口或事件携带的业务数据
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel_and_config` 调用本符号
+    #   - 内部调用：`self._raise`、`self.channels[feature].get`、`payload.model_dump`、`value['config'].update`、`self.calls.append`、`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_config(self, feature, channel_id, payload):
         self._raise()
         value = self.channels[feature].get(channel_id)
@@ -76,15 +156,48 @@ class FakeService:
         self.calls.append(("config", feature, channel_id, update))
         return deepcopy(value)
 
+    # 功能：更新或保存 `update_channel_and_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `metadata`（未显式标注）：`metadata` 对应的业务输入值
+    #   - `config`（未显式标注）：运行配置对象
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.update_channel`、`self.update_config`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_channel_and_config(self, feature, channel_id, metadata, config):
         value = self.update_channel(feature, channel_id, metadata)
         if value is None or config is None:
             return value
         return self.update_config(feature, channel_id, config)
 
+    # 功能：删除或清理 `delete_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.channels[feature].pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def delete_channel(self, feature, channel_id):
         return self.channels[feature].pop(channel_id, None) is not None
 
+    # 功能：创建或构建 `add_existing_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::create_camera_and_bind` 调用本符号
+    #   - 内部调用：`self._raise`、`value['members'].append`、`len`、`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def add_existing_camera(self, feature, channel_id, camera_id):
         self._raise()
         value = self.channels[feature][channel_id]
@@ -95,10 +208,32 @@ class FakeService:
         })
         return deepcopy(value)
 
+    # 功能：创建或构建 `create_camera_and_bind` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `payload`（未显式标注）：接口或事件携带的业务数据
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.calls.append`、`self.add_existing_camera`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def create_camera_and_bind(self, feature, channel_id, payload):
         self.calls.append(("create_camera", feature, channel_id, payload.name, payload.url))
         return self.add_existing_camera(feature, channel_id, 99)
 
+    # 功能：实现 `reorder_members` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_ids`（未显式标注）：`camera_ids` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`enumerate`、`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def reorder_members(self, feature, channel_id, camera_ids):
         value = self.channels[feature][channel_id]
         members = {member["camera_id"]: member for member in value["members"]}
@@ -107,10 +242,32 @@ class FakeService:
             member["sort_order"] = index
         return deepcopy(value)
 
+    # 功能：实现 `move_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.calls.append`、`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def move_camera(self, feature, camera_id, channel_id):
         self.calls.append(("move", feature, camera_id, channel_id))
         return deepcopy(self.channels[feature][channel_id])
 
+    # 功能：删除或清理 `remove_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.channels[feature].get`、`len`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def remove_camera(self, feature, channel_id, camera_id):
         value = self.channels[feature].get(channel_id)
         if value is None:
@@ -119,6 +276,18 @@ class FakeService:
         value["members"] = [m for m in value["members"] if m["camera_id"] != camera_id]
         return len(value["members"]) != before
 
+    # 功能：更新或保存 `set_member_enabled` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `enabled`（未显式标注）：是否启用相应能力
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.channels[feature].get`、`ValueError`、`next`、`self.calls.append`、`deepcopy`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def set_member_enabled(self, feature, channel_id, camera_id, enabled):
         value = self.channels[feature].get(channel_id)
         if value is None:
@@ -131,10 +300,40 @@ class FakeService:
         return deepcopy(value)
 
 
+# 功能：定义 `FakeFeatureService` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：FakeFeatureService；返回新建的 `FakeFeatureService` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_real_asgi_auth_permissions_and_endpoint_contracts`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
+#         `test_generic_feature_config_http_cannot_bypass_logistics_membership_guard`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_service`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
+#         `test_legacy_logistics_config_reads_require_department_and_membership` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeFeatureService:
+    # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.calls = []
 
+    # 功能：实现 `_response` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `spec`（未显式标注）：`spec` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureService::get_config`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureService::save_config` 调用本符号
+    #   - 内部调用：`str`、`raw_camera_id.startswith`、`raw_camera_id.removeprefix`、`int`、`spec.config_schema().model_dump`、`spec.config_schema`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
     def _response(spec, camera_id):
         raw_camera_id = str(camera_id)
@@ -151,12 +350,33 @@ class FakeFeatureService:
             "config": spec.config_schema().model_dump(),
         }
 
+    # 功能：读取或查询 `get_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `spec`（未显式标注）：`spec` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.calls.append`、`int`、`self._response`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_config(self, spec, camera_id):
         if camera_id == "missing":
             return None
         self.calls.append(("get", spec.name, int(camera_id)))
         return self._response(spec, camera_id)
 
+    # 功能：更新或保存 `save_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `spec`（未显式标注）：`spec` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `payload`（未显式标注）：接口或事件携带的业务数据
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.calls.append`、`int`、`self._response`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def save_config(self, spec, camera_id, payload):
         self.calls.append(("save", spec.name, int(camera_id), payload))
         result = self._response(spec, camera_id)
@@ -164,43 +384,172 @@ class FakeFeatureService:
         return result
 
 
+# 功能：定义 `FakeOrchestrator` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：FakeOrchestrator；返回新建的 `FakeOrchestrator` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_real_asgi_auth_permissions_and_endpoint_contracts`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_status_response_and_composite_jpeg_semantics` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeOrchestrator:
     status = None
     frame = None
 
+    # 功能：读取或查询 `get_logistics_channel_status` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`deepcopy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_logistics_channel_status(self, feature, channel_id):
         return deepcopy(self.status)
 
+    # 功能：读取或查询 `get_logistics_channel_frame` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_logistics_channel_frame(self, feature, channel_id):
         return self.frame
 
 
+# 功能：定义 `EmptyAlarmQuery` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：EmptyAlarmQuery；返回新建的 `EmptyAlarmQuery` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `EmptyAlarmSession::query` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class EmptyAlarmQuery:
+    # 功能：实现 `filter` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `*_args`（未显式标注）：`_args` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
+    #         调用本符号；`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::update_video_status` 调用本符号；另有 31 处静态调用
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def filter(self, *_args):
         return self
 
+    # 功能：实现 `order_by` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `*_args`（未显式标注）：`_args` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_deletes_expired_records_files_and_historical_orphans`
+    #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
+    #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
+    #         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号；`AiVision/platform/violation/cleanup.py` 的
+    #         `ViolationMediaCleaner::_delete_expired_records` 调用本符号；另有 9 处静态调用
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def order_by(self, *_args):
         return self
 
+    # 功能：实现 `limit` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `_limit`（未显式标注）：`_limit` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def limit(self, _limit):
         return self
 
+    # 功能：实现 `all` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_inactive_detection_window_still_composes_live_preview_frames` 调用本符号；另有 40 处静态调用
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def all(self):
         return []
 
 
+# 功能：定义 `EmptyAlarmSession` 类，封装接口访问相关的状态、约束与操作
+# 参数：无。
+# 返回：EmptyAlarmSession；返回新建的 `EmptyAlarmSession` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class EmptyAlarmSession:
+    # 功能：读取或查询 `query` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `_model`（未显式标注）：`_model` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`EmptyAlarmQuery`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def query(self, _model):
         return EmptyAlarmQuery()
 
+    # 功能：停止并释放 `close` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def close(self):
         return None
 
 
+# 功能：实现 `_seed` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `service`（未显式标注）：`service` 对应的业务输入值
+#   - `feature`（未显式标注）：`feature` 对应的业务输入值；默认值为 `FEATURES[0]`
+#   - `name`（未显式标注）：业务对象名称；默认值为 `'一号通道'`
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_real_asgi_auth_permissions_and_endpoint_contracts`
+#         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的
+#         `test_legacy_logistics_config_reads_require_department_and_membership`
+#         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_member_bind_create_reorder_move_and_remove`
+#         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_status_response_and_composite_jpeg_semantics` 调用本符号
+#   - 内部调用：`service.create_channel`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _seed(service, feature=FEATURES[0], name="一号通道"):
     return service.create_channel(feature, name)
 
 
+# 功能：验证 `test_router_exposes_full_channel_contract_and_app_registers_it` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`importlib.import_module`、`set`、`getattr`、`registered_paths.add`、`registered_paths.update`、`any`、`path.startswith`、`app_module.app.openapi`、`openapi['paths'].items`、`methods.items`
+#          等共 12 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
 def test_router_exposes_full_channel_contract_and_app_registers_it():
     paths = {(route.path, method) for route in api.router.routes for method in route.methods}
     expected = {
@@ -252,6 +601,13 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
             assert schema.get("$ref") or schema.get("type") == "object"
 
 
+# 功能：验证 `test_fastapi_response_field_filters_and_rejects_invalid_output` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`next`、`asyncio.run`、`serialize_response`、`pytest.raises`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_fastapi_response_field_filters_and_rejects_invalid_output():
     route = next(
         route for route in api.router.routes
@@ -284,6 +640,14 @@ def test_fastapi_response_field_filters_and_rejects_invalid_output():
         ))
 
 
+# 功能：验证 `test_real_asgi_auth_permissions_and_endpoint_contracts` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`FakeOrchestrator`、`_seed`、`service.add_existing_camera`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     service = FakeService()
     orchestrator = FakeOrchestrator()
@@ -299,12 +663,30 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     app.dependency_overrides[api.get_feature_config_service] = lambda: feature_service
     monkeypatch.setattr(api, "get_session", EmptyAlarmSession)
 
+    # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `func`（未显式标注）：`func` 对应的业务输入值
+    #   - `*args`（未显式标注）：`args` 对应的业务输入值
+    #   - `**_kwargs`（未显式标注）：`_kwargs` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`func`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def inline_run_sync(func, *args, **_kwargs):
         return func(*args)
 
     # 受限测试环境不允许 worker thread；仍通过完整 ASGI 路由/依赖/序列化栈请求。
     monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
 
+    # 功能：实现 `scenario` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`member_config.json`、`client.request`、`client.post`、`created.json`、`client.put`、`np.zeros`、`frame.content.startswith`
+    #          等共 12 个调用。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -395,6 +777,13 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     asyncio.run(scenario())
 
 
+# 功能：验证 `test_four_features_are_isolated_and_whitelisted` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`enumerate`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.list_channels`、`pytest.raises`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_four_features_are_isolated_and_whitelisted():
     service = FakeService()
     for index, feature in enumerate(FEATURES):
@@ -406,6 +795,13 @@ def test_four_features_are_isolated_and_whitelisted():
     assert caught.value.status_code == 404
 
 
+# 功能：验证 `test_viewer_department_access_and_admin_dependency_contract` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`api._require_feature_access`、`next`、`pytest.raises`、`any`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_viewer_department_access_and_admin_dependency_contract():
     general_feature = "detect_logistics_single_person"
     viewer = {"role": "viewer", "department": "general_electric"}
@@ -421,17 +817,42 @@ def test_viewer_department_access_and_admin_dependency_contract():
     assert any(dependency.call.__name__ == "require_admin" for dependency in create_route.dependant.dependencies)
 
 
+# 功能：验证 `test_generic_feature_config_http_cannot_bypass_logistics_membership_guard` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
     feature_api = importlib.import_module("features._base.api")
     feature_service = FakeFeatureService()
     app = FastAPI()
     app.include_router(feature_api.create_features_router(feature_service))
 
+    # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `func`（未显式标注）：`func` 对应的业务输入值
+    #   - `*args`（未显式标注）：`args` 对应的业务输入值
+    #   - `**_kwargs`（未显式标注）：`_kwargs` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`func`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def inline_run_sync(func, *args, **_kwargs):
         return func(*args)
 
     monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
 
+    # 功能：实现 `scenario` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`allowed.json`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -452,14 +873,48 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
     asyncio.run(scenario())
 
 
+# 功能：验证 `test_generic_feature_camera_create_uses_atomic_camera_service` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FakeCameraService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
     feature_api = importlib.import_module("features._base.api")
     feature_service = FakeFeatureService()
 
+    # 功能：定义 `FakeCameraService` 类，封装接口访问相关的状态、约束与操作
+    # 参数：无。
+    # 返回：FakeCameraService；返回新建的 `FakeCameraService` 实例。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_service`
+    #         实例化本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeCameraService:
+        # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        # 返回：None；初始化当前实例，不返回业务数据。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+        # 副作用/注意事项：会更新当前实例的运行状态。
         def __init__(self):
             self.calls = []
 
+        # 功能：创建或构建 `create_camera_for_feature` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+        # 参数：
+        #   - `self`（未显式标注）：当前类实例
+        #   - `feature`（未显式标注）：`feature` 对应的业务输入值
+        #   - `payload`（未显式标注）：接口或事件携带的业务数据
+        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+        # 调用关系：
+        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+        #   - 内部调用：`self.calls.append`、`payload.get`。
+        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def create_camera_for_feature(self, feature, payload):
             self.calls.append((feature, payload))
             return {
@@ -481,11 +936,28 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
     ))
     app.dependency_overrides[feature_api.require_admin] = lambda: ADMIN
 
+    # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `func`（未显式标注）：`func` 对应的业务输入值
+    #   - `*args`（未显式标注）：`args` 对应的业务输入值
+    #   - `**_kwargs`（未显式标注）：`_kwargs` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`func`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def inline_run_sync(func, *args, **_kwargs):
         return func(*args)
 
     monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
 
+    # 功能：实现 `scenario` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.post`、`response.json`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -514,6 +986,16 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
     asyncio.run(scenario())
 
 
+# 功能：验证 `test_legacy_logistics_config_reads_require_department_and_membership` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `feature`（未显式标注）：`feature` 对应的业务输入值
+#   - `legacy_path`（未显式标注）：`legacy_path` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`_seed`、`service.add_existing_camera`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     ("feature", "legacy_path"),
     [
@@ -549,11 +1031,28 @@ def test_legacy_logistics_config_reads_require_department_and_membership(
     app.dependency_overrides[compat_api.get_logistics_channel_service] = lambda: service
     app.dependency_overrides[compat_api.get_feature_config_service] = lambda: feature_service
 
+    # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `func`（未显式标注）：`func` 对应的业务输入值
+    #   - `*args`（未显式标注）：`args` 对应的业务输入值
+    #   - `**_kwargs`（未显式标注）：`_kwargs` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`func`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def inline_run_sync(func, *args, **_kwargs):
         return func(*args)
 
     monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
 
+    # 功能：实现 `scenario` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`client.put`。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -586,6 +1085,13 @@ def test_legacy_logistics_config_reads_require_department_and_membership(
     asyncio.run(scenario())
 
 
+# 功能：验证 `test_crud_config_and_validation_models` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.LogisticsChannelPutRequest`、`api.update_channel`、`api.get_channel`、`api.delete_channel`、`pytest.raises`、`api.LogisticsChannelConfigUpdate`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_crud_config_and_validation_models():
     service = FakeService()
     channel = api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="初始"), ADMIN, service)
@@ -621,6 +1127,13 @@ def test_crud_config_and_validation_models():
         )
 
 
+# 功能：验证 `test_member_bind_create_reorder_move_and_remove` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`_seed`、`api.add_camera`、`api.LogisticsChannelMemberCreate`、`api.reorder_cameras`、`api.LogisticsChannelMemberOrder`、`api.move_camera`、`api.remove_camera`、`any`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_member_bind_create_reorder_move_and_remove():
     service = FakeService()
     source = _seed(service, name="来源")
@@ -643,6 +1156,15 @@ def test_member_bind_create_reorder_move_and_remove():
     assert any(call[0] == "create_camera" for call in service.calls)
 
 
+# 功能：验证 `test_service_errors_have_stable_http_mapping` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `message`（未显式标注）：用于展示、记录或发送的文本消息
+#   - `expected`（未显式标注）：`expected` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`pytest.raises`、`api.create_channel`、`api.LogisticsChannelCreate`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
@@ -660,6 +1182,13 @@ def test_service_errors_have_stable_http_mapping(message, expected):
     assert caught.value.status_code == expected
 
 
+# 功能：验证 `test_status_response_and_composite_jpeg_semantics` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`FakeService`、`FakeOrchestrator`、`_seed`、`api.get_channel_status`、`pytest.raises`、`api.get_channel_frame`、`np.zeros`、`response.body.startswith`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_status_response_and_composite_jpeg_semantics():
     service = FakeService()
     orchestrator = FakeOrchestrator()

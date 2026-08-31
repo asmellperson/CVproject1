@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, RefreshCw, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -42,6 +45,17 @@ type AiVisionMonitorProps = {
 const FRAME_REFRESH_MS = 200
 const fallbackImageSize = { width: 1920, height: 1080 }
 
+/**
+ * 功能：渲染 `AiVisionMonitor` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（AiVisionMonitorProps）：React 组件属性对象；解构字段包括 title, feature, department, presentation, default
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`useRef`、`useMemo`、`find`、`getAiVisionCameraKey`、`resolveCameraFeatureValue`、`buildAiVisionMonitorOverlay`、`useLogisticsSinglePersonMonitor`、`useHumanDwellMonitor`、`isFeatureDashboardKey`
+ *          等共 79 个调用。
+ * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
+ */
 export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')

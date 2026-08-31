@@ -1,3 +1,6 @@
+# 文件说明：包含资源清理的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 import datetime
 import importlib
 import importlib.util
@@ -39,11 +42,28 @@ except ModuleNotFoundError:
     ).AiViolationImage
 
 
+# 功能：实现 `_database` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_deletes_expired_records_files_and_historical_orphans`
+#         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
+#         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
+#         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号
+#   - 内部调用：`create_engine`、`Base.metadata.create_all`、`sessionmaker`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _database():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
 
+    # 功能：实现 `local_session_scope` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`factory`、`session.commit`、`session.rollback`、`session.close`。
+    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     @contextmanager
     def local_session_scope():
         session = factory()
@@ -59,6 +79,21 @@ def _database():
     return factory, local_session_scope
 
 
+# 功能：创建或构建 `_add_record` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `factory`（未显式标注）：`factory` 对应的业务输入值
+#   - `row_id`（int）：`row_id` 对应业务对象的唯一标识
+#   - `image_path`（Path）：`image_path` 对应的业务输入值
+#   - `created_at`（datetime.datetime）：`created_at` 对应的业务输入值
+#   - `video_path`（Path | None）：`video_path` 对应的业务输入值；默认值为 `None`
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_deletes_expired_records_files_and_historical_orphans`
+#         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
+#         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
+#         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号
+#   - 内部调用：`factory`、`session.add`、`AiViolationImage`、`str`、`session.commit`。
+# 副作用/注意事项：可能读取或修改数据库事务。
 def _add_record(
     factory,
     *,
@@ -79,6 +114,16 @@ def _add_record(
         session.commit()
 
 
+# 功能：验证 `test_cleanup_deletes_expired_records_files_and_historical_orphans` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`(now -
+#          datetime.timedelta(days=8)).timestamp`、`datetime.timedelta`、`os.utime`、`_add_record`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`
+#          等共 18 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
     factory, local_session_scope = _database()
     now = datetime.datetime(2026, 8, 10, 12, 0, 0)
@@ -127,6 +172,15 @@ def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
     assert stats.skipped_unsafe_paths == 1
 
 
+# 功能：验证 `test_cleanup_capacity_removes_oldest_database_backed_image` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiViolationImage).order_by`
+#          等共 13 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_capacity_removes_oldest_database_backed_image(tmp_path):
     factory, local_session_scope = _database()
     now = datetime.datetime(2026, 8, 10, 12, 0, 0)
@@ -156,6 +210,15 @@ def test_cleanup_capacity_removes_oldest_database_backed_image(tmp_path):
     assert stats.removed_bytes == 8
 
 
+# 功能：验证 `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiViolationImage).order_by`
+#          等共 13 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_capacity_keeps_fresh_image_during_push_grace_period(tmp_path):
     factory, local_session_scope = _database()
     now = datetime.datetime(2026, 8, 10, 12, 0, 0)

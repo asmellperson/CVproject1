@@ -1,15 +1,38 @@
+// 文件说明：封装可复用的`dropdown-menu` 模块 React 基础组件。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * 功能：渲染 `DropdownMenu` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Root>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/**
+ * 功能：渲染 `DropdownMenuPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -18,6 +41,16 @@ function DropdownMenuPortal({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -29,6 +62,16 @@ function DropdownMenuTrigger({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Content>）：React 组件属性对象；解构字段包括 className, sideOffset, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuContent({
   className,
   sideOffset = 4,
@@ -49,6 +92,16 @@ function DropdownMenuContent({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Group>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
@@ -57,6 +110,16 @@ function DropdownMenuGroup({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuItem` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, variant, default, props, React, ComponentProps, typeof
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuItem({
   className,
   inset,
@@ -80,6 +143,17 @@ function DropdownMenuItem({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuCheckboxItem` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>）：React 组件属性对象；解构字段包括 className, children, checked,
+ *     props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`DropdownMenuPrimitive`、`CheckIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuCheckboxItem({
   className,
   children,
@@ -106,6 +180,16 @@ function DropdownMenuCheckboxItem({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuRadioGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
@@ -117,6 +201,16 @@ function DropdownMenuRadioGroup({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuRadioItem` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>）：React 组件属性对象；解构字段包括 className, children, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`DropdownMenuPrimitive`、`CircleIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuRadioItem({
   className,
   children,
@@ -141,6 +235,16 @@ function DropdownMenuRadioItem({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, props, React, ComponentProps, typeof, DropdownMenuPrimitive, Label
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuLabel({
   className,
   inset,
@@ -161,6 +265,16 @@ function DropdownMenuLabel({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Separator>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuSeparator({
   className,
   ...props
@@ -174,6 +288,16 @@ function DropdownMenuSeparator({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuShortcut` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<"span">）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuShortcut({
   className,
   ...props
@@ -190,12 +314,32 @@ function DropdownMenuShortcut({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuSub` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.Sub>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
 }
 
+/**
+ * 功能：渲染 `DropdownMenuSubTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, children, props, React, ComponentProps, typeof, DropdownMenuPrimitive
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`DropdownMenuPrimitive`、`ChevronRightIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -220,6 +364,16 @@ function DropdownMenuSubTrigger({
   )
 }
 
+/**
+ * 功能：渲染 `DropdownMenuSubContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`DropdownMenuPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function DropdownMenuSubContent({
   className,
   ...props

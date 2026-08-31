@@ -1,3 +1,6 @@
+# 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 from __future__ import annotations
 
 import json
@@ -14,6 +17,16 @@ from unified_backend.app import (
 )
 
 
+# 功能：初始化或配置 `_configure_users` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_user_routes_cover_full_lifecycle`
+#         调用本符号；`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_route_maps_self_delete_to_conflict` 调用本符号
+#   - 内部调用：`legacy_path.write_text`、`json.dumps`、`monkeypatch.setenv`、`str`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _configure_users(monkeypatch, tmp_path):
     legacy_path = tmp_path / "auth_users.json"
     legacy_path.write_text(
@@ -45,6 +58,16 @@ def _configure_users(monkeypatch, tmp_path):
     )
 
 
+# 功能：实现 `_endpoint` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `app`（未显式标注）：`app` 对应的业务输入值
+#   - `path`（str）：目标路径
+#   - `method`（str）：`method` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`getattr`、`set`、`AssertionError`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _endpoint(app, path: str, method: str):
     for route in app.routes:
         if getattr(route, "path", None) == path and method in getattr(
@@ -56,6 +79,14 @@ def _endpoint(app, path: str, method: str):
     raise AssertionError(f"route not found: {method} {path}")
 
 
+# 功能：实现 `_assert_no_password_material` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `payload`（未显式标注）：接口或事件携带的业务数据
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_user_routes_cover_full_lifecycle` 调用本符号
+#   - 内部调用：`json.dumps`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _assert_no_password_material(payload):
     serialized = json.dumps(payload, ensure_ascii=False)
     assert "password_hash" not in serialized
@@ -63,6 +94,16 @@ def _assert_no_password_material(payload):
     assert '"password"' not in serialized
 
 
+# 功能：验证 `test_admin_user_routes_cover_full_lifecycle` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_configure_users`、`create_app`、`_endpoint`、`any`、`list_users`、`len`、`_assert_no_password_material`、`create_user`、`AdminUserCreateRequest`、`update_user`
+#          等共 14 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
     _configure_users(monkeypatch, tmp_path)
     app = create_app()
@@ -156,6 +197,13 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
     ]
 
 
+# 功能：验证 `test_viewer_is_rejected_by_admin_dependency` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`pytest.raises`、`require_admin`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_viewer_is_rejected_by_admin_dependency():
     with pytest.raises(HTTPException) as exc_info:
         require_admin(
@@ -168,6 +216,15 @@ def test_viewer_is_rejected_by_admin_dependency():
     assert exc_info.value.status_code == 403
 
 
+# 功能：验证 `test_admin_route_maps_self_delete_to_conflict` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
+#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_configure_users`、`create_app`、`_endpoint`、`pytest.raises`、`delete_user`、`str`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_admin_route_maps_self_delete_to_conflict(monkeypatch, tmp_path):
     _configure_users(monkeypatch, tmp_path)
     app = create_app()

@@ -1,3 +1,6 @@
+// 文件说明：实现类型契约的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 export const LOGISTICS_FEATURES = [
   'detect_logistics_single_person',
   'detect_logistics_single_person_electronics_electrician',

@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
@@ -28,6 +31,16 @@ import {
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
+/**
+ * 功能：渲染 `StatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, value, detail, icon, Icon, tone, ping, false
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Icon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function StatCard({
   label,
   value,
@@ -69,6 +82,16 @@ function StatCard({
   )
 }
 
+/**
+ * 功能：渲染 `GlassPill` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 children, danger, false, children, ReactNode, danger, boolean
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function GlassPill({ children, danger = false }: { children: ReactNode; danger?: boolean }) {
   return (
     <span className={cn(
@@ -80,6 +103,19 @@ function GlassPill({ children, danger = false }: { children: ReactNode; danger?:
   )
 }
 
+/**
+ * 功能：转换或规范化 `formatBusinessMetric` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `feature`（FeatureDashboardKey）：`feature` 对应的业务输入值
+ *   - `value`（Record<string, unknown> | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `ruleRows`
+ *         调用本符号；`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `FeatureDashboardMonitorView`
+ *         调用本符号
+ *   - 内部调用：`Number`、`isFinite`、`toFixed`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatBusinessMetric(feature: FeatureDashboardKey, value: Record<string, unknown> | null) {
   if (feature === 'blocks') {
     const side = Number(value?.alarm_side)
@@ -97,6 +133,17 @@ function formatBusinessMetric(feature: FeatureDashboardKey, value: Record<string
   return Number.isFinite(seconds) ? `${seconds} 秒` : '--'
 }
 
+/**
+ * 功能：转换或规范化 `formatValue` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（unknown）：待转换、校验或写入的值
+ *   - `suffix`（未显式标注）：`suffix` 对应的业务输入值；声明包含默认值 `''`
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `ruleRows` 调用本符号
+ *   - 内部调用：`isArray`、`stringify`、`String`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatValue(value: unknown, suffix = '') {
   if (typeof value === 'boolean') return value ? '已启用' : '未启用'
   if (value === null || value === undefined || value === '') return '--'
@@ -104,6 +151,17 @@ function formatValue(value: unknown, suffix = '') {
   return `${String(value)}${suffix}`
 }
 
+/**
+ * 功能：实现 `ruleRows` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `feature`（FeatureDashboardKey）：`feature` 对应的业务输入值
+ *   - `value`（Record<string, unknown> | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `FeatureDashboardMonitorView` 调用本符号
+ *   - 内部调用：`formatBusinessMetric`、`formatValue`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function ruleRows(feature: FeatureDashboardKey, value: Record<string, unknown> | null) {
   if (feature === 'blocks') {
     return [
@@ -133,12 +191,31 @@ function ruleRows(feature: FeatureDashboardKey, value: Record<string, unknown> |
   ]
 }
 
+/**
+ * 功能：转换或规范化 `formatClock` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string | undefined）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Date`、`isNaN`、`getTime`、`toLocaleTimeString`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatClock(value: string | undefined) {
   if (!value) return '--'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? '--' : parsed.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
+/**
+ * 功能：实现 `browserTimestamp` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：无。
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/feature_dashboard/FeatureDashboardMonitorView.tsx` 的 `FeatureDashboardMonitorView` 调用本符号
+ *   - 内部调用：`Date`、`getFullYear`、`String`、`getMonth`、`padStart`、`getDate`、`getHours`、`getMinutes`、`getSeconds`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function browserTimestamp() {
   const now = new Date()
   return `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
@@ -159,10 +236,41 @@ export type FeatureDashboardMonitorViewProps = {
   roiPolygons: OverlayPoint[][]
   alarmLines: [OverlayPoint, OverlayPoint][]
   imageSize: { width: number; height: number }
+  /**
+   * 功能：处理 `onSelectCamera` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `cameraKey`（string）：`cameraKey` 对应的业务输入值
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectCamera: (cameraKey: string) => void
+  /**
+   * 功能：处理 `onRefreshCameras` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onRefreshCameras: () => void
 }
 
+/**
+ * 功能：渲染 `FeatureDashboardMonitorView` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（FeatureDashboardMonitorViewProps）：React 组件属性对象；解构字段包括 feature, cameras, selectedCamera, selectedCameraInfo, loading,
+ *     message, frameConnected, frameContent
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`getAiVisionCameraKey`、`ruleRows`、`isFeatureOverlayConfigured`、`return`、`formatBusinessMetric`、`formatClock`、`map`、`cn`、`toFixed`、`join`
+ *          等共 35 个调用。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function FeatureDashboardMonitorView({
   feature,
   cameras,

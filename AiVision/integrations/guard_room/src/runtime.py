@@ -1,3 +1,6 @@
+# 文件说明：实现运行时相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 # runtime.py
 """
 系统运行时核心模块。
@@ -79,15 +82,38 @@ DEFAULT_RTSP_FFMPEG_OPTIONS = (
 )
 
 
+# 功能：检查或判断 `_is_rtsp_source` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `source`（未显式标注）：`source` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`isinstance`、`source.lower().startswith`、`source.lower`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _is_rtsp_source(source) -> bool:
     return isinstance(source, str) and source.lower().startswith(("rtsp://", "rtsps://"))
 
 
+# 功能：检查或判断 `_ensure_rtsp_ffmpeg_options` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `_open_video_capture` 调用本符号
+#   - 内部调用：`os.environ.setdefault`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _ensure_rtsp_ffmpeg_options() -> None:
     os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", DEFAULT_RTSP_FFMPEG_OPTIONS)
     os.environ.setdefault("OPENCV_FFMPEG_READ_ATTEMPTS", "10000")
 
 
+# 功能：实现 `_open_video_capture` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `source`（未显式标注）：`source` 对应的业务输入值
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `RTSPReader::run` 调用本符号
+#   - 内部调用：`_is_rtsp_source`、`_ensure_rtsp_ffmpeg_options`、`cv2.VideoCapture`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _open_video_capture(source):
     if _is_rtsp_source(source):
         _ensure_rtsp_ffmpeg_options()
@@ -99,6 +125,13 @@ def _open_video_capture(source):
 # 工具类：帧缓冲与摄像头读取
 # ---------------------------------------------------------------------------
 
+# 功能：线程安全的单槽帧缓冲，始终只保留最新一帧；输入与输出详见下方说明
+# 参数：无。
+# 返回：LatestFrameBuffer；返回新建的 `LatestFrameBuffer` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LatestFrameBuffer:
     """线程安全的单槽帧缓冲，始终只保留最新一帧。
 
@@ -107,12 +140,29 @@ class LatestFrameBuffer:
     而非滞后数秒的历史帧。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._frame: np.ndarray | None = None
         self._frame_id: int = 0     # 单调递增，主循环用于判断是否有新帧到来
         self._ts: float = 0.0       # 写入时的 wall clock 时间戳
 
+    # 功能：写入新帧，覆盖上一帧（生产者调用）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`time.time`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def put(self, frame: np.ndarray) -> None:
         """写入新帧，覆盖上一帧（生产者调用）。"""
         with self._lock:
@@ -120,6 +170,14 @@ class LatestFrameBuffer:
             self._frame_id += 1
             self._ts = time.time()
 
+    # 功能：读取当前最新帧的副本（消费者调用）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：tuple[int, float, np.ndarray | None]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._frame.copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get(self) -> tuple[int, float, np.ndarray | None]:
         """读取当前最新帧的副本（消费者调用）。
 
@@ -132,6 +190,21 @@ class LatestFrameBuffer:
             return self._frame_id, self._ts, self._frame.copy()
 
 
+# 功能：单路摄像头的拉流守护线程；输入与输出详见下方说明
+# 参数：
+#   - `camera_name`（str）：`camera_name` 对应的业务输入值
+#   - `source`（str）：`source` 对应的业务输入值
+#   - `frame_width`（int）：`frame_width` 对应的业务输入值
+#   - `frame_height`（int）：`frame_height` 对应的业务输入值
+#   - `reconnect_seconds`（float）：`reconnect_seconds` 对应的时间间隔或时长
+#   - `camera_buffer_size`（int）：`camera_buffer_size` 对应的数量或大小
+#   - `buffer`（LatestFrameBuffer）：`buffer` 对应的业务输入值
+#   - `stop_event`（threading.Event）：`stop_event` 对应的业务输入值
+# 返回：RTSPReader；返回新建的 `RTSPReader` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class RTSPReader(threading.Thread):
     """单路摄像头的拉流守护线程。
 
@@ -145,6 +218,22 @@ class RTSPReader(threading.Thread):
         error: 当前错误描述；正常运行时为 None，主循环据此判断摄像头是否在线。
     """
 
+    # 功能：camera_name:        摄像头标识，用于日志和线程命名；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_name`（str）：`camera_name` 对应的业务输入值
+    #   - `source`（str）：`source` 对应的业务输入值
+    #   - `frame_width`（int）：`frame_width` 对应的业务输入值
+    #   - `frame_height`（int）：`frame_height` 对应的业务输入值
+    #   - `reconnect_seconds`（float）：`reconnect_seconds` 对应的时间间隔或时长
+    #   - `camera_buffer_size`（int）：`camera_buffer_size` 对应的数量或大小
+    #   - `buffer`（LatestFrameBuffer）：`buffer` 对应的业务输入值
+    #   - `stop_event`（threading.Event）：`stop_event` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`super().__init__`、`super`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         *,
@@ -184,6 +273,15 @@ class RTSPReader(threading.Thread):
         }
         self.error: str | None = None   # None 表示当前无错误（摄像头在线）
 
+    # 功能：拉流主循环：打开 → 读帧 → 断流重连；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._normalize_source`、`self.stop_event.is_set`、`_open_video_capture`、`cap.set`、`cap.isOpened`、`time.sleep`、`cap.get`、`int`、`cap.read`、`self.buffer.put`
+    #          等共 11 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def run(self) -> None:
         """拉流主循环：打开 → 读帧 → 断流重连。"""
         source = self._normalize_source(self.source)
@@ -229,6 +327,14 @@ class RTSPReader(threading.Thread):
                 self.error = f"{self.camera_name} 视频流中断，正在重连"
                 time.sleep(self.reconnect_seconds)
 
+    # 功能：将纯数字字符串转换为整数摄像头索引，其余原样返回；输入与输出详见下方说明
+    # 参数：
+    #   - `source`（str）：`source` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `RTSPReader::run` 调用本符号
+    #   - 内部调用：`str(source).isdigit`、`str`、`int`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _normalize_source(source: str):
         """将纯数字字符串转换为整数摄像头索引，其余原样返回。"""
@@ -239,6 +345,26 @@ class RTSPReader(threading.Thread):
 # 数据结构
 # ---------------------------------------------------------------------------
 
+# 功能：单路摄像头一帧处理的完整输出，由 _process_one_camera() 返回；输入与输出详见下方说明
+# 参数：
+#   - `camera_id`（str）：摄像头唯一标识
+#   - `annotated_frame`（np.ndarray）：`annotated_frame` 对应的业务输入值
+#   - `all_persons`（List[Detection]）：`all_persons` 对应的业务输入值
+#   - `guard_persons`（List[Detection]）：`guard_persons` 对应的业务输入值
+#   - `phones`（List[Detection]）：`phones` 对应的业务输入值
+#   - `vehicles`（List[Detection]）：`vehicles` 对应的业务输入值
+#   - `pose_features`（Dict[int, Dict[str, float]]）：`pose_features` 对应的业务输入值
+#   - `local_decisions`（Dict[str, RuleDecision]）：`local_decisions` 对应的业务输入值
+#   - `guard_present`（bool）：`guard_present` 对应的业务输入值
+#   - `guard_confidence`（float）：`guard_confidence` 对应的业务输入值
+#   - `camera_online`（bool）：`camera_online` 对应的业务输入值
+#   - `vehicle_guard_seen`（bool）：`vehicle_guard_seen` 对应的业务输入值
+# 返回：SingleCameraResult；返回新建的 `SingleCameraResult` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+#         实例化本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class SingleCameraResult:
     """单路摄像头一帧处理的完整输出，由 _process_one_camera() 返回。
@@ -275,6 +401,14 @@ class SingleCameraResult:
 # 辅助类：保安识别平滑 & 制服识别缓存
 # ---------------------------------------------------------------------------
 
+# 功能：逐目标的保安识别结果保持器（同 guard_gate.py 中的 GuardGate）；输入与输出详见下方说明
+# 参数：
+#   - `hold_seconds`（float）：`hold_seconds` 对应的时间间隔或时长；默认值为 `1.0`
+# 返回：TrackGuardGate；返回新建的 `TrackGuardGate` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class TrackGuardGate:
     """逐目标的保安识别结果保持器（同 guard_gate.py 中的 GuardGate）。
 
@@ -282,10 +416,30 @@ class TrackGuardGate:
     正识别结果在时间轴上平滑，避免"保安在画面内但间歇被判为非保安"。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `hold_seconds`（float）：`hold_seconds` 对应的时间间隔或时长；默认值为 `1.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, hold_seconds: float = 1.0):
         self.hold_seconds = hold_seconds
         self.last_positive_ts: Dict[int, float] = {}   # track_id → 最近一次正识别时间戳
 
+    # 功能：查询目标当前是否应视为保安（含保持窗口）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `track_id`（int | None）：目标跟踪标识
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `is_guard_now`（bool）：`is_guard_now` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.last_positive_ts.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def keep(self, track_id: int | None, timestamp_s: float, is_guard_now: bool) -> bool:
         """查询目标当前是否应视为保安（含保持窗口）。
 
@@ -302,6 +456,14 @@ class TrackGuardGate:
         return (timestamp_s - last_ts) <= self.hold_seconds
 
 
+# 功能：制服识别结果的 TTL 缓存，避免对同一目标每帧重复推理；输入与输出详见下方说明
+# 参数：
+#   - `ttl_seconds`（float）：`ttl_seconds` 对应的时间间隔或时长；默认值为 `1`
+# 返回：UniformCache；返回新建的 `UniformCache` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::__init__` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UniformCache:
     """制服识别结果的 TTL 缓存，避免对同一目标每帧重复推理。
 
@@ -312,11 +474,34 @@ class UniformCache:
     容量保护：超过 200 条时清理 3×TTL 之前的过期条目，防止内存无限增长。
     """
 
+    # 功能：初始化或配置 `__init__` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `ttl_seconds`（float）：`ttl_seconds` 对应的时间间隔或时长；默认值为 `1`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`threading.Lock`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self, ttl_seconds: float = 1):
         self.ttl = ttl_seconds
         self._cache: dict[tuple[str, int], tuple[float, bool, float]] = {}  # key → (ts, is_guard, conf)
         self._lock = threading.Lock()
 
+    # 功能：返回制服识别结果 (is_guard, confidence)，命中缓存则跳过推理；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（str）：摄像头唯一标识
+    #   - `track_id`（int | None）：目标跟踪标识
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `classifier`（UniformClassifier）：`classifier` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `bbox`（tuple[int, int, int, int]）：`bbox` 对应的业务输入值
+    # 返回：tuple[bool, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`self._cache.get`、`classifier.predict_person`、`len`、`self._cache.items`、`self._cache.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_or_infer(
         self,
         camera_id: str,
@@ -358,6 +543,18 @@ class UniformCache:
 # 主运行时
 # ---------------------------------------------------------------------------
 
+# 功能：系统核心运行时，管理完整的检测-分析-报警流水线；输入与输出详见下方说明
+# 参数：
+#   - `config`（AppConfig）：运行配置对象
+#   - `state`（AppState）：`state` 对应的业务输入值
+#   - `wechat_notifier`（WeChatNotifier | None）：`wechat_notifier` 对应的业务输入值；默认值为 `None`
+#   - `alarm_user`（str）：`alarm_user` 对应的业务输入值；默认值为 `''`
+#   - `alarm_camera_name`（str）：`alarm_camera_name` 对应的业务输入值；默认值为 `'值班室双摄像头'`
+# 返回：GuardRoomRuntime；返回新建的 `GuardRoomRuntime` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/integrations/guard_room/src/server.py` 的 `create_app` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class GuardRoomRuntime:
     """系统核心运行时，管理完整的检测-分析-报警流水线。
 
@@ -374,6 +571,19 @@ class GuardRoomRuntime:
         _banner_expire_ts —— 横幅过期时间戳，超过后清除横幅显示
     """
 
+    # 功能：config:           应用全局配置；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `config`（AppConfig）：运行配置对象
+    #   - `state`（AppState）：`state` 对应的业务输入值
+    #   - `wechat_notifier`（WeChatNotifier | None）：`wechat_notifier` 对应的业务输入值；默认值为 `None`
+    #   - `alarm_user`（str）：`alarm_user` 对应的业务输入值；默认值为 `''`
+    #   - `alarm_camera_name`（str）：`alarm_camera_name` 对应的业务输入值；默认值为 `'值班室双摄像头'`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`threading.Event`、`threading.Lock`、`AlarmClipRecorder`、`Path`、`VehicleEpisodeRecorder`、`UniformCache`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         config: AppConfig,
@@ -425,16 +635,47 @@ class GuardRoomRuntime:
     # 公开接口
     # -----------------------------------------------------------------------
 
+    # 功能：返回主循环线程是否存活；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._thread.is_alive`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @property
     def is_running(self) -> bool:
         """返回主循环线程是否存活。"""
         return self._thread is not None and self._thread.is_alive()
 
+    # 功能：CUDA 推理时启用 FP16，CPU 下保持 FP32；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_main`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_phones_in_person_regions`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_phones_full_frames_batch`
+    #         调用本符号；另有 1 处静态调用
+    #   - 内部调用：`str(getattr(self.cfg.models, 'device', '') or '').strip().lower`、`str(getattr(self.cfg.models, 'device', '') or
+    #          '').strip`、`str`、`getattr`、`bool`、`torch.cuda.is_available`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _use_half(self) -> bool:
         """CUDA 推理时启用 FP16，CPU 下保持 FP32。"""
         device = str(getattr(self.cfg.models, "device", "") or "").strip().lower()
         return bool(self.cfg.models.use_half and device != "cpu" and torch.cuda.is_available())
 
+    # 功能：执行一次报警图片/视频清理；失败只记录，不中断检测主循环；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `alarm_manager`（AlarmManager）：`alarm_manager` 对应的业务输入值
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`alarm_manager.cleanup_media`、`max`、`int`、`getattr`、`float`、`print`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _cleanup_alarm_media(self, alarm_manager: AlarmManager, *, now: float) -> None:
         """执行一次报警图片/视频清理；失败只记录，不中断检测主循环。"""
         try:
@@ -476,6 +717,14 @@ class GuardRoomRuntime:
         except Exception as exc:
             print(f"[GuardRoom] 报警证据清理失败: {exc}", flush=True)
 
+    # 功能：启动主循环线程（幂等：已运行时直接返回）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.clear`、`max`、`len`、`self.cfg.camera_sources`、`int`、`getattr`、`min`、`ThreadPoolExecutor`、`threading.Thread`、`self._thread.start`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def start(self) -> None:
         """启动主循环线程（幂等：已运行时直接返回）。"""
         with self._lock:
@@ -497,6 +746,15 @@ class GuardRoomRuntime:
             )
             self._thread.start()
 
+    # 功能：通知主循环退出并等待线程结束，之后关闭线程池；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `5.0`
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.set`、`thread.is_alive`、`thread.join`、`pool.shutdown`、`self.state.mark_running`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def stop(self, timeout: float = 5.0) -> None:
         """通知主循环退出并等待线程结束，之后关闭线程池。"""
         with self._lock:
@@ -520,10 +778,30 @@ class GuardRoomRuntime:
     # 报警锁存：防止同一行为期间重复触发
     # -----------------------------------------------------------------------
 
+    # 功能：生成报警锁存键，格式："{event_type}:{track_id|global}"；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_type`（str）：事件类型标识
+    #   - `track_id`（int | None）：目标跟踪标识
+    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_refresh_alarm_latches`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_emit_alarm_once` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _active_alarm_key(self, event_type: str, track_id: int | None) -> str:
         """生成报警锁存键，格式："{event_type}:{track_id|global}"。"""
         return f"{event_type}:{track_id if track_id is not None else 'global'}"
 
+    # 功能：根据当前共识结果刷新报警锁存字典；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `decisions`（dict[str, object]）：`decisions` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`set`、`getattr`、`active_keys.add`、`self._active_alarm_key`、`list`、`self._alarm_latches.keys`、`self._alarm_latches.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _refresh_alarm_latches(self, decisions: dict[str, object]) -> None:
         """根据当前共识结果刷新报警锁存字典。
 
@@ -556,6 +834,23 @@ class GuardRoomRuntime:
             if key not in active_keys:
                 self._alarm_latches.pop(key, None)
 
+    # 功能：尝试触发一次报警，锁存期内静默跳过（不调用 AlarmManager）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `alarm_manager`（AlarmManager）：`alarm_manager` 对应的业务输入值
+    #   - `event_type`（str）：事件类型标识
+    #   - `frame`（未显式标注）：待处理的视频图像帧
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `frame_id`（int）：`frame_id` 对应业务对象的唯一标识
+    #   - `track_id`（int | None）：目标跟踪标识
+    #   - `confidence`（float）：模型预测或规则判断的置信度
+    #   - `reason`（str）：`reason` 对应的业务输入值
+    #   - `cooldown_seconds`（float）：`cooldown_seconds` 对应的时间间隔或时长；默认值为 `60.0`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`self._active_alarm_key`、`self._alarm_latches.get`、`alarm_manager.emit`、`self.state.add_alarm`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def _emit_alarm_once(
         self,
         alarm_manager: AlarmManager,
@@ -618,6 +913,15 @@ class GuardRoomRuntime:
     # 主循环
     # -----------------------------------------------------------------------
 
+    # 功能：主处理循环（在守护线程中运行）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.state.clear_error`、`self.state.set_config`、`self.state.mark_running`、`self.cfg.camera_sources`、`len`、`RuntimeError`、`YOLO`、`str(getattr(self.cfg.models,
+    #          'vehicle_detector_model', '') or '').strip`、`str`、`getattr` 等共 105 个调用。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def _run_loop(self) -> None:
         """主处理循环（在守护线程中运行）。
 
@@ -1171,6 +1475,31 @@ class GuardRoomRuntime:
     # 单路摄像头处理（在线程池中并行执行）
     # -----------------------------------------------------------------------
 
+    # 功能：处理单路摄像头的一帧，返回完整的 SingleCameraResult；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（str）：摄像头唯一标识
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    #   - `fps`（float）：`fps` 对应的业务输入值
+    #   - `main_detector`（YOLO）：`main_detector` 对应的业务输入值
+    #   - `phone_detector`（Optional[YOLO]）：`phone_detector` 对应的业务输入值
+    #   - `vehicle_detector`（Optional[YOLO]）：`vehicle_detector` 对应的业务输入值
+    #   - `pose_estimator`（PoseEstimator）：`pose_estimator` 对应的业务输入值
+    #   - `behavior_engine`（BehaviorEngine）：`behavior_engine` 对应的业务输入值
+    #   - `vehicle_behavior_engine`（VehicleBehaviorEngine）：`vehicle_behavior_engine` 对应的业务输入值
+    #   - `guard_gate`（TrackGuardGate）：`guard_gate` 对应的业务输入值
+    #   - `uniform_classifier`（UniformClassifier）：`uniform_classifier` 对应的业务输入值
+    #   - `camera_online`（bool）：`camera_online` 对应的业务输入值
+    #   - `precomputed_phones`（Optional[List[Detection]]）：`precomputed_phones` 对应的业务输入值；默认值为 `None`
+    # 返回：SingleCameraResult；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._detect_main`、`self.uniform_cache.get_or_infer`、`guard_persons.append`、`max`、`guard_gate.keep`、`str(getattr(self.cfg.runtime,
+    #          'phone_detect_mode', 'guard_crop') or 'guard_crop').strip().lower`、`str(getattr(self.cfg.runtime,
+    #          'phone_detect_mode', 'guard_crop') or 'guard_crop').strip`、`str`、`getattr`、`self._detect_phones_full_frame` 等共 20
+    #          个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _process_one_camera(
         self,
         *,
@@ -1300,6 +1629,17 @@ class GuardRoomRuntime:
     # 检测辅助方法
     # -----------------------------------------------------------------------
 
+    # 功能：对单帧执行带跟踪的人体检测，返回 Detection 列表；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detector`（YOLO）：`detector` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`detector.track`、`max`、`yolo_precision_kwargs`、`self._use_half`、`boxes.xyxy.cpu().numpy`、`boxes.xyxy.cpu`、`boxes.conf.cpu().numpy`、`boxes.conf.cpu`、`boxes.cls.cpu().numpy().astype`、`boxes.cls.cpu().numpy`
+    #          等共 22 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _detect_main(self, detector: YOLO, frame: np.ndarray) -> List[Detection]:
         """对单帧执行带跟踪的人体检测，返回 Detection 列表。
 
@@ -1342,6 +1682,18 @@ class GuardRoomRuntime:
             )
         return detections
 
+    # 功能：裁图模式手机检测：对每个保安区域裁图，批量推理后坐标还原到全图；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detector`（YOLO）：`detector` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `persons`（List[Detection]）：`persons` 对应的业务输入值
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`max`、`int`、`min`、`crops.append`、`crop_meta.append`、`detector.predict`、`yolo_precision_kwargs`、`self._use_half`、`zip`、`boxes.xyxy.cpu().numpy`
+    #          等共 20 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _detect_phones_in_person_regions(
         self,
         detector: YOLO,
@@ -1462,6 +1814,18 @@ class GuardRoomRuntime:
 
         return self._dedup_overlaps(detections)
 
+    # 功能：全图批量手机检测（调试模式），一次 predict 处理所有摄像头帧；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detector`（YOLO）：`detector` 对应的业务输入值
+    #   - `frames_by_camera`（Dict[str, np.ndarray]）：`frames_by_camera` 对应的业务输入值
+    # 返回：Dict[str, List[Detection]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_phones_full_frame` 调用本符号
+    #   - 内部调用：`list`、`frames_by_camera.keys`、`detector.predict`、`min`、`max`、`yolo_precision_kwargs`、`self._use_half`、`zip`、`boxes.xyxy.cpu().numpy`、`boxes.xyxy.cpu`
+    #          等共 19 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _detect_phones_full_frames_batch(
         self,
         detector: YOLO,
@@ -1524,6 +1888,16 @@ class GuardRoomRuntime:
 
         return out
 
+    # 功能：对单帧执行全图手机检测（_detect_phones_full_frames_batch 的单帧便捷封装）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detector`（YOLO）：`detector` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`self._detect_phones_full_frames_batch`、`result.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _detect_phones_full_frame(
         self,
         detector: YOLO,
@@ -1536,6 +1910,17 @@ class GuardRoomRuntime:
         )
         return result.get("single", [])
 
+    # 功能：使用 YOLO11/COCO 车辆模型检测轿车和两轮车；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detector`（YOLO）：`detector` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`detector.predict`、`min`、`max`、`yolo_precision_kwargs`、`self._use_half`、`boxes.xyxy.cpu().numpy`、`boxes.xyxy.cpu`、`boxes.conf.cpu().numpy`、`boxes.conf.cpu`、`boxes.cls.cpu().numpy().astype`
+    #          等共 20 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _detect_vehicles(
         self,
         detector: YOLO,
@@ -1590,11 +1975,31 @@ class GuardRoomRuntime:
 
         return self._dedup_overlaps(detections)
 
+    # 功能：车辆检测仅在配置的单路摄像头上运行；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（str）：摄像头唯一标识
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_draw_camera` 调用本符号
+    #   - 内部调用：`str(getattr(self.cfg.runtime, 'vehicle_camera_id', 'cam1') or 'cam1').strip`、`str`、`getattr`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _vehicle_detection_enabled_for_camera(self, camera_id: str) -> bool:
         """车辆检测仅在配置的单路摄像头上运行。"""
         configured = str(getattr(self.cfg.runtime, "vehicle_camera_id", "cam1") or "cam1").strip()
         return camera_id == configured
 
+    # 功能：仅保留车辆检测 ROI 内的车辆；未配置 ROI 时不过滤；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `vehicles`（List[Detection]）：`vehicles` 对应的业务输入值
+    #   - `frame_shape`（tuple[int, int, int]）：`frame_shape` 对应的业务输入值
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`self._vehicle_roi_pixels`、`len`、`float`、`self._point_in_polygon`、`filtered.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _filter_vehicles_by_roi(
         self,
         vehicles: List[Detection],
@@ -1613,6 +2018,16 @@ class GuardRoomRuntime:
                 filtered.append(vehicle)
         return filtered
 
+    # 功能：将归一化车辆 ROI 转换为像素坐标；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame_shape`（tuple[int, int, int]）：`frame_shape` 对应的业务输入值
+    # 返回：list[tuple[int, int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_filter_vehicles_by_roi`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_draw_camera` 调用本符号
+    #   - 内部调用：`getattr`、`len`、`isinstance`、`float`、`int`、`round`、`points.append`、`max`、`min`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _vehicle_roi_pixels(self, frame_shape: tuple[int, int, int]) -> list[tuple[int, int]]:
         """将归一化车辆 ROI 转换为像素坐标。"""
         roi = getattr(self.cfg.rules, "vehicle_roi", []) or []
@@ -1634,6 +2049,15 @@ class GuardRoomRuntime:
             points.append((max(0, min(x, w - 1)), max(0, min(y, h - 1))))
         return points if len(points) >= 3 else []
 
+    # 功能：射线法判断点是否在多边形内；输入与输出详见下方说明
+    # 参数：
+    #   - `point`（tuple[float, float]）：`point` 对应的业务输入值
+    #   - `polygon`（list[tuple[int, int]]）：`polygon` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_filter_vehicles_by_roi` 调用本符号
+    #   - 内部调用：`len`、`enumerate`、`max`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _point_in_polygon(point: tuple[float, float], polygon: list[tuple[int, int]]) -> bool:
         """射线法判断点是否在多边形内。"""
@@ -1650,6 +2074,18 @@ class GuardRoomRuntime:
             j = i
         return inside
 
+    # 功能：调用姿态估计器（未启用时返回空字典）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `pose_estimator`（PoseEstimator）：`pose_estimator` 对应的业务输入值
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `persons`（List[Detection]）：`persons` 对应的业务输入值
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    # 返回：Dict[int, Dict[str, float]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`bool`、`getattr`、`pose_estimator.infer_frame`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _estimate_pose(
         self,
         pose_estimator: PoseEstimator,
@@ -1673,6 +2109,24 @@ class GuardRoomRuntime:
     # 画面标注方法
     # -----------------------------------------------------------------------
 
+    # 功能：在单路摄像头帧上绘制检测框、姿态信息和状态头部栏；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `camera_id`（str）：摄像头唯一标识
+    #   - `all_persons`（List[Detection]）：`all_persons` 对应的业务输入值
+    #   - `guard_persons`（List[Detection]）：`guard_persons` 对应的业务输入值
+    #   - `phones`（List[Detection]）：`phones` 对应的业务输入值
+    #   - `vehicles`（List[Detection]）：`vehicles` 对应的业务输入值
+    #   - `pose_features`（Dict[int, Dict[str, float]]）：`pose_features` 对应的业务输入值
+    #   - `guard_confidence`（float）：`guard_confidence` 对应的业务输入值
+    #   - `local_decisions`（Dict[str, RuleDecision]）：`local_decisions` 对应的业务输入值
+    #   - `camera_online`（bool）：`camera_online` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_process_one_camera` 调用本符号
+    #   - 内部调用：`draw_detection`、`self._vehicle_detection_enabled_for_camera`、`self._vehicle_roi_pixels`、`draw_polygon`、`cv2.rectangle`、`len`、`cv2.putText`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _draw_camera(
         self,
         frame: np.ndarray,
@@ -1731,6 +2185,17 @@ class GuardRoomRuntime:
         )
         cv2.putText(frame, header, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2)
 
+    # 功能：在合并画面底部绘制全局共识状态文字条；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `decisions`（Dict[str, RuleDecision]）：`decisions` 对应的业务输入值
+    #   - `timestamp_s`（float）：以秒表示的流时间戳
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`cv2.putText`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _draw_global_panel(
         self,
         frame: np.ndarray,
@@ -1752,6 +2217,17 @@ class GuardRoomRuntime:
     # 静态工具方法
     # -----------------------------------------------------------------------
 
+    # 功能：贪心 NMS：按置信度降序保留，IoU 超阈值的后续框丢弃；输入与输出详见下方说明
+    # 参数：
+    #   - `dets`（List[Detection]）：`dets` 对应的业务输入值
+    #   - `iou_threshold`（float）：`iou_threshold` 对应的业务输入值；默认值为 `0.5`
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_phones_in_person_regions`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_phones_full_frames_batch`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_detect_vehicles` 调用本符号
+    #   - 内部调用：`sorted`、`GuardRoomRuntime._iou`、`kept.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _dedup_overlaps(dets: List[Detection], iou_threshold: float = 0.5) -> List[Detection]:
         """贪心 NMS：按置信度降序保留，IoU 超阈值的后续框丢弃。
@@ -1774,6 +2250,15 @@ class GuardRoomRuntime:
                 kept.append(det)
         return kept
 
+    # 功能：计算两个检测框的 IoU，无交集时返回 0.0；输入与输出详见下方说明
+    # 参数：
+    #   - `a`（tuple[int, int, int, int]）：`a` 对应的业务输入值
+    #   - `b`（tuple[int, int, int, int]）：`b` 对应的业务输入值
+    # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`max`、`min`、`float`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
         """计算两个检测框的 IoU，无交集时返回 0.0。"""
@@ -1790,6 +2275,15 @@ class GuardRoomRuntime:
         area_b = max(1, bx2 - bx1) * max(1, by2 - by1)
         return inter / float(area_a + area_b - inter)
 
+    # 功能：等比缩放帧到指定宽度，已是目标宽度时原样返回；输入与输出详见下方说明
+    # 参数：
+    #   - `frame`（np.ndarray）：待处理的视频图像帧
+    #   - `target_w`（int）：`target_w` 对应的业务输入值
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_stack_frames_with_offsets` 调用本符号
+    #   - 内部调用：`max`、`int`、`round`、`cv2.resize`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _resize_to_width(frame: np.ndarray, target_w: int) -> np.ndarray:
         """等比缩放帧到指定宽度，已是目标宽度时原样返回。"""
@@ -1800,11 +2294,30 @@ class GuardRoomRuntime:
         new_h = max(1, int(round(h * scale)))
         return cv2.resize(frame, (target_w, new_h))
 
+    # 功能：垂直拼接多路帧（不需要偏移量时的便捷封装）；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frames`（List[np.ndarray]）：`frames` 对应的业务输入值
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`self._stack_frames_with_offsets`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _stack_frames(self, frames: List[np.ndarray]) -> np.ndarray:
         """垂直拼接多路帧（不需要偏移量时的便捷封装）。"""
         combined, _ = self._stack_frames_with_offsets(frames)
         return combined
 
+    # 功能：垂直拼接多路帧，返回合并帧与各路帧在合并帧中的 Y 轴起始偏移；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `frames`（List[np.ndarray]）：`frames` 对应的业务输入值
+    # 返回：tuple[np.ndarray, List[int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop`
+    #         调用本符号；`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_stack_frames` 调用本符号
+    #   - 内部调用：`RuntimeError`、`min`、`self._resize_to_width`、`y_offsets.append`、`np.vstack`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _stack_frames_with_offsets(self, frames: List[np.ndarray]) -> tuple[np.ndarray, List[int]]:
         """垂直拼接多路帧，返回合并帧与各路帧在合并帧中的 Y 轴起始偏移。
 
@@ -1828,6 +2341,15 @@ class GuardRoomRuntime:
 
         return np.vstack(resized_frames), y_offsets
 
+    # 功能：将检测框的 Y 坐标整体平移 y_offset，用于映射到合并画面坐标系；输入与输出详见下方说明
+    # 参数：
+    #   - `dets`（List[Detection]）：`dets` 对应的业务输入值
+    #   - `y_offset`（int）：`y_offset` 对应的业务输入值；默认值为 `0`
+    # 返回：List[Detection]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`out.append`、`Detection`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _offset_detections(dets: List[Detection], y_offset: int = 0) -> List[Detection]:
         """将检测框的 Y 坐标整体平移 y_offset，用于映射到合并画面坐标系。"""
@@ -1844,6 +2366,15 @@ class GuardRoomRuntime:
             )
         return out
 
+    # 功能：将姿态特征的 track_id 加上摄像头索引偏移（× 100000），避免多路 ID 冲突；输入与输出详见下方说明
+    # 参数：
+    #   - `pose_features`（Dict[int, Dict[str, float]]）：`pose_features` 对应的业务输入值
+    #   - `camera_index`（int）：`camera_index` 对应的业务输入值
+    # 返回：Dict[int, Dict[str, float]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`int`、`pose_features.items`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _merge_pose_features(
         pose_features: Dict[int, Dict[str, float]],
@@ -1859,6 +2390,17 @@ class GuardRoomRuntime:
             for track_id, value in pose_features.items()
         }
 
+    # 功能：阻塞等待摄像头首帧，超时则抛出 RuntimeError；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `buffer`（LatestFrameBuffer）：`buffer` 对应的业务输入值
+    #   - `reader`（RTSPReader）：`reader` 对应的业务输入值
+    #   - `timeout_s`（float）：`timeout_s` 对应的业务输入值；默认值为 `12.0`
+    # 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`time.time`、`self._stop_event.is_set`、`buffer.get`、`time.sleep`、`RuntimeError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _wait_first_frame(
         self,
         buffer: LatestFrameBuffer,
@@ -1877,6 +2419,16 @@ class GuardRoomRuntime:
             time.sleep(0.1)
         raise RuntimeError(reader.error or f"{reader.camera_name} 首帧超时: {reader.source}")
 
+    # 功能：根据配置创建标注视频的 VideoWriter；save_annotated_video=False 时返回 None；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `width`（int）：`width` 对应的业务输入值
+    #   - `height`（int）：`height` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `GuardRoomRuntime::_run_loop` 调用本符号
+    #   - 内部调用：`ensure_dir`、`cv2.VideoWriter_fourcc`、`cv2.VideoWriter`、`str`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def _build_writer(self, width: int, height: int):
         """根据配置创建标注视频的 VideoWriter；save_annotated_video=False 时返回 None。"""
         if not self.cfg.video.save_annotated_video:

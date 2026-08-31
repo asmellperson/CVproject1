@@ -1,3 +1,6 @@
+# 文件说明：实现视频帧消费与检测的帧消费、判定与告警衔接逻辑。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 features/_base/dwell_consumer.py
 通用"YOLO 检测 + IoU 跟踪 + 逗留告警"消费者模板。
@@ -22,6 +25,15 @@ from features._base.consumer import BaseFunctionConsumer
 from features._base.tracking import IouTracker
 
 
+# 功能：实现 `_number_or_default` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（未显式标注）：待转换、校验或写入的值
+#   - `default`（float）：`default` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`float`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _number_or_default(value, default: float) -> float:
     if value is None:
         return default
@@ -31,6 +43,20 @@ def _number_or_default(value, default: float) -> float:
         return default
 
 
+# 功能：Build a display-only snapshot from the existing dwell trackers；输入与输出详见下方说明
+# 参数：
+#   - `trackers`（dict）：`trackers` 对应的业务输入值
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `active_roi_indices`（set[int] | None）：`active_roi_indices` 对应的业务输入值；默认值为 `None`
+#   - `threshold_seconds`（float）：`threshold_seconds` 对应的时间间隔或时长
+#   - `now`（float | None）：`now` 对应的业务输入值；默认值为 `None`
+#   - `updated_at`（float | None）：`updated_at` 对应的业务输入值；默认值为 `None`
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/features/_base/dwell_consumer.py` 的 `DwellDetectionConsumer::post_process` 调用本符号
+#   - 内部调用：`time.time`、`float`、`trackers.items`、`visible_tracks.extend`、`tracker.tracks.values`、`int`、`getattr`、`max`、`any`、`bool`
+#          等共 12 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_dwell_monitor_snapshot(
     trackers: dict,
     *,
@@ -69,6 +95,15 @@ def build_dwell_monitor_snapshot(
     }
 
 
+# 功能：逗留检测通用模板 — 适合 face 和 human；输入与输出详见下方说明
+# 参数：
+#   - `*args`（未显式标注）：`args` 对应的业务输入值
+#   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+# 返回：DwellDetectionConsumer；返回新建的 `DwellDetectionConsumer` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DwellDetectionConsumer(BaseFunctionConsumer):
     """逗留检测通用模板 — 适合 face 和 human"""
 
@@ -77,12 +112,33 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
     BBOX_COLOR_NORMAL = (0, 255, 0)              # 正常跟踪 — 绿框
     BBOX_COLOR_ALARM = (0, 0, 255)               # 告警 — 红框
 
+    # 功能：初始化或配置 `__init__` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `*args`（未显式标注）：`args` 对应的业务输入值
+    #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`super().__init__`、`super`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # (camera_id, roi_index) → IouTracker
         self._trackers: dict[tuple[int, int], IouTracker] = {}
         self.monitor_status: dict[str, dict] = {}
 
+    # 功能：处理 `_process` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `roi_list`（未显式标注）：`roi_list` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._value_config`、`self.config_cache.get`、`_number_or_default`、`cfg.get`、`int`、`isinstance`、`len`、`self.dispatch_inference_sync`、`enumerate`、`IouTracker`
+    #          等共 22 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _process(self, roi_list, camera_id):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
         max_time = _number_or_default(cfg.get("MAX_TIME"), 10.0)
@@ -174,6 +230,18 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             results.append((False, None))
         return results
 
+    # 功能：处理 `post_process` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `result`（未显式标注）：`result` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._value_config`、`self.config_cache.get`、`str(self.config_cache.get(camera_id, {}).get('shm_name') or
+    #          '').strip`、`str`、`self.config_cache.get(camera_id,
+    #          {}).get`、`build_dwell_monitor_snapshot`、`set`、`range`、`len`、`_number_or_default` 等共 25 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def post_process(self, camera_id, result):
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
         camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
@@ -226,13 +294,41 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
                     )
         return frame_copy
 
+    # 功能：读取或查询 `get_monitor_status` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_key`（str）：`camera_key` 对应的业务输入值
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.monitor_status.get`、`dict`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_monitor_status(self, camera_key: str) -> dict | None:
         value = self.monitor_status.get(camera_key)
         return dict(value) if value else None
 
+    # 功能：处理 `_process_static_frames` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    #   - `cfg`（dict）：运行配置对象
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True
 
+    # 功能：ROI 多边形左上角偏移,用于把 ROI 局部坐标转回全图坐标；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：list[tuple[int, int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/features/_base/dwell_consumer.py` 的 `DwellDetectionConsumer::post_process` 调用本符号
+    #   - 内部调用：`offsets.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _get_roi_offsets(self, camera_id: int) -> list[tuple[int, int]]:
         """ROI 多边形左上角偏移,用于把 ROI 局部坐标转回全图坐标"""
         offsets = []

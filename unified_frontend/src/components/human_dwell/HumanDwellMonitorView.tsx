@@ -1,3 +1,6 @@
+// 文件说明：实现监控展示的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
@@ -25,6 +28,16 @@ import type { HumanDwellMonitorEvent } from './monitorState'
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
+/**
+ * 功能：渲染 `StatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, value, detail, icon, Icon, tone, ping, false
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`Icon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function StatCard({
   label,
   value,
@@ -66,6 +79,16 @@ function StatCard({
   )
 }
 
+/**
+ * 功能：渲染 `GlassPill` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 children, danger, false, children, ReactNode, danger, boolean
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function GlassPill({ children, danger = false }: { children: ReactNode; danger?: boolean }) {
   return (
     <span className={cn(
@@ -77,6 +100,16 @@ function GlassPill({ children, danger = false }: { children: ReactNode; danger?:
   )
 }
 
+/**
+ * 功能：转换或规范化 `formatClock` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string | null）：待转换、校验或写入的值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Date`、`isNaN`、`getTime`、`toLocaleTimeString`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function formatClock(value: string | null) {
   if (!value) return '--'
   const parsed = new Date(value)
@@ -98,10 +131,41 @@ export type HumanDwellMonitorViewProps = {
   latestAlarmAt: string | null
   roiPolygons: OverlayPoint[][]
   imageSize: { width: number; height: number }
+  /**
+   * 功能：处理 `onSelectCamera` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `cameraKey`（string）：`cameraKey` 对应的业务输入值
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectCamera: (cameraKey: string) => void
+  /**
+   * 功能：处理 `onRefreshCameras` 对应的监控展示逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onRefreshCameras: () => void
 }
 
+/**
+ * 功能：渲染 `HumanDwellMonitorView` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（HumanDwellMonitorViewProps）：React 组件属性对象；解构字段包括 cameras, selectedCamera, selectedCameraInfo, loading, message,
+ *     frameConnected, frameContent, featureValue
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`String`、`Boolean`、`round`、`Number`、`isFinite`、`getAiVisionCameraKey`、`Date`、`getFullYear`、`getMonth`、`padStart` 等共 44
+ *          个调用。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function HumanDwellMonitorView({
   cameras,
   selectedCamera,

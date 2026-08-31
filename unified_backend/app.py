@@ -1,3 +1,6 @@
+# 文件说明：定义应用装配的 HTTP 接口、依赖注入或应用装配。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """统一平台后端入口。
 
 统一后端只做平台级能力和请求转发，不接管各算法子系统的运行逻辑：
@@ -75,6 +78,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PLATFORM_STATUS_MAX_WORKERS = 16
 
 
+# 功能：实现 `_platform_status_max_workers` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`os.getenv`、`str`、`max`、`int`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _platform_status_max_workers() -> int:
     raw_value = os.getenv(
         "UNIFIED_STATUS_MAX_WORKERS",
@@ -92,12 +102,35 @@ _PLATFORM_STATUS_EXECUTOR = ThreadPoolExecutor(
 )
 
 
+# 功能：定义 `AlarmDispositionUpdateRequest` 类，封装应用装配相关的状态、约束与操作
+# 参数：
+#   - `alarm_id`（str）：`alarm_id` 对应业务对象的唯一标识
+#   - `status`（str）：当前或目标状态值
+#   - `note`（str）：`note` 对应的业务输入值
+# 返回：AlarmDispositionUpdateRequest；返回新建的 `AlarmDispositionUpdateRequest` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmDispositionUpdateRequest(BaseModel):
     alarm_id: str
     status: str
     note: str = ""
 
 
+# 功能：定义 `AdminUserCreateRequest` 类，封装应用装配相关的状态、约束与操作
+# 参数：
+#   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+#   - `name`（str）：业务对象名称
+#   - `role`（str）：`role` 对应的业务输入值
+#   - `department`（str | None）：业务部门名称或标识
+#   - `departments`（list[str] | None）：`departments` 对应的业务输入值
+#   - `password`（str）：`password` 对应的业务输入值
+# 返回：AdminUserCreateRequest；返回新建的 `AdminUserCreateRequest` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AdminUserCreateRequest(BaseModel):
     employee_id: str
     name: str
@@ -107,6 +140,18 @@ class AdminUserCreateRequest(BaseModel):
     password: str
 
 
+# 功能：定义 `AdminUserUpdateRequest` 类，封装应用装配相关的状态、约束与操作
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `role`（str）：`role` 对应的业务输入值
+#   - `department`（str | None）：业务部门名称或标识
+#   - `departments`（list[str] | None）：`departments` 对应的业务输入值
+#   - `enabled`（bool）：是否启用相应能力
+# 返回：AdminUserUpdateRequest；返回新建的 `AdminUserUpdateRequest` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AdminUserUpdateRequest(BaseModel):
     name: str
     role: str
@@ -115,10 +160,28 @@ class AdminUserUpdateRequest(BaseModel):
     enabled: bool
 
 
+# 功能：定义 `AdminUserPasswordResetRequest` 类，封装应用装配相关的状态、约束与操作
+# 参数：
+#   - `new_password`（str）：`new_password` 对应的业务输入值
+# 返回：AdminUserPasswordResetRequest；返回新建的 `AdminUserPasswordResetRequest` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AdminUserPasswordResetRequest(BaseModel):
     new_password: str
 
 
+# 功能：实现 `_raise_user_management_http_error` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `exc`（UserStoreError）：`exc` 对应的业务输入值
+# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::admin_list_users` 调用本符号；`unified_backend/app.py` 的 `create_app::admin_create_user`
+#         调用本符号；`unified_backend/app.py` 的 `create_app::admin_update_user` 调用本符号；`unified_backend/app.py` 的
+#         `create_app::admin_reset_user_password` 调用本符号；另有 1 处静态调用
+#   - 内部调用：`isinstance`、`HTTPException`、`str`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _raise_user_management_http_error(exc: UserStoreError) -> None:
     if isinstance(exc, UserNotFoundError):
         status_code = 404
@@ -236,14 +299,40 @@ DEPARTMENT_ALIASES = {
 }
 
 
+# 功能：实现 `_now` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_get_json` 调用本符号；`unified_backend/app.py` 的 `_normalize_security_vlm_alarm`
+#         调用本符号；`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`time.time`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _now() -> float:
     return time.time()
 
 
+# 功能：实现 `_env_url` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `default`（str）：`default` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app` 调用本符号
+#   - 内部调用：`os.getenv(name, default).rstrip`、`os.getenv`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _env_url(name: str, default: str) -> str:
     return os.getenv(name, default).rstrip("/")
 
 
+# 功能：实现 `_visual_service_url` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
+#   - `service`（str）：`service` 对应的业务输入值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app` 调用本符号
+#   - 内部调用：`ValueError`、`aivision_url.rstrip`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _visual_service_url(aivision_url: str, service: str) -> str:
     if service not in {"guard-room", "security-vlm"}:
         raise ValueError(f"unknown visual service: {service}")
@@ -253,6 +342,14 @@ def _visual_service_url(aivision_url: str, service: str) -> str:
     )
 
 
+# 功能：转换或规范化 `_normalize_department` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`str(value or '').strip`、`str`、`DEPARTMENT_ALIASES.get`、`department.lower`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_department(value: object) -> str:
     department = str(value or "").strip()
     if not department:
@@ -260,6 +357,16 @@ def _normalize_department(value: object) -> str:
     return DEPARTMENT_ALIASES.get(department, DEPARTMENT_ALIASES.get(department.lower(), department))
 
 
+# 功能：实现 `_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_allowed_event_types_for_user` 调用本符号；`unified_backend/app.py` 的 `_guard_departments_for_user`
+#         调用本符号；`unified_backend/app.py` 的 `_security_vlm_departments_for_user` 调用本符号；`unified_backend/app.py` 的
+#         `_can_access_security_vlm` 调用本符号
+#   - 内部调用：`user.get`、`isinstance`、`_normalize_department`、`departments.append`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _departments_for_user(user: dict[str, Any]) -> list[str]:
     raw_departments = user.get("departments")
     candidates = (
@@ -275,6 +382,13 @@ def _departments_for_user(user: dict[str, Any]) -> list[str]:
     return departments
 
 
+# 功能：实现 `_cors_origins` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`os.getenv`、`item.strip`、`raw.split`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _cors_origins() -> list[str]:
     raw = os.getenv(
         "AUTH_CORS_ORIGINS",
@@ -283,11 +397,31 @@ def _cors_origins() -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+# 功能：实现 `_request_headers` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `request`（Request）：当前 HTTP 请求及上下文
+# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_get_json` 调用本符号；`unified_backend/app.py` 的 `_get_upstream_json`
+#         调用本符号；`unified_backend/app.py` 的 `_proxy` 调用本符号
+#   - 内部调用：`request.headers.items`、`key.lower`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _request_headers(request: Request) -> dict[str, str]:
     excluded = {"host", "content-length", "connection", "transfer-encoding"}
     return {key: value for key, value in request.headers.items() if key.lower() not in excluded}
 
 
+# 功能：读取或查询 `_get_json` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `base_url`（str）：`base_url` 对应的业务输入值
+#   - `path`（str）：目标路径
+#   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `2.0`
+#   - `request`（Request | None）：当前 HTTP 请求及上下文；默认值为 `None`
+# 返回：tuple[bool, dict | list | None, float | None, str | None]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_now`、`_request_headers`、`requests.get`、`urljoin`、`path.lstrip`、`round`、`response.json`、`str`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def _get_json(
     base_url: str,
     path: str,
@@ -316,6 +450,14 @@ def _get_json(
         return False, None, None, str(exc)
 
 
+# 功能：在平台状态专属的有界线程池中并发执行多个同步上游探测；输入与输出详见下方说明
+# 参数：
+#   - `calls`（dict[str, tuple[str, str, Request | None]]）：`calls` 对应的业务输入值
+# 返回：dict[str, tuple[bool, dict | list | None, float | None, str | None]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`list`、`_PLATFORM_STATUS_EXECUTOR.submit`、`future.result`、`dict`、`zip`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _get_json_concurrently(
     calls: dict[str, tuple[str, str, Request | None]],
 ) -> dict[str, tuple[bool, dict | list | None, float | None, str | None]]:
@@ -334,6 +476,17 @@ def _get_json_concurrently(
     return dict(zip(keys, results, strict=True))
 
 
+# 功能：读取或查询 `_get_upstream_json` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `base_url`（str）：`base_url` 对应的业务输入值
+#   - `path`（str）：目标路径
+#   - `request`（Request）：当前 HTTP 请求及上下文
+#   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `3.0`
+# 返回：dict | list | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`requests.get`、`urljoin`、`path.lstrip`、`_request_headers`、`response.json`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def _get_upstream_json(base_url: str, path: str, request: Request, *, timeout: float = 3.0) -> dict | list | None:
     try:
         response = requests.get(
@@ -349,6 +502,14 @@ def _get_upstream_json(base_url: str, path: str, request: Request, *, timeout: f
         return None
 
 
+# 功能：转换或规范化 `_parse_iso_ts` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：float | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`isinstance`、`datetime.fromisoformat(value).timestamp`、`datetime.fromisoformat`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _parse_iso_ts(value: object) -> float | None:
     if not isinstance(value, str) or not value:
         return None
@@ -360,6 +521,14 @@ def _parse_iso_ts(value: object) -> float | None:
         return None
 
 
+# 功能：转换或规范化 `_parse_alarm_datetime` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：datetime | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_alarm_sort_key` 调用本符号；`unified_backend/app.py` 的 `_build_alarm_statistics` 调用本符号
+#   - 内部调用：`isinstance`、`value.replace`、`datetime.fromisoformat`、`parsed.astimezone().replace`、`parsed.astimezone`、`datetime.strptime`。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _parse_alarm_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -376,11 +545,27 @@ def _parse_alarm_datetime(value: object) -> datetime | None:
             return None
 
 
+# 功能：实现 `_alarm_sort_key` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
+# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_parse_alarm_datetime`、`alarm.get`、`created.timestamp`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _alarm_sort_key(alarm: dict[str, Any]) -> float:
     created = _parse_alarm_datetime(alarm.get("created_at"))
     return created.timestamp() if created else 0.0
 
 
+# 功能：实现 `_items_from_payload` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `payload`（object）：接口或事件携带的业务数据
+# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`isinstance`、`payload.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _items_from_payload(payload: object) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         rows = payload
@@ -391,6 +576,14 @@ def _items_from_payload(payload: object) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+# 功能：转换或规范化 `_normalize_guard_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`str`、`alarm.get`、`str(alarm.get('site_name') or '').strip`、`GUARD_EVENT_META.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     source_id = str(alarm.get("id") or "")
     site_id = alarm.get("site_id")
@@ -423,6 +616,15 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 功能：转换或规范化 `_normalize_aivision_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`str`、`alarm.get`、`isinstance`、`dict`、`metadata.get`、`raw_states.items`、`raw_counts.items`、`_normalize_alarm_id_list`、`explicit_names.items`、`camera_states.items`
+#          等共 12 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     source_id = str(alarm.get("id") or "")
     raw_metadata = alarm.get("metadata", alarm.get("event_metadata"))
@@ -511,6 +713,14 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 功能：读取或查询 `_normalize_alarm_id_list` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `value`（object）：待转换、校验或写入的值
+# 返回：list[int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_normalize_aivision_alarm` 调用本符号
+#   - 内部调用：`isinstance`、`set`、`item.strip`、`any`、`int`、`seen.add`、`normalized.append`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_alarm_id_list(value: object) -> list[int]:
     if not isinstance(value, list):
         return []
@@ -538,6 +748,15 @@ def _normalize_alarm_id_list(value: object) -> list[int]:
     return normalized
 
 
+# 功能：转换或规范化 `_normalize_security_vlm_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `item`（dict[str, Any]）：`item` 对应的业务输入值
+#   - `department`（str）：业务部门名称或标识
+# 返回：dict[str, Any] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`str`、`item.get`、`int`、`_now`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_security_vlm_alarm(
     item: dict[str, Any],
     department: str,
@@ -565,6 +784,15 @@ def _normalize_security_vlm_alarm(
     }
 
 
+# 功能：实现 `_allowed_event_types_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+# 返回：set[str] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_filter_alarms` 调用本符号
+#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
+#          '').strip`、`str`、`user.get`、`set`、`_departments_for_user`、`DEPARTMENT_EVENT_TYPES.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
     role = str(user.get("role") or "").strip().lower()
     if role == "admin":
@@ -581,6 +809,15 @@ def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
     }
 
 
+# 功能：实现 `_guard_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+# 返回：list[str] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
+#          '').strip`、`str`、`user.get`、`_departments_for_user`、`guard_event_types.isdisjoint`、`DEPARTMENT_EVENT_TYPES.get`、`set`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
     role = str(user.get("role") or "").strip().lower()
     if role == "admin":
@@ -600,12 +837,30 @@ def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
     ]
 
 
+# 功能：检查或判断 `_can_mutate_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+#   - `method`（str）：`method` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_can_access_security_vlm` 调用本符号
+#   - 内部调用：`str(method).upper`、`str`、`str(user.get('role') or '').strip().lower`、`str(user.get('role') or '').strip`、`user.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _can_mutate_security_vlm(user: dict[str, Any], method: str) -> bool:
     if str(method).upper() in {"GET", "HEAD", "OPTIONS"}:
         return True
     return str(user.get("role") or "").strip().lower() == "admin"
 
 
+# 功能：实现 `_security_vlm_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
+#          '').strip`、`str`、`user.get`、`_departments_for_user`、`list`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _security_vlm_departments_for_user(
     user: dict[str, Any],
 ) -> list[str]:
@@ -622,6 +877,18 @@ def _security_vlm_departments_for_user(
     return []
 
 
+# 功能：检查或判断 `_can_access_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+#   - `method`（str）：`method` 对应的业务输入值
+#   - `path`（str）：目标路径
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::auth_middleware` 调用本符号
+#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
+#          '').strip`、`str`、`user.get`、`str(path).rstrip`、`normalized_path.endswith`、`_can_mutate_security_vlm`、`_departments_for_user`、`normalized_path.startswith`、`normalized_path[len(prefix):].split`
+#          等共 11 个调用。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _can_access_security_vlm(
     user: dict[str, Any],
     method: str,
@@ -650,6 +917,15 @@ def _can_access_security_vlm(
     return "general_electric" in departments
 
 
+# 功能：转换或规范化 `_parse_event_types` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `raw`（str | None）：`raw` 对应的业务输入值
+# 返回：set[str] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::unified_alarms` 调用本符号；`unified_backend/app.py` 的 `create_app::unified_statistics`
+#         调用本符号
+#   - 内部调用：`item.strip`、`raw.split`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _parse_event_types(raw: str | None) -> set[str] | None:
     if not raw:
         return None
@@ -657,6 +933,16 @@ def _parse_event_types(raw: str | None) -> set[str] | None:
     return values or None
 
 
+# 功能：实现 `_filter_alarms` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarms`（list[dict[str, Any]]）：`alarms` 对应的业务输入值
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+#   - `event_types`（set[str] | None）：`event_types` 对应的业务输入值；默认值为 `None`
+# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`_allowed_event_types_for_user`、`alarm.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _filter_alarms(
     alarms: list[dict[str, Any]],
     *,
@@ -671,6 +957,15 @@ def _filter_alarms(
     return alarms
 
 
+# 功能：实现 `_with_disposition` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
+#   - `dispositions`（dict[str, dict[str, Any]]）：`dispositions` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`dispositions.get`、`str`、`alarm.get`、`disposition.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, Any]]) -> dict[str, Any]:
     disposition = dispositions.get(str(alarm.get("id") or ""))
     return {
@@ -682,6 +977,23 @@ def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, A
     }
 
 
+# 功能：实现 `_collect_alarms` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `request`（Request）：当前 HTTP 请求及上下文
+#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
+#   - `guard_room_url`（str）：`guard_room_url` 对应的业务输入值
+#   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
+#   - `security_vlm_url`（str）：`security_vlm_url` 对应的业务输入值
+#   - `disposition_store`（AlarmDispositionStore）：`disposition_store` 对应的业务输入值
+#   - `limit`（int）：返回或处理的最大记录数
+#   - `event_types`（set[str] | None）：`event_types` 对应的业务输入值；默认值为 `None`
+# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::unified_alarms` 调用本符号；`unified_backend/app.py` 的 `create_app::unified_statistics`
+#         调用本符号
+#   - 内部调用：`max`、`_get_upstream_json`、`alarms.extend`、`_normalize_aivision_alarm`、`_items_from_payload`、`_guard_departments_for_user`、`_guard_alarm_paths`、`_normalize_guard_alarm`、`_security_vlm_departments_for_user`、`isinstance`
+#          等共 19 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _collect_alarms(
     *,
     request: Request,
@@ -768,6 +1080,16 @@ def _collect_alarms(
     return sorted(scoped, key=_alarm_sort_key, reverse=True)[:limit]
 
 
+# 功能：创建或构建 `_build_alarm_statistics` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `alarms`（list[dict[str, Any]]）：`alarms` 对应的业务输入值
+#   - `days`（int）：`days` 对应的业务输入值
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::unified_statistics` 调用本符号
+#   - 内部调用：`datetime.now`、`now.replace`、`timedelta`、`_parse_alarm_datetime`、`alarm.get`、`in_range.append`、`Counter`、`defaultdict`、`str`、`ALARM_TYPE_META.get`
+#          等共 31 个调用。
+# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[str, Any]:
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -838,6 +1160,14 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
     }
 
 
+# 功能：实现 `_count_guard_cameras` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `config`（object）：运行配置对象
+# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`isinstance`、`config.get`、`sum`、`str(video.get(key) or '').strip`、`str`、`video.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _count_guard_cameras(config: object) -> int:
     if not isinstance(config, dict):
         return 0
@@ -851,6 +1181,15 @@ def _count_guard_cameras(config: object) -> int:
     )
 
 
+# 功能：实现 `_guard_site_items` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `payload`（object）：接口或事件携带的业务数据
+# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_count_guard_site_cameras` 调用本符号；`unified_backend/app.py` 的 `_guard_site_runtime_summary`
+#         调用本符号；`unified_backend/app.py` 的 `_guard_alarm_paths` 调用本符号；`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`isinstance`、`payload.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_site_items(payload: object) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         rows = payload.get("items") or []
@@ -861,6 +1200,15 @@ def _guard_site_items(payload: object) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+# 功能：实现 `_count_guard_site_cameras` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `payload`（object）：接口或事件携带的业务数据
+# 返回：tuple[int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_guard_site_runtime_summary` 调用本符号；`unified_backend/app.py` 的 `create_app::platform_status`
+#         调用本符号
+#   - 内部调用：`_guard_site_items`、`site.get`、`isinstance`、`len`、`int`、`sum`、`camera.get`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _count_guard_site_cameras(payload: object) -> tuple[int, int]:
     camera_count = 0
     enabled_camera_count = 0
@@ -878,6 +1226,14 @@ def _count_guard_site_cameras(payload: object) -> tuple[int, int]:
     return camera_count, enabled_camera_count
 
 
+# 功能：转换或规范化 `_format_guard_site_status_error` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `status_errors`（dict[int, str]）：`status_errors` 对应的业务输入值
+# 返回：str | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_guard_site_runtime_summary` 调用本符号
+#   - 内部调用：`', '.join`、`sorted`、`status_errors.items`、`len`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def _format_guard_site_status_error(status_errors: dict[int, str]) -> str | None:
     if not status_errors:
         return None
@@ -885,6 +1241,17 @@ def _format_guard_site_status_error(status_errors: dict[int, str]) -> str | None
     return f"{len(status_errors)} 个保安室运行状态获取失败: {details}"
 
 
+# 功能：实现 `_guard_site_runtime_summary` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `sites_payload`（object）：`sites_payload` 对应的业务输入值
+#   - `statuses`（dict[int, dict[str, Any]]）：`statuses` 对应的业务输入值
+#   - `status_errors`（dict[int, str] | None）：`status_errors` 对应的业务输入值；默认值为 `None`
+# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`_guard_site_items`、`int`、`site.get`、`statuses.get`、`bool`、`status.get`、`running_sites.append`、`fps_values.append`、`float`、`isinstance`
+#          等共 15 个调用。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_site_runtime_summary(
     sites_payload: object,
     statuses: dict[int, dict[str, Any]],
@@ -932,6 +1299,16 @@ def _guard_site_runtime_summary(
     }
 
 
+# 功能：实现 `_guard_alarm_paths` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `sites_payload`（object）：`sites_payload` 对应的业务输入值
+#   - `limit`（int）：返回或处理的最大记录数
+#   - `department`（str | None）：业务部门名称或标识；默认值为 `None`
+# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
+#   - 内部调用：`_guard_site_items`、`int`、`site.get`、`paths.append`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_alarm_paths(sites_payload: object, limit: int, department: str | None = None) -> list[str]:
     paths: list[str] = []
     for site in _guard_site_items(sites_payload):
@@ -946,6 +1323,14 @@ def _guard_alarm_paths(sites_payload: object, limit: int, department: str | None
     return paths
 
 
+# 功能：实现 `_camera_functions_enabled` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `camera`（dict）：摄像头配置或实体
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`camera.get`、`isinstance`、`any`、`bool`、`functions.values`、`len`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _camera_functions_enabled(camera: dict) -> bool:
     functions = camera.get("functions")
     if isinstance(functions, dict):
@@ -955,6 +1340,15 @@ def _camera_functions_enabled(camera: dict) -> bool:
     return False
 
 
+# 功能：实现 `_camera_feature_enabled` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `camera`（dict）：摄像头配置或实体
+#   - `feature`（str）：`feature` 对应的业务输入值
+# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `_aivision_feature_status` 调用本符号
+#   - 内部调用：`camera.get`、`isinstance`、`bool`、`functions.get`、`str`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _camera_feature_enabled(camera: dict, feature: str) -> bool:
     functions = camera.get("functions")
     if isinstance(functions, dict):
@@ -964,6 +1358,15 @@ def _camera_feature_enabled(camera: dict, feature: str) -> bool:
     return False
 
 
+# 功能：实现 `_aivision_feature_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `cameras`（list[dict]）：`cameras` 对应的业务输入值
+#   - `running_cameras`（list）：`running_cameras` 对应的业务输入值
+# 返回：dict[str, dict[str, int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：`str`、`_camera_feature_enabled`、`camera.get`、`sum`、`len`、`max`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
     running_camera_names = {str(item) for item in running_cameras}
     feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_human_haoda", "detect_phone")
@@ -993,6 +1396,19 @@ def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict
     return status
 
 
+# 功能：实现 `_service_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `name`（str）：业务对象名称
+#   - `url`（str）：目标接口、媒体流或页面地址
+#   - `online`（bool）：`online` 对应的业务输入值
+#   - `latency_ms`（float | None）：`latency_ms` 对应的时间间隔或时长
+#   - `error`（str | None）：待报告、转换或判断的异常对象
+#   - `extra`（dict）：`extra` 对应的业务输入值
+# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _service_status(name: str, url: str, online: bool, latency_ms: float | None, error: str | None, extra: dict) -> dict:
     return {
         "name": name,
@@ -1004,6 +1420,18 @@ def _service_status(name: str, url: str, online: bool, latency_ms: float | None,
     }
 
 
+# 功能：实现 `_proxy` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `request`（Request）：当前 HTTP 请求及上下文
+#   - `base_url`（str）：`base_url` 对应的业务输入值
+#   - `upstream_path`（str）：`upstream_path` 对应的业务输入值
+# 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`unified_backend/app.py` 的 `create_app::proxy_public_aivision_api` 调用本符号；`unified_backend/app.py` 的
+#         `create_app::proxy_aivision_api` 调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_v2_api`
+#         调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_legacy_api` 调用本符号；另有 3 处静态调用
+#   - 内部调用：`urljoin`、`upstream_path.lstrip`、`request.body`、`request.app.state.proxy_client.send`、`_request_headers`、`HTTPException`、`StreamingResponse`、`stream_response_bytes`、`filtered_response_headers`、`BackgroundTask`。
+# 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。
 async def _proxy(request: Request, base_url: str, upstream_path: str) -> Response:
     query = f"?{request.url.query}" if request.url.query else ""
     url = urljoin(f"{base_url}/", upstream_path.lstrip("/")) + query
@@ -1029,6 +1457,13 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
     )
 
 
+# 功能：创建或构建 `create_app` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：FastAPI；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`_env_url`、`_visual_service_url`、`os.getenv`、`str`、`AlarmDispositionStore`、`Path`、`AccessAuditStore`、`FastAPI`、`app.add_middleware`、`_cors_origins`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app() -> FastAPI:
     aivision_url = _env_url("UNIFIED_AIVISION_URL", "http://127.0.0.1:7862")
     guard_room_url = _visual_service_url(aivision_url, "guard-room")
@@ -1041,6 +1476,14 @@ def create_app() -> FastAPI:
     )
     access_audit_store = AccessAuditStore(access_audit_database)
 
+    # 功能：实现 `lifespan` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `app`（FastAPI）：`app` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`get_user_store().initialize`、`get_user_store`、`access_audit_store.initialize`、`AsyncProxyClient`、`ProxySettings.from_env`、`proxy_client.close`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         get_user_store().initialize()
@@ -1066,6 +1509,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 功能：实现 `auth_middleware` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    #   - `call_next`（未显式标注）：`call_next` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`path.startswith`、`call_next`、`get_current_user_from_request`、`JSONResponse`、`str`、`_can_access_security_vlm`、`app.middleware`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
@@ -1097,6 +1549,13 @@ def create_app() -> FastAPI:
                 )
         return await call_next(request)
 
+    # 功能：实现 `root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/")
     def root():
         return {
@@ -1107,10 +1566,26 @@ def create_app() -> FastAPI:
             "security_vlm": security_vlm_url,
         }
 
+    # 功能：实现 `health` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/health')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`int`、`os.getenv`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/health")
     def health():
         return {"status": "ok", "service": "unified_backend", "port": int(os.getenv("UNIFIED_BACKEND_PORT", "5000"))}
 
+    # 功能：实现 `platform_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/platform/status')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`_now`、`_get_json_concurrently`、`_count_guard_site_cameras`、`_guard_site_items`、`int`、`site.get`、`site_ids.append`、`str`、`isinstance`、`_guard_site_runtime_summary`
+    #          等共 31 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/platform/status")
     def platform_status(request: Request):
         now = _now()
@@ -1297,6 +1772,16 @@ def create_app() -> FastAPI:
             "services": services,
         }
 
+    # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `payload`（LoginRequest）：接口或事件携带的业务数据
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    #   - `response`（Response）：待读取或更新的 HTTP 响应
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/login')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`verify_login`、`HTTPException`、`create_token`、`set_auth_cookie`、`access_audit_store.record_visit`、`logger.exception`、`user.get`、`add_access_audit_capability`、`app.post`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     @app.post("/api/auth/login")
     def login(payload: LoginRequest, request: Request, response: Response):
         user = verify_login(payload.employee_id, payload.password)
@@ -1310,6 +1795,14 @@ def create_app() -> FastAPI:
             logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
         return {"success": True, "user": add_access_audit_capability(user)}
 
+    # 功能：实现 `me` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/auth/me')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`access_audit_store.record_visit`、`logger.exception`、`user.get`、`add_access_audit_capability`、`app.get`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     @app.get("/api/auth/me")
     def me(user: dict = Depends(get_current_user)):
         try:
@@ -1318,11 +1811,29 @@ def create_app() -> FastAPI:
             logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
         return {"success": True, "user": add_access_audit_capability(user)}
 
+    # 功能：实现 `logout` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    #   - `response`（Response）：待读取或更新的 HTTP 响应
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/logout')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`clear_auth_cookie`、`app.post`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response):
         clear_auth_cookie(response, request)
         return {"success": True}
 
+    # 功能：实现 `change_password` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `payload`（ChangePasswordRequest）：接口或事件携带的业务数据
+    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/password')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`change_own_password`、`user.get`、`HTTPException`、`str`、`add_access_audit_capability`、`app.post`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/auth/password")
     def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
         try:
@@ -1338,6 +1849,15 @@ def create_app() -> FastAPI:
             "user": add_access_audit_capability(updated_user),
         }
 
+    # 功能：实现 `access_audit` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `Query(default=DEFAULT_ACCESS_AUDIT_LIMIT, ge=1, le=MAX_ACCESS_AUDIT_LIMIT)`
+    #   - `owner`（dict）：`owner` 对应的业务输入值；默认值为 `Depends(require_access_audit_owner)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/admin/access-audit')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Query`、`Depends`、`access_audit_store.list_recent`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/admin/access-audit")
     def access_audit(
         limit: int = Query(
@@ -1350,6 +1870,14 @@ def create_app() -> FastAPI:
         del owner
         return {"items": access_audit_store.list_recent(limit)}
 
+    # 功能：读取或查询 `admin_list_users` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/admin/users')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`list_auth_users`、`_raise_user_management_http_error`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/admin/users")
     def admin_list_users(admin: dict = Depends(require_admin)):
         del admin
@@ -1358,6 +1886,15 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
+    # 功能：创建或构建 `admin_create_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `payload`（AdminUserCreateRequest）：接口或事件携带的业务数据
+    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/admin/users')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`create_auth_user`、`_raise_user_management_http_error`、`app.post`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.post("/api/admin/users")
     def admin_create_user(
         payload: AdminUserCreateRequest,
@@ -1377,6 +1914,16 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
+    # 功能：更新或保存 `admin_update_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `payload`（AdminUserUpdateRequest）：接口或事件携带的业务数据
+    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.patch('/api/admin/users/{employee_id}')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`update_auth_user`、`str`、`admin.get`、`_raise_user_management_http_error`、`app.patch`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.patch("/api/admin/users/{employee_id}")
     def admin_update_user(
         employee_id: str,
@@ -1397,6 +1944,16 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
+    # 功能：实现 `admin_reset_user_password` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `payload`（AdminUserPasswordResetRequest）：接口或事件携带的业务数据
+    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/admin/users/{employee_id}/reset-password')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`reset_auth_user_password`、`_raise_user_management_http_error`、`app.post`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.post("/api/admin/users/{employee_id}/reset-password")
     def admin_reset_user_password(
         employee_id: str,
@@ -1413,6 +1970,15 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
+    # 功能：删除或清理 `admin_delete_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
+    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.delete('/api/admin/users/{employee_id}')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`delete_auth_user`、`str`、`admin.get`、`_raise_user_management_http_error`、`app.delete`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.delete("/api/admin/users/{employee_id}")
     def admin_delete_user(
         employee_id: str,
@@ -1427,10 +1993,26 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
+    # 功能：读取或查询 `get_alarm_dispositions` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：无。
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/alarm-dispositions')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`disposition_store.list_items`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/alarm-dispositions")
     def get_alarm_dispositions():
         return {"items": disposition_store.list_items()}
 
+    # 功能：更新或保存 `update_alarm_disposition` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `payload`（AlarmDispositionUpdateRequest）：接口或事件携带的业务数据
+    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.post('/api/alarm-dispositions')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Depends`、`disposition_store.update`、`HTTPException`、`str`、`app.post`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/alarm-dispositions")
     def update_alarm_disposition(payload: AlarmDispositionUpdateRequest, user: dict = Depends(get_current_user)):
         try:
@@ -1444,6 +2026,17 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"success": True, "item": item}
 
+    # 功能：实现 `unified_alarms` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `Query(200, ge=1, le=1000)`
+    #   - `event_types`（str | None）：`event_types` 对应的业务输入值；默认值为 `Query(None)`
+    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/alarms')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Query`、`Depends`、`_collect_alarms`、`_parse_event_types`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/alarms")
     def unified_alarms(
         request: Request,
@@ -1464,6 +2057,17 @@ def create_app() -> FastAPI:
             )
         }
 
+    # 功能：实现 `unified_statistics` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    #   - `days`（int）：`days` 对应的业务输入值；默认值为 `Query(7, ge=1, le=90)`
+    #   - `event_types`（str | None）：`event_types` 对应的业务输入值；默认值为 `Query(None)`
+    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：由 FastAPI 按 `app.get('/api/statistics')` 注册，并在请求到达时调用以生成接口响应
+    #   - 内部调用：`Query`、`Depends`、`_collect_alarms`、`_parse_event_types`、`_build_alarm_statistics`、`app.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/statistics")
     def unified_statistics(
         request: Request,
@@ -1483,30 +2087,93 @@ def create_app() -> FastAPI:
         )
         return _build_alarm_statistics(alarms, days=days)
 
+    # 功能：实现 `proxy_public_aivision_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/public/aivision/{path:path}", methods=["GET", "OPTIONS"])
     async def proxy_public_aivision_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/public/aivision/{path}")
 
+    # 功能：实现 `proxy_aivision_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/aivision/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/aivision/{path}")
 
+    # 功能：实现 `proxy_aivision_v2_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/v2/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_v2_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/v2/{path}")
 
+    # 功能：实现 `proxy_aivision_legacy_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/ai/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_legacy_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/ai/{path}")
 
+    # 功能：实现 `proxy_aivision_root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/aivision/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_root(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/{path}")
 
+    # 功能：实现 `proxy_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/security-vlm/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_security_vlm(path: str, request: Request):
         return await _proxy(request, security_vlm_url, f"/{path}")
 
+    # 功能：实现 `proxy_guard_room_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `path`（str）：目标路径
+    #   - `request`（Request）：当前 HTTP 请求及上下文
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`_proxy`、`app.api_route`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_guard_room_api(path: str, request: Request):
         return await _proxy(request, guard_room_url, f"/api/{path}")

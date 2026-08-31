@@ -1,3 +1,6 @@
+# 文件说明：实现运行时相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """
 platform/camera/runtime.py
 摄像头采集子进程 — 每路摄像头一个进程,ffmpeg 拉流,双缓冲共享内存写入。
@@ -24,9 +27,32 @@ from core.logger import logger
 from .probe import CameraProbeError, probe_video_shape
 
 
+# 功能：单个摄像头的采集运行时；输入与输出详见下方说明
+# 参数：
+#   - `config`（dict）：运行配置对象
+#   - `active_index`（未显式标注）：`active_index` 对应的业务输入值
+#   - `frame_seq`（未显式标注）：`frame_seq` 对应的业务输入值
+#   - `event_queue`（未显式标注）：`event_queue` 对应的业务输入值；默认值为 `None`
+# 返回：CameraRuntime；返回新建的 `CameraRuntime` 实例。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraRuntime:
     """单个摄像头的采集运行时"""
 
+    # 功能：初始化或配置 `__init__` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `config`（dict）：运行配置对象
+    #   - `active_index`（未显式标注）：`active_index` 对应的业务输入值
+    #   - `frame_seq`（未显式标注）：`frame_seq` 对应的业务输入值
+    #   - `event_queue`（未显式标注）：`event_queue` 对应的业务输入值；默认值为 `None`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`config.get`、`float`、`max`、`self._probe_size`、`Event`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, config: dict, active_index, frame_seq, event_queue=None):
         self.cfg = config
         self.name: str = config["name"]
@@ -62,6 +88,14 @@ class CameraRuntime:
             self.stop_event = Event()
             self.ready_event = Event()
 
+    # 功能：通过隔离的 ffprobe 子进程获取视频分辨率；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::__init__` 调用本符号
+    #   - 内部调用：`probe_video_shape`、`logger.warning`。
+    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def _probe_size(self):
         """通过隔离的 ffprobe 子进程获取视频分辨率。"""
         try:
@@ -74,6 +108,17 @@ class CameraRuntime:
 
     # ---------- 生命周期 ----------
 
+    # 功能：启动或执行 `start` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `active_index`（未显式标注）：`active_index` 对应的业务输入值
+    #   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `10.0`
+    #   - `max_count`（int）：`max_count` 对应的数量或大小；默认值为 `4`
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.stop_event.clear`、`self.ready_event.clear`、`Process`、`self.proc.start`、`self.ready_event.wait`、`self.stop`、`TimeoutError`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def start(self, active_index, timeout: float = 10.0, max_count: int = 4):
         if self.running:
             return
@@ -97,6 +142,14 @@ class CameraRuntime:
                 self.stop()
                 raise TimeoutError(f"[{self.name}] 摄像头初始化超时")
 
+    # 功能：停止并释放 `stop` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::start` 调用本符号
+    #   - 内部调用：`self.stop_event.set`、`self.proc.join`、`self.pipe.terminate`、`self.pipe.wait`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def stop(self):
         if not self.running:
             return
@@ -112,6 +165,15 @@ class CameraRuntime:
 
     # ---------- ffmpeg ----------
 
+    # 功能：启动或执行 `_start_ffmpeg` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::_restart_ffmpeg` 调用本符号；`AiVision/platform/camera/runtime.py` 的
+    #         `CameraRuntime::_capture_loop` 调用本符号
+    #   - 内部调用：`sp.Popen`、`max`、`int`、`self.cfg.get`、`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息。
     def _start_ffmpeg(self):
         self.pipe = sp.Popen(
             [
@@ -129,6 +191,14 @@ class CameraRuntime:
         )
         logger.info(f"[Camera:{self.name}] ffmpeg 进程启动")
 
+    # 功能：实现 `_restart_ffmpeg` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::_capture_loop` 调用本符号
+    #   - 内部调用：`self.pipe.terminate`、`self.pipe.wait`、`self.pipe.kill`、`self.pipe.stdout.close`、`time.sleep`、`self._start_ffmpeg`。
+    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def _restart_ffmpeg(self):
         if self.pipe:
             try:
@@ -147,6 +217,16 @@ class CameraRuntime:
         time.sleep(self.restart_cooldown)
         self._start_ffmpeg()
 
+    # 功能：发送或分发 `_emit_runtime_event` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `event_type`（str）：事件类型标识
+    #   - `detail`（str）：`detail` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::_capture_loop` 调用本符号
+    #   - 内部调用：`self.event_queue.put_nowait`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _emit_runtime_event(self, event_type: str, detail: str):
         if self.event_queue is None:
             return
@@ -162,6 +242,17 @@ class CameraRuntime:
 
     # ---------- 采集主循环 ----------
 
+    # 功能：实现 `_capture_loop` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `active_index`（未显式标注）：`active_index` 对应的业务输入值
+    #   - `frame_seq`（未显式标注）：`frame_seq` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`setproctitle`、`self._create_or_attach_shm`、`np.ndarray`、`self._start_ffmpeg`、`deque`、`self.stop_event.is_set`、`time.time`、`self.pipe.stdout.read`、`len`、`RuntimeError`
+    #          等共 32 个调用。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def _capture_loop(self, active_index, frame_seq):
         try:
             from setproctitle import setproctitle
@@ -260,6 +351,15 @@ class CameraRuntime:
                 except Exception as e:
                     logger.warning(f"[Camera:{self.name}] 释放共享内存失败: {e}")
 
+    # 功能：创建共享内存,如果残留则先清理后重建；输入与输出详见下方说明
+    # 参数：
+    #   - `name`（str）：业务对象名称
+    #   - `size`（int）：`size` 对应的数量或大小
+    # 返回：shared_memory.SharedMemory；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/camera/runtime.py` 的 `CameraRuntime::_capture_loop` 调用本符号
+    #   - 内部调用：`shared_memory.SharedMemory`、`existing.close`、`existing.unlink`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     @staticmethod
     def _create_or_attach_shm(name: str, size: int) -> shared_memory.SharedMemory:
         """创建共享内存,如果残留则先清理后重建"""

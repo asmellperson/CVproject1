@@ -1,3 +1,6 @@
+// 文件说明：实现配置的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Bell, Camera, Crosshair, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 
@@ -63,25 +66,120 @@ type Props = {
   selectedChannelId: number | null
   selectedChannelDetail: LogisticsChannelDetail | null
   isAdmin: boolean
+  /**
+   * 功能：处理 `onSelectChannel` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `channelId`（number）：`channelId` 对应业务对象的唯一标识
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onSelectChannel: (channelId: number) => void
+  /**
+   * 功能：处理 `onChannelCreated` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `channel`（LogisticsChannelDetail）：`channel` 对应的业务输入值
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelConfigView.tsx` 的 `LogisticsChannelConfigView`
+   *         调用本符号
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onChannelCreated: (channel: LogisticsChannelDetail) => void
+  /**
+   * 功能：处理 `onChannelDeleted` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：
+   *   - `channelId`（number）：`channelId` 对应业务对象的唯一标识
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelConfigView.tsx` 的 `LogisticsChannelConfigView`
+   *         调用本符号
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onChannelDeleted: (channelId: number) => void
+  /**
+   * 功能：处理 `onChanged` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onChanged: () => void
 }
 
+/**
+ * 功能：实现 `timeForInput` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string）：待转换、校验或写入的值
+ * 返回：void（由实现推断）；仅执行处理流程，不返回业务数据。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelConfigView.tsx` 的 `LogisticsChannelConfigView`
+ *         调用本符号
+ *   - 内部调用：`slice`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 const timeForInput = (value: string) => value.slice(0, 5)
+/**
+ * 功能：实现 `timeForApi` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `value`（string）：待转换、校验或写入的值
+ * 返回：void（由实现推断）；仅执行处理流程，不返回业务数据。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelConfigView.tsx` 的 `LogisticsChannelConfigView`
+ *         调用本符号
+ *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 const timeForApi = (value: string) => value.length === 5 ? `${value}:00` : value
 
+/**
+ * 功能：实现 `messageOf` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `reason`（unknown）：`reason` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`String`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
 }
 
+/**
+ * 功能：实现 `roiPayload` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `raw`（string）：`raw` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelConfigView.tsx` 的 `LogisticsChannelConfigView`
+ *         调用本符号
+ *   - 内部调用：`parse`、`isArray`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function roiPayload(raw: string) {
   const parsed = JSON.parse(raw || '[]') as unknown
   if (!Array.isArray(parsed) || parsed.length === 0) return []
   return Array.isArray(parsed[0]) && typeof parsed[0][0] === 'number' ? [parsed] : parsed
 }
 
+/**
+ * 功能：渲染 `LogisticsChannelConfigView` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（Props）：React 组件属性对象；解构字段包括 feature, channels, selectedChannelId, selectedChannelDetail, isAdmin, onSelectChannel,
+ *     onChannelCreated, onChannelDeleted
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useState`、`useReducer`、`Set`、`useRef`、`useMemo`、`sort`、`Map`、`map`、`get`、`join` 等共 125 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
+ */
 export function LogisticsChannelConfigView({
   feature,
   channels,
@@ -628,6 +726,16 @@ export function LogisticsChannelConfigView({
   )
 }
 
+/**
+ * 功能：渲染 `ConfigNumber` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, id, value, onChange, disabled, type, number, min
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`onChange`、`Label`、`Input`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function ConfigNumber({ label, id, value, onChange, disabled, type = 'number', min = 0, max, step = 0.1 }: { label: string; id: string; value: string; onChange: (value: string) => void; disabled: boolean; type?: 'number' | 'time'; min?: number; max?: number; step?: number }) {
   return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type={type} min={type === 'number' ? min : undefined} max={type === 'number' ? max : undefined} step={type === 'number' ? step : undefined} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} /></div>
 }

@@ -1,3 +1,6 @@
+# 文件说明：实现`__init__` 模块相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """AiVision 进程内托管的扩展视觉能力。"""
 
 from platform.visual_services.managed import ManagedAppSlot, ManagedVisualServices

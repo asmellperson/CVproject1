@@ -1,3 +1,6 @@
+// 文件说明：实现运行时的 React 展示与交互。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { AlertTriangle, LoaderCircle, Power, PowerOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -13,7 +16,25 @@ type DetectionRuntimeControlProps = {
   disabled?: boolean
   allowStopWhenError?: boolean
   error?: string
+  /**
+   * 功能：启动或执行 `onStart` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onStart: () => void
+  /**
+   * 功能：停止并释放 `onStop` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+   * 参数：无。
+   * 返回：void；返回函数类型契约声明的处理结果。
+   * 调用关系：
+   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+   */
   onStop: () => void
 }
 
@@ -24,6 +45,17 @@ const STATE_LABELS: Record<DetectionRuntimeState, string> = {
   error: '状态异常',
 }
 
+/**
+ * 功能：渲染 `DetectionRuntimeControl` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（DetectionRuntimeControlProps）：React 组件属性对象；解构字段包括 scope, state, busyAction, null, isAdmin, disabled, false,
+ *     allowStopWhenError
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`LoaderCircle`、`AlertTriangle`、`Button`、`Power`、`PowerOff`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 export function DetectionRuntimeControl({
   scope,
   state,

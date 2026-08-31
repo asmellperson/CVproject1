@@ -1,3 +1,6 @@
+# 文件说明：包含`test_logistics_single_person` 模块的自动化测试、测试夹具与断言辅助代码。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 from types import SimpleNamespace
 
 import numpy as np
@@ -30,7 +33,31 @@ LOGISTICS_CONSUMER_CLASSES = (
 )
 
 
+# 功能：定义 `RuntimeSpy` 类，封装`test_logistics_single_person` 模块相关的状态、约束与操作
+# 参数：
+#   - `should_run`（未显式标注）：`should_run` 对应的业务输入值；默认值为 `True`
+#   - `confidence_threshold`（未显式标注）：`confidence_threshold` 对应的业务输入值；默认值为 `0.3`
+# 返回：RuntimeSpy；返回新建的 `RuntimeSpy` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_person_confidence_threshold`
+#         实例化本符号；`AiVision/tests/test_logistics_single_person.py` 的
+#         `test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot`
+#         实例化本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_missing_roi_result_publishes_unknown_snapshot`
+#         实例化本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_schedule_and_channel_evaluation_are_delegated_to_runtime`
+#         实例化本符号；另有 1 处静态调用
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class RuntimeSpy:
+    # 功能：初始化或配置 `__init__` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `should_run`（未显式标注）：`should_run` 对应的业务输入值；默认值为 `True`
+    #   - `confidence_threshold`（未显式标注）：`confidence_threshold` 对应的业务输入值；默认值为 `0.3`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, *, should_run=True, confidence_threshold=0.3):
         self.should_run = should_run
         self.confidence_threshold = confidence_threshold
@@ -38,20 +65,74 @@ class RuntimeSpy:
         self.snapshot_calls = []
         self.evaluate_calls = []
 
+    # 功能：启动或执行 `camera_should_run` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.schedule_calls.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def camera_should_run(self, feature_name, camera_id):
         self.schedule_calls.append((feature_name, camera_id))
         return self.should_run
 
+    # 功能：实现 `person_confidence_threshold` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def person_confidence_threshold(self, feature_name, camera_id):
         return self.confidence_threshold
 
+    # 功能：更新或保存 `update_camera_snapshot` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `snapshot`（未显式标注）：`snapshot` 对应的业务输入值
+    #   - `annotated_frame`（未显式标注）：`annotated_frame` 对应的业务输入值
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.snapshot_calls.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_camera_snapshot(self, feature_name, snapshot, annotated_frame):
         self.snapshot_calls.append((feature_name, snapshot, annotated_frame))
 
+    # 功能：更新或保存 `evaluate_after_camera_update` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    # 返回：None；仅执行处理流程，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self.evaluate_calls.append`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def evaluate_after_camera_update(self, feature_name, camera_id):
         self.evaluate_calls.append((feature_name, camera_id))
 
 
+# 功能：创建或构建 `build_consumer` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
+#   - `runtime`（未显式标注）：`runtime` 对应的业务输入值；默认值为 `None`
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_single_person.py` 的 `test_all_logistics_consumers_publish_details_without_camera_alarm`
+#         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_process_preserves_model_and_camera_filter_configuration`
+#         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_person_confidence_threshold`
+#         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的
+#         `test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot` 调用本符号；另有 2 处静态调用
+#   - 内部调用：`object.__new__`、`SimpleNamespace`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_consumer(consumer_class, *, runtime=None):
     consumer = object.__new__(consumer_class)
     consumer.spec = SimpleNamespace(required_models=("person-detector",))
@@ -77,6 +158,14 @@ def build_consumer(consumer_class, *, runtime=None):
     return consumer
 
 
+# 功能：验证 `test_all_logistics_consumers_share_the_common_implementation` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`issubclass`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
 def test_all_logistics_consumers_share_the_common_implementation(consumer_class):
     assert issubclass(consumer_class, LogisticsSinglePersonConsumerBase)
@@ -84,10 +173,27 @@ def test_all_logistics_consumers_share_the_common_implementation(consumer_class)
     assert "post_process" not in consumer_class.__dict__
 
 
+# 功能：验证 `test_legacy_precious_metal_feature_uses_weida_company_display_name` 对应的`test_logistics_single_person`
+#    模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_legacy_precious_metal_feature_uses_weida_company_display_name():
     assert WEIDA_LOGISTICS_SPEC.display_name == "物流通道单人检测（伟达公司）"
 
 
+# 功能：验证 `test_all_logistics_consumers_publish_details_without_camera_alarm` 对应的`test_logistics_single_person`
+#    模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`build_consumer`、`consumer._process`、`np.zeros`、`all`、`sum`、`len`、`pytest.mark.parametrize`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
 def test_all_logistics_consumers_publish_details_without_camera_alarm(consumer_class):
     consumer = build_consumer(consumer_class)
@@ -109,10 +215,28 @@ def test_all_logistics_consumers_publish_details_without_camera_alarm(consumer_c
     assert result[0][1]["person_count"] == 2
 
 
+# 功能：验证 `test_process_preserves_model_and_camera_filter_configuration` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`build_consumer`、`np.zeros`、`consumer._process`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_process_preserves_model_and_camera_filter_configuration():
     consumer = build_consumer(LogisticsSinglePersonConsumer)
     dispatched = {}
 
+    # 功能：发送或分发 `dispatch` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `camera_id`（未显式标注）：摄像头唯一标识
+    #   - `model_name`（未显式标注）：`model_name` 对应的业务输入值
+    #   - `roi_list`（未显式标注）：`roi_list` 对应的业务输入值
+    #   - `task_meta`（未显式标注）：`task_meta` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`dispatched.update`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def dispatch(camera_id, model_name, roi_list, task_meta):
         dispatched.update(
             camera_id=camera_id,
@@ -146,11 +270,29 @@ def test_process_preserves_model_and_camera_filter_configuration():
     assert [item["bbox"] for item in result[0][1]["detections"]] == [[2, 2, 22, 62]]
 
 
+# 功能：验证 `test_process_uses_channel_person_confidence_threshold` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`RuntimeSpy`、`build_consumer`、`consumer._process`、`np.zeros`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_process_uses_channel_person_confidence_threshold():
     runtime = RuntimeSpy(confidence_threshold=0.72)
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
     dispatched = {}
 
+    # 功能：发送或分发 `dispatch` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `_camera_id`（未显式标注）：`_camera_id` 对应业务对象的唯一标识
+    #   - `_model_name`（未显式标注）：`_model_name` 对应的业务输入值
+    #   - `_roi_list`（未显式标注）：`_roi_list` 对应的业务输入值
+    #   - `task_meta`（未显式标注）：`task_meta` 对应的业务输入值
+    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`dispatched.update`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def dispatch(_camera_id, _model_name, _roi_list, task_meta):
         dispatched.update(task_meta)
         return [{"roi_id": 0, "detections": []}]
@@ -161,6 +303,14 @@ def test_process_uses_channel_person_confidence_threshold():
     assert dispatched == {"conf": 0.72, "iou": 0.3}
 
 
+# 功能：验证 `test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot` 对应的`test_logistics_single_person`
+#    模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`RuntimeSpy`、`build_consumer`、`np.zeros`、`consumer.post_process`、`np.any`、`len`、`consumer.get_monitor_status`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot():
     runtime = RuntimeSpy()
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
@@ -212,6 +362,13 @@ def test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot():
     assert consumer.get_monitor_status("cam-7")["count"] == 1
 
 
+# 功能：验证 `test_missing_roi_result_publishes_unknown_snapshot` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`RuntimeSpy`、`build_consumer`、`np.zeros`、`consumer.post_process`、`consumer.get_monitor_status`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_missing_roi_result_publishes_unknown_snapshot():
     runtime = RuntimeSpy()
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
@@ -237,6 +394,13 @@ def test_missing_roi_result_publishes_unknown_snapshot():
     assert consumer.get_monitor_status("cam-7")["reason"] == "unknown"
 
 
+# 功能：验证 `test_schedule_and_channel_evaluation_are_delegated_to_runtime` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`RuntimeSpy`、`build_consumer`、`consumer._should_process_now`、`consumer._handle_alarm`。
+# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_schedule_and_channel_evaluation_are_delegated_to_runtime():
     runtime = RuntimeSpy(should_run=False)
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
@@ -248,6 +412,14 @@ def test_schedule_and_channel_evaluation_are_delegated_to_runtime():
     assert runtime.evaluate_calls == [(consumer.feature_name, 7)]
 
 
+# 功能：验证 `test_all_logistics_consumers_require_channel_runtime` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`SimpleNamespace`、`pytest.raises`、`consumer_class`、`str`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
 def test_all_logistics_consumers_require_channel_runtime(consumer_class):
     spec = SimpleNamespace(
@@ -267,6 +439,14 @@ def test_all_logistics_consumers_require_channel_runtime(consumer_class):
     assert "LogisticsChannelRuntime" in str(raised.value)
 
 
+# 功能：验证 `test_all_logistics_consumers_accept_injected_channel_runtime` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：
+#   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`RuntimeSpy`、`SimpleNamespace`、`consumer_class`、`pytest.mark.parametrize`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
 def test_all_logistics_consumers_accept_injected_channel_runtime(consumer_class):
     runtime = RuntimeSpy()
@@ -287,6 +467,13 @@ def test_all_logistics_consumers_accept_injected_channel_runtime(consumer_class)
     assert consumer.logistics_runtime is runtime
 
 
+# 功能：验证 `test_monitor_snapshot_sums_known_roi_counts_and_preserves_alarm` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 参数：无。
+# 返回：None；仅执行处理流程，不返回业务数据。
+# 调用关系：
+#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+#   - 内部调用：`build_monitor_snapshot`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_monitor_snapshot_sums_known_roi_counts_and_preserves_alarm():
     snapshot = build_monitor_snapshot(
         [

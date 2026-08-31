@@ -1,3 +1,6 @@
+# 文件说明：实现运行时相关的基础能力。
+# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+
 """四个物流单人检测模块共用的通道级运行时。"""
 from __future__ import annotations
 
@@ -22,6 +25,16 @@ from .service import logistics_channel_service
 from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, classify_channel
 
 
+# 功能：定义 `_CameraInfo` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `camera_id`（int）：摄像头唯一标识
+#   - `name`（str）：业务对象名称
+#   - `shm_name`（str）：摄像头共享内存名称
+# 返回：_CameraInfo；返回新建的 `_CameraInfo` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_parse_channel` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _CameraInfo:
     camera_id: int
@@ -29,6 +42,25 @@ class _CameraInfo:
     shm_name: str
 
 
+# 功能：定义 `_ChannelConfig` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `feature_name`（str）：`feature_name` 对应的业务输入值
+#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+#   - `name`（str）：业务对象名称
+#   - `enabled`（bool）：是否启用相应能力
+#   - `detection_start`（object）：`detection_start` 对应的业务输入值
+#   - `detection_end`（object）：`detection_end` 对应的业务输入值
+#   - `confidence_threshold`（float）：`confidence_threshold` 对应的业务输入值
+#   - `empty_grace_seconds`（float）：`empty_grace_seconds` 对应的时间间隔或时长
+#   - `multi_grace_seconds`（float）：`multi_grace_seconds` 对应的时间间隔或时长
+#   - `alarm_interval`（float）：`alarm_interval` 对应的时间间隔或时长
+#   - `alarm`（dict）：`alarm` 对应的业务输入值
+#   - `cameras`（tuple[_CameraInfo, ...]）：`cameras` 对应的业务输入值
+# 返回：_ChannelConfig；返回新建的 `_ChannelConfig` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_parse_channel` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _ChannelConfig:
     feature_name: str
@@ -45,6 +77,17 @@ class _ChannelConfig:
     cameras: tuple[_CameraInfo, ...]
 
 
+# 功能：定义 `_ChannelView` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+#   - `generation`（int）：`generation` 对应的业务输入值
+#   - `snapshots`（tuple[CameraSnapshot | None, ...]）：`snapshots` 对应的业务输入值
+#   - `frames`（tuple[np.ndarray | None, ...]）：`frames` 对应的业务输入值
+# 返回：_ChannelView；返回新建的 `_ChannelView` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_snapshot_channel` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _ChannelView:
     channel: _ChannelConfig
@@ -53,6 +96,19 @@ class _ChannelView:
     frames: tuple[np.ndarray | None, ...]
 
 
+# 功能：定义 `_PreparedView` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+#   - `generation`（int）：`generation` 对应的业务输入值
+#   - `snapshots`（tuple[CameraSnapshot, ...]）：`snapshots` 对应的业务输入值
+#   - `states`（dict[str, dict]）：`states` 对应的业务输入值
+#   - `tiles`（tuple[CameraTile, ...]）：`tiles` 对应的业务输入值
+#   - `active`（bool）：`active` 对应的业务输入值
+# 返回：_PreparedView；返回新建的 `_PreparedView` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_prepare_view` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _PreparedView:
     channel: _ChannelConfig
@@ -63,6 +119,21 @@ class _PreparedView:
     active: bool
 
 
+# 功能：定义 `_IncidentWork` 类，封装运行时相关的状态、约束与操作
+# 参数：
+#   - `key`（tuple[str, int]）：用于查询、分组或缓存的键
+#   - `generation`（int）：`generation` 对应的业务输入值
+#   - `token`（int）：用于认证或续接请求的令牌
+#   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+#   - `decision`（ChannelDecision）：`decision` 对应的业务输入值
+#   - `states`（dict[str, dict]）：`states` 对应的业务输入值
+#   - `tiles`（tuple[CameraTile, ...]）：`tiles` 对应的业务输入值
+#   - `evaluated_at`（float）：`evaluated_at` 对应的业务输入值
+# 返回：_IncidentWork；返回新建的 `_IncidentWork` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_transition` 实例化本符号
+#   - 内部调用：`dataclass`。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class _IncidentWork:
     key: tuple[str, int]
@@ -75,9 +146,53 @@ class _IncidentWork:
     evaluated_at: float
 
 
+# 功能：聚合逐路快照、维护通道计时并统一分发通道告警；输入与输出详见下方说明
+# 参数：
+#   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `logistics_channel_service`
+#   - `dispatcher`（未显式标注）：`dispatcher` 对应的业务输入值；默认值为 `alarm_dispatcher`
+#   - `camera_provider`（Callable[[int], dict | None] | None）：`camera_provider` 对应的业务输入值；默认值为 `None`
+#   - `is_camera_active`（Callable[[str], bool] | None）：`is_camera_active` 对应的业务输入值；默认值为 `None`
+#   - `frame_provider`（Callable[[str], np.ndarray | None] | None）：`frame_provider` 对应的业务输入值；默认值为 `None`
+#   - `stale_seconds`（float | None）：`stale_seconds` 对应的时间间隔或时长；默认值为 `None`
+#   - `wall_time_provider`（Callable[[], datetime] | None）：`wall_time_provider` 对应的业务输入值；默认值为 `None`
+#   - `violation_type_provider`（Callable[[str], int] | None）：`violation_type_provider` 对应的业务输入值；默认值为 `None`
+#   - `clock_provider`（Callable[[], float] | None）：`clock_provider` 对应的业务输入值；默认值为 `None`
+#   - `compositor`（Callable[[tuple[CameraTile, ...]], np.ndarray] | None）：`compositor` 对应的业务输入值；默认值为 `None`
+#   - `evidence_recorder`（未显式标注）：`evidence_recorder` 对应的业务输入值；默认值为 `None`
+#   - `start_background`（bool）：`start_background` 对应的业务输入值；默认值为 `True`
+#   - `stop_timeout_seconds`（float）：`stop_timeout_seconds` 对应的时间间隔或时长；默认值为 `2.0`
+# 返回：LogisticsChannelRuntime；返回新建的 `LogisticsChannelRuntime` 实例。
+# 调用关系：
+#   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的 `build_runtime`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
+#         `test_service_camera_online_compositor_and_dispatcher_run_outside_global_lock` 实例化本符号；`AiVision/platform/orchestrator.py`
+#         的 `Orchestrator::__init__` 实例化本符号
+#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class LogisticsChannelRuntime:
     """聚合逐路快照、维护通道计时并统一分发通道告警。"""
 
+    # 功能：初始化或配置 `__init__` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `logistics_channel_service`
+    #   - `dispatcher`（未显式标注）：`dispatcher` 对应的业务输入值；默认值为 `alarm_dispatcher`
+    #   - `camera_provider`（Callable[[int], dict | None] | None）：`camera_provider` 对应的业务输入值；默认值为 `None`
+    #   - `is_camera_active`（Callable[[str], bool] | None）：`is_camera_active` 对应的业务输入值；默认值为 `None`
+    #   - `frame_provider`（Callable[[str], np.ndarray | None] | None）：`frame_provider` 对应的业务输入值；默认值为 `None`
+    #   - `stale_seconds`（float | None）：`stale_seconds` 对应的时间间隔或时长；默认值为 `None`
+    #   - `wall_time_provider`（Callable[[], datetime] | None）：`wall_time_provider` 对应的业务输入值；默认值为 `None`
+    #   - `violation_type_provider`（Callable[[str], int] | None）：`violation_type_provider` 对应的业务输入值；默认值为 `None`
+    #   - `clock_provider`（Callable[[], float] | None）：`clock_provider` 对应的业务输入值；默认值为 `None`
+    #   - `compositor`（Callable[[tuple[CameraTile, ...]], np.ndarray] | None）：`compositor` 对应的业务输入值；默认值为 `None`
+    #   - `evidence_recorder`（未显式标注）：`evidence_recorder` 对应的业务输入值；默认值为 `None`
+    #   - `start_background`（bool）：`start_background` 对应的业务输入值；默认值为 `True`
+    #   - `stop_timeout_seconds`（float）：`stop_timeout_seconds` 对应的时间间隔或时长；默认值为 `2.0`
+    # 返回：None；初始化当前实例，不返回业务数据。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`camera_service.get_camera`、`str`、`float`、`datetime.now().astimezone`、`datetime.now`、`all_specs`、`Event`、`Lock`、`RLock`、`set`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         *,
@@ -134,6 +249,14 @@ class LogisticsChannelRuntime:
         self._next_incident_token = 0
         self._running = False
 
+    # 功能：启动或执行 `start` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`existing.is_alive`、`RuntimeError`、`self._stop_event.clear`、`Thread`、`thread.start`、`self._stop_event.set`、`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def start(self) -> None:
         thread = None
         with self._lifecycle_lock:
@@ -167,6 +290,14 @@ class LogisticsChannelRuntime:
                     raise
         logger.info("[LogisticsChannelRuntime] 已启动")
 
+    # 功能：停止并释放 `stop` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`self._stop_event.set`、`thread.join`、`thread.is_alive`、`logger.error`、`RuntimeError`、`self._clear_all_state_locked`、`logger.info`。
+    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def stop(self) -> None:
         with self._lifecycle_lock:
             with self._lock:
@@ -185,6 +316,16 @@ class LogisticsChannelRuntime:
                 self._clear_all_state_locked()
         logger.info("[LogisticsChannelRuntime] 已停止")
 
+    # 功能：启动或执行 `camera_should_run` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._ensure_feature_loaded`、`self._camera_channels.get`、`self._channels.get`、`self._channel_is_active`、`self._channel_is_current_locked`、`self._reset_non_alarm_locked`、`self._reset_cooldown`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def camera_should_run(self, feature_name: str, camera_id: int) -> bool:
         feature_name = require_logistics_feature(feature_name)
         self._ensure_feature_loaded(feature_name)
@@ -204,6 +345,16 @@ class LogisticsChannelRuntime:
                 self._reset_cooldown(channel)
         return active
 
+    # 功能：返回摄像头所属通道的人体检测阈值；未绑定通道时返回 None；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：float | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._ensure_feature_loaded`、`self._camera_channels.get`、`self._channels.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def person_confidence_threshold(self, feature_name: str, camera_id: int) -> float | None:
         """返回摄像头所属通道的人体检测阈值；未绑定通道时返回 None。"""
         feature_name = require_logistics_feature(feature_name)
@@ -213,6 +364,17 @@ class LogisticsChannelRuntime:
             channel = self._channels.get((feature_name, channel_id)) if channel_id is not None else None
             return None if channel is None else channel.confidence_threshold
 
+    # 功能：更新或保存 `update_camera_snapshot` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `snapshot`（CameraSnapshot）：`snapshot` 对应的业务输入值
+    #   - `annotated_frame`（np.ndarray | None）：`annotated_frame` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`isinstance`、`annotated_frame.copy`、`logger.warning`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def update_camera_snapshot(
         self,
         feature_name: str,
@@ -234,6 +396,16 @@ class LogisticsChannelRuntime:
                 f"feature={feature_name} camera_id={snapshot.camera_id}"
             )
 
+    # 功能：更新或保存 `evaluate_after_camera_update` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：ChannelDecision | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._ensure_feature_loaded`、`self._camera_channels.get`、`self.evaluate`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def evaluate_after_camera_update(
         self,
         feature_name: str,
@@ -245,6 +417,19 @@ class LogisticsChannelRuntime:
             channel_id = self._camera_channels.get((feature_name, camera_id))
         return None if channel_id is None else self.evaluate(feature_name, channel_id)
 
+    # 功能：实现 `evaluate` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    #   - `now`（float | None）：`now` 对应的业务输入值；默认值为 `None`
+    # 返回：ChannelDecision；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate_after_camera_update`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_evaluation_loop` 调用本符号
+    #   - 内部调用：`require_logistics_feature`、`self._clock_provider`、`float`、`range`、`self._snapshot_channel`、`ChannelDecision`、`self._prepare_view`、`self._evidence_key`、`evidence_recorder.should_sample`、`evidence_recorder.record_frame`
+    #          等共 14 个调用。
+    # 副作用/注意事项：可能读取或修改数据库事务。
     def evaluate(
         self,
         feature_name: str,
@@ -281,6 +466,16 @@ class LogisticsChannelRuntime:
             return decision
         return ChannelDecision("unknown", False, 0.0, None)
 
+    # 功能：摄像头信息、ROI 或绑定变化后重新加载所属功能配置；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_camera_all` 调用本符号
+    #   - 内部调用：`require_logistics_feature`、`self._camera_channels.get`、`self._channels.get`、`self._snapshots.pop`、`self._frames.pop`、`self._clear_channel_state_locked`、`self._invalidate_feature_locked`、`self._reset_cooldown`、`self._ensure_feature_loaded`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def refresh_camera(self, feature_name: str, camera_id: int) -> None:
         """摄像头信息、ROI 或绑定变化后重新加载所属功能配置。"""
         feature_name = require_logistics_feature(feature_name)
@@ -297,11 +492,35 @@ class LogisticsChannelRuntime:
             self._reset_cooldown(reset_channel)
         self._ensure_feature_loaded(feature_name)
 
+    # 功能：全局摄像头改名、运行参数更新或删除后刷新四个物流命名空间；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera_id`（int）：摄像头唯一标识
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_camera_rename_and_delete_refresh_real_runtime_membership_cache` 调用本符号；`AiVision/platform/orchestrator.py` 的
+    #         `Orchestrator::_on_config_change` 调用本符号
+    #   - 内部调用：`sorted`、`self.refresh_camera`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def refresh_camera_all(self, camera_id: int) -> None:
         """全局摄像头改名、运行参数更新或删除后刷新四个物流命名空间。"""
         for feature_name in sorted(LOGISTICS_FEATURES):
             self.refresh_camera(feature_name, camera_id)
 
+    # 功能：通道配置或成员事件后丢弃旧快照、计时和证据；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_refresh_clears_timing_snapshot_and_incident_state`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_refresh_during_slow_composition_discards_stale_incident_result` 调用本符号；`AiVision/platform/orchestrator.py` 的
+    #         `Orchestrator::_on_config_change` 调用本符号
+    #   - 内部调用：`require_logistics_feature`、`self._channels.get`、`self._snapshots.pop`、`self._frames.pop`、`self._clear_channel_state_locked`、`self._invalidate_feature_locked`、`self._reset_cooldown`、`self._ensure_feature_loaded`、`logger.info`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def refresh_channel(self, feature_name: str, channel_id: int) -> None:
         """通道配置或成员事件后丢弃旧快照、计时和证据。"""
         feature_name = require_logistics_feature(feature_name)
@@ -322,12 +541,32 @@ class LogisticsChannelRuntime:
             f"channel_id={channel_id}"
         )
 
+    # 功能：读取或查询 `get_channel_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`require_logistics_feature`、`self._statuses.get`、`self._copy_status`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_channel_status(self, feature_name: str, channel_id: int) -> dict | None:
         feature_name = require_logistics_feature(feature_name)
         with self._lock:
             value = self._statuses.get((feature_name, channel_id))
             return self._copy_status(value)
 
+    # 功能：显式请求时才按最新不可变 tile 快照生成拼接画面；输入与输出详见下方说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：np.ndarray | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_composite_frame` 调用本符号
+    #   - 内部调用：`require_logistics_feature`、`self._snapshot_channel`、`self._prepare_view`、`self._clock_provider`、`self._compose`、`self._channel_is_current_locked`、`frame.copy`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_channel_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
         """显式请求时才按最新不可变 tile 快照生成拼接画面。"""
         feature_name = require_logistics_feature(feature_name)
@@ -344,9 +583,36 @@ class LogisticsChannelRuntime:
             self._channel_frames[(feature_name, channel_id)] = frame
         return frame.copy()
 
+    # 功能：读取或查询 `get_composite_frame` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：np.ndarray | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_disabled_members_are_excluded_from_aggregation_status_and_composite`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_inactive_detection_window_still_composes_live_preview_frames`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
+    #         `test_compositor_runs_only_for_alarm_or_explicit_frame_request` 调用本符号
+    #   - 内部调用：`self.get_channel_frame`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_composite_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
         return self.get_channel_frame(feature_name, channel_id)
 
+    # 功能：实现 `_snapshot_channel` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
+    # 返回：_ChannelView | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_channel_frame` 调用本符号
+    #   - 内部调用：`self._ensure_feature_loaded`、`self._channels.get`、`tuple`、`self._snapshots.get`、`self._frames.get`、`self._channel_is_active`、`zip`、`self._frame_provider`、`isinstance`、`logger.warning`
+    #          等共 13 个调用。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _snapshot_channel(self, feature_name: str, channel_id: int) -> _ChannelView | None:
         self._ensure_feature_loaded(feature_name)
         with self._lock:
@@ -389,6 +655,18 @@ class LogisticsChannelRuntime:
             frames=tuple(frames),
         )
 
+    # 功能：实现 `_prepare_view` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `view`（_ChannelView）：`view` 对应的业务输入值
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：_PreparedView；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_channel_frame` 调用本符号
+    #   - 内部调用：`self._channel_is_active`、`zip`、`self._camera_online`、`CameraSnapshot`、`self._camera_reason`、`str`、`snapshots.append`、`tiles.append`、`CameraTile`、`_PreparedView`
+    #          等共 11 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _prepare_view(self, view: _ChannelView, now: float) -> _PreparedView:
         active = self._channel_is_active(view.channel)
         snapshots: list[CameraSnapshot] = []
@@ -442,6 +720,16 @@ class LogisticsChannelRuntime:
             active=active,
         )
 
+    # 功能：实现 `_transition` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `prepared`（_PreparedView）：`prepared` 对应的业务输入值
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：tuple[ChannelDecision, _IncidentWork | None, bool] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate` 调用本符号
+    #   - 内部调用：`classify_channel`、`self._channel_is_current_locked`、`self._states.setdefault`、`ChannelPresenceState`、`state.evaluate`、`self._build_status`、`self._clear_incident_locked`、`self._active_incidents.get`、`self._pending_incidents.get`、`_IncidentWork`。
+    # 副作用/注意事项：会更新当前实例的运行状态。
     def _transition(
         self,
         prepared: _PreparedView,
@@ -498,6 +786,15 @@ class LogisticsChannelRuntime:
                 False,
             )
 
+    # 功能：实现 `_execute_incident` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `work`（_IncidentWork）：`work` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate` 调用本符号
+    #   - 内部调用：`self._compose`、`self._build_alarm_request`、`self._incident_is_current`、`self._dispatcher.maybe_dispatch`、`logger.exception`、`self._pending_incidents.get`、`self._pending_incidents.pop`、`self._channel_is_current_locked`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _execute_incident(self, work: _IncidentWork) -> None:
         frame = self._compose(work.channel, work.tiles)
         request = self._build_alarm_request(
@@ -532,6 +829,15 @@ class LogisticsChannelRuntime:
                 if frame is not None:
                     self._channel_frames[work.key] = frame
 
+    # 功能：检查或判断 `_incident_is_current` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `work`（_IncidentWork）：`work` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_execute_incident` 调用本符号
+    #   - 内部调用：`self._channel_is_current_locked`、`self._pending_incidents.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _incident_is_current(self, work: _IncidentWork) -> bool:
         with self._lock:
             return (
@@ -540,6 +846,18 @@ class LogisticsChannelRuntime:
                 == (work.decision.reason, work.token, work.generation)
             )
 
+    # 功能：检查或判断 `_ensure_feature_loaded` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::camera_should_run`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::person_confidence_threshold`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate_after_camera_update`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_camera` 调用本符号；另有 3 处静态调用
+    #   - 内部调用：`range`、`self._read_feature`、`self._install_feature_locked`、`RuntimeError`。
+    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _ensure_feature_loaded(self, feature_name: str) -> None:
         for _attempt in range(3):
             with self._lock:
@@ -556,6 +874,15 @@ class LogisticsChannelRuntime:
                 return
         raise RuntimeError(f"物流通道配置持续变化，无法加载 feature={feature_name}")
 
+    # 功能：读取或查询 `_read_feature` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：tuple[_ChannelConfig, ...]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_ensure_feature_loaded` 调用本符号
+    #   - 内部调用：`self._service.list_channels`、`response.get`、`self._service.get_channel`、`int`、`channels.append`、`self._parse_channel`、`tuple`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _read_feature(self, feature_name: str) -> tuple[_ChannelConfig, ...]:
         response = self._service.list_channels(feature_name) or {}
         channels = []
@@ -565,6 +892,16 @@ class LogisticsChannelRuntime:
                 channels.append(self._parse_channel(detail))
         return tuple(channels)
 
+    # 功能：转换或规范化 `_parse_channel` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `detail`（dict）：`detail` 对应的业务输入值
+    # 返回：_ChannelConfig；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_read_feature` 调用本符号
+    #   - 内部调用：`detail.get`、`sorted`、`member.get`、`int`、`self._camera_provider`、`cameras.append`、`_CameraInfo`、`str`、`raw.get`、`_ChannelConfig`
+    #          等共 15 个调用。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _parse_channel(self, detail: dict) -> _ChannelConfig:
         config = detail.get("config") or {}
         cameras = []
@@ -597,6 +934,14 @@ class LogisticsChannelRuntime:
             cameras=tuple(cameras),
         )
 
+    # 功能：实现 `_evaluation_loop` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+    #   - 内部调用：`max`、`min`、`self._stop_event.wait`、`sorted`、`self._stop_event.is_set`、`self._ensure_feature_loaded`、`tuple`、`self.evaluate`、`logger.exception`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _evaluation_loop(self) -> None:
         interval = max(0.25, min(1.0, self._stale_seconds / 2.0))
         while not self._stop_event.wait(interval):
@@ -614,6 +959,16 @@ class LogisticsChannelRuntime:
             except Exception:
                 logger.exception("[LogisticsChannelRuntime] 周期巡检失败")
 
+    # 功能：实现 `_install_feature_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `channels`（tuple[_ChannelConfig, ...]）：`channels` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_ensure_feature_loaded` 调用本符号
+    #   - 内部调用：`self._channels.pop`、`self._camera_channels.pop`、`self._loaded_features.add`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _install_feature_locked(
         self,
         feature_name: str,
@@ -629,6 +984,16 @@ class LogisticsChannelRuntime:
                 self._camera_channels[(feature_name, camera.camera_id)] = channel.channel_id
         self._loaded_features.add(feature_name)
 
+    # 功能：实现 `_invalidate_feature_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_camera`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_channel` 调用本符号
+    #   - 内部调用：`self._loaded_features.discard`、`self._channels.pop`、`self._camera_channels.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _invalidate_feature_locked(self, feature_name: str) -> None:
         self._generations[feature_name] += 1
         self._loaded_features.discard(feature_name)
@@ -637,18 +1002,51 @@ class LogisticsChannelRuntime:
         for key in [key for key in self._camera_channels if key[0] == feature_name]:
             self._camera_channels.pop(key, None)
 
+    # 功能：检查或判断 `_channel_is_current_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    #   - `generation`（int）：`generation` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::camera_should_run`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_channel_frame`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_transition`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_execute_incident` 调用本符号；另有 1 处静态调用
+    #   - 内部调用：`self._channels.get`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _channel_is_current_locked(self, channel: _ChannelConfig, generation: int) -> bool:
         return (
             self._generations[channel.feature_name] == generation
             and self._channels.get((channel.feature_name, channel.channel_id)) is channel
         )
 
+    # 功能：检查或判断 `_channel_is_active` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::camera_should_run`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_snapshot_channel`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_prepare_view` 调用本符号
+    #   - 内部调用：`self._wall_time_provider().timetz().replace`、`self._wall_time_provider().timetz`、`self._wall_time_provider`。
+    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def _channel_is_active(self, channel: _ChannelConfig) -> bool:
         if not channel.enabled:
             return False
         local_time = self._wall_time_provider().timetz().replace(tzinfo=None)
         return channel.detection_start <= local_time <= channel.detection_end
 
+    # 功能：实现 `_camera_online` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `camera`（_CameraInfo）：摄像头配置或实体
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_prepare_view` 调用本符号
+    #   - 内部调用：`bool`、`self._is_camera_active`、`logger.warning`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _camera_online(self, camera: _CameraInfo) -> bool:
         try:
             return bool(self._is_camera_active(camera.shm_name))
@@ -659,6 +1057,17 @@ class LogisticsChannelRuntime:
             )
             return False
 
+    # 功能：实现 `_camera_reason` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `snapshot`（CameraSnapshot）：`snapshot` 对应的业务输入值
+    #   - `has_snapshot`（bool）：`has_snapshot` 对应的业务输入值
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：tuple[str, str | None]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_prepare_view` 调用本符号
+    #   - 内部调用：`self._finite_number`、`isinstance`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _camera_reason(
         self,
         snapshot: CameraSnapshot,
@@ -686,6 +1095,18 @@ class LogisticsChannelRuntime:
             return "normal", None
         return "multiple", None
 
+    # 功能：绘制或渲染 `_compose` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    #   - `tiles`（tuple[CameraTile, ...]）：`tiles` 对应的业务输入值
+    # 返回：np.ndarray | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_channel_frame`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_execute_incident` 调用本符号
+    #   - 内部调用：`self._compositor`、`logger.warning`。
+    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _compose(
         self,
         channel: _ChannelConfig,
@@ -702,6 +1123,17 @@ class LogisticsChannelRuntime:
             )
             return None
 
+    # 功能：创建或构建 `_build_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    #   - `decision`（ChannelDecision）：`decision` 对应的业务输入值
+    #   - `states`（dict[str, dict]）：`states` 对应的业务输入值
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_transition` 调用本符号
+    #   - 内部调用：`states.items`、`list`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _build_status(
         channel: _ChannelConfig,
@@ -724,6 +1156,20 @@ class LogisticsChannelRuntime:
             "updated_at": now,
         }
 
+    # 功能：创建或构建 `_build_alarm_request` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    #   - `decision`（ChannelDecision）：`decision` 对应的业务输入值
+    #   - `states`（dict[str, dict]）：`states` 对应的业务输入值
+    #   - `frame`（np.ndarray | None）：待处理的视频图像帧
+    #   - `now`（float）：`now` 对应的业务输入值
+    # 返回：AlarmRequest；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_execute_incident` 调用本符号
+    #   - 内部调用：`states.items`、`list`、`alarm.get`、`bool`、`horn.get`、`wechat.get`、`np.zeros`、`AlarmRequest`、`int`、`self._violation_type_provider`
+    #          等共 12 个调用。
+    # 副作用/注意事项：可能发起网络请求或发送外部消息。
     def _build_alarm_request(
         self,
         channel: _ChannelConfig,
@@ -780,15 +1226,44 @@ class LogisticsChannelRuntime:
             metadata=metadata,
         )
 
+    # 功能：实现 `_evidence_key` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_build_alarm_request` 调用本符号
+    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _evidence_key(channel: _ChannelConfig) -> str:
         return f"logistics_channel:{channel.feature_name}:{channel.channel_id}"
 
+    # 功能：删除或清理 `_clear_incident_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `key`（tuple[str, int]）：用于查询、分组或缓存的键
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_transition`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_reset_non_alarm_locked` 调用本符号
+    #   - 内部调用：`self._active_incidents.pop`、`self._pending_incidents.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _clear_incident_locked(self, key: tuple[str, int]) -> bool:
         active = self._active_incidents.pop(key, None) is not None
         self._pending_incidents.pop(key, None)
         return active
 
+    # 功能：实现 `_reset_non_alarm_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    #   - `reason`（str）：`reason` 对应的业务输入值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::camera_should_run` 调用本符号
+    #   - 内部调用：`self._states.get`、`state.reset`、`self._clear_incident_locked`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _reset_non_alarm_locked(self, channel: _ChannelConfig, reason: str) -> bool:
         key = (channel.feature_name, channel.channel_id)
         state = self._states.get(key)
@@ -804,6 +1279,16 @@ class LogisticsChannelRuntime:
         }
         return reset
 
+    # 功能：删除或清理 `_clear_channel_state_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_camera`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_channel` 调用本符号
+    #   - 内部调用：`self._states.pop`、`self._statuses.pop`、`self._channel_frames.pop`、`self._active_incidents.pop`、`self._pending_incidents.pop`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _clear_channel_state_locked(self, channel: _ChannelConfig) -> None:
         key = (channel.feature_name, channel.channel_id)
         self._states.pop(key, None)
@@ -812,6 +1297,14 @@ class LogisticsChannelRuntime:
         self._active_incidents.pop(key, None)
         self._pending_incidents.pop(key, None)
 
+    # 功能：删除或清理 `_clear_all_state_locked` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::stop` 调用本符号
+    #   - 内部调用：`self._channels.clear`、`self._camera_channels.clear`、`self._loaded_features.clear`、`self._states.clear`、`self._statuses.clear`、`self._channel_frames.clear`、`self._active_incidents.clear`、`self._pending_incidents.clear`、`self._frames.clear`、`self._snapshots.clear`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _clear_all_state_locked(self) -> None:
         self._channels.clear()
         self._camera_channels.clear()
@@ -824,11 +1317,31 @@ class LogisticsChannelRuntime:
         self._frames.clear()
         self._snapshots.clear()
 
+    # 功能：实现 `_reset_cooldown` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `self`（未显式标注）：当前类实例
+    #   - `channel`（_ChannelConfig）：`channel` 对应的业务输入值
+    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::camera_should_run`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::evaluate`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_camera`
+    #         调用本符号；`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::refresh_channel` 调用本符号
+    #   - 内部调用：`getattr`、`callable`、`reset`、`str`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _reset_cooldown(self, channel: _ChannelConfig) -> None:
         reset = getattr(self._dispatcher, "reset_subject_cooldown", None)
         if callable(reset):
             reset("logistics_channel", str(channel.channel_id), channel.feature_name)
 
+    # 功能：实现 `_copy_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `value`（dict | None）：待转换、校验或写入的值
+    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::get_channel_status` 调用本符号
+    #   - 内部调用：`dict`、`list`、`value.get`、`(value.get('camera_states') or {}).items`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _copy_status(value: dict | None) -> dict | None:
         if value is None:
@@ -842,6 +1355,14 @@ class LogisticsChannelRuntime:
         }
         return copied
 
+    # 功能：实现 `_finite_number` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+    # 参数：
+    #   - `value`（object）：待转换、校验或写入的值
+    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 调用关系：
+    #   - 调用方：`AiVision/platform/logistics_channel/runtime.py` 的 `LogisticsChannelRuntime::_camera_reason` 调用本符号
+    #   - 内部调用：`isinstance`、`isfinite`。
+    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _finite_number(value: object) -> bool:
         return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)

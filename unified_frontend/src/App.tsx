@@ -1,3 +1,6 @@
+// 文件说明：实现应用装配相关的基础能力。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import { lazy, Suspense, useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { Topbar } from '@/components/Topbar'
@@ -15,10 +18,29 @@ const MIN_SIDEBAR_WIDTH = 240
 const MAX_SIDEBAR_WIDTH = 420
 const COLLAPSED_SIDEBAR_WIDTH = 84
 
+/**
+ * 功能：实现 `clampSidebarWidth` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：
+ *   - `width`（number）：`width` 对应的业务输入值
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：`unified_frontend/src/App.tsx` 的 `getInitialSidebarWidth` 调用本符号；`unified_frontend/src/App.tsx` 的 `App` 调用本符号
+ *   - 内部调用：`min`、`max`。
+ * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
+ */
 function clampSidebarWidth(width: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
 }
 
+/**
+ * 功能：读取或查询 `getInitialSidebarWidth` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：无。
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`Number`、`getItem`、`isFinite`、`clampSidebarWidth`。
+ * 副作用/注意事项：会读写浏览器本地存储；会读取或修改浏览器全局对象/DOM 状态。
+ */
 function getInitialSidebarWidth() {
   try {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
@@ -77,15 +99,42 @@ const AccessAuditSection = lazy(() =>
   import('@/sections/AccessAuditSection').then((module) => ({ default: module.AccessAuditSection })),
 )
 
+/**
+ * 功能：读取或查询 `getInitialPage` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：无。
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`URLSearchParams`、`get`。
+ * 副作用/注意事项：会读取或修改浏览器全局对象/DOM 状态。
+ */
 function getInitialPage() {
   const params = new URLSearchParams(window.location.search)
   return params.get('page') || 'overview'
 }
 
+/**
+ * 功能：读取或查询 `getInitialAlarmId` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+ * 参数：无。
+ * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`URLSearchParams`、`get`。
+ * 副作用/注意事项：会读取或修改浏览器全局对象/DOM 状态。
+ */
 function getInitialAlarmId() {
   return new URLSearchParams(window.location.search).get('alarmId') || ''
 }
 
+/**
+ * 功能：渲染 `PageLoadingFallback` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：无。
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function PageLoadingFallback() {
   return (
     <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300">
@@ -94,6 +143,16 @@ function PageLoadingFallback() {
   )
 }
 
+/**
+ * 功能：渲染 `App` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：无。
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`useAuth`、`usePlatformStatus`、`useState`、`useIsMobile`、`hasPageAccess`、`setCurrentPage`、`setMobileSidebarOpen`、`setSidebarCollapsed`、`return`、`gradient`
+ *          等共 40 个调用。
+ * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读写浏览器本地存储；会读取或修改浏览器全局对象/DOM 状态。
+ */
 function App() {
   const { user } = useAuth()
   const platformStatus = usePlatformStatus()

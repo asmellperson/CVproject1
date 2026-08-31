@@ -1,27 +1,76 @@
+// 文件说明：封装可复用的`select` 模块 React 基础组件。
+// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
+
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * 功能：渲染 `Select` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Root>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的
+ *         `test_database_migration_preserves_records_and_is_idempotent`
+ *         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的
+ *         `test_yaml_camera_sources_seed_empty_target_once`
+ *         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的
+ *         `test_existing_target_camera_wins_on_name_conflict` 调用本符号；`AiVision/platform/department/service.py` 的
+ *         `DepartmentService::list_departments` 调用本符号；另有 5 处静态调用
+ *   - 内部调用：`SelectPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />
 }
 
+/**
+ * 功能：渲染 `SelectGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Group>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`SelectPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectGroup({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Group>) {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />
 }
 
+/**
+ * 功能：渲染 `SelectValue` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Value>）：React 组件属性对象；解构字段包括 props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`SelectPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectValue({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Value>) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
+/**
+ * 功能：渲染 `SelectTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, size, default, children, props, React, ComponentProps, typeof
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`SelectPrimitive`、`ChevronDownIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectTrigger({
   className,
   size = "default",
@@ -48,6 +97,16 @@ function SelectTrigger({
   )
 }
 
+/**
+ * 功能：渲染 `SelectContent` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, children, position, item, aligned, align, center, showScrollButtons
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`var`、`SelectPrimitive`、`SelectScrollUpButton`、`SelectScrollDownButton`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectContent({
   className,
   children,
@@ -88,6 +147,16 @@ function SelectContent({
   )
 }
 
+/**
+ * 功能：渲染 `SelectLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Label>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`SelectPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectLabel({
   className,
   ...props
@@ -101,6 +170,16 @@ function SelectLabel({
   )
 }
 
+/**
+ * 功能：渲染 `SelectItem` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Item>）：React 组件属性对象；解构字段包括 className, children, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`not`、`SelectPrimitive`、`CheckIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectItem({
   className,
   children,
@@ -128,6 +207,16 @@ function SelectItem({
   )
 }
 
+/**
+ * 功能：渲染 `SelectSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.Separator>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`SelectPrimitive`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectSeparator({
   className,
   ...props
@@ -141,6 +230,16 @@ function SelectSeparator({
   )
 }
 
+/**
+ * 功能：渲染 `SelectScrollUpButton` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.ScrollUpButton>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`SelectPrimitive`、`ChevronUpIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectScrollUpButton({
   className,
   ...props
@@ -159,6 +258,16 @@ function SelectScrollUpButton({
   )
 }
 
+/**
+ * 功能：渲染 `SelectScrollDownButton` React 组件，根据输入属性组织界面并返回 JSX 节点
+ * 参数：
+ *   - `props`（React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>）：React 组件属性对象；解构字段包括 className, props
+ * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
+ * 调用关系：
+ *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
+ *   - 内部调用：`return`、`cn`、`SelectPrimitive`、`ChevronDownIcon`。
+ * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
+ */
 function SelectScrollDownButton({
   className,
   ...props
