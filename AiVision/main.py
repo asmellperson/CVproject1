@@ -101,6 +101,22 @@ def main() -> None:
 
     mp_manager = mp.Manager()
     orchestrator = init_orchestrator(mp_manager)
+    cleanup_started = False
+
+    def _cleanup_once() -> None:
+        """停止运行时资源；重复调用时不再次执行清理。"""
+        nonlocal cleanup_started
+        if cleanup_started:
+            return
+        cleanup_started = True
+
+        try:
+            orchestrator.stop()
+        finally:
+            try:
+                mp_manager.shutdown()
+            except Exception:
+                logger.exception("[main] 关闭跨进程共享管理器失败")
 
     # 功能：停止并释放 `_shutdown` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -113,13 +129,7 @@ def main() -> None:
     # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def _shutdown(signum: int, _frame: FrameType | None) -> None:
         logger.info(f"[main] 收到退出信号 {signum},准备停止 AiVision")
-        try:
-            orchestrator.stop()
-        finally:
-            try:
-                mp_manager.shutdown()
-            except Exception:
-                pass
+        _cleanup_once()
         raise SystemExit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -137,11 +147,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("[main] KeyboardInterrupt,准备退出")
     finally:
-        orchestrator.stop()
-        try:
-            mp_manager.shutdown()
-        except Exception:
-            pass
+        _cleanup_once()
 
 
 if __name__ == "__main__":
