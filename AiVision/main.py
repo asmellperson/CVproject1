@@ -16,23 +16,17 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import signal
+from pathlib import Path
 from types import FrameType
 
+from dotenv import load_dotenv
 
-# 功能：读取或查询 `_load_dotenv_if_available` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/main.py` 的 `main` 调用本符号
-#   - 内部调用：`load_dotenv`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _load_dotenv_if_available() -> None:
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except Exception:
-        # pydantic-settings 也会读取 .env；没有 python-dotenv 时不阻断启动。
-        pass
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+
+
+def _load_env_file() -> None:
+    """加载 AiVision/.env，保留已存在的系统环境变量。"""
+    load_dotenv(dotenv_path=_ENV_FILE, override=False)
 
 
 # 功能：更新或保存 `_set_spawn_start_method` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
@@ -72,7 +66,7 @@ def _configure_opencv_threads(thread_count: int) -> int:
 # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者；由解释器、ASGI 服务器、React 或框架生命周期直接触发
-#   - 内部调用：`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`_set_spawn_start_method`、`_load_dotenv_if_available`、`_configure_opencv_threads`、`logger.info`、`mp.Manager`、`init_orchestrator`、`signal.signal`
+#   - 内部调用：`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`_set_spawn_start_method`、`_load_env_file`、`_configure_opencv_threads`、`logger.info`、`mp.Manager`、`init_orchestrator`、`signal.signal`
 #          等共 15 个调用。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
 def main() -> None:
@@ -82,7 +76,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _set_spawn_start_method()
-    _load_dotenv_if_available()
+    _load_env_file()
 
     from core.settings import settings
 

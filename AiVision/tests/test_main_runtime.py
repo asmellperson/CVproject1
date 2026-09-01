@@ -1,8 +1,10 @@
 # 文件说明：包含程序启动、运行时的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
+import os
 import signal
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
@@ -34,6 +36,28 @@ def test_configure_opencv_threads_applies_requested_limit(monkeypatch):
     assert actual == 4
 
 
+def test_load_env_file_uses_aivision_env_without_overriding_system_values(
+    monkeypatch,
+    tmp_path,
+):
+    expected_env_file = Path(main_module.__file__).resolve().parent / ".env"
+    assert main_module._ENV_FILE == expected_env_file
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AIVISION_ENV_PRIORITY=from-file\nAIVISION_ENV_FILE_ONLY=loaded\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "_ENV_FILE", env_file)
+    monkeypatch.setenv("AIVISION_ENV_PRIORITY", "from-system")
+    monkeypatch.delenv("AIVISION_ENV_FILE_ONLY", raising=False)
+
+    main_module._load_env_file()
+
+    assert os.environ["AIVISION_ENV_PRIORITY"] == "from-system"
+    assert os.environ["AIVISION_ENV_FILE_ONLY"] == "loaded"
+
+
 def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
     manager = SimpleNamespace(shutdown=Mock())
     orchestrator = SimpleNamespace(start=Mock(), stop=Mock())
@@ -63,7 +87,7 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
 
     monkeypatch.setattr(sys, "argv", ["main.py"])
     monkeypatch.setattr(main_module, "_set_spawn_start_method", lambda: None)
-    monkeypatch.setattr(main_module, "_load_dotenv_if_available", lambda: None)
+    monkeypatch.setattr(main_module, "_load_env_file", lambda: None)
     monkeypatch.setattr(main_module, "_configure_opencv_threads", lambda value: value)
     monkeypatch.setattr(main_module.mp, "Manager", lambda: manager)
     monkeypatch.setattr(
