@@ -12,8 +12,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 #   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
 # 返回：Shell 状态码；0 表示成功，非 0 表示失败。
 # 调用关系：
-#   - 调用方：`scripts/build_frontend.sh` 的脚本流程调用本函数；`scripts/start.sh` 的脚本流程调用本函数；`scripts/tests/test_frontend_build.sh`
-#         的脚本流程调用本函数；`scripts/tests/test_service_topology.sh` 的脚本流程调用本函数；另有 2 处调用
+#   - 调用方：本测试脚本的断言失败路径
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 fail() {
@@ -44,16 +43,18 @@ done
 
 [[ "$stop_script" == *"SERVICES=(unified_backend aivision unified_frontend)"* ]] || \
   fail "stop.sh must manage the frontend and two backend runtime services"
-[[ "$stop_script" == *"LEGACY_SERVICES=(security_vlm guard_room)"* ]] || \
-  fail "stop.sh must clean only the retired visual service sessions"
-[[ "$start_script" == *"LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)"* ]] || \
-  fail "start.sh must detect legacy visual service sessions"
+[[ "$stop_script" != *"guard_room"* && "$stop_script" != *"security_vlm"* ]] || \
+  fail "stop.sh must not retain retired independent visual service sessions"
+[[ "$start_script" != *"LEGACY_SERVICE_SESSIONS"* ]] || \
+  fail "start.sh must not retain retired independent visual service sessions"
 [[ "$start_script" == *"npm run dev -- --host 0.0.0.0 --port 3000"* && "$start_script" == *"|3000|"* ]] || \
   fail "start.sh must launch unified_frontend through Vite on port 3000"
 [[ "$start_script" == *'端口 ${port} 已被非 ${name} tmux 进程占用'* ]] || \
   fail "start.sh must reject a foreign process occupying a managed service port"
 [[ "$start_script" != *"build_frontend_static"* && "$start_script" != *"scripts/build_frontend.sh"* ]] || \
   fail "start.sh must not build an Nginx static frontend"
+[[ ! -e "$PROJECT_ROOT/scripts/build_frontend.sh" ]] || \
+  fail "obsolete dist deployment helper must be removed"
 [[ "$status_script" == *"unified_frontend|3000|http://127.0.0.1:3000/|http2xx"* ]] || \
   fail "status.sh must monitor the Vite frontend tmux service on port 3000"
 [[ "$status_script" != *"FRONTEND_DIST"* && "$status_script" != *"Nginx"* ]] || \
@@ -62,8 +63,10 @@ done
   fail "Vite must accept remote clients and fail clearly when port 3000 is occupied"
 [[ ! -e "$PROJECT_ROOT/deploy/nginx/aicv-unified-backend.conf" ]] || \
   fail "the project-specific Nginx frontend config must be removed"
-[[ "$start_script" == *"scripts/migrate_visual_integrations.sh"* ]] || \
-  fail "start.sh must direct legacy source layouts through the safe migration script"
+[[ "$start_script" != *"scripts/migrate_visual_integrations.sh"* ]] || \
+  fail "start.sh must not retain the completed five-service migration path"
+[[ ! -e "$PROJECT_ROOT/scripts/migrate_visual_integrations.sh" ]] || \
+  fail "completed five-service migration helper must be removed"
 [[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/guard-room"* ]] || \
   fail "Guard Room must be mounted in AiVision"
 [[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/security-vlm"* ]] || \

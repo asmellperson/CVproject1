@@ -84,6 +84,7 @@ class InferenceManager:
         self._model_configs: dict[str, dict] = {}
         self._worker_states: dict[str, WorkerWatchdogState] = {}
         self._runtime_alert_handler: Callable[[str, str, str, str], None] | None = None
+        self._runtime_monitor_handler: Callable[[], None] | None = None
         self._lock = threading.RLock()
         self._watchdog_stop = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
@@ -179,6 +180,11 @@ class InferenceManager:
     # 副作用/注意事项：会更新当前实例的运行状态。
     def configure_runtime_alerts(self, handler: Callable[[str, str, str, str], None] | None):
         self._runtime_alert_handler = handler
+
+    def configure_runtime_monitor(self, handler: Callable[[], None] | None) -> None:
+        """注册由现有 watchdog 周期调用的额外运行状态检查。"""
+        with self._lock:
+            self._runtime_monitor_handler = handler
 
     # 功能：启动或执行 `_start_one` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -320,7 +326,7 @@ class InferenceManager:
     # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _start_watchdog(self) -> None:
         with self._lock:
-            if not self._model_configs:
+            if not self._model_configs and self._runtime_monitor_handler is None:
                 return
             if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
                 return
@@ -462,6 +468,18 @@ class InferenceManager:
                 )
             if should_restart:
                 self._restart_worker(name, model_cfg, attempt, current)
+
+        self._run_runtime_monitor()
+
+    def _run_runtime_monitor(self) -> None:
+        with self._lock:
+            handler = self._runtime_monitor_handler
+        if handler is None:
+            return
+        try:
+            handler()
+        except Exception:
+            logger.exception("[InferenceManager] 附加运行状态检查异常")
 
     # 功能：实现 `_mark_worker_running` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

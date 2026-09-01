@@ -1,162 +1,193 @@
-福达视觉平台公网网址：https://aicv.fudar.com/
+福达视觉平台运行与部署手册
+==========================
 
-使用 tmux 在服务器后台运行：
+公网网址：https://aicv.fudar.com/
+
+一、当前服务拓扑
+----------------
+
+生产环境统一由 scripts/start.sh 管理三个 tmux 服务：
+
+- unified_frontend：Vite 前端，监听 0.0.0.0:3000；
+- unified_backend：统一后端，监听 127.0.0.1:5000；
+- aivision：全部视觉检测业务，监听 127.0.0.1:7862。
+
+公网网关只需把 https://aicv.fudar.com/ 转发到项目服务器 TCP 3000。
+5000 和 7862 仅供本机前端代理与服务间调用，不应直接开放到公网。
+
+Guard Room 和 Security VLM 的 API、配置与生命周期均由 AiVision 管理，源码位于
+AiVision/integrations/。Security VLM 的耗 token 推理 worker 仍按页面操作动态启停，
+但不作为独立 Web 服务运行。
+
+二、首次部署
+------------
+
+以下示例假设项目位于 /srv/Fuda_CVPreject；实际路径不同时请对应替换。
+
+1. 安装系统依赖
+
 apt update
-apt install -y tmux
+apt install -y tmux iproute2 curl wget vim
 
-推荐：统一管理 Vite 前端 + 两个后端服务
-========================================
-以下命令都在项目根目录执行：
+2. 准备 Python 3.11 环境
 
-cd /srv/Fuda_CVPreject
+所有 Python 依赖安装都应使用根目录 requirements-python311.lock 约束版本。
 
-# 启动三个服务（已有同名 tmux 会话时会跳过）
-bash scripts/start.sh
+AiVision 必须使用名为 aivision 的 Conda 环境：
 
-# 如果旧版 Nginx 仍占用 3000，首次切换前只移除本项目配置：
-# rm -f /etc/nginx/conf.d/aicv-unified-backend.conf
-# nginx -t && systemctl reload nginx
+conda create -n aivision python=3.11 -y
+conda run -n aivision python -m pip install \
+  -r /srv/Fuda_CVPreject/AiVision/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 
-# 查看三个 tmux 服务和健康状态
-bash scripts/status.sh
+Security VLM 按需 worker 使用 security_vlm Conda 环境：
 
-# 停止三个服务（需要输入 yes 确认）
-bash scripts/stop.sh
+conda create -n security_vlm python=3.11 -y
+conda run -n security_vlm python -m pip install \
+  -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 
-# 停止三个服务且不再询问
-bash scripts/stop.sh -y
+统一后端可使用系统 Python、unified_backend Conda 环境，或通过
+UNIFIED_BACKEND_PYTHON 指定解释器。依赖安装示例：
 
-# 强制重启三个服务
-bash scripts/start.sh --force
+python3 -m pip install \
+  -r /srv/Fuda_CVPreject/unified_backend/requirements.txt \
+  -c /srv/Fuda_CVPreject/requirements-python311.lock
 
-# 从旧五服务版本首次升级时，推荐先执行 stop.sh；它会同时清理旧的
-# guard_room / security_vlm tmux。若直接启动，普通模式会拒绝重复运行，
-# --force 模式会先清理旧会话再启动。
-# git pull 后若根目录还留有旧模块的本地模型、真实配置或运行数据，先确认：
-# 1. AiVision/.env 已配置目标 MySQL；
-# 2. aivision Conda 环境已安装 AiVision/requirements.txt。
-# 然后执行（即使旧目录已经移动过，也可重复执行）：
-bash scripts/migrate_visual_integrations.sh
-# 脚本会：
-# - 把本地文件合并到 AiVision/integrations，遇到同名文件会停止且不会覆盖；
-# - 把旧 Guard Room 数据库中的保安室、摄像头和参数合并进 AiVision 数据库；
-# - 旧库没有摄像头记录时，从旧 config.yaml 导入摄像头源；
-# - 目标库已有数据优先，重复执行不会重复创建或覆盖现有摄像头。
-# 如果此前已经运行过不含数据库迁移的旧版脚本，拉取新版后再运行一次即可。
+3. 准备 Node.js 20 和前端依赖
 
-统一启动后创建以下三个 tmux 会话：
-- unified_backend：统一后端，端口 5000
-- aivision：全部视觉检测业务，端口 7862
-- unified_frontend：Vite 前端，端口 3000
+node -v
+cd /srv/Fuda_CVPreject/unified_frontend
+npm ci
 
-Guard Room 和 Security VLM 已经直接由 AiVision 进程承载：
-- 两套源码都位于 AiVision/integrations/，仓库根目录不再保留同名后端目录。
-- 保安行为规范检测随 AiVision 启动，并保持默认开启状态，可在页面手动关闭。
-- 安检流程规范 API 随 AiVision 启动，但检测 worker 默认关闭；点击开启后，
-  AiVision 才使用 AiVision/integrations/security_vlm/configs/config.yaml 中配置的 Conda Python
-  拉起耗 token 的推理子进程。
-- 不再启动 guard_room、security_vlm tmux，也不再监听 5001、8000。
+统一启动脚本会运行 Vite，不依赖仓库内 dist 目录，也不需要项目专用 Nginx 配置。
 
-AiVision 必须使用名为 aivision 的 Conda 环境，不能使用 uv。
-Security VLM 的按需 worker 默认仍使用 security_vlm Conda 环境；
-这个环境只运行检测子进程，不提供 Web 端口。
+4. 准备运行配置和数据
 
-首次启动时，如果 scripts/auth_secret 不存在，脚本会提示输入 yes 后生成。
-后续会复用该文件，并把同一个 AUTH_SECRET 注入 unified_backend 和 aivision。
+以下真实配置、密钥和运行数据不提交到 Git，新服务器需要从当前生产环境安全复制：
 
-退出 tmux 窗口（程序继续后台运行）：
-################
-Ctrl + B
-松开
-再按 D
-###############
+- AiVision/.env：MySQL 等 AiVision 配置；
+- AiVision/integrations/guard_room/config/config.yaml：如生产使用自定义 Guard 配置；
+- AiVision/integrations/security_vlm/configs/config.yaml：Security VLM 配置；
+- runtime/auth/auth_users.db：当前用户、角色、部门、密码哈希和登录版本；
+- scripts/auth_secret：如需保持现有登录态；
+- unified_frontend/.env.local：仅在覆盖默认前端配置时需要。
 
-进入已有窗口：
-****************************************
+用户管理已完全使用 SQLite。系统不会再从旧 JSON 用户文件自动导入账号；部署到新机器前必须
+备份并复制 runtime/auth/auth_users.db，或通过 AUTH_USERS_DB 指向已准备好的数据库。
+
+示例：
+
+mkdir -p /srv/Fuda_CVPreject/runtime/auth
+scp <当前生产机器>:/srv/Fuda_CVPreject/runtime/auth/auth_users.db \
+  /srv/Fuda_CVPreject/runtime/auth/auth_users.db
+
+scp <当前生产机器>:/srv/Fuda_CVPreject/AiVision/.env \
+  /srv/Fuda_CVPreject/AiVision/.env
+
+scp <当前生产机器>:/srv/Fuda_CVPreject/scripts/auth_secret \
+  /srv/Fuda_CVPreject/scripts/auth_secret
+chmod 600 /srv/Fuda_CVPreject/scripts/auth_secret
+
+如默认路径或环境名不同：
+
+cp scripts/start.env.example scripts/cold_start.env
+vi scripts/cold_start.env
+
+三、日常启停与检查
+------------------
+
+以下命令均在项目根目录执行：
+
+bash scripts/start.sh          # 启动；已有同名会话时安全跳过
+bash scripts/start.sh --force  # 重启当前三个服务
+bash scripts/status.sh         # 查询 tmux、端口和 health
+bash scripts/stop.sh           # 确认后停止当前三个服务
+bash scripts/stop.sh -y        # 无交互停止当前三个服务
+
+启动后应存在：
+
+tmux has-session -t unified_backend
+tmux has-session -t aivision
+tmux has-session -t unified_frontend
+
+查看日志：
+
 tmux attach -t unified_backend
 tmux attach -t aivision
 tmux attach -t unified_frontend
-****************************************
 
-关闭单个程序：
-****************************************
-tmux kill-session -t unified_backend
-tmux kill-session -t aivision
-tmux kill-session -t unified_frontend
-****************************************
+在 tmux 中按 Ctrl+B，松开后按 D，可退出窗口但保持程序后台运行。
 
-以下为单独启动某个服务的排障备用方式，正常运行优先使用 scripts/start.sh。
+健康检查：
 
-1、启动 unified_frontend（固定 3000）：
+curl -i http://127.0.0.1:5000/api/health
+curl -i http://127.0.0.1:7862/api/v2/runtime/health
+curl -i http://127.0.0.1:3000/
+
+AiVision 模型加载期间可能短暂显示 DEGRADED；如果持续不恢复，进入对应 tmux 查看日志。
+
+四、AUTH_SECRET
+---------------
+
+unified_backend 和 aivision 必须使用同一个 AUTH_SECRET。首次执行 start.sh 时，脚本会在
+scripts/auth_secret 不存在的情况下提示确认并生成 32 字节随机密钥，文件权限为 600；后续
+启动会复用该文件。统一前端不注入该密钥。
+
+查看注入状态（命令会显示密钥，仅在可信终端执行）：
+
+tmux show-environment -t unified_backend AUTH_SECRET
+tmux show-environment -t aivision AUTH_SECRET
+
+替换 scripts/auth_secret 会使现有登录令牌失效。跨服务器迁移时应连同用户数据库一起安全
+复制原密钥，除非明确希望所有用户重新登录。
+
+五、用户管理与备份
+------------------
+
+管理员登录前端后，在“系统管理 → 用户管理”中添加、修改、启停、重置密码或删除用户。
+所有操作直接读写 SQLite 数据库，默认路径为：
+
+/srv/Fuda_CVPreject/runtime/auth/auth_users.db
+
+可通过 AUTH_USERS_DB 覆盖该路径。备份时建议先停止 unified_backend，或使用 SQLite 在线
+备份工具；停服后的文件备份示例：
+
+cp runtime/auth/auth_users.db \
+  "runtime/auth/auth_users.db.backup-$(date +%Y%m%d-%H%M%S)"
+
+数据库位于 runtime/，不会提交到 Git。不要把用户数据库、备份文件或密码材料加入版本库。
+
+六、单服务排障启动
+------------------
+
+正常运行优先使用 scripts/start.sh；以下命令只用于排障。
+
+前端：
+
 cd unified_frontend
 npm run dev -- --host 0.0.0.0 --port 3000
 
-2、启动 unified_backend（固定 5000）：
-tmux new -s unified_backend
-conda activate unified_backend
-export AUTH_SECRET="<与 AiVision 保持同一串 32 位以上随机密钥>"
-python -m unified_backend.run_server
-如需临时改端口：python -m unified_backend.run_server --port <统一后端调试端口>
+统一后端：
 
-3、启动 AiVision（固定 7862，同时承载全部检测功能）：
-tmux new -s aivision
-conda activate aivision
+export AUTH_SECRET="<与 AiVision 相同的随机密钥>"
+python -m unified_backend.run_server --host 127.0.0.1 --port 5000
+
+AiVision：
+
 cd AiVision
-export AUTH_SECRET="<与统一后端保持同一串 32 位以上随机密钥>"
-# 可选：物流通道单路检测结果超过多少秒按“未知”处理，默认 5 秒。
-export LOGISTICS_STATUS_STALE_SECONDS=5
+conda activate aivision
+export AUTH_SECRET="<与统一后端相同的随机密钥>"
 python main.py --host 127.0.0.1 --port 7862
-如需临时改端口：python main.py --port <AiVision 调试端口>
 
-首次部署环境：
-conda create -n aivision python=3.11 -y
-conda run -n aivision python -m pip install -r AiVision/requirements.txt -c requirements-python311.lock
+七、物流通道说明
+----------------
 
-Security VLM 按需 worker 环境不存在时：
-conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install -r AiVision/integrations/security_vlm/requirements.txt -c requirements-python311.lock
+- 通用电气、电子电工、电气部件、伟达公司四个模块在各自配置页管理物流通道；
+- 每个通道最多绑定 9 路摄像头，ROI 按摄像头独立保存；
+- 检测时段、无人/多人持续时间和报警配置按通道独立设置；
+- 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警；
+- 离线、过期或无结果按未知处理，不能当作 0 人。
 
-物流通道单人检测上线说明：
-- 通用电气、电子电工、电气部件、伟达公司四个模块都在各自前端配置页按“物流通道”管理。
-- 每个通道最多绑定 9 路摄像头，画面自动使用单画面、左右、2×2 或 3×3 布局；ROI 按摄像头独立保存。
-- 检测时间段、无人/多人持续时间和报警配置按通道独立设置。
-- 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警。
-  离线、过期或无结果按未知处理，不能当作 0 人。
-- 前端经统一后端访问 /api/v2/logistics-channels/{feature}，统一后端转到 AiVision 同名接口。
-
-首次用新版启动 AiVision 前先备份数据库。启动流程会自动创建物流通道相关新表，
-并迁移四个旧物流 feature 中尚未归属通道的已启用摄像头。重复启动不会重复创建。
-
-4、tmux 常用命令：
-查看所有正在运行的 tmux：
-tmux ls
-
-临时端口示例：
-python AiVision/main.py --port <端口>
-npm run dev -- --port <端口>
-
-如何管理用户
-
-  使用管理员账号登录前端，在左侧“系统管理”中进入“用户管理”。
-
-  管理员可以：
-  - 添加管理员或指定事业部的普通用户；
-  - 修改用户姓名、角色和事业部；
-  - 启用或禁用用户；
-  - 重置用户密码；
-  - 永久删除用户。
-
-  第一次启动新版统一后端时，系统会自动把现有
-  auth/auth_users.json 中的全部账号迁移到：
-
-  /srv/Fuda_CVPreject/runtime/auth/auth_users.db
-
-  迁移只执行一次。完成后登录和用户管理只读写数据库，
-  不再通过修改 auth/auth_users.json 添加用户。
-
-  备份用户数据库：
-
-  cp runtime/auth/auth_users.db \
-    "runtime/auth/auth_users.db.backup-$(date +%Y%m%d-%H%M%S)"
-
-  数据库文件位于 runtime/ 目录，不会提交到 Git。
+上线前应备份 AiVision 数据库。前端经统一后端访问
+/api/v2/logistics-channels/{feature}，再由统一后端转发到 AiVision。

@@ -273,7 +273,6 @@ db_backups/
 # Real local config / users / secrets
 # 建议只上传 example，不上传真实配置
 # ======================
-**/config/auth_users.json
 **/config/config.yaml
 **/config/*.local.json
 **/config/*.local.yaml

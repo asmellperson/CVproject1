@@ -500,7 +500,7 @@ class LogisticsChannelRuntime:
     # 调用关系：
     #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的
     #         `test_camera_rename_and_delete_refresh_real_runtime_membership_cache` 调用本符号；`AiVision/platform/orchestrator.py` 的
-    #         `Orchestrator::_on_config_change` 调用本符号
+    #         `Orchestrator::_handle_runtime_config_change` 调用本符号
     #   - 内部调用：`sorted`、`self.refresh_camera`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def refresh_camera_all(self, camera_id: int) -> None:
@@ -518,7 +518,7 @@ class LogisticsChannelRuntime:
     #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_refresh_clears_timing_snapshot_and_incident_state`
     #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
     #         `test_refresh_during_slow_composition_discards_stale_incident_result` 调用本符号；`AiVision/platform/orchestrator.py` 的
-    #         `Orchestrator::_on_config_change` 调用本符号
+    #         `Orchestrator::_handle_runtime_config_change` 调用本符号
     #   - 内部调用：`require_logistics_feature`、`self._channels.get`、`self._snapshots.pop`、`self._frames.pop`、`self._clear_channel_state_locked`、`self._invalidate_feature_locked`、`self._reset_cooldown`、`self._ensure_feature_loaded`、`logger.info`。
     # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def refresh_channel(self, feature_name: str, channel_id: int) -> None:

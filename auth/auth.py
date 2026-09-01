@@ -3,7 +3,7 @@
 
 """后端服务共享的认证与授权模块。
 
-这里集中维护 Guard Room 和 AiVision 共用的 JWT、Cookie、用户文件、
+这里集中维护 Guard Room 和 AiVision 共用的 JWT、Cookie、用户数据库、
 登录校验和角色检查逻辑。各服务自己的 auth.py 只作为兼容入口，从这里重新导出。
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ PERSISTENT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 20
 logger = logging.getLogger("auth.auth")
 _warned_default_auth_secret = False
 _user_store_lock = threading.Lock()
-_user_store_signature: tuple[Path, Path] | None = None
+_user_store_signature: Path | None = None
 _user_store: UserStore | None = None
 
 
@@ -82,17 +82,6 @@ class ChangePasswordRequest(BaseModel):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AuthError(Exception):
     """认证或授权失败。"""
-
-
-# 功能：实现 `_repo_root` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`auth/auth.py` 的 `get_auth_users_path` 调用本符号
-#   - 内部调用：`Path(__file__).resolve`、`Path`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
 
 
 # 功能：实现 `_b64url_encode` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
@@ -203,24 +192,6 @@ def get_auth_cookie_max_age_seconds() -> int:
     return expire_hours * 3600
 
 
-# 功能：返回只用于首次迁移的旧共享用户文件路径；输入与输出详见下方说明
-# 参数：无。
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`auth/auth.py` 的 `get_user_store` 调用本符号
-#   - 内部调用：`os.getenv`、`Path`、`_repo_root`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def get_auth_users_path() -> Path:
-    """返回只用于首次迁移的旧共享用户文件路径。
-
-    AUTH_USERS_FILE 优先级最高。迁移完成后不再读取该文件。
-    """
-    raw = os.getenv("AUTH_USERS_FILE")
-    if raw:
-        return Path(raw)
-    return _repo_root() / "auth" / "auth_users.json"
-
-
 # 功能：读取或查询 `get_auth_users_database_path` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
@@ -243,18 +214,12 @@ def get_auth_users_database_path() -> Path:
 def get_user_store() -> UserStore:
     global _user_store
     global _user_store_signature
-    signature = (
-        get_auth_users_database_path(),
-        get_auth_users_path(),
-    )
+    signature = get_auth_users_database_path()
     if _user_store is not None and _user_store_signature == signature:
         return _user_store
     with _user_store_lock:
         if _user_store is None or _user_store_signature != signature:
-            _user_store = UserStore(
-                database_path=signature[0],
-                legacy_json_path=signature[1],
-            )
+            _user_store = UserStore(database_path=signature)
             _user_store_signature = signature
         return _user_store
 
@@ -770,7 +735,6 @@ __all__ = [
     "get_auth_cookie_max_age_seconds",
     "get_auth_secret",
     "get_auth_users_database_path",
-    "get_auth_users_path",
     "get_current_user",
     "get_current_user_from_request",
     "get_default_password",

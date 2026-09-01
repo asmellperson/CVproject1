@@ -6,6 +6,8 @@ import sys
 import threading
 from types import SimpleNamespace
 
+import pytest
+
 from core.events import ConfigChangeEvent
 
 sys.modules.pop("platform", None)
@@ -26,8 +28,6 @@ Orchestrator = importlib.import_module("platform.orchestrator").Orchestrator
 def _orchestrator_without_init():
     orchestrator = object.__new__(Orchestrator)
     orchestrator.consumers = {}
-    orchestrator._feature_states = {}
-    orchestrator._feature_runtime_lock = threading.RLock()
     orchestrator.logistics_channel_runtime = SimpleNamespace(
         refresh_channel=lambda *_args: None,
         refresh_camera=lambda *_args: None,
@@ -56,7 +56,6 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
             inference_status=lambda: consumer_status,
         )
     }
-    orchestrator.list_feature_runtime_statuses = lambda: []
     orchestrator._send_system_exception_alert = lambda *_args: None
     worker_status = {
         "watchdog_running": True,
@@ -81,6 +80,50 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
         "workers": worker_status,
         "consumers": {"blocks": consumer_status},
     }
+    assert "capabilities" not in result
+
+
+def test_runtime_status_does_not_alert_for_stopped_consumer(monkeypatch):
+    orchestrator = _orchestrator_without_init()
+    orchestrator._started = True
+    orchestrator.camera_manager = SimpleNamespace(list_running=lambda: [])
+    orchestrator.consumers = {
+        "blocks": SimpleNamespace(
+            running=False,
+            spec=SimpleNamespace(required_models=[]),
+            inference_status=lambda: {},
+        )
+    }
+    alerts = []
+    orchestrator._send_system_exception_alert = lambda **payload: alerts.append(payload)
+    orchestrator_module = importlib.import_module("platform.orchestrator")
+    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_manager, "runtime_status", lambda: {})
+
+    result = orchestrator.runtime_status()
+
+    assert result["running_consumers"] == []
+    assert alerts == []
+
+
+def test_runtime_monitor_alerts_for_stopped_consumer():
+    orchestrator = _orchestrator_without_init()
+    orchestrator._started = True
+    orchestrator.consumers = {
+        "blocks": SimpleNamespace(running=False),
+        "detect_face": SimpleNamespace(running=True),
+    }
+    alerts = []
+    orchestrator._send_system_exception_alert = lambda **payload: alerts.append(payload)
+
+    orchestrator._monitor_consumer_threads()
+
+    assert alerts == [{
+        "target_name": "blocks",
+        "target_key": "blocks",
+        "event_type": "功能线程退出",
+        "detail": "Consumer blocks 已不在运行状态",
+    }]
 
 
 # 功能：验证 `test_camera_runtime_alert_types_share_one_repeat_interval` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -138,7 +181,7 @@ def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_display_update_does_not_restart_runtime(monkeypatch):
     orchestrator = _orchestrator_without_init()
@@ -152,7 +195,7 @@ def test_camera_display_update_does_not_restart_runtime(monkeypatch):
         lambda key: restart_calls.append(key),
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type="camera_updated",
             camera_id=3,
@@ -186,7 +229,7 @@ def test_camera_display_update_does_not_restart_runtime(monkeypatch):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_runtime_update_restarts_runtime(monkeypatch):
     orchestrator = _orchestrator_without_init()
@@ -198,7 +241,7 @@ def test_camera_runtime_update_restarts_runtime(monkeypatch):
         lambda key: restart_calls.append(key),
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type="camera_updated",
             camera_id=3,
@@ -225,13 +268,106 @@ def test_camera_runtime_update_restarts_runtime(monkeypatch):
     assert restart_calls == ["3_mq7r35ho"]
 
 
+def _dispatch_feature_binding_change(monkeypatch, *, action, functions, running):
+    import platform.orchestrator as orchestrator_module
+
+    consumer_calls = []
+    camera_calls = []
+    orchestrator = _orchestrator_without_init()
+    orchestrator.consumers = {
+        "blocks": SimpleNamespace(
+            update_status=lambda camera_id, enabled: consumer_calls.append(
+                (camera_id, enabled)
+            )
+        )
+    }
+    orchestrator.camera_manager = SimpleNamespace(
+        update_camera_config=lambda name, cfg: camera_calls.append(
+            ("update", name, cfg["enable"])
+        ),
+        is_running=lambda _name: running,
+        start_camera=lambda name: camera_calls.append(("start", name)) or True,
+        stop_camera=lambda name: camera_calls.append(("stop", name)),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "all_specs",
+        lambda: {"blocks": object(), "detect_face": object()},
+    )
+    monkeypatch.setattr(
+        orchestrator_module.camera_service,
+        "get_camera",
+        lambda _key: {
+            "name": "camera",
+            "shm_name": "camera_7",
+            "url": "rtsp://example/stream",
+            "fps": 5,
+            "max_restart": 10,
+            "enabled": True,
+            "functions": functions,
+            "shape": [1080, 1920, 3],
+        },
+    )
+
+    orchestrator._handle_runtime_config_change(
+        ConfigChangeEvent(
+            change_type=f"blocks_{action}",
+            camera_id=7,
+            camera_name="camera_7",
+        )
+    )
+    return consumer_calls, camera_calls
+
+
+def test_disabling_one_of_two_features_keeps_camera_running(monkeypatch):
+    consumer_calls, camera_calls = _dispatch_feature_binding_change(
+        monkeypatch,
+        action="disabled",
+        functions={"blocks": False, "detect_face": True},
+        running=True,
+    )
+
+    assert consumer_calls == [(7, False)]
+    assert camera_calls == [("update", "camera_7", True)]
+
+
+def test_disabling_only_feature_stops_camera(monkeypatch):
+    consumer_calls, camera_calls = _dispatch_feature_binding_change(
+        monkeypatch,
+        action="disabled",
+        functions={"blocks": False},
+        running=True,
+    )
+
+    assert consumer_calls == [(7, False)]
+    assert camera_calls == [
+        ("update", "camera_7", False),
+        ("stop", "camera_7"),
+    ]
+
+
+def test_enabling_first_feature_starts_camera(monkeypatch):
+    consumer_calls, camera_calls = _dispatch_feature_binding_change(
+        monkeypatch,
+        action="enabled",
+        functions={"blocks": True},
+        running=False,
+    )
+
+    assert consumer_calls == [(7, True)]
+    assert camera_calls == [
+        ("update", "camera_7", True),
+        ("start", "camera_7"),
+    ]
+
+
 # 功能：验证 `test_camera_remove_refreshes_logistics_runtime_before_removal` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`calls.append`、`SimpleNamespace`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`calls.append`、`SimpleNamespace`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
     orchestrator = _orchestrator_without_init()
@@ -243,7 +379,7 @@ def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
         remove_camera_config=lambda name: calls.append(("remove", name))
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type="camera_removed",
             camera_id=3,
@@ -260,7 +396,7 @@ def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`monkeypatch.setattr`、`restart_calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`monkeypatch.setattr`、`sync_calls.append`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
     orchestrator = _orchestrator_without_init()
@@ -281,14 +417,14 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
             ),
         ),
     }
-    restart_calls = []
+    sync_calls = []
     monkeypatch.setattr(
         orchestrator,
-        "_restart_or_stop_camera",
-        lambda key: restart_calls.append(key),
+        "_sync_camera_process_state",
+        lambda key: sync_calls.append(key),
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type="detect_logistics_single_person_electrical_components_enabled",
             camera_id=7,
@@ -297,24 +433,24 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
     )
 
     assert calls == [("electrical-components", 7, True)]
-    assert restart_calls == ["7_logistics"]
+    assert sync_calls == ["7_logistics"]
 
 
-# 功能：验证 `test_logistics_service_feature_event_restarts_orchestrator_with_shm` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_logistics_service_feature_event_syncs_camera_runtime_with_shm` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`status_calls.append`、`monkeypatch.setattr`、`restart_calls.append`、`service_module.LogisticsChannelService._notify_channel_changed`、`service_module._CameraRef`。
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`status_calls.append`、`monkeypatch.setattr`、`sync_calls.append`、`service_module.LogisticsChannelService._notify_channel_changed`、`service_module._CameraRef`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypatch):
+def test_logistics_service_feature_event_syncs_camera_runtime_with_shm(monkeypatch):
     import platform.logistics_channel.service as service_module
 
     feature_name = "detect_logistics_single_person"
     orchestrator = _orchestrator_without_init()
     status_calls = []
-    restart_calls = []
+    sync_calls = []
     orchestrator.consumers = {
         feature_name: SimpleNamespace(
             update_status=lambda camera_id, enabled: status_calls.append(
@@ -325,8 +461,8 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
     }
     monkeypatch.setattr(
         orchestrator,
-        "_restart_or_stop_camera",
-        lambda key: restart_calls.append(key),
+        "_sync_camera_process_state",
+        lambda key: sync_calls.append(key),
     )
     monkeypatch.setattr(
         service_module,
@@ -336,7 +472,7 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
     monkeypatch.setattr(
         service_module,
         "config_event_bus",
-        SimpleNamespace(publish=orchestrator._on_config_change),
+        SimpleNamespace(publish=orchestrator._handle_runtime_config_change),
     )
 
     service_module.LogisticsChannelService._notify_channel_changed(
@@ -347,7 +483,7 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
     )
 
     assert status_calls == [(7, True)]
-    assert restart_calls == ["7_logistics"]
+    assert sync_calls == ["7_logistics"]
 
 
 # 功能：验证 `test_logistics_channel_event_refreshes_runtime` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -355,7 +491,7 @@ def test_logistics_service_feature_event_restarts_orchestrator_with_shm(monkeypa
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_channel_event_refreshes_runtime():
     orchestrator = _orchestrator_without_init()
@@ -364,7 +500,7 @@ def test_logistics_channel_event_refreshes_runtime():
         refresh_channel=lambda feature, channel_id: calls.append((feature, channel_id))
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type="logistics_channel_updated",
             new_value={
@@ -383,7 +519,7 @@ def test_logistics_channel_event_refreshes_runtime():
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._on_config_change`、`ConfigChangeEvent`。
+#   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`calls.append`、`orchestrator._handle_runtime_config_change`、`ConfigChangeEvent`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch):
     orchestrator = _orchestrator_without_init()
@@ -399,7 +535,7 @@ def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch)
         ),
     )
 
-    orchestrator._on_config_change(
+    orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
             change_type=f"{feature}_config_updated",
             camera_id=7,
@@ -486,7 +622,7 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
     assert "logistics_runtime" not in created[ordinary.name]
 
 
-# 功能：验证 `test_start_consumers_skips_persistently_disabled_ordinary_feature` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证普通检测 Consumer 会在 AiVision 启动时常驻运行。
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -494,7 +630,7 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`monkeypatch.setattr`、`orchestrator._start_consumers`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatch):
+def test_start_consumers_starts_registered_ordinary_feature(monkeypatch):
     import platform.orchestrator as orchestrator_module
 
     started = []
@@ -538,7 +674,6 @@ def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatc
         consumer_cls=FakeConsumer,
     )
     orchestrator = _orchestrator_without_init()
-    orchestrator._feature_states = {ordinary.name: False}
     monkeypatch.setattr(orchestrator_module, "all_specs", lambda: {ordinary.name: ordinary})
     monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
     monkeypatch.setattr(orchestrator_module.inference_manager, "infer_queues", {})
@@ -546,87 +681,45 @@ def test_start_consumers_skips_persistently_disabled_ordinary_feature(monkeypatc
 
     orchestrator._start_consumers()
 
-    assert started == []
-    assert orchestrator.consumers == {}
+    assert started == [ordinary.name]
+    assert orchestrator.consumers[ordinary.name].running is True
 
 
-# 功能：验证 `test_feature_stop_persists_state_and_keeps_shared_camera_running` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`stopped.append`、`camera_calls.append`、`monkeypatch.setattr`、`persisted.append`、`orchestrator.set_feature_enabled`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_feature_stop_persists_state_and_keeps_shared_camera_running(monkeypatch):
+# 摄像头采集只由摄像头自身开关与实际功能绑定共同决定。
+@pytest.mark.parametrize(
+    ("camera_enabled", "functions", "expected"),
+    [
+        (False, {"blocks": True}, False),
+        (True, {"blocks": False, "detect_face": False}, False),
+        (True, {"blocks": True, "detect_face": False}, True),
+    ],
+)
+def test_camera_runtime_requires_enabled_camera_and_feature_binding(
+    monkeypatch,
+    camera_enabled,
+    functions,
+    expected,
+):
     import platform.orchestrator as orchestrator_module
 
-    stopped = []
-    persisted = []
-    camera_calls = []
-    blocks = SimpleNamespace(name="blocks", display_name="区域入侵检测")
-    face = SimpleNamespace(name="detect_face", display_name="人脸检测")
-    orchestrator = _orchestrator_without_init()
-    orchestrator._feature_states = {"blocks": True, "detect_face": True}
-    orchestrator.consumers = {
-        "blocks": SimpleNamespace(running=True, stop=lambda: stopped.append("blocks")),
-        "detect_face": SimpleNamespace(running=True),
-    }
-    orchestrator.camera_manager = SimpleNamespace(
-        update_camera_config=lambda name, cfg: camera_calls.append(("update", name, cfg["enable"])),
-        is_running=lambda _name: True,
-        start_camera=lambda name: camera_calls.append(("start", name)),
-        stop_camera=lambda name: camera_calls.append(("stop", name)),
-    )
-    monkeypatch.setattr(
-        orchestrator_module,
-        "all_specs",
-        lambda: {"blocks": blocks, "detect_face": face},
-    )
-    monkeypatch.setattr(
-        orchestrator_module.system_config_service,
-        "save_feature_runtime_state",
-        lambda name, enabled: persisted.append((name, enabled)),
-    )
     monkeypatch.setattr(
         orchestrator_module.camera_service,
-        "list_cameras",
-        lambda: [{
+        "get_camera",
+        lambda _key: {
+            "name": "camera",
             "shm_name": "camera_1",
-            "enabled": True,
-            "functions": {"blocks": True, "detect_face": True},
-        }],
+            "url": "rtsp://example/stream",
+            "fps": 5,
+            "max_restart": 10,
+            "enabled": camera_enabled,
+            "functions": functions,
+            "shape": [1080, 1920, 3],
+        },
     )
-    monkeypatch.setattr(
-        orchestrator,
-        "_camera_runtime_config",
-        lambda _key: {"shm_name": "camera_1", "enable": True},
-    )
 
-    result = orchestrator.set_feature_enabled("blocks", False)
+    config = _orchestrator_without_init()._build_camera_runtime_config("camera_1")
 
-    assert result["state"] == "stopped"
-    assert stopped == ["blocks"]
-    assert persisted == [("blocks", False)]
-    assert camera_calls == [("update", "camera_1", True)]
-
-
-# 功能：验证 `test_logistics_feature_cannot_use_global_runtime_switch` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_orchestrator_without_init`、`orchestrator.set_feature_enabled`、`str`、`AssertionError`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def test_logistics_feature_cannot_use_global_runtime_switch():
-    orchestrator = _orchestrator_without_init()
-
-    try:
-        orchestrator.set_feature_enabled("detect_logistics_single_person", False)
-    except ValueError as exc:
-        assert "通道管理" in str(exc)
-    else:
-        raise AssertionError("物流检测不应允许使用全局能力开关")
+    assert config["enable"] is expected
 
 
 # 功能：验证 `test_stop_continues_all_cleanup_after_logistics_runtime_failure` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明

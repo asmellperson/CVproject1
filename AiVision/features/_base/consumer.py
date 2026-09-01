@@ -223,14 +223,17 @@ class BaseFunctionConsumer(ABC):
         避免旧 ROI 与新配置不匹配导致错误检测。
         """
         cfg = config_cache.get_function_config(camera_id, self.feature_name)
-        if cfg:
+        if cfg and cfg.get("enable"):
             self.config_cache[camera_id] = cfg
             alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
-            # 清除 ROI 缓存，下轮迭代时按新配置重建
-            self._masks.pop(camera_id, None)
-            self._masks_roi_input.pop(camera_id, None)
-            self._masks_frame_shape.pop(camera_id, None)
-            self._roi_polygon_cache.pop(camera_id, None)
+        else:
+            # 未绑定该功能的摄像头不能因参数热更新重新进入 Consumer 主循环。
+            self.update_status(camera_id, False)
+        # 清除 ROI 缓存，下轮迭代时按新配置重建
+        self._masks.pop(camera_id, None)
+        self._masks_roi_input.pop(camera_id, None)
+        self._masks_frame_shape.pop(camera_id, None)
+        self._roi_polygon_cache.pop(camera_id, None)
 
     # 功能：响应摄像头功能启用/禁用事件；输入与输出详见下方说明
     # 参数：
@@ -250,13 +253,16 @@ class BaseFunctionConsumer(ABC):
         启用时：从缓存拉取最新配置加入监控列表。
         禁用时：从监控列表移除，并清理输出帧字典，避免 API 继续返回过期画面。
         """
-        if enabled:
-            cfg = config_cache.get_function_config(camera_id, self.feature_name)
-            if cfg:
-                self.config_cache[camera_id] = cfg
+        cfg = (
+            config_cache.get_function_config(camera_id, self.feature_name)
+            if enabled
+            else None
+        )
+        if enabled and cfg and cfg.get("enable"):
+            self.config_cache[camera_id] = cfg
         else:
-            cfg = self.config_cache.pop(camera_id, None)
-            cam_name = (cfg or {}).get("shm_name")
+            cached_cfg = self.config_cache.pop(camera_id, None)
+            cam_name = (cached_cfg or cfg or {}).get("shm_name")
             if cam_name:
                 self.result_dict.pop(cam_name, None)
                 self.result_updated_at.pop(cam_name, None)

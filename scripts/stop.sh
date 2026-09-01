@@ -5,7 +5,7 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：kill 3 个运行服务，并清理迁移前遗留的视觉服务会话。
+# 作用：关停当前 3 个 tmux 服务。
 # 用法：
 #   bash scripts/stop.sh            # 关停全部服务
 #   bash scripts/stop.sh -y         # 跳过确认，直接关停
@@ -20,7 +20,6 @@
 set -u
 
 SERVICES=(unified_backend aivision unified_frontend)
-LEGACY_SERVICES=(security_vlm guard_room)
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
@@ -41,7 +40,7 @@ done
 
 # 列出当前存在的会话
 RUNNING=()
-for s in "${SERVICES[@]}" "${LEGACY_SERVICES[@]}"; do
+for s in "${SERVICES[@]}"; do
   if tmux has-session -t "$s" 2>/dev/null; then
     RUNNING+=("$s")
   fi

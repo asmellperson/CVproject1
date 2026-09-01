@@ -1,7 +1,7 @@
 # 文件说明：封装`user_store` 模块的 React 状态与副作用。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-"""SQLite-backed user storage with one-time legacy JSON migration."""
+"""SQLite-backed user storage."""
 from __future__ import annotations
 
 import json
@@ -47,7 +47,7 @@ DEPARTMENT_ALIASES = {
 # 参数：无。
 # 返回：UserStoreError；返回新建的 `UserStoreError` 实例。
 # 调用关系：
-#   - 调用方：`auth/user_store.py` 的 `UserStore::_migrate_legacy_users` 实例化本符号
+#   - 调用方：认证服务及用户管理接口捕获本符号及其子类
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class UserStoreError(RuntimeError):
@@ -106,28 +106,14 @@ def default_database_path() -> Path:
     return Path(__file__).resolve().parents[1] / "runtime" / "auth" / "auth_users.db"
 
 
-# 功能：实现 `default_legacy_json_path` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`auth/user_store.py` 的 `UserStore::__init__` 调用本符号
-#   - 内部调用：`os.getenv`、`Path`、`Path(__file__).resolve`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def default_legacy_json_path() -> Path:
-    raw = os.getenv("AUTH_USERS_FILE")
-    if raw:
-        return Path(raw)
-    return Path(__file__).resolve().parent / "auth_users.json"
-
-
 # 功能：转换或规范化 `_normalize_required` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `value`（object）：待转换、校验或写入的值
 #   - `label`（str）：`label` 对应的业务输入值
 # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`auth/user_store.py` 的 `UserStore::_migrate_legacy_users` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user`
-#         调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash`
+#   - 调用方：`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user`
+#         调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash`
 #         调用本符号；另有 1 处静态调用
 #   - 内部调用：`str(value or '').strip`、`str`、`UserValidationError`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
@@ -145,8 +131,8 @@ def _normalize_required(value: object, label: str) -> str:
 #   - `departments`（object）：`departments` 对应的业务输入值；默认值为 `None`
 # 返回：tuple[str, list[str]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::_migrate_legacy_users`
-#         调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号
+#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；
+#         `auth/user_store.py` 的 `UserStore::update_user` 调用本符号
 #   - 内部调用：`str(role or '').strip().lower`、`str(role or
 #          '').strip`、`str`、`UserValidationError`、`isinstance`、`list`、`str(raw_department or
 #          '').strip`、`DEPARTMENT_ALIASES.get`、`normalized_department.lower`、`normalized_departments.append`。
@@ -193,8 +179,8 @@ def _normalize_role_departments(
 #   - `departments`（list[str]）：`departments` 对应的业务输入值
 # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::_migrate_legacy_users`
-#         调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；`auth/user_store.py` 的 `UserStore::update_user` 调用本符号
+#   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；
+#         `auth/user_store.py` 的 `UserStore::update_user` 调用本符号
 #   - 内部调用：`json.dumps`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _encode_departments(departments: list[str]) -> str:
@@ -259,11 +245,10 @@ def _user_record(row: sqlite3.Row) -> dict[str, Any]:
 # 功能：定义 `UserStore` 类，封装`user_store` 模块相关的状态、约束与操作
 # 参数：
 #   - `database_path`（str | Path | None）：`database_path` 对应的业务输入值；默认值为 `None`
-#   - `legacy_json_path`（str | Path | None）：`legacy_json_path` 对应的业务输入值；默认值为 `None`
 # 返回：UserStore；返回新建的 `UserStore` 实例。
 # 调用关系：
 #   - 调用方：`auth/auth.py` 的 `get_user_store` 实例化本符号；`unified_backend/tests/test_user_store.py` 的 `_store`
-#         实例化本符号；`unified_backend/tests/test_user_store.py` 的 `test_backfills_departments_when_opening_legacy_sqlite_database`
+#         实例化本符号；`unified_backend/tests/test_user_store.py` 的 `test_backfills_departments_when_opening_older_sqlite_database`
 #         实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -272,20 +257,17 @@ class UserStore:
     # 参数：
     #   - `self`（未显式标注）：当前类实例
     #   - `database_path`（str | Path | None）：`database_path` 对应的业务输入值；默认值为 `None`
-    #   - `legacy_json_path`（str | Path | None）：`legacy_json_path` 对应的业务输入值；默认值为 `None`
     # 返回：None；初始化当前实例，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`Path`、`default_database_path`、`default_legacy_json_path`、`threading.Lock`。
+    #   - 内部调用：`Path`、`default_database_path`、`threading.Lock`。
     # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         *,
         database_path: str | Path | None = None,
-        legacy_json_path: str | Path | None = None,
     ):
         self.database_path = Path(database_path or default_database_path())
-        self.legacy_json_path = Path(legacy_json_path or default_legacy_json_path())
         self._initialize_lock = threading.Lock()
         self._initialized = False
 
@@ -316,8 +298,7 @@ class UserStore:
     #         调用本符号；另有 3 处静态调用
     #   - 内部调用：`self.database_path.parent.mkdir`、`self._connect`、`connection.execute`、`str`、`connection.execute('PRAGMA
     #          table_info(auth_users)').fetchall`、`connection.execute('SELECT employee_id, role, department, departments FROM
-    #          auth_users').fetchall`、`_normalize_role_departments`、`_decode_departments`、`_encode_departments`、`connection.execute('SELECT
-    #          value FROM auth_metadata WHERE key = ?', ('legacy_json_imported',)).fetchone` 等共 14 个调用。
+    #          auth_users').fetchall`、`_normalize_role_departments`、`_decode_departments`、`_encode_departments`。
     # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def initialize(self) -> None:
         if self._initialized:
@@ -330,14 +311,6 @@ class UserStore:
             try:
                 connection.execute("PRAGMA journal_mode = WAL")
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS auth_metadata (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    )
-                    """
-                )
                 connection.execute(
                     """
                     CREATE TABLE IF NOT EXISTS auth_users (
@@ -388,16 +361,6 @@ class UserStore:
                             row["employee_id"],
                         ),
                     )
-                migrated = connection.execute(
-                    "SELECT value FROM auth_metadata WHERE key = ?",
-                    ("legacy_json_imported",),
-                ).fetchone()
-                if migrated is None:
-                    self._migrate_legacy_users(connection)
-                    connection.execute(
-                        "INSERT INTO auth_metadata(key, value) VALUES (?, ?)",
-                        ("legacy_json_imported", "1"),
-                    )
                 connection.commit()
                 self._initialized = True
             except Exception:
@@ -406,75 +369,6 @@ class UserStore:
             finally:
                 connection.close()
 
-    # 功能：实现 `_migrate_legacy_users` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `connection`（sqlite3.Connection）：`connection` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号
-    #   - 内部调用：`json.loads`、`self.legacy_json_path.read_text`、`UserStoreError`、`isinstance`、`set`、`_normalize_required`、`raw_user.get`、`_normalize_role_departments`、`employee_ids.add`、`names.add`
-    #          等共 16 个调用。
-    # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
-    def _migrate_legacy_users(self, connection: sqlite3.Connection) -> None:
-        try:
-            payload = json.loads(self.legacy_json_path.read_text(encoding="utf-8"))
-        except FileNotFoundError as exc:
-            raise UserStoreError(
-                f"首次迁移找不到用户文件: {self.legacy_json_path}"
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise UserStoreError(
-                f"首次迁移用户文件格式无效: {self.legacy_json_path}"
-            ) from exc
-        if not isinstance(payload, list) or not payload:
-            raise UserStoreError("首次迁移用户文件必须是非空数组")
-
-        employee_ids: set[str] = set()
-        names: set[str] = set()
-        normalized_users: list[tuple[Any, ...]] = []
-        for raw_user in payload:
-            if not isinstance(raw_user, dict):
-                raise UserStoreError("首次迁移用户记录格式无效")
-            employee_id = _normalize_required(raw_user.get("employee_id"), "工号")
-            name = _normalize_required(raw_user.get("name"), "姓名")
-            try:
-                role, departments = _normalize_role_departments(
-                    raw_user.get("role", "viewer"),
-                    raw_user.get("department"),
-                    raw_user.get("departments"),
-                )
-            except UserValidationError as exc:
-                raise UserStoreError(f"首次迁移用户 {employee_id} 无效: {exc}") from exc
-            if employee_id in employee_ids:
-                raise UserStoreError(f"首次迁移存在重复工号: {employee_id}")
-            if name in names:
-                raise UserStoreError(f"首次迁移存在重复姓名: {name}")
-            employee_ids.add(employee_id)
-            names.add(name)
-            normalized_users.append(
-                (
-                    employee_id,
-                    name,
-                    role,
-                    departments[0],
-                    _encode_departments(departments),
-                    int(bool(raw_user.get("enabled", False))),
-                    raw_user.get("password_hash") or None,
-                    max(1, int(raw_user.get("auth_version", 1) or 1)),
-                )
-            )
-
-        connection.executemany(
-            """
-            INSERT INTO auth_users(
-                employee_id, name, role, department, departments, enabled,
-                password_hash, auth_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            normalized_users,
-        )
-
     # 功能：读取或查询 `list_users` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -482,7 +376,7 @@ class UserStore:
     # 调用关系：
     #   - 调用方：`auth/auth.py` 的 `load_auth_users` 调用本符号；`auth/auth.py` 的 `list_auth_users`
     #         调用本符号；`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_user_routes_cover_full_lifecycle`
-    #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_migrates_legacy_json_once_and_then_reads_only_database`
+    #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_initializes_and_reads_users_from_database`
     #         调用本符号；另有 1 处静态调用
     #   - 内部调用：`self.initialize`、`closing`、`self._connect`、`connection.execute('\n                SELECT employee_id, name, role,
     #          department, departments, enabled,\n                       password_hash, auth_version\n                FROM
@@ -880,5 +774,4 @@ __all__ = [
     "UserStoreError",
     "UserValidationError",
     "default_database_path",
-    "default_legacy_json_path",
 ]

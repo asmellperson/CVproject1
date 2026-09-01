@@ -37,8 +37,10 @@ Fuda_CVPreject_V3/
 │   └── integrations/
 │       ├── guard_room/    # 保安行为算法与 API 模块
 │       └── security_vlm/  # 安检 VLM 算法与按需 worker
-├── auth/                  # 登录鉴权模块：后端认证鉴权、前端权限分级
-├── run_guide.txt          # 线上/tmux 启动命令与账号维护说明
+├── auth/                  # 共享认证逻辑与 SQLite 用户存储
+├── docs/diagrams/         # 项目流程图
+├── scripts/               # 三服务启停、状态检查与运行时探测
+├── run_guide.txt          # 部署、线上/tmux 运维与账号维护说明
 └── PROJECT_ARCHITECTURE.md
 ```
 
@@ -98,7 +100,7 @@ JWT/Cookie；Guard Room 内的 `auth.py` 只是兼容旧 import 的转发层。
 | 后端认证实现 | `auth/auth.py` |
 | Guard Room 兼容入口 | `AiVision/integrations/guard_room/src/auth.py` |
 | AiVision 兼容入口 | `AiVision/api/auth.py` |
-| 用户文件 | `auth/auth_users.json` |
+| 用户数据库 | `runtime/auth/auth_users.db`（可由 `AUTH_USERS_DB` 覆盖） |
 | 权限分级 | `unified_frontend/src/auth/permissions.ts` |
 | 角色 | `admin` 可以配置/启停/录制；`viewer` 只能查看。 |
 
@@ -225,9 +227,8 @@ FastAPI API / MJPEG / 报警列表
 ```text
 AiVision/integrations/guard_room/
 ├── config/config.example.yaml # 配置模板
-├── auth/auth_users.json     # 用户账号文件
 ├── src/server.py              # FastAPI API、认证中间件、配置/报警/推流接口
-├── src/auth.py                # 兼容入口，实际转发到 ../auth/auth.py
+├── src/auth.py                # 兼容入口，实际转发到仓库根目录 auth/auth.py
 ├── src/runtime.py             # 核心运行时，串联拉流、推理、报警、状态
 ├── src/config.py              # YAML 配置 dataclass
 ├── src/state.py               # API 与 runtime 之间的共享状态
@@ -647,7 +648,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 
 ### 11.2 登录失败
 
-1. 看 `auth/auth_users.json` 是否有该工号且 `enabled=true`。
+1. 在“系统管理 → 用户管理”确认该工号存在且已启用；必要时检查 `runtime/auth/auth_users.db`。
 2. 确认统一后端和 AiVision 的 `AUTH_SECRET` 是否一致。
 3. 看 `auth/auth.py` 的 token 签发和校验逻辑。
 

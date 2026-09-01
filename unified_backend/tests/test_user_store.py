@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 
 import pytest
@@ -16,99 +15,54 @@ from auth.user_store import (
 )
 
 
-# 功能：实现 `_legacy_users` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/tests/test_user_store.py` 的 `_store` 调用本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _legacy_users():
-    return [
-        {
-            "employee_id": "10001",
-            "name": "管理员",
-            "role": "admin",
-            "department": "all",
-            "enabled": True,
-            "password_hash": "hash-admin",
-        },
-        {
-            "employee_id": "10002",
-            "name": "通用电气用户",
-            "role": "viewer",
-            "department": "general_electric",
-            "enabled": True,
-        },
-    ]
-
-
 # 功能：实现 `_store` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`unified_backend/tests/test_user_store.py` 的 `test_migrates_legacy_json_once_and_then_reads_only_database`
+#   - 调用方：`unified_backend/tests/test_user_store.py` 的 `test_initializes_and_reads_users_from_database`
 #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_create_update_reset_and_delete_user`
 #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_accepts_haoda_company_viewer_department`
 #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_accepts_weida_company_as_legacy_department_alias` 调用本符号；另有 5
 #         处静态调用
-#   - 内部调用：`legacy_path.write_text`、`json.dumps`、`_legacy_users`、`UserStore`。
+#   - 内部调用：`UserStore`、`store.create_user`。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _store(tmp_path):
-    legacy_path = tmp_path / "auth_users.json"
-    legacy_path.write_text(
-        json.dumps(_legacy_users(), ensure_ascii=False),
-        encoding="utf-8",
+    store = UserStore(database_path=tmp_path / "runtime" / "auth_users.db")
+    store.create_user(
+        employee_id="10001",
+        name="管理员",
+        role="admin",
+        department="all",
+        password_hash="hash-admin",
     )
-    return (
-        UserStore(
-            database_path=tmp_path / "runtime" / "auth_users.db",
-            legacy_json_path=legacy_path,
-        ),
-        legacy_path,
+    store.create_user(
+        employee_id="10002",
+        name="通用电气用户",
+        role="viewer",
+        department="general_electric",
+        password_hash="hash-viewer",
     )
+    return store
 
 
-# 功能：验证 `test_migrates_legacy_json_once_and_then_reads_only_database` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_initializes_and_reads_users_from_database` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_store`、`store.list_users`、`store.get_user_record`、`legacy_path.write_text`、`json.dumps`。
+#   - 内部调用：`_store`、`store.list_users`、`store.get_user_record`。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def test_migrates_legacy_json_once_and_then_reads_only_database(tmp_path):
-    store, legacy_path = _store(tmp_path)
+def test_initializes_and_reads_users_from_database(tmp_path):
+    store = _store(tmp_path)
 
     assert [item["employee_id"] for item in store.list_users()] == [
         "10001",
         "10002",
     ]
     assert store.get_user_record("10001")["password_hash"] == "hash-admin"
-    assert store.get_user_record("10002")["password_hash"] is None
-
-    legacy_path.write_text(
-        json.dumps(
-            [
-                {
-                    "employee_id": "changed",
-                    "name": "不应重新导入",
-                    "role": "admin",
-                    "department": "all",
-                    "enabled": True,
-                }
-            ],
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    assert [item["employee_id"] for item in store.list_users()] == [
-        "10001",
-        "10002",
-    ]
-
+    assert store.get_user_record("10002")["password_hash"] == "hash-viewer"
 
 # 功能：验证 `test_create_update_reset_and_delete_user` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
@@ -119,7 +73,7 @@ def test_migrates_legacy_json_once_and_then_reads_only_database(tmp_path):
 #   - 内部调用：`_store`、`store.create_user`、`store.update_user`、`store.update_password_hash`、`store.get_user_record`、`store.delete_user`、`pytest.raises`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_update_reset_and_delete_user(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     created = store.create_user(
         employee_id="20001",
@@ -168,7 +122,7 @@ def test_create_update_reset_and_delete_user(tmp_path):
 #   - 内部调用：`_store`、`store.create_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_accepts_haoda_company_viewer_department(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     created = store.create_user(
         employee_id="20002",
@@ -190,7 +144,7 @@ def test_accepts_haoda_company_viewer_department(tmp_path):
 #   - 内部调用：`_store`、`store.create_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     created = store.create_user(
         employee_id="20003",
@@ -212,7 +166,7 @@ def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
 #   - 内部调用：`_store`、`store.create_user`、`store.update_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     created = store.create_user(
         employee_id="20004",
@@ -250,7 +204,7 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
     ]
 
 
-# 功能：验证 `test_backfills_departments_when_opening_legacy_sqlite_database` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_backfills_departments_when_opening_older_sqlite_database` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -258,14 +212,12 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`database_path.parent.mkdir`、`sqlite3.connect`、`connection.executescript`、`UserStore`、`store.list_users`、`connection.execute`。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能读取或修改数据库事务。
-def test_backfills_departments_when_opening_legacy_sqlite_database(tmp_path):
+def test_backfills_departments_when_opening_older_sqlite_database(tmp_path):
     database_path = tmp_path / "runtime" / "auth_users.db"
     database_path.parent.mkdir(parents=True)
     with sqlite3.connect(database_path) as connection:
         connection.executescript(
             """
-            CREATE TABLE auth_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            INSERT INTO auth_metadata(key, value) VALUES ('legacy_json_imported', '1');
             CREATE TABLE auth_users (
                 employee_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -283,10 +235,7 @@ def test_backfills_departments_when_opening_legacy_sqlite_database(tmp_path):
             """
         )
 
-    store = UserStore(
-        database_path=database_path,
-        legacy_json_path=tmp_path / "missing.json",
-    )
+    store = UserStore(database_path=database_path)
 
     assert store.list_users()[0]["departments"] == ["general_electric"]
     with sqlite3.connect(database_path) as connection:
@@ -306,7 +255,7 @@ def test_backfills_departments_when_opening_legacy_sqlite_database(tmp_path):
 #   - 内部调用：`_store`、`pytest.raises`、`store.create_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_rejects_invalid_or_duplicate_users(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     with pytest.raises(UserConflictError, match="工号"):
         store.create_user(
@@ -352,7 +301,7 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
 #   - 内部调用：`_store`、`pytest.raises`、`store.update_user`、`store.delete_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_protects_current_user_and_last_enabled_admin(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     with pytest.raises(UserConflictError, match="当前登录"):
         store.update_user(
@@ -388,7 +337,7 @@ def test_protects_current_user_and_last_enabled_admin(tmp_path):
 #   - 内部调用：`_store`、`store.create_user`、`store.update_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
     store.create_user(
         employee_id="10003",
         name="第二管理员",
@@ -421,7 +370,7 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("department", ["研究院", "人工智能研究院", "福达新材院"])
 def test_accepts_legacy_and_current_materials_institute_labels(tmp_path, department):
-    store, _legacy_path = _store(tmp_path)
+    store = _store(tmp_path)
 
     created = store.create_user(
         employee_id=f"viewer-{department}",

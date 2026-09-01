@@ -113,6 +113,16 @@ def _manager_with_worker(worker: FakeWorker) -> InferenceManager:
     return manager
 
 
+def test_watchdog_tick_runs_configured_runtime_monitor_without_workers():
+    manager = InferenceManager()
+    calls = []
+    manager.configure_runtime_monitor(lambda: calls.append("tick"))
+
+    manager._watchdog_tick(now=100.0)
+
+    assert calls == ["tick"]
+
+
 # 功能：验证 `test_watchdog_restarts_dead_worker_after_backoff` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值

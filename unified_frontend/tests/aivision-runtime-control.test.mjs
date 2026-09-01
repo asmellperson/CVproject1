@@ -18,47 +18,29 @@ const root = new URL('../', import.meta.url)
  */
 const read = (path) => readFile(new URL(path, root), 'utf8')
 
-test('ordinary AiVision pages share the same runtime control', async () => {
-  const expected = new Map([
-    ['IntrusionDetectionSection.tsx', 'blocks'],
-    ['DoorDetectionSection.tsx', 'detect_door'],
-    ['FaceDetectionSection.tsx', 'detect_face'],
-    ['PhoneDetectionSection.tsx', 'detect_phone'],
-  ])
+test('ordinary AiVision pages do not expose global runtime controls', async () => {
+  const pages = [
+    'IntrusionDetectionSection.tsx',
+    'DoorDetectionSection.tsx',
+    'FaceDetectionSection.tsx',
+    'PhoneDetectionSection.tsx',
+    'HumanDetectionSection.tsx',
+  ]
 
-  for (const [file, feature] of expected) {
+  for (const file of pages) {
     const source = await read(`src/sections/${file}`)
-    assert.match(source, /AiVisionFeatureRuntimeControl/)
-    assert.match(source, new RegExp(`feature="${feature}" isAdmin=\\{isAdmin\\}`))
+    assert.doesNotMatch(source, /AiVisionFeatureRuntimeControl/)
+    assert.doesNotMatch(source, /runtimeControl=/)
   }
-
-  const [humanPage, haodaPage] = await Promise.all([
-    read('src/sections/HumanDetectionSection.tsx'),
-    read('src/sections/HaodaHumanDetectionSection.tsx'),
-  ])
-  assert.match(humanPage, /AiVisionFeatureRuntimeControl feature=\{feature\} isAdmin=\{isAdmin\}/)
-  assert.match(haodaPage, /feature="detect_human_haoda"/)
 })
 
-test('runtime control polls status and exposes separate admin start and stop actions', async () => {
-  const [control, sharedControl, api, platformHook] = await Promise.all([
-    read('src/components/AiVisionFeatureRuntimeControl.tsx'),
-    read('src/components/detection/DetectionRuntimeControl.tsx'),
-    read('src/lib/aivision.ts'),
-    read('src/hooks/use-platform-status.ts'),
-  ])
+test('AiVision API client does not expose global capability controls', async () => {
+  const api = await read('src/lib/aivision.ts')
 
-  assert.match(control, /useSerialPoll/)
-  assert.match(control, /startAiVisionCapability\(feature\)/)
-  assert.match(control, /stopAiVisionCapability\(feature\)/)
-  assert.match(control, /isAdmin=\{isAdmin\}/)
-  assert.match(sharedControl, /!isAdmin/)
-  assert.match(control, /检测控制/)
-  assert.match(sharedControl, /PowerOff/)
-  assert.match(sharedControl, /Power/)
-  assert.doesNotMatch(sharedControl, /Play|Pause/)
-  assert.match(api, /\/api\/v2\/runtime\/capabilities/)
-  assert.match(platformHook, /PLATFORM_RUNTIME_CHANGED_EVENT/)
+  assert.doesNotMatch(api, /getAiVisionCapabilities/)
+  assert.doesNotMatch(api, /startAiVisionCapability/)
+  assert.doesNotMatch(api, /stopAiVisionCapability/)
+  assert.doesNotMatch(api, /\/api\/v2\/runtime\/capabilities/)
 })
 
 test('guard configuration saves without implicitly starting a manually stopped site', async () => {

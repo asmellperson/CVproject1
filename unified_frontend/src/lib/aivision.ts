@@ -2,7 +2,6 @@
 // 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
 
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
-import { notifyPlatformRuntimeChanged } from '@/lib/runtime-events'
 
 /**
  * 功能：实现 `trimTrailingSlash` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -70,14 +69,6 @@ export type AiVisionExceptionAlertSettings = {
   wechat_enable: boolean
   wechat_user: string
   repeat_interval_minutes: number
-}
-
-export type AiVisionCapabilityStatus = {
-  feature: string
-  display_name: string
-  enabled: boolean
-  running: boolean
-  state: 'running' | 'stopped' | 'error'
 }
 
 export type AiVisionModel = {
@@ -484,79 +475,6 @@ export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExcept
   }
   return (await response.json()) as AiVisionExceptionAlertSettings
 }
-
-/**
- * 功能：读取或查询 `getAiVisionCapabilities` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `signal?`（AbortSignal）：用于取消异步请求的 AbortSignal
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`fetch`、`Error`、`readAiVisionError`、`json`。
- * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
- */
-export async function getAiVisionCapabilities(signal?: AbortSignal) {
-  const response = await fetch('/api/v2/runtime/capabilities', {
-    credentials: 'include',
-    signal,
-  })
-  if (!response.ok) {
-    throw new Error(await readAiVisionError(response))
-  }
-  const payload = (await response.json()) as { items?: AiVisionCapabilityStatus[] }
-  return payload.items || []
-}
-
-/**
- * 功能：更新或保存 `setAiVisionCapabilityState` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `feature`（string）：`feature` 对应的业务输入值
- *   - `action`（'start' | 'stop'）：`action` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/lib/aivision.ts` 的 `startAiVisionCapability` 调用本符号；`unified_frontend/src/lib/aivision.ts` 的
- *         `stopAiVisionCapability` 调用本符号
- *   - 内部调用：`fetch`、`encodeURIComponent`、`Error`、`readAiVisionError`、`json`、`notifyPlatformRuntimeChanged`。
- * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
- */
-async function setAiVisionCapabilityState(feature: string, action: 'start' | 'stop') {
-  const response = await fetch(
-    `/api/v2/runtime/capabilities/${encodeURIComponent(feature)}/${action}`,
-    { method: 'POST', credentials: 'include' },
-  )
-  if (!response.ok) {
-    throw new Error(await readAiVisionError(response))
-  }
-  const status = (await response.json()) as AiVisionCapabilityStatus
-  notifyPlatformRuntimeChanged()
-  return status
-}
-
-/**
- * 功能：启动或执行 `startAiVisionCapability` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `feature`（string）：`feature` 对应的业务输入值
- * 返回：void（由实现推断）；仅执行处理流程，不返回业务数据。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`setAiVisionCapabilityState`。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
- */
-export const startAiVisionCapability = (feature: string) =>
-  setAiVisionCapabilityState(feature, 'start')
-
-/**
- * 功能：停止并释放 `stopAiVisionCapability` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `feature`（string）：`feature` 对应的业务输入值
- * 返回：void（由实现推断）；仅执行处理流程，不返回业务数据。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`setAiVisionCapabilityState`。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
- */
-export const stopAiVisionCapability = (feature: string) =>
-  setAiVisionCapabilityState(feature, 'stop')
 
 /**
  * 功能：读取或查询 `getAiVisionFeatureConfig` 对应的`aivision` 模块逻辑；输入由参数提供，处理结果见返回值说明

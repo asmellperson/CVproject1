@@ -220,8 +220,7 @@ detect_conda_sh() {
 #   - `$2`（Shell 字符串）：第 2 个位置参数
 # 返回：Shell 状态码；0 表示成功，非 0 表示失败。
 # 调用关系：
-#   - 调用方：`scripts/lib/unified_backend_runtime.sh` 的脚本流程调用本函数；`scripts/migrate_visual_integrations.sh` 的脚本流程调用本函数；`scripts/start.sh`
-#         的脚本流程调用本函数
+#   - 调用方：`scripts/lib/unified_backend_runtime.sh` 与 `scripts/start.sh` 的脚本流程调用本函数
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 conda_env_exists() {
@@ -391,7 +390,6 @@ fi
 # ---- 构造服务列表（顺序即启动顺序） ----------------------------------------
 # 每条: tmux会话名|工作目录|启动命令|端口|健康检查等待秒数
 SERVICES=()
-LEGACY_SERVICE_SESSIONS=(guard_room security_vlm)
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH"; then
   SERVICES+=("aivision|${PROJECT_ROOT}/AiVision|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python main.py --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
@@ -944,59 +942,6 @@ start_one() {
   return 0
 }
 
-# 功能：处理 `handle_legacy_service_sessions` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
-# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
-#   - 内部调用：`err`、`hint`、`warn`。
-# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务；失败时通过 Shell 返回码影响上层流程。
-handle_legacy_service_sessions() {
-  local legacy running=()
-  for legacy in "${LEGACY_SERVICE_SESSIONS[@]}"; do
-    if tmux has-session -t "$legacy" 2>/dev/null; then
-      running+=("$legacy")
-    fi
-  done
-  [[ ${#running[@]} -eq 0 ]] && return 0
-
-  if [[ $FORCE -ne 1 ]]; then
-    err "检测到旧版独立视觉服务 tmux: ${running[*]}"
-    hint "为避免新旧检测重复运行，请先执行: bash ${PROJECT_ROOT}/scripts/stop.sh"
-    hint "也可以使用 --force，由启动脚本清理旧会话后启动当前三服务架构"
-    return 1
-  fi
-
-  for legacy in "${running[@]}"; do
-    warn "--force 模式：清理不再使用的旧版会话 ${legacy}"
-    if ! tmux kill-session -t "$legacy"; then
-      err "旧版会话 ${legacy} 清理失败，停止启动"
-      return 1
-    fi
-  done
-}
-
-# 功能：处理 `handle_legacy_source_layout` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `$@`（Shell 参数列表）：调用方传入的全部位置参数；具体位置含义由函数内解析
-# 返回：Shell 状态码；0 表示成功，非 0 表示失败。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；通过变量间接调用处待确认）
-#   - 内部调用：`err`、`hint`。
-# 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
-handle_legacy_source_layout() {
-  local legacy_paths=()
-  [[ -d "${PROJECT_ROOT}/guard_room" ]] && legacy_paths+=("guard_room")
-  [[ -d "${PROJECT_ROOT}/security_vlm" ]] && legacy_paths+=("security_vlm")
-  [[ ${#legacy_paths[@]} -eq 0 ]] && return 0
-
-  err "检测到旧版根目录视觉模块: ${legacy_paths[*]}"
-  hint "先迁移模型、真实配置和运行数据: bash ${PROJECT_ROOT}/scripts/migrate_visual_integrations.sh"
-  hint "迁移脚本遇到同名文件会停止，不会覆盖目标内容"
-  return 1
-}
-
 # ---- 主流程 ----------------------------------------------------------------
 # 功能：实现 `main` 对应的`start` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
@@ -1015,14 +960,6 @@ main() {
   if ! command -v tmux >/dev/null 2>&1; then
     err "缺少全局依赖: tmux"
     exit 1
-  fi
-
-  if ! handle_legacy_source_layout; then
-    exit 4
-  fi
-
-  if ! handle_legacy_service_sessions; then
-    exit 4
   fi
 
   # AUTH_SECRET 与 tmux 注入能力探测（必须在创建任何 tmux 会话之前）
@@ -1145,7 +1082,7 @@ main() {
   echo "查看日志: tmux attach -t <服务名>  （Ctrl+B 然后 D 退出窗口）"
   echo "停止服务: bash ${PROJECT_ROOT}/scripts/stop.sh"
   echo "查询状态: bash ${PROJECT_ROOT}/scripts/status.sh"
-  echo "部署清单: cat ${PROJECT_ROOT}/scripts/DEPLOY.md"
+  echo "运行手册: cat ${PROJECT_ROOT}/run_guide.txt"
 
   [[ $fail_cnt -eq 0 ]] && exit 0 || exit 1
 }

@@ -7,7 +7,6 @@ import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
-import { AiVisionFeatureRuntimeControl } from '@/components/AiVisionFeatureRuntimeControl'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
@@ -418,7 +417,6 @@ export function IntrusionDetectionSection() {
           title="区域入侵检测"
           subtitle="警戒区域实时监控面板"
           departmentLabel="福达新材院"
-          runtimeControl={<AiVisionFeatureRuntimeControl feature="blocks" isAdmin={isAdmin} />}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">

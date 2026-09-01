@@ -262,7 +262,7 @@ curl http://localhost:7862/api/v2/integrations/guard-room/api/health
 export AUTH_SECRET="your-strong-random-secret-32chars+"
 export AUTH_DEFAULT_PASSWORD="your-password"
 # 默认长期登录；如需固定过期时间，再设置 AUTH_TOKEN_EXPIRE_HOURS=12
-export AUTH_USERS_FILE="/path/to/auth_users.json"
+export AUTH_USERS_DB="/path/to/runtime/auth/auth_users.db"
 export AUTH_CORS_ORIGINS="https://your-frontend.com"
 ```
 

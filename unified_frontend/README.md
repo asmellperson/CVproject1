@@ -49,17 +49,17 @@ https://aicv.fudar.com/
 
 ## 生产部署
 
-生产环境不长期运行 Vite 的 `dev` 或 `preview` 服务，也不开放 3000 端口。
+当前生产拓扑由统一启动脚本在独立 tmux 中运行 Vite，并由公网网关把域名流量转发到
+服务器的 3000 端口。项目不依赖仓库内 `dist` 目录或项目专用 Nginx 配置。
+
 在项目根目录执行：
 
 ```bash
-bash scripts/build_frontend.sh
-nginx -t && systemctl reload nginx
+bash scripts/start.sh
 ```
 
-构建脚本会先把完整产物写入临时目录，确认存在 `index.html` 后再原子替换 `dist`；
-如果 TypeScript/Vite 构建失败，线上旧 `dist` 保持不变。日常统一启动使用
-`bash scripts/start.sh`，它会自动执行这一步。
+使用 `bash scripts/status.sh` 检查 tmux、3000 端口和首页 HTTP 状态。CI 仍通过
+`npm run build` 验证 TypeScript/Vite 生产构建，但该产物不是当前线上服务入口。
 
 ## 常用命令
 

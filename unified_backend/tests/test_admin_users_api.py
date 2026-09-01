@@ -8,7 +8,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from auth.auth import require_admin
+from auth.auth import create_auth_user, require_admin
 from unified_backend.app import (
     AdminUserCreateRequest,
     AdminUserPasswordResetRequest,
@@ -25,36 +25,26 @@ from unified_backend.app import (
 # 调用关系：
 #   - 调用方：`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_user_routes_cover_full_lifecycle`
 #         调用本符号；`unified_backend/tests/test_admin_users_api.py` 的 `test_admin_route_maps_self_delete_to_conflict` 调用本符号
-#   - 内部调用：`legacy_path.write_text`、`json.dumps`、`monkeypatch.setenv`、`str`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
+#   - 内部调用：`monkeypatch.setenv`、`create_auth_user`、`str`。
+# 副作用/注意事项：会创建和写入临时 SQLite 用户数据库。
 def _configure_users(monkeypatch, tmp_path):
-    legacy_path = tmp_path / "auth_users.json"
-    legacy_path.write_text(
-        json.dumps(
-            [
-                {
-                    "employee_id": "10001",
-                    "name": "管理员",
-                    "role": "admin",
-                    "department": "all",
-                    "enabled": True,
-                },
-                {
-                    "employee_id": "10002",
-                    "name": "普通用户",
-                    "role": "viewer",
-                    "department": "general_electric",
-                    "enabled": True,
-                },
-            ],
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("AUTH_USERS_FILE", str(legacy_path))
     monkeypatch.setenv(
         "AUTH_USERS_DB",
         str(tmp_path / "runtime" / "auth_users.db"),
+    )
+    create_auth_user(
+        employee_id="10001",
+        name="管理员",
+        role="admin",
+        department="all",
+        password="admin-password",
+    )
+    create_auth_user(
+        employee_id="10002",
+        name="普通用户",
+        role="viewer",
+        department="general_electric",
+        password="viewer-password",
     )
 
 

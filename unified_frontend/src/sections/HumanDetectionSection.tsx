@@ -7,7 +7,6 @@ import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
-import { AiVisionFeatureRuntimeControl } from '@/components/AiVisionFeatureRuntimeControl'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
@@ -481,7 +480,6 @@ export function HumanDetectionSection({
           title={title}
           subtitle="区域逗留超时监控面板"
           departmentLabel={departmentLabel}
-          runtimeControl={<AiVisionFeatureRuntimeControl feature={feature} isAdmin={isAdmin} />}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">

@@ -3,7 +3,7 @@
 
 """
 core/system_config.py
-系统级运行配置,用于保存不属于单个摄像头或单个功能的全局开关。
+系统级运行配置，用于保存系统异常告警等跨模块配置。
 """
 from __future__ import annotations
 
@@ -35,12 +35,11 @@ class AiSystemConfig(Base):
 #   - 调用方：`AiVision/tests/test_system_config.py` 的 `test_exception_alert_defaults_to_one_hour_repeat_interval`
 #         实例化本符号；`AiVision/tests/test_system_config.py` 的 `test_exception_alert_saves_repeat_interval`
 #         实例化本符号；`AiVision/tests/test_system_config.py` 的 `test_exception_alert_rejects_invalid_repeat_interval`
-#         实例化本符号；`AiVision/tests/test_system_config.py` 的 `test_feature_runtime_states_default_to_enabled` 实例化本符号；另有 1 处静态调用
+#         实例化本符号；另有 1 处静态调用
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class SystemConfigService:
     EXCEPTION_ALERT_KEY = "exception_alert"
-    FEATURE_RUNTIME_KEY = "feature_runtime_enabled"
     DEFAULT_EXCEPTION_ALERT_INTERVAL_MINUTES = 60
     MIN_EXCEPTION_ALERT_INTERVAL_MINUTES = 5
     MAX_EXCEPTION_ALERT_INTERVAL_MINUTES = 24 * 60
@@ -90,47 +89,6 @@ class SystemConfigService:
         self._set_value(self.EXCEPTION_ALERT_KEY, value)
         return value
 
-    # 功能：返回普通检测能力的期望运行状态；未保存过的能力默认开启；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature_names`（未显式标注）：`feature_names` 对应的业务输入值
-    # 返回：dict[str, bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/tests/test_system_config.py` 的 `test_feature_runtime_states_default_to_enabled`
-    #         调用本符号；`AiVision/platform/orchestrator.py` 的 `Orchestrator::start` 调用本符号
-    #   - 内部调用：`self._get_value`、`isinstance`、`str`、`bool`、`saved.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def get_feature_runtime_states(self, feature_names) -> dict[str, bool]:
-        """返回普通检测能力的期望运行状态；未保存过的能力默认开启。"""
-        value = self._get_value(self.FEATURE_RUNTIME_KEY)
-        saved = value if isinstance(value, dict) else {}
-        return {
-            str(feature_name): bool(saved.get(str(feature_name), True))
-            for feature_name in feature_names
-        }
-
-    # 功能：持久化单项检测能力的期望运行状态；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    #   - `enabled`（bool）：是否启用相应能力
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/tests/test_system_config.py` 的 `test_feature_runtime_state_preserves_other_features`
-    #         调用本符号；`AiVision/platform/orchestrator.py` 的 `Orchestrator::set_feature_enabled` 调用本符号
-    #   - 内部调用：`str(feature_name or '').strip`、`str`、`ValueError`、`self._get_value`、`isinstance`、`dict`、`bool`、`self._set_value`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def save_feature_runtime_state(self, feature_name: str, enabled: bool) -> bool:
-        """持久化单项检测能力的期望运行状态。"""
-        normalized = str(feature_name or "").strip()
-        if not normalized:
-            raise ValueError("feature_name 不能为空")
-        value = self._get_value(self.FEATURE_RUNTIME_KEY)
-        saved = dict(value) if isinstance(value, dict) else {}
-        saved[normalized] = bool(enabled)
-        self._set_value(self.FEATURE_RUNTIME_KEY, saved)
-        return bool(enabled)
-
     # 功能：转换或规范化 `_normalize_exception_alert_interval` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -160,9 +118,7 @@ class SystemConfigService:
     #   - `key`（str）：用于查询、分组或缓存的键
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/core/system_config.py` 的 `SystemConfigService::get_exception_alert` 调用本符号；`AiVision/core/system_config.py` 的
-    #         `SystemConfigService::get_feature_runtime_states` 调用本符号；`AiVision/core/system_config.py` 的
-    #         `SystemConfigService::save_feature_runtime_state` 调用本符号
+    #   - 调用方：`AiVision/core/system_config.py` 的 `SystemConfigService::get_exception_alert` 调用本符号
     #   - 内部调用：`get_session`、`session.query(AiSystemConfig).filter_by(key=key).first`、`session.query(AiSystemConfig).filter_by`、`session.query`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _get_value(self, key: str):
@@ -179,8 +135,7 @@ class SystemConfigService:
     #   - `value`（未显式标注）：待转换、校验或写入的值
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/core/system_config.py` 的 `SystemConfigService::save_exception_alert` 调用本符号；`AiVision/core/system_config.py`
-    #         的 `SystemConfigService::save_feature_runtime_state` 调用本符号
+    #   - 调用方：`AiVision/core/system_config.py` 的 `SystemConfigService::save_exception_alert` 调用本符号
     #   - 内部调用：`session_scope`、`session.query(AiSystemConfig).filter_by(key=key).first`、`session.query(AiSystemConfig).filter_by`、`session.query`、`session.add`、`AiSystemConfig`。
     # 副作用/注意事项：可能读取或修改数据库事务。
     @staticmethod

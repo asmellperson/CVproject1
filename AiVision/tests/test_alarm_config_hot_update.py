@@ -135,6 +135,41 @@ def test_update_config_resets_alarm_cooldown(monkeypatch):
     assert dispatcher.reset_calls == [(7, "detect_test")]
 
 
+def test_update_config_does_not_readd_disabled_camera(monkeypatch):
+    monkeypatch.setattr(
+        consumer_module,
+        "config_cache",
+        SimpleNamespace(
+            get_function_config=lambda _camera_id, _feature_name: {
+                "camera_id": 7,
+                "enable": False,
+                "shm_name": "camera_7",
+            }
+        ),
+    )
+
+    consumer = DummyConsumer(
+        spec=SimpleNamespace(name="detect_test"),
+        infer_dict={},
+        result_queue=None,
+        latest_frames={},
+        is_camera_active=lambda _name: True,
+    )
+    consumer.config_cache[7] = {
+        "camera_id": 7,
+        "enable": True,
+        "shm_name": "camera_7",
+    }
+    consumer.result_dict["camera_7"] = np.zeros((2, 2, 3), np.uint8)
+    consumer.result_updated_at["camera_7"] = 1.0
+
+    consumer.update_config(7)
+
+    assert 7 not in consumer.config_cache
+    assert "camera_7" not in consumer.result_dict
+    assert "camera_7" not in consumer.result_updated_at
+
+
 # 功能：验证 `test_dispatcher_cooldown_uses_logistics_channel_subject` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
