@@ -3,7 +3,7 @@
 
 """features/detect_human/orm.py"""
 from sqlalchemy import Column, Integer, Float, JSON
-from features._base.orm import FeatureConfigBase
+from AiVision.features._base.orm import FeatureConfigBase
 
 
 # 功能：人员违规逗留检测配置字段，供各公司独立配置表复用；输入与输出详见下方说明

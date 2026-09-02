@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import features._base.consumer as consumer_module
-from core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
-from features._base.consumer import BaseFunctionConsumer
+import AiVision.features._base.consumer as consumer_module
+from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 # 功能：定义 `DummyConsumer` 类，封装告警、配置相关的状态、约束与操作
@@ -182,7 +182,7 @@ def test_dispatcher_cooldown_uses_logistics_channel_subject(monkeypatch):
     dispatcher = AlarmDispatcher()
     executed = []
     monkeypatch.setattr(dispatcher, "_execute", lambda request: executed.append(request))
-    monkeypatch.setattr("core.alarm.dispatcher.time.time", lambda: 100.0)
+    monkeypatch.setattr("AiVision.core.alarm.dispatcher.time.time", lambda: 100.0)
 
     # 功能：实现 `request` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

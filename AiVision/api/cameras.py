@@ -15,11 +15,11 @@ import cv2
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_user, require_admin
-from api.deps import get_camera_config_manager, get_current_orchestrator
-from core.logger import logger
-from core.settings import settings
-from platform.camera.config_manager import camera_access_departments
+from auth.auth import get_current_user, require_admin
+from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.platform.camera.config_manager import camera_access_departments
 
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])

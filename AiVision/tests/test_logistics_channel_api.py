@@ -3,7 +3,6 @@
 
 import asyncio
 import importlib
-import sys
 from copy import deepcopy
 
 import anyio.to_thread
@@ -14,11 +13,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import ResponseValidationError
 from fastapi.routing import serialize_response
 
-sys.modules.pop("platform", None)
-api = importlib.import_module("api.logistics_channels")
+api = importlib.import_module("AiVision.api.logistics_channels")
 
 FEATURES = tuple(sorted(importlib.import_module(
-    "platform.logistics_channel.constants"
+    "AiVision.platform.logistics_channel.constants"
 ).LOGISTICS_FEATURES))
 ADMIN = {"role": "admin", "department": None}
 
@@ -604,7 +602,7 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
         ("/api/logistics-channels/{feature}/{channel_id}/statistics", "GET"),
     }
     assert expected <= paths
-    app_module = importlib.import_module("api.app")
+    app_module = importlib.import_module("AiVision.api.app")
     registered_paths: set[str] = set()
     for route in app_module.app.routes:
         path = getattr(route, "path", None)
@@ -971,7 +969,7 @@ def test_viewer_department_access_and_admin_dependency_contract():
 #   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
-    feature_api = importlib.import_module("api.features")
+    feature_api = importlib.import_module("AiVision.api.features")
     feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
     app.include_router(feature_api.create_features_router(feature_config_manager))
@@ -1027,7 +1025,7 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
 #   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FakeCameraConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeypatch):
-    feature_api = importlib.import_module("api.features")
+    feature_api = importlib.import_module("AiVision.api.features")
     feature_config_manager = FakeFeatureConfigManager()
 
     # 功能：定义 `FakeCameraConfigManager` 类，封装接口访问相关的状态、约束与操作

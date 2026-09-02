@@ -1,11 +1,9 @@
 import importlib
-import sys
 
 
-sys.modules.pop("platform", None)
-departments_api = importlib.import_module("api.departments")
+departments_api = importlib.import_module("AiVision.api.departments")
 DepartmentService = importlib.import_module(
-    "platform.department.service"
+    "AiVision.platform.department.service"
 ).DepartmentService
 
 

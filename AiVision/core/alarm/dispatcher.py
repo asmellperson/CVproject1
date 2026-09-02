@@ -21,10 +21,10 @@ from urllib.parse import quote
 import cv2
 import numpy as np
 
-from core.logger import logger
-from core.settings import settings
-from core.alarm.horn import Horn
-from core.alarm.wechat import WeChatNotifier
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.core.alarm.horn import Horn
+from AiVision.core.alarm.wechat import WeChatNotifier
 
 
 # 功能：单次告警请求的数据载体，由 Consumer 构造后提交给 AlarmDispatcher；输入与输出详见下方说明
@@ -475,6 +475,6 @@ class AlarmDispatcher:
 
 
 # 模块级全局单例
-# 大多数场景直接 `from core.alarm import alarm_dispatcher` 使用；
+# 大多数场景直接 `from AiVision.core.alarm import alarm_dispatcher` 使用；
 # 需要独立实例时才直接实例化 AlarmDispatcher。
 alarm_dispatcher = AlarmDispatcher()

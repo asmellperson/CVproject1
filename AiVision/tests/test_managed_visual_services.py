@@ -4,12 +4,12 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from platform.visual_services import ManagedVisualServices
+from AiVision.platform.visual_services import ManagedVisualServices
 
 import httpx
 from fastapi import FastAPI, Request
 
-from api.app import create_app
+from AiVision.api.app import create_app
 
 
 # 功能：实现 `_config_files` 对应的`test_managed_visual_services` 模块逻辑；输入由参数提供，处理结果见返回值说明

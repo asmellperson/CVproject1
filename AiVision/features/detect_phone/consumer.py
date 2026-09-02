@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 import cv2
 
-from features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 # 功能：手机检测 — 过滤孤立手机框，降低桌面手机、反光、背景误报；输入与输出详见下方说明

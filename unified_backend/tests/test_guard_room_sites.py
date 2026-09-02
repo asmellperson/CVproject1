@@ -1,11 +1,6 @@
 # 文件说明：包含`test_guard_room_sites` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from unified_backend.app import (
     _allowed_event_types_for_user,
     _can_access_security_vlm,

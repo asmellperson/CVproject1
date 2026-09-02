@@ -3,8 +3,8 @@
 
 from pathlib import Path
 
-from src import db
-from src.config import (
+from AiVision.integrations.guard_room.src import db
+from AiVision.integrations.guard_room.src.config import (
     AppConfig,
     ClassConfig,
     ModelConfig,

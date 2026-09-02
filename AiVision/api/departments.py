@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.auth import get_current_user
-from api.deps import get_department_service
-from core.db import session_scope
-from platform.department.service import DepartmentService
+from auth.auth import get_current_user
+from AiVision.api.deps import get_department_service
+from AiVision.core.db import session_scope
+from AiVision.platform.department.service import DepartmentService
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 

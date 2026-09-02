@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from starlette.responses import JSONResponse
 from starlette.types import Receive, Scope, Send
 
-from core.logger import logger
+from AiVision.core.logger import logger
 
 VisualAppFactory = Callable[[Path], FastAPI]
 
@@ -113,7 +113,7 @@ class ManagedAppSlot:
 #   - 内部调用：`create_app`、`str`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _create_guard_room_app(config_path: Path) -> FastAPI:
-    from integrations.guard_room.src.server import create_app
+    from AiVision.integrations.guard_room.src.server import create_app
 
     return create_app(str(config_path))
 
@@ -127,7 +127,7 @@ def _create_guard_room_app(config_path: Path) -> FastAPI:
 #   - 内部调用：`create_app`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _create_security_vlm_app(config_path: Path) -> FastAPI:
-    from integrations.security_vlm.src.main import create_app
+    from AiVision.integrations.security_vlm.src.main import create_app
 
     return create_app(config_path)
 

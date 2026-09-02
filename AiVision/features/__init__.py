@@ -11,7 +11,7 @@ features/__init__.py
 from __future__ import annotations
 import importlib
 import pkgutil
-from features._base.spec import FeatureSpec
+from AiVision.features._base.spec import FeatureSpec
 
 _REGISTRY: dict[str, FeatureSpec] = {}
 
@@ -25,21 +25,21 @@ _REGISTRY: dict[str, FeatureSpec] = {}
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
 def _discover():
     """扫描 features/ 下所有非下划线开头的子目录"""
-    package = __import__("features", fromlist=["*"])
+    package = __import__("AiVision.features", fromlist=["*"])
     for _, name, ispkg in pkgutil.iter_modules(package.__path__):
         if name.startswith("_") or not ispkg:
             continue
         try:
-            module = importlib.import_module(f"features.{name}")
+            module = importlib.import_module(f"AiVision.features.{name}")
         except Exception as e:
-            from core.logger import logger
+            from AiVision.core.logger import logger
             logger.warning(f"[features] 加载 features.{name} 失败: {e}")
             continue
         spec = getattr(module, "SPEC", None)
         if isinstance(spec, FeatureSpec):
             _REGISTRY[spec.name] = spec
         else:
-            from core.logger import logger
+            from AiVision.core.logger import logger
             logger.warning(f"[features] features.{name} 没有导出 SPEC,跳过")
 
 

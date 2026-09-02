@@ -18,15 +18,16 @@ from typing import Callable
 
 import yaml
 
-from camera_registry import validate_camera_id
-from departments import SECURITY_DEPARTMENTS, require_department
-from frame_hub import reset_frame_hub
+from AiVision.integrations.security_vlm.src.camera_registry import validate_camera_id
+from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.frame_hub import reset_frame_hub
 
-_WORKER_SCRIPTS = (
-    ("capture", "capture_worker.py"),
-    ("detector", "detector_worker.py"),
-    ("session", "session_worker.py"),
+_WORKER_MODULES = (
+    ("capture", "AiVision.integrations.security_vlm.src.capture_worker"),
+    ("detector", "AiVision.integrations.security_vlm.src.detector_worker"),
+    ("session", "AiVision.integrations.security_vlm.src.session_worker"),
 )
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 _STOP_ORDER = ("session", "detector", "capture")
 _RESTART_BACKOFF_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
 LOGGER = logging.getLogger(__name__)
@@ -819,17 +820,17 @@ class CameraRuntimeManager:
         runtime.processes.clear()
         worker_python = str(self.base_cfg["envs"]["worker_python"])
         env = os.environ.copy()
-        for name, script in _WORKER_SCRIPTS:
-            script_path = self.project_root / "src" / script
+        for name, module in _WORKER_MODULES:
             command = [
                 worker_python,
-                str(script_path),
+                "-m",
+                module,
                 "--config",
                 str(paths.config_path),
             ]
             runtime.processes[name] = self.popen_factory(
                 command,
-                cwd=str(self.project_root),
+                cwd=str(_REPOSITORY_ROOT),
                 env=env,
             )
             self.sleep(0.3)
@@ -862,7 +863,8 @@ class CameraRuntimeManager:
         worker_python = str(self.base_cfg["envs"]["worker_python"])
         command = [
             worker_python,
-            str(self.project_root / "src" / "vlm_worker.py"),
+            "-m",
+            "AiVision.integrations.security_vlm.src.vlm_worker",
             "--config",
             str(self.base_config_path),
             "--departments-root",
@@ -873,7 +875,7 @@ class CameraRuntimeManager:
         try:
             self.vlm_process = self.popen_factory(
                 command,
-                cwd=str(self.project_root),
+                cwd=str(_REPOSITORY_ROOT),
                 env=os.environ.copy(),
             )
             self.vlm_restart_at = None
@@ -1112,7 +1114,7 @@ class CameraRuntimeManager:
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
     def _runtime_is_running(runtime: CameraRuntime) -> bool:
-        return len(runtime.processes) == len(_WORKER_SCRIPTS) and all(
+        return len(runtime.processes) == len(_WORKER_MODULES) and all(
             process.poll() is None for process in runtime.processes.values()
         )
 

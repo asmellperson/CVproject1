@@ -99,7 +99,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
     }
     return {
       type: 'yolo',
-      import_path: 'platform.inference.workers.yolo_detector.YoloDetectorWorker',
+      import_path: 'AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker',
       enable: true,
       description: defaults[name]?.description || '{}',
     }

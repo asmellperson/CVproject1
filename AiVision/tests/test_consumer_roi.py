@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 # 功能：定义 `RoiConsumer` 类，封装视频帧消费与检测、感兴趣区域相关的状态、约束与操作

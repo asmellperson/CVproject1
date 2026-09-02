@@ -10,13 +10,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-import camera_registry
-import department_workspace
-from department_workspace import (
+from AiVision.integrations.security_vlm.src import camera_registry
+from AiVision.integrations.security_vlm.src import department_workspace
+from AiVision.integrations.security_vlm.src.department_workspace import (
     DepartmentWorkspaceManager,
     migrate_general_electric,
 )
-from departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
 
 
 # 功能：更新或保存 `_write_json` 对应的部门逻辑；输入由参数提供，处理结果见返回值说明

@@ -8,9 +8,8 @@ import httpx
 import pytest
 import yaml
 
-import camera_registry
-import main
-
+from AiVision.integrations.security_vlm.src import camera_registry
+from AiVision.integrations.security_vlm.src import main
 
 # 功能：定义 `FakeRuntimeManager` 类，封装接口访问相关的状态、约束与操作
 # 参数：无。

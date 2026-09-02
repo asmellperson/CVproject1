@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from features._base.consumer import BaseFunctionConsumer
-from platform.inference.base_worker import BaseModelWorker
-from platform.inference.contracts import (
+from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.platform.inference.base_worker import BaseModelWorker
+from AiVision.platform.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,
@@ -227,7 +227,7 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
 #   - 内部调用：`monkeypatch.setattr`、`queue.Queue`、`result_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypatch):
-    monkeypatch.setattr("features._base.consumer.time.monotonic_ns", lambda: 123)
+    monkeypatch.setattr("AiVision.features._base.consumer.time.monotonic_ns", lambda: 123)
     infer_queue = queue.Queue()
     result_queue = queue.Queue()
     result_queue.put({
@@ -267,11 +267,11 @@ def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypat
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
     monkeypatch.setattr(
-        "features._base.consumer.settings.runtime.inference_alert_consecutive_failures",
+        "AiVision.features._base.consumer.settings.runtime.inference_alert_consecutive_failures",
         2,
     )
     monkeypatch.setattr(
-        "features._base.consumer.settings.runtime.inference_alert_cooldown_seconds",
+        "AiVision.features._base.consumer.settings.runtime.inference_alert_cooldown_seconds",
         300.0,
     )
     consumer = _consumer({"test-model": queue.Queue()})

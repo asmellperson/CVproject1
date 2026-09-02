@@ -11,7 +11,7 @@ import time
 import cv2
 import numpy as np
 
-from features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 # 功能：门禁检测 — 与 blocks 几乎一样的帧差,但用双阶段告警；输入与输出详见下方说明

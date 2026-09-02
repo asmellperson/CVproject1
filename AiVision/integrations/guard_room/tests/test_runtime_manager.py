@@ -1,15 +1,12 @@
 # 文件说明：包含运行时的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.db import configure_for_tests
-from src.runtime_manager import GuardRoomRuntimeManager
-from src.service import GuardRoomService
-from src.types import AlarmEvent
+from AiVision.integrations.guard_room.src.db import configure_for_tests
+from AiVision.integrations.guard_room.src.runtime_manager import GuardRoomRuntimeManager
+from AiVision.integrations.guard_room.src.service import GuardRoomService
+from AiVision.integrations.guard_room.src.types import AlarmEvent
 
 
 # 功能：定义 `FakeRuntime` 类，封装运行时相关的状态、约束与操作

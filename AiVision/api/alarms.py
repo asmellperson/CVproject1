@@ -13,11 +13,11 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.db import get_session
-from core.logger import logger
-from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
-from platform.camera.orm import AiCameraConfig
-from platform.violation.orm import AiViolationImage
+from AiVision.core.db import get_session
+from AiVision.core.logger import logger
+from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
+from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.platform.violation.orm import AiViolationImage
 
 
 router = APIRouter(prefix="/api/alarms", tags=["alarms"])

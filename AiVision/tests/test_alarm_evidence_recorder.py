@@ -6,7 +6,6 @@ from __future__ import annotations
 import importlib
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import cv2
@@ -17,11 +16,8 @@ os.environ.setdefault("MYSQL_DB_URL", "127.0.0.1")
 os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.modules.pop("platform", None)
-
 AlarmEvidenceRecorder = importlib.import_module(
-    "platform.violation.evidence_recorder"
+    "AiVision.platform.violation.evidence_recorder"
 ).AlarmEvidenceRecorder
 
 

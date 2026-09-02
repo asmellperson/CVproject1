@@ -1,12 +1,9 @@
 # 文件说明：包含`test_ultralytics_compat` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.ultralytics_compat import yolo_precision_kwargs
+from AiVision.integrations.guard_room.src.ultralytics_compat import yolo_precision_kwargs
 
 
 # 功能：验证 `test_precision_kwargs_use_quantize_when_supported` 对应的`test_ultralytics_compat` 模块逻辑；输入由参数提供，处理结果见返回值说明

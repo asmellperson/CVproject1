@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.system_config import SystemConfigService
+from AiVision.core.system_config import SystemConfigService
 
 
 # 功能：验证 `test_exception_alert_defaults_to_one_hour_repeat_interval` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明

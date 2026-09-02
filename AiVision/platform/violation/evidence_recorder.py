@@ -15,9 +15,9 @@ from typing import Callable, Mapping
 import cv2
 import numpy as np
 
-from core.logger import logger
-from core.settings import settings
-from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 
 
 # 功能：定义 `_ClipTask` 类，封装`evidence_recorder` 模块相关的状态、约束与操作

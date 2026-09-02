@@ -19,14 +19,14 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from core.logger import logger
-from platform.inference.contracts import (
+from AiVision.core.logger import logger
+from AiVision.platform.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_STATUS_ERROR,
     INFERENCE_STATUS_OK,
     build_inference_result,
 )
-from platform.inference.model_paths import apply_model_path_override
+from AiVision.platform.inference.model_paths import apply_model_path_override
 
 
 # 功能：推理 Worker 基类；输入与输出详见下方说明

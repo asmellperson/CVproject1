@@ -22,7 +22,7 @@ from multiprocessing import Event, Process, shared_memory
 import cv2
 import numpy as np
 
-from core.logger import logger
+from AiVision.core.logger import logger
 
 from .probe import CameraProbeError, probe_video_shape
 

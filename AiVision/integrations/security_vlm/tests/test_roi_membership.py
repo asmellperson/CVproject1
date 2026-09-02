@@ -3,22 +3,16 @@
 
 import json
 import math
-from pathlib import Path
-import sys
-
 import numpy as np
 import pytest
 
-SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-sys.path.insert(0, str(SRC_DIR))
-
 try:
-    import roi_geometry
+    from AiVision.integrations.security_vlm.src import roi_geometry
 except ModuleNotFoundError:
     roi_geometry = None
 
-import session_worker  # noqa: E402
-import main as security_main  # noqa: E402
+from AiVision.integrations.security_vlm.src import main as security_main
+from AiVision.integrations.security_vlm.src import session_worker
 
 
 # 功能：验证 `test_roi_geometry_module_exists` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明

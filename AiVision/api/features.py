@@ -20,14 +20,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_user, require_admin
-from api.cameras import get_camera_for_user
-from api.deps import get_camera_config_manager, get_current_orchestrator
-from features import all_specs, get_spec
-from features._base.spec import FeatureSpec
-from features._base.config_manager import feature_config_manager
-from platform.camera.config_manager import camera_config_manager
-from platform.department.service import department_service
+from auth.auth import get_current_user, require_admin
+from AiVision.api.cameras import get_camera_for_user
+from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
+from AiVision.features import all_specs, get_spec
+from AiVision.features._base.spec import FeatureSpec
+from AiVision.features._base.config_manager import feature_config_manager
+from AiVision.platform.camera.config_manager import camera_config_manager
+from AiVision.platform.department.service import department_service
 
 
 # ------------------------------------------------------------------ #
@@ -220,7 +220,7 @@ def create_features_router(
         挂载在 /api/features 下的 APIRouter，可直接 app.include_router()。
     """
     if camera_config_manager is None:
-        from platform.camera.config_manager import camera_config_manager as default_camera_config_manager
+        from AiVision.platform.camera.config_manager import camera_config_manager as default_camera_config_manager
 
         camera_config_manager = default_camera_config_manager
 
@@ -244,7 +244,7 @@ def create_features_router(
         departments = []
         if dept_service:
             try:
-                from core.db import session_scope
+                from AiVision.core.db import session_scope
                 with session_scope() as session:
                     departments = dept_service.get_departments_by_feature(session, spec.name)
             except Exception:
@@ -347,7 +347,7 @@ def create_features_router(
         spec = _require_spec(feature)
         # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
         # 端点，后者同时校验 feature 部门和成员归属；这里禁止绕过归属校验。
-        from platform.logistics_channel.constants import LOGISTICS_FEATURES
+        from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
         if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
             raise HTTPException(
                 status_code=403,

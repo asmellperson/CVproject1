@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from core.logger import logger
+from AiVision.core.logger import logger
 
 
 # 功能：定义 `_ProcessHit` 类，封装资源清理相关的状态、约束与操作

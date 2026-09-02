@@ -3,7 +3,7 @@
 
 """features/blocks/orm.py — 区域入侵检测 ORM 表"""
 from sqlalchemy import Column, Float, Integer, JSON
-from features._base.orm import FeatureConfigBase
+from AiVision.features._base.orm import FeatureConfigBase
 
 
 # 功能：定义 `BlocksConfigORM` 类，封装数据库模型相关的状态、约束与操作

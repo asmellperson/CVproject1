@@ -11,9 +11,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import session_worker
-import vlm_worker
-
+from AiVision.integrations.security_vlm.src import session_worker
+from AiVision.integrations.security_vlm.src import vlm_worker
 
 # 功能：验证 `test_session_framehub_wait_timeout_covers_slow_rtsp_startup` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。

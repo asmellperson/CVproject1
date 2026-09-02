@@ -16,11 +16,11 @@ from uuid import uuid4
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from core.db import session_scope, get_session
-from core.events import config_event_bus, ConfigChangeEvent
-from core.cache import config_cache
-from core.logger import logger
-from features import all_specs
+from AiVision.core.db import session_scope, get_session
+from AiVision.core.events import config_event_bus, ConfigChangeEvent
+from AiVision.core.cache import config_cache
+from AiVision.core.logger import logger
+from AiVision.features import all_specs
 from .orm import AiCameraConfig
 
 
@@ -266,7 +266,7 @@ class CameraConfigManager:
     # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     def create_camera_for_feature(self, feature_name: str, payload: dict) -> dict:
         """在同一事务中新增摄像头并启用指定普通检测功能。"""
-        from platform.logistics_channel.constants import LOGISTICS_FEATURES
+        from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
 
         if feature_name in LOGISTICS_FEATURES:
             raise ValueError("物流通道摄像头必须通过通道接口新建并绑定")

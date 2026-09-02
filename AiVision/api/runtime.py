@@ -8,8 +8,8 @@ api/runtime.py
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from api.deps import get_current_orchestrator
-from core.settings import settings
+from AiVision.api.deps import get_current_orchestrator
+from AiVision.core.settings import settings
 
 
 router = APIRouter(prefix="/api/runtime", tags=["runtime"])

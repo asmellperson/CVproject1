@@ -9,7 +9,7 @@ from threading import Barrier, Lock, Thread
 import numpy as np
 import pytest
 
-from frame_hub import FrameHubReader, FrameHubWriter, atomic_write_json, reset_frame_hub
+from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, FrameHubWriter, atomic_write_json, reset_frame_hub
 
 
 # 功能：验证 `test_atomic_write_json_supports_concurrent_writers` 对应的视频帧逻辑；输入由参数提供，处理结果见返回值说明

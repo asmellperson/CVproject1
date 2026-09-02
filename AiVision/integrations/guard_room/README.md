@@ -137,7 +137,6 @@ GuardRoomRuntime._run_loop (主循环线程)
     ├── utils.py             # 通用工具函数（ensure_dir、now_str、safe_float）
     ├── geometry.py          # 几何计算（IoU、中心点、多边形转换）
     ├── drawing.py           # 画面标注（检测框、多边形、调试文字、报警横幅）
-    ├── auth.py              # 认证授权兼容入口，实际逻辑在仓库根目录 auth/auth.py
     ├── state.py             # 共享状态（AppState，运行时与 Web API 的数据中转站）
     ├── guard_gate.py        # 保安识别结果平滑（hold_seconds 宽限期）
     ├── uniform.py           # 制服识别分类器（ConvNeXtV2，timm）

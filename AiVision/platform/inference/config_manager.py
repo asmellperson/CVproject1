@@ -5,13 +5,13 @@
 from __future__ import annotations
 from typing import Optional
 
-from core.db import session_scope, get_session
-from core.logger import logger
+from AiVision.core.db import session_scope, get_session
+from AiVision.core.logger import logger
 from .orm import AiModel
 from .model_paths import resolve_model_path
 
 
-YOLO_DETECTOR_WORKER = "platform.inference.workers.yolo_detector.YoloDetectorWorker"
+YOLO_DETECTOR_WORKER = "AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker"
 
 
 # 功能：定义 `ModelConfigManager` 类，封装业务服务相关的状态、约束与操作

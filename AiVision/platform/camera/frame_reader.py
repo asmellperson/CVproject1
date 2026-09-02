@@ -15,7 +15,7 @@ from multiprocessing import shared_memory
 
 import numpy as np
 
-from core.logger import logger
+from AiVision.core.logger import logger
 
 
 # 功能：统一帧读取器集合 — 一个摄像头一个线程；输入与输出详见下方说明

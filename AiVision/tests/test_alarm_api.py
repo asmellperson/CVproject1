@@ -2,13 +2,11 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import importlib
-import sys
 from datetime import datetime
 from types import SimpleNamespace
 
 
-sys.modules.pop("platform", None)
-alarms = importlib.import_module("api.alarms")
+alarms = importlib.import_module("AiVision.api.alarms")
 
 
 # 功能：实现 `_channel_row` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明

@@ -10,7 +10,7 @@ platform/camera/orm.py
 from __future__ import annotations
 from sqlalchemy import Column, Integer, String, Boolean, JSON, TIMESTAMP, Text, text
 
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：定义 `AiCameraConfig` 类，封装数据库模型相关的状态、约束与操作

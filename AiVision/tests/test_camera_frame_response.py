@@ -3,7 +3,6 @@
 
 import asyncio
 import importlib
-import sys
 
 import anyio.to_thread
 import cv2
@@ -13,8 +12,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 
 
-sys.modules.pop("platform", None)
-cameras_module = importlib.import_module("api.cameras")
+cameras_module = importlib.import_module("AiVision.api.cameras")
 get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
 
 

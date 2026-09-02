@@ -12,8 +12,8 @@ import contextlib
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.schema import CreateColumn
-from core.settings import settings
-from core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.core.logger import logger
 
 # 所有 ORM 模型的元数据基类，须在各 ORM 文件中 `class Foo(Base)` 继承
 Base = declarative_base()
@@ -215,14 +215,14 @@ def ensure_schema_compatible():
         生产环境若有破坏性变更，需手动执行迁移脚本。
     """
     # 强制 import，确保所有 ORM 类注册进 Base.metadata
-    from features import all_specs  # noqa: F401
-    from core import system_config as _system_config_orm       # noqa: F401
-    from platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
-    from platform.camera import orm as _camera_orm              # noqa: F401
-    from platform.department import orm as _department_orm       # noqa: F401
-    from platform.inference import orm as _inference_orm        # noqa: F401
-    from platform.logistics_channel import orm as _logistics_channel_orm  # noqa: F401
-    from platform.violation import orm as _violation_orm        # noqa: F401
+    from AiVision.features import all_specs  # noqa: F401
+    from AiVision.core import system_config as _system_config_orm       # noqa: F401
+    from AiVision.platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
+    from AiVision.platform.camera import orm as _camera_orm              # noqa: F401
+    from AiVision.platform.department import orm as _department_orm       # noqa: F401
+    from AiVision.platform.inference import orm as _inference_orm        # noqa: F401
+    from AiVision.platform.logistics_channel import orm as _logistics_channel_orm  # noqa: F401
+    from AiVision.platform.violation import orm as _violation_orm        # noqa: F401
 
     engine = get_engine()
     Base.metadata.create_all(bind=engine)  # 创建全新表，已存在的表跳过

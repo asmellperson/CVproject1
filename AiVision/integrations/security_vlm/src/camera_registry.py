@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from departments import require_department
+from AiVision.integrations.security_vlm.src.departments import require_department
 
 
 CAMERA_ID_PATTERN = re.compile(

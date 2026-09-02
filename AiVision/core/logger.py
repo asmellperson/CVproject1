@@ -6,7 +6,7 @@ core/logger.py
 日志模块 — 提供全局日志器,支持按功能名过滤 debug 输出。
 
 用法:
-    from core.logger import logger
+    from AiVision.core.logger import logger
     logger.info("...")
     logger.set_debug_message("blocks", "...")  # 只有功能名在白名单时才输出
 """

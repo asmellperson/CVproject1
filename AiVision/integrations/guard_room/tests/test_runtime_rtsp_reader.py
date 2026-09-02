@@ -2,15 +2,12 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import os
-import sys
 import threading
-from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.runtime import LatestFrameBuffer, RTSPReader, cv2
+from AiVision.integrations.guard_room.src.runtime import LatestFrameBuffer, RTSPReader, cv2
 
 
 # 功能：验证 `test_rtsp_reader_opens_stream_with_ffmpeg_tcp_options` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明

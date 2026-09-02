@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Integer, String, UniqueConstraint
 
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：定义 `AiDepartment` 类，封装数据库模型相关的状态、约束与操作

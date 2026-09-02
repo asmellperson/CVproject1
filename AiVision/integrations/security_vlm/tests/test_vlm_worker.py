@@ -9,8 +9,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import vlm_worker
-
+from AiVision.integrations.security_vlm.src import vlm_worker
 
 # 功能：验证 `test_pending_task_lock_entries_release_after_all_waiters_exit` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。

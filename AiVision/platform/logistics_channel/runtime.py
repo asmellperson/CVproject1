@@ -13,11 +13,11 @@ from typing import Callable
 
 import numpy as np
 
-from core.alarm.dispatcher import AlarmRequest, alarm_dispatcher
-from core.logger import logger
-from core.settings import settings
-from features import all_specs
-from platform.camera.config_manager import camera_config_manager
+from AiVision.core.alarm.dispatcher import AlarmRequest, alarm_dispatcher
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.features import all_specs
+from AiVision.platform.camera.config_manager import camera_config_manager
 
 from .compositor import CameraTile, compose_channel_frame
 from .constants import LOGISTICS_FEATURES, require_logistics_feature

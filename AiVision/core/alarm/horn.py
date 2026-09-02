@@ -12,7 +12,7 @@ import threading
 import time
 import requests
 
-from core.logger import logger
+from AiVision.core.logger import logger
 
 
 # 功能：单个 IP 喇叭设备的控制器；输入与输出详见下方说明

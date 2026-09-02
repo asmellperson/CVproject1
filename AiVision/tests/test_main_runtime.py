@@ -10,8 +10,8 @@ from unittest.mock import Mock
 
 import pytest
 
-import main as main_module
-from main import _configure_opencv_threads
+import AiVision.main as main_module
+from AiVision.main import _configure_opencv_threads
 
 
 # 功能：验证 `test_configure_opencv_threads_applies_requested_limit` 对应的程序启动、运行时逻辑；输入由参数提供，处理结果见返回值说明
@@ -64,16 +64,16 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
     logger = SimpleNamespace(info=Mock(), exception=Mock())
     handlers = {}
 
-    settings_module = ModuleType("core.settings")
+    settings_module = ModuleType("AiVision.core.settings")
     settings_module.settings = SimpleNamespace(
         runtime=SimpleNamespace(opencv_threads=1),
         api=SimpleNamespace(host="127.0.0.1", port=8000),
     )
-    api_app_module = ModuleType("api.app")
+    api_app_module = ModuleType("AiVision.api.app")
     api_app_module.create_app = Mock(return_value=object())
-    logger_module = ModuleType("core.logger")
+    logger_module = ModuleType("AiVision.core.logger")
     logger_module.logger = logger
-    orchestrator_module = ModuleType("platform.orchestrator")
+    orchestrator_module = ModuleType("AiVision.platform.orchestrator")
     orchestrator_module.init_orchestrator = Mock(return_value=orchestrator)
     uvicorn_module = ModuleType("uvicorn")
 
@@ -85,7 +85,7 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
 
     uvicorn_module.run = run
 
-    monkeypatch.setattr(sys, "argv", ["main.py"])
+    monkeypatch.setattr(sys, "argv", ["AiVision.main"])
     monkeypatch.setattr(main_module, "_set_spawn_start_method", lambda: None)
     monkeypatch.setattr(main_module, "_load_env_file", lambda: None)
     monkeypatch.setattr(main_module, "_configure_opencv_threads", lambda value: value)
@@ -95,10 +95,10 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
         "signal",
         lambda registered_signum, handler: handlers.__setitem__(registered_signum, handler),
     )
-    monkeypatch.setitem(sys.modules, "core.settings", settings_module)
-    monkeypatch.setitem(sys.modules, "api.app", api_app_module)
-    monkeypatch.setitem(sys.modules, "core.logger", logger_module)
-    monkeypatch.setitem(sys.modules, "platform.orchestrator", orchestrator_module)
+    monkeypatch.setitem(sys.modules, "AiVision.core.settings", settings_module)
+    monkeypatch.setitem(sys.modules, "AiVision.api.app", api_app_module)
+    monkeypatch.setitem(sys.modules, "AiVision.core.logger", logger_module)
+    monkeypatch.setitem(sys.modules, "AiVision.platform.orchestrator", orchestrator_module)
     monkeypatch.setitem(sys.modules, "uvicorn", uvicorn_module)
 
     return manager, orchestrator

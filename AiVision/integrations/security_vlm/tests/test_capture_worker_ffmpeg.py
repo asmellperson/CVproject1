@@ -1,20 +1,15 @@
 # 文件说明：包含后台任务的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-from pathlib import Path
 import inspect
 import io
 import json
 import subprocess
-import sys
 import unittest
 
 import numpy as np
 
-SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-sys.path.insert(0, str(SRC_DIR))
-
-import capture_worker  # noqa: E402
+from AiVision.integrations.security_vlm.src import capture_worker
 
 
 # 功能：定义 `FragmentedStream` 类，封装后台任务相关的状态、约束与操作

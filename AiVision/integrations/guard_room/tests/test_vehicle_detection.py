@@ -1,17 +1,15 @@
 # 文件说明：包含`test_vehicle_detection` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import AppConfig
-from src.db import configure_for_tests
-from src.runtime import GuardRoomRuntime
-from src.service import GuardRoomService
-from src.types import Detection
-from src.vehicle_behavior import VehicleBehaviorEngine
+from AiVision.integrations.guard_room.src.config import AppConfig
+from AiVision.integrations.guard_room.src.db import configure_for_tests
+from AiVision.integrations.guard_room.src.runtime import GuardRoomRuntime
+from AiVision.integrations.guard_room.src.service import GuardRoomService
+from AiVision.integrations.guard_room.src.types import Detection
+from AiVision.integrations.guard_room.src.vehicle_behavior import VehicleBehaviorEngine
 
 
 # 功能：验证 `test_site_config_persists_vehicle_detector_model_from_db` 对应的`test_vehicle_detection` 模块逻辑；输入由参数提供，处理结果见返回值说明

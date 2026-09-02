@@ -3,7 +3,7 @@
 
 """platform/alarm_device/orm.py — 喇叭设备配置表"""
 from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP, text
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：定义 `AiHornConfig` 类，封装数据库模型相关的状态、约束与操作

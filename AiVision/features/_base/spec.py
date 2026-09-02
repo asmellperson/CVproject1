@@ -44,13 +44,13 @@ class FeatureSpec:
     """UI 友好名称。如 '区域入侵检测'"""
 
     consumer_cls: Type
-    """对应 features._base.consumer.BaseFunctionConsumer 子类。运行时由 Orchestrator 实例化。"""
+    """对应 AiVision.features._base.consumer.BaseFunctionConsumer 子类。运行时由 Orchestrator 实例化。"""
 
     orm_class: Type[DeclarativeBase]
-    """配置 ORM 表类。继承自 features._base.orm.FeatureConfigBase。"""
+    """配置 ORM 表类。继承自 AiVision.features._base.orm.FeatureConfigBase。"""
 
     config_schema: Type[BaseModel]
-    """前端配置的 Pydantic 校验模型。继承自 features._base.schema.FeatureConfigSchema。"""
+    """前端配置的 Pydantic 校验模型。继承自 AiVision.features._base.schema.FeatureConfigSchema。"""
 
     required_models: tuple[str, ...] = field(default_factory=tuple)
     """需要的推理模型名列表。空 tuple 表示无需推理(如 blocks/door 纯帧差)。

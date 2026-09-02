@@ -16,7 +16,7 @@ from sqlalchemy import (
     Column, Integer, Boolean, Float, String, TIMESTAMP, ForeignKey, text
 )
 from sqlalchemy.orm import declared_attr
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：所有功能配置表共享的告警字段；输入与输出详见下方说明

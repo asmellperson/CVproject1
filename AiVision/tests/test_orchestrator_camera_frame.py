@@ -2,12 +2,10 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import importlib
-import sys
 from types import SimpleNamespace
 
 
-sys.modules.pop("platform", None)
-orchestrator_module = importlib.import_module("platform.orchestrator")
+orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
 Orchestrator = orchestrator_module.Orchestrator
 
 

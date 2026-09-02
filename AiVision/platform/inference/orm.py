@@ -6,7 +6,7 @@ platform/inference/orm.py
 推理模型配置表 — 与旧表 ai_model 一致。
 """
 from sqlalchemy import Column, Integer, String, Text, Boolean, TIMESTAMP, text
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：定义 `AiModel` 类，封装数据库模型相关的状态、约束与操作
@@ -25,7 +25,7 @@ class AiModel(Base):
     path = Column(String(500), nullable=False, comment="模型文件路径")
     import_path = Column(
         String(255), nullable=True,
-        comment="Worker 类导入路径,如 platform.inference.workers.yolo_detector.YoloDetectorWorker",
+        comment="Worker 类导入路径,如 AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker",
     )
     description = Column(
         Text, nullable=True,

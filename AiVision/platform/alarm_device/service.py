@@ -8,9 +8,9 @@ platform/alarm_device/service.py
 from __future__ import annotations
 from typing import Optional
 
-from core.db import session_scope, get_session
-from core.logger import logger
-from core.alarm.horn import Horn
+from AiVision.core.db import session_scope, get_session
+from AiVision.core.logger import logger
+from AiVision.core.alarm.horn import Horn
 from .orm import AiHornConfig
 
 

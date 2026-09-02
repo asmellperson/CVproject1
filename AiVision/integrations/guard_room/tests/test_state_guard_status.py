@@ -1,15 +1,12 @@
 # 文件说明：包含状态管理的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import (
+from AiVision.integrations.guard_room.src.config import (
     AppConfig,
     ClassConfig,
     ModelConfig,
@@ -19,8 +16,8 @@ from src.config import (
     VideoConfig,
     WeChatConfig,
 )
-from src.state import AppState
-from src.types import Detection
+from AiVision.integrations.guard_room.src.state import AppState
+from AiVision.integrations.guard_room.src.types import Detection
 
 
 # 功能：实现 `_config` 对应的状态管理逻辑；输入由参数提供，处理结果见返回值说明

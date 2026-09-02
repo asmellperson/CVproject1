@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """features/detect_human/consumer.py — 人员违规逗留检测"""
-from features._base.dwell_consumer import DwellDetectionConsumer
+from AiVision.features._base.dwell_consumer import DwellDetectionConsumer
 
 
 # 功能：人员违规逗留检测 — 用 yolo_human 模型(person_phone.pt 过滤 class 0)；输入与输出详见下方说明

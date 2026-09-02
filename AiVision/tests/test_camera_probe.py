@@ -5,12 +5,10 @@ import importlib
 import threading
 import json
 import subprocess
-import sys
 from types import SimpleNamespace
 
 import pytest
 
-sys.modules.pop("platform", None)
 
 
 # 功能：实现 `_probe_module` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -25,9 +23,9 @@ sys.modules.pop("platform", None)
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _probe_module():
     try:
-        return importlib.import_module("platform.camera.probe")
+        return importlib.import_module("AiVision.platform.camera.probe")
     except ModuleNotFoundError:
-        pytest.fail("platform.camera.probe API is missing")
+        pytest.fail("AiVision.platform.camera.probe API is missing")
 
 
 # 功能：验证 `test_probe_video_shape_returns_bgr_shape` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -230,7 +228,7 @@ def test_probe_video_shape_rejects_invalid_output(monkeypatch, stdout):
 #   - 内部调用：`importlib.import_module`、`_probe_module`、`monkeypatch.setattr`、`runtime_module.CameraRuntime`、`SimpleNamespace`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
-    runtime_module = importlib.import_module("platform.camera.runtime")
+    runtime_module = importlib.import_module("AiVision.platform.camera.runtime")
     probe = _probe_module()
 
     # 功能：实现 `fail_probe` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -295,7 +293,7 @@ def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
 #   - 内部调用：`importlib.import_module`、`object.__new__`、`threading.Lock`、`SimpleNamespace`、`monkeypatch.setattr`、`start_calls.append`、`alert_calls.append`、`manager._retry_missing_enabled`、`len`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_camera_retry_logs_without_sending_a_separate_alert(monkeypatch):
-    manager_module = importlib.import_module("platform.camera.runtime_manager")
+    manager_module = importlib.import_module("AiVision.platform.camera.runtime_manager")
     manager = object.__new__(manager_module.CameraRuntimeManager)
     manager._lock = threading.Lock()
     manager._shared_configs = {

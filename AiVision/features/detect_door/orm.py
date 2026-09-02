@@ -3,7 +3,7 @@
 
 """features/detect_door/orm.py"""
 from sqlalchemy import Column, Integer, Float, JSON
-from features._base.orm import FeatureConfigBase
+from AiVision.features._base.orm import FeatureConfigBase
 
 
 # 功能：定义 `DoorConfigORM` 类，封装数据库模型相关的状态、约束与操作

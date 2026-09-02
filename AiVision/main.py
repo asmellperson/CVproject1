@@ -55,16 +55,16 @@ def main() -> None:
     _load_env_file()
 
     # 3、读取全局配置对象settings
-    from core.settings import settings       # settings是AiVision全局配置对象，settings.xxx.xxx就是读取系统配置
+    from AiVision.core.settings import settings       # settings是AiVision全局配置对象，settings.xxx.xxx就是读取系统配置
     # 4、限制OpenCV线程数，避免CPU过载
     actual_opencv_threads = _configure_opencv_threads(settings.runtime.opencv_threads)
 
     # 5、导入正在运行时所需要的模块
     import uvicorn
 
-    from api.app import create_app      # 创建AiVision HTTP API服务
-    from core.logger import logger      # 项目统一日志工具
-    from platform.orchestrator import init_orchestrator
+    from AiVision.api.app import create_app      # 创建AiVision HTTP API服务
+    from AiVision.core.logger import logger      # 项目统一日志工具
+    from AiVision.platform.orchestrator import init_orchestrator
 
     logger.info(
         f"[main] OpenCV 线程限制 配置需求={settings.runtime.opencv_threads} "

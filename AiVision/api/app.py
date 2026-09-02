@@ -10,26 +10,26 @@ from __future__ import annotations
 import threading
 import time
 from contextlib import asynccontextmanager
-from platform.visual_services import ManagedVisualServices
+from AiVision.platform.visual_services import ManagedVisualServices
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.auth import AuthError, get_current_user_from_request
-from api.alarms import public_router as public_alarms_router
-from api.alarms import router as alarms_router
-from api.cameras import router as cameras_router
-from api.departments import router as departments_router
-from api.exception_alerts import router as exception_alerts_router
-from api.features import router as features_router
-from api.logistics_channels import router as logistics_channels_router
-from api.models import router as models_router
-from api.runtime import router as runtime_router
-from core.alarm.wechat import WeChatNotifier
-from core.logger import logger
-from core.settings import settings
-from core.system_config import system_config_service
+from auth.auth import AuthError, get_current_user_from_request
+from AiVision.api.alarms import public_router as public_alarms_router
+from AiVision.api.alarms import router as alarms_router
+from AiVision.api.cameras import router as cameras_router
+from AiVision.api.departments import router as departments_router
+from AiVision.api.exception_alerts import router as exception_alerts_router
+from AiVision.api.features import router as features_router
+from AiVision.api.logistics_channels import router as logistics_channels_router
+from AiVision.api.models import router as models_router
+from AiVision.api.runtime import router as runtime_router
+from AiVision.core.alarm.wechat import WeChatNotifier
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
+from AiVision.core.system_config import system_config_service
 
 _api_exception_alerts: dict[tuple[str, str], float] = {}
 

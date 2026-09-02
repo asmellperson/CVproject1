@@ -34,7 +34,6 @@ import math
 import re
 import shutil
 import subprocess
-import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -48,25 +47,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-# 独立脚本与 AiVision 进程内导入都要兼容；放在末尾可避免覆盖宿主应用同名模块。
-_SOURCE_DIR = str(Path(__file__).resolve().parent)
-if _SOURCE_DIR not in sys.path:
-    sys.path.append(_SOURCE_DIR)
-from frame_hub import FrameHubReader, ResultStore  # noqa: E402
-from roi_geometry import (  # noqa: E402
+from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore
+from AiVision.integrations.security_vlm.src.roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
     roi_mapping_exceeds_bounds,
     scale_roi_mapping,
     validate_rois,
 )
-from camera_registry import CameraRegistry  # noqa: E402
-from camera_runtime import CameraRuntimeManager, CameraRuntimePaths  # noqa: E402
-from department_workspace import (  # noqa: E402
+from AiVision.integrations.security_vlm.src.camera_registry import CameraRegistry
+from AiVision.integrations.security_vlm.src.camera_runtime import CameraRuntimeManager, CameraRuntimePaths
+from AiVision.integrations.security_vlm.src.department_workspace import (
     DepartmentWorkspaceManager,
     GENERAL_ELECTRIC,
 )
-from departments import SECURITY_DEPARTMENTS, require_department  # noqa: E402
+from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
 
 
 LOGGER = logging.getLogger(__name__)

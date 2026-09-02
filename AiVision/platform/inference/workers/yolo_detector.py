@@ -21,8 +21,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core.logger import logger
-from platform.inference.base_worker import BaseModelWorker
+from AiVision.core.logger import logger
+from AiVision.platform.inference.base_worker import BaseModelWorker
 
 
 # 功能：通用 YOLO 目标检测 Worker；输入与输出详见下方说明

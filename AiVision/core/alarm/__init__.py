@@ -12,7 +12,7 @@ from .dispatcher import AlarmDispatcher, alarm_dispatcher  # 告警分发器类 
 from .horn import Horn                                      # 喇叭（音频/蜂鸣）告警通道
 from .wechat import WeChatNotifier                          # 微信消息推送通道
 
-# 声明公共 API，限定 `from core.alarm import *` 可导入的符号
+# 声明公共 API，限定 `from AiVision.core.alarm import *` 可导入的符号
 # - AlarmDispatcher : 分发器类，供需要自定义实例的场景使用
 # - alarm_dispatcher: 模块级全局单例，供直接调用
 # - Horn            : 音频告警通道，向本地设备播放告警音

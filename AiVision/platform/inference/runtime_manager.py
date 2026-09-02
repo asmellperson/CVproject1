@@ -18,10 +18,10 @@ from dataclasses import dataclass
 from multiprocessing import Queue
 from typing import Callable
 
-from core.logger import logger
-from core.cache import config_cache
-from core.settings import settings
-from features import all_specs
+from AiVision.core.logger import logger
+from AiVision.core.cache import config_cache
+from AiVision.core.settings import settings
+from AiVision.features import all_specs
 from .config_manager import model_config_manager
 
 
@@ -631,8 +631,8 @@ class InferenceRuntimeManager:
     @staticmethod
     def _import_worker_class(path: str) -> type:
         """支持两种格式:
-        - module 路径(模块内有 ModelWorker 类): 'platform.inference.workers.yolo_detector'
-        - 完整类路径: 'platform.inference.workers.yolo_detector.YoloDetectorWorker'
+        - module 路径(模块内有 ModelWorker 类): 'AiVision.platform.inference.workers.yolo_detector'
+        - 完整类路径: 'AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker'
         """
         if "." not in path:
             raise ImportError(f"无效的 import_path: {path}")

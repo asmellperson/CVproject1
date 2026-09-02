@@ -50,7 +50,7 @@ Fuda_CVPreject_V3/
 | --- | ---: | --- | --- |
 | 统一前端 | `3000` | `unified_frontend` | `npm run dev`（由 `scripts/start.sh` 启动） |
 | 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
-| AiVision 视觉业务层 | `7862` | `AiVision` | `conda activate aivision && python main.py` |
+| AiVision 视觉业务层 | `7862` | 仓库 | `conda activate aivision && python -m AiVision.main` |
 
 ## 3. 整体调用关系
 
@@ -87,8 +87,8 @@ unified_frontend/src/lib/security-vlm.ts
 
 ## 4. 认证与权限
 
-当前项目的后端认证实现集中在 `auth/auth.py`。统一后端负责登录入口，AiVision 校验同一个
-JWT/Cookie；Guard Room 内的 `auth.py` 只是兼容旧 import 的转发层。
+当前项目的后端认证实现集中在 `auth/auth.py`。统一后端负责登录入口，AiVision 与 Guard Room
+直接导入共享认证模块并校验同一个 JWT/Cookie。
 
 关键点：
 
@@ -97,8 +97,7 @@ JWT/Cookie；Guard Room 内的 `auth.py` 只是兼容旧 import 的转发层。
 | 登录入口 | 前端 `unified_frontend/src/pages/LoginPage.tsx` |
 | 前端登录态 | `unified_frontend/src/auth/` |
 | 后端认证实现 | `auth/auth.py` |
-| Guard Room 兼容入口 | `AiVision/integrations/guard_room/src/auth.py` |
-| AiVision 兼容入口 | `AiVision/api/auth.py` |
+| AiVision/Guard Room 认证引用 | `from auth.auth import ...` |
 | 用户数据库 | `runtime/auth/auth_users.db`（可由 `AUTH_USERS_DB` 覆盖） |
 | 权限分级 | `unified_frontend/src/auth/permissions.ts` |
 | 角色 | `admin` 可以配置/启停/录制；`viewer` 只能查看。 |
@@ -227,7 +226,6 @@ FastAPI API / MJPEG / 报警列表
 AiVision/integrations/guard_room/
 ├── config/config.example.yaml # 配置模板
 ├── src/server.py              # FastAPI API、认证中间件、配置/报警/推流接口
-├── src/auth.py                # 兼容入口，实际转发到仓库根目录 auth/auth.py
 ├── src/runtime.py             # 核心运行时，串联拉流、推理、报警、状态
 ├── src/config.py              # YAML 配置 dataclass
 ├── src/state.py               # API 与 runtime 之间的共享状态
@@ -347,7 +345,6 @@ AiVision/
 ├── pyproject.toml               # AiVision Conda 环境内安装的 Python 依赖
 ├── .env.example                 # 环境变量模板
 ├── api/app.py                   # FastAPI app、中间件、路由注册
-├── api/auth.py                  # 兼容入口，实际转发到 ../auth/auth.py
 ├── api/                         # 正式路由：runtime/cameras/features/models/alarms/departments
 ├── core/settings.py             # 统一环境变量配置入口
 ├── core/db.py                   # 数据库连接与 schema 初始化
@@ -412,11 +409,9 @@ AiVision 启动时会先由 `ensure_schema_compatible()` 自动创建 `ai_logist
 纯逻辑回归可在项目根目录执行：
 
 ```bash
-cd AiVision
 MYSQL_DB_URL=127.0.0.1 MYSQL_DB_USER=test MYSQL_DB_PASSWORD=test MYSQL_DB_NAME=test \
-  DATA_PATH=/tmp/aivision-logistics-test pytest -q
-cd ..
-PYTHONPATH=. pytest unified_backend/tests -q
+  DATA_PATH=/tmp/aivision-logistics-test python -m pytest -q -c AiVision/pyproject.toml AiVision/tests
+python -m pytest unified_backend/tests -q
 cd unified_frontend
 node --test tests/*.mjs
 npm run lint
@@ -610,16 +605,16 @@ npm run dev -- --port <前端调试端口>
 
 ```bash
 tmux new -s aivision
-cd AiVision
+cd /usr/zyy/Fuda_CVPreject_V3
 conda activate aivision
 export AUTH_SECRET="<与统一后端保持同一串32位以上随机密钥>"
-python main.py
+python -m AiVision.main
 ```
 
 临时改端口：
 
 ```bash
-python main.py --port <AiVision调试端口>
+python -m AiVision.main --port <AiVision调试端口>
 ```
 
 Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动，但 token 推理 worker

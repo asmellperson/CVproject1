@@ -11,10 +11,10 @@ from typing import Any, Optional, Sequence
 
 from sqlalchemy import delete
 
-from core.cache import config_cache
-from core.events import ConfigChangeEvent
-from features import all_specs
-from platform.department.orm import AiDepartment, AiFeatureDepartment
+from AiVision.core.cache import config_cache
+from AiVision.core.events import ConfigChangeEvent
+from AiVision.features import all_specs
+from AiVision.platform.department.orm import AiDepartment, AiFeatureDepartment
 
 logger = logging.getLogger("aivision.department.service")
 

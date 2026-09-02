@@ -12,13 +12,13 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
-from core.cache import config_cache
-from core.db import get_session, session_scope
-from core.events import ConfigChangeEvent, config_event_bus
-from core.logger import logger
-from features import all_specs
-from platform.camera.orm import AiCameraConfig
-from platform.camera.config_manager import (
+from AiVision.core.cache import config_cache
+from AiVision.core.db import get_session, session_scope
+from AiVision.core.events import ConfigChangeEvent, config_event_bus
+from AiVision.core.logger import logger
+from AiVision.features import all_specs
+from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.platform.camera.config_manager import (
     _camera_integrity_value_error,
     _database_error_code,
     camera_config_manager,

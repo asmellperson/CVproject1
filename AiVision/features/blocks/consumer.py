@@ -8,7 +8,7 @@ features/blocks/consumer.py
 from __future__ import annotations
 import cv2
 import numpy as np
-from features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 # 功能：区域入侵检测 — YOLO 人体检测 + 警戒线入侵侧存在告警；输入与输出详见下方说明

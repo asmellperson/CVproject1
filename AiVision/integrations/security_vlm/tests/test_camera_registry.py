@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 try:
-    import camera_registry
+    from AiVision.integrations.security_vlm.src import camera_registry
 except ModuleNotFoundError:
     camera_registry = None
 

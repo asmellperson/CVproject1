@@ -14,17 +14,17 @@ api/                  FastAPI 正式路由
 main.py               后端入口
 ```
 
-认证与管理员鉴权复用根目录 `auth/auth.py`；`api/auth.py` 仅保留为兼容入口。
+认证与管理员鉴权直接复用根目录 `auth/auth.py`。
 
 ## 启动
 
 ```bash
-cd /usr/zyy/Fuda_CVPreject/AiVision
+cd /usr/zyy/Fuda_CVPreject_V3
 conda activate aivision
-python -m pip install -r requirements.txt
-cp .env.example .env
+python -m pip install -r AiVision/requirements.txt
+cp AiVision/.env.example AiVision/.env
 # 修改 .env 中数据库、DATA_PATH、企业微信等配置
-python main.py
+python -m AiVision.main
 ```
 
 默认 API 地址：`http://0.0.0.0:7862`。
@@ -32,7 +32,7 @@ python main.py
 调试时可用命令行临时覆盖端口：
 
 ```bash
-python main.py --port <调试端口>
+python -m AiVision.main --port <调试端口>
 ```
 
 ## 正式 API 路径
@@ -90,7 +90,7 @@ models:
 数据库中的 `import_path` 建议统一指向：
 
 ```text
-platform.inference.workers.yolo_detector.YoloDetectorWorker
+AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker
 ```
 
 `description` 字段使用 JSON 控制类别过滤，例如：

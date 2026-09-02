@@ -8,7 +8,7 @@ core/settings.py
 加载顺序: 环境变量 > .env 文件 > 字段默认值
 
 使用:
-    from core.settings import settings
+    from AiVision.core.settings import settings
     settings.db.url      # 数据库地址
     settings.alarm.horn_enable
 """
@@ -312,7 +312,7 @@ class Settings:
     配置聚合根，将各子配置组合为单一访问点。
 
     通过模块级单例 settings 访问，无需直接实例化本类：
-        from core.settings import settings
+        from AiVision.core.settings import settings
         settings.db.sqlalchemy_url
         settings.alarm.horn_enable
     """

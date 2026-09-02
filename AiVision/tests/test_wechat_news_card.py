@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
-from core.alarm.wechat import WeChatNotifier, _EVENT_DISPLAY
+from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
+from AiVision.core.alarm.wechat import WeChatNotifier, _EVENT_DISPLAY
 
 
 # 功能：定义 `FakeResponse` 类，封装企业微信通知相关的状态、约束与操作
@@ -69,7 +69,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
     monkeypatch.setattr(notifier, "_get_token", lambda: "token")
     monkeypatch.setattr(
-        "core.alarm.wechat.requests.post",
+        "AiVision.core.alarm.wechat.requests.post",
         lambda *args, **kwargs: posts.append(kwargs["json"]) or FakeResponse({"errcode": 0}),
     )
 
@@ -266,7 +266,7 @@ def test_dispatcher_persists_card_record_when_sql_is_disabled():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatcher_builds_public_image_and_detail_urls(monkeypatch):
     dispatcher = AlarmDispatcher()
-    monkeypatch.setattr("core.alarm.dispatcher.settings.alarm.wechat_card_base_url", "https://aicv.fudar.com/")
+    monkeypatch.setattr("AiVision.core.alarm.dispatcher.settings.alarm.wechat_card_base_url", "https://aicv.fudar.com/")
 
     image_url, detail_url = dispatcher._alarm_card_urls(42)
 

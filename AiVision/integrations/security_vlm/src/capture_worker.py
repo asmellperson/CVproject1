@@ -38,9 +38,7 @@ import numpy as np
 import yaml
 
 # 让本目录下的 frame_hub.py 可被 import
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from frame_hub import FrameHubWriter, ResultStore  # noqa: E402
+from AiVision.integrations.security_vlm.src.frame_hub import FrameHubWriter, ResultStore
 
 
 # ---------------------------------------------------------------------------

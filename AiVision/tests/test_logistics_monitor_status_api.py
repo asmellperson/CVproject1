@@ -2,12 +2,10 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import importlib
-import sys
 
 
-sys.modules.pop("platform", None)
-features_module = importlib.import_module("api.features")
-orchestrator_module = importlib.import_module("platform.orchestrator")
+features_module = importlib.import_module("AiVision.api.features")
+orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
 
 
 # 功能：定义 `FakeCameraRuntimeManager` 类，封装监控展示、接口访问相关的状态、约束与操作

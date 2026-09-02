@@ -3,8 +3,8 @@
 
 """皓达公司人员违规逗留检测的独立配置表。"""
 
-from features._base.orm import FeatureConfigBase
-from features.detect_human.orm import HumanConfigFieldsMixin
+from AiVision.features._base.orm import FeatureConfigBase
+from AiVision.features.detect_human.orm import HumanConfigFieldsMixin
 
 
 # 功能：定义 `HaodaHumanConfigORM` 类，封装数据库模型相关的状态、约束与操作

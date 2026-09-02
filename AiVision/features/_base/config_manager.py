@@ -15,11 +15,11 @@ from __future__ import annotations
 from typing import Optional
 from sqlalchemy import or_
 
-from core.db import session_scope, get_session
-from core.events import config_event_bus, ConfigChangeEvent
-from core.cache import config_cache
-from features._base.spec import FeatureSpec
-from platform.camera.orm import AiCameraConfig
+from AiVision.core.db import session_scope, get_session
+from AiVision.core.events import config_event_bus, ConfigChangeEvent
+from AiVision.core.cache import config_cache
+from AiVision.features._base.spec import FeatureSpec
+from AiVision.platform.camera.orm import AiCameraConfig
 
 
 # 功能：所有功能配置的 CRUD 入口；输入与输出详见下方说明

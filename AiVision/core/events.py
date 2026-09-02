@@ -245,10 +245,10 @@ class ConfigEventBus:
             try:
                 fn(event)
             except Exception as e:
-                from core.logger import logger
+                from AiVision.core.logger import logger
                 logger.error(f"[EventBus] 监听器执行失败 ({event.change_type}): {e}")
 
 
 # 模块级全局单例
-# 各组件通过 `from core.events import config_event_bus` 共享同一总线实例。
+# 各组件通过 `from AiVision.core.events import config_event_bus` 共享同一总线实例。
 config_event_bus = ConfigEventBus()

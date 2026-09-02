@@ -3,7 +3,7 @@
 
 """features/detect_face/orm.py"""
 from sqlalchemy import Column, Float, JSON
-from features._base.orm import FeatureConfigBase
+from AiVision.features._base.orm import FeatureConfigBase
 
 
 # 功能：定义 `FaceConfigORM` 类，封装数据库模型相关的状态、约束与操作

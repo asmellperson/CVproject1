@@ -6,21 +6,21 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from features._base.logistics_single_person_consumer import (
+from AiVision.features._base.logistics_single_person_consumer import (
     LogisticsSinglePersonConsumerBase,
     build_monitor_snapshot,
 )
-from features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
-from features.detect_logistics_single_person_electrical_components.consumer import (
+from AiVision.features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
+from AiVision.features.detect_logistics_single_person_electrical_components.consumer import (
     LogisticsSinglePersonElectricalComponentsConsumer,
 )
-from features.detect_logistics_single_person_electronics_electrician.consumer import (
+from AiVision.features.detect_logistics_single_person_electronics_electrician.consumer import (
     LogisticsSinglePersonElectronicsElectricianConsumer,
 )
-from features.detect_logistics_single_person_precious_metal_recycling.consumer import (
+from AiVision.features.detect_logistics_single_person_precious_metal_recycling.consumer import (
     LogisticsSinglePersonPreciousMetalRecyclingConsumer,
 )
-from features.detect_logistics_single_person_precious_metal_recycling import (
+from AiVision.features.detect_logistics_single_person_precious_metal_recycling import (
     SPEC as WEIDA_LOGISTICS_SPEC,
 )
 

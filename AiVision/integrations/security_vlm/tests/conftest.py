@@ -1,9 +1,2 @@
 # 文件说明：包含`conftest` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
-from pathlib import Path
-import sys
-
-
-SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-sys.path.insert(0, str(SRC_DIR))

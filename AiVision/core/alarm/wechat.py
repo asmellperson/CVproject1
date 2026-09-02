@@ -18,8 +18,8 @@ from typing import Optional
 
 import requests
 
-from core.logger import logger
-from core.settings import settings
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 
 
 # 功能内部名称 → 推送消息中的中文展示名

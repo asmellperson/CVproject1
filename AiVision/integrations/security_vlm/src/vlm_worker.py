@@ -50,10 +50,9 @@ import cv2
 import numpy as np
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from departments import SECURITY_DEPARTMENTS, require_department  # noqa: E402
-from camera_registry import validate_camera_id  # noqa: E402
-from frame_hub import ResultStore  # noqa: E402
+from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.camera_registry import validate_camera_id
+from AiVision.integrations.security_vlm.src.frame_hub import ResultStore
 
 
 # ---------------------------------------------------------------------------

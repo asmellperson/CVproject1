@@ -7,8 +7,8 @@ from __future__ import annotations
 from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, TIMESTAMP, Time, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 
-from core.db import Base
-from platform.camera.orm import AiCameraConfig
+from AiVision.core.db import Base
+from AiVision.platform.camera.orm import AiCameraConfig
 from .constants import (
     DEFAULT_DETECTION_END,
     DEFAULT_DETECTION_START,

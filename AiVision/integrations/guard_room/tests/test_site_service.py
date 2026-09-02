@@ -2,15 +2,12 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import pytest
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import AppConfig
-from src.db import configure_for_tests, session_scope
-from src.orm import GuardRoomSiteConfig
-from src.service import GuardRoomService
+from AiVision.integrations.guard_room.src.config import AppConfig
+from AiVision.integrations.guard_room.src.db import configure_for_tests, session_scope
+from AiVision.integrations.guard_room.src.orm import GuardRoomSiteConfig
+from AiVision.integrations.guard_room.src.service import GuardRoomService
 
 
 # 功能：验证 `test_site_service_creates_site_cameras_and_app_config` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明

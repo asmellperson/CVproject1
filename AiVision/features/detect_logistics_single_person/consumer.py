@@ -3,7 +3,7 @@
 
 """通用电气物流通道单人检测消费者。"""
 
-from features._base.logistics_single_person_consumer import (
+from AiVision.features._base.logistics_single_person_consumer import (
     LogisticsSinglePersonConsumerBase,
     build_monitor_snapshot,
 )

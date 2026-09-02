@@ -3,7 +3,7 @@
 
 from types import SimpleNamespace
 
-from features._base.dwell_consumer import build_dwell_monitor_snapshot
+from AiVision.features._base.dwell_consumer import build_dwell_monitor_snapshot
 
 
 # 功能：定义 `FakeTracker` 类，封装监控展示相关的状态、约束与操作

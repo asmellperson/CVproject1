@@ -22,12 +22,12 @@ from typing import Callable, Optional
 import cv2
 import numpy as np
 
-from core.cache import config_cache
-from core.logger import logger
-from core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
-from core.settings import settings
-from features._base.spec import FeatureSpec
-from platform.inference.contracts import (
+from AiVision.core.cache import config_cache
+from AiVision.core.logger import logger
+from AiVision.core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
+from AiVision.core.settings import settings
+from AiVision.features._base.spec import FeatureSpec
+from AiVision.platform.inference.contracts import (
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,

@@ -22,9 +22,9 @@ import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
-from core.db import session_scope
-from core.logger import logger
-from core.settings import settings
+from AiVision.core.db import session_scope
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 from .cleanup import GIB, MediaCleanupStats, ViolationMediaCleaner
 from .orm import AiViolationImage
 

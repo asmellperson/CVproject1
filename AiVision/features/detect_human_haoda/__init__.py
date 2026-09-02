@@ -3,9 +3,9 @@
 
 """皓达公司人员违规逗留检测：复用算法，独立保存摄像头与配置。"""
 
-from features._base.spec import FeatureSpec
-from features.detect_human.consumer import HumanConsumer
-from features.detect_human.schema import HumanConfigSchema
+from AiVision.features._base.spec import FeatureSpec
+from AiVision.features.detect_human.consumer import HumanConsumer
+from AiVision.features.detect_human.schema import HumanConfigSchema
 
 from .orm import HaodaHumanConfigORM
 

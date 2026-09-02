@@ -2,10 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import datetime
-import importlib
-import importlib.util
 import os
-import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -17,29 +14,9 @@ os.environ.setdefault("MYSQL_DB_URL", "127.0.0.1")
 os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from core.db import Base
-
-try:
-    violation_cleanup = importlib.import_module("platform.violation.cleanup")
-    AiViolationImage = importlib.import_module("platform.violation.orm").AiViolationImage
-except ModuleNotFoundError:
-    # pytest 自身可能已加载标准库 platform；用别名加载项目包，避免名称冲突。
-    _PLATFORM_ROOT = Path(__file__).resolve().parents[1] / "platform"
-    _PLATFORM_SPEC = importlib.util.spec_from_file_location(
-        "aivision_platform",
-        _PLATFORM_ROOT / "__init__.py",
-        submodule_search_locations=[str(_PLATFORM_ROOT)],
-    )
-    assert _PLATFORM_SPEC is not None and _PLATFORM_SPEC.loader is not None
-    _PLATFORM_MODULE = importlib.util.module_from_spec(_PLATFORM_SPEC)
-    sys.modules.setdefault("aivision_platform", _PLATFORM_MODULE)
-    _PLATFORM_SPEC.loader.exec_module(_PLATFORM_MODULE)
-    violation_cleanup = importlib.import_module("aivision_platform.violation.cleanup")
-    AiViolationImage = importlib.import_module(
-        "aivision_platform.violation.orm"
-    ).AiViolationImage
+from AiVision.core.db import Base
+from AiVision.platform.violation import cleanup as violation_cleanup
+from AiVision.platform.violation.orm import AiViolationImage
 
 
 # 功能：实现 `_database` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明

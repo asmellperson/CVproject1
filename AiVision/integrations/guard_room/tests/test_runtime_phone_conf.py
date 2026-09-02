@@ -1,17 +1,14 @@
 # 文件说明：包含运行时的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
-from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import AppConfig, ClassConfig, ModelConfig, RoomConfig, RuleConfig, RuntimeConfig, VideoConfig, WeChatConfig
-from src.runtime import GuardRoomRuntime
-from src.state import AppState
-from src.types import Detection
+from AiVision.integrations.guard_room.src.config import AppConfig, ClassConfig, ModelConfig, RoomConfig, RuleConfig, RuntimeConfig, VideoConfig, WeChatConfig
+from AiVision.integrations.guard_room.src.runtime import GuardRoomRuntime
+from AiVision.integrations.guard_room.src.state import AppState
+from AiVision.integrations.guard_room.src.types import Detection
 
 
 # 功能：定义 `_Boxes` 类，封装运行时相关的状态、约束与操作

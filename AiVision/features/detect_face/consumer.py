@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """features/detect_face/consumer.py — 人脸逗留检测"""
-from features._base.dwell_consumer import DwellDetectionConsumer
+from AiVision.features._base.dwell_consumer import DwellDetectionConsumer
 
 
 # 功能：人脸逗留 — 用 yolo_face 模型,所有 detection 都视为人脸；输入与输出详见下方说明

@@ -3,17 +3,15 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, select
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import AppConfig
-from src.db import Base
-from src.legacy_data_migration import migrate_legacy_data
-from src.orm import GuardRoomCamera, GuardRoomSite, GuardRoomSiteConfig
+from AiVision.integrations.guard_room.src.config import AppConfig
+from AiVision.integrations.guard_room.src.db import Base
+from AiVision.integrations.guard_room.src.legacy_data_migration import migrate_legacy_data
+from AiVision.integrations.guard_room.src.orm import GuardRoomCamera, GuardRoomSite, GuardRoomSiteConfig
 
 
 # 功能：更新或保存 `_write_config` 对应的数据迁移逻辑；输入由参数提供，处理结果见返回值说明

@@ -3,8 +3,8 @@
 
 from types import SimpleNamespace
 
-from api import exception_alerts as exception_alerts_api
-from api import runtime as runtime_api
+from AiVision.api import exception_alerts as exception_alerts_api
+from AiVision.api import runtime as runtime_api
 
 
 # 功能：验证 `test_health_exposes_model_worker_watchdog_state` 对应的运行时、接口访问逻辑；输入由参数提供，处理结果见返回值说明

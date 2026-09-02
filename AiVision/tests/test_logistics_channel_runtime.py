@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timezone
-import sys
 from threading import Event, Thread
 from types import SimpleNamespace
 
@@ -227,10 +226,7 @@ def build_runtime(
     dispatcher=None,
     channel_service=None,
 ):
-    loaded_platform = sys.modules.get("platform")
-    if loaded_platform is not None and not hasattr(loaded_platform, "__path__"):
-        sys.modules.pop("platform", None)
-    from platform.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
 
     dispatcher = dispatcher or FakeDispatcher()
     cameras = cameras or {
@@ -273,7 +269,7 @@ def build_runtime(
 #   - 内部调用：`CameraSnapshot`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def snapshot(camera_id, count, *, now=100.0, online=True):
-    from platform.logistics_channel.state import CameraSnapshot
+    from AiVision.platform.logistics_channel.state import CameraSnapshot
 
     return CameraSnapshot(
         camera_id=camera_id,
@@ -467,15 +463,12 @@ def test_alarm_incident_reopens_after_recovery_without_resetting_cooldown():
 #          等共 13 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_alarm_interval_remains_effective_after_recovery(monkeypatch):
-    loaded_platform = sys.modules.get("platform")
-    if loaded_platform is not None and not hasattr(loaded_platform, "__path__"):
-        sys.modules.pop("platform", None)
-    from core.alarm.dispatcher import AlarmDispatcher
+    from AiVision.core.alarm.dispatcher import AlarmDispatcher
 
     dispatcher = AlarmDispatcher()
     dispatched = []
     dispatcher_time = {"now": 100.0}
-    monkeypatch.setattr("core.alarm.dispatcher.time.time", lambda: dispatcher_time["now"])
+    monkeypatch.setattr("AiVision.core.alarm.dispatcher.time.time", lambda: dispatcher_time["now"])
     monkeypatch.setattr(dispatcher, "_execute", lambda request: dispatched.append(request))
     runtime, _ = build_runtime(
         [channel(member_ids=(10,))],
@@ -782,7 +775,7 @@ def test_compositor_runs_only_for_alarm_or_explicit_frame_request():
 #          等共 12 个调用。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_service_camera_online_compositor_and_dispatcher_run_outside_global_lock():
-    from platform.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
 
     holder = {}
     item = channel(member_ids=(10,))

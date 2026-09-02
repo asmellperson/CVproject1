@@ -7,30 +7,30 @@ import threading
 import time
 from typing import Optional
 
-from core.logger import logger
-from core.cache import config_cache
-from core.db import ensure_schema_compatible                        # 数据库检查
-from core.events import config_event_bus, ConfigChangeEvent         # 配置变化的时候，通知正在运行的模块更新
-from core.alarm.dispatcher import alarm_dispatcher                  # 统一告警处理
-from core.alarm.wechat import WeChatNotifier                        # 企业微信通知
-from core.process_cleanup import cleanup_aivision_residual_processes
-from core.settings import settings
-from core.system_config import system_config_service
+from AiVision.core.logger import logger
+from AiVision.core.cache import config_cache
+from AiVision.core.db import ensure_schema_compatible                        # 数据库检查
+from AiVision.core.events import config_event_bus, ConfigChangeEvent         # 配置变化的时候，通知正在运行的模块更新
+from AiVision.core.alarm.dispatcher import alarm_dispatcher                  # 统一告警处理
+from AiVision.core.alarm.wechat import WeChatNotifier                        # 企业微信通知
+from AiVision.core.process_cleanup import cleanup_aivision_residual_processes
+from AiVision.core.settings import settings
+from AiVision.core.system_config import system_config_service
 
-from features import all_specs                                     # 系统有那些检测功能
-from features._base.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
+from AiVision.features import all_specs                                     # 系统有那些检测功能
+from AiVision.features._base.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
 
-from platform.camera.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
-from platform.camera.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
-from platform.camera.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
-from platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
-from platform.inference.config_manager import model_config_manager               # 模型配置/数据库
-from platform.logistics_channel.constants import LOGISTICS_FEATURES
-from platform.logistics_channel.runtime import LogisticsChannelRuntime
-from platform.logistics_channel.service import logistics_channel_service
-from platform.alarm_device.service import horn_service                   # 喇叭设备
-from platform.violation.service import violation_writer                  # 写入违规记录
-from platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
+from AiVision.platform.camera.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
+from AiVision.platform.camera.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
+from AiVision.platform.camera.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
+from AiVision.platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
+from AiVision.platform.inference.config_manager import model_config_manager               # 模型配置/数据库
+from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
+from AiVision.platform.logistics_channel.service import logistics_channel_service
+from AiVision.platform.alarm_device.service import horn_service                   # 喇叭设备
+from AiVision.platform.violation.service import violation_writer                  # 写入违规记录
+from AiVision.platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
 
 # 全局常量，这些改了可能需要重启摄像头进程
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")
@@ -235,7 +235,7 @@ class Orchestrator:
         except Exception:
             pass
         # 8、释放数据库连接
-        from core.db import dispose
+        from AiVision.core.db import dispose
         dispose()
 
         self._started = False                                    # 修改状态

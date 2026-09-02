@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """features/detect_phone/ — 手机检测"""
-from features._base.spec import FeatureSpec
+from AiVision.features._base.spec import FeatureSpec
 from .consumer import PhoneConsumer
 from .orm import PhoneConfigORM
 from .schema import PhoneConfigSchema

@@ -29,8 +29,8 @@ managed_visual_services="$(<"$PROJECT_ROOT/AiVision/platform/visual_services/man
 security_vlm_main="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/src/main.py")"
 security_vlm_config="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/configs/config.example.yaml")"
 
-[[ "$start_script" == *'conda activate ${AIVISION_ENV} && python main.py'* ]] || \
-  fail "AiVision must start from its Conda environment"
+[[ "$start_script" == *'conda activate ${AIVISION_ENV} && python -m AiVision.main'* ]] || \
+  fail "AiVision must start as a package from the project root"
 [[ "$start_script" != *"uv run"* && "$start_script" != *"UV_BIN"* ]] || \
   fail "startup must not use uv"
 
@@ -73,9 +73,9 @@ done
   fail "Security VLM must be mounted in AiVision"
 [[ "$aivision_app" != *"VisualWorkerClient"* ]] || \
   fail "AiVision must not retain the HTTP worker relay"
-[[ "$managed_visual_services" == *"from integrations.guard_room.src.server import create_app"* ]] || \
+[[ "$managed_visual_services" == *"from AiVision.integrations.guard_room.src.server import create_app"* ]] || \
   fail "Guard Room must be imported from inside AiVision"
-[[ "$managed_visual_services" == *"from integrations.security_vlm.src.main import create_app"* ]] || \
+[[ "$managed_visual_services" == *"from AiVision.integrations.security_vlm.src.main import create_app"* ]] || \
   fail "Security VLM must be imported from inside AiVision"
 [[ -d "$PROJECT_ROOT/AiVision/integrations/guard_room" ]] || \
   fail "Guard Room source tree must live under AiVision/integrations"

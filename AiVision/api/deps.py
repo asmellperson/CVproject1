@@ -22,7 +22,7 @@ from fastapi import HTTPException, status
 def get_current_orchestrator():
     """返回已由 main.py 初始化的 Orchestrator。"""
     try:
-        from platform.orchestrator import get_orchestrator
+        from AiVision.platform.orchestrator import get_orchestrator
         return get_orchestrator()
     except RuntimeError as exc:
         raise HTTPException(
@@ -39,7 +39,7 @@ def get_current_orchestrator():
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_camera_config_manager():
-    from platform.camera.config_manager import camera_config_manager
+    from AiVision.platform.camera.config_manager import camera_config_manager
     return camera_config_manager
 
 
@@ -51,7 +51,7 @@ def get_camera_config_manager():
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_feature_config_manager():
-    from features._base.config_manager import feature_config_manager
+    from AiVision.features._base.config_manager import feature_config_manager
     return feature_config_manager
 
 
@@ -63,7 +63,7 @@ def get_feature_config_manager():
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_model_config_manager():
-    from platform.inference.config_manager import model_config_manager
+    from AiVision.platform.inference.config_manager import model_config_manager
     return model_config_manager
 
 
@@ -75,7 +75,7 @@ def get_model_config_manager():
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_department_service():
-    from platform.department.service import department_service
+    from AiVision.platform.department.service import department_service
     return department_service
 
 
@@ -87,5 +87,5 @@ def get_department_service():
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_logistics_channel_service():
-    from platform.logistics_channel.service import logistics_channel_service
+    from AiVision.platform.logistics_channel.service import logistics_channel_service
     return logistics_channel_service

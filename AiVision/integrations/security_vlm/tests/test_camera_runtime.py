@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 try:
-    import camera_runtime
+    from AiVision.integrations.security_vlm.src import camera_runtime
 except ModuleNotFoundError:
     camera_runtime = None
 
@@ -303,7 +303,8 @@ def make_manager(
     #   - 内部调用：`Path`、`command.index`、`RuntimeError`、`events.append`、`FakeProcess`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def popen(command, cwd=None, env=None):
-        script_name = Path(command[1]).stem
+        module_name = command[command.index("-m") + 1]
+        script_name = module_name.rsplit(".", 1)[-1]
         camera_id = "global"
         if "--config" in command:
             config_path = Path(command[command.index("--config") + 1])

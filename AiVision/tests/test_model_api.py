@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api import models as models_api
+from AiVision.api import models as models_api
 
 
 def _methods_for_path(router, path: str) -> set[str]:

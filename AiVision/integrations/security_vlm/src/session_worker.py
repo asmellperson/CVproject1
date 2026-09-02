@@ -17,7 +17,6 @@ import argparse
 import json
 import pickle
 import signal
-import sys
 import threading
 import time
 from collections import deque
@@ -29,10 +28,9 @@ import cv2
 import numpy as np
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
-from departments import SECURITY_DEPARTMENTS, require_department
-from roi_geometry import (
+from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
+from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
     roi_bounds,

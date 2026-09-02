@@ -10,21 +10,21 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ConfigDict
 
-from api.auth import get_current_user, require_admin
-from api.deps import (
+from auth.auth import get_current_user, require_admin
+from AiVision.api.deps import (
     get_current_orchestrator,
     get_feature_config_manager,
     get_logistics_channel_service,
 )
-from api.features import FeatureConfigResponse
-from api.cameras import encode_frame_to_jpeg, frame_size_headers
-from core.db import get_session
-from features import all_specs
-from platform.logistics_channel.constants import (
+from AiVision.api.features import FeatureConfigResponse
+from AiVision.api.cameras import encode_frame_to_jpeg, frame_size_headers
+from AiVision.core.db import get_session
+from AiVision.features import all_specs
+from AiVision.platform.logistics_channel.constants import (
     LOGISTICS_FEATURE_DEPARTMENTS,
     LOGISTICS_FEATURES,
 )
-from platform.logistics_channel.schema import (
+from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelAlarmListResponse,
     LogisticsCameraInventoryResponse,
     LogisticsChannelConfigUpdate,
@@ -39,7 +39,7 @@ from platform.logistics_channel.schema import (
     LogisticsChannelStatisticsResponse,
     LogisticsChannelUpdate,
 )
-from platform.violation.orm import AiViolationImage
+from AiVision.platform.violation.orm import AiViolationImage
 
 
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])

@@ -40,9 +40,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 
-from core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
+from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 
-from .auth import (
+from auth.auth import (
     AuthError,
     ChangePasswordRequest,
     LoginRequest,

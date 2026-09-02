@@ -1,16 +1,12 @@
 # 文件说明：包含告警的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-import sys
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from unified_backend.app import (  # noqa: E402
+from unified_backend.app import (
     ALARM_TYPE_META,
     DEPARTMENT_EVENT_TYPES,
     _build_alarm_statistics,

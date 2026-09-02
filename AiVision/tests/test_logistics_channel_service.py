@@ -14,20 +14,20 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Query, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from core.db import Base
-from features import all_specs
-from platform.alarm_device.orm import AiHornConfig
-from platform.camera.orm import AiCameraConfig
-from platform.camera.config_manager import CameraConfigManager
-from platform.logistics_channel.constants import (
+from AiVision.core.db import Base
+from AiVision.features import all_specs
+from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.platform.camera.config_manager import CameraConfigManager
+from AiVision.platform.logistics_channel.constants import (
     DEFAULT_STATUS_STALE_SECONDS,
     LOGISTICS_FEATURES,
     MAX_CAMERAS_PER_CHANNEL,
     require_logistics_feature,
 )
-from platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-from platform.logistics_channel.service import LogisticsChannelService, MigrationSummary
-from platform.logistics_channel.schema import (
+from AiVision.platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.platform.logistics_channel.service import LogisticsChannelService, MigrationSummary
+from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelAlarm,
     LogisticsChannelConfigUpdate,
     LogisticsChannelDetailResponse,
@@ -46,7 +46,7 @@ from platform.logistics_channel.schema import (
 #   - 内部调用：`importlib.util.find_spec`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_channel_service_module_exists():
-    assert importlib.util.find_spec("platform.logistics_channel.service") is not None
+    assert importlib.util.find_spec("AiVision.platform.logistics_channel.service") is not None
 
 
 # 功能：验证 `test_logistics_channel_package_exports_service_without_hiding_state_exports` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -57,7 +57,7 @@ def test_logistics_channel_service_module_exists():
 #   - 内部调用：`isinstance`、`callable`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_channel_package_exports_service_without_hiding_state_exports():
-    import platform.logistics_channel as package
+    import AiVision.platform.logistics_channel as package
 
     assert package.LogisticsChannelService is LogisticsChannelService
     assert package.MigrationSummary is MigrationSummary
@@ -76,8 +76,8 @@ def test_logistics_channel_package_exports_service_without_hiding_state_exports(
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.fixture
 def service_db(monkeypatch):
-    import platform.camera.config_manager as camera_config_manager_module
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.camera.config_manager as camera_config_manager_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     engine = create_engine(
         "sqlite+pysqlite://",
@@ -792,7 +792,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
     service_db,
     monkeypatch,
 ):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     service = service_db.service
     camera_id = _seed_camera(service_db, "discover-before-write")
@@ -1018,7 +1018,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
 #   - 内部调用：`service.create_channel`、`channel_service_module._MembershipDiscovery`、`channel_service_module._DiscoveredMembership`、`monkeypatch.setattr`、`service._run_membership_transaction`、`sorted`、`tuple`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_membership_change_retries_with_new_discovery_and_channel_lock_set(service_db, monkeypatch):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     service = service_db.service
     source_one = service.create_channel(BASE_FEATURE, "重试锁集合一")
@@ -1104,7 +1104,7 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service._run_membership_transaction`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     attempts = []
 
@@ -1602,7 +1602,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
     monkeypatch,
     error_code,
 ):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     original_scope = channel_service_module.session_scope
     attempts = []
@@ -1644,7 +1644,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_channel`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     original_scope = channel_service_module.session_scope
     attempts = []
@@ -1681,7 +1681,7 @@ def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_channel`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_write_transaction_does_not_retry_other_operational_errors(service_db, monkeypatch):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     original_scope = channel_service_module.session_scope
     attempts = []
@@ -1717,7 +1717,7 @@ def test_write_transaction_does_not_retry_other_operational_errors(service_db, m
 #   - 内部调用：`monkeypatch.setattr`、`service_db.camera_config_manager.create_camera`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monkeypatch):
-    import platform.camera.config_manager as camera_config_manager_module
+    import AiVision.platform.camera.config_manager as camera_config_manager_module
 
     original_scope = camera_config_manager_module.session_scope
     sessions = []
@@ -1774,7 +1774,7 @@ def test_camera_config_manager_translates_commit_integrity_errors(
     message,
     expected,
 ):
-    import platform.camera.config_manager as camera_config_manager_module
+    import AiVision.platform.camera.config_manager as camera_config_manager_module
 
     original_scope = camera_config_manager_module.session_scope
 
@@ -1810,7 +1810,7 @@ def test_camera_config_manager_translates_commit_integrity_errors(
 #   - 内部调用：`service_db.service.create_channel`、`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_camera_and_bind`、`isinstance`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_and_bind_translates_camera_integrity_error(service_db, monkeypatch):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     channel = service_db.service.create_channel(BASE_FEATURE, "并发绑定")
     original_scope = channel_service_module.session_scope
@@ -2078,7 +2078,7 @@ def test_migration_without_success_does_not_reload_cache(service_db):
 #   - 内部调用：`monkeypatch.setattr`、`FailingEventBus`、`service_db.service.create_channel`、`service_db.service.get_channel`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_notification_failure_is_logged_without_undoing_committed_channel(service_db, monkeypatch, caplog):
-    import platform.logistics_channel.service as channel_service_module
+    import AiVision.platform.logistics_channel.service as channel_service_module
 
     # 功能：定义 `FailingEventBus` 类，封装业务服务相关的状态、约束与操作
     # 参数：无。

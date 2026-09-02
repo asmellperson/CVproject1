@@ -3,14 +3,12 @@
 
 import json
 import os
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.alarms import AlarmManager
-from src.media_cleanup import cleanup_alarm_media
-from src.types import AlarmEvent
+from AiVision.integrations.guard_room.src.alarms import AlarmManager
+from AiVision.integrations.guard_room.src.media_cleanup import cleanup_alarm_media
+from AiVision.integrations.guard_room.src.types import AlarmEvent
 
 
 # 功能：更新或保存 `_write_media` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明

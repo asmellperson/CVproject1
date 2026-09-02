@@ -6,13 +6,13 @@ from __future__ import annotations
 import importlib
 import queue
 
-from platform.inference.runtime_manager import (
+from AiVision.platform.inference.runtime_manager import (
     InferenceRuntimeManager,
     WorkerWatchdogState,
 )
 
 
-manager_module = importlib.import_module("platform.inference.runtime_manager")
+manager_module = importlib.import_module("AiVision.platform.inference.runtime_manager")
 
 
 # 功能：定义 `FakeWorker` 类，封装模型推理相关的状态、约束与操作

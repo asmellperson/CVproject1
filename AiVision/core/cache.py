@@ -16,8 +16,8 @@ from __future__ import annotations
 import threading
 from typing import Optional
 
-from core.db import get_session
-from core.logger import logger
+from AiVision.core.db import get_session
+from AiVision.core.logger import logger
 
 
 # 功能：摄像头基础信息 + 功能配置的进程内内存缓存；输入与输出详见下方说明
@@ -127,7 +127,7 @@ class ConfigCache:
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _load_cameras(self):
         """从数据库全量加载摄像头基础配置到 _camera_cache。"""
-        from platform.camera.orm import AiCameraConfig
+        from AiVision.platform.camera.orm import AiCameraConfig
         session = get_session()
         try:
             for cam in session.query(AiCameraConfig).all():
@@ -166,7 +166,7 @@ class ConfigCache:
         注意：摄像头更新后其关联的功能配置缓存（_function_cache）不会自动
         同步 name/shm_name 等注入字段，必要时需同步调用 refresh_function()。
         """
-        from platform.camera.orm import AiCameraConfig
+        from AiVision.platform.camera.orm import AiCameraConfig
         session = get_session()
         try:
             cam = session.query(AiCameraConfig).get(camera_id)
@@ -199,7 +199,7 @@ class ConfigCache:
         每条配置经 _enrich_function_config() 注入摄像头基础字段后存入缓存。
         新增功能只需在 features 注册表中注册，此处自动覆盖，无需修改本文件。
         """
-        from features import all_specs
+        from AiVision.features import all_specs
         session = get_session()
         try:
             for spec in all_specs().values():
@@ -261,7 +261,7 @@ class ConfigCache:
         数据库中该配置已删除时，从缓存中移除对应条目；
         存在时重新读取并重新注入摄像头基础字段后覆盖。
         """
-        from features import get_spec
+        from AiVision.features import get_spec
         spec = get_spec(feature_name)
         if spec is None:
             return  # 未注册的功能，无法定位 ORM 表，跳过
@@ -332,5 +332,5 @@ class ConfigCache:
 
 # 模块级全局单例
 # 系统启动时由 Orchestrator 调用 config_cache.init()；
-# 运行时各模块直接 `from core.cache import config_cache` 使用。
+# 运行时各模块直接 `from AiVision.core.cache import config_cache` 使用。
 config_cache = ConfigCache()

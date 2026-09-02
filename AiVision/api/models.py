@@ -12,8 +12,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.auth import require_admin
-from api.deps import get_model_config_manager
+from auth.auth import require_admin
+from AiVision.api.deps import get_model_config_manager
 
 
 router = APIRouter(prefix="/api/models", tags=["models"])

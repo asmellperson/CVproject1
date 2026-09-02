@@ -1,9 +1,9 @@
 # 文件说明：包含`test_haoda_human_detection` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-from features import all_specs
-from features.detect_human import SPEC as HUMAN_SPEC
-from features.detect_human_haoda import SPEC as HAODA_HUMAN_SPEC
+from AiVision.features import all_specs
+from AiVision.features.detect_human import SPEC as HUMAN_SPEC
+from AiVision.features.detect_human_haoda import SPEC as HAODA_HUMAN_SPEC
 
 
 # 功能：验证 `test_haoda_human_detection_reuses_algorithm_with_independent_config_table` 对应的`test_haoda_human_detection`

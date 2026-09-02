@@ -14,8 +14,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from core.logger import logger
-from core.settings import settings
+from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 
 try:
     import yaml

@@ -7,8 +7,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.auth import require_admin
-from core.system_config import system_config_service
+from auth.auth import require_admin
+from AiVision.core.system_config import system_config_service
 
 
 router = APIRouter(prefix="/api/exception-alert", tags=["exception-alert"])

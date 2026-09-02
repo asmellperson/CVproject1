@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """伟达公司物流通道单人检测（保留原内部 feature 标识）。"""
-from features._base.spec import FeatureSpec
+from AiVision.features._base.spec import FeatureSpec
 
 from .consumer import LogisticsSinglePersonPreciousMetalRecyclingConsumer
 from .orm import LogisticsSinglePersonPreciousMetalRecyclingConfigORM

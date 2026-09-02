@@ -21,8 +21,8 @@ import time
 import cv2
 import numpy as np
 
-from features._base.consumer import BaseFunctionConsumer
-from features._base.tracking import IouTracker
+from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.tracking import IouTracker
 
 
 # 功能：实现 `_number_or_default` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明

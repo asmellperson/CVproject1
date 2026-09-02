@@ -5,25 +5,18 @@
 from __future__ import annotations
 
 import time
-import sys
 from typing import Protocol
 
 import cv2
 import numpy as np
 
-# 测试框架和部分依赖会先加载标准库同名 ``platform``。本项目的本地 platform
-# 包代理了标准库 API 并承载业务子包；在导入物流领域模型前确保使用本地包。
-_loaded_platform = sys.modules.get("platform")
-if _loaded_platform is not None and not hasattr(_loaded_platform, "__path__"):
-    sys.modules.pop("platform", None)
-
-from platform.logistics_channel.state import (  # noqa: E402
+from AiVision.platform.logistics_channel.state import (
     CameraSnapshot,
     PersonDetection,
     deduplicate_person_detections,
     translate_person_detection,
 )
-from features._base.consumer import BaseFunctionConsumer  # noqa: E402
+from AiVision.features._base.consumer import BaseFunctionConsumer
 
 
 DEFAULT_PERSON_DEDUP_IOU_THRESHOLD = 0.5

@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-import sys
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -29,11 +28,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from auth.auth import (  # noqa: E402
+from auth.auth import (
     AuthError,
     ChangePasswordRequest,
     LoginRequest,
@@ -56,15 +51,15 @@ from auth.auth import (  # noqa: E402
     update_auth_user,
     verify_login,
 )
-from unified_backend.alarm_dispositions import AlarmDispositionStore  # noqa: E402
-from unified_backend.access_audit import (  # noqa: E402
+from unified_backend.alarm_dispositions import AlarmDispositionStore
+from unified_backend.access_audit import (
     DEFAULT_ACCESS_AUDIT_LIMIT,
     MAX_ACCESS_AUDIT_LIMIT,
     AccessAuditStore,
     add_access_audit_capability,
     require_access_audit_owner,
 )
-from unified_backend.proxy import (  # noqa: E402
+from unified_backend.proxy import (
     AsyncProxyClient,
     ProxyRequestError,
     ProxySettings,
@@ -75,6 +70,7 @@ from unified_backend.proxy import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_PLATFORM_STATUS_MAX_WORKERS = 16
 
 

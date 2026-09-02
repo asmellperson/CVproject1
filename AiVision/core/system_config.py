@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import Column, JSON, String
 
-from core.db import Base, session_scope, get_session
+from AiVision.core.db import Base, session_scope, get_session
 
 
 # 功能：定义 `AiSystemConfig` 类，封装配置相关的状态、约束与操作

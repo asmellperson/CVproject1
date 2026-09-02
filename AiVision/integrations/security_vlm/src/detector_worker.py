@@ -32,7 +32,6 @@ detector_worker.py —— YOLO + ByteTrack 检测/跟踪子进程
 """
 import argparse
 import signal
-import sys
 import threading
 import time
 from pathlib import Path
@@ -40,9 +39,8 @@ from typing import Any, Dict, List
  
 import yaml
  
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout  # noqa: E402
-from ultralytics_compat import yolo_precision_kwargs  # noqa: E402
+from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
+from AiVision.integrations.security_vlm.src.ultralytics_compat import yolo_precision_kwargs
  
  
 # ---------------------------------------------------------------------------

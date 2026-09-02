@@ -4,7 +4,7 @@
 """platform/violation/orm.py"""
 from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, text
 from sqlalchemy.dialects.mysql import BIGINT
-from core.db import Base
+from AiVision.core.db import Base
 
 
 # 功能：定义 `AiViolationImage` 类，封装数据库模型相关的状态、约束与操作

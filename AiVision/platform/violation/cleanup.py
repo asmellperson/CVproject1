@@ -9,8 +9,8 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.db import session_scope
-from core.logger import logger
+from AiVision.core.db import session_scope
+from AiVision.core.logger import logger
 from .orm import AiViolationImage
 
 

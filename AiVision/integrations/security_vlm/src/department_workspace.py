@@ -16,9 +16,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from camera_registry import CameraRegistry
-from departments import require_department
-from frame_hub import ResultStore
+from AiVision.integrations.security_vlm.src.camera_registry import CameraRegistry
+from AiVision.integrations.security_vlm.src.departments import require_department
+from AiVision.integrations.security_vlm.src.frame_hub import ResultStore
 
 
 GENERAL_ELECTRIC = "general_electric"

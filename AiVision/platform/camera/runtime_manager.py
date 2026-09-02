@@ -15,7 +15,7 @@ import threading
 import time
 from typing import Callable
 
-from core.logger import logger
+from AiVision.core.logger import logger
 from .runtime import CameraRuntime
 from .frame_reader import frame_reader_registry
 
