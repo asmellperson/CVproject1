@@ -135,7 +135,7 @@ class DepartmentService:
     # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/api/compat.py` 的 `compat_get_department_features` 调用本符号；`AiVision/api/departments.py` 的
-    #         `get_department_features` 调用本符号；`AiVision/api/departments.py` 的 `set_department_features` 调用本符号
+    #         `get_department_features` 调用本符号
     #   - 内部调用：`select(AiFeatureDepartment).where`、`select`、`session.scalars(stmt).all`、`session.scalars`、`all_specs`、`specs.get`、`features.append`、`specs.items`、`hasattr`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_features_by_department(self, session, department: str) -> list[dict[str, Any]]:
@@ -194,8 +194,7 @@ class DepartmentService:
     #   - `dept_names`（Sequence[str]）：`dept_names` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/department/service.py` 的 `DepartmentService::ensure_seed_data`
-    #         调用本符号；`AiVision/api/departments.py` 的 `set_department_features` 调用本符号
+    #   - 调用方：`AiVision/platform/department/service.py` 的 `DepartmentService::ensure_seed_data` 调用本符号
     #   - 内部调用：`session.execute`、`delete(AiFeatureDepartment).where`、`delete`、`session.add`、`AiFeatureDepartment`、`session.flush`、`logger.info`、`config_cache.reload`、`ConfigChangeEvent.publish_departments_changed`。
     # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def set_feature_departments(self, session, feature_name: str, dept_names: Sequence[str]) -> None:
@@ -218,7 +217,7 @@ class DepartmentService:
     #   - `dept_name`（str）：`dept_name` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/api/departments.py` 的 `set_department_features` 调用本符号
+    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`session.execute`、`delete(AiFeatureDepartment).where`、`delete`、`session.flush`、`logger.info`、`config_cache.reload`、`ConfigChangeEvent.publish_departments_changed`。
     # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def remove_feature_department(self, session, feature_name: str, dept_name: str) -> None:
