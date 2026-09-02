@@ -43,7 +43,7 @@ GET    /api/runtime/status
 GET    /api/cameras
 POST   /api/cameras
 GET    /api/cameras/{key}
-PUT    /api/cameras/{key}
+PATCH  /api/cameras/{key}
 DELETE /api/cameras/{key}
 GET    /api/cameras/{key}/frame.jpg?feature=detect_phone
 GET    /api/features

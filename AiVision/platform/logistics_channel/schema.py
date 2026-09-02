@@ -187,7 +187,6 @@ class LogisticsChannelConfigUpdate(BaseModel):
 #   - `name`（str | None）：业务对象名称
 #   - `url`（str | None）：目标接口、媒体流或页面地址
 #   - `fps`（int）：`fps` 对应的业务输入值
-#   - `max_restart`（int）：`max_restart` 对应的业务输入值
 #   - `department`（str | None）：业务部门名称或标识
 #   - `shm_name`（str | None）：摄像头共享内存名称
 # 返回：LogisticsChannelMemberCreate；返回新建的 `LogisticsChannelMemberCreate` 实例。
@@ -207,7 +206,6 @@ class LogisticsChannelMemberCreate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     url: str | None = Field(default=None, min_length=1, max_length=500)
     fps: int = Field(default=5, gt=0)
-    max_restart: int = Field(default=10, ge=0)
     department: str | None = Field(default=None, max_length=100)
     shm_name: str | None = Field(default=None, min_length=1, max_length=100)
 
@@ -226,7 +224,7 @@ class LogisticsChannelMemberCreate(BaseModel):
         if has_existing_camera == has_new_camera:
             raise ValueError("必须且只能提供 camera_id 或 name 和 url")
         if has_existing_camera:
-            new_camera_fields = {"name", "url", "fps", "max_restart", "department", "shm_name"}
+            new_camera_fields = {"name", "url", "fps", "department", "shm_name"}
             supplied = new_camera_fields & self.model_fields_set
             if supplied:
                 raise ValueError("camera_id 模式不得提供新摄像头字段")

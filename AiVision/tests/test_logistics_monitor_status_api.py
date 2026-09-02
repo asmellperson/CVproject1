@@ -232,7 +232,7 @@ def test_feature_status_delegates_to_read_only_orchestrator():
     response = features_module.get_feature_status(
         key="cam1",
         feature="detect_logistics_single_person",
-        user={"role": "viewer", "department": "general_electric"},
+        user={"role": "viewer", "departments": ["general_electric"]},
         camera_config_manager=CameraConfigManager(),
         orchestrator=StatusOrchestrator(),
     )

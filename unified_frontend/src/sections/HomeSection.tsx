@@ -713,6 +713,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraGuardSiteId, setCameraGuardSiteId] = useState('')
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
+  const [cameraFps, setCameraFps] = useState('5')
   const [cameraFormError, setCameraFormError] = useState('')
   const [cameraActionKey, setCameraActionKey] = useState('')
   const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
@@ -929,6 +930,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const resetCameraForm = () => {
     setCameraName('')
     setCameraUrl('')
+    setCameraFps('5')
     setCameraToEdit(null)
     setCameraFormError('')
   }
@@ -972,6 +974,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraToEdit(camera)
     setCameraName(camera.name)
     setCameraUrl(camera.url || '')
+    setCameraFps(String(camera.fps ?? 5))
     setCameraFormError('')
     setCameraDialogOpen(true)
   }
@@ -980,8 +983,13 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     if (!isAdmin) return
     const name = cameraName.trim()
     const url = cameraUrl.trim()
+    const fps = Number(cameraFps)
     if (!name || !url) {
       setCameraFormError('摄像头名称和 RTSP 地址都不能为空。')
+      return
+    }
+    if ((cameraDialogMode === 'edit' || cameraSource === 'aivision') && (!Number.isInteger(fps) || fps < 1)) {
+      setCameraFormError('FPS 必须是大于等于 1 的整数。')
       return
     }
 
@@ -998,12 +1006,13 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraFormError('')
     try {
       if (cameraDialogMode === 'edit' && cameraToEdit) {
-        await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url })
+        await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url, fps })
       } else if (cameraSource === 'aivision') {
         await createAiVisionCamera({
           name,
           url,
           shm_name: generatedShmName,
+          fps,
           enabled: true,
           department: cameraDepartment,
         })
@@ -1553,6 +1562,20 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 disabled={Boolean(cameraActionKey)}
               />
             </div>
+            {cameraDialogMode === 'edit' || cameraSource === 'aivision' ? (
+              <div className="space-y-2">
+                <Label htmlFor="overview-camera-fps">FPS</Label>
+                <Input
+                  id="overview-camera-fps"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={cameraFps}
+                  onChange={(event) => setCameraFps(event.target.value)}
+                  disabled={Boolean(cameraActionKey)}
+                />
+              </div>
+            ) : null}
             {cameraFormError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraFormError}</div> : null}
           </div>
 

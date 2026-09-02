@@ -109,7 +109,6 @@ class FeatureConfigResponse(BaseModel):
 #   - `url`（str）：目标接口、媒体流或页面地址
 #   - `shm_name`（str | None）：摄像头共享内存名称
 #   - `fps`（int）：`fps` 对应的业务输入值
-#   - `max_restart`（int）：`max_restart` 对应的业务输入值
 #   - `enabled`（bool）：是否启用相应能力
 #   - `department`（str | None）：业务部门名称或标识
 # 返回：FeatureCameraCreateRequest；返回新建的 `FeatureCameraCreateRequest` 实例。
@@ -124,7 +123,6 @@ class FeatureCameraCreateRequest(BaseModel):
     url: str = Field(..., min_length=1)
     shm_name: str | None = Field(None, min_length=1)
     fps: int = Field(5, gt=0)
-    max_restart: int = Field(10, ge=0)
     enabled: bool = True
     department: str | None = None
 

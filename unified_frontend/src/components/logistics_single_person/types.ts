@@ -185,7 +185,6 @@ export type CreateLogisticsCameraPayload = {
   name: string
   url: string
   fps?: number
-  max_restart?: number
   department?: string | null
   shm_name?: string
 }

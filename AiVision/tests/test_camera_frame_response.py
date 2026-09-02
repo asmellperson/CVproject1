@@ -6,6 +6,7 @@ import importlib
 import sys
 
 import anyio.to_thread
+import cv2
 import httpx
 import numpy as np
 import pytest
@@ -22,7 +23,7 @@ get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
 #   - `frame`（未显式标注）：待处理的视频图像帧
 # 返回：FrameOrchestrator；返回新建的 `FrameOrchestrator` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_frame_response_exposes_original_dimensions_when_preview_is_resized`
+#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_frame_response_exposes_resized_dimensions_when_preview_is_resized`
 #         实例化本符号；`AiVision/tests/test_camera_frame_response.py` 的 `test_slow_frame_response_logs_lookup_and_encode_timings` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -57,7 +58,7 @@ class FrameOrchestrator:
 # 参数：无。
 # 返回：FrameCameraConfigManager；返回新建的 `FrameCameraConfigManager` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_frame_response_exposes_original_dimensions_when_preview_is_resized`
+#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_frame_response_exposes_resized_dimensions_when_preview_is_resized`
 #         实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -201,7 +202,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
                 assert (await client.get(prefix)).status_code == 401
                 assert (await client.get(f"{prefix}/1")).status_code == 401
 
-            viewer = {"role": "viewer", "department": "general_electric"}
+            viewer = {"role": "viewer", "departments": ["general_electric"]}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: viewer
             for prefix in ("/api/cameras",):
                 default_list = await client.get(prefix)
@@ -225,7 +226,6 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
 
             multi_department_viewer = {
                 "role": "viewer",
-                "department": "general_electric",
                 "departments": ["general_electric", "electronics_electrician"],
             }
             app.dependency_overrides[cameras_module.get_current_user] = lambda: multi_department_viewer
@@ -247,7 +247,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
                 )).status_code == 403
                 assert (await client.get(f"{prefix}/camera_3")).status_code == 403
 
-            research_viewer = {"role": "viewer", "department": "research_institute"}
+            research_viewer = {"role": "viewer", "departments": ["research_institute"]}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: research_viewer
             for prefix in ("/api/cameras",):
                 research_cameras = await client.get(prefix)
@@ -255,7 +255,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
                 assert (await client.get(f"{prefix}/camera_5")).status_code == 200
                 assert (await client.get(f"{prefix}/camera_4")).status_code == 403
 
-            admin = {"role": "admin", "department": None}
+            admin = {"role": "admin", "departments": []}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: admin
             for prefix in ("/api/cameras",):
                 all_cameras = await client.get(prefix)
@@ -279,7 +279,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
     asyncio.run(scenario())
 
 
-# 功能：验证 `test_frame_response_exposes_original_dimensions_when_preview_is_resized` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_frame_response_exposes_resized_dimensions_when_preview_is_resized` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `handler`（未显式标注）：负责处理事件或结果的回调函数
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -287,22 +287,52 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`np.zeros`、`handler`、`FrameCameraConfigManager`、`FrameOrchestrator`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_frame_response_exposes_original_dimensions_when_preview_is_resized():
+@pytest.mark.parametrize(
+    ("max_width", "max_height", "expected_width", "expected_height"),
+    [
+        (960, None, 960, 540),
+        (None, 270, 480, 270),
+        (1000, 500, 888, 500),
+    ],
+)
+def test_frame_response_exposes_resized_dimensions_when_preview_is_resized(
+    max_width,
+    max_height,
+    expected_width,
+    expected_height,
+):
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
 
     response = get_camera_frame_jpg(
         key="camera-1",
         feature="detect_human",
         quality=72,
-        max_width=960,
-        max_height=None,
-        user={"role": "viewer", "department": "general_electric"},
+        max_width=max_width,
+        max_height=max_height,
+        user={"role": "viewer", "departments": ["general_electric"]},
         camera_config_manager=FrameCameraConfigManager(),
         orchestrator=FrameOrchestrator(frame),
     )
 
-    assert response.headers["x-frame-width"] == "1920"
-    assert response.headers["x-frame-height"] == "1080"
+    response_frame = cv2.imdecode(np.frombuffer(response.body, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert response_frame.shape[:2] == (expected_height, expected_width)
+    assert response.headers["x-frame-width"] == str(expected_width)
+    assert response.headers["x-frame-height"] == str(expected_height)
+
+
+def test_camera_api_uses_enabled_fields_and_patch_update_only():
+    assert set(cameras_module.CameraCreateRequest.model_fields) == {
+        "name", "url", "shm_name", "fps", "enabled", "department",
+    }
+    assert set(cameras_module.CameraUpdateRequest.model_fields) == {
+        "name", "url", "fps", "enabled", "department",
+    }
+
+    app = FastAPI()
+    app.include_router(cameras_module.router)
+    camera_update_operations = app.openapi()["paths"]["/api/cameras/{key}"]
+    assert "patch" in camera_update_operations
+    assert "put" not in camera_update_operations
 
 
 # 功能：验证 `test_slow_frame_response_logs_lookup_and_encode_timings` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明

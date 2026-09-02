@@ -22,7 +22,11 @@ async function readFrontendSource(path) {
 }
 
 test('ordinary AiVision configuration can create and immediately bind a camera', async () => {
-  const manager = await readFrontendSource('src/components/FeatureCameraManager.tsx')
+  const [manager, api, cameraTypes] = await Promise.all([
+    readFrontendSource('src/components/FeatureCameraManager.tsx'),
+    readFrontendSource('src/lib/aivision.ts'),
+    readFrontendSource('src/components/logistics_single_person/types.ts'),
+  ])
 
   assert.match(manager, /createAiVisionFeatureCamera\(feature, \{/)
   assert.match(manager, /department,/)
@@ -31,6 +35,11 @@ test('ordinary AiVision configuration can create and immediately bind a camera',
   assert.match(manager, /新建摄像头并加入当前功能/)
   assert.match(manager, /<LogisticsCameraCreateDialog/)
   assert.match(manager, /notifyPlatformCamerasChanged\(\)/)
+  assert.match(api, /fps\?: number/)
+  const internalRestartField = ['max', 'restart'].join('_')
+  assert.equal(api.includes(internalRestartField), false)
+  assert.equal(cameraTypes.includes(internalRestartField), false)
+  assert.match(api, /updateAiVisionCamera[\s\S]*?method: 'PATCH'/)
 })
 
 test('each ordinary AiVision page supplies its business department to camera creation', async () => {

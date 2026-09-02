@@ -1122,7 +1122,6 @@ def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeyp
                     "name": "后门摄像头",
                     "url": "rtsp://example/human",
                     "fps": 5,
-                    "max_restart": 10,
                     "enabled": True,
                     "department": "general_electric",
                 },

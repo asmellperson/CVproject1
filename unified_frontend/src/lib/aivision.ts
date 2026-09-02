@@ -54,7 +54,6 @@ export type CreateAiVisionCameraPayload = {
   url: string
   shm_name: string
   fps?: number
-  max_restart?: number
   enabled?: boolean
   department?: string | null
 }
@@ -63,7 +62,7 @@ export type CreateAiVisionFeatureCameraPayload = Omit<CreateAiVisionCameraPayloa
   shm_name?: string
 }
 
-export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'max_restart' | 'enabled' | 'department'>>
+export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'enabled' | 'department'>>
 
 export type AiVisionExceptionAlertSettings = {
   wechat_enable: boolean
@@ -397,7 +396,7 @@ export async function createAiVisionFeatureCamera(
  */
 export async function updateAiVisionCamera(cameraKey: string, payload: UpdateAiVisionCameraPayload) {
   const response = await fetch(`/api/cameras/${encodeURIComponent(cameraKey)}`, {
-    method: 'PUT',
+    method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
