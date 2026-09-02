@@ -79,6 +79,7 @@ def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     assert item.evidence_error == "channel_frame_unavailable"
     assert item.video_path == "/tmp/channel.mp4"
     assert item.video_status == "ready"
+    assert item.image_url == "/api/alarms/42/image"
 
 
 # 功能：验证 `test_event_dict_and_response_schema_keep_legacy_camera_fallbacks` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明

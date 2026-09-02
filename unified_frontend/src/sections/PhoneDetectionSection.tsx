@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -168,28 +168,23 @@ function toForm(payload: PhoneConfigResponse) {
  * 功能：实现 `requestPhoneConfig` 对应的`PhoneDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
  * 参数：
  *   - `shmName`（string）：摄像头共享内存名称
- *   - `init?`（RequestInit）：请求初始化选项
+ *   - `config?`（PhoneConfig）：可选的新配置；提供时保存，否则读取
  * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
  * 调用关系：
  *   - 调用方：`unified_frontend/src/sections/PhoneDetectionSection.tsx` 的 `PhoneDetectionSection` 调用本符号
- *   - 内部调用：`fetch`、`encodeURIComponent`、`dispatchEvent`、`Event`、`text`、`Error`、`json`。
+ *   - 内部调用：`getAiVisionFeatureConfig`、`saveAiVisionFeatureConfig`。
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
-async function requestPhoneConfig(shmName: string, init?: RequestInit) {
-  const response = await fetch(`/api/ai/phone-config/${encodeURIComponent(shmName)}`, { ...init, credentials: 'include' })
-  if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` ${detail}` : ''}`)
-  }
-  const payload = (await response.json()) as PhoneConfigResponse | PhoneConfig
-  if ('detect_phone' in payload) return payload
+async function requestPhoneConfig(shmName: string, config?: PhoneConfig) {
+  const payload = config
+    ? await saveAiVisionFeatureConfig('detect_phone', shmName, config)
+    : await getAiVisionFeatureConfig('detect_phone', shmName)
   return {
-    camera_id: 0,
-    name: shmName,
-    shm_name: shmName,
-    camera_enable: true,
-    detect_phone: payload,
+    camera_id: payload.camera.id,
+    name: payload.camera.name,
+    shm_name: payload.camera.shm_name,
+    camera_enable: payload.camera.enable,
+    detect_phone: payload.config as PhoneConfig,
   }
 }
 
@@ -286,11 +281,7 @@ export function PhoneDetectionSection() {
     setMessage('正在添加摄像头并启用手机使用检测...')
     try {
       const payload = await requestPhoneConfig(cameraName)
-      await requestPhoneConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_phone, enable: true }),
-      })
+      await requestPhoneConfig(cameraName, { ...payload.detect_phone, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
       setMessage(`添加成功：${cameraName} 已启用手机使用检测。`)
@@ -306,11 +297,7 @@ export function PhoneDetectionSection() {
     setMessage('正在停用该摄像头的手机检测...')
     try {
       const payload = await requestPhoneConfig(cameraName)
-      await requestPhoneConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_phone, enable: false }),
-      })
+      await requestPhoneConfig(cameraName, { ...payload.detect_phone, enable: false })
       const items = await refreshCameraList()
       const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_phone'))?.shm_name || ''
       if (form.cameraName === cameraName && nextCamera) {
@@ -393,11 +380,7 @@ export function PhoneDetectionSection() {
     setSaving(true)
     setMessage('正在保存手机使用检测配置...')
     try {
-      await requestPhoneConfig(shmName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      })
+      await requestPhoneConfig(shmName, nextConfig)
       setMessage('保存成功，正在重新读取当前摄像头配置...')
       const reloaded = await requestPhoneConfig(shmName)
       setPhoneConfig(reloaded.detect_phone)

@@ -564,7 +564,7 @@ export const frameUrl = () => `${API_PREFIX}/frame.jpg`
  *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
-export const alarmImageUrl = (alarmId: string) => `/api/aivision/alarms/${alarmId}/image`
+export const alarmImageUrl = (alarmId: string) => `/api/alarms/${alarmId}/image`
 /**
  * 功能：实现 `alarmVideoUrl` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
  * 参数：
@@ -575,7 +575,7 @@ export const alarmImageUrl = (alarmId: string) => `/api/aivision/alarms/${alarmI
  *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
-export const alarmVideoUrl = (alarmId: string) => `/api/aivision/alarms/${alarmId}/video`
+export const alarmVideoUrl = (alarmId: string) => `/api/alarms/${alarmId}/video`
 
 type GuardRoomSitesResponse = {
   items?: GuardRoomSite[]

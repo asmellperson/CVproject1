@@ -65,8 +65,7 @@ unified_backend (:5000)
   |
   +-- 保安行为 API        -> AiVision (:7862, 进程内 Guard Room)
   +-- 安检流程 API        -> AiVision (:7862, 进程内 Security VLM)
-  +-- /api/aivision/*    -> AiVision (:7862)
-  +-- /api/ai/*          -> AiVision (:7862, 旧路径兼容)
+  +-- /api/*             -> AiVision (:7862, 正式 API)
   +-- /aivision/*        -> AiVision (:7862)
 ```
 
@@ -337,7 +336,7 @@ Orchestrator.start()
   +-- 为每个 FeatureSpec 启动 BaseFunctionConsumer 子类
   |
   v
-FastAPI API + 旧路径兼容
+FastAPI 正式 API
 ```
 
 ### 7.4 关键文件
@@ -349,8 +348,7 @@ AiVision/
 ├── .env.example                 # 环境变量模板
 ├── api/app.py                   # FastAPI app、中间件、路由注册
 ├── api/auth.py                  # 兼容入口，实际转发到 ../auth/auth.py
-├── api/compat.py                # 旧接口兼容层
-├── api/                      # 正式路由：runtime/cameras/features/models/alarms
+├── api/                         # 正式路由：runtime/cameras/features/models/alarms/departments
 ├── core/settings.py             # 统一环境变量配置入口
 ├── core/db.py                   # 数据库连接与 schema 初始化
 ├── core/cache.py                # 配置缓存
@@ -376,26 +374,17 @@ AiVision/
 /api/features
 /api/features/{feature}
 /api/features/{feature}/configs/{shm_name}
+/api/features/{feature}/cameras/{key}/status
 /api/models
 /api/alarms
+/api/alarms/{alarm_id}/image
+/api/alarms/{alarm_id}/video
+/api/departments
+/api/departments/{name}/features
 /api/logistics-channels/{feature}
 /api/logistics-channels/{feature}/{channel_id}/status
 /api/logistics-channels/{feature}/{channel_id}/frame.jpg
 ```
-
-兼容旧前端的路径包括：
-
-```text
-/api/aivision/cameras
-/api/aivision/cameras/{key}/frame.jpg
-/api/ai/blocks-config/{shm_name}
-/api/ai/door-config/{shm_name}
-/api/ai/face-config/{shm_name}
-/api/ai/phone-config/{shm_name}
-/api/ai/human-config/{shm_name}
-```
-
-前端现在仍大量使用兼容路径，见 `unified_frontend/src/lib/aivision.ts`。
 
 ### 7.6 物流通道多摄像头单人检测
 

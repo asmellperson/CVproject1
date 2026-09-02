@@ -418,7 +418,7 @@ class AlarmDispatcher:
         if not base_url:
             return "", ""
         raw_id = str(alarm_id)
-        image_url = f"{base_url}/api/public/aivision/alarms/{quote(raw_id)}/image"
+        image_url = f"{base_url}/api/public/alarms/{quote(raw_id)}/image"
         detail_id = quote(f"aivision:{raw_id}", safe="")
         detail_url = f"{base_url}/?page=alarms&alarmId={detail_id}"
         return image_url, detail_url

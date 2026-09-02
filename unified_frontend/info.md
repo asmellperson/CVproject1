@@ -312,7 +312,7 @@ AiVision 摄像头、模型、图片帧接口在这里。
 
 ```ts
 export async function getAiVisionCameras() {
-  const response = await fetch('/api/aivision/cameras', { credentials: 'include' })
+  const response = await fetch('/api/cameras', { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -326,7 +326,7 @@ export async function getAiVisionCameras() {
 
 ```ts
 export function aiVisionFrameUrl(cameraKey: string, feature?: string, nonce?: number) {
-  return `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/frame.jpg`
+  return `/api/cameras/${encodeURIComponent(cameraKey)}/frame.jpg`
 }
 ```
 

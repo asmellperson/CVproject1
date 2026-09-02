@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -127,28 +127,23 @@ function toForm(payload: FaceConfigResponse) {
  * 功能：实现 `requestFaceConfig` 对应的`FaceDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
  * 参数：
  *   - `shmName`（string）：摄像头共享内存名称
- *   - `init?`（RequestInit）：请求初始化选项
+ *   - `config?`（FaceConfig）：可选的新配置；提供时保存，否则读取
  * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
  * 调用关系：
  *   - 调用方：`unified_frontend/src/sections/FaceDetectionSection.tsx` 的 `FaceDetectionSection` 调用本符号
- *   - 内部调用：`fetch`、`encodeURIComponent`、`dispatchEvent`、`Event`、`text`、`Error`、`json`。
+ *   - 内部调用：`getAiVisionFeatureConfig`、`saveAiVisionFeatureConfig`。
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
-async function requestFaceConfig(shmName: string, init?: RequestInit) {
-  const response = await fetch(`/api/ai/face-config/${encodeURIComponent(shmName)}`, { ...init, credentials: 'include' })
-  if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` ${detail}` : ''}`)
-  }
-  const payload = (await response.json()) as FaceConfigResponse | FaceConfig
-  if ('detect_face' in payload) return payload
+async function requestFaceConfig(shmName: string, config?: FaceConfig) {
+  const payload = config
+    ? await saveAiVisionFeatureConfig('detect_face', shmName, config)
+    : await getAiVisionFeatureConfig('detect_face', shmName)
   return {
-    camera_id: 0,
-    name: shmName,
-    shm_name: shmName,
-    camera_enable: true,
-    detect_face: payload,
+    camera_id: payload.camera.id,
+    name: payload.camera.name,
+    shm_name: payload.camera.shm_name,
+    camera_enable: payload.camera.enable,
+    detect_face: payload.config as FaceConfig,
   }
 }
 
@@ -245,11 +240,7 @@ export function FaceDetectionSection() {
     setMessage('正在添加摄像头并启用人脸检测...')
     try {
       const payload = await requestFaceConfig(cameraName)
-      await requestFaceConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_face, enable: true }),
-      })
+      await requestFaceConfig(cameraName, { ...payload.detect_face, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
       setMessage(`添加成功：${cameraName} 已启用人脸检测。`)
@@ -265,11 +256,7 @@ export function FaceDetectionSection() {
     setMessage('正在停用该摄像头的人脸检测...')
     try {
       const payload = await requestFaceConfig(cameraName)
-      await requestFaceConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_face, enable: false }),
-      })
+      await requestFaceConfig(cameraName, { ...payload.detect_face, enable: false })
       const items = await refreshCameraList()
       const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_face'))?.shm_name || ''
       if (form.cameraName === cameraName && nextCamera) {
@@ -335,11 +322,7 @@ export function FaceDetectionSection() {
     setSaving(true)
     setMessage('正在保存配置...')
     try {
-      const payload = await requestFaceConfig(shmName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      })
+      const payload = await requestFaceConfig(shmName, nextConfig)
       setFaceConfig(payload.detect_face)
       setForm(toForm(payload))
       const items = await refreshCameraList()

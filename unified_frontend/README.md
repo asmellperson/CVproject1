@@ -77,7 +77,6 @@ npm run preview  # 仅本地预览构建结果，不作为生产服务器
 已代理路径统一指向 `VITE_BACKEND_TARGET`，由统一后端再转发到 AiVision 视觉业务层：
 
 - `/api` -> `VITE_BACKEND_TARGET`
-- `/api/aivision`、`/api/ai` -> `VITE_BACKEND_TARGET`
 - `/aivision` -> `VITE_BACKEND_TARGET`
 - `/security-vlm` -> `VITE_BACKEND_TARGET`
 - `/ws` -> `VITE_BACKEND_TARGET`

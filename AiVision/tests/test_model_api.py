@@ -3,7 +3,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api import compat as compat_api
 from api import models as models_api
 
 
@@ -21,10 +20,6 @@ def test_model_update_routes_only_expose_patch():
         "GET",
         "PATCH",
     }
-    assert _methods_for_path(
-        compat_api.router,
-        "/api/aivision/models/{model_id}",
-    ) == {"PATCH"}
 
 
 def test_patch_handlers_keep_partial_update_contract():
@@ -39,36 +34,16 @@ def test_patch_handlers_keep_partial_update_contract():
         "id": 7,
         "path": "models/new.pt",
     }
-    assert compat_api.compat_patch_model(
-        8,
-        {"path": "models/compat.pt"},
-        _user={},
-        model_config_manager=service,
-    ) == {"id": 8, "path": "models/compat.pt"}
-    assert calls == [
-        (7, {"path": "models/new.pt"}),
-        (8, {"path": "models/compat.pt"}),
-    ]
+    assert calls == [(7, {"path": "models/new.pt"})]
 
 
 def test_patch_handlers_keep_not_found_contract():
     service = SimpleNamespace(update_model=lambda _model_id, _payload: None)
-    calls = (
-        lambda: models_api.patch_model(
+    with pytest.raises(HTTPException) as exc_info:
+        models_api.patch_model(
             7,
             models_api.ModelUpdateRequest(path="missing.pt"),
             _user={},
             model_config_manager=service,
-        ),
-        lambda: compat_api.compat_patch_model(
-            8,
-            {"path": "missing.pt"},
-            _user={},
-            model_config_manager=service,
-        ),
-    )
-
-    for call in calls:
-        with pytest.raises(HTTPException) as exc_info:
-            call()
-        assert exc_info.value.status_code == 404
+        )
+    assert exc_info.value.status_code == 404

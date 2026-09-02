@@ -125,7 +125,7 @@ def test_legacy_camera_alarm_contract_remains_compatible():
     assert normalized["camera_no"] == "camera_7"
     assert normalized["camera_name"] == "七号摄像头"
     assert normalized["reason"] == "人体逗留 - 七号摄像头"
-    assert normalized["image_url"] == "/api/aivision/alarms/7/image"
+    assert normalized["image_url"] == "/api/alarms/7/image"
     assert normalized["video_url"] is None
     assert normalized["metadata"] == {}
     assert normalized["channel_id"] is None

@@ -134,7 +134,7 @@ class DepartmentService:
     #   - `department`（str）：业务部门名称或标识
     # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/api/compat.py` 的 `compat_get_department_features` 调用本符号；`AiVision/api/departments.py` 的
+    #   - 调用方：`AiVision/api/departments.py` 的
     #         `get_department_features` 调用本符号
     #   - 内部调用：`select(AiFeatureDepartment).where`、`select`、`session.scalars(stmt).all`、`session.scalars`、`all_specs`、`specs.get`、`features.append`、`specs.items`、`hasattr`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。

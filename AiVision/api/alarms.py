@@ -21,6 +21,7 @@ from platform.violation.orm import AiViolationImage
 
 
 router = APIRouter(prefix="/api/alarms", tags=["alarms"])
+public_router = APIRouter(prefix="/api/public/alarms", tags=["alarms"])
 
 _TYPE_META = {
     1: {"event_type": "blocks", "label": "区域入侵", "color": "#ef4444"},
@@ -295,7 +296,7 @@ def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any
         "confidence": 1,
         "created_at": created_at,
         "image_path": row.image_path,
-        "image_url": f"/api/aivision/alarms/{row.id}/image",
+        "image_url": f"/api/alarms/{row.id}/image",
         "video_path": getattr(row, "video_path", None),
         "video_status": getattr(row, "video_status", None),
         **_channel_alarm_fields(metadata),
@@ -351,6 +352,12 @@ def alarm_image(alarm_id: int):
         return FileResponse(row.image_path, media_type="image/png")
     finally:
         session.close()
+
+
+@public_router.get("/{alarm_id}/image")
+def public_alarm_image(alarm_id: int):
+    """提供企业微信卡片可直接访问的告警图片。"""
+    return alarm_image(alarm_id)
 
 
 # 功能：实现 `alarm_video` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明

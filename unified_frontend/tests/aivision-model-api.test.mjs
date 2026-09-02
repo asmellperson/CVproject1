@@ -11,7 +11,7 @@ test('AiVision model partial updates use PATCH only', async () => {
   const updateSource = source.slice(start, end)
 
   assert.ok(start >= 0 && end > start)
-  assert.match(updateSource, /\/api\/aivision\/models\//)
+  assert.match(updateSource, /\/api\/models\//)
   assert.match(updateSource, /method:\s*'PATCH'/)
   assert.doesNotMatch(updateSource, /method:\s*'PUT'/)
 })

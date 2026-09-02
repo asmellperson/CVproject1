@@ -38,7 +38,7 @@ test('provides typed dwell status through the existing feature-status route', ()
   assert.match(api, /duration_seconds: number \| null/)
   assert.match(api, /threshold_seconds: number \| null/)
   assert.match(api, /getAiVisionHumanDwellStatus/)
-  assert.match(api, /features\/\$\{encodeURIComponent\(feature\)\}\/status/)
+  assert.match(api, /features\/\$\{encodeURIComponent\(feature\)\}\/cameras\/\$\{encodeURIComponent\(cameraKey\)\}\/status/)
 })
 
 test('derives timeout and non-alarm leave events without persistence', () => {

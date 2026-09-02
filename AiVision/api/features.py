@@ -13,6 +13,7 @@ api/features.py
     GET  /api/features/{feature}               → 单个 feature 元数据
     GET  /api/features/{feature}/configs/{cam} → 读单个摄像头的配置
     PUT  /api/features/{feature}/configs/{cam} → 写单个摄像头的配置
+    GET  /api/features/{feature}/cameras/{cam}/status → 读功能运行状态
 """
 from __future__ import annotations
 from typing import Annotated
@@ -20,6 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, require_admin
+from api.cameras import get_camera_for_user
+from api.deps import get_camera_config_manager, get_current_orchestrator
 from features import all_specs, get_spec
 from features._base.spec import FeatureSpec
 from features._base.config_manager import feature_config_manager
@@ -172,6 +175,18 @@ def _require_spec(feature: str) -> FeatureSpec:
     return spec
 
 
+def get_feature_status(
+    feature: str,
+    key: str,
+    user: dict = Depends(get_current_user),
+    camera_config_manager=Depends(get_camera_config_manager),
+    orchestrator=Depends(get_current_orchestrator),
+):
+    """读取指定摄像头的功能运行状态。"""
+    get_camera_for_user(camera_config_manager, key, user)
+    return orchestrator.get_feature_monitor_status(key, feature)
+
+
 # ------------------------------------------------------------------ #
 #  路由工厂                                                             #
 # ------------------------------------------------------------------ #
@@ -212,6 +227,11 @@ def create_features_router(
         camera_config_manager = default_camera_config_manager
 
     router = APIRouter(prefix="/api/features", tags=["features"])
+    router.add_api_route(
+        "/{feature}/cameras/{key}/status",
+        get_feature_status,
+        methods=["GET"],
+    )
 
     # 功能：将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化；输入与输出详见下方说明
     # 参数：

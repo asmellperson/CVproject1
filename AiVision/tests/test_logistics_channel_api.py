@@ -16,7 +16,6 @@ from fastapi.routing import serialize_response
 
 sys.modules.pop("platform", None)
 api = importlib.import_module("api.logistics_channels")
-compat_api = importlib.import_module("api.compat")
 
 FEATURES = tuple(sorted(importlib.import_module(
     "platform.logistics_channel.constants"
@@ -346,8 +345,7 @@ class FakeService:
 #         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
 #         `test_generic_feature_config_http_cannot_bypass_logistics_membership_guard`
 #         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_config_manager`
-#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
-#         `test_legacy_logistics_config_reads_require_department_and_membership` 实例化本符号
+#         实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeFeatureConfigManager:
@@ -570,8 +568,6 @@ class EmptyAlarmSession:
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_real_asgi_auth_permissions_and_endpoint_contracts`
-#         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的
-#         `test_legacy_logistics_config_reads_require_department_and_membership`
 #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_member_bind_create_reorder_move_and_remove`
 #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_status_response_and_composite_jpeg_semantics` 调用本符号
 #   - 内部调用：`service.create_channel`。
@@ -1131,105 +1127,6 @@ def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeyp
                     "department": "general_electric",
                 },
             )]
-
-    asyncio.run(scenario())
-
-
-# 功能：验证 `test_legacy_logistics_config_reads_require_department_and_membership` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
-#   - `feature`（未显式标注）：`feature` 对应的业务输入值
-#   - `legacy_path`（未显式标注）：`legacy_path` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FakeService`、`_seed`、`service.add_existing_camera`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize(
-    ("feature", "legacy_path"),
-    [
-        (
-            "detect_logistics_single_person",
-            "/api/ai/logistics-single-person-config",
-        ),
-        (
-            "detect_logistics_single_person_electronics_electrician",
-            "/api/ai/logistics-single-person-electronics-electrician-config",
-        ),
-        (
-            "detect_logistics_single_person_electrical_components",
-            "/api/ai/logistics-single-person-electrical-components-config",
-        ),
-        (
-            "detect_logistics_single_person_precious_metal_recycling",
-            "/api/ai/logistics-single-person-precious-metal-recycling-config",
-        ),
-    ],
-)
-def test_legacy_logistics_config_reads_require_department_and_membership(
-    monkeypatch,
-    feature,
-    legacy_path,
-):
-    service = FakeService()
-    channel = _seed(service, feature=feature)
-    service.add_existing_camera(feature, channel["id"], 7)
-    feature_config_manager = FakeFeatureConfigManager()
-    app = FastAPI()
-    app.include_router(compat_api.router)
-    app.dependency_overrides[compat_api.get_logistics_channel_service] = lambda: service
-    app.dependency_overrides[compat_api.get_feature_config_manager] = lambda: feature_config_manager
-
-    # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `func`（未显式标注）：`func` 对应的业务输入值
-    #   - `*args`（未显式标注）：`args` 对应的业务输入值
-    #   - `**_kwargs`（未显式标注）：`_kwargs` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`func`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    async def inline_run_sync(func, *args, **_kwargs):
-        return func(*args)
-
-    monkeypatch.setattr(anyio.to_thread, "run_sync", inline_run_sync)
-
-    # 功能：实现 `scenario` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`client.put`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息。
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            def unauthenticated():
-                raise HTTPException(status_code=401, detail="not authenticated")
-
-            app.dependency_overrides[compat_api.get_current_user] = unauthenticated
-            assert (await client.get(f"{legacy_path}/7")).status_code == 401
-
-            viewer = {
-                "role": "viewer",
-                "department": api.LOGISTICS_FEATURE_DEPARTMENTS[feature],
-            }
-            app.dependency_overrides[compat_api.get_current_user] = lambda: viewer
-            assert (await client.get(f"{legacy_path}/7")).status_code == 200
-            assert (await client.get(f"{legacy_path}/8")).status_code == 403
-            assert (await client.put(f"{legacy_path}/7", json={})).status_code == 403
-
-            app.dependency_overrides[compat_api.get_current_user] = lambda: {
-                "role": "viewer",
-                "department": "cross_department",
-            }
-            assert (await client.get(f"{legacy_path}/7")).status_code == 403
-
-            app.dependency_overrides[compat_api.get_current_user] = lambda: ADMIN
-            assert (await client.get(f"{legacy_path}/7")).status_code == 200
-            assert (await client.get(f"{legacy_path}/8")).status_code == 200
-            assert (await client.get(f"{legacy_path}/missing")).status_code == 404
 
     asyncio.run(scenario())
 

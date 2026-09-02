@@ -701,11 +701,11 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         "offending_camera_ids": offending_ids,
         "evidence_error": alarm.get("evidence_error") or metadata.get("evidence_error"),
         "metadata": metadata,
-        "image_url": alarm.get("image_url") or f"/api/aivision/alarms/{source_id}/image",
+        "image_url": alarm.get("image_url") or f"/api/alarms/{source_id}/image",
         "video_url": (
             alarm.get("video_url")
             or (
-                f"/api/aivision/alarms/{source_id}/video"
+                f"/api/alarms/{source_id}/video"
                 if alarm.get("video_status") == "ready"
                 else None
             )
@@ -1008,7 +1008,7 @@ def _collect_alarms(
     upstream_limit = max(limit, 100)
     alarms: list[dict[str, Any]] = []
 
-    ai_payload = _get_upstream_json(aivision_url, f"/api/aivision/alarms?limit={upstream_limit}", request)
+    ai_payload = _get_upstream_json(aivision_url, f"/api/alarms?limit={upstream_limit}", request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
 
     guard_departments = _guard_departments_for_user(user)
@@ -1427,9 +1427,7 @@ def _service_status(name: str, url: str, online: bool, latency_ms: float | None,
 #   - `upstream_path`（str）：`upstream_path` 对应的业务输入值
 # 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::proxy_public_aivision_api` 调用本符号；`unified_backend/app.py` 的
-#         `create_app::proxy_aivision_api` 调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_root_api`
-#         调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_legacy_api` 调用本符号；另有 3 处静态调用
+#   - 调用方：`unified_backend/app.py` 的 `create_app::proxy_aivision_root_api` 调用本符号；另有 3 处静态调用
 #   - 内部调用：`urljoin`、`upstream_path.lstrip`、`request.body`、`request.app.state.proxy_client.send`、`_request_headers`、`HTTPException`、`StreamingResponse`、`stream_response_bytes`、`filtered_response_headers`、`BackgroundTask`。
 # 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。
 async def _proxy(request: Request, base_url: str, upstream_path: str) -> Response:
@@ -2087,32 +2085,6 @@ def create_app() -> FastAPI:
         )
         return _build_alarm_statistics(alarms, days=days)
 
-    # 功能：实现 `proxy_public_aivision_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/api/public/aivision/{path:path}", methods=["GET", "OPTIONS"])
-    async def proxy_public_aivision_api(path: str, request: Request):
-        return await _proxy(request, aivision_url, f"/api/public/aivision/{path}")
-
-    # 功能：实现 `proxy_aivision_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/api/aivision/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_aivision_api(path: str, request: Request):
-        return await _proxy(request, aivision_url, f"/api/aivision/{path}")
-
     # 功能：实现 `proxy_aivision_root_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `path`（str）：目标路径
@@ -2125,19 +2097,6 @@ def create_app() -> FastAPI:
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_root_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/{path}")
-
-    # 功能：实现 `proxy_aivision_legacy_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/api/ai/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_aivision_legacy_api(path: str, request: Request):
-        return await _proxy(request, aivision_url, f"/api/ai/{path}")
 
     # 功能：实现 `proxy_aivision_root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

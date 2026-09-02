@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.auth import AuthError, get_current_user_from_request
-from api.compat import router as compat_router
+from api.alarms import public_router as public_alarms_router
 from api.alarms import router as alarms_router
 from api.cameras import router as cameras_router
 from api.departments import router as departments_router
@@ -123,7 +123,7 @@ def create_app(
     app = FastAPI(
         title="AiVision Backend",
         version="2.0.0",
-        description="AiVision features-first refactored backend with canonical and legacy compatibility routes.",
+        description="AiVision features-first refactored backend.",
         lifespan=lifespan,
     )
 
@@ -188,12 +188,12 @@ def create_app(
     app.include_router(cameras_router)
     app.include_router(features_router)
     app.include_router(models_router)
-    app.include_router(compat_router)
     app.include_router(alarms_router)
+    app.include_router(public_alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)
 
-    # 两套历史 API 直接运行在 AiVision 进程中。这里是 ASGI 子应用挂载，
+    # 两套视觉服务直接运行在 AiVision 进程中。这里是 ASGI 子应用挂载，
     # 不发起 HTTP 请求，也不需要 Guard Room / Security VLM 独立端口。
     app.mount(
         "/api/integrations/guard-room",

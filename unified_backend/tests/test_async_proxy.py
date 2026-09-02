@@ -388,8 +388,8 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
                 "http_version": "1.1",
                 "method": "GET",
                 "scheme": "http",
-                "path": "/api/aivision/cameras/cam/frame.jpg",
-                "raw_path": b"/api/aivision/cameras/cam/frame.jpg",
+                "path": "/api/cameras/cam/frame.jpg",
+                "raw_path": b"/api/cameras/cam/frame.jpg",
                 "query_string": b"quality=72",
                 "headers": [
                     (b"cookie", b"session=test"),
@@ -405,7 +405,7 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
         response = await _proxy(
             request,
             "http://127.0.0.1:7862",
-            "/api/aivision/cameras/cam/frame.jpg",
+            "/api/cameras/cam/frame.jpg",
         )
 
         assert isinstance(response, StreamingResponse)
@@ -418,7 +418,7 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
             "method": "GET",
             "url": (
                 "http://127.0.0.1:7862/"
-                "api/aivision/cameras/cam/frame.jpg?quality=72"
+                "api/cameras/cam/frame.jpg?quality=72"
             ),
             "body": b"",
             "headers": {"cookie": "session=test"},
@@ -489,7 +489,7 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             "exception-alert",
             request,
         )
-        await routes["proxy_aivision_api"].endpoint(
+        await routes["proxy_aivision_root_api"].endpoint(
             "models/7",
             request,
         )
@@ -515,8 +515,8 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
         (
             request,
             "http://aivision:7862",
-            "/api/aivision/models/7",
+            "/api/models/7",
         ),
     ]
 
-    assert "PATCH" in routes["proxy_aivision_api"].methods
+    assert "PATCH" in routes["proxy_aivision_root_api"].methods

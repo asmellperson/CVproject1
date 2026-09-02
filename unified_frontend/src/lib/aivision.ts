@@ -170,7 +170,7 @@ export async function getAiVisionCameras(department?: string) {
   const params = new URLSearchParams()
   if (department) params.set('department', department)
   const query = params.toString()
-  const response = await fetch(`/api/aivision/cameras${query ? `?${query}` : ''}`, { credentials: 'include' })
+  const response = await fetch(`/api/cameras${query ? `?${query}` : ''}`, { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -192,7 +192,7 @@ export async function getAiVisionCameras(department?: string) {
  */
 export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string, feature: string) {
   const response = await fetch(
-    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/${encodeURIComponent(feature)}/status`,
+    `/api/features/${encodeURIComponent(feature)}/cameras/${encodeURIComponent(cameraKey)}/status`,
     { credentials: 'include' },
   )
   if (!response.ok) {
@@ -214,7 +214,7 @@ export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string, 
  */
 export async function getAiVisionHumanDwellStatus(cameraKey: string, feature = 'detect_human') {
   const response = await fetch(
-    `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/features/${encodeURIComponent(feature)}/status`,
+    `/api/features/${encodeURIComponent(feature)}/cameras/${encodeURIComponent(cameraKey)}/status`,
     { credentials: 'include' },
   )
   if (!response.ok) {
@@ -233,7 +233,7 @@ export async function getAiVisionHumanDwellStatus(cameraKey: string, feature = '
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionDepartments() {
-  const response = await fetch('/api/aivision/departments', { credentials: 'include' })
+  const response = await fetch('/api/departments', { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -251,7 +251,7 @@ export async function getAiVisionDepartments() {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionDepartmentFeatures(departmentName: string) {
-  const response = await fetch(`/api/aivision/departments/${encodeURIComponent(departmentName)}/features`, { credentials: 'include' })
+  const response = await fetch(`/api/departments/${encodeURIComponent(departmentName)}/features`, { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -323,7 +323,7 @@ export function aiVisionFrameUrl(cameraKey: string, feature?: string, nonce?: nu
   if (options.maxHeight) params.set('max_height', String(options.maxHeight))
   if (options.quality) params.set('quality', String(options.quality))
   const query = params.toString()
-  return `/api/aivision/cameras/${encodeURIComponent(cameraKey)}/frame.jpg${query ? `?${query}` : ''}`
+  return `/api/cameras/${encodeURIComponent(cameraKey)}/frame.jpg${query ? `?${query}` : ''}`
 }
 
 /**
@@ -337,7 +337,7 @@ export function aiVisionFrameUrl(cameraKey: string, feature?: string, nonce?: nu
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
 export async function createAiVisionCamera(payload: CreateAiVisionCameraPayload) {
-  const response = await fetch('/api/aivision/cameras', {
+  const response = await fetch('/api/cameras', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -396,7 +396,7 @@ export async function createAiVisionFeatureCamera(
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
 export async function updateAiVisionCamera(cameraKey: string, payload: UpdateAiVisionCameraPayload) {
-  const response = await fetch(`/api/aivision/cameras/${encodeURIComponent(cameraKey)}`, {
+  const response = await fetch(`/api/cameras/${encodeURIComponent(cameraKey)}`, {
     method: 'PUT',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -423,7 +423,7 @@ export async function updateAiVisionCamera(cameraKey: string, payload: UpdateAiV
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
 export async function deleteAiVisionCamera(cameraKey: string) {
-  const response = await fetch(`/api/aivision/cameras/${encodeURIComponent(cameraKey)}`, {
+  const response = await fetch(`/api/cameras/${encodeURIComponent(cameraKey)}`, {
     method: 'DELETE',
     credentials: 'include',
   })
@@ -538,7 +538,7 @@ export async function saveAiVisionFeatureConfig(feature: string, cameraKey: stri
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionModels() {
-  const response = await fetch('/api/aivision/models', { credentials: 'include' })
+  const response = await fetch('/api/models', { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -558,7 +558,7 @@ export async function getAiVisionModels() {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function updateAiVisionModel(modelId: number, payload: Partial<Pick<AiVisionModel, 'path'>>) {
-  const response = await fetch(`/api/aivision/models/${encodeURIComponent(String(modelId))}`, {
+  const response = await fetch(`/api/models/${encodeURIComponent(String(modelId))}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -582,7 +582,7 @@ export async function updateAiVisionModel(modelId: number, payload: Partial<Pick
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function createAiVisionModel(payload: CreateAiVisionModelPayload) {
-  const response = await fetch('/api/aivision/models', {
+  const response = await fetch('/api/models', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

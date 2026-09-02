@@ -61,7 +61,7 @@ const logisticsPages = [
 test('provides typed logistics monitor status without changing the frame endpoint', () => {
   assert.match(api, /export type AiVisionLogisticsSinglePersonStatus/)
   assert.match(api, /getAiVisionLogisticsSinglePersonStatus\(cameraKey: string, feature: string\)/)
-  assert.match(api, /cameras\/\$\{encodeURIComponent\(cameraKey\)\}\/features\/\$\{encodeURIComponent\(feature\)\}\/status/)
+  assert.match(api, /features\/\$\{encodeURIComponent\(feature\)\}\/cameras\/\$\{encodeURIComponent\(cameraKey\)\}\/status/)
   assert.match(api, /fps\?: number/)
 })
 

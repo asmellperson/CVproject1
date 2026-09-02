@@ -78,7 +78,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
         camera_name="后大门",
         image_jpeg_bytes=b"unused-for-news",
         recipients="zhangsan",
-        image_url="https://aicv.fudar.com/api/aivision/alarms/42/image",
+        image_url="https://aicv.fudar.com/api/alarms/42/image",
         detail_url="https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42",
     )
 
@@ -91,7 +91,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     assert article["title"] == "区域入侵告警"
     assert article["description"] == "后大门"
     assert article["url"] == "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42"
-    assert article["picurl"] == "https://aicv.fudar.com/api/aivision/alarms/42/image"
+    assert article["picurl"] == "https://aicv.fudar.com/api/alarms/42/image"
 
 
 # 功能：定义 `FakeViolationWriter` 类，封装企业微信通知相关的状态、约束与操作
@@ -251,7 +251,7 @@ def test_dispatcher_persists_card_record_when_sql_is_disabled():
     assert user == "zhangsan"
     assert record.id == 42
     assert dispatcher._alarm_card_urls(record.id) == (
-        "https://aicv.fudar.com/api/public/aivision/alarms/42/image",
+        "https://aicv.fudar.com/api/public/alarms/42/image",
         "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42",
     )
 
@@ -270,7 +270,7 @@ def test_dispatcher_builds_public_image_and_detail_urls(monkeypatch):
 
     image_url, detail_url = dispatcher._alarm_card_urls(42)
 
-    assert image_url == "https://aicv.fudar.com/api/public/aivision/alarms/42/image"
+    assert image_url == "https://aicv.fudar.com/api/public/alarms/42/image"
     assert detail_url == "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42"
 
 

@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -151,28 +151,23 @@ function toForm(payload: DoorConfigResponse) {
  * 功能：实现 `requestDoorConfig` 对应的`DoorDetectionSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
  * 参数：
  *   - `shmName`（string）：摄像头共享内存名称
- *   - `init?`（RequestInit）：请求初始化选项
+ *   - `config?`（DoorConfig）：可选的新配置；提供时保存，否则读取
  * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
  * 调用关系：
  *   - 调用方：`unified_frontend/src/sections/DoorDetectionSection.tsx` 的 `DoorDetectionSection` 调用本符号
- *   - 内部调用：`fetch`、`encodeURIComponent`、`dispatchEvent`、`Event`、`text`、`Error`、`json`。
+ *   - 内部调用：`getAiVisionFeatureConfig`、`saveAiVisionFeatureConfig`。
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
-async function requestDoorConfig(shmName: string, init?: RequestInit) {
-  const response = await fetch(`/api/ai/door-config/${encodeURIComponent(shmName)}`, { ...init, credentials: 'include' })
-  if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` ${detail}` : ''}`)
-  }
-  const payload = (await response.json()) as DoorConfigResponse | DoorConfig
-  if ('detect_door' in payload) return payload
+async function requestDoorConfig(shmName: string, config?: DoorConfig) {
+  const payload = config
+    ? await saveAiVisionFeatureConfig('detect_door', shmName, config)
+    : await getAiVisionFeatureConfig('detect_door', shmName)
   return {
-    camera_id: 0,
-    name: shmName,
-    shm_name: shmName,
-    camera_enable: true,
-    detect_door: payload,
+    camera_id: payload.camera.id,
+    name: payload.camera.name,
+    shm_name: payload.camera.shm_name,
+    camera_enable: payload.camera.enable,
+    detect_door: payload.config as DoorConfig,
   }
 }
 
@@ -269,11 +264,7 @@ export function DoorDetectionSection() {
     setMessage('正在添加摄像头并启用大门开关检测...')
     try {
       const payload = await requestDoorConfig(cameraName)
-      await requestDoorConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_door, enable: true }),
-      })
+      await requestDoorConfig(cameraName, { ...payload.detect_door, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
       setMessage(`添加成功：${cameraName} 已启用大门开关检测。`)
@@ -289,11 +280,7 @@ export function DoorDetectionSection() {
     setMessage('正在停用该摄像头的大门开关检测...')
     try {
       const payload = await requestDoorConfig(cameraName)
-      await requestDoorConfig(cameraName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload.detect_door, enable: false }),
-      })
+      await requestDoorConfig(cameraName, { ...payload.detect_door, enable: false })
       const items = await refreshCameraList()
       const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_door'))?.shm_name || ''
       if (form.cameraName === cameraName && nextCamera) {
@@ -373,11 +360,7 @@ export function DoorDetectionSection() {
     setSaving(true)
     setMessage('正在保存配置...')
     try {
-      const payload = await requestDoorConfig(shmName, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      })
+      const payload = await requestDoorConfig(shmName, nextConfig)
       setDoorConfig(payload.detect_door)
       setForm(toForm(payload))
       const items = await refreshCameraList()

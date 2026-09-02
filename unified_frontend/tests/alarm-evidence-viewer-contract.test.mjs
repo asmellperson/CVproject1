@@ -20,5 +20,5 @@ test('alarm details expose image zoom and shared evidence video states', async (
   assert.match(section, /视频录制中/)
   assert.match(section, /onError=\{\(\) => setVideoError\(true\)\}/)
   assert.match(section, /报警视频加载失败/)
-  assert.match(api, /alarmVideoUrl.*\/api\/aivision\/alarms\/\$\{alarmId\}\/video/)
+  assert.match(api, /alarmVideoUrl.*\/api\/alarms\/\$\{alarmId\}\/video/)
 })

@@ -26,7 +26,7 @@ function assertEqual(actual: unknown, expected: unknown) {
 
 assertEqual(
   buildAiVisionPreviewFrameUrl('logistics camera', 'detect_logistics_single_person', 123),
-  '/api/aivision/cameras/logistics%20camera/frame.jpg?feature=detect_logistics_single_person&t=123&max_width=960&quality=72',
+  '/api/cameras/logistics%20camera/frame.jpg?feature=detect_logistics_single_person&t=123&max_width=960&quality=72',
 )
 
 const frameHeaders = new Headers({

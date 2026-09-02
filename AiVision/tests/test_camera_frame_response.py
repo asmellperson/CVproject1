@@ -14,9 +14,7 @@ from fastapi import FastAPI, HTTPException
 
 sys.modules.pop("platform", None)
 cameras_module = importlib.import_module("api.cameras")
-compat_module = importlib.import_module("api.compat")
 get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
-compat_get_camera_frame_jpg = compat_module.compat_get_camera_frame_jpg
 
 
 # 功能：定义 `FrameOrchestrator` 类，封装摄像头、视频帧相关的状态、约束与操作
@@ -164,11 +162,10 @@ class PermissionCameraConfigManager:
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`PermissionCameraConfigManager`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
+def test_camera_reads_are_scoped_by_department(monkeypatch):
     service = PermissionCameraConfigManager()
     app = FastAPI()
     app.include_router(cameras_module.router)
-    app.include_router(compat_module.router)
     app.dependency_overrides[cameras_module.get_camera_config_manager] = lambda: service
 
     # 功能：启动或执行 `inline_run_sync` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
@@ -200,13 +197,13 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 raise HTTPException(status_code=401, detail="not authenticated")
 
             app.dependency_overrides[cameras_module.get_current_user] = unauthenticated
-            for prefix in ("/api/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras",):
                 assert (await client.get(prefix)).status_code == 401
                 assert (await client.get(f"{prefix}/1")).status_code == 401
 
             viewer = {"role": "viewer", "department": "general_electric"}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: viewer
-            for prefix in ("/api/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras",):
                 default_list = await client.get(prefix)
                 assert default_list.status_code == 200
                 assert [item["camera_id"] for item in default_list.json()] == [1, 4]
@@ -232,7 +229,7 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 "departments": ["general_electric", "electronics_electrician"],
             }
             app.dependency_overrides[cameras_module.get_current_user] = lambda: multi_department_viewer
-            for prefix in ("/api/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras",):
                 authorized_cameras = await client.get(prefix)
                 assert authorized_cameras.status_code == 200
                 assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2, 4]
@@ -252,7 +249,7 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 
             research_viewer = {"role": "viewer", "department": "research_institute"}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: research_viewer
-            for prefix in ("/api/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras",):
                 research_cameras = await client.get(prefix)
                 assert [item["camera_id"] for item in research_cameras.json()] == [5]
                 assert (await client.get(f"{prefix}/camera_5")).status_code == 200
@@ -260,7 +257,7 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 
             admin = {"role": "admin", "department": None}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: admin
-            for prefix in ("/api/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras",):
                 all_cameras = await client.get(prefix)
                 assert [item["camera_id"] for item in all_cameras.json()] == [1, 2, 3, 4, 5]
                 assert [item["url"] for item in all_cameras.json()] == [
@@ -290,14 +287,10 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`np.zeros`、`handler`、`FrameCameraConfigManager`、`FrameOrchestrator`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize(
-    "handler",
-    [get_camera_frame_jpg, compat_get_camera_frame_jpg],
-)
-def test_frame_response_exposes_original_dimensions_when_preview_is_resized(handler):
+def test_frame_response_exposes_original_dimensions_when_preview_is_resized():
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
 
-    response = handler(
+    response = get_camera_frame_jpg(
         key="camera-1",
         feature="detect_human",
         quality=72,

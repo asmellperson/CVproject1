@@ -7,10 +7,10 @@ AiVision 后端重构版采用 **features-first** 架构：每个检测能力都
 ```text
 core/                 共享配置、DB、缓存、事件、告警
 features/             检测功能模块
-features/_base/       功能通用基类、配置服务、API 工厂
+features/_base/       功能通用基类、配置管理与 Consumer
 platform/             摄像头、推理、喇叭、违规图片、总编排
 integrations/         Guard Room 与 Security VLM 内置业务模块
-api/                  FastAPI 正式路由和旧路径兼容层
+api/                  FastAPI 正式路由
 main.py               后端入口
 ```
 
@@ -50,23 +50,16 @@ GET    /api/features
 GET    /api/features/{feature}
 GET    /api/features/{feature}/configs/{shm_name}
 PUT    /api/features/{feature}/configs/{shm_name}
+GET    /api/features/{feature}/cameras/{key}/status
+GET    /api/models
+POST   /api/models
+PATCH  /api/models/{model_id}
+GET    /api/alarms
+GET    /api/alarms/{alarm_id}/image
+GET    /api/alarms/{alarm_id}/video
+GET    /api/departments
+GET    /api/departments/{name}/features
 ```
-
-## 旧路径兼容
-
-旧前端可以继续访问：
-
-```text
-GET/PUT /api/ai/blocks-config/{shm_name}
-GET/PUT /api/ai/door-config/{shm_name}
-GET/PUT /api/ai/face-config/{shm_name}
-GET/PUT /api/ai/phone-config/{shm_name}
-GET/PUT /api/ai/human-config/{shm_name}
-GET/POST /api/aivision/cameras
-GET      /api/aivision/cameras/{key}/frame.jpg
-```
-
-旧 feature config 路径直接返回 `config` 主体；正式 API 路径返回 `{camera, feature, config}` 包装。
 
 ## 模型配置
 

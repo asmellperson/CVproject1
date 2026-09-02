@@ -6,7 +6,7 @@ import sys
 
 
 sys.modules.pop("platform", None)
-compat_module = importlib.import_module("api.compat")
+features_module = importlib.import_module("api.features")
 orchestrator_module = importlib.import_module("platform.orchestrator")
 
 
@@ -167,14 +167,14 @@ def test_orchestrator_returns_unknown_for_stale_snapshot(monkeypatch):
     assert response["threshold_seconds"] is None
 
 
-# 功能：验证 `test_compat_status_delegates_to_read_only_orchestrator` 对应的监控展示、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_feature_status_delegates_to_read_only_orchestrator` 对应的监控展示、接口访问逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`compat_module.compat_get_camera_feature_status`、`CameraConfigManager`、`StatusOrchestrator`。
+#   - 内部调用：`features_module.get_feature_status`、`CameraConfigManager`、`StatusOrchestrator`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_compat_status_delegates_to_read_only_orchestrator():
+def test_feature_status_delegates_to_read_only_orchestrator():
     expected = {
         "camera_key": "cam1",
         "feature": "detect_logistics_single_person",
@@ -229,7 +229,7 @@ def test_compat_status_delegates_to_read_only_orchestrator():
         def get_camera(self, key):
             return {"shm_name": key, "department": "general_electric"}
 
-    response = compat_module.compat_get_camera_feature_status(
+    response = features_module.get_feature_status(
         key="cam1",
         feature="detect_logistics_single_person",
         user={"role": "viewer", "department": "general_electric"},

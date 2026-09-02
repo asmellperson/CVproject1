@@ -31,18 +31,6 @@ export default defineConfig(({ mode }) => {
           secure: false,
           ws: false,
         },
-        '/api/aivision': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-          ws: false,
-        },
-        '/api/ai': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-          ws: false,
-        },
         '/security-vlm': {
           target: backendTarget,
           changeOrigin: true,
