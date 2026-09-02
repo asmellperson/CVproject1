@@ -169,7 +169,7 @@ class DepartmentService:
     # 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/department/service.py` 的 `DepartmentService::ensure_seed_data`
-    #         调用本符号；`AiVision/features/_base/api.py` 的 `create_features_router::_spec_to_meta` 调用本符号
+    #         调用本符号；`AiVision/api/features.py` 的 `create_features_router::_spec_to_meta` 调用本符号
     #   - 内部调用：`select(AiFeatureDepartment).where`、`select`、`session.scalars(stmt).all`、`session.scalars`、`all_specs`、`specs.get`、`hasattr`、`list`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_departments_by_feature(self, session, feature_name: str) -> list[str]:

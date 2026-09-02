@@ -65,7 +65,7 @@ def all_specs() -> dict[str, FeatureSpec]:
 #   - `name`（str）：业务对象名称
 # 返回：FeatureSpec | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::refresh_function` 调用本符号；`AiVision/features/_base/api.py` 的 `_require_spec`
+#   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::refresh_function` 调用本符号；`AiVision/api/features.py` 的 `_require_spec`
 #         调用本符号；`AiVision/api/compat.py` 的 `_require_legacy_spec` 调用本符号
 #   - 内部调用：`_REGISTRY.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。

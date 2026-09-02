@@ -16,7 +16,7 @@ from api.deps import (
     get_feature_config_service,
     get_logistics_channel_service,
 )
-from features._base.api import FeatureConfigResponse
+from api.features import FeatureConfigResponse
 from api.cameras import encode_frame_to_jpeg, frame_size_headers
 from core.db import get_session
 from features import all_specs

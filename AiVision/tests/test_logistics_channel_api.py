@@ -975,7 +975,7 @@ def test_viewer_department_access_and_admin_dependency_contract():
 #   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
-    feature_api = importlib.import_module("features._base.api")
+    feature_api = importlib.import_module("api.features")
     feature_service = FakeFeatureService()
     app = FastAPI()
     app.include_router(feature_api.create_features_router(feature_service))
@@ -1031,7 +1031,7 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
 #   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FakeCameraService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
-    feature_api = importlib.import_module("features._base.api")
+    feature_api = importlib.import_module("api.features")
     feature_service = FakeFeatureService()
 
     # 功能：定义 `FakeCameraService` 类，封装接口访问相关的状态、约束与操作
