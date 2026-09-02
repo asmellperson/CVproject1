@@ -54,7 +54,7 @@ class FrameReaderRegistry:
     #   - `frame_seq`（未显式标注）：`frame_seq` 对应的业务输入值
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/manager.py` 的 `CameraManager::_start_one` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/runtime_manager.py` 的 `CameraRuntimeManager::_start_one` 调用本符号
     #   - 内部调用：`shared_memory.SharedMemory`、`np.ndarray`、`logger.error`、`self._start_thread`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def register(self, shm_name: str, shape: tuple, active_index, frame_seq):
@@ -78,7 +78,7 @@ class FrameReaderRegistry:
     #   - `shm_name`（str）：摄像头共享内存名称
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/manager.py` 的 `CameraManager::stop_camera` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/runtime_manager.py` 的 `CameraRuntimeManager::stop_camera` 调用本符号
     #   - 内部调用：`self._threads.pop`、`thread.join`、`self._shm_views.pop`、`shm0.close`、`shm1.close`、`self.latest_frames.pop`、`self.latest_frame_times.pop`、`self.latest_frame_seq.pop`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def unregister(self, shm_name: str):

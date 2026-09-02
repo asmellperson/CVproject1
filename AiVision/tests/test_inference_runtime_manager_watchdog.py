@@ -1,4 +1,4 @@
-# 文件说明：包含模型推理的自动化测试、测试夹具与断言辅助代码。
+# 文件说明：包含模型推理运行管理器看门狗的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 from __future__ import annotations
@@ -6,13 +6,13 @@ from __future__ import annotations
 import importlib
 import queue
 
-from platform.inference.manager import (
-    InferenceManager,
+from platform.inference.runtime_manager import (
+    InferenceRuntimeManager,
     WorkerWatchdogState,
 )
 
 
-manager_module = importlib.import_module("platform.inference.manager")
+manager_module = importlib.import_module("platform.inference.runtime_manager")
 
 
 # 功能：定义 `FakeWorker` 类，封装模型推理相关的状态、约束与操作
@@ -22,8 +22,8 @@ manager_module = importlib.import_module("platform.inference.manager")
 #   - `failed`（bool）：`failed` 对应的业务输入值；默认值为 `False`
 # 返回：FakeWorker；返回新建的 `FakeWorker` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_inference_manager_watchdog.py` 的 `test_watchdog_restarts_dead_worker_after_backoff`
-#         实例化本符号；`AiVision/tests/test_inference_manager_watchdog.py` 的
+#   - 调用方：`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的 `test_watchdog_restarts_dead_worker_after_backoff`
+#         实例化本符号；`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的
 #         `test_watchdog_stops_retrying_and_alerts_once_when_attempts_exhausted` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -93,15 +93,15 @@ class FakeWorker:
 # 功能：实现 `_manager_with_worker` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `worker`（FakeWorker）：`worker` 对应的业务输入值
-# 返回：InferenceManager；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 返回：InferenceRuntimeManager；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_inference_manager_watchdog.py` 的 `test_watchdog_restarts_dead_worker_after_backoff`
-#         调用本符号；`AiVision/tests/test_inference_manager_watchdog.py` 的
+#   - 调用方：`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的 `test_watchdog_restarts_dead_worker_after_backoff`
+#         调用本符号；`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的
 #         `test_watchdog_stops_retrying_and_alerts_once_when_attempts_exhausted` 调用本符号
-#   - 内部调用：`InferenceManager`、`WorkerWatchdogState`。
+#   - 内部调用：`InferenceRuntimeManager`、`WorkerWatchdogState`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _manager_with_worker(worker: FakeWorker) -> InferenceManager:
-    manager = InferenceManager()
+def _manager_with_worker(worker: FakeWorker) -> InferenceRuntimeManager:
+    manager = InferenceRuntimeManager()
     manager._model_configs = {
         "test-model": {
             "name": "test-model",
@@ -114,7 +114,7 @@ def _manager_with_worker(worker: FakeWorker) -> InferenceManager:
 
 
 def test_watchdog_tick_runs_configured_runtime_monitor_without_workers():
-    manager = InferenceManager()
+    manager = InferenceRuntimeManager()
     calls = []
     manager.configure_runtime_monitor(lambda: calls.append("tick"))
 

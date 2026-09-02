@@ -47,7 +47,7 @@ def _orchestrator_without_init():
 def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch):
     orchestrator = _orchestrator_without_init()
     orchestrator._started = True
-    orchestrator.camera_manager = SimpleNamespace(list_running=lambda: ["camera-1"])
+    orchestrator.camera_runtime_manager = SimpleNamespace(list_running=lambda: ["camera-1"])
     consumer_status = {"totals": {"ok": 4, "timeout": 1}, "targets": []}
     orchestrator.consumers = {
         "blocks": SimpleNamespace(
@@ -63,12 +63,12 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
     }
     orchestrator_module = importlib.import_module("platform.orchestrator")
     monkeypatch.setattr(
-        orchestrator_module.inference_manager,
+        orchestrator_module.inference_runtime_manager,
         "list_running",
         lambda: ["yolo_human"],
     )
     monkeypatch.setattr(
-        orchestrator_module.inference_manager,
+        orchestrator_module.inference_runtime_manager,
         "runtime_status",
         lambda: worker_status,
     )
@@ -86,7 +86,7 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
 def test_runtime_status_does_not_alert_for_stopped_consumer(monkeypatch):
     orchestrator = _orchestrator_without_init()
     orchestrator._started = True
-    orchestrator.camera_manager = SimpleNamespace(list_running=lambda: [])
+    orchestrator.camera_runtime_manager = SimpleNamespace(list_running=lambda: [])
     orchestrator.consumers = {
         "blocks": SimpleNamespace(
             running=False,
@@ -97,8 +97,8 @@ def test_runtime_status_does_not_alert_for_stopped_consumer(monkeypatch):
     alerts = []
     orchestrator._send_system_exception_alert = lambda **payload: alerts.append(payload)
     orchestrator_module = importlib.import_module("platform.orchestrator")
-    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
-    monkeypatch.setattr(orchestrator_module.inference_manager, "runtime_status", lambda: {})
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "runtime_status", lambda: {})
 
     result = orchestrator.runtime_status()
 
@@ -281,7 +281,7 @@ def _dispatch_feature_binding_change(monkeypatch, *, action, functions, running)
             )
         )
     }
-    orchestrator.camera_manager = SimpleNamespace(
+    orchestrator.camera_runtime_manager = SimpleNamespace(
         update_camera_config=lambda name, cfg: camera_calls.append(
             ("update", name, cfg["enable"])
         ),
@@ -295,7 +295,7 @@ def _dispatch_feature_binding_change(monkeypatch, *, action, functions, running)
         lambda: {"blocks": object(), "detect_face": object()},
     )
     monkeypatch.setattr(
-        orchestrator_module.camera_service,
+        orchestrator_module.camera_config_manager,
         "get_camera",
         lambda _key: {
             "name": "camera",
@@ -375,7 +375,7 @@ def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
     orchestrator.logistics_channel_runtime.refresh_camera_all = (
         lambda camera_id: calls.append(("refresh", camera_id))
     )
-    orchestrator.camera_manager = SimpleNamespace(
+    orchestrator.camera_runtime_manager = SimpleNamespace(
         remove_camera_config=lambda name: calls.append(("remove", name))
     )
 
@@ -608,10 +608,10 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
         logistics.name: logistics,
         ordinary.name: ordinary,
     })
-    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
-    monkeypatch.setattr(orchestrator_module.inference_manager, "infer_queues", {})
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "infer_queues", {})
     monkeypatch.setattr(
-        orchestrator_module.inference_manager,
+        orchestrator_module.inference_runtime_manager,
         "result_queues",
         {logistics.name: None, ordinary.name: None},
     )
@@ -675,9 +675,9 @@ def test_start_consumers_starts_registered_ordinary_feature(monkeypatch):
     )
     orchestrator = _orchestrator_without_init()
     monkeypatch.setattr(orchestrator_module, "all_specs", lambda: {ordinary.name: ordinary})
-    monkeypatch.setattr(orchestrator_module.inference_manager, "list_running", lambda: [])
-    monkeypatch.setattr(orchestrator_module.inference_manager, "infer_queues", {})
-    monkeypatch.setattr(orchestrator_module.inference_manager, "result_queues", {ordinary.name: None})
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "list_running", lambda: [])
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "infer_queues", {})
+    monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "result_queues", {ordinary.name: None})
 
     orchestrator._start_consumers()
 
@@ -703,7 +703,7 @@ def test_camera_runtime_requires_enabled_camera_and_feature_binding(
     import platform.orchestrator as orchestrator_module
 
     monkeypatch.setattr(
-        orchestrator_module.camera_service,
+        orchestrator_module.camera_config_manager,
         "get_camera",
         lambda _key: {
             "name": "camera",
@@ -757,9 +757,9 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
     orchestrator._horn_dict = {
         1: SimpleNamespace(stop_heartbeat=lambda: calls.append("horn"))
     }
-    orchestrator.camera_manager = SimpleNamespace(stop_all=lambda: calls.append("camera"))
+    orchestrator.camera_runtime_manager = SimpleNamespace(stop_all=lambda: calls.append("camera"))
     monkeypatch.setattr(
-        orchestrator_module.inference_manager,
+        orchestrator_module.inference_runtime_manager,
         "stop_all",
         lambda: calls.append("inference"),
     )

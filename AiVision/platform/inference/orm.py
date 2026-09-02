@@ -13,7 +13,7 @@ from core.db import Base
 # 参数：无。
 # 返回：AiModel；返回新建的 `AiModel` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/platform/inference/service.py` 的 `ModelService::create_model` 实例化本符号
+#   - 调用方：`AiVision/platform/inference/config_manager.py` 的 `ModelConfigManager::create_model` 实例化本符号
 #   - 内部调用：`Column`、`String`、`text`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AiModel(Base):

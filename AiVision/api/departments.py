@@ -11,9 +11,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import get_current_user, require_admin
-from api.deps import get_camera_service, get_department_service
+from api.deps import get_camera_config_manager, get_department_service
 from core.db import session_scope
-from platform.camera.service import CameraService
+from platform.camera.config_manager import CameraConfigManager
 from platform.department.service import DepartmentService
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
@@ -175,17 +175,17 @@ def set_department_features(
 # 参数：
 #   - `name`（str）：业务对象名称
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `cam_service`（CameraService）：`cam_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（CameraConfigManager）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{name}/cameras')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`cam_service.list_cameras`、`router.get`。
+#   - 内部调用：`Depends`、`camera_config_manager.list_cameras`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/{name}/cameras")
 def get_department_cameras(
     name: str,
     user: dict = Depends(get_current_user),
-    cam_service: CameraService = Depends(get_camera_service),
+    camera_config_manager: CameraConfigManager = Depends(get_camera_config_manager),
 ):
     """获取部门下的摄像头列表。"""
-    return cam_service.list_cameras(department=name)
+    return camera_config_manager.list_cameras(department=name)

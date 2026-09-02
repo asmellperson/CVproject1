@@ -35,7 +35,7 @@ def test_patch_handlers_keep_partial_update_contract():
     )
 
     payload = models_api.ModelUpdateRequest(path="models/new.pt")
-    assert models_api.patch_model(7, payload, _user={}, model_service=service) == {
+    assert models_api.patch_model(7, payload, _user={}, model_config_manager=service) == {
         "id": 7,
         "path": "models/new.pt",
     }
@@ -43,7 +43,7 @@ def test_patch_handlers_keep_partial_update_contract():
         8,
         {"path": "models/compat.pt"},
         _user={},
-        model_service=service,
+        model_config_manager=service,
     ) == {"id": 8, "path": "models/compat.pt"}
     assert calls == [
         (7, {"path": "models/new.pt"}),
@@ -58,13 +58,13 @@ def test_patch_handlers_keep_not_found_contract():
             7,
             models_api.ModelUpdateRequest(path="missing.pt"),
             _user={},
-            model_service=service,
+            model_config_manager=service,
         ),
         lambda: compat_api.compat_patch_model(
             8,
             {"path": "missing.pt"},
             _user={},
-            model_service=service,
+            model_config_manager=service,
         ),
     )
 

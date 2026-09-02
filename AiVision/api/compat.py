@@ -19,12 +19,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.auth import require_admin, get_current_user
 from api.deps import (
-    get_camera_service,
+    get_camera_config_manager,
     get_current_orchestrator,
     get_department_service,
-    get_feature_config_service,
+    get_feature_config_manager,
     get_logistics_channel_service,
-    get_model_service,
+    get_model_config_manager,
 )
 from api.cameras import (
     build_camera_frame_response,
@@ -211,16 +211,16 @@ def _normalize_legacy_payload(spec, payload: dict[str, Any]) -> dict[str, Any]:
 # 参数：
 #   - `legacy_name`（str）：`legacy_name` 对应的业务输入值
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/api/compat.py` 的 `get_blocks_config` 调用本符号；`AiVision/api/compat.py` 的 `get_door_config`
 #         调用本符号；`AiVision/api/compat.py` 的 `get_face_config` 调用本符号；`AiVision/api/compat.py` 的 `get_phone_config` 调用本符号；另有 1 处静态调用
-#   - 内部调用：`_require_legacy_spec`、`feature_service.get_config`、`HTTPException`。
+#   - 内部调用：`_require_legacy_spec`、`feature_config_manager.get_config`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def _get_legacy_config(legacy_name: str, shm_name: str, feature_service) -> dict[str, Any]:
+def _get_legacy_config(legacy_name: str, shm_name: str, feature_config_manager) -> dict[str, Any]:
     spec = _require_legacy_spec(legacy_name)
-    result = feature_service.get_config(spec, shm_name)
+    result = feature_config_manager.get_config(spec, shm_name)
     if result is None:
         raise HTTPException(status_code=404, detail="camera or config not found")
     return result["config"]
@@ -231,7 +231,7 @@ def _get_legacy_config(legacy_name: str, shm_name: str, feature_service) -> dict
 #   - `legacy_name`（str）：`legacy_name` 对应的业务输入值
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `user`（dict）：当前用户或待处理用户对象
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值
 #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -239,20 +239,20 @@ def _get_legacy_config(legacy_name: str, shm_name: str, feature_service) -> dict
 #         `get_logistics_single_person_electronics_electrician_config` 调用本符号；`AiVision/api/compat.py` 的
 #         `get_logistics_single_person_electrical_components_config` 调用本符号；`AiVision/api/compat.py` 的
 #         `get_logistics_single_person_precious_metal_recycling_config` 调用本符号
-#   - 内部调用：`_require_legacy_spec`、`_require_feature_access`、`feature_service.get_config`、`HTTPException`、`user.get`、`int`、`(channel_service.list_channels(spec.name)
+#   - 内部调用：`_require_legacy_spec`、`_require_feature_access`、`feature_config_manager.get_config`、`HTTPException`、`user.get`、`int`、`(channel_service.list_channels(spec.name)
 #          or {}).get`、`channel_service.list_channels`、`channel_service.get_channel`、`any` 等共 11 个调用。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _get_legacy_logistics_config(
     legacy_name: str,
     shm_name: str,
     user: dict,
-    feature_service,
+    feature_config_manager,
     channel_service,
 ) -> dict[str, Any]:
     """兼容读取物流逐路配置，同时执行部门和通道成员权限校验。"""
     spec = _require_legacy_spec(legacy_name)
     _require_feature_access(spec.name, user)
-    result = feature_service.get_config(spec, shm_name)
+    result = feature_config_manager.get_config(spec, shm_name)
     if result is None:
         raise HTTPException(status_code=404, detail="camera or config not found")
     if user.get("role") != "admin":
@@ -278,21 +278,21 @@ def _get_legacy_logistics_config(
 #   - `legacy_name`（str）：`legacy_name` 对应的业务输入值
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/api/compat.py` 的 `put_blocks_config` 调用本符号；`AiVision/api/compat.py` 的 `put_door_config`
 #         调用本符号；`AiVision/api/compat.py` 的 `put_face_config` 调用本符号；`AiVision/api/compat.py` 的 `put_phone_config` 调用本符号；另有 5 处静态调用
-#   - 内部调用：`_require_legacy_spec`、`_normalize_legacy_payload`、`spec.config_schema.model_validate(normalized).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_service.save_config`。
+#   - 内部调用：`_require_legacy_spec`、`_normalize_legacy_payload`、`spec.config_schema.model_validate(normalized).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_config_manager.save_config`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def _put_legacy_config(legacy_name: str, shm_name: str, payload: dict[str, Any], feature_service) -> dict[str, Any]:
+def _put_legacy_config(legacy_name: str, shm_name: str, payload: dict[str, Any], feature_config_manager) -> dict[str, Any]:
     spec = _require_legacy_spec(legacy_name)
     normalized = _normalize_legacy_payload(spec, payload)
     try:
         validated = spec.config_schema.model_validate(normalized).model_dump()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"validation error: {exc}") from exc
-    result = feature_service.save_config(spec, shm_name, validated)
+    result = feature_config_manager.save_config(spec, shm_name, validated)
     if result is None:
         raise HTTPException(status_code=404, detail="camera not found")
     return result["config"]
@@ -303,15 +303,15 @@ def _put_legacy_config(legacy_name: str, shm_name: str, payload: dict[str, Any],
 # 功能：读取或查询 `get_blocks_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/ai/blocks-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Depends`、`_get_legacy_config`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/ai/blocks-config/{shm_name}")
-def get_blocks_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("blocks", shm_name, feature_service)
+def get_blocks_config(shm_name: str, feature_config_manager=Depends(get_feature_config_manager)):
+    return _get_legacy_config("blocks", shm_name, feature_config_manager)
 
 
 # 功能：更新或保存 `put_blocks_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -319,7 +319,7 @@ def get_blocks_config(shm_name: str, feature_service=Depends(get_feature_config_
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/blocks-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -330,23 +330,23 @@ def put_blocks_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("blocks", shm_name, payload, feature_service)
+    return _put_legacy_config("blocks", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_door_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/ai/door-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Depends`、`_get_legacy_config`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/ai/door-config/{shm_name}")
-def get_door_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("door", shm_name, feature_service)
+def get_door_config(shm_name: str, feature_config_manager=Depends(get_feature_config_manager)):
+    return _get_legacy_config("door", shm_name, feature_config_manager)
 
 
 # 功能：更新或保存 `put_door_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -354,7 +354,7 @@ def get_door_config(shm_name: str, feature_service=Depends(get_feature_config_se
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/door-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -365,23 +365,23 @@ def put_door_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("door", shm_name, payload, feature_service)
+    return _put_legacy_config("door", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_face_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/ai/face-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Depends`、`_get_legacy_config`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/ai/face-config/{shm_name}")
-def get_face_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("face", shm_name, feature_service)
+def get_face_config(shm_name: str, feature_config_manager=Depends(get_feature_config_manager)):
+    return _get_legacy_config("face", shm_name, feature_config_manager)
 
 
 # 功能：更新或保存 `put_face_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -389,7 +389,7 @@ def get_face_config(shm_name: str, feature_service=Depends(get_feature_config_se
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/face-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -400,23 +400,23 @@ def put_face_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("face", shm_name, payload, feature_service)
+    return _put_legacy_config("face", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_phone_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/ai/phone-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Depends`、`_get_legacy_config`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/ai/phone-config/{shm_name}")
-def get_phone_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("phone", shm_name, feature_service)
+def get_phone_config(shm_name: str, feature_config_manager=Depends(get_feature_config_manager)):
+    return _get_legacy_config("phone", shm_name, feature_config_manager)
 
 
 # 功能：更新或保存 `put_phone_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -424,7 +424,7 @@ def get_phone_config(shm_name: str, feature_service=Depends(get_feature_config_s
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/phone-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -435,23 +435,23 @@ def put_phone_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("phone", shm_name, payload, feature_service)
+    return _put_legacy_config("phone", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_human_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/ai/human-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Depends`、`_get_legacy_config`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/ai/human-config/{shm_name}")
-def get_human_config(shm_name: str, feature_service=Depends(get_feature_config_service)):
-    return _get_legacy_config("human", shm_name, feature_service)
+def get_human_config(shm_name: str, feature_config_manager=Depends(get_feature_config_manager)):
+    return _get_legacy_config("human", shm_name, feature_config_manager)
 
 
 # 功能：更新或保存 `put_human_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -459,7 +459,7 @@ def get_human_config(shm_name: str, feature_service=Depends(get_feature_config_s
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/human-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -470,16 +470,16 @@ def put_human_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("human", shm_name, payload, feature_service)
+    return _put_legacy_config("human", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_logistics_single_person_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -490,11 +490,11 @@ def put_human_config(
 def get_logistics_single_person_config(
     shm_name: str,
     user: dict = Depends(get_current_user),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
     channel_service=Depends(get_logistics_channel_service),
 ):
     return _get_legacy_logistics_config(
-        "logistics_single_person", shm_name, user, feature_service, channel_service
+        "logistics_single_person", shm_name, user, feature_config_manager, channel_service
     )
 
 
@@ -503,7 +503,7 @@ def get_logistics_single_person_config(
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/logistics-single-person-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -514,16 +514,16 @@ def put_logistics_single_person_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("logistics_single_person", shm_name, payload, feature_service)
+    return _put_legacy_config("logistics_single_person", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_logistics_single_person_electronics_electrician_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -534,14 +534,14 @@ def put_logistics_single_person_config(
 def get_logistics_single_person_electronics_electrician_config(
     shm_name: str,
     user: dict = Depends(get_current_user),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
     channel_service=Depends(get_logistics_channel_service),
 ):
     return _get_legacy_logistics_config(
         "logistics_single_person_electronics_electrician",
         shm_name,
         user,
-        feature_service,
+        feature_config_manager,
         channel_service,
     )
 
@@ -551,7 +551,7 @@ def get_logistics_single_person_electronics_electrician_config(
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/logistics-single-person-electronics-electrician-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -562,16 +562,16 @@ def put_logistics_single_person_electronics_electrician_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("logistics_single_person_electronics_electrician", shm_name, payload, feature_service)
+    return _put_legacy_config("logistics_single_person_electronics_electrician", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_logistics_single_person_electrical_components_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -582,14 +582,14 @@ def put_logistics_single_person_electronics_electrician_config(
 def get_logistics_single_person_electrical_components_config(
     shm_name: str,
     user: dict = Depends(get_current_user),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
     channel_service=Depends(get_logistics_channel_service),
 ):
     return _get_legacy_logistics_config(
         "logistics_single_person_electrical_components",
         shm_name,
         user,
-        feature_service,
+        feature_config_manager,
         channel_service,
     )
 
@@ -599,7 +599,7 @@ def get_logistics_single_person_electrical_components_config(
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/logistics-single-person-electrical-components-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -610,16 +610,16 @@ def put_logistics_single_person_electrical_components_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("logistics_single_person_electrical_components", shm_name, payload, feature_service)
+    return _put_legacy_config("logistics_single_person_electrical_components", shm_name, payload, feature_config_manager)
 
 
 # 功能：读取或查询 `get_logistics_single_person_precious_metal_recycling_config` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 #   - `channel_service`（未显式标注）：`channel_service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -630,14 +630,14 @@ def put_logistics_single_person_electrical_components_config(
 def get_logistics_single_person_precious_metal_recycling_config(
     shm_name: str,
     user: dict = Depends(get_current_user),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
     channel_service=Depends(get_logistics_channel_service),
 ):
     return _get_legacy_logistics_config(
         "logistics_single_person_precious_metal_recycling",
         shm_name,
         user,
-        feature_service,
+        feature_config_manager,
         channel_service,
     )
 
@@ -647,7 +647,7 @@ def get_logistics_single_person_precious_metal_recycling_config(
 #   - `shm_name`（str）：摄像头共享内存名称
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/ai/logistics-single-person-precious-metal-recycling-config/{shm_name}')` 注册，并在请求到达时调用以生成接口响应
@@ -658,9 +658,9 @@ def put_logistics_single_person_precious_metal_recycling_config(
     shm_name: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ):
-    return _put_legacy_config("logistics_single_person_precious_metal_recycling", shm_name, payload, feature_service)
+    return _put_legacy_config("logistics_single_person_precious_metal_recycling", shm_name, payload, feature_config_manager)
 
 
 # ----- 旧 camera 路径 -----
@@ -670,20 +670,20 @@ def put_logistics_single_person_precious_metal_recycling_config(
 # 参数：
 #   - `department`（str | None）：业务部门名称或标识；默认值为 `Query(None, description='可选按部门过滤')`
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/aivision/cameras')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`Depends`、`camera_list_response_for_user`、`camera_service.list_cameras`、`camera_read_department`、`router.get`。
+#   - 内部调用：`Query`、`Depends`、`camera_list_response_for_user`、`camera_config_manager.list_cameras`、`camera_read_department`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/aivision/cameras")
 def compat_list_cameras(
     department: str | None = Query(None, description="可选按部门过滤"),
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ):
     return camera_list_response_for_user(
-        camera_service.list_cameras(
+        camera_config_manager.list_cameras(
             department=camera_read_department(user, department)
         ),
         user,
@@ -694,20 +694,20 @@ def compat_list_cameras(
 # 参数：
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.post('/api/aivision/cameras', status_code=status.HTTP_201_CREATED)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.create_camera`、`HTTPException`、`str`、`router.post`。
+#   - 内部调用：`Depends`、`camera_config_manager.create_camera`、`HTTPException`、`str`、`router.post`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.post("/api/aivision/cameras", status_code=status.HTTP_201_CREATED)
 def compat_create_camera(
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ):
     try:
-        return camera_service.create_camera(payload)
+        return camera_config_manager.create_camera(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -716,7 +716,7 @@ def compat_create_camera(
 # 参数：
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/aivision/cameras/{key}')` 注册，并在请求到达时调用以生成接口响应
@@ -726,9 +726,9 @@ def compat_create_camera(
 def compat_get_camera(
     key: str,
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ):
-    return get_camera_for_user(camera_service, key, user)
+    return get_camera_for_user(camera_config_manager, key, user)
 
 
 # 功能：更新或保存 `compat_update_camera` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -736,20 +736,20 @@ def compat_get_camera(
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/api/aivision/cameras/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.update_camera`、`HTTPException`、`router.put`。
+#   - 内部调用：`Depends`、`camera_config_manager.update_camera`、`HTTPException`、`router.put`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put("/api/aivision/cameras/{key}")
 def compat_update_camera(
     key: str,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ):
-    camera = camera_service.update_camera(key, payload)
+    camera = camera_config_manager.update_camera(key, payload)
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     return camera
@@ -759,19 +759,19 @@ def compat_update_camera(
 # 参数：
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.delete('/api/aivision/cameras/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.delete_camera`、`HTTPException`、`router.delete`。
+#   - 内部调用：`Depends`、`camera_config_manager.delete_camera`、`HTTPException`、`router.delete`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.delete("/api/aivision/cameras/{key}")
 def compat_delete_camera(
     key: str,
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ):
-    ok = camera_service.delete_camera(key)
+    ok = camera_config_manager.delete_camera(key)
     if not ok:
         raise HTTPException(status_code=404, detail="camera not found")
     return {"ok": True}
@@ -785,7 +785,7 @@ def compat_delete_camera(
 #   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
 #   - `max_height`（int | None）：`max_height` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 #   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -800,10 +800,10 @@ def compat_get_camera_frame_jpg(
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
     orchestrator=Depends(get_current_orchestrator),
 ):
-    get_camera_for_user(camera_service, key, user)
+    get_camera_for_user(camera_config_manager, key, user)
     return build_camera_frame_response(
         key=key,
         feature=feature,
@@ -819,7 +819,7 @@ def compat_get_camera_frame_jpg(
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `feature`（str）：`feature` 对应的业务输入值
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 #   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -831,10 +831,10 @@ def compat_get_camera_feature_status(
     key: str,
     feature: str,
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
     orchestrator=Depends(get_current_orchestrator),
 ):
-    get_camera_for_user(camera_service, key, user)
+    get_camera_for_user(camera_config_manager, key, user)
     return orchestrator.get_feature_monitor_status(key, feature)
 
 
@@ -911,35 +911,35 @@ def compat_alarm_statistics(days: int = Query(7, ge=1, le=90)):
 
 # 功能：读取或查询 `compat_list_models` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/api/aivision/models')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.list_models`、`router.get`。
+#   - 内部调用：`Depends`、`model_config_manager.list_models`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/api/aivision/models")
-def compat_list_models(model_service=Depends(get_model_service)):
-    return model_service.list_models(enabled_only=False)
+def compat_list_models(model_config_manager=Depends(get_model_config_manager)):
+    return model_config_manager.list_models(enabled_only=False)
 
 
 # 功能：创建或构建 `compat_create_model` 对应的`compat` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.post('/api/aivision/models', status_code=status.HTTP_201_CREATED)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.create_model`、`HTTPException`、`router.post`。
+#   - 内部调用：`Depends`、`model_config_manager.create_model`、`HTTPException`、`router.post`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.post("/api/aivision/models", status_code=status.HTTP_201_CREATED)
 def compat_create_model(
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    model_service=Depends(get_model_service),
+    model_config_manager=Depends(get_model_config_manager),
 ):
     try:
-        return model_service.create_model(payload)
+        return model_config_manager.create_model(payload)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"missing field: {exc}") from exc
 
@@ -949,20 +949,20 @@ def compat_create_model(
 #   - `model_id`（int）：模型唯一标识
 #   - `payload`（dict[str, Any]）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.patch('/api/aivision/models/{model_id}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.update_model`、`HTTPException`、`router.patch`。
+#   - 内部调用：`Depends`、`model_config_manager.update_model`、`HTTPException`、`router.patch`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.patch("/api/aivision/models/{model_id}")
 def compat_patch_model(
     model_id: int,
     payload: dict[str, Any],
     _user: dict = Depends(require_admin),
-    model_service=Depends(get_model_service),
+    model_config_manager=Depends(get_model_config_manager),
 ):
-    model = model_service.update_model(model_id, payload)
+    model = model_config_manager.update_model(model_id, payload)
     if model is None:
         raise HTTPException(status_code=404, detail="model not found")
     return model

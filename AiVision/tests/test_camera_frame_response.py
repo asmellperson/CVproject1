@@ -55,15 +55,15 @@ class FrameOrchestrator:
         return self.frame, 123.0
 
 
-# 功能：定义 `FrameCameraService` 类，封装摄像头、视频帧相关的状态、约束与操作
+# 功能：定义 `FrameCameraConfigManager` 类，封装摄像头、视频帧相关的状态、约束与操作
 # 参数：无。
-# 返回：FrameCameraService；返回新建的 `FrameCameraService` 实例。
+# 返回：FrameCameraConfigManager；返回新建的 `FrameCameraConfigManager` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_frame_response_exposes_original_dimensions_when_preview_is_resized`
 #         实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class FrameCameraService:
+class FrameCameraConfigManager:
     # 功能：读取或查询 `get_camera` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -77,14 +77,14 @@ class FrameCameraService:
         return {"shm_name": key, "department": "general_electric"}
 
 
-# 功能：定义 `PermissionCameraService` 类，封装摄像头、视频帧相关的状态、约束与操作
+# 功能：定义 `PermissionCameraConfigManager` 类，封装摄像头、视频帧相关的状态、约束与操作
 # 参数：无。
-# 返回：PermissionCameraService；返回新建的 `PermissionCameraService` 实例。
+# 返回：PermissionCameraConfigManager；返回新建的 `PermissionCameraConfigManager` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_api_and_compat_camera_reads_are_scoped_by_department` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class PermissionCameraService:
+class PermissionCameraConfigManager:
     # 功能：初始化或配置 `__init__` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -162,14 +162,14 @@ class PermissionCameraService:
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`PermissionCameraService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+#   - 内部调用：`PermissionCameraConfigManager`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
-    service = PermissionCameraService()
+    service = PermissionCameraConfigManager()
     app = FastAPI()
     app.include_router(cameras_module.router)
     app.include_router(compat_module.router)
-    app.dependency_overrides[cameras_module.get_camera_service] = lambda: service
+    app.dependency_overrides[cameras_module.get_camera_config_manager] = lambda: service
 
     # 功能：启动或执行 `inline_run_sync` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -288,7 +288,7 @@ def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`np.zeros`、`handler`、`FrameCameraService`、`FrameOrchestrator`、`pytest.mark.parametrize`。
+#   - 内部调用：`np.zeros`、`handler`、`FrameCameraConfigManager`、`FrameOrchestrator`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     "handler",
@@ -304,7 +304,7 @@ def test_frame_response_exposes_original_dimensions_when_preview_is_resized(hand
         max_width=960,
         max_height=None,
         user={"role": "viewer", "department": "general_electric"},
-        camera_service=FrameCameraService(),
+        camera_config_manager=FrameCameraConfigManager(),
         orchestrator=FrameOrchestrator(frame),
     )
 

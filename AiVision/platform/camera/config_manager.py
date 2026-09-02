@@ -2,11 +2,11 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """
-platform/camera/service.py
+platform/camera/config_manager.py
 摄像头 CRUD 服务 — 替代旧 SQL 类里的 get_all_camera / get_camera_by_key /
 save_to_database / save_camera_with_function_config 等方法。
 
-新版本职责更窄:只管摄像头主表(ai_camera_config),功能配置由 features/_base/service.py 管。
+新版本职责更窄:只管摄像头主表(ai_camera_config),功能配置由 features/_base/config_manager.py 管。
 """
 from __future__ import annotations
 from time import sleep
@@ -35,7 +35,7 @@ _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 #   - `specs`（dict | None）：功能注册表；默认读取 `all_specs()`
 # 返回：set[str]；返回该摄像头允许归属的事业部标识集合。
 # 调用关系：
-#   - 调用方：`CameraService.list_cameras`、`api/cameras.py` 的摄像头列表与详情权限校验调用本符号
+#   - 调用方：`CameraConfigManager.list_cameras`、`api/cameras.py` 的摄像头列表与详情权限校验调用本符号
 #   - 内部调用：`camera.get`、`str`、`strip`、`isinstance`、`all_specs`、`getattr`、`set.add`。
 # 副作用/注意事项：不修改摄像头或数据库；仅在显式归属为空时启用历史兼容推导，未启用任何功能时返回空集合。
 def camera_access_departments(
@@ -78,8 +78,8 @@ def camera_access_departments(
 #   - `specs`（dict）：`specs` 对应的业务输入值
 # 返回：dict[int, dict[str, bool]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::list_cameras` 调用本符号；`AiVision/platform/camera/service.py` 的
-#         `CameraService::get_camera` 调用本符号
+#   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::list_cameras` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+#         `CameraConfigManager::get_camera` 调用本符号
 #   - 内部调用：`specs.items`、`session.query(spec.orm_class.camera_id,
 #          spec.orm_class.enable).filter(spec.orm_class.camera_id.in_(camera_ids)).all`、`session.query(spec.orm_class.camera_id,
 #          spec.orm_class.enable).filter`、`session.query`、`spec.orm_class.camera_id.in_`、`bool`。
@@ -109,7 +109,7 @@ def _load_function_states(session, camera_ids: list[int], specs: dict) -> dict[i
 #   - `exc`（OperationalError）：`exc` 对应的业务输入值
 # 返回：int | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::_run_write_transaction` 调用本符号
+#   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_run_write_transaction` 调用本符号
 #   - 内部调用：`getattr`、`isinstance`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _database_error_code(exc: OperationalError) -> int | None:
@@ -124,8 +124,8 @@ def _database_error_code(exc: OperationalError) -> int | None:
 #   - `exc`（IntegrityError）：`exc` 对应的业务输入值
 # 返回：ValueError；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::create_camera` 调用本符号；`AiVision/platform/camera/service.py` 的
-#         `CameraService::create_camera_for_feature` 调用本符号
+#   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+#         `CameraConfigManager::create_camera_for_feature` 调用本符号
 #   - 内部调用：`str(exc.orig or exc).lower`、`str`、`ValueError`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _camera_integrity_value_error(exc: IntegrityError) -> ValueError:
@@ -144,12 +144,12 @@ def _camera_integrity_value_error(exc: IntegrityError) -> ValueError:
 
 # 功能：摄像头主表的所有操作；输入与输出详见下方说明
 # 参数：无。
-# 返回：CameraService；返回新建的 `CameraService` 实例。
+# 返回：CameraConfigManager；返回新建的 `CameraConfigManager` 实例。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class CameraService:
+class CameraConfigManager:
     """摄像头主表的所有操作"""
 
     # ---------- Read ----------
@@ -200,9 +200,9 @@ class CameraService:
     #   - `key`（str）：用于查询、分组或缓存的键
     # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::create_camera` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::create_camera_for_feature` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::update_camera` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::create_camera_for_feature` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::update_camera` 调用本符号
     #   - 内部调用：`get_session`、`self._get_orm_by_key`、`all_specs`、`_load_function_states`、`self._to_dict`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_camera(self, key: str) -> Optional[dict]:
@@ -247,7 +247,7 @@ class CameraService:
             cam_id, cam_shm = self._run_write_transaction(create_record)
         except IntegrityError as exc:
             error = _camera_integrity_value_error(exc)
-            logger.warning(f"[CameraService] 摄像头创建约束冲突: {error}")
+            logger.warning(f"[CameraConfigManager] 摄像头创建约束冲突: {error}")
             raise error from exc
 
         self.notify_camera_created(cam_id, cam_shm)
@@ -311,7 +311,7 @@ class CameraService:
             cam_id, cam_shm = self._run_write_transaction(create_record)
         except IntegrityError as exc:
             error = _camera_integrity_value_error(exc)
-            logger.warning(f"[CameraService] 摄像头创建约束冲突: {error}")
+            logger.warning(f"[CameraConfigManager] 摄像头创建约束冲突: {error}")
             raise error from exc
 
         self.notify_camera_created(cam_id, cam_shm)
@@ -323,7 +323,7 @@ class CameraService:
             ))
         except Exception as exc:
             logger.warning(
-                f"[CameraService] 功能启用通知失败 feature={feature_name} "
+                f"[CameraConfigManager] 功能启用通知失败 feature={feature_name} "
                 f"camera_id={cam_id}: {exc}"
             )
         return self.get_camera(cam_shm)
@@ -333,8 +333,8 @@ class CameraService:
     #   - `operation`（未显式标注）：`operation` 对应的业务输入值
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::create_camera` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::create_camera_for_feature` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::create_camera_for_feature` 调用本符号
     #   - 内部调用：`range`、`session_scope`、`operation`、`_database_error_code`、`logger.warning`、`sleep`、`RuntimeError`。
     # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     @staticmethod
@@ -349,7 +349,7 @@ class CameraService:
                 if code not in _MYSQL_RETRYABLE_LOCK_ERRORS or attempt >= _MAX_WRITE_ATTEMPTS:
                     raise
                 logger.warning(
-                    f"[CameraService] 写事务锁冲突 code={code}, "
+                    f"[CameraConfigManager] 写事务锁冲突 code={code}, "
                     f"准备第 {attempt + 1}/{_MAX_WRITE_ATTEMPTS} 次尝试"
                 )
                 sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
@@ -362,8 +362,8 @@ class CameraService:
     #   - `payload`（dict）：接口或事件携带的业务数据
     # 返回：AiCameraConfig；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::create_camera::create_record`
-    #         调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::create_camera_for_feature::create_record` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera::create_record`
+    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera_for_feature::create_record` 调用本符号
     #   - 内部调用：`(payload.get('name') or '').strip`、`payload.get`、`(payload.get('url') or '').strip`、`(payload.get('shm_name') or
     #          '').strip`、`int`、`bool`、`ValueError`、`session.query(AiCameraConfig).filter_by(name=name).first`、`session.query(AiCameraConfig).filter_by`、`session.query`
     #          等共 22 个调用。
@@ -424,8 +424,8 @@ class CameraService:
     #   - `shm_name`（str）：摄像头共享内存名称
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::create_camera` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::create_camera_for_feature` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::create_camera_for_feature` 调用本符号
     #   - 内部调用：`config_cache.refresh_camera`、`all_specs`、`config_cache.refresh_function`、`config_event_bus.publish`、`ConfigChangeEvent`、`logger.warning`。
     # 副作用/注意事项：会向日志系统输出运行或异常信息。
     @staticmethod
@@ -441,7 +441,7 @@ class CameraService:
                 camera_name=shm_name,
             ))
         except Exception as exc:
-            logger.warning(f"[CameraService] 摄像头新增通知失败 camera_id={camera_id}: {exc}")
+            logger.warning(f"[CameraConfigManager] 摄像头新增通知失败 camera_id={camera_id}: {exc}")
 
     # 功能：更新摄像头基础信息 — 不动功能配置；输入与输出详见下方说明
     # 参数：
@@ -537,7 +537,7 @@ class CameraService:
                 used.add(candidate)
                 updated += 1
         if updated:
-            logger.info(f"[CameraService] 已补齐 {updated} 个 shm_name")
+            logger.info(f"[CameraConfigManager] 已补齐 {updated} 个 shm_name")
         return updated
 
     # 功能：为每个摄像头补齐所有 feature 的配置行(若不存在)；输入与输出详见下方说明
@@ -569,7 +569,7 @@ class CameraService:
                         cfg.enable = True
                         changed += 1
         if changed:
-            logger.info(f"[CameraService] 已补齐/启用 {changed} 条功能配置")
+            logger.info(f"[CameraConfigManager] 已补齐/启用 {changed} 条功能配置")
         return changed
 
     # ---------- Helpers ----------
@@ -580,8 +580,8 @@ class CameraService:
     #   - `key`（str）：用于查询、分组或缓存的键
     # 返回：Optional[AiCameraConfig]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::get_camera` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::update_camera` 调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::delete_camera` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::get_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::update_camera` 调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::delete_camera` 调用本符号
     #   - 内部调用：`(key or
     #          '').strip`、`key.isdigit`、`filters.append`、`int`、`key.startswith`、`key.removeprefix('camera_').isdigit`、`key.removeprefix`、`session.query(AiCameraConfig).filter(or_(*filters)).first`、`session.query(AiCameraConfig).filter`、`session.query`
     #          等共 11 个调用。
@@ -604,8 +604,8 @@ class CameraService:
     #   - `functions`（dict[str, bool]）：`functions` 对应的业务输入值
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::list_cameras` 调用本符号；`AiVision/platform/camera/service.py` 的
-    #         `CameraService::get_camera` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::list_cameras` 调用本符号；`AiVision/platform/camera/config_manager.py` 的
+    #         `CameraConfigManager::get_camera` 调用本符号
     #   - 内部调用：`bool`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
@@ -629,7 +629,7 @@ class CameraService:
     #   - `cam`（AiCameraConfig）：`cam` 对应的业务输入值
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/camera/service.py` 的 `CameraService::update_camera` 调用本符号
+    #   - 调用方：`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::update_camera` 调用本符号
     #   - 内部调用：`bool`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
@@ -646,4 +646,4 @@ class CameraService:
         }
 
 
-camera_service = CameraService()
+camera_config_manager = CameraConfigManager()

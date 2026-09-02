@@ -328,12 +328,12 @@ init_orchestrator()
 Orchestrator.start()
   |
   +-- ensure_schema_compatible()
-  +-- camera_service 加载摄像头与功能配置
-  +-- CameraManager 启动摄像头进程
+  +-- camera_config_manager 加载摄像头与功能配置
+  +-- CameraRuntimeManager 启动摄像头进程
   +-- frame_reader_registry 读取最新帧
   +-- violation_writer 启动违规图片写入
   +-- alarm_dispatcher 配置喇叭/微信/图片写入
-  +-- inference_manager 启动模型推理 worker
+  +-- inference_runtime_manager 启动模型推理 worker
   +-- 为每个 FeatureSpec 启动 BaseFunctionConsumer 子类
   |
   v

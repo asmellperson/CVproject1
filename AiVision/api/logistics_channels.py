@@ -13,7 +13,7 @@ from pydantic import ConfigDict
 from api.auth import get_current_user, require_admin
 from api.deps import (
     get_current_orchestrator,
-    get_feature_config_service,
+    get_feature_config_manager,
     get_logistics_channel_service,
 )
 from api.features import FeatureConfigResponse
@@ -542,12 +542,12 @@ def _require_channel_member(service, feature: str, channel_id: int, camera_id: i
 #   - `camera_id`（int）：摄像头唯一标识
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
 #   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：FeatureConfigResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/cameras/{camera_id}/config', response_model=FeatureConfigResponse)`
 #         注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`feature_service.get_config`、`all_specs`、`str`、`HTTPException`、`FeatureConfigResponse`、`router.get`。
+#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`feature_config_manager.get_config`、`all_specs`、`str`、`HTTPException`、`FeatureConfigResponse`、`router.get`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get(
     "/{feature}/{channel_id}/cameras/{camera_id}/config",
@@ -559,11 +559,11 @@ def get_member_camera_config(
     camera_id: int,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ) -> FeatureConfigResponse:
     feature = _require_feature_access(feature, user)
     _require_channel_member(service, feature, channel_id, camera_id)
-    result = feature_service.get_config(all_specs()[feature], str(camera_id))
+    result = feature_config_manager.get_config(all_specs()[feature], str(camera_id))
     if result is None:
         raise HTTPException(status_code=404, detail="camera or config not found")
     return FeatureConfigResponse(**result)
@@ -577,12 +577,12 @@ def get_member_camera_config(
 #   - `payload`（dict）：接口或事件携带的业务数据
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
 #   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值；默认值为 `Depends(get_feature_config_service)`
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值；默认值为 `Depends(get_feature_config_manager)`
 # 返回：FeatureConfigResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/cameras/{camera_id}/config', response_model=FeatureConfigResponse)`
 #         注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`all_specs`、`spec.config_schema.model_validate(payload).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_service.save_config`、`str`、`FeatureConfigResponse`
+#   - 内部调用：`Depends`、`_require_feature_access`、`_require_channel_member`、`all_specs`、`spec.config_schema.model_validate(payload).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_config_manager.save_config`、`str`、`FeatureConfigResponse`
 #          等共 11 个调用。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put(
@@ -596,7 +596,7 @@ def update_member_camera_config(
     payload: dict,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-    feature_service=Depends(get_feature_config_service),
+    feature_config_manager=Depends(get_feature_config_manager),
 ) -> FeatureConfigResponse:
     feature = _require_feature_access(feature, user)
     _require_channel_member(service, feature, channel_id, camera_id)
@@ -605,7 +605,7 @@ def update_member_camera_config(
         validated = spec.config_schema.model_validate(payload).model_dump()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"validation error: {exc}") from exc
-    result = feature_service.save_config(spec, str(camera_id), validated)
+    result = feature_config_manager.save_config(spec, str(camera_id), validated)
     if result is None:
         raise HTTPException(status_code=404, detail="camera not found")
     return FeatureConfigResponse(**result)

@@ -22,8 +22,8 @@ from pydantic import BaseModel, Field
 from api.auth import get_current_user, require_admin
 from features import all_specs, get_spec
 from features._base.spec import FeatureSpec
-from features._base.service import feature_config_service
-from platform.camera.service import camera_service
+from features._base.config_manager import feature_config_manager
+from platform.camera.config_manager import camera_config_manager
 from platform.department.service import department_service
 
 
@@ -178,38 +178,38 @@ def _require_spec(feature: str) -> FeatureSpec:
 
 # 功能：构造功能元数据查询 + 配置读写的统一 APIRouter；输入与输出详见下方说明
 # 参数：
-#   - `feature_service`（未显式标注）：`feature_service` 对应的业务输入值
+#   - `feature_config_manager`（未显式标注）：`feature_config_manager` 对应的业务输入值
 #   - `dept_service`（未显式标注）：`dept_service` 对应的业务输入值；默认值为 `None`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `None`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `None`
 # 返回：APIRouter；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`APIRouter`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_features_router(
-    feature_service,
+    feature_config_manager,
     dept_service=None,
-    camera_service=None,
+    camera_config_manager=None,
 ) -> APIRouter:
     """
     构造功能元数据查询 + 配置读写的统一 APIRouter。
 
-    采用工厂函数而非模块级路由实例，原因是 feature_service 需在应用启动时
+    采用工厂函数而非模块级路由实例，原因是 feature_config_manager 需在应用启动时
     由外部注入（依赖 DB 连接与缓存），避免模块导入时产生副作用。
 
     Args:
-        feature_service: FeatureConfigService 实例，封装跨功能的配置读写逻辑，
+        feature_config_manager: FeatureConfigManager 实例，封装跨功能的配置读写逻辑，
                          由调用方（通常是 Orchestrator 或 app 工厂）负责创建并传入。
         dept_service: DepartmentService 实例，可选，用于获取功能归属的部门列表。
-        camera_service: CameraService 实例，可选，用于原子创建摄像头并启用功能。
+        camera_config_manager: CameraConfigManager 实例，可选，用于原子创建摄像头并启用功能。
 
     Returns:
         挂载在 /api/features 下的 APIRouter，可直接 app.include_router()。
     """
-    if camera_service is None:
-        from platform.camera.service import camera_service as default_camera_service
+    if camera_config_manager is None:
+        from platform.camera.config_manager import camera_config_manager as default_camera_config_manager
 
-        camera_service = default_camera_service
+        camera_config_manager = default_camera_config_manager
 
     router = APIRouter(prefix="/api/features", tags=["features"])
 
@@ -283,7 +283,7 @@ def create_features_router(
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：由 FastAPI 按 `router.post('/{feature}/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_require_spec`、`camera_service.create_camera_for_feature`、`payload.model_dump`、`HTTPException`、`str`、`router.post`。
+    #   - 内部调用：`Depends`、`_require_spec`、`camera_config_manager.create_camera_for_feature`、`payload.model_dump`、`HTTPException`、`str`、`router.post`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @router.post("/{feature}/cameras")
     def create_feature_camera(
@@ -294,7 +294,7 @@ def create_features_router(
         """新增摄像头并原子启用当前普通检测功能。"""
         spec = _require_spec(feature)
         try:
-            return camera_service.create_camera_for_feature(
+            return camera_config_manager.create_camera_for_feature(
                 spec.name,
                 payload.model_dump(exclude_none=True),
             )
@@ -309,7 +309,7 @@ def create_features_router(
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：由 FastAPI 按 `router.get('/{feature}/configs/{shm_name}', response_model=FeatureConfigResponse)` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_require_spec`、`user.get`、`HTTPException`、`feature_service.get_config`、`FeatureConfigResponse`、`router.get`。
+    #   - 内部调用：`Depends`、`_require_spec`、`user.get`、`HTTPException`、`feature_config_manager.get_config`、`FeatureConfigResponse`、`router.get`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @router.get(
         "/{feature}/configs/{shm_name}",
@@ -335,7 +335,7 @@ def create_features_router(
                 status_code=403,
                 detail="logistics camera config requires channel membership access",
             )
-        result = feature_service.get_config(spec, shm_name)
+        result = feature_config_manager.get_config(spec, shm_name)
         if result is None:
             raise HTTPException(status_code=404, detail="camera or config not found")
         return FeatureConfigResponse(**result)
@@ -349,7 +349,7 @@ def create_features_router(
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：由 FastAPI 按 `router.put('/{feature}/configs/{shm_name}', response_model=FeatureConfigResponse)` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_require_spec`、`spec.config_schema.model_validate(payload).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_service.save_config`、`FeatureConfigResponse`、`router.put`。
+    #   - 内部调用：`Depends`、`_require_spec`、`spec.config_schema.model_validate(payload).model_dump`、`spec.config_schema.model_validate`、`HTTPException`、`feature_config_manager.save_config`、`FeatureConfigResponse`、`router.put`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @router.put(
         "/{feature}/configs/{shm_name}",
@@ -366,7 +366,7 @@ def create_features_router(
 
         校验流程:
             1. 通过 spec.config_schema（Pydantic 模型）校验 payload 结构与类型。
-            2. 校验通过后调用 feature_service.save_config() 持久化到数据库。
+            2. 校验通过后调用 feature_config_manager.save_config() 持久化到数据库。
             3. 返回保存后的最新配置，供前端直接刷新本地状态。
 
         校验失败返回 400，摄像头不存在返回 404。
@@ -378,7 +378,7 @@ def create_features_router(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"validation error: {e}")
 
-        result = feature_service.save_config(spec, shm_name, validated)
+        result = feature_config_manager.save_config(spec, shm_name, validated)
         if result is None:
             raise HTTPException(status_code=404, detail="camera not found")
         return FeatureConfigResponse(**result)
@@ -387,7 +387,7 @@ def create_features_router(
 
 
 router = create_features_router(
-    feature_config_service,
+    feature_config_manager,
     department_service,
-    camera_service,
+    camera_config_manager,
 )

@@ -17,7 +17,7 @@ from core.alarm.dispatcher import AlarmRequest, alarm_dispatcher
 from core.logger import logger
 from core.settings import settings
 from features import all_specs
-from platform.camera.service import camera_service
+from platform.camera.config_manager import camera_config_manager
 
 from .compositor import CameraTile, compose_channel_frame
 from .constants import LOGISTICS_FEATURES, require_logistics_feature
@@ -191,7 +191,7 @@ class LogisticsChannelRuntime:
     # 返回：None；初始化当前实例，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`camera_service.get_camera`、`str`、`float`、`datetime.now().astimezone`、`datetime.now`、`all_specs`、`Event`、`Lock`、`RLock`、`set`。
+    #   - 内部调用：`camera_config_manager.get_camera`、`str`、`float`、`datetime.now().astimezone`、`datetime.now`、`all_specs`、`Event`、`Lock`、`RLock`、`set`。
     # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
@@ -213,7 +213,7 @@ class LogisticsChannelRuntime:
         self._service = channel_service
         self._dispatcher = dispatcher
         self._camera_provider = camera_provider or (
-            lambda camera_id: camera_service.get_camera(str(camera_id))
+            lambda camera_id: camera_config_manager.get_camera(str(camera_id))
         )
         self._is_camera_active = is_camera_active or (lambda _shm_name: True)
         self._frame_provider = frame_provider or (lambda _shm_name: None)

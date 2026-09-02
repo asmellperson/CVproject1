@@ -231,7 +231,7 @@ class ConfigCache:
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_load_initial_configs`
-    #         调用本符号；`AiVision/platform/inference/manager.py` 的 `InferenceManager::_collect_initial_configs` 调用本符号
+    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_collect_initial_configs` 调用本符号
     #   - 内部调用：`dict`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_all_function_configs(self) -> dict:

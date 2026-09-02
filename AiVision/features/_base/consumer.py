@@ -96,7 +96,7 @@ class BaseFunctionConsumer(ABC):
         spec: FeatureSpec,
         infer_dict: dict,                          # {model_name: Queue}，推理调度入口
         result_queue,                               # 本 feature 接收推理结果的队列
-        latest_frames: dict[str, np.ndarray],      # 由 CameraManager 维护的最新帧字典
+        latest_frames: dict[str, np.ndarray],      # 由 CameraRuntimeManager 维护的最新帧字典
         is_camera_active,                           # callable(shm_name) -> bool，查询摄像头是否在线
         runtime_alert_handler: Callable[[str, str, str, str], None] | None = None,
     ):

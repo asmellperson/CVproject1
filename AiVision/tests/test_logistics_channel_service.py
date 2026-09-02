@@ -18,7 +18,7 @@ from core.db import Base
 from features import all_specs
 from platform.alarm_device.orm import AiHornConfig
 from platform.camera.orm import AiCameraConfig
-from platform.camera.service import CameraService
+from platform.camera.config_manager import CameraConfigManager
 from platform.logistics_channel.constants import (
     DEFAULT_STATUS_STALE_SECONDS,
     LOGISTICS_FEATURES,
@@ -76,7 +76,7 @@ def test_logistics_channel_package_exports_service_without_hiding_state_exports(
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.fixture
 def service_db(monkeypatch):
-    import platform.camera.service as camera_service_module
+    import platform.camera.config_manager as camera_config_manager_module
     import platform.logistics_channel.service as channel_service_module
 
     engine = create_engine(
@@ -135,8 +135,8 @@ def service_db(monkeypatch):
 
     monkeypatch.setattr(channel_service_module, "session_scope", test_session_scope, raising=False)
     monkeypatch.setattr(channel_service_module, "get_session", factory, raising=False)
-    monkeypatch.setattr(camera_service_module, "session_scope", test_session_scope)
-    monkeypatch.setattr(camera_service_module, "get_session", factory)
+    monkeypatch.setattr(camera_config_manager_module, "session_scope", test_session_scope)
+    monkeypatch.setattr(camera_config_manager_module, "get_session", factory)
 
     notifications = []
 
@@ -212,12 +212,12 @@ def service_db(monkeypatch):
     fake_bus = FakeEventBus()
     monkeypatch.setattr(channel_service_module, "config_cache", fake_cache, raising=False)
     monkeypatch.setattr(channel_service_module, "config_event_bus", fake_bus, raising=False)
-    monkeypatch.setattr(camera_service_module, "config_cache", fake_cache)
-    monkeypatch.setattr(camera_service_module, "config_event_bus", fake_bus)
+    monkeypatch.setattr(camera_config_manager_module, "config_cache", fake_cache)
+    monkeypatch.setattr(camera_config_manager_module, "config_event_bus", fake_bus)
 
     yield SimpleNamespace(
         service=LogisticsChannelService(),
-        camera_service=CameraService(),
+        camera_config_manager=CameraConfigManager(),
         engine=engine,
         factory=factory,
         notifications=notifications,
@@ -290,7 +290,7 @@ def _events(service_db, change_type):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_seed_camera`、`event.listen`、`service_db.camera_service.list_cameras`、`event.remove`、`len`、`all_specs`。
+#   - 内部调用：`_seed_camera`、`event.listen`、`service_db.camera_config_manager.list_cameras`、`event.remove`、`len`、`all_specs`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
     first_id = _seed_camera(
@@ -324,7 +324,7 @@ def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
 
     event.listen(service_db.engine, "before_cursor_execute", track_selects)
     try:
-        cameras = service_db.camera_service.list_cameras()
+        cameras = service_db.camera_config_manager.list_cameras()
     finally:
         event.remove(service_db.engine, "before_cursor_execute", track_selects)
 
@@ -341,7 +341,7 @@ def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
 # 返回：None；通过断言验证按事业部查询结果。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
-#   - 内部调用：`_seed_camera`、`service_db.camera_service.list_cameras`、`set`。
+#   - 内部调用：`_seed_camera`、`service_db.camera_config_manager.list_cameras`、`set`。
 # 副作用/注意事项：仅写入测试内存数据库，不修改生产数据。
 def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
     _seed_camera(
@@ -371,11 +371,11 @@ def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
 
     general_names = {
         camera["name"]
-        for camera in service_db.camera_service.list_cameras("general_electric")
+        for camera in service_db.camera_config_manager.list_cameras("general_electric")
     }
     research_names = {
         camera["name"]
-        for camera in service_db.camera_service.list_cameras("research_institute")
+        for camera in service_db.camera_config_manager.list_cameras("research_institute")
     }
 
     assert general_names == {"legacy-general", "legacy-shared"}
@@ -1069,7 +1069,7 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`unified_frontend/src/components/security-vlm/SecurityCameraDialog.tsx` 的 `SecurityCameraDialog`
-    #         调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::_run_write_transaction`
+    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_run_write_transaction`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_write_transaction`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_membership_transaction` 调用本符号
     #   - 内部调用：`write_sessions.append`、`sorted`、`service._lock_channels`、`locked_channel_sets.append`、`tuple`、`len`、`channel_service_module._MembershipLockSetChanged`、`list`。
@@ -1503,16 +1503,16 @@ def test_create_camera_rejects_explicit_empty_department(service_db):
         )
 
 
-# 功能：验证 `test_camera_service_create_camera_allows_missing_shm_name_and_keeps_return_contract` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_camera_config_manager_create_camera_allows_missing_shm_name_and_keeps_return_contract` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service_db.camera_service.create_camera`、`set`、`all_specs`、`all`、`result['functions'].values`。
+#   - 内部调用：`service_db.camera_config_manager.create_camera`、`set`、`all_specs`、`all`、`result['functions'].values`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_camera_service_create_camera_allows_missing_shm_name_and_keeps_return_contract(service_db):
-    result = service_db.camera_service.create_camera({
+def test_camera_config_manager_create_camera_allows_missing_shm_name_and_keeps_return_contract(service_db):
+    result = service_db.camera_config_manager.create_camera({
         "name": "普通相机",
         "url": "rtsp://example/plain",
     })
@@ -1524,16 +1524,16 @@ def test_camera_service_create_camera_allows_missing_shm_name_and_keeps_return_c
     assert all(enabled is False for enabled in result["functions"].values())
 
 
-# 功能：验证 `test_camera_service_create_camera_for_feature_enables_only_target_atomically` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_camera_config_manager_create_camera_for_feature_enables_only_target_atomically` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service_db.camera_service.create_camera_for_feature`、`all`、`result['functions'].items`、`event_types.count`。
+#   - 内部调用：`service_db.camera_config_manager.create_camera_for_feature`、`all`、`result['functions'].items`、`event_types.count`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_camera_service_create_camera_for_feature_enables_only_target_atomically(service_db):
-    result = service_db.camera_service.create_camera_for_feature(
+def test_camera_config_manager_create_camera_for_feature_enables_only_target_atomically(service_db):
+    result = service_db.camera_config_manager.create_camera_for_feature(
         "detect_human",
         {
             "name": "人员逗留新增相机",
@@ -1557,17 +1557,17 @@ def test_camera_service_create_camera_for_feature_enables_only_target_atomically
     assert event_types.count("detect_human_enabled") == 1
 
 
-# 功能：验证 `test_camera_service_create_camera_for_feature_requires_valid_department` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_camera_config_manager_create_camera_for_feature_requires_valid_department` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`pytest.raises`、`service_db.camera_service.create_camera_for_feature`。
+#   - 内部调用：`pytest.raises`、`service_db.camera_config_manager.create_camera_for_feature`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_camera_service_create_camera_for_feature_requires_valid_department(service_db):
+def test_camera_config_manager_create_camera_for_feature_requires_valid_department(service_db):
     with pytest.raises(ValueError, match="department 是必填项"):
-        service_db.camera_service.create_camera_for_feature(
+        service_db.camera_config_manager.create_camera_for_feature(
             "detect_phone",
             {
                 "name": "缺少事业部",
@@ -1576,7 +1576,7 @@ def test_camera_service_create_camera_for_feature_requires_valid_department(serv
         )
 
     with pytest.raises(ValueError, match="department 必须属于当前功能"):
-        service_db.camera_service.create_camera_for_feature(
+        service_db.camera_config_manager.create_camera_for_feature(
             "detect_face",
             {
                 "name": "事业部不匹配",
@@ -1714,12 +1714,12 @@ def test_write_transaction_does_not_retry_other_operational_errors(service_db, m
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`monkeypatch.setattr`、`service_db.camera_service.create_camera`、`len`、`id`。
+#   - 内部调用：`monkeypatch.setattr`、`service_db.camera_config_manager.create_camera`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monkeypatch):
-    import platform.camera.service as camera_service_module
+    import platform.camera.config_manager as camera_config_manager_module
 
-    original_scope = camera_service_module.session_scope
+    original_scope = camera_config_manager_module.session_scope
     sessions = []
 
     # 功能：实现 `deadlock_once` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -1737,10 +1737,10 @@ def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monke
             if len(sessions) == 1:
                 raise OperationalError("commit", {}, Exception(1213, "deadlock"))
 
-    monkeypatch.setattr(camera_service_module, "session_scope", deadlock_once)
-    monkeypatch.setattr(camera_service_module, "sleep", lambda _: None)
+    monkeypatch.setattr(camera_config_manager_module, "session_scope", deadlock_once)
+    monkeypatch.setattr(camera_config_manager_module, "sleep", lambda _: None)
 
-    result = service_db.camera_service.create_camera({
+    result = service_db.camera_config_manager.create_camera({
         "name": "摄像头重试",
         "url": "rtsp://example/camera-retry",
     })
@@ -1749,7 +1749,7 @@ def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monke
     assert len({id(session) for session in sessions}) == 2
 
 
-# 功能：验证 `test_camera_service_translates_commit_integrity_errors` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_camera_config_manager_translates_commit_integrity_errors` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
@@ -1758,7 +1758,7 @@ def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monke
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.camera_service.create_camera`、`isinstance`、`pytest.mark.parametrize`。
+#   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.camera_config_manager.create_camera`、`isinstance`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     ("message", "expected"),
@@ -1768,15 +1768,15 @@ def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monke
         ("foreign key constraint fails", "数据约束冲突"),
     ],
 )
-def test_camera_service_translates_commit_integrity_errors(
+def test_camera_config_manager_translates_commit_integrity_errors(
     service_db,
     monkeypatch,
     message,
     expected,
 ):
-    import platform.camera.service as camera_service_module
+    import platform.camera.config_manager as camera_config_manager_module
 
-    original_scope = camera_service_module.session_scope
+    original_scope = camera_config_manager_module.session_scope
 
     # 功能：实现 `integrity_failure` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：无。
@@ -1791,9 +1791,9 @@ def test_camera_service_translates_commit_integrity_errors(
             yield session
             raise IntegrityError("commit", {}, Exception(message))
 
-    monkeypatch.setattr(camera_service_module, "session_scope", integrity_failure)
+    monkeypatch.setattr(camera_config_manager_module, "session_scope", integrity_failure)
     with pytest.raises(ValueError, match=expected) as raised:
-        service_db.camera_service.create_camera({
+        service_db.camera_config_manager.create_camera({
             "name": "并发相机",
             "url": "rtsp://example/integrity",
         })

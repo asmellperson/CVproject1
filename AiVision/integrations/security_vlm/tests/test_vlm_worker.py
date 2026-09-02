@@ -37,9 +37,9 @@ def test_pending_task_lock_entries_release_after_all_waiters_exit():
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::update_video_status`
-    #         调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::create_camera_record`
-    #         调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::ensure_feature_configs`
-    #         调用本符号；`AiVision/platform/camera/service.py` 的 `CameraService::_get_orm_by_key` 调用本符号；另有 12 处静态调用
+    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera_record`
+    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::ensure_feature_configs`
+    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_get_orm_by_key` 调用本符号；另有 12 处静态调用
     #   - 内部调用：`processor._hold_task_lock`、`first_entered.set`、`release_first.wait`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def first():

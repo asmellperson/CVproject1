@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """
-features/_base/service.py
+features/_base/config_manager.py
 通用功能配置读写服务 — 替代旧 SQL 类里 5 个 save_xxx_config_by_shm_name 方法。
 
 旧代码: save_blocks_config_by_shm_name / save_door_config_by_shm_name / 
@@ -24,12 +24,12 @@ from platform.camera.orm import AiCameraConfig
 
 # 功能：所有功能配置的 CRUD 入口；输入与输出详见下方说明
 # 参数：无。
-# 返回：FeatureConfigService；返回新建的 `FeatureConfigService` 实例。
+# 返回：FeatureConfigManager；返回新建的 `FeatureConfigManager` 实例。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class FeatureConfigService:
+class FeatureConfigManager:
     """所有功能配置的 CRUD 入口。
     
     通过 FeatureSpec.orm_class 反射目标表,所以一份代码服务所有功能。
@@ -44,7 +44,7 @@ class FeatureConfigService:
     #   - `shm_name`（str）：摄像头共享内存名称
     # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::save_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::save_config` 调用本符号
     #   - 内部调用：`get_session`、`self._get_camera_by_key`、`session.query(spec.orm_class).filter_by(camera_id=camera.id).first`、`session.query(spec.orm_class).filter_by`、`session.query`、`self._camera_to_dict`、`cfg.to_value_dict`、`cfg.to_alarm_dict`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_config(self, spec: FeatureSpec, shm_name: str) -> Optional[dict]:
@@ -178,8 +178,8 @@ class FeatureConfigService:
     #   - `key`（str）：用于查询、分组或缓存的键
     # 返回：Optional[AiCameraConfig]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::get_config` 调用本符号；`AiVision/features/_base/service.py` 的
-    #         `FeatureConfigService::save_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::get_config` 调用本符号；`AiVision/features/_base/config_manager.py` 的
+    #         `FeatureConfigManager::save_config` 调用本符号
     #   - 内部调用：`(key or
     #          '').strip`、`key.isdigit`、`filters.append`、`int`、`key.startswith`、`key.removeprefix('camera_').isdigit`、`key.removeprefix`、`session.query(AiCameraConfig).filter(or_(*filters)).first`、`session.query(AiCameraConfig).filter`、`session.query`
     #          等共 11 个调用。
@@ -202,7 +202,7 @@ class FeatureConfigService:
     #   - `camera`（AiCameraConfig）：摄像头配置或实体
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::get_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::get_config` 调用本符号
     #   - 内部调用：`bool`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
@@ -216,4 +216,4 @@ class FeatureConfigService:
 
 
 # 单例,API 层和 Orchestrator 共用
-feature_config_service = FeatureConfigService()
+feature_config_manager = FeatureConfigManager()

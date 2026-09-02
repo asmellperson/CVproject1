@@ -295,8 +295,8 @@ def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
 #   - 内部调用：`importlib.import_module`、`object.__new__`、`threading.Lock`、`SimpleNamespace`、`monkeypatch.setattr`、`start_calls.append`、`alert_calls.append`、`manager._retry_missing_enabled`、`len`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_camera_retry_logs_without_sending_a_separate_alert(monkeypatch):
-    manager_module = importlib.import_module("platform.camera.manager")
-    manager = object.__new__(manager_module.CameraManager)
+    manager_module = importlib.import_module("platform.camera.runtime_manager")
+    manager = object.__new__(manager_module.CameraRuntimeManager)
     manager._lock = threading.Lock()
     manager._shared_configs = {
         "offline_camera": (

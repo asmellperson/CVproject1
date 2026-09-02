@@ -338,19 +338,19 @@ class FakeService:
         return deepcopy(value)
 
 
-# 功能：定义 `FakeFeatureService` 类，封装接口访问相关的状态、约束与操作
+# 功能：定义 `FakeFeatureConfigManager` 类，封装接口访问相关的状态、约束与操作
 # 参数：无。
-# 返回：FakeFeatureService；返回新建的 `FakeFeatureService` 实例。
+# 返回：FakeFeatureConfigManager；返回新建的 `FakeFeatureConfigManager` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_real_asgi_auth_permissions_and_endpoint_contracts`
 #         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
 #         `test_generic_feature_config_http_cannot_bypass_logistics_membership_guard`
-#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_service`
+#         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_config_manager`
 #         实例化本符号；`AiVision/tests/test_logistics_channel_api.py` 的
 #         `test_legacy_logistics_config_reads_require_department_and_membership` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class FakeFeatureService:
+class FakeFeatureConfigManager:
     # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -368,8 +368,8 @@ class FakeFeatureService:
     #   - `camera_id`（未显式标注）：摄像头唯一标识
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureService::get_config`
-    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureService::save_config` 调用本符号
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureConfigManager::get_config`
+    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeFeatureConfigManager::save_config` 调用本符号
     #   - 内部调用：`str`、`raw_camera_id.startswith`、`raw_camera_id.removeprefix`、`int`、`spec.config_schema().model_dump`、`spec.config_schema`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
@@ -646,7 +646,7 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
 # 返回：None；通过 HTTP 响应断言验证清单去重、权限、在线状态与敏感字段过滤。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
-#   - 内部调用：`FakeService`、`FakeCameraService`、`FakeOrchestrator`、`FastAPI`、`httpx.AsyncClient`、`asyncio.run`。
+#   - 内部调用：`FakeService`、`FakeCameraConfigManager`、`FakeOrchestrator`、`FastAPI`、`httpx.AsyncClient`、`asyncio.run`。
 # 副作用/注意事项：只操作内存 ASGI 应用和测试数据，不连接生产数据库或摄像头。
 def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates(monkeypatch):
     service = FakeService()
@@ -780,7 +780,7 @@ def test_fastapi_response_field_filters_and_rejects_invalid_output():
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FakeService`、`FakeOrchestrator`、`_seed`、`service.add_existing_camera`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+#   - 内部调用：`FakeService`、`FakeOrchestrator`、`_seed`、`service.add_existing_camera`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     service = FakeService()
@@ -789,12 +789,12 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     feature = "detect_logistics_single_person"
     channel_id = channel["id"]
     service.add_existing_camera(feature, channel_id, 7)
-    feature_service = FakeFeatureService()
+    feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
     app.dependency_overrides[api.get_current_orchestrator] = lambda: orchestrator
-    app.dependency_overrides[api.get_feature_config_service] = lambda: feature_service
+    app.dependency_overrides[api.get_feature_config_manager] = lambda: feature_config_manager
     monkeypatch.setattr(api, "get_session", EmptyAlarmSession)
 
     # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -972,13 +972,13 @@ def test_viewer_department_access_and_admin_dependency_contract():
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+#   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
     feature_api = importlib.import_module("api.features")
-    feature_service = FakeFeatureService()
+    feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
-    app.include_router(feature_api.create_features_router(feature_service))
+    app.include_router(feature_api.create_features_router(feature_config_manager))
 
     # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -1012,7 +1012,7 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
             }
             denied = await client.get(path)
             assert denied.status_code == 403
-            assert feature_service.calls == []
+            assert feature_config_manager.calls == []
 
             app.dependency_overrides[feature_api.get_current_user] = lambda: ADMIN
             allowed = await client.get(path)
@@ -1022,27 +1022,27 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
     asyncio.run(scenario())
 
 
-# 功能：验证 `test_generic_feature_camera_create_uses_atomic_camera_service` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_generic_feature_camera_create_uses_atomic_camera_config_manager` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`importlib.import_module`、`FakeFeatureService`、`FakeCameraService`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
+#   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FakeCameraConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
+def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeypatch):
     feature_api = importlib.import_module("api.features")
-    feature_service = FakeFeatureService()
+    feature_config_manager = FakeFeatureConfigManager()
 
-    # 功能：定义 `FakeCameraService` 类，封装接口访问相关的状态、约束与操作
+    # 功能：定义 `FakeCameraConfigManager` 类，封装接口访问相关的状态、约束与操作
     # 参数：无。
-    # 返回：FakeCameraService；返回新建的 `FakeCameraService` 实例。
+    # 返回：FakeCameraConfigManager；返回新建的 `FakeCameraConfigManager` 实例。
     # 调用关系：
-    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_service`
+    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `test_generic_feature_camera_create_uses_atomic_camera_config_manager`
     #         实例化本符号
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    class FakeCameraService:
+    class FakeCameraConfigManager:
         # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
         # 参数：
         #   - `self`（未显式标注）：当前类实例
@@ -1077,11 +1077,11 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
                 "functions": {feature: True},
             }
 
-    camera_service = FakeCameraService()
+    camera_config_manager = FakeCameraConfigManager()
     app = FastAPI()
     app.include_router(feature_api.create_features_router(
-        feature_service,
-        camera_service=camera_service,
+        feature_config_manager,
+        camera_config_manager=camera_config_manager,
     ))
     app.dependency_overrides[feature_api.require_admin] = lambda: ADMIN
 
@@ -1120,7 +1120,7 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
             )
             assert response.status_code == 200
             assert response.json()["functions"] == {"detect_human": True}
-            assert camera_service.calls == [(
+            assert camera_config_manager.calls == [(
                 "detect_human",
                 {
                     "name": "后门摄像头",
@@ -1143,7 +1143,7 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FakeService`、`_seed`、`service.add_existing_camera`、`FakeFeatureService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`、`pytest.mark.parametrize`。
+#   - 内部调用：`FakeService`、`_seed`、`service.add_existing_camera`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
     ("feature", "legacy_path"),
@@ -1174,11 +1174,11 @@ def test_legacy_logistics_config_reads_require_department_and_membership(
     service = FakeService()
     channel = _seed(service, feature=feature)
     service.add_existing_camera(feature, channel["id"], 7)
-    feature_service = FakeFeatureService()
+    feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
     app.include_router(compat_api.router)
     app.dependency_overrides[compat_api.get_logistics_channel_service] = lambda: service
-    app.dependency_overrides[compat_api.get_feature_config_service] = lambda: feature_service
+    app.dependency_overrides[compat_api.get_feature_config_manager] = lambda: feature_config_manager
 
     # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

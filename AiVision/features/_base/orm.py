@@ -127,7 +127,7 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
     #   - `self`（未显式标注）：当前类实例
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::get_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::get_config` 调用本符号
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def to_alarm_dict(self) -> dict:
@@ -153,7 +153,7 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
     #   - `alarm`（dict）：`alarm` 对应的业务输入值
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::save_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::save_config` 调用本符号
     #   - 内部调用：`alarm.get`、`sql.get`、`horn.get`、`(horn.get('parm') or {}).get`、`wechat.get`、`(wechat.get('parm') or {}).get`。
     # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息。
     def apply_alarm_dict(self, alarm: dict):
@@ -181,7 +181,7 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
     #   - `self`（未显式标注）：当前类实例
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::get_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::get_config` 调用本符号
     #   - 内部调用：`getattr`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def to_value_dict(self) -> dict:
@@ -198,7 +198,7 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
     #   - `value`（dict）：待转换、校验或写入的值
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/features/_base/service.py` 的 `FeatureConfigService::save_config` 调用本符号
+    #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::save_config` 调用本符号
     #   - 内部调用：`(value or {}).items`、`hasattr`、`setattr`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def apply_value_dict(self, value: dict):

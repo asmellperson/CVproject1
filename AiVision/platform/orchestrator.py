@@ -20,11 +20,11 @@ from core.system_config import system_config_service
 from features import all_specs                                     # 系统有那些检测功能
 from features._base.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
 
-from platform.camera.manager import CameraManager                  # 管理摄像头采集进程
+from platform.camera.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
 from platform.camera.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
-from platform.camera.service import camera_service                 # 从数据库读/改摄像头配置
-from platform.inference.manager import inference_manager           # 真正管理模型推理进程和推理队列
-from platform.inference.service import model_service               # 模型配置/数据库
+from platform.camera.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
+from platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
+from platform.inference.config_manager import model_config_manager               # 模型配置/数据库
 from platform.logistics_channel.constants import LOGISTICS_FEATURES
 from platform.logistics_channel.runtime import LogisticsChannelRuntime
 from platform.logistics_channel.service import logistics_channel_service
@@ -52,7 +52,7 @@ class Orchestrator:
         """此阶段主要创建和保存各子模块对象
         接收mp_manager:跨进程共享管理器
         """
-        self.camera_manager = CameraManager(mp_manager)                      # 摄像头采集进程
+        self.camera_runtime_manager = CameraRuntimeManager(mp_manager)                      # 摄像头采集进程
         self.consumers: dict[str, BaseFunctionConsumer] = {}                 # 所有检测业务处理器，字典，key为检测业务名称，Value为具体的检测业务对象，取具体检测业务的时候只要名字就行
         self._horn_dict: dict = {}                                           # 当前运行中的喇叭设备
         self._wechat: Optional[WeChatNotifier] = None                        # 企业微信
@@ -93,9 +93,9 @@ class Orchestrator:
 
         # 1) 数据库 schema 修补，在启动摄像头和模型之前，把配置整理干净
         ensure_schema_compatible()                             # 检查/修补数据库表结构
-        model_service.normalize_builtin_models()               # 整理系统内置模型配置
-        camera_service.normalize_shm_names()                   # 整理摄像头共享内存名称
-        camera_service.ensure_feature_configs(enable_all=False) # 确保每台摄像头需要的功能配置存在
+        model_config_manager.normalize_builtin_models()               # 整理系统内置模型配置
+        camera_config_manager.normalize_shm_names()                   # 整理摄像头共享内存名称
+        camera_config_manager.ensure_feature_configs(enable_all=False) # 确保每台摄像头需要的功能配置存在
         config_cache.init()                                     # 把配置从数据库加载到运行时缓存
         # 物流通道迁移[历史迁移逻辑]
         migration = logistics_channel_service.migrate_existing_feature_cameras()
@@ -114,15 +114,15 @@ class Orchestrator:
         # 2) 企微客户端先初始化,摄像头启动异常可直接推送
         if settings.alarm.wechat_enable:
             self._wechat = WeChatNotifier()                             # 创建企业微信客户端
-            self.camera_manager.configure_runtime_alerts(self._send_system_exception_alert)        # 摄像头运行过程中异常，调用异常通知函数
-            inference_manager.configure_runtime_alerts(self._send_system_exception_alert)          # 模型异常，调用异常通知函数
+            self.camera_runtime_manager.configure_runtime_alerts(self._send_system_exception_alert)        # 摄像头运行过程中异常，调用异常通知函数
+            inference_runtime_manager.configure_runtime_alerts(self._send_system_exception_alert)          # 模型异常，调用异常通知函数
         else:
-            self.camera_manager.configure_runtime_alerts(None)
-            inference_manager.configure_runtime_alerts(None)
+            self.camera_runtime_manager.configure_runtime_alerts(None)
+            inference_runtime_manager.configure_runtime_alerts(None)
 
         # 3) 摄像头进程
-        cameras = camera_service.list_cameras()                   # 查摄像头数据库配置
-        models = model_service.list_models(enabled_only=True)     # 查模型数据库配置
+        cameras = camera_config_manager.list_cameras()                   # 查摄像头数据库配置
+        models = model_config_manager.list_models(enabled_only=True)     # 查模型数据库配置
         cleanup_count = cleanup_aivision_residual_processes(      # 清理残留进程
             camera_shm_names=[c["shm_name"] for c in cameras],
             camera_urls=[c["url"] for c in cameras],
@@ -131,7 +131,7 @@ class Orchestrator:
         if cleanup_count:
             logger.warning(f"[Orchestrator] 启动前已清理 {cleanup_count} 个 AiVision 残留进程")
 
-        # 转成 CameraManager 期望的格式(把功能配置展平后传)
+        # 转成 CameraRuntimeManager 期望的格式(把功能配置展平后传)
         cam_configs = []
         for c in cameras:
             functions = c.get("functions") or {}
@@ -145,8 +145,8 @@ class Orchestrator:
                 "shape": c.get("shape") or [1080, 1920, 3],
             })
         # 启动摄像头
-        self.camera_manager.initialize_configs(cam_configs)       # 初始化摄像头配置
-        self.camera_manager.start_all()                           # 启动摄像头采集进程：采集RTSP以及写共享内存
+        self.camera_runtime_manager.initialize_configs(cam_configs)       # 初始化摄像头配置
+        self.camera_runtime_manager.start_all()                           # 启动摄像头采集进程：采集RTSP以及写共享内存
         frame_reader_registry.start_all()                         # 启动帧读取：从共享内存中读取最新帧，给检测模块使用
         alarm_evidence_recorder.set_status_callback(violation_writer.update_video_status)  # 回调函数，告诉报警记录器，当状态发生变化时，自动调用violation_writer.update_video_status函数
         alarm_evidence_recorder.start(lambda: frame_reader_registry.latest_frames)         # 告警视频录制模块，需要持续访问最新帧，所以把最新帧获取方式交给它
@@ -165,9 +165,9 @@ class Orchestrator:
         )
 
         # 6) 推理 Worker 进程
-        inference_manager.initialize_queues()         # 创建模型任务队列
-        inference_manager.configure_runtime_monitor(self._monitor_consumer_threads)
-        inference_manager.start_all()                 # 启动所有模型进程，启动后：加载模型，然后等待infer_queue任务
+        inference_runtime_manager.initialize_queues()         # 创建模型任务队列
+        inference_runtime_manager.configure_runtime_monitor(self._monitor_consumer_threads)
+        inference_runtime_manager.start_all()                 # 启动所有模型进程，启动后：加载模型，然后等待infer_queue任务
 
         # 7) 开启物流通道实时检测模块
         self.logistics_channel_runtime.start()
@@ -187,7 +187,7 @@ class Orchestrator:
         if not self._started:
             return
         logger.info("=" * 20 + " Orchestrator 停止 " + "=" * 20)
-        inference_manager.configure_runtime_monitor(None)
+        inference_runtime_manager.configure_runtime_monitor(None)
 
         # 逆序停止，先停上层使用者，在停下面提供资源的模块
         # 1、先停止所有的检测功能线程
@@ -204,7 +204,7 @@ class Orchestrator:
 
         try:
             # 2、停止模型推理进程
-            inference_manager.stop_all()
+            inference_runtime_manager.stop_all()
         except Exception as e:
             logger.warning(f"[Orchestrator] 停止推理失败: {e}")
             # 3、停止喇叭心跳
@@ -231,7 +231,7 @@ class Orchestrator:
             pass
         # 7、停止摄像头采集进程
         try:
-            self.camera_manager.stop_all()
+            self.camera_runtime_manager.stop_all()
         except Exception:
             pass
         # 8、释放数据库连接
@@ -288,7 +288,7 @@ class Orchestrator:
         if spec is None:
             raise ValueError(f"未知检测能力: {name}")
         # 3、检测模型是否已经启动
-        running_models = set(inference_manager.list_running())
+        running_models = set(inference_runtime_manager.list_running())
         missing = [model for model in spec.required_models if model not in running_models]    # 找出缺失的模型
         # 缺失模型时不启动检测功能
         if missing:
@@ -299,8 +299,8 @@ class Orchestrator:
         # 4、给检测功能处理器准备好需要的关键词参数
         consumer_kwargs = dict(
             spec=spec,                                        # 功能说明书
-            infer_dict=inference_manager.infer_queues,        # 推理任务队列
-            result_queue=inference_manager.result_queues[name],# name检测功能结果返回队列
+            infer_dict=inference_runtime_manager.infer_queues,        # 推理任务队列
+            result_queue=inference_runtime_manager.result_queues[name],# name检测功能结果返回队列
             latest_frames=frame_reader_registry.latest_frames, # 当前所有摄像头的最新帧
             is_camera_active=frame_reader_registry.is_active,  # 摄像头是否在线函数
             runtime_alert_handler=self._send_system_exception_alert,  # Orchestrator的系统异常通知函数
@@ -345,7 +345,7 @@ class Orchestrator:
 
         # 摄像头层面，处理新增摄像头、修改摄像头、删除摄像头
         if change == "camera_added":
-            # 直接把摄像头加入运行系统，会重新读取摄像头的配置，然后交给CameraManager，应该运行就start_camera()
+            # 直接把摄像头加入运行系统，会重新读取摄像头的配置，然后交给CameraRuntimeManager，应该运行就start_camera()
             # 这里的camera_name是shm_name
             self._add_camera_to_runtime(event.camera_name)
             return
@@ -364,8 +364,8 @@ class Orchestrator:
             # 通知物流模块，这台摄像头已经不存在了
             if cam_id is not None:
                 self.logistics_channel_runtime.refresh_camera_all(cam_id)
-            # 从CameraManager运行配置里彻底移除这台摄像头
-            self.camera_manager.remove_camera_config(event.camera_name)
+            # 从CameraRuntimeManager运行配置里彻底移除这台摄像头
+            self.camera_runtime_manager.remove_camera_config(event.camera_name)
             logger.info(f"[Orchestrator] 摄像头已热移除 cam_id={cam_id} shm={event.camera_name}")
             return
 
@@ -450,14 +450,14 @@ class Orchestrator:
 
     def _build_camera_runtime_config(self, key: str) -> dict | None:
         """
-        从数据库拿到摄像头的完整配置，整理成CameraManager真正需要的运行配置
+        从数据库拿到摄像头的完整配置，整理成CameraRuntimeManager真正需要的运行配置
         参数：
             key：shm_name
         enable的规则：
             摄像头自身enabled=True，并且至少存在一个当前有效的检测能力，才允许摄像头采集进程进行
         """
         # 去摄像头配置里找对应的摄像头
-        camera = camera_service.get_camera(key)
+        camera = camera_config_manager.get_camera(key)
         if camera is None:
             logger.warning(f"[Orchestrator] 摄像头配置不存在: {key}")
             return None
@@ -477,7 +477,7 @@ class Orchestrator:
     def _add_camera_to_runtime(self, key: str):
         """
         热添加摄像头（将摄像头加入Aivision运行系统）
-        读取某台摄像头最新运行配置，把配置交给CameraManager，如果摄像头应该运行就尝试启动，如果不应该运行就确保他停止
+        读取某台摄像头最新运行配置，把配置交给CameraRuntimeManager，如果摄像头应该运行就尝试启动，如果不应该运行就确保他停止
         包含两件事情：
             1、更新摄像头配置
             2、根据摄像头配置决定运行状态
@@ -486,14 +486,14 @@ class Orchestrator:
         if cfg is None:
             return
         shm_name = cfg["shm_name"]
-        # 把最新配置交给CameraManager
-        self.camera_manager.update_camera_config(shm_name, cfg)
+        # 把最新配置交给CameraRuntimeManager
+        self.camera_runtime_manager.update_camera_config(shm_name, cfg)
         # 根据当前系统状态计算后，这台摄像头现在是否应该启动采集线程
         if not cfg.get("enable", True):
-            self.camera_manager.stop_camera(shm_name)
+            self.camera_runtime_manager.stop_camera(shm_name)
             logger.info(f"[Orchestrator] 摄像头已禁用,未启动 shm={shm_name}")
             return
-        ok = self.camera_manager.start_camera(shm_name)
+        ok = self.camera_runtime_manager.start_camera(shm_name)
         if ok:
             logger.info(f"[Orchestrator] 摄像头已热启动 shm={shm_name}")
         else:
@@ -505,17 +505,17 @@ class Orchestrator:
         if cfg is None:
             return
         shm_name = cfg["shm_name"]
-        self.camera_manager.update_camera_config(shm_name, cfg)
+        self.camera_runtime_manager.update_camera_config(shm_name, cfg)
 
         should_run = bool(cfg.get("enable"))
-        is_running = self.camera_manager.is_running(shm_name)
+        is_running = self.camera_runtime_manager.is_running(shm_name)
         if should_run == is_running:
             return
         if should_run:
-            self.camera_manager.start_camera(shm_name)
+            self.camera_runtime_manager.start_camera(shm_name)
             logger.info(f"[Orchestrator] 摄像头已按功能绑定热启动 shm={shm_name}")
         else:
-            self.camera_manager.stop_camera(shm_name)
+            self.camera_runtime_manager.stop_camera(shm_name)
             logger.info(f"[Orchestrator] 摄像头已按功能绑定热停止 shm={shm_name}")
 
     def _restart_or_stop_camera(self, key: str):
@@ -532,15 +532,15 @@ class Orchestrator:
             return
         shm_name = cfg["shm_name"]
         # 先无条件停止旧进程
-        self.camera_manager.stop_camera(shm_name)
-        # 更新CameraManager配置
-        self.camera_manager.update_camera_config(shm_name, cfg)
+        self.camera_runtime_manager.stop_camera(shm_name)
+        # 更新CameraRuntimeManager配置
+        self.camera_runtime_manager.update_camera_config(shm_name, cfg)
         # 判断新配置允许不允许运行，不允许就停止
         if not cfg.get("enable", True):
             logger.info(f"[Orchestrator] 摄像头已热停止 shm={shm_name}")
             return
         # 允许就重新启动
-        ok = self.camera_manager.start_camera(shm_name)
+        ok = self.camera_runtime_manager.start_camera(shm_name)
         if ok:
             logger.info(f"[Orchestrator] 摄像头已热重启 shm={shm_name}")
         else:
@@ -674,7 +674,7 @@ class Orchestrator:
         查看shm_name在feature检测功能下的当前监控状态
         主要供前端实时状态展示使用
         流程：
-            1、从CameraManager判断摄像头采集进程是否在线
+            1、从CameraRuntimeManager判断摄像头采集进程是否在线
             2、根据feature找到对应Consumer
             3、调用Consumer.get_monitor_status()获取最新检测状态
             4、只有最近2秒内更新的状态才认为有效
@@ -683,7 +683,7 @@ class Orchestrator:
 
         """
         # 判断摄像头采集进程有没有在运行
-        online = shm_name in set(self.camera_manager.list_running())
+        online = shm_name in set(self.camera_runtime_manager.list_running())
         consumer = self.consumers.get(feature)                          # 找到对应的Consumer
         getter = getattr(consumer, "get_monitor_status", None)          # 查看Consumer有没有一个叫get_monitor_status的函数
         snapshot = getter(shm_name) if callable(getter) else None       # 从get_monitor_status函数里取当前摄像头的监控状态， callable()：这个东西能不能像函数一样被调用
@@ -742,7 +742,7 @@ class Orchestrator:
             4、InferenceWorker和各Consumer的详细推理状态
         """
         # 真正已经启动的模型推理进程有哪些
-        running_models = inference_manager.list_running()
+        running_models = inference_runtime_manager.list_running()
         running_model_set = set(running_models)
         # 遍历所有Consumer，如果这个Consumer支持inference_status(),就把自己的推理状态收集起来
         consumer_inference = {
@@ -759,11 +759,11 @@ class Orchestrator:
         # 最后返回系统整体运行状态
         return {
             "started": self._started,                             # Orchestrator整体有没有完成启动
-            "running_cameras": self.camera_manager.list_running(), # 当前正在运行采集的摄像头
+            "running_cameras": self.camera_runtime_manager.list_running(), # 当前正在运行采集的摄像头
             "running_models": running_models,                     # 当前正在运行的模型推理进程
             "running_consumers": running_consumers,              # Consumer本身正常，而且它依赖的模型也全部正常的检测功能
             "inference": {
-                "workers": inference_manager.runtime_status(),     # 模型推理进程的详细状态
+                "workers": inference_runtime_manager.runtime_status(),     # 模型推理进程的详细状态
                 "consumers": consumer_inference,                   # 每个consumer自己的推理调用状态
             },
         }

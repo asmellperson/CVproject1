@@ -1,7 +1,7 @@
 # 文件说明：封装业务服务的业务规则与持久化访问。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-"""platform/inference/service.py — 模型 CRUD"""
+"""platform/inference/config_manager.py — 模型 CRUD"""
 from __future__ import annotations
 from typing import Optional
 
@@ -14,14 +14,14 @@ from .model_paths import resolve_model_path
 YOLO_DETECTOR_WORKER = "platform.inference.workers.yolo_detector.YoloDetectorWorker"
 
 
-# 功能：定义 `ModelService` 类，封装业务服务相关的状态、约束与操作
+# 功能：定义 `ModelConfigManager` 类，封装业务服务相关的状态、约束与操作
 # 参数：无。
-# 返回：ModelService；返回新建的 `ModelService` 实例。
+# 返回：ModelConfigManager；返回新建的 `ModelConfigManager` 实例。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class ModelService:
+class ModelConfigManager:
 
     # 功能：读取或查询 `list_models` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -166,7 +166,7 @@ class ModelService:
                 patched += 1
 
         if patched:
-            logger.info("[ModelService] 已修正内置模型 yolo_face 的运行配置")
+            logger.info("[ModelConfigManager] 已修正内置模型 yolo_face 的运行配置")
         return patched
 
     # 功能：转换或规范化 `_to_dict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -174,9 +174,9 @@ class ModelService:
     #   - `m`（AiModel）：`m` 对应的业务输入值
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/service.py` 的 `ModelService::list_models` 调用本符号；`AiVision/platform/inference/service.py`
-    #         的 `ModelService::get_model` 调用本符号；`AiVision/platform/inference/service.py` 的 `ModelService::get_model_by_name`
-    #         调用本符号；`AiVision/platform/inference/service.py` 的 `ModelService::create_model` 调用本符号；另有 1 处静态调用
+    #   - 调用方：`AiVision/platform/inference/config_manager.py` 的 `ModelConfigManager::list_models` 调用本符号；`AiVision/platform/inference/config_manager.py`
+    #         的 `ModelConfigManager::get_model` 调用本符号；`AiVision/platform/inference/config_manager.py` 的 `ModelConfigManager::get_model_by_name`
+    #         调用本符号；`AiVision/platform/inference/config_manager.py` 的 `ModelConfigManager::create_model` 调用本符号；另有 1 处静态调用
     #   - 内部调用：`resolve_model_path`、`bool`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
@@ -199,4 +199,4 @@ class ModelService:
         }
 
 
-model_service = ModelService()
+model_config_manager = ModelConfigManager()

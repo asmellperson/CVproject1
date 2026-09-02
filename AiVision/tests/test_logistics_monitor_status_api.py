@@ -10,15 +10,15 @@ compat_module = importlib.import_module("api.compat")
 orchestrator_module = importlib.import_module("platform.orchestrator")
 
 
-# 功能：定义 `FakeCameraManager` 类，封装监控展示、接口访问相关的状态、约束与操作
+# 功能：定义 `FakeCameraRuntimeManager` 类，封装监控展示、接口访问相关的状态、约束与操作
 # 参数：
 #   - `running`（未显式标注）：`running` 对应的业务输入值
-# 返回：FakeCameraManager；返回新建的 `FakeCameraManager` 实例。
+# 返回：FakeCameraRuntimeManager；返回新建的 `FakeCameraRuntimeManager` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_monitor_status_api.py` 的 `build_orchestrator` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class FakeCameraManager:
+class FakeCameraRuntimeManager:
     # 功能：初始化或配置 `__init__` 对应的监控展示、接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -85,11 +85,11 @@ class FakeConsumer:
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_monitor_status_api.py` 的 `test_orchestrator_returns_fresh_typed_snapshot`
 #         调用本符号；`AiVision/tests/test_logistics_monitor_status_api.py` 的 `test_orchestrator_returns_unknown_for_stale_snapshot` 调用本符号
-#   - 内部调用：`object.__new__`、`FakeCameraManager`、`FakeConsumer`。
+#   - 内部调用：`object.__new__`、`FakeCameraRuntimeManager`、`FakeConsumer`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_orchestrator(*, running=("cam1",), snapshot=None):
     orchestrator = object.__new__(orchestrator_module.Orchestrator)
-    orchestrator.camera_manager = FakeCameraManager(running)
+    orchestrator.camera_runtime_manager = FakeCameraRuntimeManager(running)
     orchestrator.consumers = {
         "detect_logistics_single_person": FakeConsumer(snapshot),
     }
@@ -172,7 +172,7 @@ def test_orchestrator_returns_unknown_for_stale_snapshot(monkeypatch):
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`compat_module.compat_get_camera_feature_status`、`CameraService`、`StatusOrchestrator`。
+#   - 内部调用：`compat_module.compat_get_camera_feature_status`、`CameraConfigManager`、`StatusOrchestrator`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_compat_status_delegates_to_read_only_orchestrator():
     expected = {
@@ -209,14 +209,14 @@ def test_compat_status_delegates_to_read_only_orchestrator():
             assert feature == "detect_logistics_single_person"
             return expected
 
-    # 功能：定义 `CameraService` 类，封装监控展示、接口访问相关的状态、约束与操作
+    # 功能：定义 `CameraConfigManager` 类，封装监控展示、接口访问相关的状态、约束与操作
     # 参数：无。
-    # 返回：CameraService；返回新建的 `CameraService` 实例。
+    # 返回：CameraConfigManager；返回新建的 `CameraConfigManager` 实例。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    class CameraService:
+    class CameraConfigManager:
         # 功能：读取或查询 `get_camera` 对应的监控展示、接口访问逻辑；输入由参数提供，处理结果见返回值说明
         # 参数：
         #   - `self`（未显式标注）：当前类实例
@@ -233,7 +233,7 @@ def test_compat_status_delegates_to_read_only_orchestrator():
         key="cam1",
         feature="detect_logistics_single_person",
         user={"role": "viewer", "department": "general_electric"},
-        camera_service=CameraService(),
+        camera_config_manager=CameraConfigManager(),
         orchestrator=StatusOrchestrator(),
     )
 

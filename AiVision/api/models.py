@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import require_admin
-from api.deps import get_model_service
+from api.deps import get_model_config_manager
 
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -65,48 +65,48 @@ class ModelCreateRequest(BaseModel):
 
 # 功能：读取或查询 `list_models` 对应的`models` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.list_models`、`router.get`。
+#   - 内部调用：`Depends`、`model_config_manager.list_models`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("")
-def list_models(model_service=Depends(get_model_service)) -> list[dict[str, Any]]:
-    return model_service.list_models(enabled_only=False)
+def list_models(model_config_manager=Depends(get_model_config_manager)) -> list[dict[str, Any]]:
+    return model_config_manager.list_models(enabled_only=False)
 
 
 # 功能：创建或构建 `create_model` 对应的`models` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `payload`（ModelCreateRequest）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.post('')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.create_model`、`payload.model_dump`、`router.post`。
+#   - 内部调用：`Depends`、`model_config_manager.create_model`、`payload.model_dump`、`router.post`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.post("")
 def create_model(
     payload: ModelCreateRequest,
     _user: dict = Depends(require_admin),
-    model_service=Depends(get_model_service),
+    model_config_manager=Depends(get_model_config_manager),
 ) -> dict[str, Any]:
-    return model_service.create_model(payload.model_dump())
+    return model_config_manager.create_model(payload.model_dump())
 
 
 # 功能：读取或查询 `get_model` 对应的`models` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `model_id`（int）：模型唯一标识
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{model_id}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.get_model`、`HTTPException`、`router.get`。
+#   - 内部调用：`Depends`、`model_config_manager.get_model`、`HTTPException`、`router.get`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get("/{model_id}")
-def get_model(model_id: int, model_service=Depends(get_model_service)) -> dict[str, Any]:
-    model = model_service.get_model(model_id)
+def get_model(model_id: int, model_config_manager=Depends(get_model_config_manager)) -> dict[str, Any]:
+    model = model_config_manager.get_model(model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="model not found")
     return model
@@ -117,20 +117,20 @@ def get_model(model_id: int, model_service=Depends(get_model_service)) -> dict[s
 #   - `model_id`（int）：模型唯一标识
 #   - `payload`（ModelUpdateRequest）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
+#   - `model_config_manager`（未显式标注）：`model_config_manager` 对应的业务输入值；默认值为 `Depends(get_model_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.patch('/{model_id}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.update_model`、`payload.model_dump`、`HTTPException`、`router.patch`。
+#   - 内部调用：`Depends`、`model_config_manager.update_model`、`payload.model_dump`、`HTTPException`、`router.patch`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.patch("/{model_id}")
 def patch_model(
     model_id: int,
     payload: ModelUpdateRequest,
     _user: dict = Depends(require_admin),
-    model_service=Depends(get_model_service),
+    model_config_manager=Depends(get_model_config_manager),
 ) -> dict[str, Any]:
-    model = model_service.update_model(model_id, payload.model_dump(exclude_none=True))
+    model = model_config_manager.update_model(model_id, payload.model_dump(exclude_none=True))
     if model is None:
         raise HTTPException(status_code=404, detail="model not found")
     return model

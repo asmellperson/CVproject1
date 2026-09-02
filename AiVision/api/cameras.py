@@ -16,10 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, require_admin
-from api.deps import get_camera_service, get_current_orchestrator
+from api.deps import get_camera_config_manager, get_current_orchestrator
 from core.logger import logger
 from core.settings import settings
-from platform.camera.service import camera_access_departments
+from platform.camera.config_manager import camera_access_departments
 
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -169,7 +169,7 @@ def camera_list_response_for_user(
 
 # 功能：按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门；输入与输出详见下方说明
 # 参数：
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `user`（dict）：当前用户或待处理用户对象
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
@@ -177,11 +177,11 @@ def camera_list_response_for_user(
 #   - 调用方：`AiVision/api/cameras.py` 的 `get_camera` 调用本符号；`AiVision/api/cameras.py` 的 `get_camera_frame_jpg`
 #         调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg`
 #         调用本符号；另有 1 处静态调用
-#   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
+#   - 内部调用：`camera_config_manager.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
+def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str, Any]:
     """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
-    camera = camera_service.get_camera(key)
+    camera = camera_config_manager.get_camera(key)
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     if user.get("role") != "admin":
@@ -195,20 +195,20 @@ def get_camera_for_user(camera_service, key: str, user: dict) -> dict[str, Any]:
 # 参数：
 #   - `department`（str | None）：业务部门名称或标识；默认值为 `Query(None, description='可选按部门过滤')`
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`Depends`、`camera_list_response_for_user`、`camera_service.list_cameras`、`camera_read_department`、`router.get`。
+#   - 内部调用：`Query`、`Depends`、`camera_list_response_for_user`、`camera_config_manager.list_cameras`、`camera_read_department`、`router.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("")
 def list_cameras(
     department: str | None = Query(None, description="可选按部门过滤"),
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> list[dict[str, Any]]:
     return camera_list_response_for_user(
-        camera_service.list_cameras(
+        camera_config_manager.list_cameras(
             department=camera_read_department(user, department)
         ),
         user,
@@ -219,20 +219,20 @@ def list_cameras(
 # 参数：
 #   - `payload`（CameraCreateRequest）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.post('', status_code=status.HTTP_201_CREATED)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.create_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.post`。
+#   - 内部调用：`Depends`、`camera_config_manager.create_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.post`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_camera(
     payload: CameraCreateRequest,
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
     try:
-        return camera_service.create_camera(payload.model_dump(exclude_none=True))
+        return camera_config_manager.create_camera(payload.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -241,7 +241,7 @@ def create_camera(
 # 参数：
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{key}')` 注册，并在请求到达时调用以生成接口响应
@@ -251,9 +251,9 @@ def create_camera(
 def get_camera(
     key: str,
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
-    return get_camera_for_user(camera_service, key, user)
+    return get_camera_for_user(camera_config_manager, key, user)
 
 
 # 功能：更新或保存 `update_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -261,21 +261,21 @@ def get_camera(
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `payload`（CameraUpdateRequest）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.put('/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.update_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.put`。
+#   - 内部调用：`Depends`、`camera_config_manager.update_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.put`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.put("/{key}")
 def update_camera(
     key: str,
     payload: CameraUpdateRequest,
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
     try:
-        camera = camera_service.update_camera(key, payload.model_dump(exclude_none=True))
+        camera = camera_config_manager.update_camera(key, payload.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if camera is None:
@@ -288,7 +288,7 @@ def update_camera(
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `payload`（CameraUpdateRequest）：接口或事件携带的业务数据
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.patch('/{key}')` 注册，并在请求到达时调用以生成接口响应
@@ -299,28 +299,28 @@ def patch_camera(
     key: str,
     payload: CameraUpdateRequest,
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
-    return update_camera(key, payload, _user, camera_service)
+    return update_camera(key, payload, _user, camera_config_manager)
 
 
 # 功能：删除或清理 `delete_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `key`（str）：用于查询、分组或缓存的键
 #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 # 返回：dict[str, bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.delete('/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_service.delete_camera`、`HTTPException`、`router.delete`。
+#   - 内部调用：`Depends`、`camera_config_manager.delete_camera`、`HTTPException`、`router.delete`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.delete("/{key}")
 def delete_camera(
     key: str,
     _user: dict = Depends(require_admin),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, bool]:
-    ok = camera_service.delete_camera(key)
+    ok = camera_config_manager.delete_camera(key)
     if not ok:
         raise HTTPException(status_code=404, detail="camera not found")
     return {"ok": True}
@@ -468,7 +468,7 @@ def build_camera_frame_response(
 #   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
 #   - `max_height`（int | None）：`max_height` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_service`（未显式标注）：`camera_service` 对应的业务输入值；默认值为 `Depends(get_camera_service)`
+#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
 #   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
 # 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
@@ -483,10 +483,10 @@ def get_camera_frame_jpg(
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),
     user: dict = Depends(get_current_user),
-    camera_service=Depends(get_camera_service),
+    camera_config_manager=Depends(get_camera_config_manager),
     orchestrator=Depends(get_current_orchestrator),
 ) -> Response:
-    get_camera_for_user(camera_service, key, user)
+    get_camera_for_user(camera_config_manager, key, user)
     return build_camera_frame_response(
         key=key,
         feature=feature,

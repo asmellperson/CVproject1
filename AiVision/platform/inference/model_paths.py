@@ -124,8 +124,8 @@ def load_model_path_overrides() -> dict[str, str]:
 #   - `model_cfg`（dict[str, Any]）：`model_cfg` 对应的业务输入值
 # 返回：ModelPathResolution；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `apply_model_path_override` 调用本符号；`AiVision/platform/inference/service.py`
-#         的 `ModelService::_to_dict` 调用本符号
+#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `apply_model_path_override` 调用本符号；`AiVision/platform/inference/config_manager.py`
+#         的 `ModelConfigManager::_to_dict` 调用本符号
 #   - 内部调用：`str`、`model_cfg.get`、`load_model_path_overrides().get`、`load_model_path_overrides`、`ModelPathResolution`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_model_path(model_cfg: dict[str, Any]) -> ModelPathResolution:

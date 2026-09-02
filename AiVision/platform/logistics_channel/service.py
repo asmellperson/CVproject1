@@ -18,10 +18,10 @@ from core.events import ConfigChangeEvent, config_event_bus
 from core.logger import logger
 from features import all_specs
 from platform.camera.orm import AiCameraConfig
-from platform.camera.service import (
+from platform.camera.config_manager import (
     _camera_integrity_value_error,
     _database_error_code,
-    camera_service,
+    camera_config_manager,
 )
 
 from .constants import (
@@ -749,7 +749,7 @@ class LogisticsChannelService:
         # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
         # 调用关系：
         #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`self._require_capacity`、`camera_service.create_camera_record`、`self._insert_locked_member`、`_CameraRef`。
+        #   - 内部调用：`self._lock_membership_state`、`state.channels.get`、`ValueError`、`self._require_capacity`、`camera_config_manager.create_camera_record`、`self._insert_locked_member`、`_CameraRef`。
         # 副作用/注意事项：校验或执行失败时会主动抛出异常。
         def create_and_bind(session, discovery):
             state = self._lock_membership_state(
@@ -761,7 +761,7 @@ class LogisticsChannelService:
             if channel is None or channel.feature_name != feature_name:
                 raise ValueError(f"物流通道不存在: {channel_id}")
             self._require_capacity(state.members, channel.id)
-            camera = camera_service.create_camera_record(session, values)
+            camera = camera_config_manager.create_camera_record(session, values)
             self._insert_locked_member(
                 session,
                 feature_name,
