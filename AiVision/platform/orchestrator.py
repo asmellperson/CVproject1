@@ -45,6 +45,9 @@ _CAMERA_RUNTIME_ALERT_TYPES = {
 
 class Orchestrator:
     """系统总编排器"""
+
+    # ---------- 初始化 ----------
+
     def __init__(self, mp_manager):
         """此阶段主要创建和保存各子模块对象
         接收mp_manager:跨进程共享管理器
@@ -68,7 +71,8 @@ class Orchestrator:
         # 监听配置变更
         config_event_bus.subscribe_wildcard(self._handle_runtime_config_change)
 
-    # ---------- 启动 / 停止 ----------
+    # ---------- 生命周期 ----------
+
     def start(self):
         """
         启动顺序：
@@ -173,7 +177,6 @@ class Orchestrator:
         self._started = True                          # Orchestrator已经完成启动流程
         logger.info("=" * 20 + " Orchestrator 启动完成 " + "=" * 20)
 
-
     def stop(self):
         """
         关闭顺序是启动的反方向
@@ -238,7 +241,8 @@ class Orchestrator:
         self._started = False                                    # 修改状态
         logger.info("=" * 20 + " Orchestrator 已停止 " + "=" * 20)
 
-    # ---------- Consumer 启动 ----------
+    # ---------- Consumer 管理 ----------
+
     def _start_consumers(self):
         """
         批量启动所有已注册检测功能：
@@ -310,12 +314,7 @@ class Orchestrator:
         self.consumers[name] = consumer                # 保存实例
         return consumer                                # consumer对象
 
-    @staticmethod
-    def _camera_has_enabled_feature(functions: dict) -> bool:
-        """摄像头至少绑定一个已启用的检测功能时返回 True。"""
-        return any(bool(enabled) for enabled in functions.values())
-
-    # ---------- 配置变更事件路由 ----------
+    # ---------- 配置热更新 ----------
 
     def _handle_runtime_config_change(self, event: ConfigChangeEvent):
         """
@@ -406,6 +405,13 @@ class Orchestrator:
                     consumer.update_config(cam_id)
                 return
 
+    # ---------- 摄像头辅助函数 ----------
+
+    @staticmethod
+    def _camera_has_enabled_feature(functions: dict) -> bool:
+        """摄像头至少绑定一个已启用的检测功能时返回 True。"""
+        return any(bool(enabled) for enabled in functions.values())
+
     @staticmethod
     def _camera_update_requires_restart(event: ConfigChangeEvent) -> bool:
         """
@@ -468,6 +474,93 @@ class Orchestrator:
             "shape": camera.get("shape") or [1080, 1920, 3],                   # 图像尺寸
         }
 
+    def _add_camera_to_runtime(self, key: str):
+        """
+        热添加摄像头（将摄像头加入Aivision运行系统）
+        读取某台摄像头最新运行配置，把配置交给CameraManager，如果摄像头应该运行就尝试启动，如果不应该运行就确保他停止
+        包含两件事情：
+            1、更新摄像头配置
+            2、根据摄像头配置决定运行状态
+        """
+        cfg = self._build_camera_runtime_config(key)
+        if cfg is None:
+            return
+        shm_name = cfg["shm_name"]
+        # 把最新配置交给CameraManager
+        self.camera_manager.update_camera_config(shm_name, cfg)
+        # 根据当前系统状态计算后，这台摄像头现在是否应该启动采集线程
+        if not cfg.get("enable", True):
+            self.camera_manager.stop_camera(shm_name)
+            logger.info(f"[Orchestrator] 摄像头已禁用,未启动 shm={shm_name}")
+            return
+        ok = self.camera_manager.start_camera(shm_name)
+        if ok:
+            logger.info(f"[Orchestrator] 摄像头已热启动 shm={shm_name}")
+        else:
+            logger.warning(f"[Orchestrator] 摄像头热启动失败 shm={shm_name}")
+
+    def _sync_camera_process_state(self, key: str):
+        """按最新功能绑定同步摄像头进程，只处理期望状态与实际状态的差异。"""
+        cfg = self._build_camera_runtime_config(key)
+        if cfg is None:
+            return
+        shm_name = cfg["shm_name"]
+        self.camera_manager.update_camera_config(shm_name, cfg)
+
+        should_run = bool(cfg.get("enable"))
+        is_running = self.camera_manager.is_running(shm_name)
+        if should_run == is_running:
+            return
+        if should_run:
+            self.camera_manager.start_camera(shm_name)
+            logger.info(f"[Orchestrator] 摄像头已按功能绑定热启动 shm={shm_name}")
+        else:
+            self.camera_manager.stop_camera(shm_name)
+            logger.info(f"[Orchestrator] 摄像头已按功能绑定热停止 shm={shm_name}")
+
+    def _restart_or_stop_camera(self, key: str):
+        """
+        将这个与_add_camera_to_runtime做区分：
+            _add_camera_to_runtime: 读取配置，更新配置，需要运行：start（不会强制stop）
+            _restart_or_stop_camera: 读取配置，先stop，更新配置，还需要运行:是就start，否就保持停止
+        前者适合新增摄像头
+        后者适合已有摄像头运行参数修改
+        """
+        # 获取摄像头最新配置
+        cfg = self._build_camera_runtime_config(key)
+        if cfg is None:
+            return
+        shm_name = cfg["shm_name"]
+        # 先无条件停止旧进程
+        self.camera_manager.stop_camera(shm_name)
+        # 更新CameraManager配置
+        self.camera_manager.update_camera_config(shm_name, cfg)
+        # 判断新配置允许不允许运行，不允许就停止
+        if not cfg.get("enable", True):
+            logger.info(f"[Orchestrator] 摄像头已热停止 shm={shm_name}")
+            return
+        # 允许就重新启动
+        ok = self.camera_manager.start_camera(shm_name)
+        if ok:
+            logger.info(f"[Orchestrator] 摄像头已热重启 shm={shm_name}")
+        else:
+            logger.warning(f"[Orchestrator] 摄像头热重启失败 shm={shm_name}")
+
+    # ---------- 运行监控与系统异常告警 ----------
+
+    def _monitor_consumer_threads(self) -> None:
+        """由现有运行时 watchdog 检查 Consumer 线程并发送异常告警。"""
+        if not self._started:
+            return
+        for name, consumer in list(self.consumers.items()):
+            if not consumer.running:
+                self._send_system_exception_alert(
+                    target_name=name,
+                    target_key=name,
+                    event_type="功能线程退出",
+                    detail=f"Consumer {name} 已不在运行状态",
+                )
+
     def _send_system_exception_alert(self, target_name: str, target_key: str, event_type: str, detail: str):
         """
         当摄像头、模型或者其他运行模块发生系统异常时，按照系统异常告警配置，通过企业微信发送一条异常停止，并做重复告警抑制
@@ -517,6 +610,7 @@ class Orchestrator:
             ),
             recipients=recipients,
         )
+
     @staticmethod
     def _system_exception_alert_group(event_type: str) -> str:
         """
@@ -532,80 +626,7 @@ class Orchestrator:
             return "摄像头运行异常"
         return event_type
 
-    def _add_camera_to_runtime(self, key: str):
-        """
-        热添加摄像头（将摄像头加入Aivision运行系统）
-        读取某台摄像头最新运行配置，把配置交给CameraManager，如果摄像头应该运行就尝试启动，如果不应该运行就确保他停止
-        包含两件事情：
-            1、更新摄像头配置
-            2、根据摄像头配置决定运行状态
-        """
-        cfg = self._build_camera_runtime_config(key)
-        if cfg is None:
-            return
-        shm_name = cfg["shm_name"]
-        # 把最新配置交给CameraManager
-        self.camera_manager.update_camera_config(shm_name, cfg)
-        # 根据当前系统状态计算后，这台摄像头现在是否应该启动采集线程
-        if not cfg.get("enable", True):
-            self.camera_manager.stop_camera(shm_name)
-            logger.info(f"[Orchestrator] 摄像头已禁用,未启动 shm={shm_name}")
-            return
-        ok = self.camera_manager.start_camera(shm_name)
-        if ok:
-            logger.info(f"[Orchestrator] 摄像头已热启动 shm={shm_name}")
-        else:
-            logger.warning(f"[Orchestrator] 摄像头热启动失败 shm={shm_name}")
-
-    def _sync_camera_process_state(self, key: str):
-        """按最新功能绑定同步摄像头进程，只处理期望状态与实际状态的差异。"""
-        cfg = self._build_camera_runtime_config(key)
-        if cfg is None:
-            return
-        shm_name = cfg["shm_name"]
-        self.camera_manager.update_camera_config(shm_name, cfg)
-
-        should_run = bool(cfg.get("enable"))
-        is_running = self.camera_manager.is_running(shm_name)
-        if should_run == is_running:
-            return
-        if should_run:
-            self.camera_manager.start_camera(shm_name)
-            logger.info(f"[Orchestrator] 摄像头已按功能绑定热启动 shm={shm_name}")
-        else:
-            self.camera_manager.stop_camera(shm_name)
-            logger.info(f"[Orchestrator] 摄像头已按功能绑定热停止 shm={shm_name}")
-
-
-    def _restart_or_stop_camera(self, key: str):
-        """
-        将这个与_add_camera_to_runtime做区分：
-            _add_camera_to_runtime: 读取配置，更新配置，需要运行：start（不会强制stop）
-            _restart_or_stop_camera: 读取配置，先stop，更新配置，还需要运行:是就start，否就保持停止
-        前者适合新增摄像头
-        后者适合已有摄像头运行参数修改
-        """
-        # 获取摄像头最新配置
-        cfg = self._build_camera_runtime_config(key)
-        if cfg is None:
-            return
-        shm_name = cfg["shm_name"]
-        # 先无条件停止旧进程
-        self.camera_manager.stop_camera(shm_name)
-        # 更新CameraManager配置
-        self.camera_manager.update_camera_config(shm_name, cfg)
-        # 判断新配置允许不允许运行，不允许就停止
-        if not cfg.get("enable", True):
-            logger.info(f"[Orchestrator] 摄像头已热停止 shm={shm_name}")
-            return
-        # 允许就重新启动
-        ok = self.camera_manager.start_camera(shm_name)
-        if ok:
-            logger.info(f"[Orchestrator] 摄像头已热重启 shm={shm_name}")
-        else:
-            logger.warning(f"[Orchestrator] 摄像头热重启失败 shm={shm_name}")
-
-    # ---------- API 用查询接口 ----------
+    # ---------- API 查询函数 ----------
 
     def get_camera_frame(self, shm_name: str, feature: str | None = None):
         """获取摄像头画面 — 优先取 feature 标注后的帧,无则取原始帧"""
@@ -711,19 +732,6 @@ class Orchestrator:
         """获取物流通道的最新拼接标注画面。"""
         return self.logistics_channel_runtime.get_channel_frame(feature, channel_id)
 
-    def _monitor_consumer_threads(self) -> None:
-        """由现有运行时 watchdog 检查 Consumer 线程并发送异常告警。"""
-        if not self._started:
-            return
-        for name, consumer in list(self.consumers.items()):
-            if not consumer.running:
-                self._send_system_exception_alert(
-                    target_name=name,
-                    target_key=name,
-                    event_type="功能线程退出",
-                    detail=f"Consumer {name} 已不在运行状态",
-                )
-
     def runtime_status(self) -> dict:
         """
         汇总AiVision的整体运行状态，主要供健康检测和状态接口使用
@@ -761,6 +769,7 @@ class Orchestrator:
         }
 
 
+# ---------- 类外全局实例 ----------
 # 全局唯一的Orchestrator实例，程序刚开始启动时未创建，先为None
 # main调用init_orchestrator后才真正实例化，后续其他模块通过get_orchestrator获取同一对象
 orchestrator: Optional[Orchestrator] = None
