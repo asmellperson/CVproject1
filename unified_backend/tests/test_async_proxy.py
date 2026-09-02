@@ -489,6 +489,10 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             "exception-alert",
             request,
         )
+        await routes["proxy_aivision_api"].endpoint(
+            "models/7",
+            request,
+        )
 
     asyncio.run(scenario())
 
@@ -508,4 +512,11 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             "http://aivision:7862",
             "/api/exception-alert",
         ),
+        (
+            request,
+            "http://aivision:7862",
+            "/api/aivision/models/7",
+        ),
     ]
+
+    assert "PATCH" in routes["proxy_aivision_api"].methods

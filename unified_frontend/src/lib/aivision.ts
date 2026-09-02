@@ -559,7 +559,7 @@ export async function getAiVisionModels() {
  */
 export async function updateAiVisionModel(modelId: number, payload: Partial<Pick<AiVisionModel, 'path'>>) {
   const response = await fetch(`/api/aivision/models/${encodeURIComponent(String(modelId))}`, {
-    method: 'PUT',
+    method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -112,30 +112,6 @@ def get_model(model_id: int, model_service=Depends(get_model_service)) -> dict[s
     return model
 
 
-# 功能：更新或保存 `update_model` 对应的`models` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `model_id`（int）：模型唯一标识
-#   - `payload`（ModelUpdateRequest）：接口或事件携带的业务数据
-#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `model_service`（未显式标注）：`model_service` 对应的业务输入值；默认值为 `Depends(get_model_service)`
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.put('/{model_id}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`model_service.update_model`、`payload.model_dump`、`HTTPException`、`router.put`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-@router.put("/{model_id}")
-def update_model(
-    model_id: int,
-    payload: ModelUpdateRequest,
-    _user: dict = Depends(require_admin),
-    model_service=Depends(get_model_service),
-) -> dict[str, Any]:
-    model = model_service.update_model(model_id, payload.model_dump(exclude_none=True))
-    if model is None:
-        raise HTTPException(status_code=404, detail="model not found")
-    return model
-
-
 # 功能：实现 `patch_model` 对应的`models` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `model_id`（int）：模型唯一标识
@@ -145,8 +121,8 @@ def update_model(
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.patch('/{model_id}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`update_model`、`router.patch`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+#   - 内部调用：`Depends`、`model_service.update_model`、`payload.model_dump`、`HTTPException`、`router.patch`。
+# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.patch("/{model_id}")
 def patch_model(
     model_id: int,
@@ -154,4 +130,7 @@ def patch_model(
     _user: dict = Depends(require_admin),
     model_service=Depends(get_model_service),
 ) -> dict[str, Any]:
-    return update_model(model_id, payload, _user, model_service)
+    model = model_service.update_model(model_id, payload.model_dump(exclude_none=True))
+    if model is None:
+        raise HTTPException(status_code=404, detail="model not found")
+    return model
