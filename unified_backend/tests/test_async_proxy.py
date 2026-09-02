@@ -491,12 +491,12 @@ def test_visual_routes_target_aivision_control_plane(monkeypatch, tmp_path):
     assert calls == [
         (
             request,
-            "http://aivision:7862/api/v2/integrations/guard-room",
+            "http://aivision:7862/api/integrations/guard-room",
             "/api/sites",
         ),
         (
             request,
-            "http://aivision:7862/api/v2/integrations/security-vlm",
+            "http://aivision:7862/api/integrations/security-vlm",
             "/api/departments/general_electric/history",
         ),
     ]

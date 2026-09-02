@@ -231,7 +231,7 @@ Guard Room 作为 FastAPI 子应用挂载在 AiVision 的 7862 端口，不再�
 ### 3. 验证服务
 
 ```bash
-curl http://localhost:7862/api/v2/integrations/guard-room/api/health
+curl http://localhost:7862/api/integrations/guard-room/api/health
 ```
 
 业务请求通常经统一后端转发；直接请求除公开健康接口外需要与平台一致的认证信息。

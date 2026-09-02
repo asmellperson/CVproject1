@@ -454,7 +454,7 @@ wait_port() {
 #     skip                 不做 health 探测（端口监听即视为 READY）
 # 注意: health_url 用 127.0.0.1，避免走外部 DNS / 防火墙
 SERVICES_HEALTH=(
-  "aivision|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
+  "aivision|http://127.0.0.1:7862/api/runtime/health|json:ok=true"
   "unified_backend|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|http://127.0.0.1:3000/|http2xx"
 )

@@ -131,7 +131,7 @@ export function invalidateLogisticsChannelQueries(
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
 const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number) => {
-  const featurePath = `/v2/logistics-channels/${encodeURIComponent(feature)}`
+  const featurePath = `/logistics-channels/${encodeURIComponent(feature)}`
   return channelId === undefined
     ? featurePath
     : `${featurePath}/${encodeURIComponent(String(channelId))}`
@@ -147,7 +147,7 @@ const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number)
  * 副作用/注意事项：发起只读网络请求；权限范围由后端依据当前登录用户统一裁剪。
  */
 export const getLogisticsCameraInventory = () =>
-  apiGet<LogisticsCameraInventoryResponse>('/v2/logistics-channels/inventory')
+  apiGet<LogisticsCameraInventoryResponse>('/logistics-channels/inventory')
 
 /**
  * 功能：实现 `memberCameraConfigPath` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明

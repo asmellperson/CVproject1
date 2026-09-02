@@ -67,9 +67,9 @@ done
   fail "start.sh must not retain the completed five-service migration path"
 [[ ! -e "$PROJECT_ROOT/scripts/migrate_visual_integrations.sh" ]] || \
   fail "completed five-service migration helper must be removed"
-[[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/guard-room"* ]] || \
+[[ "$aivision_app" == *'app.mount('*"/api/integrations/guard-room"* ]] || \
   fail "Guard Room must be mounted in AiVision"
-[[ "$aivision_app" == *'app.mount('*"/api/v2/integrations/security-vlm"* ]] || \
+[[ "$aivision_app" == *'app.mount('*"/api/integrations/security-vlm"* ]] || \
   fail "Security VLM must be mounted in AiVision"
 [[ "$aivision_app" != *"VisualWorkerClient"* ]] || \
   fail "AiVision must not retain the HTTP worker relay"

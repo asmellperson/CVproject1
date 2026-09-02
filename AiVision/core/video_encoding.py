@@ -89,7 +89,7 @@ def _video_codec(path: Path) -> str | None:
 # 调用关系：
 #   - 调用方：`AiVision/platform/violation/evidence_recorder.py` 的 `AlarmEvidenceRecorder::_finish_task`
 #         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_alarm_video`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_alarm_video` 调用本符号；`AiVision/api/v2/alarms.py` 的
+#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_alarm_video` 调用本符号；`AiVision/api/alarms.py` 的
 #         `alarm_video` 调用本符号
 #   - 内部调用：`Path(video_path).expanduser().resolve`、`Path(video_path).expanduser`、`Path`、`path.is_file`、`path.stat`、`VideoEncodingError`、`_video_codec`、`path.with_name`、`uuid.uuid4`、`_run`
 #          等共 16 个调用。

@@ -1,4 +1,4 @@
-# AiVision Backend v2
+# AiVision Backend
 
 AiVision 后端重构版采用 **features-first** 架构：每个检测能力都是 `features/{name}` 下的自包含模块，通过 `FeatureSpec` 自动注册；API、缓存、Consumer 启动都通过注册表反射完成。
 
@@ -10,7 +10,7 @@ features/             检测功能模块
 features/_base/       功能通用基类、配置服务、API 工厂
 platform/             摄像头、推理、喇叭、违规图片、总编排
 integrations/         Guard Room 与 Security VLM 内置业务模块
-api/                  FastAPI v2 路由和旧路径兼容层
+api/                  FastAPI 正式路由和旧路径兼容层
 main.py               后端入口
 ```
 
@@ -35,21 +35,21 @@ python main.py
 python main.py --port <调试端口>
 ```
 
-## 新 v2 路径
+## 正式 API 路径
 
 ```text
-GET    /api/v2/runtime/health
-GET    /api/v2/runtime/status
-GET    /api/v2/cameras
-POST   /api/v2/cameras
-GET    /api/v2/cameras/{key}
-PUT    /api/v2/cameras/{key}
-DELETE /api/v2/cameras/{key}
-GET    /api/v2/cameras/{key}/frame.jpg?feature=detect_phone
-GET    /api/v2/features
-GET    /api/v2/features/{feature}
-GET    /api/v2/features/{feature}/configs/{shm_name}
-PUT    /api/v2/features/{feature}/configs/{shm_name}
+GET    /api/runtime/health
+GET    /api/runtime/status
+GET    /api/cameras
+POST   /api/cameras
+GET    /api/cameras/{key}
+PUT    /api/cameras/{key}
+DELETE /api/cameras/{key}
+GET    /api/cameras/{key}/frame.jpg?feature=detect_phone
+GET    /api/features
+GET    /api/features/{feature}
+GET    /api/features/{feature}/configs/{shm_name}
+PUT    /api/features/{feature}/configs/{shm_name}
 ```
 
 ## 旧路径兼容
@@ -66,7 +66,7 @@ GET/POST /api/aivision/cameras
 GET      /api/aivision/cameras/{key}/frame.jpg
 ```
 
-旧 feature config 路径直接返回 `config` 主体；v2 路径返回 `{camera, feature, config}` 包装。
+旧 feature config 路径直接返回 `config` 主体；正式 API 路径返回 `{camera, feature, config}` 包装。
 
 ## 模型配置
 

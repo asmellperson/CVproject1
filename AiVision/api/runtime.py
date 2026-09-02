@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """
-api/v2/runtime.py
+api/runtime.py
 运行状态、健康检查接口。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from core.settings import settings
 from core.system_config import system_config_service
 
 
-router = APIRouter(prefix="/api/v2/runtime", tags=["runtime"])
+router = APIRouter(prefix="/api/runtime", tags=["runtime"])
 
 
 # 功能：定义 `ExceptionAlertSettings` 类，封装运行时相关的状态、约束与操作

@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """
-api/v2/cameras.py
+api/cameras.py
 摄像头 CRUD + 当前帧 JPEG 输出。
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from core.settings import settings
 from platform.camera.service import camera_access_departments
 
 
-router = APIRouter(prefix="/api/v2/cameras", tags=["cameras"])
+router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
 _JPEG_CACHE_MAX_ITEMS = 128
 _jpeg_cache_lock = threading.Lock()
@@ -109,7 +109,7 @@ class CameraUpdateRequest(BaseModel):
 #   - `requested_department`（str | None）：`requested_department` 对应的业务输入值
 # 返回：str | None；返回下推给摄像头服务的部门过滤值，多事业部且未指定部门时返回 None 并由响应层执行授权集合过滤。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
+#   - 调用方：`AiVision/api/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
 #   - 内部调用：`user.get`、`_camera_departments_for_user`、`len`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def camera_read_department(user: dict, requested_department: str | None) -> str | None:
@@ -132,7 +132,7 @@ def camera_read_department(user: dict, requested_department: str | None) -> str 
 #   - `user`（dict）：当前用户或待处理用户对象
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `camera_list_response_for_user` 调用本符号；`AiVision/api/v2/cameras.py` 的 `get_camera_for_user`
+#   - 调用方：`AiVision/api/cameras.py` 的 `camera_list_response_for_user` 调用本符号；`AiVision/api/cameras.py` 的 `get_camera_for_user`
 #         调用本符号
 #   - 内部调用：`dict`、`user.get`、`response.pop`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -150,7 +150,7 @@ def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, An
 #   - `user`（dict）：当前用户或待处理用户对象
 # 返回：list[dict[str, Any]]；返回当前用户授权事业部内的摄像头列表，viewer 响应不含连接地址。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
+#   - 调用方：`AiVision/api/cameras.py` 的 `list_cameras` 调用本符号；`AiVision/api/compat.py` 的 `compat_list_cameras` 调用本符号
 #   - 内部调用：`user.get`、`set`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def camera_list_response_for_user(
@@ -174,7 +174,7 @@ def camera_list_response_for_user(
 #   - `user`（dict）：当前用户或待处理用户对象
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `get_camera` 调用本符号；`AiVision/api/v2/cameras.py` 的 `get_camera_frame_jpg`
+#   - 调用方：`AiVision/api/cameras.py` 的 `get_camera` 调用本符号；`AiVision/api/cameras.py` 的 `get_camera_frame_jpg`
 #         调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg`
 #         调用本符号；另有 1 处静态调用
 #   - 内部调用：`camera_service.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
@@ -335,7 +335,7 @@ def delete_camera(
 #   - `cache_token`（tuple[Any, ...] | None）：`cache_token` 对应的业务输入值；默认值为 `None`
 # 返回：bytes；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `build_camera_frame_response` 调用本符号
+#   - 调用方：`AiVision/api/cameras.py` 的 `build_camera_frame_response` 调用本符号
 #   - 内部调用：`HTTPException`、`max`、`min`、`int`、`_jpeg_cache.get`、`cv2.resize`、`cv2.imencode`、`encoded.tobytes`、`_jpeg_cache_order.append`、`len`
 #          等共 12 个调用。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
@@ -387,7 +387,7 @@ def encode_frame_to_jpeg(
 #   - `frame`（未显式标注）：待处理的视频图像帧
 # 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `build_camera_frame_response` 调用本符号
+#   - 调用方：`AiVision/api/cameras.py` 的 `build_camera_frame_response` 调用本符号
 #   - 内部调用：`str`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def frame_size_headers(frame) -> dict[str, str]:
@@ -410,7 +410,7 @@ def frame_size_headers(frame) -> dict[str, str]:
 #   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值
 # 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/cameras.py` 的 `get_camera_frame_jpg` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg` 调用本符号
+#   - 调用方：`AiVision/api/cameras.py` 的 `get_camera_frame_jpg` 调用本符号；`AiVision/api/compat.py` 的 `compat_get_camera_frame_jpg` 调用本符号
 #   - 内部调用：`time.monotonic`、`hasattr`、`orchestrator.get_camera_frame_info`、`orchestrator.get_camera_frame`、`HTTPException`、`encode_frame_to_jpeg`、`logger.warning`、`Response`、`frame_size_headers`。
 # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
 def build_camera_frame_response(

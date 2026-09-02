@@ -50,9 +50,9 @@ _discover()
 # 参数：无。
 # 返回：dict[str, FeatureSpec]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::_load_function_configs` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
-#         `get_member_camera_config` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `update_member_camera_config`
-#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `_channel_alarm_query` 调用本符号；另有 34 处静态调用
+#   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::_load_function_configs` 调用本符号；`AiVision/api/logistics_channels.py` 的
+#         `get_member_camera_config` 调用本符号；`AiVision/api/logistics_channels.py` 的 `update_member_camera_config`
+#         调用本符号；`AiVision/api/logistics_channels.py` 的 `_channel_alarm_query` 调用本符号；另有 34 处静态调用
 #   - 内部调用：`dict`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def all_specs() -> dict[str, FeatureSpec]:

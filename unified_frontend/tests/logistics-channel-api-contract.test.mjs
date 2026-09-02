@@ -43,11 +43,11 @@ test('declares the four isolated logistics features and exact response DTO field
   assert.match(types, /memberships: LogisticsCameraInventoryMembership\[\]/)
 })
 
-test('uses canonical encoded v2 resource URLs for the complete client', () => {
+test('uses canonical encoded API resource URLs for the complete client', () => {
   assert.match(api, /const logisticsChannelPath/)
   assert.match(api, /encodeURIComponent\(feature\)/)
   assert.match(api, /encodeURIComponent\(String\(channelId\)\)/)
-  assert.match(api, /\/v2\/logistics-channels/)
+  assert.match(api, /\/logistics-channels/)
   for (const resource of ['cameras', 'config', 'status', 'frame.jpg', 'alarms', 'statistics']) {
     assert.match(api, new RegExp(resource.replace('.', '\\.')))
   }
@@ -56,7 +56,7 @@ test('uses canonical encoded v2 resource URLs for the complete client', () => {
   assert.match(api, /apiDelete<LogisticsChannelOkResponse>/)
   assert.match(api, /memberCameraConfigPath/)
   assert.match(api, /getLogisticsCameraInventory/)
-  assert.match(api, /\/v2\/logistics-channels\/inventory/)
+  assert.match(api, /\/logistics-channels\/inventory/)
   assert.match(api, /cameraId: number/)
   assert.doesNotMatch(api, /cameraKey: string \| number/)
 })

@@ -42,7 +42,7 @@ class AiDepartment(Base):
 # 返回：AiFeatureDepartment；返回新建的 `AiFeatureDepartment` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/platform/department/service.py` 的 `DepartmentService::set_feature_departments`
-#         实例化本符号；`AiVision/api/v2/departments.py` 的 `set_department_features` 实例化本符号
+#         实例化本符号；`AiVision/api/departments.py` 的 `set_department_features` 实例化本符号
 #   - 内部调用：`Column`、`String`、`UniqueConstraint`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AiFeatureDepartment(Base):

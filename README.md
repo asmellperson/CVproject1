@@ -270,7 +270,7 @@ AiVision/integrations/guard_room/config/config.example.yaml
 
 ### 7.1 业务职责
 
-`AiVision` 是通用视觉检测后端 v2。它把每一种检测能力都抽象成一个 feature，当前包含：
+`AiVision` 是通用视觉检测后端。它把每一种检测能力都抽象成一个 feature，当前包含：
 
 | feature name | 页面名称 | 检测能力 | 是否依赖模型 |
 | --- | --- | --- | --- |
@@ -337,7 +337,7 @@ Orchestrator.start()
   +-- 为每个 FeatureSpec 启动 BaseFunctionConsumer 子类
   |
   v
-FastAPI API v2 + 旧路径兼容
+FastAPI API + 旧路径兼容
 ```
 
 ### 7.4 关键文件
@@ -350,7 +350,7 @@ AiVision/
 ├── api/app.py                   # FastAPI app、中间件、路由注册
 ├── api/auth.py                  # 兼容入口，实际转发到 ../auth/auth.py
 ├── api/compat.py                # 旧接口兼容层
-├── api/v2/                      # v2 路由：runtime/cameras/features/models/alarms
+├── api/                      # 正式路由：runtime/cameras/features/models/alarms
 ├── core/settings.py             # 统一环境变量配置入口
 ├── core/db.py                   # 数据库连接与 schema 初始化
 ├── core/cache.py                # 配置缓存
@@ -369,18 +369,18 @@ AiVision/
 新接口主要在：
 
 ```text
-/api/v2/runtime/health
-/api/v2/runtime/status
-/api/v2/cameras
-/api/v2/cameras/{key}/frame.jpg?feature=detect_phone
-/api/v2/features
-/api/v2/features/{feature}
-/api/v2/features/{feature}/configs/{shm_name}
-/api/v2/models
-/api/v2/alarms
-/api/v2/logistics-channels/{feature}
-/api/v2/logistics-channels/{feature}/{channel_id}/status
-/api/v2/logistics-channels/{feature}/{channel_id}/frame.jpg
+/api/runtime/health
+/api/runtime/status
+/api/cameras
+/api/cameras/{key}/frame.jpg?feature=detect_phone
+/api/features
+/api/features/{feature}
+/api/features/{feature}/configs/{shm_name}
+/api/models
+/api/alarms
+/api/logistics-channels/{feature}
+/api/logistics-channels/{feature}/{channel_id}/status
+/api/logistics-channels/{feature}/{channel_id}/frame.jpg
 ```
 
 兼容旧前端的路径包括：
@@ -657,7 +657,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 | 页面 | 优先检查 |
 | --- | --- |
 | 保安行为规范检测 | `AiVision/integrations/guard_room/src/runtime.py`、`AiVision/integrations/guard_room/config/config.yaml` 的 RTSP 和模型路径。 |
-| AiVision 各检测页面 | AiVision 摄像头配置、功能是否启用、模型表是否启用、`/api/v2/runtime/status`。 |
+| AiVision 各检测页面 | AiVision 摄像头配置、功能是否启用、模型表是否启用、`/api/runtime/status`。 |
 | 安检流程规范检测 | `aivision` 日志中 Security VLM worker 是否启动、状态 API、`runtime.dir` 下状态文件。 |
 
 ### 11.4 报警没有出现

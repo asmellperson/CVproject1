@@ -122,7 +122,7 @@ tmux attach -t unified_frontend
 健康检查：
 
 curl -i http://127.0.0.1:5000/api/health
-curl -i http://127.0.0.1:7862/api/v2/runtime/health
+curl -i http://127.0.0.1:7862/api/runtime/health
 curl -i http://127.0.0.1:3000/
 
 AiVision 模型加载期间可能短暂显示 DEGRADED；如果持续不恢复，进入对应 tmux 查看日志。
@@ -190,4 +190,4 @@ python main.py --host 127.0.0.1 --port 7862
 - 离线、过期或无结果按未知处理，不能当作 0 人。
 
 上线前应备份 AiVision 数据库。前端经统一后端访问
-/api/v2/logistics-channels/{feature}，再由统一后端转发到 AiVision。
+/api/logistics-channels/{feature}，再由统一后端转发到 AiVision。

@@ -2,7 +2,7 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """
-api/v2/models.py
+api/models.py
 推理模型配置 CRUD。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from api.auth import require_admin
 from api.deps import get_model_service
 
 
-router = APIRouter(prefix="/api/v2/models", tags=["models"])
+router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 # 功能：定义 `ModelUpdateRequest` 类，封装`models` 模块相关的状态、约束与操作

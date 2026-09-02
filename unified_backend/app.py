@@ -338,7 +338,7 @@ def _visual_service_url(aivision_url: str, service: str) -> str:
         raise ValueError(f"unknown visual service: {service}")
     return (
         f"{aivision_url.rstrip('/')}"
-        f"/api/v2/integrations/{service}"
+        f"/api/integrations/{service}"
     )
 
 
@@ -1428,7 +1428,7 @@ def _service_status(name: str, url: str, online: bool, latency_ms: float | None,
 # 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `create_app::proxy_public_aivision_api` 调用本符号；`unified_backend/app.py` 的
-#         `create_app::proxy_aivision_api` 调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_v2_api`
+#         `create_app::proxy_aivision_api` 调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_root_api`
 #         调用本符号；`unified_backend/app.py` 的 `create_app::proxy_aivision_legacy_api` 调用本符号；另有 3 处静态调用
 #   - 内部调用：`urljoin`、`upstream_path.lstrip`、`request.body`、`request.app.state.proxy_client.send`、`_request_headers`、`HTTPException`、`StreamingResponse`、`stream_response_bytes`、`filtered_response_headers`、`BackgroundTask`。
 # 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。
@@ -1595,9 +1595,9 @@ def create_app() -> FastAPI:
                 "guard_health": (guard_room_url, "/api/health", request),
                 "guard_status": (guard_room_url, "/api/status", request),
                 "guard_sites": (guard_room_url, "/api/sites", request),
-                "ai_health": (aivision_url, "/api/v2/runtime/health", None),
-                "ai_status": (aivision_url, "/api/v2/runtime/status", request),
-                "ai_cameras": (aivision_url, "/api/v2/cameras", request),
+                "ai_health": (aivision_url, "/api/runtime/health", None),
+                "ai_status": (aivision_url, "/api/runtime/status", request),
+                "ai_cameras": (aivision_url, "/api/cameras", request),
                 "vlm_health": (security_vlm_url, "/health", request),
             }
         )
@@ -2113,7 +2113,7 @@ def create_app() -> FastAPI:
     async def proxy_aivision_api(path: str, request: Request):
         return await _proxy(request, aivision_url, f"/api/aivision/{path}")
 
-    # 功能：实现 `proxy_aivision_v2_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+    # 功能：实现 `proxy_aivision_root_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `path`（str）：目标路径
     #   - `request`（Request）：当前 HTTP 请求及上下文
@@ -2122,9 +2122,9 @@ def create_app() -> FastAPI:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`_proxy`、`app.api_route`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/api/v2/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_aivision_v2_api(path: str, request: Request):
-        return await _proxy(request, aivision_url, f"/api/v2/{path}")
+    @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    async def proxy_aivision_root_api(path: str, request: Request):
+        return await _proxy(request, aivision_url, f"/api/{path}")
 
     # 功能：实现 `proxy_aivision_legacy_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

@@ -17,7 +17,7 @@ from api.deps import (
     get_logistics_channel_service,
 )
 from features._base.api import FeatureConfigResponse
-from api.v2.cameras import encode_frame_to_jpeg, frame_size_headers
+from api.cameras import encode_frame_to_jpeg, frame_size_headers
 from core.db import get_session
 from features import all_specs
 from platform.logistics_channel.constants import (
@@ -42,7 +42,7 @@ from platform.logistics_channel.schema import (
 from platform.violation.orm import AiViolationImage
 
 
-router = APIRouter(prefix="/api/v2/logistics-channels", tags=["logistics-channels"])
+router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])
 
 
 # 功能：通道元数据和通道级检测配置的一次更新；输入与输出详见下方说明
@@ -114,9 +114,9 @@ def _require_feature_access(feature: str, user: dict) -> str:
 #   - `exc`（ValueError）：`exc` 对应的业务输入值
 # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `create_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
-#         `update_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `update_channel_config`
-#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `add_camera` 调用本符号；另有 3 处静态调用
+#   - 调用方：`AiVision/api/logistics_channels.py` 的 `create_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的
+#         `update_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的 `update_channel_config`
+#         调用本符号；`AiVision/api/logistics_channels.py` 的 `add_camera` 调用本符号；另有 3 处静态调用
 #   - 内部调用：`str`、`any`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _raise_service_error(exc: ValueError) -> None:
@@ -137,9 +137,9 @@ def _raise_service_error(exc: ValueError) -> None:
 #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
 # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
-#         `_require_channel_member` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel_status`
-#         调用本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_channel_frame` 调用本符号；另有 2 处静态调用
+#   - 调用方：`AiVision/api/logistics_channels.py` 的 `get_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的
+#         `_require_channel_member` 调用本符号；`AiVision/api/logistics_channels.py` 的 `get_channel_status`
+#         调用本符号；`AiVision/api/logistics_channels.py` 的 `get_channel_frame` 调用本符号；另有 2 处静态调用
 #   - 内部调用：`service.get_channel`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _get_channel_or_404(service, feature: str, channel_id: int) -> dict:
@@ -521,7 +521,7 @@ def set_camera_enabled(
 #   - `camera_id`（int）：摄像头唯一标识
 # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `get_member_camera_config` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#   - 调用方：`AiVision/api/logistics_channels.py` 的 `get_member_camera_config` 调用本符号；`AiVision/api/logistics_channels.py` 的
 #         `update_member_camera_config` 调用本符号
 #   - 内部调用：`_get_channel_or_404`、`any`、`int`、`channel.get`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
@@ -737,7 +737,7 @@ def get_channel_frame(
 #   - `row`（AiViolationImage）：`row` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channel_alarms` 调用本符号
+#   - 调用方：`AiVision/api/logistics_channels.py` 的 `list_channel_alarms` 调用本符号
 #   - 内部调用：`str`、`(row.event_metadata or {}).get`、`int`、`row.create_time.isoformat`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
@@ -748,7 +748,7 @@ def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
         "channel_name": row.subject_name,
         "reason": row.reason,
         "created_at": row.create_time.isoformat(sep=" ") if row.create_time else None,
-        "image_url": f"/api/v2/alarms/{row.id}/image",
+        "image_url": f"/api/alarms/{row.id}/image",
         "metadata": row.event_metadata or {},
     }
 
@@ -760,7 +760,7 @@ def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
 #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/logistics_channels.py` 的 `list_channel_alarms` 调用本符号；`AiVision/api/v2/logistics_channels.py` 的
+#   - 调用方：`AiVision/api/logistics_channels.py` 的 `list_channel_alarms` 调用本符号；`AiVision/api/logistics_channels.py` 的
 #         `channel_statistics` 调用本符号
 #   - 内部调用：`session.query(AiViolationImage).filter`、`session.query`、`str`、`all_specs`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。

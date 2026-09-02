@@ -1,7 +1,7 @@
 [project]
 name = "aivision-backend"
 version = "2.0.0"
-description = "Refactored AiVision backend with features-first architecture and FastAPI API v2."
+description = "Refactored AiVision backend with features-first architecture and FastAPI API."
 requires-python = ">=3.10,<3.12"
 dependencies = [
     "fastapi>=0.110,<1.0",

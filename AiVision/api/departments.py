@@ -1,7 +1,7 @@
 # 文件说明：定义`departments` 模块的 HTTP 接口、依赖注入或应用装配。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-"""api/v2/departments.py
+"""api/departments.py
 部门管理 API。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from core.db import session_scope
 from platform.camera.service import CameraService
 from platform.department.service import DepartmentService
 
-router = APIRouter(prefix="/api/v2/departments", tags=["departments"])
+router = APIRouter(prefix="/api/departments", tags=["departments"])
 
 
 # 功能：列出所有部门；输入与输出详见下方说明

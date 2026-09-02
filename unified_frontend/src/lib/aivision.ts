@@ -368,7 +368,7 @@ export async function createAiVisionFeatureCamera(
   feature: string,
   payload: CreateAiVisionFeatureCameraPayload,
 ) {
-  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/cameras`, {
+  const response = await fetch(`/api/features/${encodeURIComponent(feature)}/cameras`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -446,7 +446,7 @@ export async function deleteAiVisionCamera(cameraKey: string) {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionExceptionAlertSettings() {
-  const response = await fetch('/api/v2/runtime/exception-alert', { credentials: 'include' })
+  const response = await fetch('/api/runtime/exception-alert', { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -464,7 +464,7 @@ export async function getAiVisionExceptionAlertSettings() {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExceptionAlertSettings) {
-  const response = await fetch('/api/v2/runtime/exception-alert', {
+  const response = await fetch('/api/runtime/exception-alert', {
     method: 'PUT',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -490,7 +490,7 @@ export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExcept
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionFeatureConfig(feature: string, cameraKey: string) {
-  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
+  const response = await fetch(`/api/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
     credentials: 'include',
   })
   if (!response.ok) {
@@ -514,7 +514,7 @@ export async function getAiVisionFeatureConfig(feature: string, cameraKey: strin
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；会读取或修改浏览器全局对象/DOM 状态；校验或请求失败时会主动抛出异常。
  */
 export async function saveAiVisionFeatureConfig(feature: string, cameraKey: string, config: AiVisionFeatureConfig) {
-  const response = await fetch(`/api/v2/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
+  const response = await fetch(`/api/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
     method: 'PUT',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

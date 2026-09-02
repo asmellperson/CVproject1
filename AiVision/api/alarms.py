@@ -20,7 +20,7 @@ from platform.camera.orm import AiCameraConfig
 from platform.violation.orm import AiViolationImage
 
 
-router = APIRouter(prefix="/api/v2/alarms", tags=["alarms"])
+router = APIRouter(prefix="/api/alarms", tags=["alarms"])
 
 _TYPE_META = {
     1: {"event_type": "blocks", "label": "区域入侵", "color": "#ef4444"},
@@ -123,7 +123,7 @@ class AlarmListResponse(BaseModel):
 #   - `violation_type`（int | None）：`violation_type` 对应的业务输入值
 # 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_event_dict` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `_event_dict` 调用本符号；`AiVision/api/alarms.py` 的 `alarm_statistics` 调用本符号
 #   - 内部调用：`_TYPE_META.get`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _meta(violation_type: int | None) -> dict[str, str]:
@@ -135,7 +135,7 @@ def _meta(violation_type: int | None) -> dict[str, str]:
 #   - `session`（未显式标注）：数据库会话或运行会话
 # 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/alarms.py` 的 `alarm_statistics` 调用本符号
 #   - 内部调用：`session.query(AiCameraConfig.shm_name, AiCameraConfig.name).all`、`session.query`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _camera_names(session) -> dict[str, str]:
@@ -148,7 +148,7 @@ def _camera_names(session) -> dict[str, str]:
 #   - `value`（object）：待转换、校验或写入的值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_channel_alarm_fields` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `_channel_alarm_fields` 调用本符号
 #   - 内部调用：`isinstance`、`str`、`value.items`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _dict_value(value: object) -> dict[str, Any]:
@@ -162,7 +162,7 @@ def _dict_value(value: object) -> dict[str, Any]:
 #   - `value`（object）：待转换、校验或写入的值
 # 返回：list[int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_channel_alarm_fields` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `_channel_alarm_fields` 调用本符号
 #   - 内部调用：`isinstance`、`set`、`item.strip`、`any`、`int`、`seen.add`、`result.append`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _int_list(value: object) -> list[int]:
@@ -197,7 +197,7 @@ def _int_list(value: object) -> list[int]:
 #   - `metadata`（dict[str, Any]）：`metadata` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `_event_dict` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `_event_dict` 调用本符号
 #   - 内部调用：`_dict_value`、`metadata.get`、`dict`、`raw_states.items`、`isinstance`、`raw_counts.items`、`str`、`explicit_names.items`、`camera_states.items`、`state.get`
 #          等共 12 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -242,7 +242,7 @@ def _channel_alarm_fields(metadata: dict[str, Any]) -> dict[str, Any]:
 #   - `cameras`（dict[str, str]）：`cameras` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/v2/alarms.py` 的 `alarm_statistics` 调用本符号
+#   - 调用方：`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/alarms.py` 的 `alarm_statistics` 调用本符号
 #   - 内部调用：`_meta`、`getattr`、`isinstance`、`dict`、`str`、`metadata.get`、`cameras.get`、`create_time.isoformat`、`_channel_alarm_fields`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any]:

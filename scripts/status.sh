@@ -21,7 +21,7 @@ PROJECT_ROOT="${FUDA_CVP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 #   json:KEY=VAL    JSON 响应中 KEY 字段等于 VAL
 #   skip            不做 health 探测
 SERVICES=(
-  "aivision|7862|http://127.0.0.1:7862/api/v2/runtime/health|json:ok=true"
+  "aivision|7862|http://127.0.0.1:7862/api/runtime/health|json:ok=true"
   "unified_backend|5000|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|3000|http://127.0.0.1:3000/|http2xx"
 )

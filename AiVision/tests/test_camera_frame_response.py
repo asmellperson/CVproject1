@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 
 
 sys.modules.pop("platform", None)
-cameras_module = importlib.import_module("api.v2.cameras")
+cameras_module = importlib.import_module("api.cameras")
 compat_module = importlib.import_module("api.compat")
 get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
 compat_get_camera_frame_jpg = compat_module.compat_get_camera_frame_jpg
@@ -81,7 +81,7 @@ class FrameCameraService:
 # 参数：无。
 # 返回：PermissionCameraService；返回新建的 `PermissionCameraService` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_v2_and_compat_camera_reads_are_scoped_by_department` 实例化本符号
+#   - 调用方：`AiVision/tests/test_camera_frame_response.py` 的 `test_api_and_compat_camera_reads_are_scoped_by_department` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class PermissionCameraService:
@@ -156,7 +156,7 @@ class PermissionCameraService:
         return None
 
 
-# 功能：验证 `test_v2_and_compat_camera_reads_are_scoped_by_department` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_api_and_compat_camera_reads_are_scoped_by_department` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
@@ -164,7 +164,7 @@ class PermissionCameraService:
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`PermissionCameraService`、`FastAPI`、`app.include_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
+def test_api_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
     service = PermissionCameraService()
     app = FastAPI()
     app.include_router(cameras_module.router)
@@ -200,13 +200,13 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 raise HTTPException(status_code=401, detail="not authenticated")
 
             app.dependency_overrides[cameras_module.get_current_user] = unauthenticated
-            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras", "/api/aivision/cameras"):
                 assert (await client.get(prefix)).status_code == 401
                 assert (await client.get(f"{prefix}/1")).status_code == 401
 
             viewer = {"role": "viewer", "department": "general_electric"}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: viewer
-            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras", "/api/aivision/cameras"):
                 default_list = await client.get(prefix)
                 assert default_list.status_code == 200
                 assert [item["camera_id"] for item in default_list.json()] == [1, 4]
@@ -232,7 +232,7 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
                 "departments": ["general_electric", "electronics_electrician"],
             }
             app.dependency_overrides[cameras_module.get_current_user] = lambda: multi_department_viewer
-            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras", "/api/aivision/cameras"):
                 authorized_cameras = await client.get(prefix)
                 assert authorized_cameras.status_code == 200
                 assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2, 4]
@@ -252,7 +252,7 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 
             research_viewer = {"role": "viewer", "department": "research_institute"}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: research_viewer
-            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras", "/api/aivision/cameras"):
                 research_cameras = await client.get(prefix)
                 assert [item["camera_id"] for item in research_cameras.json()] == [5]
                 assert (await client.get(f"{prefix}/camera_5")).status_code == 200
@@ -260,7 +260,7 @@ def test_v2_and_compat_camera_reads_are_scoped_by_department(monkeypatch):
 
             admin = {"role": "admin", "department": None}
             app.dependency_overrides[cameras_module.get_current_user] = lambda: admin
-            for prefix in ("/api/v2/cameras", "/api/aivision/cameras"):
+            for prefix in ("/api/cameras", "/api/aivision/cameras"):
                 all_cameras = await client.get(prefix)
                 assert [item["camera_id"] for item in all_cameras.json()] == [1, 2, 3, 4, 5]
                 assert [item["url"] for item in all_cameras.json()] == [

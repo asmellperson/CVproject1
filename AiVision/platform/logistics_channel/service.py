@@ -259,7 +259,7 @@ class LogisticsChannelService:
     #   - `feature_names`（list[str] | tuple[str, ...]）：已完成上层权限裁剪的物流功能标识
     # 返回：list[dict]；返回摄像头基础信息及其通道成员关系，不包含连接地址。
     # 调用关系：
-    #   - 调用方：`api/v2/logistics_channels.py` 的 `list_logistics_camera_inventory` 调用本方法
+    #   - 调用方：`api/logistics_channels.py` 的 `list_logistics_camera_inventory` 调用本方法
     #   - 内部调用：`require_logistics_feature`、`get_session`、`selectinload`、`session.query`、`dict.setdefault`、`list.sort`、`session.close`。
     # 副作用/注意事项：只读数据库；通过 eager loading 固定查询次数，同一摄像头跨通道或跨功能时只返回一个清单项。
     def list_camera_inventory(

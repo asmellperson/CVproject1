@@ -15,7 +15,7 @@ from fastapi.exceptions import ResponseValidationError
 from fastapi.routing import serialize_response
 
 sys.modules.pop("platform", None)
-api = importlib.import_module("api.v2.logistics_channels")
+api = importlib.import_module("api.logistics_channels")
 compat_api = importlib.import_module("api.compat")
 
 FEATURES = tuple(sorted(importlib.import_module(
@@ -508,7 +508,7 @@ class EmptyAlarmQuery:
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
     #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
-    #         调用本符号；`AiVision/api/v2/alarms.py` 的 `list_alarms` 调用本符号
+    #         调用本符号；`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def limit(self, _limit):
@@ -591,21 +591,21 @@ def _seed(service, feature=FEATURES[0], name="一号通道"):
 def test_router_exposes_full_channel_contract_and_app_registers_it():
     paths = {(route.path, method) for route in api.router.routes for method in route.methods}
     expected = {
-        ("/api/v2/logistics-channels/inventory", "GET"),
-        ("/api/v2/logistics-channels/{feature}", "GET"),
-        ("/api/v2/logistics-channels/{feature}", "POST"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}", "GET"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}", "PUT"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}", "DELETE"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras", "POST"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/order", "PUT"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/enabled", "PUT"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "GET"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "PUT"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/status", "GET"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/frame.jpg", "GET"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/alarms", "GET"),
-        ("/api/v2/logistics-channels/{feature}/{channel_id}/statistics", "GET"),
+        ("/api/logistics-channels/inventory", "GET"),
+        ("/api/logistics-channels/{feature}", "GET"),
+        ("/api/logistics-channels/{feature}", "POST"),
+        ("/api/logistics-channels/{feature}/{channel_id}", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}", "DELETE"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras", "POST"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/order", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/enabled", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}/status", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}/frame.jpg", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}/alarms", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}/statistics", "GET"),
     }
     assert expected <= paths
     app_module = importlib.import_module("api.app")
@@ -622,13 +622,13 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
                 if getattr(child, "path", None)
             )
     assert any(
-        path.startswith("/api/v2/logistics-channels")
+        path.startswith("/api/logistics-channels")
         for path in registered_paths
     )
 
     openapi = app_module.app.openapi()
     for path, methods in openapi["paths"].items():
-        if not path.startswith("/api/v2/logistics-channels"):
+        if not path.startswith("/api/logistics-channels"):
             continue
         for method, operation in methods.items():
             if method == "parameters" or path.endswith("frame.jpg"):
@@ -715,7 +715,7 @@ def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v2/logistics-channels/inventory")
+            response = await client.get("/api/logistics-channels/inventory")
             assert response.status_code == 200
             items = response.json()["items"]
             assert [item["camera_id"] for item in items] == [7, 8]
@@ -726,7 +726,7 @@ def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates
             assert items[1]["department"] == "electrical_components"
 
             app.dependency_overrides[api.get_current_user] = lambda: ADMIN
-            admin_response = await client.get("/api/v2/logistics-channels/inventory")
+            admin_response = await client.get("/api/logistics-channels/inventory")
             assert admin_response.status_code == 200
             assert [
                 item["camera_id"] for item in admin_response.json()["items"]
@@ -745,7 +745,7 @@ def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates
 def test_fastapi_response_field_filters_and_rejects_invalid_output():
     route = next(
         route for route in api.router.routes
-        if route.path == "/api/v2/logistics-channels/{feature}" and "GET" in route.methods
+        if route.path == "/api/logistics-channels/{feature}" and "GET" in route.methods
     )
     valid = {
         "items": [{
@@ -824,14 +824,14 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            base = f"/api/v2/logistics-channels/{feature}"
+            base = f"/api/logistics-channels/{feature}"
             assert (await client.get(base)).status_code == 401
 
             viewer = {"role": "viewer", "department": "general_electric"}
             app.dependency_overrides[api.get_current_user] = lambda: viewer
             assert (await client.get(base)).status_code == 200
             assert (await client.get(
-                "/api/v2/logistics-channels/"
+                "/api/logistics-channels/"
                 "detect_logistics_single_person_electronics_electrician"
             )).status_code == 403
             multi_department_viewer = {
@@ -841,11 +841,11 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             }
             app.dependency_overrides[api.get_current_user] = lambda: multi_department_viewer
             assert (await client.get(
-                "/api/v2/logistics-channels/"
+                "/api/logistics-channels/"
                 "detect_logistics_single_person_electrical_components"
             )).status_code == 200
             assert (await client.get(
-                "/api/v2/logistics-channels/"
+                "/api/logistics-channels/"
                 "detect_logistics_single_person_electronics_electrician"
             )).status_code == 403
             app.dependency_overrides[api.get_current_user] = lambda: viewer
@@ -855,7 +855,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             assert "url" not in member_config.json()["camera"]
             assert (await client.get(f"{base}/{channel_id}/cameras/999/config")).status_code == 404
             cross_config = (
-                "/api/v2/logistics-channels/"
+                "/api/logistics-channels/"
                 "detect_logistics_single_person_electronics_electrician/1/cameras/7/config"
             )
             assert (await client.get(cross_config)).status_code == 403
@@ -901,7 +901,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 json=member_config.json()["config"],
             )).status_code == 200
             assert (await client.get(
-                "/api/v2/logistics-channels/not-a-feature"
+                "/api/logistics-channels/not-a-feature"
             )).status_code == 404
             assert (await client.post(base, json={})).status_code == 422
             assert (await client.put(
@@ -961,7 +961,7 @@ def test_viewer_department_access_and_admin_dependency_contract():
     assert caught.value.status_code == 403
     create_route = next(
         route for route in api.router.routes
-        if route.path == "/api/v2/logistics-channels/{feature}" and "POST" in route.methods
+        if route.path == "/api/logistics-channels/{feature}" and "POST" in route.methods
     )
     assert any(dependency.call.__name__ == "require_admin" for dependency in create_route.dependant.dependencies)
 
@@ -1005,7 +1005,7 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
     async def scenario():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            path = f"/api/v2/features/{FEATURES[0]}/configs/7"
+            path = f"/api/features/{FEATURES[0]}/configs/7"
             app.dependency_overrides[feature_api.get_current_user] = lambda: {
                 "role": "viewer",
                 "department": "general_electric",
@@ -1111,7 +1111,7 @@ def test_generic_feature_camera_create_uses_atomic_camera_service(monkeypatch):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
-                "/api/v2/features/detect_human/cameras",
+                "/api/features/detect_human/cameras",
                 json={
                     "name": "后门摄像头",
                     "url": "rtsp://example/human",

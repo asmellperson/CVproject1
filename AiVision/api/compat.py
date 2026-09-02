@@ -8,7 +8,7 @@ api/compat.py
 目标:
 1. 前端继续访问旧路径时不需要立刻改代码。
 2. 内部只调用新 service，不复制业务逻辑。
-3. 功能配置旧路径返回旧式主体: 直接返回 config，而不是 v2 的
+3. 功能配置旧路径返回旧式主体: 直接返回 config，而不是正式 API 的
    {camera, feature, config} 包装。
 """
 from __future__ import annotations
@@ -26,14 +26,14 @@ from api.deps import (
     get_logistics_channel_service,
     get_model_service,
 )
-from api.v2.cameras import (
+from api.cameras import (
     build_camera_frame_response,
     camera_list_response_for_user,
     camera_read_department,
     get_camera_for_user,
 )
-from api.v2.alarms import alarm_image, alarm_statistics, alarm_video, list_alarms
-from api.v2.logistics_channels import _require_feature_access
+from api.alarms import alarm_image, alarm_statistics, alarm_video, list_alarms
+from api.logistics_channels import _require_feature_access
 from core.db import session_scope
 from platform.department.service import DepartmentService
 from features import get_spec
@@ -149,7 +149,7 @@ def _normalize_legacy_payload(spec, payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload.get("config"), dict):
         payload = payload["config"]
 
-    # 已经是 v2 配置格式。
+    # 已经是正式 API 配置格式。
     if "value" in payload or "alarm" in payload:
         merged = _default_config_payload(spec)
         if "enable" in payload:

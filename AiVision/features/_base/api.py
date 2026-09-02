@@ -9,10 +9,10 @@ features/_base/api.py
         每个文件 100+ 行,只有功能名不同,实质代码一字不差。
 
 新代码: 1 个路由处理所有功能。前端访问:
-    GET  /api/v2/features                         → 列出所有 feature 元数据
-    GET  /api/v2/features/{feature}               → 单个 feature 元数据
-    GET  /api/v2/features/{feature}/configs/{cam} → 读单个摄像头的配置
-    PUT  /api/v2/features/{feature}/configs/{cam} → 写单个摄像头的配置
+    GET  /api/features                         → 列出所有 feature 元数据
+    GET  /api/features/{feature}               → 单个 feature 元数据
+    GET  /api/features/{feature}/configs/{cam} → 读单个摄像头的配置
+    PUT  /api/features/{feature}/configs/{cam} → 写单个摄像头的配置
 """
 from __future__ import annotations
 from typing import Annotated
@@ -57,7 +57,7 @@ class FeatureMetaResponse(BaseModel):
     departments: list[str] = []
 
 
-# 功能：所有已注册功能的元数据列表，对应 GET /api/v2/features 的响应体；输入与输出详见下方说明
+# 功能：所有已注册功能的元数据列表，对应 GET /api/features 的响应体；输入与输出详见下方说明
 # 参数：
 #   - `features`（list[FeatureMetaResponse]）：`features` 对应的业务输入值
 # 返回：FeaturesListResponse；返回新建的 `FeaturesListResponse` 实例。
@@ -66,7 +66,7 @@ class FeatureMetaResponse(BaseModel):
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FeaturesListResponse(BaseModel):
-    """所有已注册功能的元数据列表，对应 GET /api/v2/features 的响应体。"""
+    """所有已注册功能的元数据列表，对应 GET /api/features 的响应体。"""
     features: list[FeatureMetaResponse]
 
 
@@ -78,8 +78,8 @@ class FeaturesListResponse(BaseModel):
 # 返回：FeatureConfigResponse；返回新建的 `FeatureConfigResponse` 实例。
 # 调用关系：
 #   - 调用方：`AiVision/features/_base/api.py` 的 `create_features_router::get_feature_config` 实例化本符号；`AiVision/features/_base/api.py` 的
-#         `create_features_router::save_feature_config` 实例化本符号；`AiVision/api/v2/logistics_channels.py` 的 `get_member_camera_config`
-#         实例化本符号；`AiVision/api/v2/logistics_channels.py` 的 `update_member_camera_config` 实例化本符号
+#         `create_features_router::save_feature_config` 实例化本符号；`AiVision/api/logistics_channels.py` 的 `get_member_camera_config`
+#         实例化本符号；`AiVision/api/logistics_channels.py` 的 `update_member_camera_config` 实例化本符号
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FeatureConfigResponse(BaseModel):
@@ -201,14 +201,14 @@ def create_features_router(
         camera_service: CameraService 实例，可选，用于原子创建摄像头并启用功能。
 
     Returns:
-        挂载在 /api/v2/features 下的 APIRouter，可直接 app.include_router()。
+        挂载在 /api/features 下的 APIRouter，可直接 app.include_router()。
     """
     if camera_service is None:
         from platform.camera.service import camera_service as default_camera_service
 
         camera_service = default_camera_service
 
-    router = APIRouter(prefix="/api/v2/features", tags=["features"])
+    router = APIRouter(prefix="/api/features", tags=["features"])
 
     # 功能：将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化；输入与输出详见下方说明
     # 参数：

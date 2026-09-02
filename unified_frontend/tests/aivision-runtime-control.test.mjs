@@ -40,7 +40,7 @@ test('AiVision API client does not expose global capability controls', async () 
   assert.doesNotMatch(api, /getAiVisionCapabilities/)
   assert.doesNotMatch(api, /startAiVisionCapability/)
   assert.doesNotMatch(api, /stopAiVisionCapability/)
-  assert.doesNotMatch(api, /\/api\/v2\/runtime\/capabilities/)
+  assert.doesNotMatch(api, /\/api\/runtime\/capabilities/)
 })
 
 test('guard configuration saves without implicitly starting a manually stopped site', async () => {

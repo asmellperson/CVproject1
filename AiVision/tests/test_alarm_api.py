@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 
 sys.modules.pop("platform", None)
-alarms = importlib.import_module("api.v2.alarms")
+alarms = importlib.import_module("api.alarms")
 
 
 # 功能：实现 `_channel_row` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明

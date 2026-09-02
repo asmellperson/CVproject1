@@ -80,7 +80,7 @@ test('camera mutations from every backend notify the shared overview inventory',
   for (const source of [aiVision, guardRoom, securityVlm]) {
     assert.match(source, /notifyPlatformCamerasChanged\(\)/)
   }
-  assert.match(aiVision, /\/api\/v2\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)
+  assert.match(aiVision, /\/api\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)
   assert.match(platformStatus, /PLATFORM_CAMERAS_CHANGED_EVENT/)
   assert.match(platformStatus, /restartKey: cameraRevision/)
 })

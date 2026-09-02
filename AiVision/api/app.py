@@ -18,13 +18,13 @@ from fastapi.responses import JSONResponse
 
 from api.auth import AuthError, get_current_user_from_request
 from api.compat import router as compat_router
-from api.v2.alarms import router as alarms_router
-from api.v2.cameras import router as cameras_router
-from api.v2.departments import router as departments_router
-from api.v2.features import router as features_router
-from api.v2.logistics_channels import router as logistics_channels_router
-from api.v2.models import router as models_router
-from api.v2.runtime import router as runtime_router
+from api.alarms import router as alarms_router
+from api.cameras import router as cameras_router
+from api.departments import router as departments_router
+from api.features import router as features_router
+from api.logistics_channels import router as logistics_channels_router
+from api.models import router as models_router
+from api.runtime import router as runtime_router
 from core.alarm.wechat import WeChatNotifier
 from core.logger import logger
 from core.settings import settings
@@ -122,7 +122,7 @@ def create_app(
     app = FastAPI(
         title="AiVision Backend",
         version="2.0.0",
-        description="AiVision features-first refactored backend with API v2 and legacy compatibility routes.",
+        description="AiVision features-first refactored backend with canonical and legacy compatibility routes.",
         lifespan=lifespan,
     )
 
@@ -146,7 +146,7 @@ def create_app(
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
-        public_paths = {"/api/v2/runtime/health"}
+        public_paths = {"/api/runtime/health"}
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):
@@ -194,12 +194,12 @@ def create_app(
     # 两套历史 API 直接运行在 AiVision 进程中。这里是 ASGI 子应用挂载，
     # 不发起 HTTP 请求，也不需要 Guard Room / Security VLM 独立端口。
     app.mount(
-        "/api/v2/integrations/guard-room",
+        "/api/integrations/guard-room",
         visual_services.guard_room,
         name="guard-room",
     )
     app.mount(
-        "/api/v2/integrations/security-vlm",
+        "/api/integrations/security-vlm",
         visual_services.security_vlm,
         name="security-vlm",
     )

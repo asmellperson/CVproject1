@@ -217,12 +217,12 @@ def test_aivision_registers_both_managed_route_trees(tmp_path):
     mounted_paths = {
         route.path
         for route in app.routes
-        if getattr(route, "path", "").startswith("/api/v2/integrations")
+        if getattr(route, "path", "").startswith("/api/integrations")
     }
 
     assert mounted_paths == {
-        "/api/v2/integrations/guard-room",
-        "/api/v2/integrations/security-vlm",
+        "/api/integrations/guard-room",
+        "/api/integrations/security-vlm",
     }
 
 

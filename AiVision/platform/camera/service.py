@@ -35,7 +35,7 @@ _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 #   - `specs`（dict | None）：功能注册表；默认读取 `all_specs()`
 # 返回：set[str]；返回该摄像头允许归属的事业部标识集合。
 # 调用关系：
-#   - 调用方：`CameraService.list_cameras`、`api/v2/cameras.py` 的摄像头列表与详情权限校验调用本符号
+#   - 调用方：`CameraService.list_cameras`、`api/cameras.py` 的摄像头列表与详情权限校验调用本符号
 #   - 内部调用：`camera.get`、`str`、`strip`、`isinstance`、`all_specs`、`getattr`、`set.add`。
 # 副作用/注意事项：不修改摄像头或数据库；仅在显式归属为空时启用历史兼容推导，未启用任何功能时返回空集合。
 def camera_access_departments(
