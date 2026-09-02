@@ -3,6 +3,7 @@
 
 from types import SimpleNamespace
 
+from api import exception_alerts as exception_alerts_api
 from api import runtime as runtime_api
 
 
@@ -39,3 +40,46 @@ def test_health_exposes_model_worker_watchdog_state():
 
 def test_global_capability_routes_are_not_registered():
     assert all("/capabilities" not in route.path for route in runtime_api.router.routes)
+
+
+def test_runtime_router_only_exposes_health_and_status():
+    paths = {route.path for route in runtime_api.router.routes}
+
+    assert paths == {"/api/runtime/health", "/api/runtime/status"}
+
+
+def test_exception_alert_router_exposes_get_and_put():
+    routes = {
+        (route.path, method)
+        for route in exception_alerts_api.router.routes
+        for method in route.methods
+    }
+
+    assert routes == {
+        ("/api/exception-alert", "GET"),
+        ("/api/exception-alert", "PUT"),
+    }
+
+
+def test_exception_alert_handlers_keep_system_config_contract(monkeypatch):
+    expected = {
+        "wechat_enable": True,
+        "wechat_user": "operator",
+        "repeat_interval_minutes": 30,
+    }
+    saved = []
+    monkeypatch.setattr(
+        exception_alerts_api.system_config_service,
+        "get_exception_alert",
+        lambda: expected,
+    )
+    monkeypatch.setattr(
+        exception_alerts_api.system_config_service,
+        "save_exception_alert",
+        lambda payload: saved.append(payload) or payload,
+    )
+
+    assert exception_alerts_api.get_exception_alert() == expected
+    payload = exception_alerts_api.ExceptionAlertSettings(**expected)
+    assert exception_alerts_api.update_exception_alert(payload, _user={}) == expected
+    assert saved == [expected]

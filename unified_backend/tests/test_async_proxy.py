@@ -439,7 +439,7 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
     asyncio.run(scenario())
 
 
-# 功能：验证 `test_visual_routes_target_aivision_control_plane` 对应的请求代理逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_visual_and_root_routes_target_aivision_control_plane` 对应的请求代理逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
@@ -448,7 +448,7 @@ def test_fastapi_proxy_uses_app_scoped_async_client(monkeypatch):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`monkeypatch.setenv`、`str`、`monkeypatch.setattr`、`app_module.create_app`、`object`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_visual_routes_target_aivision_control_plane(monkeypatch, tmp_path):
+def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_path):
     calls = []
 
     # 功能：实现 `fake_proxy` 对应的请求代理逻辑；输入由参数提供，处理结果见返回值说明
@@ -485,6 +485,10 @@ def test_visual_routes_target_aivision_control_plane(monkeypatch, tmp_path):
             "api/departments/general_electric/history",
             request,
         )
+        await routes["proxy_aivision_root_api"].endpoint(
+            "exception-alert",
+            request,
+        )
 
     asyncio.run(scenario())
 
@@ -498,5 +502,10 @@ def test_visual_routes_target_aivision_control_plane(monkeypatch, tmp_path):
             request,
             "http://aivision:7862/api/integrations/security-vlm",
             "/api/departments/general_electric/history",
+        ),
+        (
+            request,
+            "http://aivision:7862",
+            "/api/exception-alert",
         ),
     ]

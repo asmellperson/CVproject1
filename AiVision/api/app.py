@@ -21,6 +21,7 @@ from api.compat import router as compat_router
 from api.alarms import router as alarms_router
 from api.cameras import router as cameras_router
 from api.departments import router as departments_router
+from api.exception_alerts import router as exception_alerts_router
 from api.features import router as features_router
 from api.logistics_channels import router as logistics_channels_router
 from api.models import router as models_router
@@ -183,6 +184,7 @@ def create_app(
         return {"name": "AiVision", "version": "2.0.0", "docs": "/docs"}
 
     app.include_router(runtime_router)
+    app.include_router(exception_alerts_router)
     app.include_router(cameras_router)
     app.include_router(features_router)
     app.include_router(models_router)

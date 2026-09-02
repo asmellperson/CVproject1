@@ -446,7 +446,7 @@ export async function deleteAiVisionCamera(cameraKey: string) {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function getAiVisionExceptionAlertSettings() {
-  const response = await fetch('/api/runtime/exception-alert', { credentials: 'include' })
+  const response = await fetch('/api/exception-alert', { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -464,7 +464,7 @@ export async function getAiVisionExceptionAlertSettings() {
  * 副作用/注意事项：会发起 HTTP/WebSocket 请求，失败时可能抛出或上报异常；校验或请求失败时会主动抛出异常。
  */
 export async function saveAiVisionExceptionAlertSettings(payload: AiVisionExceptionAlertSettings) {
-  const response = await fetch('/api/runtime/exception-alert', {
+  const response = await fetch('/api/exception-alert', {
     method: 'PUT',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

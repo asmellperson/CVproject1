@@ -72,7 +72,7 @@ class SystemConfigService:
     # 调用关系：
     #   - 调用方：`AiVision/tests/test_system_config.py` 的 `test_exception_alert_saves_repeat_interval`
     #         调用本符号；`AiVision/tests/test_system_config.py` 的 `test_exception_alert_rejects_invalid_repeat_interval`
-    #         调用本符号；`AiVision/api/runtime.py` 的 `update_exception_alert` 调用本符号
+    #         调用本符号；`AiVision/api/exception_alerts.py` 的 `update_exception_alert` 调用本符号
     #   - 内部调用：`bool`、`payload.get`、`str(payload.get('wechat_user') or
     #          '').strip`、`str`、`self._normalize_exception_alert_interval`、`ValueError`、`self._set_value`。
     # 副作用/注意事项：可能发起网络请求或发送外部消息；校验或执行失败时会主动抛出异常。

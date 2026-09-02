@@ -43,6 +43,12 @@ test('AiVision API client does not expose global capability controls', async () 
   assert.doesNotMatch(api, /\/api\/runtime\/capabilities/)
 })
 
+test('exception alert settings use the dedicated API route', async () => {
+  const api = await read('src/lib/aivision.ts')
+
+  assert.match(api, /\/api\/exception-alert/)
+})
+
 test('guard configuration saves without implicitly starting a manually stopped site', async () => {
   const [config, monitor, guardPage, runtime] = await Promise.all([
     read('src/sections/ConfigSection.tsx'),
