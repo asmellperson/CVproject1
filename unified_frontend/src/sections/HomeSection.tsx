@@ -346,7 +346,7 @@ function getAlarmSeverity(eventType: string): AlarmSeverity {
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
 function getAlarmLocation(alarm: AlarmEvent) {
-  return alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
+  return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
 /**

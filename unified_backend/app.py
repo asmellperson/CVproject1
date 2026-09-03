@@ -191,30 +191,45 @@ def _raise_user_management_http_error(exc: UserStoreError) -> None:
 
 
 ALARM_TYPE_META: dict[str, dict[str, str]] = {
-    "blocks": {"name": "区域入侵", "color": "#ef4444"},
-    "detect_door": {"name": "大门开关", "color": "#f59e0b"},
-    "detect_phone": {"name": "手机检测", "color": "#f97316"},
-    "detect_face": {"name": "人脸检测", "color": "#8b5cf6"},
-    "detect_human": {"name": "人员违规逗留检测", "color": "#2563eb"},
-    "detect_human_haoda": {"name": "人员违规逗留检测（皓达公司）", "color": "#1d4ed8"},
-    "detect_logistics_single_person": {"name": "物流通道单人检测", "color": "#0f766e"},
-    "detect_logistics_single_person_electronics_electrician": {
-        "name": "物流通道单人检测（电子电工）",
-        "color": "#0f766e",
-    },
-    "detect_logistics_single_person_electrical_components": {
-        "name": "物流通道单人检测（电气部件）",
-        "color": "#0f766e",
-    },
-    "detect_logistics_single_person_precious_metal_recycling": {
-        "name": "物流通道单人检测（伟达公司）",
-        "color": "#0f766e",
-    },
-    "guard_absent": {"name": "保安离岗", "color": "#dc2626"},
-    "guard_phone_use": {"name": "保安玩手机", "color": "#ea580c"},
-    "guard_prone_sleep": {"name": "保安趴睡", "color": "#ca8a04"},
-    "security_vlm_non_compliant": {"name": "安检流程不规范", "color": "#0891b2"},
-    "security_vlm_error": {"name": "安检判定错误", "color": "#d97706"},
+    "blocks": {"name": "区域入侵"},
+    "detect_door": {"name": "大门开关"},
+    "detect_phone": {"name": "手机检测"},
+    "detect_face": {"name": "人脸检测"},
+    "detect_human": {"name": "人员违规逗留检测"},
+    "detect_logistics_single_person": {"name": "物流通道单人检测"},
+    "guard_absent": {"name": "保安离岗"},
+    "guard_phone_use": {"name": "保安玩手机"},
+    "guard_prone_sleep": {"name": "保安趴睡"},
+    "security_vlm_non_compliant": {"name": "安检流程不规范"},
+    "security_vlm_error": {"name": "安检判定错误"},
+}
+
+AIVISION_EVENT_TYPE_ALIASES = {
+    "detect_human_haoda": "detect_human",
+    "detect_logistics_single_person_electronics_electrician": "detect_logistics_single_person",
+    "detect_logistics_single_person_electrical_components": "detect_logistics_single_person",
+    "detect_logistics_single_person_precious_metal_recycling": "detect_logistics_single_person",
+}
+
+AIVISION_FEATURE_DEPARTMENTS = {
+    "blocks": "research_institute",
+    "detect_door": "general_electric",
+    "detect_phone": "research_institute",
+    "detect_face": "research_institute",
+    "detect_human": "general_electric",
+    "detect_human_haoda": "haoda_company",
+    "detect_logistics_single_person": "general_electric",
+    "detect_logistics_single_person_electronics_electrician": "electronics_electrician",
+    "detect_logistics_single_person_electrical_components": "electrical_components",
+    "detect_logistics_single_person_precious_metal_recycling": "precious_metal_recycling",
+}
+
+LEGACY_VIOLATION_TYPE_ALIASES = {7: 6, 8: 6, 9: 6, 10: 5}
+LEGACY_VIOLATION_CONTEXT = {
+    7: ("detect_logistics_single_person_electronics_electrician", "electronics_electrician"),
+    8: ("detect_logistics_single_person_electrical_components", "electrical_components"),
+    9: ("detect_logistics_single_person_precious_metal_recycling", "precious_metal_recycling"),
+    10: ("detect_human_haoda", "haoda_company"),
 }
 
 GUARD_EVENT_META: dict[str, dict[str, str]] = {
@@ -244,20 +259,20 @@ DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
         "guard_absent",
         "guard_phone_use",
         "guard_prone_sleep",
-        "detect_logistics_single_person_electronics_electrician",
+        "detect_logistics_single_person",
     },
     "electrical_components": {
         "security_vlm_non_compliant",
         "security_vlm_error",
-        "detect_logistics_single_person_electrical_components",
+        "detect_logistics_single_person",
     },
     "precious_metal_recycling": {
         "security_vlm_non_compliant",
         "security_vlm_error",
-        "detect_logistics_single_person_precious_metal_recycling",
+        "detect_logistics_single_person",
     },
     "haoda_company": {
-        "detect_human_haoda",
+        "detect_human",
     },
 }
 
@@ -605,8 +620,11 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         "site_name": site_name or None,
         "event_type": meta["event_type"],
         "event_label": meta["event_label"],
-        "camera_no": f"guard_room_site_{site_id}" if site_id is not None else (alarm.get("camera_name") or "guard_room"),
-        "camera_name": camera_name,
+        "subject_type": "guard_room_site",
+        "subject_id": str(site_id) if site_id is not None else source_id,
+        "subject_name": camera_name,
+        "camera_no": alarm.get("camera_no"),
+        "camera_name": alarm.get("camera_name"),
         "image_url": image_url,
         "video_url": video_url,
     }
@@ -627,6 +645,30 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
     subject_type = str(alarm.get("subject_type") or "camera")
     is_channel = subject_type == "logistics_channel"
+    raw_event_type = str(alarm.get("event_type") or "unknown")
+    raw_violation_type = alarm.get("violation_type")
+    try:
+        raw_violation_type_number = int(raw_violation_type) if raw_violation_type is not None else None
+        violation_type = LEGACY_VIOLATION_TYPE_ALIASES.get(
+            raw_violation_type_number,
+            raw_violation_type_number,
+        ) if raw_violation_type is not None else None
+    except (TypeError, ValueError, OverflowError):
+        raw_violation_type_number = None
+        violation_type = None
+    legacy_context = LEGACY_VIOLATION_CONTEXT.get(raw_violation_type_number)
+    feature_name = str(
+        alarm.get("feature_name")
+        or (legacy_context[0] if legacy_context else "")
+        or raw_event_type
+    )
+    event_type = AIVISION_EVENT_TYPE_ALIASES.get(raw_event_type, raw_event_type)
+    department = (
+        alarm.get("department")
+        or metadata.get("department")
+        or (legacy_context[1] if legacy_context else "")
+        or AIVISION_FEATURE_DEPARTMENTS.get(feature_name)
+    )
 
     channel_id_value = alarm.get("channel_id") or alarm.get("subject_id") or metadata.get("channel_id")
     channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
@@ -668,19 +710,24 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         if isinstance(state, dict) and state.get("camera_name") is not None:
             camera_names.setdefault(str(key), str(state["camera_name"]))
 
-    camera_no = alarm.get("camera_no")
-    camera_name = alarm.get("camera_name")
+    camera_no = alarm.get("camera_no") if not is_channel else None
+    camera_name = alarm.get("camera_name") if not is_channel else None
     if is_channel:
-        camera_no = f"logistics_channel_{channel_id}" if channel_id else "logistics_channel"
-        camera_name = channel_name
+        normalized_subject_id = channel_id
+        normalized_subject_name = channel_name
+    else:
+        normalized_subject_id = alarm.get("subject_id") or camera_no
+        normalized_subject_name = alarm.get("subject_name") or camera_name or camera_no
     reason = alarm.get("reason") or metadata.get("reason")
-    normalized_subject_id = channel_id if is_channel else alarm.get("subject_id")
-    normalized_subject_name = channel_name if is_channel else alarm.get("subject_name")
     return {
         **alarm,
         "id": f"aivision:{source_id}",
         "source": "aivision",
         "source_id": source_id,
+        "event_type": event_type,
+        "feature_name": feature_name,
+        "violation_type": violation_type,
+        "department": department,
         "subject_type": subject_type,
         "subject_id": str(normalized_subject_id) if normalized_subject_id is not None else None,
         "subject_name": normalized_subject_name,
@@ -769,6 +816,9 @@ def _normalize_security_vlm_alarm(
         "department": department,
         "event_type": event_type,
         "event_label": "安检判定错误" if status == "error" else "安检流程不规范",
+        "subject_type": "camera",
+        "subject_id": str(item.get("camera_id") or item.get("roi_name") or "security_vlm"),
+        "subject_name": item.get("camera_name") or item.get("roi_name") or "安检流程规范检测",
         "camera_no": item.get("camera_id") or item.get("roi_name") or "security_vlm",
         "camera_name": item.get("camera_name") or item.get("roi_name") or "安检流程规范检测",
         "reason": item.get("error") or item.get("reason") or "安检流程规范检测判定异常",
@@ -948,8 +998,22 @@ def _filter_alarms(
     allowed = _allowed_event_types_for_user(user)
     if allowed is not None:
         alarms = [alarm for alarm in alarms if alarm.get("event_type") in allowed]
+    role = str(user.get("role") or "").strip().lower()
+    departments = set(_departments_for_user(user))
+    if role == "viewer" and "all" not in departments:
+        alarms = [
+            alarm
+            for alarm in alarms
+            if not alarm.get("department")
+            or _normalize_department(alarm.get("department")) in departments
+        ]
     if event_types is not None:
-        alarms = [alarm for alarm in alarms if alarm.get("event_type") in event_types]
+        alarms = [
+            alarm
+            for alarm in alarms
+            if alarm.get("event_type") in event_types
+            or alarm.get("feature_name") in event_types
+        ]
     return alarms
 
 
@@ -1098,28 +1162,38 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
             in_range.append((alarm, created))
 
     by_type: dict[str, dict[str, Any]] = {}
-    by_camera: Counter[str] = Counter()
-    camera_names: dict[str, str] = {}
+    by_subject: Counter[tuple[str, str]] = Counter()
+    subject_names: dict[tuple[str, str], str] = {}
     daily_counts: dict[str, Counter[str]] = defaultdict(Counter)
     hourly_counts: dict[int, Counter[str]] = defaultdict(Counter)
 
     for alarm, created in in_range:
         event_type = str(alarm.get("event_type") or "unknown")
-        meta = ALARM_TYPE_META.get(event_type, {"name": event_type, "color": "#64748b"})
+        meta = ALARM_TYPE_META.get(event_type, {"name": event_type})
         row = by_type.setdefault(
             event_type,
             {
                 "event_type": event_type,
                 "name": alarm.get("event_label") or meta["name"],
                 "value": 0,
-                "color": meta["color"],
             },
         )
         row["value"] += 1
 
-        camera_no = str(alarm.get("camera_no") or alarm.get("camera_name") or "unknown")
-        by_camera[camera_no] += 1
-        camera_names[camera_no] = str(alarm.get("camera_name") or camera_no)
+        subject_type = str(alarm.get("subject_type") or "unknown")
+        subject_id = str(
+            alarm.get("subject_id")
+            or alarm.get("subject_name")
+            or alarm.get("camera_no")
+            or "unknown"
+        )
+        subject_key = (subject_type, subject_id)
+        by_subject[subject_key] += 1
+        subject_names[subject_key] = str(
+            alarm.get("subject_name")
+            or alarm.get("camera_name")
+            or subject_id
+        )
         daily_counts[created.strftime("%m-%d")][event_type] += 1
         hourly_counts[created.hour][event_type] += 1
 
@@ -1140,15 +1214,19 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
         "summary": {
             "total": len(in_range),
             "today": sum(1 for _alarm, created in in_range if created >= today_start),
-            "week": len(in_range),
             "avg_per_day": round(len(in_range) / days, 2),
-            "active_cameras": len(by_camera),
+            "active_subjects": len(by_subject),
             "peak_hour": peak.get("time") if peak.get("total") else "-",
         },
         "by_type": list(by_type.values()),
-        "by_camera": [
-            {"camera_no": camera_no, "name": camera_names.get(camera_no, camera_no), "value": value}
-            for camera_no, value in by_camera.most_common(8)
+        "by_subject": [
+            {
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "subject_name": subject_names.get((subject_type, subject_id), subject_id),
+                "value": value,
+            }
+            for (subject_type, subject_id), value in by_subject.most_common(8)
         ],
         "daily": daily,
         "hourly": hourly,

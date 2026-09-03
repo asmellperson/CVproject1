@@ -15,5 +15,5 @@ SPEC = FeatureSpec(
     orm_class=LogisticsSinglePersonPreciousMetalRecyclingConfigORM,
     config_schema=LogisticsSinglePersonPreciousMetalRecyclingConfigSchema,
     required_models=("yolo_human",),
-    violation_type=9,
+    violation_type=6,
 )

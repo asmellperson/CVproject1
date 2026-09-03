@@ -608,6 +608,7 @@ class BaseFunctionConsumer(ABC):
                 violation_type=self.spec.violation_type,
                 alarm_config=alarm_config,
                 camera_key=cam_key,
+                department=cfg.get("department") or "",
             ),
             alarm_interval=cfg.get("alarm_interval", 5.0),
         )

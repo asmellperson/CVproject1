@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from AiVision.features import all_specs
 from AiVision.features._base.logistics_single_person_consumer import (
     LogisticsSinglePersonConsumerBase,
     build_monitor_snapshot,
@@ -31,6 +32,18 @@ LOGISTICS_CONSUMER_CLASSES = (
     LogisticsSinglePersonElectricalComponentsConsumer,
     LogisticsSinglePersonPreciousMetalRecyclingConsumer,
 )
+
+LOGISTICS_FEATURE_NAMES = (
+    "detect_logistics_single_person",
+    "detect_logistics_single_person_electronics_electrician",
+    "detect_logistics_single_person_electrical_components",
+    "detect_logistics_single_person_precious_metal_recycling",
+)
+
+
+def test_logistics_features_share_canonical_violation_type():
+    specs = all_specs()
+    assert {specs[name].violation_type for name in LOGISTICS_FEATURE_NAMES} == {6}
 
 
 # 功能：定义 `RuntimeSpy` 类，封装`test_logistics_single_person` 模块相关的状态、约束与操作

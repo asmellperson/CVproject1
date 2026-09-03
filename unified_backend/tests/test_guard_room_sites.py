@@ -144,7 +144,7 @@ def test_multi_department_viewer_receives_union_of_scoped_permissions():
     allowed_event_types = _allowed_event_types_for_user(viewer)
     assert allowed_event_types is not None
     assert "detect_human" in allowed_event_types
-    assert "detect_logistics_single_person_electronics_electrician" in allowed_event_types
+    assert "detect_logistics_single_person" in allowed_event_types
     assert _can_access_security_vlm(
         viewer,
         "GET",
@@ -238,8 +238,11 @@ def test_normalize_guard_alarm_keeps_site_metadata_and_site_asset_urls():
     assert normalized["id"] == "guard:7:abc"
     assert normalized["site_id"] == 7
     assert normalized["site_name"] == "一厂区南门保安室"
-    assert normalized["camera_no"] == "guard_room_site_7"
-    assert normalized["camera_name"] == "一厂区南门保安室"
+    assert normalized["subject_type"] == "guard_room_site"
+    assert normalized["subject_id"] == "7"
+    assert normalized["subject_name"] == "一厂区南门保安室"
+    assert normalized["camera_no"] is None
+    assert normalized["camera_name"] is None
     assert normalized["image_url"] == "/api/sites/7/alarms/abc/image"
     assert normalized["video_url"] == "/api/sites/7/alarms/abc/video"
 

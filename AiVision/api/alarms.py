@@ -17,25 +17,23 @@ from AiVision.core.db import get_session
 from AiVision.core.logger import logger
 from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.violation.orm import AiViolationImage
+from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.platform.violation.types import (
+    DEFAULT_ALARM_TYPE_META,
+    VIOLATION_TYPE_META,
+    department_for_feature,
+    department_for_violation_type,
+    feature_name_for_violation_type,
+    normalize_violation_type,
+)
 
 
 router = APIRouter(prefix="/api/alarms", tags=["alarms"])
 public_router = APIRouter(prefix="/api/public/alarms", tags=["alarms"])
 
-_TYPE_META = {
-    1: {"event_type": "blocks", "label": "区域入侵", "color": "#ef4444"},
-    2: {"event_type": "detect_door", "label": "大门开关", "color": "#f59e0b"},
-    3: {"event_type": "detect_phone", "label": "手机检测", "color": "#f97316"},
-    4: {"event_type": "detect_face", "label": "人脸检测", "color": "#8b5cf6"},
-    5: {"event_type": "detect_human", "label": "人员违规逗留检测", "color": "#2563eb"},
-    6: {"event_type": "detect_logistics_single_person", "label": "物流通道单人检测", "color": "#0f766e"},
-    7: {"event_type": "detect_logistics_single_person_electronics_electrician", "label": "物流通道单人检测（电子电工）", "color": "#0f766e"},
-    8: {"event_type": "detect_logistics_single_person_electrical_components", "label": "物流通道单人检测（电气部件）", "color": "#0f766e"},
-    9: {"event_type": "detect_logistics_single_person_precious_metal_recycling", "label": "物流通道单人检测（伟达公司）", "color": "#0f766e"},
-    10: {"event_type": "detect_human_haoda", "label": "人员违规逗留检测（皓达公司）", "color": "#1d4ed8"},
-}
-_DEFAULT_META = {"event_type": "unknown", "label": "未知报警", "color": "#64748b"}
+# 告警类型只描述发生了什么；部门、公司和通道归属由独立字段表达。
+_TYPE_META = VIOLATION_TYPE_META
+_DEFAULT_META = DEFAULT_ALARM_TYPE_META
 _MAX_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 
 
@@ -45,6 +43,8 @@ _MAX_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 #   - `event_type`（str）：事件类型标识
 #   - `event_label`（str）：`event_label` 对应的业务输入值
 #   - `violation_type`（int | None）：`violation_type` 对应的业务输入值
+#   - `feature_name`（str | None）：触发告警的具体检测功能
+#   - `department`（str | None）：告警归属部门或公司
 #   - `camera_no`（str）：`camera_no` 对应的业务输入值
 #   - `camera_name`（str）：`camera_name` 对应的业务输入值
 #   - `subject_type`（str）：`subject_type` 对应的业务输入值
@@ -81,8 +81,10 @@ class AlarmEventResponse(BaseModel):
     event_type: str
     event_label: str
     violation_type: int | None = None
-    camera_no: str
-    camera_name: str
+    feature_name: str | None = None
+    department: str | None = None
+    camera_no: str | None = None
+    camera_name: str | None = None
     subject_type: str
     subject_id: str | None = None
     subject_name: str | None = None
@@ -128,20 +130,45 @@ class AlarmListResponse(BaseModel):
 #   - 内部调用：`_TYPE_META.get`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _meta(violation_type: int | None) -> dict[str, str]:
-    return _TYPE_META.get(int(violation_type or 0), _DEFAULT_META)
+    return _TYPE_META.get(normalize_violation_type(violation_type), _DEFAULT_META)
 
 
-# 功能：实现 `_camera_names` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：查询摄像头主体详情，用于补齐历史告警；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `session`（未显式标注）：数据库会话或运行会话
-# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+# 返回：dict[str, dict[str, str | None]]；返回摄像头名称与部门映射。
 # 调用关系：
 #   - 调用方：`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/alarms.py` 的 `alarm_statistics` 调用本符号
 #   - 内部调用：`session.query(AiCameraConfig.shm_name, AiCameraConfig.name).all`、`session.query`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _camera_names(session) -> dict[str, str]:
-    rows = session.query(AiCameraConfig.shm_name, AiCameraConfig.name).all()
-    return {shm: name for shm, name in rows if shm}
+def _camera_details(session) -> dict[str, dict[str, str | None]]:
+    rows = session.query(
+        AiCameraConfig.shm_name,
+        AiCameraConfig.name,
+        AiCameraConfig.department,
+    ).all()
+    return {
+        shm: {"name": name, "department": department}
+        for shm, name, department in rows
+        if shm
+    }
+
+
+def _camera_detail(cameras: dict[str, Any], camera_no: str) -> dict[str, str | None]:
+    """兼容测试与旧调用方传入的 camera_no→name 简写映射。"""
+    detail = cameras.get(camera_no)
+    if isinstance(detail, dict):
+        return {
+            "name": str(detail.get("name")) if detail.get("name") is not None else None,
+            "department": (
+                str(detail.get("department"))
+                if detail.get("department") is not None
+                else None
+            ),
+        }
+    if detail is not None:
+        return {"name": str(detail), "department": None}
+    return {"name": None, "department": None}
 
 
 # 功能：实现 `_dict_value` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -239,43 +266,72 @@ def _channel_alarm_fields(metadata: dict[str, Any]) -> dict[str, Any]:
 
 # 功能：实现 `_event_dict` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
-#   - `row`（AiViolationImage）：`row` 对应的业务输入值
-#   - `cameras`（dict[str, str]）：`cameras` 对应的业务输入值
+#   - `row`（AiAlarmEvent）：`row` 对应的业务输入值
+#   - `cameras`（dict[str, Any]）：摄像头主体详情映射
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号；`AiVision/api/alarms.py` 的 `alarm_statistics` 调用本符号
 #   - 内部调用：`_meta`、`getattr`、`isinstance`、`dict`、`str`、`metadata.get`、`cameras.get`、`create_time.isoformat`、`_channel_alarm_fields`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any]:
-    meta = _meta(getattr(row, "violation_type", None))
-    camera_key = getattr(row, "camera_no", None) or ""
+def _event_dict(row: AiAlarmEvent, cameras: dict[str, Any]) -> dict[str, Any]:
+    """把数据库告警事件转换成以 subject 为主语义的接口记录。"""
+    raw_violation_type = getattr(row, "violation_type", None)
+    violation_type = normalize_violation_type(raw_violation_type)
+    meta = _meta(raw_violation_type)
     raw_metadata = getattr(row, "event_metadata", None)
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
     subject_type = str(getattr(row, "subject_type", None) or "camera")
     subject_id = getattr(row, "subject_id", None)
     subject_name = getattr(row, "subject_name", None)
     persisted_reason = getattr(row, "reason", None)
+    raw_camera_no = str(getattr(row, "camera_no", None) or "")
+    camera_detail = _camera_detail(cameras, raw_camera_no)
     is_channel = subject_type == "logistics_channel"
-    channel_id_value = subject_id if subject_id is not None else metadata.get("channel_id")
-    channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
+
+    feature_name = str(
+        getattr(row, "feature_name", None)
+        or metadata.get("feature_name")
+        or feature_name_for_violation_type(raw_violation_type)
+        or meta["event_type"]
+    )
+    department = str(
+        getattr(row, "department", None)
+        or metadata.get("department")
+        or camera_detail.get("department")
+        or department_for_feature(feature_name)
+        or department_for_violation_type(raw_violation_type)
+        or ""
+    ) or None
+
+    camera_no = (raw_camera_no or None) if not is_channel else None
+    camera_name = None
+    channel_id = None
     channel_name = None
     if is_channel:
+        channel_id_value = subject_id if subject_id is not None else metadata.get("channel_id")
+        channel_id = str(channel_id_value) if channel_id_value is not None else None
         channel_name = str(
             subject_name
             or metadata.get("channel_name")
-            or cameras.get(camera_key)
-            or camera_key
             or "物流通道"
         )
-        camera_key = f"logistics_channel_{channel_id}" if channel_id else "logistics_channel"
-    camera_name = str(channel_name or cameras.get(camera_key) or camera_key or "-")
-    if not is_channel:
-        subject_id = subject_id if subject_id is not None else (camera_key or None)
+        subject_id = channel_id
+        subject_name = channel_name
+    else:
+        camera_name = str(
+            subject_name
+            or camera_detail.get("name")
+            or camera_no
+            or "未知摄像头"
+        )
+        subject_id = subject_id if subject_id is not None else camera_no
         subject_name = subject_name if subject_name is not None else camera_name
+
+    display_subject = str(subject_name or "未知主体")
     reason = str(
         persisted_reason
         or metadata.get("reason")
-        or f"{meta['label']} - {camera_name if camera_name != '-' else '未知摄像头'}"
+        or f"{meta['label']} - {display_subject}"
     )
     create_time = getattr(row, "create_time", None)
     created_at = create_time.isoformat(sep=" ") if create_time else None
@@ -283,8 +339,10 @@ def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any
         "id": str(row.id),
         "event_type": meta["event_type"],
         "event_label": meta["label"],
-        "violation_type": row.violation_type,
-        "camera_no": camera_key,
+        "violation_type": violation_type,
+        "feature_name": feature_name,
+        "department": department,
+        "camera_no": camera_no,
         "camera_name": camera_name,
         "subject_type": subject_type,
         "subject_id": str(subject_id) if subject_id is not None else None,
@@ -310,19 +368,19 @@ def _event_dict(row: AiViolationImage, cameras: dict[str, str]) -> dict[str, Any
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('', response_model=AlarmListResponse)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`get_session`、`_camera_names`、`session.query(AiViolationImage).order_by(AiViolationImage.create_time.desc(),
-#          AiViolationImage.id.desc()).limit(limit).all`、`session.query(AiViolationImage).order_by(AiViolationImage.create_time.desc(),
-#          AiViolationImage.id.desc()).limit`、`session.query(AiViolationImage).order_by`、`session.query`、`AiViolationImage.create_time.desc`、`AiViolationImage.id.desc`、`_event_dict`
+#   - 内部调用：`Query`、`get_session`、`_camera_details`、`session.query(AiAlarmEvent).order_by(AiAlarmEvent.create_time.desc(),
+#          AiAlarmEvent.id.desc()).limit(limit).all`、`session.query(AiAlarmEvent).order_by(AiAlarmEvent.create_time.desc(),
+#          AiAlarmEvent.id.desc()).limit`、`session.query(AiAlarmEvent).order_by`、`session.query`、`AiAlarmEvent.create_time.desc`、`AiAlarmEvent.id.desc`、`_event_dict`
 #          等共 12 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("", response_model=AlarmListResponse)
 def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     session = get_session()
     try:
-        cameras = _camera_names(session)
+        cameras = _camera_details(session)
         rows = (
-            session.query(AiViolationImage)
-            .order_by(AiViolationImage.create_time.desc(), AiViolationImage.id.desc())
+            session.query(AiAlarmEvent)
+            .order_by(AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc())
             .limit(limit)
             .all()
         )
@@ -337,14 +395,14 @@ def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{alarm_id}/image')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`get_session`、`session.query(AiViolationImage).filter(AiViolationImage.id ==
-#          alarm_id).first`、`session.query(AiViolationImage).filter`、`session.query`、`HTTPException`、`os.path.exists`、`FileResponse`、`session.close`、`router.get`。
+#   - 内部调用：`get_session`、`session.query(AiAlarmEvent).filter(AiAlarmEvent.id ==
+#          alarm_id).first`、`session.query(AiAlarmEvent).filter`、`session.query`、`HTTPException`、`os.path.exists`、`FileResponse`、`session.close`、`router.get`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.get("/{alarm_id}/image")
 def alarm_image(alarm_id: int):
     session = get_session()
     try:
-        row = session.query(AiViolationImage).filter(AiViolationImage.id == alarm_id).first()
+        row = session.query(AiAlarmEvent).filter(AiAlarmEvent.id == alarm_id).first()
         if row is None:
             raise HTTPException(status_code=404, detail="alarm not found")
         if not row.image_path or not os.path.exists(row.image_path):
@@ -366,15 +424,15 @@ def public_alarm_image(alarm_id: int):
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/{alarm_id}/video')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`get_session`、`session.query(AiViolationImage).filter(AiViolationImage.id ==
-#          alarm_id).first`、`session.query(AiViolationImage).filter`、`session.query`、`HTTPException`、`getattr`、`os.path.exists`、`ensure_browser_compatible_mp4`、`logger.warning`、`FileResponse`
+#   - 内部调用：`get_session`、`session.query(AiAlarmEvent).filter(AiAlarmEvent.id ==
+#          alarm_id).first`、`session.query(AiAlarmEvent).filter`、`session.query`、`HTTPException`、`getattr`、`os.path.exists`、`ensure_browser_compatible_mp4`、`logger.warning`、`FileResponse`
 #          等共 12 个调用。
 # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
 @router.get("/{alarm_id}/video")
 def alarm_video(alarm_id: int):
     session = get_session()
     try:
-        row = session.query(AiViolationImage).filter(AiViolationImage.id == alarm_id).first()
+        row = session.query(AiAlarmEvent).filter(AiAlarmEvent.id == alarm_id).first()
         if row is None:
             raise HTTPException(status_code=404, detail="alarm not found")
         if getattr(row, "video_status", None) != "ready":
@@ -398,37 +456,40 @@ def alarm_video(alarm_id: int):
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：由 FastAPI 按 `router.get('/statistics/summary')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`dt.datetime.now`、`now.replace`、`dt.timedelta`、`get_session`、`_camera_names`、`session.query(AiViolationImage).filter(AiViolationImage.create_time
+#   - 内部调用：`Query`、`dt.datetime.now`、`now.replace`、`dt.timedelta`、`get_session`、`_camera_details`、`session.query(AiAlarmEvent).filter(AiAlarmEvent.create_time
 #          >=
-#          range_start).order_by(AiViolationImage.create_time.asc()).all`、`session.query(AiViolationImage).filter(AiViolationImage.create_time
-#          >= range_start).order_by`、`session.query(AiViolationImage).filter`、`session.query` 等共 35 个调用。
+#          range_start).order_by(AiAlarmEvent.create_time.asc()).all`、`session.query(AiAlarmEvent).filter(AiAlarmEvent.create_time
+#          >= range_start).order_by`、`session.query(AiAlarmEvent).filter`、`session.query` 等共 35 个调用。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @router.get("/statistics/summary")
 def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    """查询最近 N 天告警，按类型、主体、日期和小时聚合。"""
     now = dt.datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     range_start = today_start - dt.timedelta(days=days - 1)
 
     session = get_session()
     try:
-        cameras = _camera_names(session)
+        cameras = _camera_details(session)
         rows = (
-            session.query(AiViolationImage)
-            .filter(AiViolationImage.create_time >= range_start)
-            .order_by(AiViolationImage.create_time.asc())
+            session.query(AiAlarmEvent)
+            .filter(AiAlarmEvent.create_time >= range_start)
+            .order_by(AiAlarmEvent.create_time.asc())
             .all()
         )
 
         total = len(rows)
         today = sum(1 for row in rows if row.create_time and row.create_time >= today_start)
-        type_counts = Counter(int(row.violation_type or 0) for row in rows)
-        subject_counts: Counter[str] = Counter()
-        subject_names: dict[str, str] = {}
+        type_counts = Counter(normalize_violation_type(row.violation_type) for row in rows)
+        subject_counts: Counter[tuple[str, str]] = Counter()
+        subject_names: dict[tuple[str, str], str] = {}
         for row in rows:
             event = _event_dict(row, cameras)
-            subject_key = event["camera_no"] or "unknown"
+            subject_type = str(event["subject_type"] or "unknown")
+            subject_id = str(event["subject_id"] or event["subject_name"] or "unknown")
+            subject_key = (subject_type, subject_id)
             subject_counts[subject_key] += 1
-            subject_names[subject_key] = event["camera_name"] or subject_key
+            subject_names[subject_key] = str(event["subject_name"] or subject_id)
         hourly_counts = Counter(row.create_time.hour for row in rows if row.create_time)
         daily_by_type: dict[str, Counter[int]] = defaultdict(Counter)
         hourly_by_type: dict[int, Counter[int]] = defaultdict(Counter)
@@ -437,7 +498,7 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
             if not row.create_time:
                 continue
             day_key = row.create_time.strftime("%m-%d")
-            violation_type = int(row.violation_type or 0)
+            violation_type = normalize_violation_type(row.violation_type)
             daily_by_type[day_key][violation_type] += 1
             hourly_by_type[row.create_time.hour][violation_type] += 1
 
@@ -466,19 +527,19 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
                 "event_type": meta["event_type"],
                 "name": meta["label"],
                 "value": type_counts.get(vtype, 0),
-                "color": meta["color"],
             }
             for vtype, meta in _TYPE_META.items()
             if type_counts.get(vtype, 0) > 0
         ]
 
-        by_camera = [
+        by_subject = [
             {
-                "camera_no": camera_no,
-                "name": subject_names.get(camera_no, camera_no),
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "subject_name": subject_names.get((subject_type, subject_id), subject_id),
                 "value": value,
             }
-            for camera_no, value in subject_counts.most_common(8)
+            for (subject_type, subject_id), value in subject_counts.most_common(8)
         ]
 
         peak_hour = hourly_counts.most_common(1)[0][0] if hourly_counts else None
@@ -486,13 +547,12 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
             "summary": {
                 "total": total,
                 "today": today,
-                "week": total,
                 "avg_per_day": round(total / days, 2),
-                "active_cameras": len(subject_counts),
+                "active_subjects": len(subject_counts),
                 "peak_hour": f"{peak_hour:02d}:00" if peak_hour is not None else "-",
             },
             "by_type": by_type,
-            "by_camera": by_camera,
+            "by_subject": by_subject,
             "daily": daily,
             "hourly": hourly,
             "recent": [_event_dict(row, cameras) for row in rows[-8:]][::-1],

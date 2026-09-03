@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ConfigDict
+from sqlalchemy import and_, or_
 
 from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import (
@@ -39,7 +40,11 @@ from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelStatisticsResponse,
     LogisticsChannelUpdate,
 )
-from AiVision.platform.violation.orm import AiViolationImage
+from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.platform.violation.types import (
+    feature_name_for_violation_type,
+    violation_types_for_feature,
+)
 
 
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])
@@ -734,22 +739,27 @@ def get_channel_frame(
 
 # 功能：实现 `_alarm_dict` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
-#   - `row`（AiViolationImage）：`row` 对应的业务输入值
+#   - `row`（AiAlarmEvent）：`row` 对应的业务输入值
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/api/logistics_channels.py` 的 `list_channel_alarms` 调用本符号
 #   - 内部调用：`str`、`(row.event_metadata or {}).get`、`int`、`row.create_time.isoformat`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
+def _alarm_dict(row: AiAlarmEvent) -> dict[str, Any]:
+    metadata = row.event_metadata or {}
     return {
         "id": str(row.id),
-        "feature_name": (row.event_metadata or {}).get("feature_name"),
+        "feature_name": (
+            row.feature_name
+            or metadata.get("feature_name")
+            or feature_name_for_violation_type(row.violation_type)
+        ),
         "channel_id": int(row.subject_id),
         "channel_name": row.subject_name,
         "reason": row.reason,
         "created_at": row.create_time.isoformat(sep=" ") if row.create_time else None,
         "image_url": f"/api/alarms/{row.id}/image",
-        "metadata": row.event_metadata or {},
+        "metadata": metadata,
     }
 
 
@@ -762,13 +772,20 @@ def _alarm_dict(row: AiViolationImage) -> dict[str, Any]:
 # 调用关系：
 #   - 调用方：`AiVision/api/logistics_channels.py` 的 `list_channel_alarms` 调用本符号；`AiVision/api/logistics_channels.py` 的
 #         `channel_statistics` 调用本符号
-#   - 内部调用：`session.query(AiViolationImage).filter`、`session.query`、`str`、`all_specs`。
+#   - 内部调用：`session.query(AiAlarmEvent).filter`、`session.query`、`str`、`or_`、`and_`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _channel_alarm_query(session, feature: str, channel_id: int):
-    return session.query(AiViolationImage).filter(
-        AiViolationImage.subject_type == "logistics_channel",
-        AiViolationImage.subject_id == str(channel_id),
-        AiViolationImage.violation_type == all_specs()[feature].violation_type,
+    historical_types = violation_types_for_feature(feature)
+    return session.query(AiAlarmEvent).filter(
+        AiAlarmEvent.subject_type == "logistics_channel",
+        AiAlarmEvent.subject_id == str(channel_id),
+        or_(
+            AiAlarmEvent.feature_name == feature,
+            and_(
+                AiAlarmEvent.feature_name.is_(None),
+                AiAlarmEvent.violation_type.in_(historical_types),
+            ),
+        ),
     )
 
 
@@ -784,11 +801,11 @@ def _channel_alarm_query(session, feature: str, channel_id: int):
 #   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/alarms', response_model=LogisticsChannelAlarmListResponse)`
 #         注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Query`、`Depends`、`_require_feature_access`、`_get_channel_or_404`、`get_session`、`_channel_alarm_query(session, feature,
-#          channel_id).order_by(AiViolationImage.create_time.desc(),
-#          AiViolationImage.id.desc()).limit(limit).all`、`_channel_alarm_query(session, feature,
-#          channel_id).order_by(AiViolationImage.create_time.desc(),
-#          AiViolationImage.id.desc()).limit`、`_channel_alarm_query(session, feature,
-#          channel_id).order_by`、`_channel_alarm_query`、`AiViolationImage.create_time.desc` 等共 15 个调用。
+#          channel_id).order_by(AiAlarmEvent.create_time.desc(),
+#          AiAlarmEvent.id.desc()).limit(limit).all`、`_channel_alarm_query(session, feature,
+#          channel_id).order_by(AiAlarmEvent.create_time.desc(),
+#          AiAlarmEvent.id.desc()).limit`、`_channel_alarm_query(session, feature,
+#          channel_id).order_by`、`_channel_alarm_query`、`AiAlarmEvent.create_time.desc` 等共 15 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get(
     "/{feature}/{channel_id}/alarms",
@@ -806,7 +823,7 @@ def list_channel_alarms(
     session = get_session()
     try:
         rows = _channel_alarm_query(session, feature, channel_id).order_by(
-            AiViolationImage.create_time.desc(), AiViolationImage.id.desc()
+            AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc()
         ).limit(limit).all()
         return LogisticsChannelAlarmListResponse.model_validate(
             {"items": [_alarm_dict(row) for row in rows]}
@@ -827,9 +844,9 @@ def list_channel_alarms(
 #   - 调用方：由 FastAPI 按 `router.get('/{feature}/{channel_id}/statistics', response_model=LogisticsChannelStatisticsResponse)`
 #         注册，并在请求到达时调用以生成接口响应
 #   - 内部调用：`Query`、`Depends`、`_require_feature_access`、`_get_channel_or_404`、`dt.datetime.now`、`now.replace`、`dt.timedelta`、`get_session`、`_channel_alarm_query(session,
-#          feature, channel_id).filter(AiViolationImage.create_time >=
-#          range_start).order_by(AiViolationImage.create_time.asc()).all`、`_channel_alarm_query(session, feature,
-#          channel_id).filter(AiViolationImage.create_time >= range_start).order_by` 等共 23 个调用。
+#          feature, channel_id).filter(AiAlarmEvent.create_time >=
+#          range_start).order_by(AiAlarmEvent.create_time.asc()).all`、`_channel_alarm_query(session, feature,
+#          channel_id).filter(AiAlarmEvent.create_time >= range_start).order_by` 等共 23 个调用。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 @router.get(
     "/{feature}/{channel_id}/statistics",
@@ -850,8 +867,8 @@ def channel_statistics(
     session = get_session()
     try:
         rows = _channel_alarm_query(session, feature, channel_id).filter(
-            AiViolationImage.create_time >= range_start
-        ).order_by(AiViolationImage.create_time.asc()).all()
+            AiAlarmEvent.create_time >= range_start
+        ).order_by(AiAlarmEvent.create_time.asc()).all()
         counts: dict[str, int] = {}
         for row in rows:
             if row.create_time:

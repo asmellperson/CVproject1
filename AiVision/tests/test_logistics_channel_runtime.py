@@ -247,7 +247,7 @@ def build_runtime(
         stale_seconds=5.0,
         wall_time_provider=wall_time
         or (lambda: datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc).astimezone()),
-        violation_type_provider=lambda feature_name: 6 if feature_name == FEATURE else 7,
+        violation_type_provider=lambda _feature_name: 6,
         compositor=compositor,
         start_background=start_background,
         clock_provider=clock,
@@ -548,6 +548,7 @@ def test_dispatch_request_uses_channel_subject_mosaic_and_complete_metadata():
     assert request.subject_type == "logistics_channel"
     assert request.subject_id == "3"
     assert request.subject_name == "物流通道-3"
+    assert request.department == "general_electric"
     assert request.camera_name == "物流通道-3"
     assert request.reason == "multiple"
     assert request.frame.shape == (360, 1280, 3)

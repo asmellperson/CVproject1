@@ -200,6 +200,7 @@ def test_dispatcher_cooldown_uses_logistics_channel_subject(monkeypatch):
             frame=np.zeros((2, 2, 3), np.uint8),
             violation_type=6,
             alarm_config={},
+            department="general_electric",
             subject_type="logistics_channel",
             subject_id="3",
             subject_name="物流通道一",
@@ -256,6 +257,7 @@ def test_dispatcher_forwards_subject_metadata_to_violation_writer():
             frame=np.zeros((2, 2, 3), np.uint8),
             violation_type=6,
             alarm_config={},
+            department="general_electric",
             subject_type="logistics_channel",
             subject_id="3",
             subject_name="物流通道一",
@@ -267,6 +269,9 @@ def test_dispatcher_forwards_subject_metadata_to_violation_writer():
     assert calls[0]["subject_type"] == "logistics_channel"
     assert calls[0]["subject_id"] == "3"
     assert calls[0]["subject_name"] == "物流通道一"
+    assert calls[0]["camera_no"] is None
+    assert calls[0]["feature_name"] == "detect_logistics_single_person"
+    assert calls[0]["department"] == "general_electric"
     assert calls[0]["reason"] == "empty"
     assert calls[0]["event_metadata"] == {"camera_counts": {"10": 0}}
 
@@ -341,6 +346,8 @@ def test_dispatcher_attaches_pending_shared_evidence_video():
 
     assert calls[0]["video_path"] == "/tmp/alarm.mp4"
     assert calls[0]["video_status"] == "pending"
+    assert calls[0]["camera_no"] == "camera_7"
+    assert calls[0]["feature_name"] == "blocks"
 
 
 # 功能：验证 `test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_default` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明

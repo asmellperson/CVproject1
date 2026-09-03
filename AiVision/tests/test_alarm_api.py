@@ -5,6 +5,10 @@ import importlib
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
+from AiVision.platform.violation.orm import AiAlarmEvent
+
 
 alarms = importlib.import_module("AiVision.api.alarms")
 
@@ -23,6 +27,8 @@ def _channel_row(**overrides):
     values = {
         "id": 42,
         "violation_type": 6,
+        "feature_name": "detect_logistics_single_person",
+        "department": "general_electric",
         "camera_no": "logistics_channel:detect_logistics_single_person:3",
         "subject_type": "logistics_channel",
         "subject_id": "3",
@@ -64,8 +70,10 @@ def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     assert item.subject_type == "logistics_channel"
     assert item.subject_id == "3"
     assert item.subject_name == "一号物流通道"
-    assert item.camera_no == "logistics_channel_3"
-    assert item.camera_name == "一号物流通道"
+    assert item.camera_no is None
+    assert item.camera_name is None
+    assert item.feature_name == "detect_logistics_single_person"
+    assert item.department == "general_electric"
     assert item.channel_id == "3"
     assert item.channel_name == "一号物流通道"
     assert item.reason == "multiple"
@@ -104,6 +112,8 @@ def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():
     assert item.event_label == "人员违规逗留检测"
     assert item.camera_no == "camera_7"
     assert item.camera_name == "七号摄像头"
+    assert item.feature_name == "detect_human"
+    assert item.department == "general_electric"
     assert item.channel_id is None
     assert item.metadata == {}
     assert item.camera_ids == []
@@ -149,3 +159,98 @@ def test_event_dict_skips_oversized_camera_ids_without_response_failure():
 
     assert item.camera_ids == [upper_bound]
     assert item.offending_camera_ids == [upper_bound]
+
+
+@pytest.mark.parametrize(
+    ("legacy_type", "canonical_type", "event_type", "feature_name", "department"),
+    [
+        (7, 6, "detect_logistics_single_person", "detect_logistics_single_person_electronics_electrician", "electronics_electrician"),
+        (8, 6, "detect_logistics_single_person", "detect_logistics_single_person_electrical_components", "electrical_components"),
+        (9, 6, "detect_logistics_single_person", "detect_logistics_single_person_precious_metal_recycling", "precious_metal_recycling"),
+        (10, 5, "detect_human", "detect_human_haoda", "haoda_company"),
+    ],
+)
+def test_legacy_violation_types_are_normalized_without_losing_ownership(
+    legacy_type,
+    canonical_type,
+    event_type,
+    feature_name,
+    department,
+):
+    row = _channel_row(
+        violation_type=legacy_type,
+        feature_name=None,
+        department=None,
+        event_metadata={},
+    )
+
+    event = alarms._event_dict(row, {})
+
+    assert event["violation_type"] == canonical_type
+    assert event["event_type"] == event_type
+    assert event["feature_name"] == feature_name
+    assert event["department"] == department
+
+
+def test_alarm_event_orm_renaming_keeps_historical_table_mapping():
+    assert AiAlarmEvent.__tablename__ == "ai_violation_image"
+    assert "feature_name" in AiAlarmEvent.__table__.columns
+    assert "department" in AiAlarmEvent.__table__.columns
+
+
+def test_backend_alarm_type_metadata_has_no_presentation_color():
+    assert set(alarms._TYPE_META) == {1, 2, 3, 4, 5, 6}
+    assert all("color" not in meta for meta in alarms._TYPE_META.values())
+
+
+def test_alarm_statistics_uses_subject_contract_and_has_no_fake_week(monkeypatch):
+    now = datetime.now()
+    rows = [
+        _channel_row(
+            id=1,
+            violation_type=7,
+            feature_name=None,
+            department=None,
+            create_time=now,
+        ),
+        _channel_row(id=2, create_time=now),
+    ]
+
+    class Query:
+        def filter(self, *_args):
+            return self
+
+        def order_by(self, *_args):
+            return self
+
+        def all(self):
+            return rows
+
+    class Session:
+        def query(self, *_args):
+            return Query()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(alarms, "get_session", Session)
+    monkeypatch.setattr(alarms, "_camera_details", lambda _session: {})
+
+    statistics = alarms.alarm_statistics(days=7)
+
+    assert statistics["summary"]["total"] == 2
+    assert statistics["summary"]["active_subjects"] == 1
+    assert "week" not in statistics["summary"]
+    assert "active_cameras" not in statistics["summary"]
+    assert "by_camera" not in statistics
+    assert statistics["by_subject"] == [{
+        "subject_type": "logistics_channel",
+        "subject_id": "3",
+        "subject_name": "一号物流通道",
+        "value": 2,
+    }]
+    assert statistics["by_type"] == [{
+        "event_type": "detect_logistics_single_person",
+        "name": "物流通道单人检测",
+        "value": 2,
+    }]

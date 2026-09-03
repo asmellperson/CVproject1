@@ -100,7 +100,7 @@ if (hasPageAccess(multiDepartmentUser, 'face-detection')) {
 }
 
 const multiDepartmentAlarmTypes = getAccessibleAlarmEventTypes(multiDepartmentUser) ?? []
-if (!multiDepartmentAlarmTypes.includes('detect_human') || !multiDepartmentAlarmTypes.includes('detect_logistics_single_person_electronics_electrician')) {
+if (!multiDepartmentAlarmTypes.includes('detect_human') || !multiDepartmentAlarmTypes.includes('detect_logistics_single_person')) {
   throw new Error('expected alarm permissions to be the union of assigned departments')
 }
 
@@ -161,12 +161,12 @@ if (hasPageAccess(preciousMetalRecyclingUser, 'logistics-single-person-electrica
   throw new Error('expected precious metal recycling department to be isolated from electrical components page')
 }
 
-if (alarmEventTypesByPage['logistics-single-person-electrical-components-detection']?.join(',') !== 'detect_logistics_single_person_electrical_components') {
-  throw new Error('expected electrical components logistics page to map to its alarm event type')
+if (alarmEventTypesByPage['logistics-single-person-electrical-components-detection']?.join(',') !== 'detect_logistics_single_person') {
+  throw new Error('expected electrical components logistics page to map to the canonical alarm event type')
 }
 
-if (alarmEventTypesByPage['logistics-single-person-precious-metal-recycling-detection']?.join(',') !== 'detect_logistics_single_person_precious_metal_recycling') {
-  throw new Error('expected precious metal recycling logistics page to map to its alarm event type')
+if (alarmEventTypesByPage['logistics-single-person-precious-metal-recycling-detection']?.join(',') !== 'detect_logistics_single_person') {
+  throw new Error('expected precious metal recycling logistics page to map to the canonical alarm event type')
 }
 
 const haodaUser = {
@@ -188,6 +188,6 @@ if (hasPageAccess(haodaUser, 'human-detection')) {
   throw new Error('expected Haoda users to be isolated from the general electric human dwell page')
 }
 
-if (alarmEventTypesByPage['haoda-human-detection']?.join(',') !== 'detect_human_haoda') {
-  throw new Error('expected Haoda human dwell page to map to its independent alarm event type')
+if (alarmEventTypesByPage['haoda-human-detection']?.join(',') !== 'detect_human') {
+  throw new Error('expected Haoda human dwell page to map to the canonical alarm event type')
 }

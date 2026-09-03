@@ -48,6 +48,17 @@ type AlarmsSectionProps = {
   initialAlarmId?: string
 }
 
+function alarmSubjectName(alarm: AlarmEvent) {
+  return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '-'
+}
+
+function alarmSubjectTypeLabel(subjectType?: string) {
+  if (subjectType === 'logistics_channel') return '物流通道'
+  if (subjectType === 'guard_room_site') return '保安室'
+  if (subjectType === 'camera') return '摄像头'
+  return '告警主体'
+}
+
 /**
  * 功能：渲染 `AlarmsSection` React 组件，根据输入属性组织界面并返回 JSX 节点
  * 参数：
@@ -156,6 +167,9 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         const matchesSearch =
           (alarm.reason || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (alarm.subject_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (alarm.subject_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (alarm.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.camera_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.camera_no || '').toLowerCase().includes(searchQuery.toLowerCase())
         const matchesType = effectiveTypeFilter === 'all' || alarm.event_type === effectiveTypeFilter
@@ -198,11 +212,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         { eventType: 'detect_face', label: '人脸检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
         { eventType: 'detect_phone', label: '手机检测', icon: <Smartphone className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
         { eventType: 'detect_human', label: '人员违规逗留检测', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
-        { eventType: 'detect_human_haoda', label: '人员违规逗留检测（皓达公司）', icon: <UserRound className="w-6 h-6 text-blue-700" />, valueClassName: 'text-blue-700' },
         { eventType: 'detect_logistics_single_person', label: '物流通道单人', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
-        { eventType: 'detect_logistics_single_person_electronics_electrician', label: '物流通道单人（电子电工）', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
-        { eventType: 'detect_logistics_single_person_electrical_components', label: '物流通道单人（电气部件）', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
-        { eventType: 'detect_logistics_single_person_precious_metal_recycling', label: '物流通道单人（伟达公司）', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
         { eventType: 'guard_absent', label: '保安离岗', icon: <ShieldCheck className="w-6 h-6 text-red-700" />, valueClassName: 'text-red-700' },
         { eventType: 'guard_phone_use', label: '保安玩手机', icon: <Smartphone className="w-6 h-6 text-orange-700" />, valueClassName: 'text-orange-700' },
         { eventType: 'guard_prone_sleep', label: '保安趴睡', icon: <UserRound className="w-6 h-6 text-yellow-600" />, valueClassName: 'text-yellow-600' },
@@ -224,16 +234,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         return <Badge className="bg-violet-600">人脸检测</Badge>
       case 'detect_human':
         return <Badge className="bg-blue-600">人员违规逗留检测</Badge>
-      case 'detect_human_haoda':
-        return <Badge className="bg-blue-700">人员违规逗留检测（皓达公司）</Badge>
       case 'detect_logistics_single_person':
         return <Badge className="bg-teal-700">物流通道单人</Badge>
-      case 'detect_logistics_single_person_electronics_electrician':
-        return <Badge className="bg-teal-700">物流通道单人（电子电工）</Badge>
-      case 'detect_logistics_single_person_electrical_components':
-        return <Badge className="bg-teal-700">物流通道单人（电气部件）</Badge>
-      case 'detect_logistics_single_person_precious_metal_recycling':
-        return <Badge className="bg-teal-700">物流通道单人（伟达公司）</Badge>
       case 'guard_absent':
         return <Badge className="bg-red-700">保安离岗</Badge>
       case 'guard_phone_use':
@@ -402,7 +404,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
             <TableHeader>
               <TableRow>
                 <TableHead>类型</TableHead>
-                <TableHead>摄像头</TableHead>
+                <TableHead>告警主体</TableHead>
                 <TableHead>说明</TableHead>
                 <TableHead>处置状态</TableHead>
                 <TableHead>时间</TableHead>
@@ -413,7 +415,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               {paginatedAlarms.map((alarm) => (
                 <TableRow key={alarm.id}>
                   <TableCell>{getAlarmBadge(alarm.event_type)}</TableCell>
-                  <TableCell className="max-w-[12rem] truncate">{alarm.camera_name || alarm.camera_no || '-'}</TableCell>
+                  <TableCell className="max-w-[12rem] truncate">{alarmSubjectName(alarm)}</TableCell>
                   <TableCell className="max-w-xs truncate">{alarm.reason || '-'}</TableCell>
                   <TableCell>{getDispositionBadge(alarm.disposition_status || 'pending')}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatTime(alarm.created_at)}</TableCell>
@@ -479,12 +481,12 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                   {formatTime(selectedAlarm.created_at)}
                 </div>
                 <div>
-                  <span className="text-slate-500">摄像头：</span>
-                  {selectedAlarm.camera_name || selectedAlarm.camera_no || '-'}
+                  <span className="text-slate-500">{alarmSubjectTypeLabel(selectedAlarm.subject_type)}：</span>
+                  {alarmSubjectName(selectedAlarm)}
                 </div>
                 <div>
-                  <span className="text-slate-500">摄像头标识：</span>
-                  {selectedAlarm.camera_no || '-'}
+                  <span className="text-slate-500">主体标识：</span>
+                  {selectedAlarm.subject_id || selectedAlarm.camera_no || '-'}
                 </div>
               </div>
 

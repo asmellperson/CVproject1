@@ -15,5 +15,5 @@ SPEC = FeatureSpec(
     orm_class=LogisticsSinglePersonElectricalComponentsConfigORM,
     config_schema=LogisticsSinglePersonElectricalComponentsConfigSchema,
     required_models=("yolo_human",),
-    violation_type=8,
+    violation_type=6,
 )

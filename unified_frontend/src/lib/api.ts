@@ -307,9 +307,16 @@ export type AlarmEvent = {
   site_name?: string
   event_type: 'absent' | 'phone_use' | 'prone_sleep' | string
   event_label?: string
-  violation_type?: number
-  camera_no?: string
-  camera_name?: string
+  violation_type?: number | null
+  feature_name?: string | null
+  department?: string | null
+  subject_type?: string
+  subject_id?: string | null
+  subject_name?: string | null
+  channel_id?: string | null
+  channel_name?: string | null
+  camera_no?: string | null
+  camera_name?: string | null
   reason: string
   confidence: number
   created_at?: string
@@ -320,6 +327,13 @@ export type AlarmEvent = {
   video_path?: string | null
   video_url?: string | null
   video_status?: 'pending' | 'ready' | 'failed'
+  camera_ids?: number[]
+  camera_names?: Record<string, string>
+  camera_counts?: Record<string, number | null>
+  camera_states?: Record<string, Record<string, unknown>>
+  offending_camera_ids?: number[]
+  evidence_error?: string | null
+  metadata?: Record<string, unknown>
   disposition_status?: AlarmDispositionStatus
   disposition_note?: string
   disposition_updated_at?: string

@@ -22,6 +22,7 @@ def test_haoda_human_detection_reuses_algorithm_with_independent_config_table():
     assert HAODA_HUMAN_SPEC.consumer_cls is HUMAN_SPEC.consumer_cls
     assert HAODA_HUMAN_SPEC.config_schema is HUMAN_SPEC.config_schema
     assert HAODA_HUMAN_SPEC.required_models == HUMAN_SPEC.required_models
+    assert HAODA_HUMAN_SPEC.violation_type == HUMAN_SPEC.violation_type == 5
     assert HAODA_HUMAN_SPEC.orm_class is not HUMAN_SPEC.orm_class
     assert HAODA_HUMAN_SPEC.orm_class.__tablename__ == "ai_camera_config_detect_human_haoda"
     assert HAODA_HUMAN_SPEC.departments == ("haoda_company",)

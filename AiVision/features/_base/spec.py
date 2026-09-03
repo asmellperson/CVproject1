@@ -59,7 +59,7 @@ class FeatureSpec:
     """
 
     violation_type: int = 0
-    """违规类型枚举,用于写入 ai_violation_image.violation_type"""
+    """告警性质枚举,用于写入历史表 ai_violation_image.violation_type。"""
 
     departments: tuple[str, ...] = field(default_factory=tuple)
     """默认归属部门列表。空 tuple 表示无默认部门(可由 DB 覆盖)"""

@@ -10,6 +10,7 @@ from unified_backend.app import (
     ALARM_TYPE_META,
     DEPARTMENT_EVENT_TYPES,
     _build_alarm_statistics,
+    _filter_alarms,
     _normalize_aivision_alarm,
 )
 
@@ -85,8 +86,9 @@ def test_aivision_channel_alarm_keeps_channel_identity_and_evidence():
     assert normalized["id"] == "aivision:42"
     assert normalized["subject_type"] == "logistics_channel"
     assert normalized["subject_id"] == "3"
-    assert normalized["camera_no"] == "logistics_channel_3"
-    assert normalized["camera_name"] == "一号物流通道"
+    assert normalized["subject_name"] == "一号物流通道"
+    assert normalized["camera_no"] is None
+    assert normalized["camera_name"] is None
     assert normalized["channel_id"] == "3"
     assert normalized["channel_name"] == "一号物流通道"
     assert normalized["reason"] == "multiple"
@@ -134,9 +136,24 @@ def test_legacy_camera_alarm_contract_remains_compatible():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_human_dwell_alarm_names_are_consistent_across_departments():
+def test_alarm_type_metadata_is_canonical_and_has_no_colors():
     assert ALARM_TYPE_META["detect_human"]["name"] == "人员违规逗留检测"
-    assert ALARM_TYPE_META["detect_human_haoda"]["name"] == "人员违规逗留检测（皓达公司）"
+    assert "detect_human_haoda" not in ALARM_TYPE_META
+    assert all("color" not in meta for meta in ALARM_TYPE_META.values())
+
+
+def test_unified_normalizer_recovers_legacy_type_ownership():
+    normalized = _normalize_aivision_alarm({
+        "id": "10",
+        "event_type": "detect_human",
+        "violation_type": 10,
+        "camera_no": "haoda-camera",
+    })
+
+    assert normalized["event_type"] == "detect_human"
+    assert normalized["violation_type"] == 5
+    assert normalized["feature_name"] == "detect_human_haoda"
+    assert normalized["department"] == "haoda_company"
 
 
 # 功能：验证 `test_malformed_channel_metadata_degrades_safely` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -157,7 +174,8 @@ def test_malformed_channel_metadata_degrades_safely(metadata):
     assert normalized["camera_counts"] == {}
     assert normalized["camera_states"] == {}
     assert normalized["offending_camera_ids"] == []
-    assert normalized["camera_name"] == "一号物流通道"
+    assert normalized["subject_name"] == "一号物流通道"
+    assert normalized["camera_name"] is None
 
 
 # 功能：验证 `test_malformed_nested_channel_metadata_does_not_leak_invalid_shapes` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -252,8 +270,10 @@ def test_all_logistics_alarm_features_have_type_and_department_mapping(
         _channel_alarm(event_type=feature_name)
     )
 
-    assert normalized["event_type"] == feature_name
-    assert feature_name in DEPARTMENT_EVENT_TYPES[department]
+    assert normalized["event_type"] == "detect_logistics_single_person"
+    assert normalized["feature_name"] == feature_name
+    assert normalized["department"] == department
+    assert "detect_logistics_single_person" in DEPARTMENT_EVENT_TYPES[department]
 
 
 # 功能：验证 `test_statistics_group_channel_alarms_by_channel_subject` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -270,14 +290,35 @@ def test_statistics_group_channel_alarms_by_channel_subject():
     statistics = _build_alarm_statistics([first, second], days=1)
 
     assert statistics["summary"]["total"] == 2
-    assert statistics["summary"]["active_cameras"] == 1
-    assert statistics["by_camera"] == [
+    assert statistics["summary"]["active_subjects"] == 1
+    assert "week" not in statistics["summary"]
+    assert statistics["by_subject"] == [
         {
-            "camera_no": "logistics_channel_3",
-            "name": "一号物流通道",
+            "subject_type": "logistics_channel",
+            "subject_id": "3",
+            "subject_name": "一号物流通道",
             "value": 2,
         }
     ]
     assert statistics["by_type"][0]["event_type"] == (
         "detect_logistics_single_person"
     )
+    assert "color" not in statistics["by_type"][0]
+
+
+def test_department_filter_uses_alarm_ownership_after_event_type_is_unified():
+    electronics_alarm = _normalize_aivision_alarm(_channel_alarm(
+        id="7",
+        event_type="detect_logistics_single_person_electronics_electrician",
+    ))
+    general_alarm = _normalize_aivision_alarm(_channel_alarm(
+        id="8",
+        event_type="detect_logistics_single_person",
+    ))
+
+    visible = _filter_alarms(
+        [electronics_alarm, general_alarm],
+        user={"role": "viewer", "departments": ["electronics_electrician"]},
+    )
+
+    assert [alarm["id"] for alarm in visible] == ["aivision:7"]

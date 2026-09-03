@@ -26,7 +26,13 @@ from AiVision.core.db import session_scope
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from .cleanup import GIB, MediaCleanupStats, ViolationMediaCleaner
-from .orm import AiViolationImage
+from .orm import AiAlarmEvent
+from .types import (
+    department_for_feature,
+    department_for_violation_type,
+    feature_name_for_violation_type,
+    normalize_violation_type,
+)
 
 
 # 功能：违规图片落盘 + 数据库异步写入；输入与输出详见下方说明
@@ -97,8 +103,10 @@ class AsyncViolationWriter:
         self,
         frame: np.ndarray,
         violation_type: int,
-        camera_no: str,
+        camera_no: str | None,
         *,
+        feature_name: str = "",
+        department: str = "",
         subject_type: str = "camera",
         subject_id: str = "",
         subject_name: str = "",
@@ -108,9 +116,17 @@ class AsyncViolationWriter:
         video_status: str | None = None,
     ):
         """从 Consumer 调来的入口 — 立即返回,后台线程负责落盘和 DB 写"""
+        raw_violation_type = int(violation_type)
+        resolved_feature_name = feature_name or feature_name_for_violation_type(raw_violation_type)
         self._queue.put_nowait({
             "frame": frame,
-            "violation_type": violation_type,
+            "violation_type": normalize_violation_type(raw_violation_type),
+            "feature_name": resolved_feature_name,
+            "department": (
+                department
+                or department_for_feature(resolved_feature_name)
+                or department_for_violation_type(raw_violation_type)
+            ),
             "camera_no": camera_no,
             "subject_type": subject_type,
             "subject_id": subject_id,
@@ -135,17 +151,19 @@ class AsyncViolationWriter:
     #   - `event_metadata`（dict | None）：`event_metadata` 对应的业务输入值；默认值为 `None`
     #   - `video_path`（str | None）：`video_path` 对应的业务输入值；默认值为 `None`
     #   - `video_status`（str | None）：`video_status` 对应的业务输入值；默认值为 `None`
-    # 返回：AiViolationImage | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
+    # 返回：AiAlarmEvent | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._save_image`、`datetime.datetime.now`、`session_scope`、`AiViolationImage`、`session.add`、`session.flush`、`logger.warning`。
+    #   - 内部调用：`self._save_image`、`datetime.datetime.now`、`session_scope`、`AiAlarmEvent`、`session.add`、`session.flush`、`logger.warning`。
     # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def save_now(
         self,
         *,
         frame: np.ndarray,
         violation_type: int,
-        camera_no: str,
+        camera_no: str | None,
+        feature_name: str = "",
+        department: str = "",
         subject_type: str = "camera",
         subject_id: str = "",
         subject_name: str = "",
@@ -153,15 +171,23 @@ class AsyncViolationWriter:
         event_metadata: dict | None = None,
         video_path: str | None = None,
         video_status: str | None = None,
-    ) -> AiViolationImage | None:
+    ) -> AiAlarmEvent | None:
         """同步保存单条违规记录并返回已入库对象。
 
         微信图文卡片需要立即拿到 alarm_id 和图片地址，因此不能等待后台批量 flush。
         失败时返回 None，由调用方决定是否继续其他告警通道。
         """
+        raw_violation_type = int(violation_type)
+        resolved_feature_name = feature_name or feature_name_for_violation_type(raw_violation_type)
         row = self._save_image({
             "frame": frame,
-            "violation_type": violation_type,
+            "violation_type": normalize_violation_type(raw_violation_type),
+            "feature_name": resolved_feature_name,
+            "department": (
+                department
+                or department_for_feature(resolved_feature_name)
+                or department_for_violation_type(raw_violation_type)
+            ),
             "camera_no": camera_no,
             "subject_type": subject_type,
             "subject_id": subject_id,
@@ -176,7 +202,7 @@ class AsyncViolationWriter:
             return None
         try:
             with session_scope() as session:
-                item = AiViolationImage(**row)
+                item = AiAlarmEvent(**row)
                 session.add(item)
                 session.flush()
                 return item
@@ -192,8 +218,8 @@ class AsyncViolationWriter:
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`range`、`session_scope`、`session.query(AiViolationImage).filter(AiViolationImage.video_path ==
-    #          str(video_path)).first`、`session.query(AiViolationImage).filter`、`session.query`、`str`、`logger.warning`、`time.sleep`。
+    #   - 内部调用：`range`、`session_scope`、`session.query(AiAlarmEvent).filter(AiAlarmEvent.video_path ==
+    #          str(video_path)).first`、`session.query(AiAlarmEvent).filter`、`session.query`、`str`、`logger.warning`、`time.sleep`。
     # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def update_video_status(self, video_path: str, status: str) -> None:
         """Update the alarm row after its asynchronous evidence clip finishes."""
@@ -204,8 +230,8 @@ class AsyncViolationWriter:
             try:
                 with session_scope() as session:
                     row = (
-                        session.query(AiViolationImage)
-                        .filter(AiViolationImage.video_path == str(video_path))
+                        session.query(AiAlarmEvent)
+                        .filter(AiAlarmEvent.video_path == str(video_path))
                         .first()
                     )
                     if row is not None:
@@ -335,6 +361,8 @@ class AsyncViolationWriter:
                 "video_path": item.get("video_path"),
                 "video_status": item.get("video_status"),
                 "violation_type": item["violation_type"],
+                "feature_name": item.get("feature_name") or "",
+                "department": item.get("department") or "",
                 "camera_no": item["camera_no"],
                 "subject_type": item.get("subject_type") or "camera",
                 "subject_id": item.get("subject_id") or "",
@@ -354,13 +382,13 @@ class AsyncViolationWriter:
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::_run` 调用本符号
-    #   - 内部调用：`session_scope`、`session.add`、`AiViolationImage`、`logger.info`、`len`、`logger.warning`。
+    #   - 内部调用：`session_scope`、`session.add`、`AiAlarmEvent`、`logger.info`、`len`、`logger.warning`。
     # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def _flush_batch(self, batch: list[dict]):
         try:
             with session_scope() as session:
                 for row in batch:
-                    session.add(AiViolationImage(**row))
+                    session.add(AiAlarmEvent(**row))
             logger.info(f"[ViolationWriter] 提交 {len(batch)} 条违规记录")
         except Exception as e:
             logger.warning(f"[ViolationWriter] 批量提交失败: {e}")

@@ -74,6 +74,7 @@ class AlarmRequest:
     violation_type: int
     alarm_config: dict
     camera_key: str = ""
+    department: str = ""
     subject_type: str = "camera"
     subject_id: str = ""
     subject_name: str = ""
@@ -372,11 +373,14 @@ class AlarmDispatcher:
         video_path: str | None = None,
     ):
         """向支持新字段的 writer 传通道元数据，并兼容旧式 writer 适配器。"""
+        subject_type = req.subject_type or "camera"
         values = {
             "frame": req.frame,
             "violation_type": req.violation_type,
-            "camera_no": req.camera_key or req.camera_name,
-            "subject_type": req.subject_type or "camera",
+            "feature_name": req.feature_name,
+            "department": req.department,
+            "camera_no": (req.camera_key or req.camera_name) if subject_type == "camera" else None,
+            "subject_type": subject_type,
             "subject_id": req.subject_id or str(req.camera_id),
             "subject_name": req.subject_name or req.camera_name,
             "reason": req.reason,

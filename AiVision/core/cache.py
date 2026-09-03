@@ -327,6 +327,7 @@ class ConfigCache:
             cfg["name"]          = camera.get("name")
             cfg["shm_name"]      = camera.get("shm_name") or f"camera_{cfg.get('camera_id')}"
             cfg["camera_enable"] = camera.get("enable")
+            cfg["department"]    = camera.get("department")
         return cfg
 
 

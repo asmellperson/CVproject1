@@ -122,11 +122,11 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'door-detection': ['detect_door'],
   'face-detection': ['detect_face'],
   'human-detection': ['detect_human'],
-  'haoda-human-detection': ['detect_human_haoda'],
+  'haoda-human-detection': ['detect_human'],
   'logistics-single-person-detection': ['detect_logistics_single_person'],
-  'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person_electronics_electrician'],
-  'logistics-single-person-electrical-components-detection': ['detect_logistics_single_person_electrical_components'],
-  'logistics-single-person-precious-metal-recycling-detection': ['detect_logistics_single_person_precious_metal_recycling'],
+  'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person'],
+  'logistics-single-person-electrical-components-detection': ['detect_logistics_single_person'],
+  'logistics-single-person-precious-metal-recycling-detection': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
 }
 

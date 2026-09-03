@@ -14,9 +14,8 @@ os.environ.setdefault("MYSQL_DB_URL", "127.0.0.1")
 os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
-from AiVision.core.db import Base
 from AiVision.platform.violation import cleanup as violation_cleanup
-from AiVision.platform.violation.orm import AiViolationImage
+from AiVision.platform.violation.orm import AiAlarmEvent
 
 
 # 功能：实现 `_database` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
@@ -27,11 +26,11 @@ from AiVision.platform.violation.orm import AiViolationImage
 #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
 #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
 #         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号
-#   - 内部调用：`create_engine`、`Base.metadata.create_all`、`sessionmaker`。
+#   - 内部调用：`create_engine`、`AiAlarmEvent.__table__.create`、`sessionmaker`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _database():
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    AiAlarmEvent.__table__.create(engine)
     factory = sessionmaker(bind=engine)
 
     # 功能：实现 `local_session_scope` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明
@@ -69,7 +68,7 @@ def _database():
 #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
 #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
 #         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号
-#   - 内部调用：`factory`、`session.add`、`AiViolationImage`、`str`、`session.commit`。
+#   - 内部调用：`factory`、`session.add`、`AiAlarmEvent`、`str`、`session.commit`。
 # 副作用/注意事项：可能读取或修改数据库事务。
 def _add_record(
     factory,
@@ -80,7 +79,7 @@ def _add_record(
     video_path: Path | None = None,
 ):
     with factory() as session:
-        session.add(AiViolationImage(
+        session.add(AiAlarmEvent(
             id=row_id,
             image_path=str(image_path),
             video_path=str(video_path) if video_path else None,
@@ -137,7 +136,7 @@ def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
     stats = cleaner.cleanup(now=now)
 
     with factory() as session:
-        remaining_ids = [row.id for row in session.query(AiViolationImage).order_by(AiViolationImage.id)]
+        remaining_ids = [row.id for row in session.query(AiAlarmEvent).order_by(AiAlarmEvent.id)]
     assert remaining_ids == [2, 3]
     assert not old_image.exists()
     assert not old_video.exists()
@@ -155,7 +154,7 @@ def test_cleanup_deletes_expired_records_files_and_historical_orphans(tmp_path):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiViolationImage).order_by`
+#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiAlarmEvent).order_by`
 #          等共 13 个调用。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_capacity_removes_oldest_database_backed_image(tmp_path):
@@ -179,7 +178,7 @@ def test_cleanup_capacity_removes_oldest_database_backed_image(tmp_path):
     stats = cleaner.cleanup(now=now)
 
     with factory() as session:
-        remaining_ids = [row.id for row in session.query(AiViolationImage).order_by(AiViolationImage.id)]
+        remaining_ids = [row.id for row in session.query(AiAlarmEvent).order_by(AiAlarmEvent.id)]
     assert remaining_ids == [2]
     assert not oldest.exists()
     assert newest.exists()
@@ -193,7 +192,7 @@ def test_cleanup_capacity_removes_oldest_database_backed_image(tmp_path):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiViolationImage).order_by`
+#   - 内部调用：`_database`、`datetime.datetime`、`path.parent.mkdir`、`path.write_bytes`、`_add_record`、`datetime.timedelta`、`violation_cleanup.ViolationMediaCleaner`、`cleaner.cleanup`、`factory`、`session.query(AiAlarmEvent).order_by`
 #          等共 13 个调用。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def test_cleanup_capacity_keeps_fresh_image_during_push_grace_period(tmp_path):
@@ -217,7 +216,7 @@ def test_cleanup_capacity_keeps_fresh_image_during_push_grace_period(tmp_path):
     cleaner.cleanup(now=now)
 
     with factory() as session:
-        remaining_ids = [row.id for row in session.query(AiViolationImage).order_by(AiViolationImage.id)]
+        remaining_ids = [row.id for row in session.query(AiAlarmEvent).order_by(AiAlarmEvent.id)]
     assert remaining_ids == [2]
     assert not old_image.exists()
     assert fresh_image.exists()

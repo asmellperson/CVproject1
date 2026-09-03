@@ -44,9 +44,13 @@ test('uses the current materials institute name throughout active frontend views
 })
 
 test('uses the current Weida company name throughout active frontend views', () => {
-  for (const source of [sidebar, home, users, audit, securityVlm, alarms, statistics, logistics, nav]) {
+  for (const source of [sidebar, home, users, audit, securityVlm, logistics, nav]) {
     assert.match(source, /伟达公司/)
     assert.doesNotMatch(source, /贵金属回收/)
+  }
+  for (const source of [alarms, statistics]) {
+    assert.doesNotMatch(source, /伟达公司|贵金属回收/)
+    assert.match(source, /物流通道单人/)
   }
   assert.match(permissions, /title: '物流通道单人检测（伟达公司）'/)
   assert.doesNotMatch(permissions, /title: '物流通道单人检测（贵金属回收）'/)

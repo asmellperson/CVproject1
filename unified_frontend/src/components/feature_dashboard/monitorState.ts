@@ -153,8 +153,12 @@ export function buildFeatureAlarmSummary(
   now = new Date(),
 ) {
   const today = alarms
-    .filter((alarm) => alarm.event_type === feature)
-    .filter((alarm) => alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName))
+    .filter((alarm) => (alarm.feature_name || alarm.event_type) === feature)
+    .filter((alarm) => (
+      alarm.subject_type === 'camera'
+        ? alarm.subject_name === cameraName || alarm.camera_no === cameraKey
+        : alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName)
+    ))
     .filter((alarm) => isSameLocalDay(alarm.created_at, now))
     .sort((left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime())
 

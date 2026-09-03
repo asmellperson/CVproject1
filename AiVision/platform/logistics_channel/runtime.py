@@ -20,7 +20,7 @@ from AiVision.features import all_specs
 from AiVision.platform.camera.config_manager import camera_config_manager
 
 from .compositor import CameraTile, compose_channel_frame
-from .constants import LOGISTICS_FEATURES, require_logistics_feature
+from .constants import LOGISTICS_FEATURE_DEPARTMENTS, LOGISTICS_FEATURES, require_logistics_feature
 from .service import logistics_channel_service
 from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, classify_channel
 
@@ -1219,6 +1219,7 @@ class LogisticsChannelRuntime:
             violation_type=int(self._violation_type_provider(channel.feature_name)),
             alarm_config=alarm_config,
             camera_key=self._evidence_key(channel),
+            department=LOGISTICS_FEATURE_DEPARTMENTS[channel.feature_name],
             subject_type="logistics_channel",
             subject_id=str(channel.channel_id),
             subject_name=channel.name,

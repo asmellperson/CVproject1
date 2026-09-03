@@ -18,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Activity, AlertTriangle, Calendar, Camera, Clock, TrendingUp } from 'lucide-react'
+import { Activity, AlertTriangle, Calendar, Clock, MapPin, TrendingUp } from 'lucide-react'
 import { getStatistics, type AlarmEvent } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
@@ -30,9 +30,10 @@ type TypeBucket = {
   color: string
 }
 
-type CameraBucket = {
-  camera_no: string
-  name: string
+type SubjectBucket = {
+  subject_type: string
+  subject_id: string
+  subject_name: string
   value: number
 }
 
@@ -44,12 +45,8 @@ type TrendRow = {
   detect_door?: number
   detect_phone?: number
   detect_human?: number
-  detect_human_haoda?: number
   detect_face?: number
   detect_logistics_single_person?: number
-  detect_logistics_single_person_electronics_electrician?: number
-  detect_logistics_single_person_electrical_components?: number
-  detect_logistics_single_person_precious_metal_recycling?: number
   guard_absent?: number
   guard_phone_use?: number
   guard_prone_sleep?: number
@@ -61,22 +58,21 @@ type AiVisionStatistics = {
   summary: {
     total: number
     today: number
-    week: number
     avg_per_day: number
-    active_cameras: number
+    active_subjects: number
     peak_hour: string
   }
   by_type: TypeBucket[]
-  by_camera: CameraBucket[]
+  by_subject: SubjectBucket[]
   daily: TrendRow[]
   hourly: TrendRow[]
   recent: AlarmEvent[]
 }
 
 const EMPTY: AiVisionStatistics = {
-  summary: { total: 0, today: 0, week: 0, avg_per_day: 0, active_cameras: 0, peak_hour: '-' },
+  summary: { total: 0, today: 0, avg_per_day: 0, active_subjects: 0, peak_hour: '-' },
   by_type: [],
-  by_camera: [],
+  by_subject: [],
   daily: [],
   hourly: [],
   recent: [],
@@ -88,11 +84,7 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'detect_face', name: '人脸检测', value: 0, color: '#8b5cf6' },
   { event_type: 'detect_phone', name: '手机检测', value: 0, color: '#f97316' },
   { event_type: 'detect_human', name: '人员违规逗留检测', value: 0, color: '#2563eb' },
-  { event_type: 'detect_human_haoda', name: '人员违规逗留检测（皓达公司）', value: 0, color: '#1d4ed8' },
   { event_type: 'detect_logistics_single_person', name: '物流通道单人', value: 0, color: '#0f766e' },
-  { event_type: 'detect_logistics_single_person_electronics_electrician', name: '物流通道单人（电子电工）', value: 0, color: '#0f766e' },
-  { event_type: 'detect_logistics_single_person_electrical_components', name: '物流通道单人（电气部件）', value: 0, color: '#0f766e' },
-  { event_type: 'detect_logistics_single_person_precious_metal_recycling', name: '物流通道单人（伟达公司）', value: 0, color: '#0f766e' },
   { event_type: 'guard_absent', name: '保安离岗', value: 0, color: '#dc2626' },
   { event_type: 'guard_phone_use', name: '保安玩手机', value: 0, color: '#ea580c' },
   { event_type: 'guard_prone_sleep', name: '保安趴睡', value: 0, color: '#ca8a04' },
@@ -170,11 +162,7 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     detect_face: toNumber(row?.detect_face),
     detect_phone: toNumber(row?.detect_phone),
     detect_human: toNumber(row?.detect_human),
-    detect_human_haoda: toNumber(row?.detect_human_haoda),
     detect_logistics_single_person: toNumber(row?.detect_logistics_single_person),
-    detect_logistics_single_person_electronics_electrician: toNumber(row?.detect_logistics_single_person_electronics_electrician),
-    detect_logistics_single_person_electrical_components: toNumber(row?.detect_logistics_single_person_electrical_components),
-    detect_logistics_single_person_precious_metal_recycling: toNumber(row?.detect_logistics_single_person_precious_metal_recycling),
     guard_absent: toNumber(row?.guard_absent),
     guard_phone_use: toNumber(row?.guard_phone_use),
     guard_prone_sleep: toNumber(row?.guard_prone_sleep),
@@ -197,7 +185,7 @@ function normalizeStatistics(data: unknown): AiVisionStatistics {
   const root = toRecord(data)
   const summary = toRecord(root?.summary)
   const byType = Array.isArray(root?.by_type) ? root.by_type : []
-  const byCamera = Array.isArray(root?.by_camera) ? root.by_camera : []
+  const bySubject = Array.isArray(root?.by_subject) ? root.by_subject : []
   const daily = Array.isArray(root?.daily) ? root.daily : []
   const hourly = Array.isArray(root?.hourly) ? root.hourly : []
   const recent = Array.isArray(root?.recent) ? root.recent : []
@@ -206,25 +194,27 @@ function normalizeStatistics(data: unknown): AiVisionStatistics {
     summary: {
       total: toNumber(summary?.total),
       today: toNumber(summary?.today),
-      week: toNumber(summary?.week),
       avg_per_day: toNumber(summary?.avg_per_day),
-      active_cameras: toNumber(summary?.active_cameras),
+      active_subjects: toNumber(summary?.active_subjects),
       peak_hour: toString(summary?.peak_hour, '-'),
     },
     by_type: byType.map((item) => {
       const row = toRecord(item)
+      const eventType = toString(row?.event_type)
+      const presentation = TYPE_META.find((meta) => meta.event_type === eventType)
       return {
-        event_type: toString(row?.event_type),
+        event_type: eventType,
         name: toString(row?.name, '未知报警'),
         value: toNumber(row?.value),
-        color: toString(row?.color, '#64748b'),
+        color: presentation?.color ?? '#64748b',
       }
     }),
-    by_camera: byCamera.map((item) => {
+    by_subject: bySubject.map((item) => {
       const row = toRecord(item)
       return {
-        camera_no: toString(row?.camera_no),
-        name: toString(row?.name, '未知摄像头'),
+        subject_type: toString(row?.subject_type, 'unknown'),
+        subject_id: toString(row?.subject_id, 'unknown'),
+        subject_name: toString(row?.subject_name, '未知主体'),
         value: toNumber(row?.value),
       }
     }),
@@ -312,7 +302,7 @@ export function StatisticsSection() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">统计聚合</h2>
-          <p className="text-slate-500">报警趋势、类型分布与摄像头排行</p>
+          <p className="text-slate-500">报警趋势、类型分布与主体排行</p>
         </div>
         <Badge variant="outline" className="gap-2">
           <Calendar className="h-4 w-4" />
@@ -324,7 +314,7 @@ export function StatisticsSection() {
         <SummaryCard title="今日报警" value={stats.summary.today} sub="自然日" icon={<Clock className="h-6 w-6 text-blue-600" />} />
         <SummaryCard title="周期总数" value={stats.summary.total} sub="最近7天" icon={<AlertTriangle className="h-6 w-6 text-red-600" />} />
         <SummaryCard title="日均报警" value={stats.summary.avg_per_day} sub="次/天" icon={<TrendingUp className="h-6 w-6 text-emerald-600" />} />
-        <SummaryCard title="活跃摄像头" value={stats.summary.active_cameras} sub="有报警" icon={<Camera className="h-6 w-6 text-violet-600" />} />
+        <SummaryCard title="活跃主体" value={stats.summary.active_subjects} sub="有报警" icon={<MapPin className="h-6 w-6 text-violet-600" />} />
         <SummaryCard title="峰值时段" value={stats.summary.peak_hour} sub={topType.name} icon={<Activity className="h-6 w-6 text-orange-600" />} />
       </div>
 
@@ -414,24 +404,24 @@ export function StatisticsSection() {
 
         <Card className="xl:col-span-2">
           <CardHeader>
-            <CardTitle className="text-lg">摄像头排行</CardTitle>
+            <CardTitle className="text-lg">告警主体排行</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {stats.by_camera.length === 0 ? (
-              <div className="rounded-md border border-dashed p-6 text-center text-sm text-slate-500">暂无报警摄像头</div>
+            {stats.by_subject.length === 0 ? (
+              <div className="rounded-md border border-dashed p-6 text-center text-sm text-slate-500">暂无告警主体</div>
             ) : (
-              stats.by_camera.map((camera, index) => {
-                const max = Math.max(...stats.by_camera.map((item) => item.value), 1)
+              stats.by_subject.map((subject, index) => {
+                const max = Math.max(...stats.by_subject.map((item) => item.value), 1)
                 return (
-                  <div key={camera.camera_no || camera.name} className="space-y-2">
+                  <div key={`${subject.subject_type}:${subject.subject_id}`} className="space-y-2">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="truncate font-medium text-slate-800 dark:text-slate-200">
-                        {index + 1}. {camera.name}
+                        {index + 1}. {subject.subject_name}
                       </span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">{camera.value}</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">{subject.value}</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100">
-                      <div className="h-2 rounded-full bg-slate-900 dark:bg-blue-500" style={{ width: `${(camera.value / max) * 100}%` }} />
+                      <div className="h-2 rounded-full bg-slate-900 dark:bg-blue-500" style={{ width: `${(subject.value / max) * 100}%` }} />
                     </div>
                   </div>
                 )
@@ -456,7 +446,7 @@ export function StatisticsSection() {
                     <Badge variant="outline">{alarm.event_label || alarm.event_type}</Badge>
                     <span className="text-xs text-slate-400">#{alarm.id}</span>
                   </div>
-                  <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{alarm.camera_name || alarm.camera_no || '-'}</div>
+                  <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.camera_no || '-'}</div>
                   <div className="mt-1 text-xs text-slate-500">{formatTime(alarm.created_at)}</div>
                 </div>
               ))

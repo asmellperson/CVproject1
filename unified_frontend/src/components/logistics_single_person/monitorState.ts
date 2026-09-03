@@ -132,8 +132,12 @@ export function filterTodayLogisticsAlarms(
   now = new Date(),
 ) {
   return alarms.filter((alarm) =>
-    alarm.event_type === feature
-    && (alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName))
+    (alarm.feature_name || alarm.event_type) === feature
+    && (
+      alarm.subject_type === 'logistics_channel'
+        ? alarm.subject_id === cameraKey || alarm.subject_name === cameraName
+        : alarm.camera_no === cameraKey || (!alarm.camera_no && alarm.camera_name === cameraName)
+    )
     && isSameLocalDay(alarm.created_at, now),
   )
 }

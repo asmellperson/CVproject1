@@ -11,7 +11,7 @@ from pathlib import Path
 
 from AiVision.core.db import session_scope
 from AiVision.core.logger import logger
-from .orm import AiViolationImage
+from .orm import AiAlarmEvent
 
 
 MEDIA_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".mp4"})
@@ -126,9 +126,9 @@ class ViolationMediaCleaner:
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
-    #   - 内部调用：`self._session_scope`、`session.query(AiViolationImage).filter`、`session.query`、`query.filter`、`query.order_by(AiViolationImage.create_time.asc(),
-    #          AiViolationImage.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiViolationImage.create_time.asc(),
-    #          AiViolationImage.id.asc()).limit`、`query.order_by`、`AiViolationImage.create_time.asc`、`AiViolationImage.id.asc`、`int`
+    #   - 内部调用：`self._session_scope`、`session.query(AiAlarmEvent).filter`、`session.query`、`query.filter`、`query.order_by(AiAlarmEvent.create_time.asc(),
+    #          AiAlarmEvent.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiAlarmEvent.create_time.asc(),
+    #          AiAlarmEvent.id.asc()).limit`、`query.order_by`、`AiAlarmEvent.create_time.asc`、`AiAlarmEvent.id.asc`、`int`
     #          等共 13 个调用。
     # 副作用/注意事项：可能读取或修改数据库事务。
     def _delete_expired_records(
@@ -139,22 +139,22 @@ class ViolationMediaCleaner:
         cursor: tuple[datetime.datetime, int] | None = None
         while True:
             with self._session_scope() as session:
-                query = session.query(AiViolationImage).filter(
-                    AiViolationImage.create_time < cutoff
+                query = session.query(AiAlarmEvent).filter(
+                    AiAlarmEvent.create_time < cutoff
                 )
                 if cursor is not None:
                     cursor_time, cursor_id = cursor
                     query = query.filter(
-                        (AiViolationImage.create_time > cursor_time)
+                        (AiAlarmEvent.create_time > cursor_time)
                         | (
-                            (AiViolationImage.create_time == cursor_time)
-                            & (AiViolationImage.id > cursor_id)
+                            (AiAlarmEvent.create_time == cursor_time)
+                            & (AiAlarmEvent.id > cursor_id)
                         )
                     )
                 rows = (
                     query.order_by(
-                        AiViolationImage.create_time.asc(),
-                        AiViolationImage.id.asc(),
+                        AiAlarmEvent.create_time.asc(),
+                        AiAlarmEvent.id.asc(),
                     )
                     .limit(CLEANUP_BATCH_SIZE)
                     .all()
@@ -221,9 +221,9 @@ class ViolationMediaCleaner:
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::cleanup` 调用本符号
-    #   - 内部调用：`self._media_size`、`self._session_scope`、`session.query`、`query.filter`、`query.order_by(AiViolationImage.create_time.asc(),
-    #          AiViolationImage.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiViolationImage.create_time.asc(),
-    #          AiViolationImage.id.asc()).limit`、`query.order_by`、`AiViolationImage.create_time.asc`、`AiViolationImage.id.asc`、`int`
+    #   - 内部调用：`self._media_size`、`self._session_scope`、`session.query`、`query.filter`、`query.order_by(AiAlarmEvent.create_time.asc(),
+    #          AiAlarmEvent.id.asc()).limit(CLEANUP_BATCH_SIZE).all`、`query.order_by(AiAlarmEvent.create_time.asc(),
+    #          AiAlarmEvent.id.asc()).limit`、`query.order_by`、`AiAlarmEvent.create_time.asc`、`AiAlarmEvent.id.asc`、`int`
     #          等共 17 个调用。
     # 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
     def _enforce_size_limit(
@@ -240,20 +240,20 @@ class ViolationMediaCleaner:
         cursor: tuple[datetime.datetime, int] | None = None
         while total_bytes > self.max_bytes:
             with self._session_scope() as session:
-                query = session.query(AiViolationImage)
+                query = session.query(AiAlarmEvent)
                 if cursor is not None:
                     cursor_time, cursor_id = cursor
                     query = query.filter(
-                        (AiViolationImage.create_time > cursor_time)
+                        (AiAlarmEvent.create_time > cursor_time)
                         | (
-                            (AiViolationImage.create_time == cursor_time)
-                            & (AiViolationImage.id > cursor_id)
+                            (AiAlarmEvent.create_time == cursor_time)
+                            & (AiAlarmEvent.id > cursor_id)
                         )
                     )
                 rows = (
                     query.order_by(
-                        AiViolationImage.create_time.asc(),
-                        AiViolationImage.id.asc(),
+                        AiAlarmEvent.create_time.asc(),
+                        AiAlarmEvent.id.asc(),
                     )
                     .limit(CLEANUP_BATCH_SIZE)
                     .all()
@@ -344,7 +344,7 @@ class ViolationMediaCleaner:
     # 调用关系：
     #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_orphans`
     #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_quota_orphans` 调用本符号
-    #   - 内部调用：`str`、`self._session_scope`、`session.query(AiViolationImage.image_path).filter(AiViolationImage.image_path.in_(raw_paths)).all`、`session.query(AiViolationImage.image_path).filter`、`session.query`、`AiViolationImage.image_path.in_`、`session.query(AiViolationImage.video_path).filter(AiViolationImage.video_path.in_(raw_paths)).all`、`session.query(AiViolationImage.video_path).filter`、`AiViolationImage.video_path.in_`。
+    #   - 内部调用：`str`、`self._session_scope`、`session.query(AiAlarmEvent.image_path).filter(AiAlarmEvent.image_path.in_(raw_paths)).all`、`session.query(AiAlarmEvent.image_path).filter`、`session.query`、`AiAlarmEvent.image_path.in_`、`session.query(AiAlarmEvent.video_path).filter(AiAlarmEvent.video_path.in_(raw_paths)).all`、`session.query(AiAlarmEvent.video_path).filter`、`AiAlarmEvent.video_path.in_`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _referenced_paths(self, paths: list[Path]) -> set[str]:
         raw_paths = [str(path) for path in paths]
@@ -352,16 +352,16 @@ class ViolationMediaCleaner:
             image_paths = {
                 str(image_path)
                 for (image_path,) in (
-                    session.query(AiViolationImage.image_path)
-                    .filter(AiViolationImage.image_path.in_(raw_paths))
+                    session.query(AiAlarmEvent.image_path)
+                    .filter(AiAlarmEvent.image_path.in_(raw_paths))
                     .all()
                 )
             }
             video_paths = {
                 str(video_path)
                 for (video_path,) in (
-                    session.query(AiViolationImage.video_path)
-                    .filter(AiViolationImage.video_path.in_(raw_paths))
+                    session.query(AiAlarmEvent.video_path)
+                    .filter(AiAlarmEvent.video_path.in_(raw_paths))
                     .all()
                 )
                 if video_path

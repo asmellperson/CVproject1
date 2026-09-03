@@ -136,7 +136,7 @@ test('renders the five latest alarms as a severity timeline with navigation', ()
     assert.match(alarmHelpers, new RegExp(`'${eventType}'`))
   }
   assert.match(alarmHelpers, /function getAlarmSeverity[\s\S]*?return 'normal'/)
-  assert.match(alarmHelpers, /alarm\.camera_name \|\| alarm\.site_name \|\| alarm\.camera_no \|\| '未知位置'/)
+  assert.match(alarmHelpers, /alarm\.subject_name \|\| alarm\.channel_name \|\| alarm\.camera_name \|\| alarm\.site_name \|\| alarm\.camera_no \|\| '未知位置'/)
   assert.match(timeline, /overview\.recentAlarms\.map/)
   assert.match(timeline, /severity === 'critical' && 'bg-red-500'/)
   assert.match(timeline, /severity === 'warning' && 'bg-amber-400'/)
