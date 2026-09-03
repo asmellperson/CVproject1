@@ -9,11 +9,25 @@ from unified_backend.app import (
     _guard_alarm_paths,
     _guard_departments_for_user,
     _guard_site_runtime_summary,
+    _is_guard_room_api_path,
     _normalize_guard_alarm,
     _normalize_security_vlm_alarm,
     _security_vlm_departments_for_user,
     _visual_service_url,
+    create_app,
 )
+
+
+def test_guard_room_site_paths_are_selected_before_generic_aivision_proxy():
+    assert _is_guard_room_api_path("sites") is True
+    assert _is_guard_room_api_path("sites/7/frame.jpg") is True
+    assert _is_guard_room_api_path("cameras") is False
+    assert _is_guard_room_api_path("features/detect_human") is False
+    catch_all_routes = [
+        route for route in create_app().routes
+        if getattr(route, "path", None) == "/api/{path:path}"
+    ]
+    assert len(catch_all_routes) == 1
 
 
 # 功能：验证 `test_managed_visual_services_are_routed_to_aivision` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明

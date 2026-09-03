@@ -44,8 +44,12 @@ export function buildAiVisionPreviewFrameUrl(cameraKey: string, feature: string,
  * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
  */
 export function readFrameCoordinateSize(headers: Pick<Headers, 'get'>): FrameCoordinateSize | null {
-  const width = Number(headers.get('x-frame-width'))
-  const height = Number(headers.get('x-frame-height'))
+  const width = Number(
+    headers.get('x-frame-coordinate-width') ?? headers.get('x-frame-width'),
+  )
+  const height = Number(
+    headers.get('x-frame-coordinate-height') ?? headers.get('x-frame-height'),
+  )
   if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
     return null
   }

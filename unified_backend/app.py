@@ -353,6 +353,12 @@ def _visual_service_url(aivision_url: str, service: str) -> str:
     )
 
 
+def _is_guard_room_api_path(path: str) -> bool:
+    """判断统一 `/api` 请求是否属于保安行为规范站点接口。"""
+    normalized = str(path or "").strip("/")
+    return normalized == "sites" or normalized.startswith("sites/")
+
+
 # 功能：转换或规范化 `_normalize_department` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `value`（object）：待转换、校验或写入的值
@@ -2170,6 +2176,8 @@ def create_app() -> FastAPI:
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_root_api(path: str, request: Request):
+        if _is_guard_room_api_path(path):
+            return await _proxy(request, guard_room_url, f"/api/{path}")
         return await _proxy(request, aivision_url, f"/api/{path}")
 
     # 功能：实现 `proxy_aivision_root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -2197,18 +2205,5 @@ def create_app() -> FastAPI:
     @app.api_route("/security-vlm/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_security_vlm(path: str, request: Request):
         return await _proxy(request, security_vlm_url, f"/{path}")
-
-    # 功能：实现 `proxy_guard_room_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_guard_room_api(path: str, request: Request):
-        return await _proxy(request, guard_room_url, f"/api/{path}")
 
     return app

@@ -316,6 +316,8 @@ def test_frame_response_exposes_resized_dimensions_when_preview_is_resized(
     assert response_frame.shape[:2] == (expected_height, expected_width)
     assert response.headers["x-frame-width"] == str(expected_width)
     assert response.headers["x-frame-height"] == str(expected_height)
+    assert response.headers["x-frame-coordinate-width"] == "1920"
+    assert response.headers["x-frame-coordinate-height"] == "1080"
 
 
 def test_camera_api_uses_enabled_fields_and_patch_update_only():

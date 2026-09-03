@@ -30,11 +30,20 @@ assertEqual(
 )
 
 const frameHeaders = new Headers({
-  'x-frame-width': '1920',
-  'x-frame-height': '1080',
+  'x-frame-width': '960',
+  'x-frame-height': '540',
+  'x-frame-coordinate-width': '2560',
+  'x-frame-coordinate-height': '1440',
 })
 assertEqual(
   JSON.stringify(readFrameCoordinateSize(frameHeaders)),
+  JSON.stringify({ width: 2560, height: 1440 }),
+)
+assertEqual(
+  JSON.stringify(readFrameCoordinateSize(new Headers({
+    'x-frame-width': '1920',
+    'x-frame-height': '1080',
+  }))),
   JSON.stringify({ width: 1920, height: 1080 }),
 )
 assertEqual(readFrameCoordinateSize(new Headers()), null)

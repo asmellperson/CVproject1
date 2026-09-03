@@ -378,6 +378,16 @@ def frame_size_headers(
     }
 
 
+def frame_coordinate_size_headers(frame) -> dict[str, str]:
+    """返回检测配置与 ROI 使用的原始帧坐标尺寸。"""
+    if frame is None:
+        return {}
+    height, width = frame.shape[:2]
+    return {
+        "X-Frame-Coordinate-Width": str(width),
+        "X-Frame-Coordinate-Height": str(height),
+    }
+
 # 功能：读取、编码并返回预览帧；慢请求输出分阶段耗时；输入与输出详见下方说明
 # 参数：
 #   - `key`（str）：用于查询、分组或缓存的键
@@ -431,7 +441,10 @@ def build_camera_frame_response(
     return Response(
         content=content,
         media_type="image/jpeg",
-        headers=frame_size_headers(frame, max_width=max_width, max_height=max_height),
+        headers={
+            **frame_size_headers(frame, max_width=max_width, max_height=max_height),
+            **frame_coordinate_size_headers(frame),
+        },
     )
 
 
