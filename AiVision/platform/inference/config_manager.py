@@ -12,6 +12,8 @@ from .model_paths import resolve_model_path
 
 
 YOLO_DETECTOR_WORKER = "AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker"
+LEGACY_YOLO_DETECTOR_WORKER = "platform.inference.workers.yolo_detector.YoloDetectorWorker"
+BUILTIN_YOLO_MODELS = ("yolo_face", "yolo_human", "yolo_phone")
 
 
 # 功能：定义 `ModelConfigManager` 类，封装业务服务相关的状态、约束与操作
@@ -149,24 +151,37 @@ class ModelConfigManager:
     def normalize_builtin_models(self) -> int:
         """修正常见内置模型的旧版运行配置。
 
-        旧库里的 yolo_face 可能仍指向已不存在的旧 worker,且处于禁用状态。
-        这里只修已有模型行,不创建新模型,避免覆盖现场自定义模型清单。
+        旧库里的内置 YOLO 模型可能仍指向迁移前的 ``platform.inference``
+        worker 路径。这里只迁移明确匹配旧路径的已有模型行，不创建新模型，
+        也不覆盖 human/phone 现场配置的自定义 worker。
+
+        yolo_face 保留原有兼容行为：统一使用内置 worker 并确保启用。
         """
         patched = 0
         with session_scope() as session:
-            face_model = session.query(AiModel).filter_by(name="yolo_face").first()
-            if face_model is None:
-                return 0
+            models = {
+                model.name: model
+                for model in session.query(AiModel)
+                .filter(AiModel.name.in_(BUILTIN_YOLO_MODELS))
+                .all()
+            }
 
-            if face_model.import_path != YOLO_DETECTOR_WORKER:
+            for name in ("yolo_human", "yolo_phone"):
+                model = models.get(name)
+                if model is not None and model.import_path == LEGACY_YOLO_DETECTOR_WORKER:
+                    model.import_path = YOLO_DETECTOR_WORKER
+                    patched += 1
+
+            face_model = models.get("yolo_face")
+            if face_model is not None and face_model.import_path != YOLO_DETECTOR_WORKER:
                 face_model.import_path = YOLO_DETECTOR_WORKER
                 patched += 1
-            if not bool(face_model.enable):
+            if face_model is not None and not bool(face_model.enable):
                 face_model.enable = True
                 patched += 1
 
         if patched:
-            logger.info("[ModelConfigManager] 已修正内置模型 yolo_face 的运行配置")
+            logger.info("[ModelConfigManager] 已修正内置 YOLO 模型的运行配置")
         return patched
 
     # 功能：转换或规范化 `_to_dict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
