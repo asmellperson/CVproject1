@@ -131,25 +131,6 @@ class FeatureCameraCreateRequest(BaseModel):
 #  内部工具函数                                                         #
 # ------------------------------------------------------------------ #
 
-# 功能：将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化；输入与输出详见下方说明
-# 参数：
-#   - `spec`（FeatureSpec）：`spec` 对应的业务输入值
-# 返回：FeatureMetaResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FeatureMetaResponse`、`list`、`spec.config_schema.model_json_schema`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
-    """将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化。"""
-    return FeatureMetaResponse(
-        name=spec.name,
-        display_name=spec.display_name,
-        required_models=list(spec.required_models),
-        violation_type=spec.violation_type,
-        config_schema=spec.config_schema.model_json_schema(),
-    )
-
-
 # 功能：按功能名查找已注册的 FeatureSpec，未找到时抛出 404；输入与输出详见下方说明
 # 参数：
 #   - `feature`（str）：`feature` 对应的业务输入值
