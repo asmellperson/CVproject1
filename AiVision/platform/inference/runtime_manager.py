@@ -633,9 +633,14 @@ class InferenceRuntimeManager:
         """支持两种格式:
         - module 路径(模块内有 ModelWorker 类): 'AiVision.platform.inference.workers.yolo_detector'
         - 完整类路径: 'AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker'
+
+        兼容旧数据库中的 ``platform.inference`` 前缀。这里在实际导入前再次
+        归一化，避免数据库迁移尚未执行或共享数据库仍保留旧值时启动失败。
         """
         if "." not in path:
             raise ImportError(f"无效的 import_path: {path}")
+        if path.startswith("platform.inference."):
+            path = f"AiVision.{path}"
         # 尝试当作完整类路径
         try:
             mod_path, cls_name = path.rsplit(".", 1)

@@ -10,6 +10,8 @@ from AiVision.platform.inference.config_manager import (
     ModelConfigManager,
 )
 from AiVision.platform.inference.orm import AiModel
+from AiVision.platform.inference.runtime_manager import InferenceRuntimeManager
+from AiVision.platform.inference.workers.yolo_detector import YoloDetectorWorker
 
 
 def _model(name: str, import_path: str, *, enable: bool = True) -> AiModel:
@@ -90,3 +92,11 @@ def test_normalize_builtin_models_preserves_custom_human_and_phone_workers(monke
         models = {model.name: model for model in session.query(AiModel).all()}
         assert models["yolo_human"].import_path == "site.workers.CustomHumanWorker"
         assert models["yolo_phone"].import_path == "site.workers.CustomPhoneWorker"
+
+
+def test_runtime_imports_legacy_yolo_worker_path_without_database_migration():
+    worker_class = InferenceRuntimeManager._import_worker_class(
+        LEGACY_YOLO_DETECTOR_WORKER
+    )
+
+    assert worker_class is YoloDetectorWorker
