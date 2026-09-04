@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`context-menu` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 "use client"
 
 import * as React from "react"
@@ -9,32 +6,12 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-/**
- * 功能：渲染 `ContextMenu` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Root>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenu({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
 }
 
-/**
- * 功能：渲染 `ContextMenuTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Trigger>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuTrigger({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
@@ -43,16 +20,6 @@ function ContextMenuTrigger({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Group>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuGroup({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Group>) {
@@ -61,16 +28,6 @@ function ContextMenuGroup({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuPortal({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Portal>) {
@@ -79,32 +36,12 @@ function ContextMenuPortal({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuSub` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Sub>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuSub({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Sub>) {
   return <ContextMenuPrimitive.Sub data-slot="context-menu-sub" {...props} />
 }
 
-/**
- * 功能：渲染 `ContextMenuRadioGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.RadioGroup>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.RadioGroup>) {
@@ -116,16 +53,6 @@ function ContextMenuRadioGroup({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuSubTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, children, props, React, ComponentProps, typeof, ContextMenuPrimitive
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`ContextMenuPrimitive`、`ChevronRightIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuSubTrigger({
   className,
   inset,
@@ -150,16 +77,6 @@ function ContextMenuSubTrigger({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuSubContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.SubContent>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuSubContent({
   className,
   ...props
@@ -176,16 +93,6 @@ function ContextMenuSubContent({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Content>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuContent({
   className,
   ...props
@@ -204,16 +111,6 @@ function ContextMenuContent({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, variant, default, props, React, ComponentProps, typeof
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuItem({
   className,
   inset,
@@ -237,17 +134,6 @@ function ContextMenuItem({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuCheckboxItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.CheckboxItem>）：React 组件属性对象；解构字段包括 className, children, checked,
- *     props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`ContextMenuPrimitive`、`CheckIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuCheckboxItem({
   className,
   children,
@@ -274,16 +160,6 @@ function ContextMenuCheckboxItem({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuRadioItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.RadioItem>）：React 组件属性对象；解构字段包括 className, children, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`ContextMenuPrimitive`、`CircleIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuRadioItem({
   className,
   children,
@@ -308,16 +184,6 @@ function ContextMenuRadioItem({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, props, React, ComponentProps, typeof, ContextMenuPrimitive, Label
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuLabel({
   className,
   inset,
@@ -338,16 +204,6 @@ function ContextMenuLabel({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof ContextMenuPrimitive.Separator>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`ContextMenuPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuSeparator({
   className,
   ...props
@@ -361,16 +217,6 @@ function ContextMenuSeparator({
   )
 }
 
-/**
- * 功能：渲染 `ContextMenuShortcut` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"span">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ContextMenuShortcut({
   className,
   ...props

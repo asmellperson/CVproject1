@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`sidebar` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 "use client"
 
 import * as React from "react"
@@ -38,56 +35,15 @@ const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
-  /**
-   * 功能：更新或保存 `setOpen` 对应的`sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `open`（boolean）：`open` 对应的业务输入值
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarProvider` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   setOpen: (open: boolean) => void
   openMobile: boolean
-  /**
-   * 功能：更新或保存 `setOpenMobile` 对应的`sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `open`（boolean）：`open` 对应的业务输入值
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarProvider` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
-  /**
-   * 功能：实现 `toggleSidebar` 对应的`sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：无。
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarProvider`
-   *         调用本符号；`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarTrigger` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   toggleSidebar: () => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
 
-/**
- * 功能：封装 `useSidebar` React Hook，向调用组件提供`sidebar` 模块状态与操作
- * 参数：无。
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/sidebar.tsx` 的 `Sidebar` 调用本符号；`unified_frontend/src/components/ui/sidebar.tsx` 的
- *         `SidebarTrigger` 调用本符号；`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarRail`
- *         调用本符号；`unified_frontend/src/components/ui/sidebar.tsx` 的 `SidebarMenuButton` 调用本符号
- *   - 内部调用：`useContext`、`Error`。
- * 副作用/注意事项：校验或请求失败时会主动抛出异常。
- */
 function useSidebar() {
   const context = React.useContext(SidebarContext)
   if (!context) {
@@ -97,17 +53,6 @@ function useSidebar() {
   return context
 }
 
-/**
- * 功能：渲染 `SidebarProvider` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 defaultOpen, true, open, openProp, onOpenChange, setOpenProp, className, style
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useIsMobile`、`useState`、`useCallback`、`value`、`setOpenProp`、`_setOpen`、`setOpenMobile`、`setOpen`、`useEffect`、`preventDefault`
- *          等共 19 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -124,8 +69,6 @@ function SidebarProvider({
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
 
-  // This is the internal state of the sidebar.
-  // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
   const setOpen = React.useCallback(
@@ -137,18 +80,15 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
     },
     [setOpenProp, open]
   )
 
-  // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
   }, [isMobile, setOpen, setOpenMobile])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
@@ -164,8 +104,6 @@ function SidebarProvider({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [toggleSidebar])
 
-  // We add a state so that we can do data-state="expanded" or "collapsed".
-  // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
 
   const contextValue = React.useMemo<SidebarContextProps>(
@@ -206,16 +144,6 @@ function SidebarProvider({
   )
 }
 
-/**
- * 功能：渲染 `Sidebar` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 side, left, variant, sidebar, collapsible, offcanvas, className, children
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useSidebar`、`return`、`cn`、`calc`、`var`、`spacing`、`Sheet`、`SheetContent`、`SheetHeader`、`SheetTitle` 等共 11 个调用。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Sidebar({
   side = "left",
   variant = "sidebar",
@@ -279,7 +207,6 @@ function Sidebar({
       data-side={side}
       data-slot="sidebar"
     >
-      {/* This is what handles the sidebar gap on desktop */}
       <div
         data-slot="sidebar-gap"
         className={cn(
@@ -298,7 +225,6 @@ function Sidebar({
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-          // Adjust the padding for floating and inset variants.
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
@@ -318,16 +244,6 @@ function Sidebar({
   )
 }
 
-/**
- * 功能：渲染 `SidebarTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof Button>）：React 组件属性对象；解构字段包括 className, onClick, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useSidebar`、`return`、`cn`、`toggleSidebar`、`Button`、`PanelLeftIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarTrigger({
   className,
   onClick,
@@ -354,16 +270,6 @@ function SidebarTrigger({
   )
 }
 
-/**
- * 功能：渲染 `SidebarRail` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"button">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useSidebar`、`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   const { toggleSidebar } = useSidebar()
 
@@ -389,16 +295,6 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarInset` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"main">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
   return (
     <main
@@ -413,16 +309,6 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarInput` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof Input>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Input`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarInput({
   className,
   ...props
@@ -437,16 +323,6 @@ function SidebarInput({
   )
 }
 
-/**
- * 功能：渲染 `SidebarHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -458,16 +334,6 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarFooter` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -479,16 +345,6 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof Separator>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Separator`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarSeparator({
   className,
   ...props
@@ -503,16 +359,6 @@ function SidebarSeparator({
   )
 }
 
-/**
- * 功能：渲染 `SidebarContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -527,16 +373,6 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -548,16 +384,6 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarGroupLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, asChild, false, props, React, ComponentProps, div, asChild
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Comp`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarGroupLabel({
   className,
   asChild = false,
@@ -579,16 +405,6 @@ function SidebarGroupLabel({
   )
 }
 
-/**
- * 功能：渲染 `SidebarGroupAction` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, asChild, false, props, React, ComponentProps, button, asChild
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Comp`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarGroupAction({
   className,
   asChild = false,
@@ -602,7 +418,6 @@ function SidebarGroupAction({
       data-sidebar="group-action"
       className={cn(
         "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-        // Increases the hit area of the button on mobile.
         "after:absolute after:-inset-2 md:after:hidden",
         "group-data-[collapsible=icon]:hidden",
         className
@@ -612,16 +427,6 @@ function SidebarGroupAction({
   )
 }
 
-/**
- * 功能：渲染 `SidebarGroupContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarGroupContent({
   className,
   ...props
@@ -636,16 +441,6 @@ function SidebarGroupContent({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenu` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"ul">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenu({ className, ...props }: React.ComponentProps<"ul">) {
   return (
     <ul
@@ -657,16 +452,6 @@ function SidebarMenu({ className, ...props }: React.ComponentProps<"ul">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"li">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   return (
     <li
@@ -700,17 +485,6 @@ const sidebarMenuButtonVariants = cva(
   }
 )
 
-/**
- * 功能：渲染 `SidebarMenuButton` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（& VariantProps<typeof sidebarMenuButtonVariants>）：React 组件属性对象；解构字段包括 asChild, false, isActive, false, variant,
- *     default, size, default
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useSidebar`、`cn`、`sidebarMenuButtonVariants`、`return`、`Comp`、`Tooltip`、`TooltipTrigger`、`TooltipContent`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuButton({
   asChild = false,
   isActive = false,
@@ -761,16 +535,6 @@ function SidebarMenuButton({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuAction` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, asChild, false, showOnHover, false, props, React, ComponentProps
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Comp`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuAction({
   className,
   asChild = false,
@@ -788,7 +552,6 @@ function SidebarMenuAction({
       data-sidebar="menu-action"
       className={cn(
         "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1.5 right-1 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-        // Increases the hit area of the button on mobile.
         "after:absolute after:-inset-2 md:after:hidden",
         "peer-data-[size=sm]/menu-button:top-1",
         "peer-data-[size=default]/menu-button:top-1.5",
@@ -803,16 +566,6 @@ function SidebarMenuAction({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuBadge` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuBadge({
   className,
   ...props
@@ -835,16 +588,6 @@ function SidebarMenuBadge({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuSkeleton` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, showIcon, false, props, React, ComponentProps, div, showIcon
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Skeleton`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuSkeleton({
   className,
   showIcon = false,
@@ -880,16 +623,6 @@ function SidebarMenuSkeleton({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuSub` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"ul">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuSub({ className, ...props }: React.ComponentProps<"ul">) {
   return (
     <ul
@@ -905,16 +638,6 @@ function SidebarMenuSub({ className, ...props }: React.ComponentProps<"ul">) {
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuSubItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"li">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuSubItem({
   className,
   ...props
@@ -929,16 +652,6 @@ function SidebarMenuSubItem({
   )
 }
 
-/**
- * 功能：渲染 `SidebarMenuSubButton` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 asChild, false, size, md, isActive, false, className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Comp`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarMenuSubButton({
   asChild = false,
   size = "md",

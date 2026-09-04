@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`drawer` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 "use client"
 
 import * as React from "react"
@@ -8,80 +5,30 @@ import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
 
-/**
- * 功能：渲染 `Drawer` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Root>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Drawer({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) {
   return <DrawerPrimitive.Root data-slot="drawer" {...props} />
 }
 
-/**
- * 功能：渲染 `DrawerTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Trigger>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerTrigger({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Trigger>) {
   return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />
 }
 
-/**
- * 功能：渲染 `DrawerPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/drawer.tsx` 的 `DrawerContent` 调用本符号
- *   - 内部调用：`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerPortal({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Portal>) {
   return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />
 }
 
-/**
- * 功能：渲染 `DrawerClose` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Close>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerClose({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Close>) {
   return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />
 }
 
-/**
- * 功能：渲染 `DrawerOverlay` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Overlay>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/drawer.tsx` 的 `DrawerContent` 调用本符号
- *   - 内部调用：`return`、`cn`、`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerOverlay({
   className,
   ...props
@@ -98,16 +45,6 @@ function DrawerOverlay({
   )
 }
 
-/**
- * 功能：渲染 `DrawerContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Content>）：React 组件属性对象；解构字段包括 className, children, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`DrawerPortal`、`DrawerOverlay`、`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerContent({
   className,
   children,
@@ -135,16 +72,6 @@ function DrawerContent({
   )
 }
 
-/**
- * 功能：渲染 `DrawerHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -158,16 +85,6 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `DrawerFooter` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -178,16 +95,6 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `DrawerTitle` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Title>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerTitle({
   className,
   ...props
@@ -201,16 +108,6 @@ function DrawerTitle({
   )
 }
 
-/**
- * 功能：渲染 `DrawerDescription` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DrawerPrimitive.Description>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`DrawerPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DrawerDescription({
   className,
   ...props

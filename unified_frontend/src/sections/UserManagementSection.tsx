@@ -1,6 +1,3 @@
-// 文件说明：实现`UserManagementSection` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
@@ -101,31 +98,11 @@ const emptyEditorForm: EditorForm = {
 const compactActionClass =
   'h-9 w-9 rounded-xl border-slate-200/80 bg-white/70 p-0 text-slate-500 shadow-none transition-all hover:-translate-y-0.5 hover:border-cyan-400/70 hover:bg-cyan-50 hover:text-cyan-600 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-400 dark:hover:border-cyan-500/60 dark:hover:bg-cyan-500/10 dark:hover:text-cyan-300'
 
-/**
- * 功能：读取或查询 `getAvatarLabel` 对应的`UserManagementSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `name`（string）：业务对象名称
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/UserManagementSection.tsx` 的 `UserManagementSection` 调用本符号
- *   - 内部调用：`trim`、`slice`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getAvatarLabel(name: string) {
   const normalizedName = name.trim()
   return normalizedName.slice(-1) || '用'
 }
 
-/**
- * 功能：读取或查询 `getManagedUserDepartments` 对应的`UserManagementSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `user`（AdminUser）：当前用户或待处理用户对象
- * 返回：SelectableDepartment[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/UserManagementSection.tsx` 的 `UserManagementSection` 调用本符号
- *   - 内部调用：`filter`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getManagedUserDepartments(user: AdminUser): SelectableDepartment[] {
   const assigned = user.departments.filter(
     (department): department is SelectableDepartment => department !== 'all',
@@ -134,16 +111,6 @@ function getManagedUserDepartments(user: AdminUser): SelectableDepartment[] {
   return user.department === 'all' ? [] : [user.department]
 }
 
-/**
- * 功能：渲染 `UserManagementSection` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：无。
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useState`、`useCallback`、`async`、`setLoading`、`setError`、`setUsers`、`listAdminUsers`、`useEffect`、`loadUsers`
- *          等共 77 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
- */
 export function UserManagementSection() {
   const { user: currentUser, isAdmin } = useAuth()
   const [users, setUsers] = useState<AdminUser[]>([])

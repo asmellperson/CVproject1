@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`chart` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 "use client"
 
 import * as React from "react"
@@ -8,7 +5,6 @@ import * as RechartsPrimitive from "recharts"
 
 import { cn } from "@/lib/utils"
 
-// Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
 export type ChartConfig = {
@@ -27,16 +23,6 @@ type ChartContextProps = {
 
 const ChartContext = React.createContext<ChartContextProps | null>(null)
 
-/**
- * 功能：封装 `useChart` React Hook，向调用组件提供`chart` 模块状态与操作
- * 参数：无。
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/chart.tsx` 的 `ChartTooltipContent`
- *         调用本符号；`unified_frontend/src/components/ui/chart.tsx` 的 `ChartLegendContent` 调用本符号
- *   - 内部调用：`useContext`、`Error`、`ChartContainer`。
- * 副作用/注意事项：校验或请求失败时会主动抛出异常。
- */
 function useChart() {
   const context = React.useContext(ChartContext)
 
@@ -47,16 +33,6 @@ function useChart() {
   return context
 }
 
-/**
- * 功能：渲染 `ChartContainer` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 id, className, children, config, props, React, ComponentProps, div
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/chart.tsx` 的 `useChart` 调用本符号
- *   - 内部调用：`useId`、`replace`、`return`、`cn`、`ChartContext`、`ChartStyle`、`RechartsPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ChartContainer({
   id,
   className,
@@ -92,16 +68,6 @@ function ChartContainer({
   )
 }
 
-/**
- * 功能：渲染 `ChartStyle` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 id, config, id, string, config, ChartConfig
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/chart.tsx` 的 `ChartContainer` 调用本符号
- *   - 内部调用：`entries`、`filter`、`return`、`map`、`join`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
     ([, config]) => config.theme || config.color
@@ -137,16 +103,6 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip
 
-/**
- * 功能：渲染 `ChartTooltipContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 active, payload, className, indicator, dot, hideLabel, false, hideIndicator
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useChart`、`useMemo`、`getPayloadConfigFromPayload`、`return`、`cn`、`labelFormatter`、`filter`、`map`、`formatter`、`toLocaleString`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ChartTooltipContent({
   active,
   payload,
@@ -295,16 +251,6 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend
 
-/**
- * 功能：渲染 `ChartLegendContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, hideIcon, false, payload, verticalAlign, bottom, nameKey, React
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useChart`、`return`、`cn`、`filter`、`map`、`getPayloadConfigFromPayload`、`RechartsPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ChartLegendContent({
   className,
   hideIcon = false,
@@ -361,20 +307,6 @@ function ChartLegendContent({
   )
 }
 
-// Helper to extract item config from a payload.
-/**
- * 功能：读取或查询 `getPayloadConfigFromPayload` 对应的`chart` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `config`（ChartConfig）：运行配置对象
- *   - `payload`（unknown）：接口或事件携带的业务数据
- *   - `key`（string）：用于查询、分组或缓存的键
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/chart.tsx` 的 `ChartTooltipContent`
- *         调用本符号；`unified_frontend/src/components/ui/chart.tsx` 的 `ChartLegendContent` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getPayloadConfigFromPayload(
   config: ChartConfig,
   payload: unknown,

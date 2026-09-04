@@ -1,22 +1,9 @@
-// 文件说明：封装可复用的`menubar` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import * as React from "react"
 import * as MenubarPrimitive from "@radix-ui/react-menubar"
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-/**
- * 功能：渲染 `Menubar` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Root>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Menubar({
   className,
   ...props
@@ -33,64 +20,24 @@ function Menubar({
   )
 }
 
-/**
- * 功能：渲染 `MenubarMenu` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Menu>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarMenu({
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.Menu>) {
   return <MenubarPrimitive.Menu data-slot="menubar-menu" {...props} />
 }
 
-/**
- * 功能：渲染 `MenubarGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Group>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarGroup({
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.Group>) {
   return <MenubarPrimitive.Group data-slot="menubar-group" {...props} />
 }
 
-/**
- * 功能：渲染 `MenubarPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/menubar.tsx` 的 `MenubarContent` 调用本符号
- *   - 内部调用：`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarPortal({
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.Portal>) {
   return <MenubarPrimitive.Portal data-slot="menubar-portal" {...props} />
 }
 
-/**
- * 功能：渲染 `MenubarRadioGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.RadioGroup>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarRadioGroup({
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.RadioGroup>) {
@@ -99,16 +46,6 @@ function MenubarRadioGroup({
   )
 }
 
-/**
- * 功能：渲染 `MenubarTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Trigger>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarTrigger({
   className,
   ...props
@@ -125,17 +62,6 @@ function MenubarTrigger({
   )
 }
 
-/**
- * 功能：渲染 `MenubarContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Content>）：React 组件属性对象；解构字段包括 className, align, start, alignOffset,
- *     sideOffset, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPortal`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarContent({
   className,
   align = "start",
@@ -160,16 +86,6 @@ function MenubarContent({
   )
 }
 
-/**
- * 功能：渲染 `MenubarItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, variant, default, props, React, ComponentProps, typeof
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarItem({
   className,
   inset,
@@ -193,16 +109,6 @@ function MenubarItem({
   )
 }
 
-/**
- * 功能：渲染 `MenubarCheckboxItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.CheckboxItem>）：React 组件属性对象；解构字段包括 className, children, checked, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`MenubarPrimitive`、`CheckIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarCheckboxItem({
   className,
   children,
@@ -229,16 +135,6 @@ function MenubarCheckboxItem({
   )
 }
 
-/**
- * 功能：渲染 `MenubarRadioItem` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.RadioItem>）：React 组件属性对象；解构字段包括 className, children, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`、`MenubarPrimitive`、`CircleIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarRadioItem({
   className,
   children,
@@ -263,16 +159,6 @@ function MenubarRadioItem({
   )
 }
 
-/**
- * 功能：渲染 `MenubarLabel` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, props, React, ComponentProps, typeof, MenubarPrimitive, Label
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarLabel({
   className,
   inset,
@@ -293,16 +179,6 @@ function MenubarLabel({
   )
 }
 
-/**
- * 功能：渲染 `MenubarSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Separator>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarSeparator({
   className,
   ...props
@@ -316,16 +192,6 @@ function MenubarSeparator({
   )
 }
 
-/**
- * 功能：渲染 `MenubarShortcut` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"span">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarShortcut({
   className,
   ...props
@@ -342,32 +208,12 @@ function MenubarShortcut({
   )
 }
 
-/**
- * 功能：渲染 `MenubarSub` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.Sub>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarSub({
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.Sub>) {
   return <MenubarPrimitive.Sub data-slot="menubar-sub" {...props} />
 }
 
-/**
- * 功能：渲染 `MenubarSubTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, inset, children, props, React, ComponentProps, typeof, MenubarPrimitive
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`、`ChevronRightIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarSubTrigger({
   className,
   inset,
@@ -392,16 +238,6 @@ function MenubarSubTrigger({
   )
 }
 
-/**
- * 功能：渲染 `MenubarSubContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof MenubarPrimitive.SubContent>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`MenubarPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MenubarSubContent({
   className,
   ...props

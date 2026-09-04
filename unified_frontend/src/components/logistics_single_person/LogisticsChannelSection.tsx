@@ -1,6 +1,3 @@
-// 文件说明：实现`LogisticsChannelSection` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useAuth } from '@/auth/useAuth'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
@@ -23,17 +20,6 @@ const FEATURE_DEPARTMENT_LABELS: Record<LogisticsFeatureName, string> = {
   detect_logistics_single_person_precious_metal_recycling: '伟达公司',
 }
 
-/**
- * 功能：渲染 `LogisticsChannelSection` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（LogisticsChannelSectionProps）：React 组件属性对象；解构字段包括 feature, title
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useLogisticsChannels`、`useLogisticsChannelStatus`、`refresh`、`refreshSelectedChannel`、`refreshStatus`、`refreshSummary`、`refreshFrame`、`return`、`calc`
- *          等共 17 个调用。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 export function LogisticsChannelSection({ feature, title }: LogisticsChannelSectionProps) {
   const { isAdmin } = useAuth()
   const channelQuery = useLogisticsChannels(feature)

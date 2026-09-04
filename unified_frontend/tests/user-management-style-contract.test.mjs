@@ -1,6 +1,3 @@
-// 文件说明：包含`user-management-style-contract.test` 模块的自动化测试、测试夹具与断言辅助代码。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'

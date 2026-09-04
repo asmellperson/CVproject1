@@ -1,6 +1,3 @@
-// 文件说明：实现告警的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -59,17 +56,6 @@ function alarmSubjectTypeLabel(subjectType?: string) {
   return '告警主体'
 }
 
-/**
- * 功能：渲染 `AlarmsSection` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（AlarmsSectionProps）：React 组件属性对象；解构字段包括 initialAlarmId
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useState`、`useRef`、`useMemo`、`getAccessibleAlarmEventTypes`、`Set`、`useEffect`、`async`、`getAlarms`、`setAlarms`
- *          等共 106 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
@@ -586,7 +572,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     </span>
                   </button>
                 </div>
-                
+
                 {selectedAlarm.video_status === 'ready' && (
                   <div>
                     <div className="text-sm text-slate-500 mb-1">报警视频</div>
@@ -611,11 +597,11 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     {selectedAlarm.source === 'security_vlm' ? '当前安检流程记录来自 VLM 历史判定；后端未提供单条截图接口。' : '当前 AiVision 报警记录已保存截图；未配置报警视频文件。'}
                   </div>
                 )}
-                
+
                 {selectedAlarm.video_status === 'pending' && (
                   <div className="text-sm text-slate-500">视频录制中...</div>
                 )}
-                
+
                 {selectedAlarm.video_status === 'failed' && (
                   <div className="text-sm text-red-500">视频录制或上传失败</div>
                 )}
@@ -693,16 +679,6 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   )
 }
 
-/**
- * 功能：渲染 `StatCard` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, value, icon, valueClassName, title, string, value, number
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`Card`、`CardContent`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function StatCard({
   title,
   value,

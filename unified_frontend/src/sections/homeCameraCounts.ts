@@ -1,6 +1,3 @@
-// 文件说明：实现摄像头的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import type { AiVisionCamera } from '@/lib/aivision'
 import type {
   LogisticsCameraInventoryItem,
@@ -46,34 +43,12 @@ const AI_VISION_FEATURES = [
   'detect_phone',
 ]
 
-/**
- * 功能：检查或判断 `hasFeature` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `camera`（CameraInventoryItem）：摄像头配置或实体
- *   - `feature`（string）：`feature` 对应的业务输入值
- * 返回：boolean（由实现推断）；返回条件是否成立。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/homeCameraCounts.ts` 的 `getLoadedAiVisionFeatureCounts` 调用本符号
- *   - 内部调用：`isArray`、`includes`、`Boolean`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function hasFeature(camera: CameraInventoryItem, feature: string) {
   return Array.isArray(camera.functions)
     ? camera.functions.includes(feature)
     : Boolean(camera.functions?.[feature])
 }
 
-/**
- * 功能：将普通 AiVision 摄像头与物流通道成员清单按 `camera_id` 合并，补齐遗漏摄像头和物流功能标签。
- * 参数：
- *   - `cameras`（AiVisionCamera[]）：普通 AiVision 摄像头接口返回值
- *   - `logisticsCameras`（LogisticsCameraInventoryItem[]）：物流通道成员清单
- * 返回：OverviewAiVisionCamera[]；返回按物理摄像头去重、可供首页统一统计和展示的清单。
- * 调用关系：
- *   - 调用方：`HomeSection` 的 `mergedAiVisionCameras` 计算调用本符号；单元测试直接调用验证去重与回退
- *   - 内部调用：`Map`、`Array.isArray`、`Object.fromEntries`、`map`、`push`。
- * 副作用/注意事项：不修改输入数组；物流清单补出的项目不含 RTSP 地址并标记为 `inventoryOnly`，避免进入编辑流程。
- */
 export function mergeAiVisionAndLogisticsCameras(
   cameras: AiVisionCamera[],
   logisticsCameras: LogisticsCameraInventoryItem[],
@@ -119,17 +94,6 @@ export function mergeAiVisionAndLogisticsCameras(
   return merged
 }
 
-/**
- * 功能：读取或查询 `getLoadedAiVisionFeatureCounts` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `cameras`（CameraInventoryItem[]）：`cameras` 对应的业务输入值
- *   - `loaded`（boolean）：`loaded` 对应的业务输入值
- * 返回：FeatureCameraCounts | undefined；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`reduce`、`filter`、`hasFeature`、`FeatureCameraCounts`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 export function getLoadedAiVisionFeatureCounts(
   cameras: CameraInventoryItem[],
   loaded: boolean,
@@ -145,18 +109,6 @@ export function getLoadedAiVisionFeatureCounts(
   }, {})
 }
 
-/**
- * 功能：读取或查询 `getCameraInventorySummary` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `cameras`（CameraInventoryItem[]）：`cameras` 对应的业务输入值
- *   - `runningCameras`（string[] | undefined）：`runningCameras` 对应的业务输入值
- *   - `fallbackOnlineCount`（未显式标注）：`fallbackOnlineCount` 对应的数量或大小；声明包含默认值 `0`
- * 返回：CameraInventorySummary；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`isArray`、`filter`、`String`、`includes`、`min`、`max`、`Number`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 export function getCameraInventorySummary(
   cameras: CameraInventoryItem[],
   runningCameras: string[] | undefined,

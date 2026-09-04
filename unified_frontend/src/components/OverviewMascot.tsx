@@ -1,17 +1,5 @@
-// 文件说明：实现`OverviewMascot` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useRef, useState } from 'react'
 
-/**
- * 功能：渲染 `OverviewMascot` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：无。
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useRef`、`useState`、`setIsPlaying`、`play`、`return`、`HTMLVideoElement`。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
- */
 export function OverviewMascot() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(true)

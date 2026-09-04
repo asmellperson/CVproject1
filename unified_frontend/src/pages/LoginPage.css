@@ -1,5 +1,3 @@
-/* 文件说明：定义`LoginPage` 模块的样式规则与响应式/主题表现；仅影响视觉呈现，不参与业务数据处理。 */
-
 .login-page {
   --login-video-bg: #0b1b39;
   --login-video-bg-soft: #1a2c50;

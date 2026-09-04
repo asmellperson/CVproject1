@@ -1,6 +1,3 @@
-// 文件说明：实现摄像头的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,61 +14,12 @@ import type { SecurityVlmCamera } from '@/lib/security-vlm'
 
 type Props = {
   camera?: SecurityVlmCamera | null
-  /**
-   * 功能：停止并释放 `onClose` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：无。
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onClose: () => void
-  /**
-   * 功能：更新或保存 `onSave` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `name`（string）：业务对象名称
-   *   - `rtspUrl`（string）：`rtspUrl` 对应的业务输入值
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onSave: (name: string, rtspUrl: string) => Promise<void>
-  /**
-   * 功能：验证 `onTest` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `rtspUrl`（string）：`rtspUrl` 对应的业务输入值
-   * 返回：Promise<string>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/security-vlm/SecurityCameraDialog.tsx` 的 `SecurityCameraDialog` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onTest: (rtspUrl: string) => Promise<string>
-  /**
-   * 功能：删除或清理 `onDelete` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：无。
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onDelete?: () => Promise<void>
 }
 
-/**
- * 功能：渲染 `SecurityCameraDialog` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（Props）：React 组件属性对象；解构字段包括 camera, onClose, onSave, onTest, onDelete
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useState`、`async`、`setBusy`、`setMessage`、`operation`、`error`、`String`、`return`、`onClose`、`setName` 等共 25 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function SecurityCameraDialog({
   camera,
   onClose,

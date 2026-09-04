@@ -1,6 +1,3 @@
-// 文件说明：实现`HomeSection` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -279,16 +276,6 @@ const warningAlarmTypes = new Set([
   'security_vlm_error',
 ])
 
-/**
- * 功能：检查或判断 `isToday` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `value?`（string）：待转换、校验或写入的值
- * 返回：boolean（由实现推断）；返回条件是否成立。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`Date`、`isNaN`、`getTime`、`getFullYear`、`getMonth`、`getDate`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function isToday(value?: string) {
   if (!value) return false
   const date = new Date(value)
@@ -297,16 +284,6 @@ function isToday(value?: string) {
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
 }
 
-/**
- * 功能：转换或规范化 `formatLatestTime` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `value?`（string）：待转换、校验或写入的值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`Date`、`isNaN`、`getTime`、`toLocaleString`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function formatLatestTime(value?: string) {
   if (!value) return '暂无'
   const date = new Date(value)
@@ -319,46 +296,16 @@ function formatLatestTime(value?: string) {
   })
 }
 
-/**
- * 功能：读取或查询 `getAlarmSeverity` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `eventType`（string）：事件类型标识
- * 返回：AlarmSeverity；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`has`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getAlarmSeverity(eventType: string): AlarmSeverity {
   if (criticalAlarmTypes.has(eventType)) return 'critical'
   if (warningAlarmTypes.has(eventType)) return 'warning'
   return 'normal'
 }
 
-/**
- * 功能：读取或查询 `getAlarmLocation` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `alarm`（AlarmEvent）：`alarm` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getAlarmLocation(alarm: AlarmEvent) {
   return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
-/**
- * 功能：实现 `departmentLabel` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `departments`（Department[]）：`departments` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`includes`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function departmentLabel(departments: Department[]) {
   if (departments.includes('all')) return '全局视图'
   if (departments.length > 1) return `${departments.length} 个事业部 / 公司视图`
@@ -372,59 +319,18 @@ function departmentLabel(departments: Department[]) {
   return '权限视图'
 }
 
-/**
- * 功能：实现 `cameraDepartmentLabel` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `department?`（string | null）：业务部门名称或标识
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`find`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function cameraDepartmentLabel(department?: string | null) {
   return departmentOptions.find((item) => item.value === department)?.label || '未分配事业部'
 }
 
-/**
- * 功能：实现 `cameraSourceLabel` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `source`（CameraSource）：`source` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`find`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function cameraSourceLabel(source: CameraSource) {
   return cameraSourceOptions.find((item) => item.value === source)?.label || source
 }
 
-/**
- * 功能：读取或查询 `getRunningConsumers` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityRunning`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityModelReady` 调用本符号
- *   - 内部调用：`isArray`、`map`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getRunningConsumers(service?: PlatformServiceStatus) {
   return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
 }
 
-/**
- * 功能：读取或查询 `getAiVisionCameraFeatureLabels` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `camera`（AiVisionCamera）：摄像头配置或实体
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`isArray`、`entries`、`filter`、`Boolean`、`map`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
   const functions = camera.functions
   const enabledFeatures = Array.isArray(functions)
@@ -435,16 +341,6 @@ function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
   return enabledFeatures.map((feature) => aiVisionFeatureLabels[feature] || feature)
 }
 
-/**
- * 功能：创建或构建 `makeAiVisionShmName` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `alias`（string）：`alias` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`trim`、`toLowerCase`、`replace`、`now`、`toString`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function makeAiVisionShmName(alias: string) {
   const base = alias
     .trim()
@@ -454,57 +350,16 @@ function makeAiVisionShmName(alias: string) {
   return `${base || 'camera'}_${Date.now().toString(36)}`
 }
 
-/**
- * 功能：读取或查询 `getFeatureStatus` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `getCapabilityCameraCount`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `getCapabilityOnlineCameraCount`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityRunning`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityModelReady` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getFeatureStatus(service?: PlatformServiceStatus, featureKey?: string) {
   if (!featureKey) return undefined
   return service?.feature_status?.[featureKey]
 }
 
-/**
- * 功能：读取或查询 `getLocalFeatureCount` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `featureCounts`（FeatureCameraCounts | undefined）：`featureCounts` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `getCapabilityCameraCount`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `getCapabilityOnlineCameraCount`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityRunning`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `isCapabilityModelReady` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getLocalFeatureCount(featureCounts: FeatureCameraCounts | undefined, featureKey?: string) {
   if (!featureKey) return undefined
   return featureCounts?.[featureKey]?.cameraCount
 }
 
-/**
- * 功能：读取或查询 `getCapabilityCameraCount` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `getScopedStatusSummary`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `ServiceStatusCard` 调用本符号
- *   - 内部调用：`getLocalFeatureCount`、`getFeatureStatus`、`Number`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   const localCount = getLocalFeatureCount(featureCounts, featureKey)
   if (typeof localCount === 'number') return localCount
@@ -512,19 +367,6 @@ function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: 
   return Number(featureStatus?.camera_count ?? service?.camera_count ?? 0)
 }
 
-/**
- * 功能：读取或查询 `getCapabilityOnlineCameraCount` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `getScopedStatusSummary`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `ServiceStatusCard` 调用本符号
- *   - 内部调用：`getLocalFeatureCount`、`getFeatureStatus`、`min`、`Number`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   const localCount = getLocalFeatureCount(featureCounts, featureKey)
   const featureStatus = getFeatureStatus(service, featureKey)
@@ -534,20 +376,6 @@ function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, feature
   return Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0)
 }
 
-/**
- * 功能：检查或判断 `isCapabilityRunning` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：boolean（由实现推断）；返回条件是否成立。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `getStatusLevelForCards`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `getScopedStatusSummary`
- *         调用本符号；`unified_frontend/src/sections/HomeSection.tsx` 的 `ServiceStatusCard` 调用本符号
- *   - 内部调用：`getLocalFeatureCount`、`getFeatureStatus`、`Number`、`getRunningConsumers`、`includes`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   if (!service?.online || !service.running) return false
   if (!featureKey) return true
@@ -560,18 +388,6 @@ function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: strin
   return runningConsumers.includes(featureKey)
 }
 
-/**
- * 功能：检查或判断 `isCapabilityModelReady` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `service?`（PlatformServiceStatus）：`service` 对应的业务输入值
- *   - `featureKey?`（string）：`featureKey` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：boolean（由实现推断）；返回条件是否成立。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `ServiceStatusCard` 调用本符号
- *   - 内部调用：`Boolean`、`getLocalFeatureCount`、`getFeatureStatus`、`Number`、`getRunningConsumers`、`includes`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   if (!featureKey) return Boolean(service?.model_status?.loaded)
   const localCount = getLocalFeatureCount(featureCounts, featureKey)
@@ -583,18 +399,6 @@ function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: st
   return runningConsumers.includes(featureKey)
 }
 
-/**
- * 功能：读取或查询 `getStatusLevelForCards` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `cards`（ModuleStatusCard[]）：`cards` 对应的业务输入值
- *   - `platformStatus`（PlatformStatus | null）：`platformStatus` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`map`、`filter`、`isCapabilityRunning`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!cards.length || !platformStatus) return 'down'
   const services = cards.map((card) => platformStatus.services[card.serviceKey])
@@ -605,16 +409,6 @@ function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: Platf
   return 'down'
 }
 
-/**
- * 功能：读取或查询 `getVisibleStatusCards` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `visibleEntries`（typeof moduleEntries）：`visibleEntries` 对应的业务输入值
- * 返回：ModuleStatusCard[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`flatMap`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStatusCard[] {
   return visibleEntries.flatMap((entry) => {
     const source = moduleStatusSources[entry.id]
@@ -622,18 +416,6 @@ function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStat
   })
 }
 
-/**
- * 功能：读取或查询 `getScopedStatusSummary` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `cards`（ModuleStatusCard[]）：`cards` 对应的业务输入值
- *   - `platformStatus`（PlatformStatus | null）：`platformStatus` 对应的业务输入值
- *   - `featureCounts?`（FeatureCameraCounts）：`featureCounts` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
- *   - 内部调用：`filter`、`from`、`Set`、`map`、`reduce`、`Number`、`getCapabilityCameraCount`、`getCapabilityOnlineCameraCount`、`isCapabilityRunning`、`max`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
   if (!platformStatus) {
     return {
@@ -674,17 +456,6 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
   }
 }
 
-/**
- * 功能：渲染 `HomeSection` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（HomeSectionProps）：React 组件属性对象；解构字段包括 onNavigate, platformStatus
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useMemo`、`filterHomeModulesByPermission`、`getVisibleStatusCards`、`useState`、`getUserDepartments`、`getUserDepartment`、`Set`、`map`、`filter`
- *          等共 155 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
   const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
@@ -1072,15 +843,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   useEffect(() => {
     let cancelled = false
 
-    /**
-     * 功能：读取或查询 `loadOverview` 对应的`HomeSection` 模块逻辑；输入由参数提供，处理结果见返回值说明
-     * 参数：无。
-     * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
-     * 调用关系：
-     *   - 调用方：`unified_frontend/src/sections/HomeSection.tsx` 的 `HomeSection` 调用本符号
-     *   - 内部调用：`getAlarms`、`Set`、`filter`、`has`、`setOverview`、`isToday`、`slice`。
-     * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
-     */
     async function loadOverview() {
       const alarms = await getAlarms(100)
 
@@ -1625,16 +1387,6 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   )
 }
 
-/**
- * 功能：渲染 `MetricTile` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, value, detail, icon, tone, title, string, value
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`gradient`、`rgba`、`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MetricTile({
   title,
   value,
@@ -1685,16 +1437,6 @@ function MetricTile({
   )
 }
 
-/**
- * 功能：渲染 `StatusBadge` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 level, level, string
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`cn`、`Badge`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function StatusBadge({ level }: { level: string }) {
   const label = level === 'healthy' ? '全部正常' : level === 'degraded' ? '部分异常' : '模块离线'
   const className =
@@ -1706,17 +1448,6 @@ function StatusBadge({ level }: { level: string }) {
   return <Badge className={cn('px-3 py-1.5 text-sm font-bold shadow-none hover:bg-current/0', className)}>{label}</Badge>
 }
 
-/**
- * 功能：渲染 `ServiceStatusCard` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 service, displayName, featureKey, featureCounts, service, PlatformServiceStatus,
- *     displayName, string
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`Boolean`、`isCapabilityRunning`、`isCapabilityModelReady`、`getCapabilityCameraCount`、`getCapabilityOnlineCameraCount`、`getServiceStatusText`、`return`、`cn`、`getRecognitionAbilityText`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ServiceStatusCard({
   service,
   displayName,
@@ -1788,16 +1519,6 @@ function ServiceStatusCard({
   )
 }
 
-/**
- * 功能：渲染 `MiniStatusMetric` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, value, warn, label, string, value, string, number
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function MiniStatusMetric({
   label,
   value,

@@ -1,6 +1,3 @@
-// 文件说明：实现`nav` 模块相关的基础能力。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import {
   BarChart3,
   Bell,
@@ -60,10 +57,10 @@ export const navGroups: NavGroup[] = [
       { id: 'logistics-single-person-electrical-components-detection', label: '物流通道单人检测', icon: UsersRound, description: '电气部件物流通道单人监控与配置入口' },
       { id: 'logistics-single-person-precious-metal-recycling-detection', label: '物流通道单人检测', icon: UsersRound, description: '伟达公司物流通道单人监控与配置入口' },
       { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
-      
+
     ],
   },
-  { 
+  {
     id: 'data',
     label: '数据中心',
     items: [
@@ -83,16 +80,6 @@ export const navGroups: NavGroup[] = [
 
 export const flatNavItems: NavItem[] = navGroups.flatMap((group) => group.items)
 
-/**
- * 功能：读取或查询 `findNavItem` 对应的`nav` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `id`（string）：`id` 对应业务对象的唯一标识
- * 返回：NavItem | undefined；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`find`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 export function findNavItem(id: string): NavItem | undefined {
   return flatNavItems.find((item) => item.id === id)
 }

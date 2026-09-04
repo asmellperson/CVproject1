@@ -1,6 +1,3 @@
-// 文件说明：实现`Sidebar` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
 import { departmentPermissions, filterNavGroupsByPermission, getUserDepartments } from '@/auth/permissions'
@@ -35,18 +32,6 @@ interface SidebarProps {
   systemRunning?: boolean
 }
 
-/**
- * 功能：渲染 `Sidebar` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（SidebarProps）：React 组件属性对象；解构字段包括 currentPage, onPageChange, collapsed, onToggleCollapsed, width, minWidth, maxWidth,
- *     resizing
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useState`、`useMemo`、`buildSidebarNavGroups`、`Set`、`map`、`concat`、`useEffect`、`getStatistics`、`then` 等共 58
- *          个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function Sidebar({
   currentPage,
   onPageChange,
@@ -410,18 +395,6 @@ export function Sidebar({
   )
 }
 
-/**
- * 功能：渲染 `SidebarResizeHandle` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 width, minWidth, maxWidth, onWidthChange, onWidthCommit, onResizeStateChange, width,
- *     number
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useRef`、`useEffect`、`onResizeStateChange`、`min`、`max`、`hasPointerCapture`、`releasePointerCapture`、`onWidthCommit`、`preventDefault`、`clamp`
- *          等共 15 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 function SidebarResizeHandle({
   width,
   minWidth,
@@ -574,17 +547,6 @@ const navToneRgb: Record<NavTone, string> = {
   orange: '251 113 43',
 }
 
-/**
- * 功能：实现 `navToneStyle` 对应的`Sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `tone`（NavTone）：`tone` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/Sidebar.tsx` 的 `Sidebar` 调用本符号；`unified_frontend/src/components/Sidebar.tsx` 的
- *         `SidebarNavButton` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function navToneStyle(tone: NavTone) {
   return { '--nav-rgb': navToneRgb[tone] } as CSSProperties
 }
@@ -600,32 +562,12 @@ const sidebarChildMeta: Record<string, { tone: NavTone; icon: typeof Building2 }
   shared: { tone: 'blue', icon: PackageOpen },
 }
 
-/**
- * 功能：实现 `sectionTone` 对应的`Sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `groupId`（string）：`groupId` 对应业务对象的唯一标识
- * 返回：NavTone；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/Sidebar.tsx` 的 `Sidebar` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function sectionTone(groupId: string): NavTone {
   if (groupId === 'data') return 'magenta'
   if (groupId === 'system') return 'teal'
   return 'cyan'
 }
 
-/**
- * 功能：实现 `itemTone` 对应的`Sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `itemId`（string）：`itemId` 对应业务对象的唯一标识
- * 返回：NavTone；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/Sidebar.tsx` 的 `Sidebar` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function itemTone(itemId: string): NavTone {
   if (itemId === 'alarms') return 'red'
   if (itemId === 'statistics') return 'magenta'
@@ -634,17 +576,6 @@ function itemTone(itemId: string): NavTone {
   return 'blue'
 }
 
-/**
- * 功能：创建或构建 `buildSidebarNavGroups` 对应的`Sidebar` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `user`（Parameters<typeof filterNavGroupsByPermission>[0]）：当前用户或待处理用户对象
- *   - `isAdmin`（boolean）：`isAdmin` 对应的业务输入值
- * 返回：NavGroup[]；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/Sidebar.tsx` 的 `Sidebar` 调用本符号
- *   - 内部调用：`filterNavGroupsByPermission`、`getUserDepartments`、`find`、`Map`、`map`、`Set`、`flatMap`、`get`、`add`、`filter`、`has`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
   const visibleGroups = filterNavGroupsByPermission(user, navGroups)
   const userDepartments = new Set<string>(getUserDepartments(user))
@@ -678,16 +609,6 @@ function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermissi
   ))
 }
 
-/**
- * 功能：渲染 `SidebarNavButton` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 item, compact, active, onClick, tone, nested, false, badge
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`navToneStyle`、`cn`、`return`、`Icon`、`ChevronRight`、`Tooltip`、`TooltipTrigger`、`TooltipContent`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SidebarNavButton({
   item,
   compact,

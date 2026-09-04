@@ -1,6 +1,3 @@
-// 文件说明：实现`useLogisticsChannels` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { useSerialPoll } from '@/hooks/use-serial-poll'
@@ -45,17 +42,6 @@ const FRAME_REQUEST_TIMEOUT_MS = 5000
 
 type LogisticsChannelInvalidationEvent = CustomEvent<LogisticsChannelQueryInvalidation>
 
-/**
- * 功能：检查或判断 `isToday` 对应的`useLogisticsChannels` 模块逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `value`（string | null）：待转换、校验或写入的值
- *   - `now`（未显式标注）：`now` 对应的业务输入值；声明包含默认值 `new Date()`
- * 返回：boolean（由实现推断）；返回条件是否成立。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`Date`、`isNaN`、`getTime`、`getFullYear`、`getMonth`、`getDate`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function isToday(value: string | null, now = new Date()) {
   if (!value) return false
   const date = new Date(value)
@@ -65,18 +51,6 @@ function isToday(value: string | null, now = new Date()) {
     && date.getDate() === now.getDate()
 }
 
-/**
- * 功能：封装 `useLogisticsChannels` React Hook，向调用组件提供`useLogisticsChannels` 模块状态与操作
- * 参数：
- *   - `feature`（LogisticsFeatureName）：`feature` 对应的业务输入值
- *   - `enabled`（未显式标注）：是否启用相应能力；声明包含默认值 `true`
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelSection.tsx` 的 `LogisticsChannelSection` 调用本符号
- *   - 内部调用：`useState`、`useReducer`、`useRef`、`useEffect`、`useCallback`、`async`、`isCurrentChannelListRequest`、`listLogisticsChannels`、`isCurrentRequest`、`setChannels`
- *          等共 32 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = true) {
   const [channels, setChannels] = useState<LogisticsChannel[]>([])
   const [selectedChannelDetail, setSelectedChannelDetail] = useState<LogisticsChannelDetail | null>(null)
@@ -250,19 +224,6 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
 type SelectionToken = { key: string }
 type KeyedValue<T> = { selection: SelectionToken; value: T }
 
-/**
- * 功能：封装 `useLogisticsChannelStatus` React Hook，向调用组件提供`useLogisticsChannels` 模块状态与操作
- * 参数：
- *   - `feature`（LogisticsFeatureName）：`feature` 对应的业务输入值
- *   - `channelId`（number | null）：`channelId` 对应业务对象的唯一标识
- *   - `enabled`（未显式标注）：是否启用相应能力；声明包含默认值 `true`
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsChannelSection.tsx` 的 `LogisticsChannelSection` 调用本符号
- *   - 内部调用：`useReducer`、`useRef`、`useMemo`、`useEffect`、`useCallback`、`async`、`getLogisticsChannelStatus`、`setEventState`、`appendLogisticsStatusEvent`、`setStatusState`
- *          等共 39 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function useLogisticsChannelStatus(
   feature: LogisticsFeatureName,
   channelId: number | null,

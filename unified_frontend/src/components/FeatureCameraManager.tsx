@@ -1,6 +1,3 @@
-// 文件说明：实现摄像头的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useEffect, useMemo, useState } from 'react'
 import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,64 +25,12 @@ type FeatureCameraManagerProps = {
   department: string
   currentCameraName: string
   disabled?: boolean
-  /**
-   * 功能：处理 `onSelectCamera` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `shmName`（string）：摄像头共享内存名称
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onSelectCamera: (shmName: string) => void
-  /**
-   * 功能：创建或构建 `onAddCamera` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `shmName`（string）：摄像头共享内存名称
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/FeatureCameraManager.tsx` 的 `FeatureCameraManager` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onAddCamera: (shmName: string) => Promise<void>
-  /**
-   * 功能：删除或清理 `onRemoveCamera` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `shmName`（string）：摄像头共享内存名称
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/FeatureCameraManager.tsx` 的 `FeatureCameraManager` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onRemoveCamera: (shmName: string) => Promise<void>
-  /**
-   * 功能：处理 `onConfigCopied` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `targetShmName`（string）：`targetShmName` 对应的业务输入值
-   * 返回：void | Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/FeatureCameraManager.tsx` 的 `FeatureCameraManager` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onConfigCopied?: (targetShmName: string) => void | Promise<void>
 }
 
-/**
- * 功能：渲染 `FeatureCameraManager` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（FeatureCameraManagerProps）：React 组件属性对象；解构字段包括 cameras, feature, department, currentCameraName, disabled,
- *     onSelectCamera, onAddCamera, onRemoveCamera
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useState`、`useMemo`、`filter`、`isAiVisionFeatureEnabled`、`useEffect`、`some`、`setSelectedExistingCamera`、`setCopySourceCamera`、`setCopyTargetCamera`、`async`
- *          等共 44 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
 export function FeatureCameraManager({
   cameras,
   feature,

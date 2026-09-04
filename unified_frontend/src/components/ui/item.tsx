@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`item` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -8,16 +5,6 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 
-/**
- * 功能：渲染 `ItemGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -29,16 +16,6 @@ function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemSeparator` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof Separator>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Separator`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemSeparator({
   className,
   ...props
@@ -74,16 +51,6 @@ const itemVariants = cva(
   }
 )
 
-/**
- * 功能：渲染 `Item` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, variant, default, size, default, asChild, false, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`itemVariants`、`Comp`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Item({
   className,
   variant = "default",
@@ -121,17 +88,6 @@ const itemMediaVariants = cva(
   }
 )
 
-/**
- * 功能：渲染 `ItemMedia` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div"> & VariantProps<typeof itemMediaVariants>）：React 组件属性对象；解构字段包括 className, variant,
- *     default, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`itemMediaVariants`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemMedia({
   className,
   variant = "default",
@@ -147,16 +103,6 @@ function ItemMedia({
   )
 }
 
-/**
- * 功能：渲染 `ItemContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -170,16 +116,6 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemTitle` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -193,16 +129,6 @@ function ItemTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemDescription` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"p">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
@@ -217,16 +143,6 @@ function ItemDescription({ className, ...props }: React.ComponentProps<"p">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemActions` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -237,16 +153,6 @@ function ItemActions({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -260,16 +166,6 @@ function ItemHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `ItemFooter` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function ItemFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

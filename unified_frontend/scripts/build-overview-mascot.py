@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# 文件说明：实现`build-overview-mascot` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """Build the transparent overview mascot WebM and final-pose PNG."""
 
@@ -17,14 +15,6 @@ import numpy as np
 OUTPUT_SIZE = (600, 544)
 
 
-# 功能：读取或查询 `read_video_metadata` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `source`（Path）：`source` 对应的业务输入值
-# 返回：tuple[float, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_frontend/scripts/build-overview-mascot.py` 的 `convert` 调用本符号
-#   - 内部调用：`cv2.VideoCapture`、`str`、`capture.isOpened`、`RuntimeError`、`capture.get`、`int`、`capture.release`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
 def read_video_metadata(source: Path) -> tuple[float, int]:
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():
@@ -36,15 +26,6 @@ def read_video_metadata(source: Path) -> tuple[float, int]:
     return fps, frame_count
 
 
-# 功能：实现 `connected_subject` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `candidate`（np.ndarray）：`candidate` 对应的业务输入值
-#   - `strong`（np.ndarray）：`strong` 对应的业务输入值
-# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_frontend/scripts/build-overview-mascot.py` 的 `build_alpha` 调用本符号
-#   - 内部调用：`cv2.connectedComponentsWithStats`、`np.zeros_like`、`range`、`np.count_nonzero`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def connected_subject(candidate: np.ndarray, strong: np.ndarray) -> np.ndarray:
     count, labels, stats, _ = cv2.connectedComponentsWithStats(candidate, 8)
     subject = np.zeros_like(candidate)
@@ -58,16 +39,6 @@ def connected_subject(candidate: np.ndarray, strong: np.ndarray) -> np.ndarray:
     return subject
 
 
-# 功能：创建或构建 `build_alpha` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `frame`（np.ndarray）：待处理的视频图像帧
-# 返回：np.ndarray；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_frontend/scripts/build-overview-mascot.py` 的 `convert` 调用本符号
-#   - 内部调用：`cv2.cvtColor`、`((saturation < 46) & (value >
-#          132)).astype`、`cv2.connectedComponents`、`np.unique`、`np.concatenate`、`np.isin`、`np.where(external_background, 0,
-#          255).astype`、`np.where`、`((saturation > 52) | (value < 96)).astype`、`cv2.morphologyEx` 等共 13 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_alpha(frame: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     saturation = hsv[:, :, 1]
@@ -95,16 +66,6 @@ def build_alpha(frame: np.ndarray) -> np.ndarray:
     return alpha
 
 
-# 功能：处理 `place_on_canvas` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `frame`（np.ndarray）：待处理的视频图像帧
-#   - `alpha`（np.ndarray）：`alpha` 对应的业务输入值
-#   - `center_x`（float）：`center_x` 对应的业务输入值
-# 返回：tuple[np.ndarray, np.ndarray]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_frontend/scripts/build-overview-mascot.py` 的 `convert` 调用本符号
-#   - 内部调用：`min`、`max`、`int`、`round`、`np.zeros`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def place_on_canvas(frame: np.ndarray, alpha: np.ndarray, center_x: float) -> tuple[np.ndarray, np.ndarray]:
     canvas_width, canvas_height = OUTPUT_SIZE
     source_height, source_width = alpha.shape
@@ -120,16 +81,6 @@ def place_on_canvas(frame: np.ndarray, alpha: np.ndarray, center_x: float) -> tu
     return canvas, cropped_alpha
 
 
-# 功能：转换或规范化 `convert` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `source`（Path）：`source` 对应的业务输入值
-#   - `output_dir`（Path）：`output_dir` 对应的业务输入值
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_frontend/scripts/build-overview-mascot.py` 的 `main` 调用本符号
-#   - 内部调用：`read_video_metadata`、`output_dir.mkdir`、`str`、`subprocess.Popen`、`RuntimeError`、`cv2.VideoCapture`、`capture.read`、`build_alpha`、`cv2.findNonZero`、`cv2.boundingRect`
-#          等共 20 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
 def convert(source: Path, output_dir: Path) -> None:
     fps, expected_frames = read_video_metadata(source)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -185,13 +136,6 @@ def convert(source: Path, output_dir: Path) -> None:
     print(f"已生成 {final_pose_path}")
 
 
-# 功能：实现 `main` 对应的`build-overview-mascot` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`convert`、`args.source.resolve`、`args.output_dir.resolve`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)

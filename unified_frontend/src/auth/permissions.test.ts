@@ -1,6 +1,3 @@
-// 文件说明：包含页面权限的自动化测试、测试夹具与断言辅助代码。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import {
   alarmEventTypesByPage,
   departmentPermissions,

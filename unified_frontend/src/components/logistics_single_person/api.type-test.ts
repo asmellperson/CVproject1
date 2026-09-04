@@ -1,6 +1,3 @@
-// 文件说明：实现接口访问的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import type {
   getLogisticsCameraConfig,
   updateLogisticsCameraConfig,

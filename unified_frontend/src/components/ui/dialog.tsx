@@ -1,86 +1,33 @@
-// 文件说明：封装可复用的`dialog` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-/**
- * 功能：渲染 `Dialog` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Root>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/command.tsx` 的 `CommandDialog` 调用本符号
- *   - 内部调用：`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-/**
- * 功能：渲染 `DialogTrigger` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Trigger>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogTrigger({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
-/**
- * 功能：渲染 `DialogPortal` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Portal>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/dialog.tsx` 的 `DialogContent` 调用本符号
- *   - 内部调用：`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-/**
- * 功能：渲染 `DialogClose` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Close>）：React 组件属性对象；解构字段包括 props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogClose({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Close>) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
 
-/**
- * 功能：渲染 `DialogOverlay` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Overlay>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/dialog.tsx` 的 `DialogContent` 调用本符号
- *   - 内部调用：`return`、`cn`、`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogOverlay({
   className,
   ...props
@@ -97,16 +44,6 @@ function DialogOverlay({
   )
 }
 
-/**
- * 功能：渲染 `DialogContent` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 className, children, showCloseButton, true, props, React, ComponentProps, typeof
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/command.tsx` 的 `CommandDialog` 调用本符号
- *   - 内部调用：`return`、`cn`、`calc`、`not`、`DialogPortal`、`DialogOverlay`、`DialogPrimitive`、`XIcon`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogContent({
   className,
   children,
@@ -141,16 +78,6 @@ function DialogContent({
   )
 }
 
-/**
- * 功能：渲染 `DialogHeader` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/command.tsx` 的 `CommandDialog` 调用本符号
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -161,16 +88,6 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `DialogFooter` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -184,16 +101,6 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/**
- * 功能：渲染 `DialogTitle` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Title>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/command.tsx` 的 `CommandDialog` 调用本符号
- *   - 内部调用：`return`、`cn`、`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogTitle({
   className,
   ...props
@@ -207,16 +114,6 @@ function DialogTitle({
   )
 }
 
-/**
- * 功能：渲染 `DialogDescription` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<typeof DialogPrimitive.Description>）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/components/ui/command.tsx` 的 `CommandDialog` 调用本符号
- *   - 内部调用：`return`、`cn`、`DialogPrimitive`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function DialogDescription({
   className,
   ...props

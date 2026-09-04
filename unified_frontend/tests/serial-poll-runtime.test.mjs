@@ -1,6 +1,3 @@
-// 文件说明：包含运行时的自动化测试、测试夹具与断言辅助代码。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

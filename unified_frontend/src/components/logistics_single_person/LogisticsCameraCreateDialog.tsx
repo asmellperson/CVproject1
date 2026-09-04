@@ -1,6 +1,3 @@
-// 文件说明：实现摄像头的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -23,58 +20,17 @@ import {
 } from './logisticsCameraCreateState'
 
 type Props = {
-  /**
-   * 功能：停止并释放 `onClose` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：无。
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onClose: () => void
-  /**
-   * 功能：处理 `onSubmit` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `payload`（LogisticsCameraCreateInput）：接口或事件携带的业务数据
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/components/logistics_single_person/LogisticsCameraCreateDialog.tsx` 的
-   *         `LogisticsCameraCreateDialog` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onSubmit: (payload: LogisticsCameraCreateInput) => Promise<void>
   title?: string
   description?: string
   submitLabel?: string
 }
 
-/**
- * 功能：实现 `messageOf` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `reason`（unknown）：`reason` 对应的业务输入值
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`String`。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
 }
 
-/**
- * 功能：渲染 `LogisticsCameraCreateDialog` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（Props）：React 组件属性对象；解构字段包括 onClose, onSubmit, title, description, submitLabel
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useState`、`validateLogisticsCameraDraft`、`async`、`setError`、`setBusy`、`normalizeLogisticsCameraDraft`、`onSubmit`、`onClose`、`messageOf`、`return`
- *          等共 21 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染。
- */
 export function LogisticsCameraCreateDialog({
   onClose,
   onSubmit,

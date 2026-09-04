@@ -1,14 +1,11 @@
-// 文件说明：实现`ROIDrawer` 模块的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Check, 
-  X, 
-  RotateCcw, 
+import {
+  Check,
+  X,
+  RotateCcw,
   Save,
   Trash2,
   Edit3,
@@ -36,11 +33,11 @@ interface ROIDrawerProps {
 }
 
 const DEFAULT_COLORS = [
-  '#00ffff', // cyan - post_roi
-  '#00ff00', // green - desk_roi
-  '#ff00ff', // magenta - phone_use_roi
-  '#ffff00', // yellow
-  '#ff6600', // orange
+  '#00ffff',
+  '#00ff00',
+  '#ff00ff',
+  '#ffff00',
+  '#ff6600',
 ];
 
 const DEFAULT_ROIS: ROIPolygon[] = [
@@ -49,23 +46,12 @@ const DEFAULT_ROIS: ROIPolygon[] = [
   { name: 'phone_use_roi', points: [], color: DEFAULT_COLORS[2], closed: false },
 ];
 
-/**
- * 功能：渲染 `ROIDrawer` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（ROIDrawerProps）：React 组件属性对象；解构字段包括 width, height, initialROIs, onChange, backgroundImage
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useRef`、`useState`、`useCallback`、`getContext`、`clearRect`、`Image`、`drawImage`、`fillRect`、`beginPath`、`moveTo` 等共 58
- *          个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；会读取或修改浏览器全局对象/DOM 状态。
- */
-export function ROIDrawer({ 
-  width = 960, 
-  height = 540, 
+export function ROIDrawer({
+  width = 960,
+  height = 540,
   initialROIs,
   onChange,
-  backgroundImage 
+  backgroundImage
 }: ROIDrawerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rois, setRois] = useState<ROIPolygon[]>(initialROIs || DEFAULT_ROIS);
@@ -74,21 +60,18 @@ export function ROIDrawer({
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggedPoint, setDraggedPoint] = useState<{ roiIndex: number; pointIndex: number } | null>(null);
 
-  // Scale factors for 1920x1080 reference
   const scaleX = 1920 / width;
   const scaleY = 1080 / height;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Draw background
     if (backgroundImage) {
       const img = new Image();
       img.onload = () => {
@@ -96,21 +79,20 @@ export function ROIDrawer({
       };
       img.src = backgroundImage;
     } else {
-      // Draw grid background
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(0, 0, width, height);
-      
+
       ctx.strokeStyle = '#334155';
       ctx.lineWidth = 1;
       const gridSize = 40;
-      
+
       for (let x = 0; x <= width; x += gridSize) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
         ctx.stroke();
       }
-      
+
       for (let y = 0; y <= height; y += gridSize) {
         ctx.beginPath();
         ctx.moveTo(0, y);
@@ -119,15 +101,14 @@ export function ROIDrawer({
       }
     }
 
-    // Draw all ROIs
     rois.forEach((roi, roiIndex) => {
       const isActive = roiIndex === activeROIIndex;
-      
+
       if (roi.points.length > 0) {
         ctx.strokeStyle = roi.color;
-        ctx.fillStyle = roi.color + (isActive ? '33' : '1a'); // 20% or 10% opacity
+        ctx.fillStyle = roi.color + (isActive ? '33' : '1a');
         ctx.lineWidth = isActive ? 3 : 2;
-        
+
         ctx.beginPath();
         roi.points.forEach((point, i) => {
           if (i === 0) {
@@ -136,14 +117,13 @@ export function ROIDrawer({
             ctx.lineTo(point.x, point.y);
           }
         });
-        
+
         if (roi.closed) {
           ctx.closePath();
           ctx.fill();
         }
         ctx.stroke();
 
-        // Draw points
         roi.points.forEach((point, pointIndex) => {
           ctx.beginPath();
           ctx.arc(point.x, point.y, isActive ? 6 : 4, 0, Math.PI * 2);
@@ -152,8 +132,7 @@ export function ROIDrawer({
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
           ctx.stroke();
-          
-          // Draw point index
+
           if (isActive) {
             ctx.fillStyle = '#fff';
             ctx.font = '10px sans-serif';
@@ -163,24 +142,22 @@ export function ROIDrawer({
           }
         });
 
-        // Draw lines to hover point for active ROI
         if (isActive && hoverPoint && !roi.closed && isDrawing) {
           ctx.beginPath();
           ctx.setLineDash([5, 5]);
           ctx.strokeStyle = roi.color;
           ctx.lineWidth = 1;
-          
+
           if (roi.points.length > 0) {
             const lastPoint = roi.points[roi.points.length - 1];
             ctx.moveTo(lastPoint.x, lastPoint.y);
             ctx.lineTo(hoverPoint.x, hoverPoint.y);
           }
-          
-          // Line to first point to show closure
+
           if (roi.points.length > 2) {
             const firstPoint = roi.points[0];
             const dist = Math.sqrt(
-              Math.pow(hoverPoint.x - firstPoint.x, 2) + 
+              Math.pow(hoverPoint.x - firstPoint.x, 2) +
               Math.pow(hoverPoint.y - firstPoint.y, 2)
             );
             if (dist < 20) {
@@ -188,12 +165,11 @@ export function ROIDrawer({
               ctx.lineTo(firstPoint.x, firstPoint.y);
             }
           }
-          
+
           ctx.stroke();
           ctx.setLineDash([]);
         }
 
-        // Draw ROI label
         if (roi.points.length > 0) {
           const firstPoint = roi.points[0];
           ctx.fillStyle = roi.color;
@@ -217,7 +193,7 @@ export function ROIDrawer({
   const getCanvasPoint = (e: React.MouseEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
-    
+
     const rect = canvas.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) * (canvas.width / rect.width),
@@ -228,8 +204,7 @@ export function ROIDrawer({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const point = getCanvasPoint(e);
     const roi = rois[activeROIIndex];
-    
-    // Check if clicking near an existing point to drag
+
     for (let i = 0; i < roi.points.length; i++) {
       const p = roi.points[i];
       const dist = Math.sqrt(Math.pow(point.x - p.x, 2) + Math.pow(point.y - p.y, 2));
@@ -238,14 +213,13 @@ export function ROIDrawer({
         return;
       }
     }
-    
+
     if (!isDrawing || roi.closed) return;
-    
-    // Check if clicking near first point to close polygon
+
     if (roi.points.length > 2) {
       const firstPoint = roi.points[0];
       const dist = Math.sqrt(
-        Math.pow(point.x - firstPoint.x, 2) + 
+        Math.pow(point.x - firstPoint.x, 2) +
         Math.pow(point.y - firstPoint.y, 2)
       );
       if (dist < 20) {
@@ -253,8 +227,7 @@ export function ROIDrawer({
         return;
       }
     }
-    
-    // Add new point
+
     const newRois = [...rois];
     newRois[activeROIIndex].points.push(point);
     setRois(newRois);
@@ -263,7 +236,7 @@ export function ROIDrawer({
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const point = getCanvasPoint(e);
     setHoverPoint(point);
-    
+
     if (draggedPoint) {
       const newRois = [...rois];
       newRois[draggedPoint.roiIndex].points[draggedPoint.pointIndex] = point;
@@ -319,7 +292,7 @@ export function ROIDrawer({
       desk_roi: getScaledCoordinates(rois[1]),
       phone_use_roi: getScaledCoordinates(rois[2]),
     };
-    
+
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -331,7 +304,6 @@ export function ROIDrawer({
 
   return (
     <div className="space-y-4">
-      {/* ROI Selector */}
       <div className="flex flex-wrap gap-2">
         {rois.map((roi, index) => (
           <Button
@@ -343,13 +315,13 @@ export function ROIDrawer({
               setIsDrawing(false);
             }}
             className="gap-2"
-            style={{ 
+            style={{
               borderColor: activeROIIndex === index ? roi.color : undefined,
               backgroundColor: activeROIIndex === index ? roi.color : undefined,
             }}
           >
-            <div 
-              className="w-3 h-3 rounded-full" 
+            <div
+              className="w-3 h-3 rounded-full"
               style={{ backgroundColor: roi.color }}
             />
             {roi.name}
@@ -358,7 +330,6 @@ export function ROIDrawer({
         ))}
       </div>
 
-      {/* Canvas */}
       <Card className="overflow-hidden">
         <CardContent className="p-0">
           <div className="relative">
@@ -374,25 +345,23 @@ export function ROIDrawer({
                 setDraggedPoint(null);
               }}
               className={`w-full h-auto cursor-${isDrawing ? 'crosshair' : 'default'}`}
-              style={{ 
+              style={{
                 cursor: isDrawing ? 'crosshair' : draggedPoint ? 'grabbing' : 'grab',
                 maxWidth: '100%'
               }}
             />
-            
-            {/* Overlay Instructions */}
+
             <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm">
               <p className="font-medium">{rois[activeROIIndex].name}</p>
               <p className="text-xs text-slate-300">
-                {rois[activeROIIndex].closed 
-                  ? '点击并拖动顶点可调整位置' 
-                  : isDrawing 
-                    ? '点击添加点，靠近首点可闭合' 
+                {rois[activeROIIndex].closed
+                  ? '点击并拖动顶点可调整位置'
+                  : isDrawing
+                    ? '点击添加点，靠近首点可闭合'
                     : '点击"开始绘制"创建区域'}
               </p>
             </div>
 
-            {/* Coordinate Display */}
             {hoverPoint && (
               <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-mono">
                 ({Math.round(hoverPoint.x * scaleX)}, {Math.round(hoverPoint.y * scaleY)})
@@ -402,7 +371,6 @@ export function ROIDrawer({
         </CardContent>
       </Card>
 
-      {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
         {!rois[activeROIIndex].closed ? (
           <>
@@ -413,8 +381,8 @@ export function ROIDrawer({
               </Button>
             ) : (
               <>
-                <Button 
-                  onClick={closePolygon} 
+                <Button
+                  onClick={closePolygon}
                   disabled={rois[activeROIIndex].points.length < 3}
                   variant="default"
                   className="gap-2"
@@ -422,8 +390,8 @@ export function ROIDrawer({
                   <Check className="w-4 h-4" />
                   完成绘制
                 </Button>
-                <Button 
-                  onClick={deleteLastPoint} 
+                <Button
+                  onClick={deleteLastPoint}
                   disabled={rois[activeROIIndex].points.length === 0}
                   variant="outline"
                   className="gap-2"
@@ -431,7 +399,7 @@ export function ROIDrawer({
                   <X className="w-4 h-4" />
                   撤销
                 </Button>
-                <Button 
+                <Button
                   onClick={clearActiveROI}
                   variant="outline"
                   className="gap-2 text-red-600 hover:text-red-700"
@@ -444,7 +412,7 @@ export function ROIDrawer({
           </>
         ) : (
           <>
-            <Button 
+            <Button
               onClick={startDrawing}
               variant="outline"
               className="gap-2"
@@ -452,7 +420,7 @@ export function ROIDrawer({
               <RotateCcw className="w-4 h-4" />
               重新绘制
             </Button>
-            <Button 
+            <Button
               onClick={clearActiveROI}
               variant="outline"
               className="gap-2 text-red-600 hover:text-red-700"
@@ -462,10 +430,10 @@ export function ROIDrawer({
             </Button>
           </>
         )}
-        
+
         <div className="flex-1" />
-        
-        <Button 
+
+        <Button
           onClick={exportConfig}
           variant="secondary"
           className="gap-2"
@@ -476,7 +444,6 @@ export function ROIDrawer({
         </Button>
       </div>
 
-      {/* Preview JSON */}
       <Card className="bg-slate-50">
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">
@@ -497,5 +464,3 @@ export function ROIDrawer({
     </div>
   );
 }
-
-// 文件结尾：`ROIDrawer` 组件定义到此结束，无额外启动逻辑。

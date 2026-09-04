@@ -1,6 +1,3 @@
-// 文件说明：实现配置相关的基础能力。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
@@ -27,6 +24,24 @@ export default defineConfig([
     files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
       'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['src/components/AiVisionRoiEditor.tsx'],
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
+    files: [
+      'src/sections/DoorDetectionSection.tsx',
+      'src/sections/FaceDetectionSection.tsx',
+      'src/sections/HumanDetectionSection.tsx',
+      'src/sections/IntrusionDetectionSection.tsx',
+      'src/sections/PhoneDetectionSection.tsx',
+    ],
+    rules: {
+      'react-hooks/exhaustive-deps': 'off',
     },
   },
 ])

@@ -1,6 +1,3 @@
-// 文件说明：实现配置的 React 展示与交互。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,7 +33,6 @@ import {
 import { useAuth } from '@/auth/useAuth'
 import { cn } from '@/lib/utils'
 import type { GuardRoomSite } from '@/types'
-// ==================== 类型定义 ====================
 
 type AppConfigPayload = {
   video: {
@@ -229,16 +225,6 @@ type AppConfigPatch = {
   wechat?: Partial<AppConfigPayload['wechat']>
 }
 
-/**
- * 功能：实现 `mergeConfig` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `data`（AppConfigPatch | null | undefined）：待处理的数据
- * 返回：AppConfigPayload；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload {
   return {
     video: { ...defaultConfig.video, ...(data?.video || {}) },
@@ -251,23 +237,10 @@ function mergeConfig(data: AppConfigPatch | null | undefined): AppConfigPayload 
   }
 }
 
-/**
- * 功能：读取或查询 `getErrorMessage` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `error`（unknown）：待报告、转换或判断的异常对象
- *   - `fallback`（string）：`fallback` 对应的业务输入值
- * 返回：string；返回该函数计算、请求或构造得到的结果；具体语义由类型及调用方使用方式确定。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
- *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
- * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
- */
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message
   return fallback
 }
-
-// ==================== 主组件 ====================
 
 type ConfigSectionProps = {
   site: GuardRoomSite | null
@@ -275,64 +248,13 @@ type ConfigSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   siteError?: string
-  /**
-   * 功能：处理 `onSelectSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `siteId`（number）：保安室站点唯一标识
-   * 返回：void；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onSelectSite: (siteId: number) => void
   department?: string
-  /**
-   * 功能：创建或构建 `onCreateSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `name`（string）：业务对象名称
-   * 返回：Promise<GuardRoomSite>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
-   *   - 内部调用：`GuardRoomSite`。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onCreateSite: (name: string) => Promise<GuardRoomSite>
-  /**
-   * 功能：删除或清理 `onDeleteSite` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：
-   *   - `siteId`（number）：保安室站点唯一标识
-   * 返回：Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onDeleteSite: (siteId: number) => Promise<void>
-  /**
-   * 功能：处理 `onSitesChanged` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
-   * 参数：无。
-   * 返回：void | Promise<void>；返回函数类型契约声明的处理结果。
-   * 调用关系：
-   *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
-   *   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-   * 副作用/注意事项：无明显外部副作用；下层调用失败时可能继续抛出异常。
-   */
   onSitesChanged?: () => void | Promise<void>
 }
 
-/**
- * 功能：渲染 `ConfigSection` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（ConfigSectionProps）：React 组件属性对象；解构字段包括 site, sites, selectedSiteId, loadingSites, siteError, onSelectSite,
- *     department, onCreateSite
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`useAuth`、`useState`、`useCallback`、`async`、`setConfig`、`getGuardRoomSiteConfig`、`mergeConfig`、`useEffect`、`setLoading`、`loadConfig`
- *          等共 93 个调用。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
- */
 function ConfigSection({
   site,
   sites,
@@ -385,7 +307,7 @@ function ConfigSection({
 
   const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [savePhase, setSavePhase] = useState('')  // 显示当前阶段
+  const [savePhase, setSavePhase] = useState('')
 
   const handleSave = async () => {
     if (!site) {
@@ -399,7 +321,6 @@ function ConfigSection({
     setSaveError('')
     setSaving(true)
     try {
-      // 阶段 1: 保存配置
       setSavePhase('正在保存配置...')
       await saveGuardRoomSiteConfig(site.id, {
         video: config.video,
@@ -412,14 +333,12 @@ function ConfigSection({
       })
 
       if (site.enabled) {
-        // 期望运行中的站点保存后热重启，使模型和规则完整生效。
         setSavePhase('正在重启算法（约 15 秒）...')
         await restartGuardRoomSiteRuntime(site.id)
 
         setSavePhase('等待算法就绪...')
-        await waitUntilRunning(20000)  // 最多等 20 秒
+        await waitUntilRunning(20000)
       } else {
-        // 手动关闭状态必须跨配置保存保持，不由保存动作隐式开启。
         setSavePhase('配置已保存，检测保持关闭')
       }
 
@@ -436,17 +355,6 @@ function ConfigSection({
     }
   }
 
-// 轮询 /api/status 直到 running=true 或超时
-/**
- * 功能：实现 `waitUntilRunning` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
- * 参数：
- *   - `timeoutMs`（number）：`timeoutMs` 对应的时间间隔或时长
- * 返回：未显式标注（由 TypeScript 推断）；返回实现中 `return` 表达式计算得到的结果。
- * 调用关系：
- *   - 调用方：`unified_frontend/src/sections/ConfigSection.tsx` 的 `ConfigSection` 调用本符号
- *   - 内部调用：`Error`、`now`、`getGuardRoomSiteStatus`、`Promise`、`setTimeout`。
- * 副作用/注意事项：会更新 React 状态并触发相关组件重新渲染；校验或请求失败时会主动抛出异常。
- */
 async function waitUntilRunning(timeoutMs: number) {
   if (!site) throw new Error('请先选择保安室')
   const deadline = Date.now() + timeoutMs
@@ -455,7 +363,7 @@ async function waitUntilRunning(timeoutMs: number) {
       const s = await getGuardRoomSiteStatus(site.id, department)
       if (s.running && !s.error) return
     } catch {
-      // 重启期间 API 可能短暂不可达，继续等
+      void 0
     }
     await new Promise((r) => setTimeout(r, 500))
   }
@@ -527,7 +435,6 @@ async function waitUntilRunning(timeoutMs: number) {
     }
   }
 
-  // 便捷更新函数
   const setVideo = (patch: Partial<AppConfigPayload['video']>) =>
     setConfig({ ...config, video: { ...config.video, ...patch } })
   const setModels = (patch: Partial<AppConfigPayload['models']>) =>
@@ -563,7 +470,6 @@ async function waitUntilRunning(timeoutMs: number) {
 
   return (
     <div className="space-y-6 text-slate-950 dark:text-slate-100">
-      {/* 标签页 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <DetectionConfigTabsList>
           <DetectionConfigTab value="sites" icon={Building2}>
@@ -647,7 +553,6 @@ async function waitUntilRunning(timeoutMs: number) {
           </Card>
         </TabsContent>
 
-        {/* ==================== 视频源 ==================== */}
         <TabsContent value="video" className="space-y-6">
           {!site ? (
             <Card>
@@ -821,7 +726,6 @@ async function waitUntilRunning(timeoutMs: number) {
           )}
         </TabsContent>
 
-        {/* ==================== 检测规则 ==================== */}
         <TabsContent value="rules" className="space-y-6">
           <Card className={DETECTION_CONFIG_CARD_CLASS}>
             <DetectionConfigCardHeader
@@ -831,7 +735,6 @@ async function waitUntilRunning(timeoutMs: number) {
               description="配置离岗、玩手机、趴睡等行为检测的阈值参数"
             />
             <DetectionConfigCardContent className="space-y-5 bg-[#F8FAFE] dark:bg-slate-950/40">
-              {/* 离岗相关 */}
               <RuleGroup title="离岗检测" icon={UserRound} tone="green">
                 <SliderRow
                   title="离岗触发时间（秒）"
@@ -855,7 +758,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 />
               </RuleGroup>
 
-              {/* 手机检测相关 */}
               <RuleGroup title="手机检测" icon={Smartphone} tone="blue">
                 <SliderRow
                   title="持续玩手机多久报警（秒）"
@@ -937,7 +839,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 </div>
               </RuleGroup>
 
-              {/* 趴睡检测相关 */}
               <RuleGroup title="趴睡检测" icon={Moon} tone="purple">
                 <SliderRow
                   title="持续趴睡多久报警（秒）"
@@ -999,7 +900,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 </div>
               </RuleGroup>
 
-              {/* 车辆无人值守检测 */}
               <RuleGroup title="车辆后备箱检查" icon={Car} tone="amber">
                 <Field label="车辆检测摄像头">
                   <Select
@@ -1129,7 +1029,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 </Field>
               </RuleGroup>
 
-              {/* 识别稳定性参数 */}
               <RuleGroup title="识别稳定性参数" icon={Settings2} tone="amber">
                 <SliderRow
                   title="静止判定灵敏度"
@@ -1166,9 +1065,7 @@ async function waitUntilRunning(timeoutMs: number) {
           </Card>
         </TabsContent>
 
-
-        {/* ==================== 模型配置 ==================== */}
-        <TabsContent value="model" className="space-y-6">
+<TabsContent value="model" className="space-y-6">
           <Card className={DETECTION_CONFIG_CARD_CLASS}>
             <DetectionConfigCardHeader
               icon={Box}
@@ -1214,7 +1111,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 <Input type="number" step="0.01" value={config.models.uniform_cls_conf} onChange={(e) => setModels({ uniform_cls_conf: Number(e.target.value) })} />
               </Field>
 
-              {/* 类别ID */}
               <Field label="person 类别 ID">
                 <Input type="number" value={config.classes.person} onChange={(e) => setClasses({ person: Number(e.target.value) })} />
               </Field>
@@ -1231,7 +1127,6 @@ async function waitUntilRunning(timeoutMs: number) {
                 <Input type="number" value={config.classes.vehicle_motorcycle} onChange={(e) => setClasses({ vehicle_motorcycle: Number(e.target.value) })} />
               </Field>
 
-              {/* 运行时开关 */}
               <div className="md:col-span-2 flex flex-col gap-4">
                 <SwitchRow id="debug" label="调试模式" description="输出更多调试信息" checked={config.runtime.debug} onChange={(checked) => setRuntime({ debug: checked })} />
                 <SwitchRow id="draw_debug" label="叠加调试文字" description="关闭后不再在视频画面左上角绘制调试状态" checked={config.runtime.draw_debug} onChange={(checked) => setRuntime({ draw_debug: checked })} />
@@ -1244,7 +1139,6 @@ async function waitUntilRunning(timeoutMs: number) {
           </Card>
         </TabsContent>
 
-        {/* ==================== 报警推送 ==================== */}
         <TabsContent value="wechat" className="space-y-6">
           <Card className={DETECTION_CONFIG_CARD_CLASS}>
             <DetectionConfigCardHeader
@@ -1340,8 +1234,6 @@ async function waitUntilRunning(timeoutMs: number) {
   )
 }
 
-// ==================== 通用子组件 ====================
-
 type RuleTone = 'green' | 'blue' | 'purple' | 'amber'
 
 const ruleToneStyles: Record<RuleTone, {
@@ -1381,16 +1273,6 @@ const ruleToneStyles: Record<RuleTone, {
   },
 }
 
-/**
- * 功能：渲染 `RuleGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, icon, Icon, tone, children, title, string, icon
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Icon`、`Label`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function RuleGroup({
   title,
   icon: Icon,
@@ -1416,16 +1298,6 @@ function RuleGroup({
   )
 }
 
-/**
- * 功能：渲染 `Field` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 label, children, label, string, children, React, ReactNode
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`Label`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
@@ -1435,16 +1307,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-/**
- * 功能：渲染 `SwitchRow` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 id, label, description, checked, onChange, id, string, label
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`Label`、`Switch`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SwitchRow({
   id,
   label,
@@ -1469,16 +1331,6 @@ function SwitchRow({
   )
 }
 
-/**
- * 功能：渲染 `SliderRow` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（未显式标注）：React 组件属性对象；解构字段包括 title, description, value, min, max, step, onChange, tone
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`isFinite`、`return`、`cn`、`onChange`、`Label`、`Slider`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function SliderRow({
   title,
   description,

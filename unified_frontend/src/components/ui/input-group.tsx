@@ -1,6 +1,3 @@
-// 文件说明：封装可复用的`input-group` 模块 React 基础组件。
-// 数据流：接收属性、状态或响应数据，并将结果交给组件、接口层或测试断言。
-
 "use client"
 
 import * as React from "react"
@@ -11,16 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
-/**
- * 功能：渲染 `InputGroup` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -30,16 +17,13 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
         "group/input-group border-input dark:bg-input/30 relative flex w-full items-center rounded-md border shadow-xs transition-[color,box-shadow] outline-none",
         "h-9 min-w-0 has-[>textarea]:h-auto",
 
-        // Variants based on alignment.
         "has-[>[data-align=inline-start]]:[&>input]:pl-2",
         "has-[>[data-align=inline-end]]:[&>input]:pr-2",
         "has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-start]]:[&>input]:pb-3",
         "has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3",
 
-        // Focus state.
         "has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50 has-[[data-slot=input-group-control]:focus-visible]:ring-[3px]",
 
-        // Error state.
         "has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[[data-slot][aria-invalid=true]]:border-destructive dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40",
 
         className
@@ -70,17 +54,6 @@ const inputGroupAddonVariants = cva(
   }
 )
 
-/**
- * 功能：渲染 `InputGroupAddon` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>）：React 组件属性对象；解构字段包括 className, align,
- *     inline, start, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`inputGroupAddonVariants`、`closest`、`querySelector`、`focus`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroupAddon({
   className,
   align = "inline-start",
@@ -121,17 +94,6 @@ const inputGroupButtonVariants = cva(
   }
 )
 
-/**
- * 功能：渲染 `InputGroupButton` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（Omit<React.ComponentProps<typeof Button>, "size"> &   VariantProps<typeof inputGroupButtonVariants>）：React
- *     组件属性对象；解构字段包括 className, type, button, variant, ghost, size, xs, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`inputGroupButtonVariants`、`React`、`Button`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroupButton({
   className,
   type = "button",
@@ -151,16 +113,6 @@ function InputGroupButton({
   )
 }
 
-/**
- * 功能：渲染 `InputGroupText` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"span">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`not`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
@@ -173,16 +125,6 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-/**
- * 功能：渲染 `InputGroupInput` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"input">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Input`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroupInput({
   className,
   ...props
@@ -199,16 +141,6 @@ function InputGroupInput({
   )
 }
 
-/**
- * 功能：渲染 `InputGroupTextarea` React 组件，根据输入属性组织界面并返回 JSX 节点
- * 参数：
- *   - `props`（React.ComponentProps<"textarea">）：React 组件属性对象；解构字段包括 className, props
- * 返回：JSX.Element（由 React 推断）；返回用于界面渲染的 React 元素树。
- * 调用关系：
- *   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
- *   - 内部调用：`return`、`cn`、`Textarea`。
- * 副作用/注意事项：会参与 React 渲染；事件回调可能更新状态或触发外部操作。
- */
 function InputGroupTextarea({
   className,
   ...props
