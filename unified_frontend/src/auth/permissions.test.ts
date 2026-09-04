@@ -13,7 +13,7 @@ const adminUser = {
   employee_id: 'admin',
   name: '管理员',
   role: 'admin',
-  department: 'all',
+  departments: ['all'],
 }
 
 const ownerUser = {
@@ -37,7 +37,7 @@ const electronicsUser = {
   employee_id: 'u1',
   name: '电子电工用户',
   role: 'viewer',
-  department: 'electronics_electrician',
+  departments: ['electronics_electrician'],
 }
 
 if (getUserDepartment(electronicsUser) !== 'electronics_electrician') {
@@ -76,7 +76,6 @@ const multiDepartmentUser = {
   employee_id: 'leader-1',
   name: '跨事业部负责人',
   role: 'viewer',
-  department: 'general_electric',
   departments: ['general_electric', 'electronics_electrician'],
 }
 
@@ -105,21 +104,21 @@ const electricalComponentsUser = {
   employee_id: 'u2',
   name: '电气部件用户',
   role: 'viewer',
-  department: 'electrical_components',
+  departments: ['electrical_components'],
 }
 
 const preciousMetalRecyclingUser = {
   employee_id: 'u3',
   name: '伟达公司用户',
   role: 'viewer',
-  department: 'precious_metal_recycling',
+  departments: ['precious_metal_recycling'],
 }
 
 const weidaAliasUser = {
   employee_id: 'u4',
   name: '伟达公司别名用户',
   role: 'viewer',
-  department: '伟达公司',
+  departments: ['伟达公司'],
 }
 
 if (getUserDepartment(electricalComponentsUser) !== 'electrical_components') {
@@ -170,7 +169,7 @@ const haodaUser = {
   employee_id: 'u4',
   name: '皓达公司用户',
   role: 'viewer',
-  department: 'haoda_company',
+  departments: ['haoda_company'],
 }
 
 if (getUserDepartment(haodaUser) !== 'haoda_company') {

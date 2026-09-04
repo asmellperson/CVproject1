@@ -119,7 +119,6 @@ class AlarmDispositionUpdateRequest(BaseModel):
 #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
 #   - `name`（str）：业务对象名称
 #   - `role`（str）：`role` 对应的业务输入值
-#   - `department`（str | None）：业务部门名称或标识
 #   - `departments`（list[str] | None）：`departments` 对应的业务输入值
 #   - `password`（str）：`password` 对应的业务输入值
 # 返回：AdminUserCreateRequest；返回新建的 `AdminUserCreateRequest` 实例。
@@ -131,7 +130,6 @@ class AdminUserCreateRequest(BaseModel):
     employee_id: str
     name: str
     role: str
-    department: str | None = None
     departments: list[str] | None = None
     password: str
 
@@ -140,7 +138,6 @@ class AdminUserCreateRequest(BaseModel):
 # 参数：
 #   - `name`（str）：业务对象名称
 #   - `role`（str）：`role` 对应的业务输入值
-#   - `department`（str | None）：业务部门名称或标识
 #   - `departments`（list[str] | None）：`departments` 对应的业务输入值
 #   - `enabled`（bool）：是否启用相应能力
 # 返回：AdminUserUpdateRequest；返回新建的 `AdminUserUpdateRequest` 实例。
@@ -151,7 +148,6 @@ class AdminUserCreateRequest(BaseModel):
 class AdminUserUpdateRequest(BaseModel):
     name: str
     role: str
-    department: str | None = None
     departments: list[str] | None = None
     enabled: bool
 
@@ -386,11 +382,7 @@ def _normalize_department(value: object) -> str:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _departments_for_user(user: dict[str, Any]) -> list[str]:
     raw_departments = user.get("departments")
-    candidates = (
-        raw_departments
-        if isinstance(raw_departments, list) and raw_departments
-        else [user.get("department")]
-    )
+    candidates = raw_departments if isinstance(raw_departments, list) else []
     departments: list[str] = []
     for candidate in candidates:
         department = _normalize_department(candidate)
@@ -1984,7 +1976,6 @@ def create_app() -> FastAPI:
                 employee_id=payload.employee_id,
                 name=payload.name,
                 role=payload.role,
-                department=payload.department,
                 password=payload.password,
                 departments=payload.departments,
             )
@@ -2014,7 +2005,6 @@ def create_app() -> FastAPI:
                 actor_employee_id=str(admin.get("employee_id", "")),
                 name=payload.name,
                 role=payload.role,
-                department=payload.department,
                 enabled=payload.enabled,
                 departments=payload.departments,
             )

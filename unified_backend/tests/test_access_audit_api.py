@@ -54,7 +54,7 @@ def _user(employee_id: str, name: str, role: str = "viewer") -> dict:
         "employee_id": employee_id,
         "name": name,
         "role": role,
-        "department": "all" if role == "admin" else "general_electric",
+        "departments": ["all" if role == "admin" else "general_electric"],
     }
 
 

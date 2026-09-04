@@ -253,13 +253,13 @@ curl http://localhost:7862/api/integrations/guard-room/api/health
 | `alarm_cooldown_absent` | rules | 离岗报警冷却（秒） | 120 |
 | `phone_detect_mode` | runtime | `guard_crop`（生产）/ `full_frame_test`（调试） | guard_crop |
 | `AUTH_SECRET` | 环境变量 | JWT 签名密钥（生产必须设置） | 开发默认值 |
-| `AUTH_DEFAULT_PASSWORD` | 环境变量 | 登录密码 | `Fuda@2026` |
+| `AUTH_DEFAULT_PASSWORD` | 环境变量 | 仅用于迁移无密码哈希的旧账号 | `Fuda@2026` |
 
 ### 环境变量
 
 ```bash
 export AUTH_SECRET="your-strong-random-secret-32chars+"
-export AUTH_DEFAULT_PASSWORD="your-password"
+export AUTH_DEFAULT_PASSWORD="legacy-user-migration-password"
 # 默认长期登录；如需固定过期时间，再设置 AUTH_TOKEN_EXPIRE_HOURS=12
 export AUTH_USERS_DB="/path/to/runtime/auth/auth_users.db"
 export AUTH_CORS_ORIGINS="https://your-frontend.com"

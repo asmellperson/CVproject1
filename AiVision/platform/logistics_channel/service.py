@@ -330,10 +330,8 @@ class LogisticsChannelService:
     # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号；另有
-    #         5 处静态调用
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
+    #         调用本符号；另有 5 处静态调用
     #   - 内部调用：`require_logistics_feature`、`get_session`、`self._query_channel`、`self._detail`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_channel(self, feature_name: str, channel_id: int) -> dict | None:
@@ -390,50 +388,6 @@ class LogisticsChannelService:
             error = self._channel_integrity_value_error(exc)
             logger.warning(f"[LogisticsChannelService] 创建通道约束冲突: {error}")
             raise error from exc
-        self._notify_channel_changed(channel_id, feature_name)
-        return self.get_channel(feature_name, channel_id)
-
-    # 功能：更新或保存 `update_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
-    #   - `payload`（Any）：接口或事件携带的业务数据
-    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`self._reject_none`、`self._run_write_transaction`、`self._channel_integrity_value_error`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
-    def update_channel(self, feature_name: str, channel_id: int, payload: Any) -> dict | None:
-        feature_name = require_logistics_feature(feature_name)
-        values = self._payload_dict(payload)
-        self._reject_none(values, ("enabled", "sort_order"))
-
-        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：
-        #   - `session`（未显式标注）：数据库会话或运行会话
-        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-        # 调用关系：
-        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`self._lock_channels`、`channels.get`、`self._apply_channel_values`、`session.flush`。
-        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-        def update(session):
-            channels = self._lock_channels(session, [channel_id])
-            channel = channels.get(channel_id)
-            if channel is None or channel.feature_name != feature_name:
-                return False
-            self._apply_channel_values(session, channel, feature_name, channel_id, values)
-            session.flush()
-            return True
-
-        try:
-            updated = self._run_write_transaction(update)
-        except IntegrityError as exc:
-            error = self._channel_integrity_value_error(exc)
-            logger.warning(f"[LogisticsChannelService] 更新通道约束冲突: {error}")
-            raise error from exc
-        if not updated:
-            return None
         self._notify_channel_changed(channel_id, feature_name)
         return self.get_channel(feature_name, channel_id)
 
@@ -502,57 +456,6 @@ class LogisticsChannelService:
             feature_action="disabled",
         )
         return True
-
-    # 功能：更新或保存 `update_config` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
-    #   - `payload`（Any）：接口或事件携带的业务数据
-    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`require_logistics_feature`、`self._payload_dict`、`self._reject_none`、`self._run_write_transaction`、`ValueError`、`logger.warning`、`self._notify_channel_changed`、`self.get_channel`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
-    def update_config(self, feature_name: str, channel_id: int, payload: Any) -> dict | None:
-        feature_name = require_logistics_feature(feature_name)
-        values = self._payload_dict(payload)
-        self._reject_none(values, (
-            "detection_start",
-            "detection_end",
-            "confidence_threshold",
-            "empty_grace_seconds",
-            "multi_grace_seconds",
-            "alarm_interval",
-        ))
-
-        # 功能：更新或保存 `update` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：
-        #   - `session`（未显式标注）：数据库会话或运行会话
-        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-        # 调用关系：
-        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`self._lock_channels`、`channels.get`、`self._apply_config_values`、`session.flush`。
-        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-        def update(session):
-            channels = self._lock_channels(session, [channel_id])
-            channel = channels.get(channel_id)
-            if channel is None or channel.feature_name != feature_name:
-                return False
-            self._apply_config_values(channel, values)
-            session.flush()
-            return True
-
-        try:
-            updated = self._run_write_transaction(update)
-        except IntegrityError as exc:
-            error = ValueError("物流通道配置数据约束冲突")
-            logger.warning(f"[LogisticsChannelService] 更新通道配置约束冲突: {exc}")
-            raise error from exc
-        if not updated:
-            return None
-        self._notify_channel_changed(channel_id, feature_name)
-        return self.get_channel(feature_name, channel_id)
 
     # 功能：在单事务内更新通道元数据和检测配置，并只发布一次刷新事件；输入与输出详见下方说明
     # 参数：
@@ -1227,9 +1130,7 @@ class LogisticsChannelService:
     #   - `payload`（Any）：接口或事件携带的业务数据
     # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_camera_and_bind` 调用本符号；另有 1
     #         处静态调用
     #   - 内部调用：`isinstance`、`dict`、`hasattr`、`payload.model_dump`、`TypeError`。
@@ -1254,8 +1155,7 @@ class LogisticsChannelService:
     #   - `values`（dict）：`values` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel::update`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
     #         调用本符号
     #   - 内部调用：`(values['name'] or '').strip`、`ValueError`、`session.query(LogisticsChannel).filter(LogisticsChannel.feature_name ==
     #          feature_name, LogisticsChannel.name == name, LogisticsChannel.id !=
@@ -1296,8 +1196,7 @@ class LogisticsChannelService:
     #   - `values`（dict）：`values` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config::update`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
     #         调用本符号
     #   - 内部调用：`setattr`、`values.get`、`self._payload_dict`、`bool`、`alarm.get`、`horn.get`、`wechat.get`。
     # 副作用/注意事项：可能发起网络请求或发送外部消息。
@@ -1354,8 +1253,6 @@ class LogisticsChannelService:
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号
     #   - 内部调用：`range`、`session_scope`、`operation`、`_database_error_code`、`logger.warning`、`sleep`、`RuntimeError`。
     # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
@@ -1417,7 +1314,6 @@ class LogisticsChannelService:
     # 返回：ValueError；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_binding_integrity_value_error`
     #         调用本符号
@@ -1461,9 +1357,7 @@ class LogisticsChannelService:
     #   - `fields`（tuple[str, ...]）：`fields` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config` 调用本符号
     #   - 内部调用：`ValueError`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @staticmethod
@@ -1478,9 +1372,7 @@ class LogisticsChannelService:
     #   - `channel_ids`（未显式标注）：`channel_ids` 对应的业务输入值
     # 返回：dict[int, LogisticsChannel]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel::update`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config::update`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
+    #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel_and_config::update`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_membership_state` 调用本符号；另有 1
     #         处静态调用
     #   - 内部调用：`sorted`、`set`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by(LogisticsChannel.id).with_for_update().all`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by(LogisticsChannel.id).with_for_update`、`session.query(LogisticsChannel).filter(LogisticsChannel.id.in_(ids)).order_by`、`session.query(LogisticsChannel).filter`、`session.query`、`LogisticsChannel.id.in_`。
@@ -1801,9 +1693,7 @@ class LogisticsChannelService:
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::create_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::update_config` 调用本符号；另有 7 处静态调用
+    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::delete_channel` 调用本符号；另有 7 处静态调用
     #   - 内部调用：`LogisticsChannelService._publish_notifications`、`_PendingNotification`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod

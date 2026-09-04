@@ -225,9 +225,7 @@ function normalizeDepartment(value: unknown): Department | null {
 }
 
 export function getUserDepartments(user: AuthUser | null | undefined): Department[] {
-  const rawDepartments = Array.isArray(user?.departments) && user.departments.length > 0
-    ? user.departments
-    : [user?.department]
+  const rawDepartments = Array.isArray(user?.departments) ? user.departments : []
   const departments: Department[] = []
   rawDepartments.forEach((value) => {
     const department = normalizeDepartment(value)

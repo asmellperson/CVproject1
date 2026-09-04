@@ -99,6 +99,7 @@ test('shared channel configuration separates parameters and alarm push for every
 
 test('all logistics mutations use the typed channel API rather than camera-id config routes', () => {
   const config = read('src/components/logistics_single_person/LogisticsChannelConfigView.tsx')
+  const api = read('src/components/logistics_single_person/api.ts')
   for (const operation of [
     'createLogisticsChannel',
     'updateLogisticsChannel',
@@ -110,6 +111,9 @@ test('all logistics mutations use the typed channel API rather than camera-id co
   ]) assert.match(config, new RegExp(operation))
 
   assert.match(config, /updateLogisticsChannel[\s\S]*?config: \{/)
+  assert.match(api, /updateLogisticsChannel[\s\S]*?apiPatch/)
+  assert.doesNotMatch(api, /updateLogisticsChannelConfig/)
+  assert.doesNotMatch(api, /logisticsChannelPath\(feature, channelId\)\}\/config/)
 
   assert.doesNotMatch(config, /\/configs\/\$\{[^}]*camera_id/)
 })

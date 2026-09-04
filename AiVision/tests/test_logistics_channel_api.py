@@ -18,7 +18,7 @@ api = importlib.import_module("AiVision.api.logistics_channels")
 FEATURES = tuple(sorted(importlib.import_module(
     "AiVision.platform.logistics_channel.constants"
 ).LOGISTICS_FEATURES))
-ADMIN = {"role": "admin", "department": None}
+ADMIN = {"role": "admin", "departments": ["all"]}
 
 
 # 功能：定义 `FakeService` 类，封装接口访问相关的状态、约束与操作
@@ -50,7 +50,6 @@ class FakeService:
     # 调用关系：
     #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::create_channel`
     #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel`
-    #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_config`
     #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::add_existing_camera` 调用本符号
     #   - 内部调用：`ValueError`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
@@ -152,45 +151,6 @@ class FakeService:
         self.channels[feature][channel_id] = value
         return deepcopy(value)
 
-    # 功能：更新或保存 `update_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
-    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
-    #   - `payload`（未显式标注）：接口或事件携带的业务数据
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel_and_config` 调用本符号
-    #   - 内部调用：`self._raise`、`self.channels[feature].get`、`value.update`、`deepcopy`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def update_channel(self, feature, channel_id, payload):
-        self._raise()
-        value = self.channels[feature].get(channel_id)
-        if value is not None:
-            value.update(payload)
-        return deepcopy(value)
-
-    # 功能：更新或保存 `update_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature`（未显式标注）：`feature` 对应的业务输入值
-    #   - `channel_id`（未显式标注）：`channel_id` 对应业务对象的唯一标识
-    #   - `payload`（未显式标注）：接口或事件携带的业务数据
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/tests/test_logistics_channel_api.py` 的 `FakeService::update_channel_and_config` 调用本符号
-    #   - 内部调用：`self._raise`、`self.channels[feature].get`、`payload.model_dump`、`value['config'].update`、`self.calls.append`、`deepcopy`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def update_config(self, feature, channel_id, payload):
-        self._raise()
-        value = self.channels[feature].get(channel_id)
-        if value is None:
-            return None
-        update = payload.model_dump(exclude_unset=True)
-        value["config"].update(update)
-        self.calls.append(("config", feature, channel_id, update))
-        return deepcopy(value)
-
     # 功能：更新或保存 `update_channel_and_config` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
@@ -201,13 +161,20 @@ class FakeService:
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.update_channel`、`self.update_config`。
+    #   - 内部调用：`self._raise`、`payload.model_dump`、`deepcopy`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def update_channel_and_config(self, feature, channel_id, metadata, config):
-        value = self.update_channel(feature, channel_id, metadata)
+        self._raise()
+        value = self.channels[feature].get(channel_id)
+        if value is not None:
+            value.update(metadata)
         if value is None or config is None:
-            return value
-        return self.update_config(feature, channel_id, config)
+            return deepcopy(value)
+        update = config.model_dump(exclude_unset=True)
+        value = self.channels[feature][channel_id]
+        value["config"].update(update)
+        self.calls.append(("config", feature, channel_id, update))
+        return deepcopy(value)
 
     # 功能：删除或清理 `delete_channel` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -589,7 +556,7 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
         ("/api/logistics-channels/{feature}", "GET"),
         ("/api/logistics-channels/{feature}", "POST"),
         ("/api/logistics-channels/{feature}/{channel_id}", "GET"),
-        ("/api/logistics-channels/{feature}/{channel_id}", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}", "PATCH"),
         ("/api/logistics-channels/{feature}/{channel_id}", "DELETE"),
         ("/api/logistics-channels/{feature}/{channel_id}/cameras", "POST"),
         ("/api/logistics-channels/{feature}/{channel_id}/cameras/order", "PUT"),
@@ -602,6 +569,11 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
         ("/api/logistics-channels/{feature}/{channel_id}/statistics", "GET"),
     }
     assert expected <= paths
+    assert ("/api/logistics-channels/{feature}/{channel_id}", "PUT") not in paths
+    assert not any(
+        path == "/api/logistics-channels/{feature}/{channel_id}/config"
+        for path, _method in paths
+    )
     app_module = importlib.import_module("AiVision.api.app")
     registered_paths: set[str] = set()
     for route in app_module.app.routes:
@@ -821,7 +793,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             base = f"/api/logistics-channels/{feature}"
             assert (await client.get(base)).status_code == 401
 
-            viewer = {"role": "viewer", "department": "general_electric"}
+            viewer = {"role": "viewer", "departments": ["general_electric"]}
             app.dependency_overrides[api.get_current_user] = lambda: viewer
             assert (await client.get(base)).status_code == 200
             assert (await client.get(
@@ -830,7 +802,6 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             )).status_code == 403
             multi_department_viewer = {
                 "role": "viewer",
-                "department": "general_electric",
                 "departments": ["general_electric", "electrical_components"],
             }
             app.dependency_overrides[api.get_current_user] = lambda: multi_department_viewer
@@ -856,9 +827,8 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
 
             write_requests = (
                 ("POST", base, {"name": "禁止新增"}),
-                ("PUT", f"{base}/{channel_id}", {"name": "禁止更新"}),
+                ("PATCH", f"{base}/{channel_id}", {"name": "禁止更新"}),
                 ("DELETE", f"{base}/{channel_id}", None),
-                ("PUT", f"{base}/{channel_id}/config", {"empty_grace_seconds": 3}),
                 ("POST", f"{base}/{channel_id}/cameras", {"camera_id": 7}),
                 ("PUT", f"{base}/{channel_id}/cameras/order", {"camera_ids": [7]}),
                 ("PUT", f"{base}/{channel_id}/cameras/7", None),
@@ -874,13 +844,13 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             created = await client.post(base, json={"name": "管理员新增"})
             assert created.status_code == 201
             assert created.json()["name"] == "管理员新增"
-            assert (await client.put(
+            assert (await client.patch(
                 f"{base}/{channel_id}",
                 json={"name": "管理员更新", "config": {"empty_grace_seconds": 3}},
             )).status_code == 200
-            assert (await client.put(
-                f"{base}/{channel_id}/config",
-                json={"empty_grace_seconds": 4},
+            assert (await client.patch(
+                f"{base}/{channel_id}",
+                json={"config": {"empty_grace_seconds": 4}},
             )).status_code == 200
             assert (await client.post(
                 f"{base}/{channel_id}/cameras",
@@ -898,10 +868,18 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 "/api/logistics-channels/not-a-feature"
             )).status_code == 404
             assert (await client.post(base, json={})).status_code == 422
+            assert (await client.patch(
+                f"{base}/{channel_id}",
+                json={"config": {"detection_start": "20:00:00", "detection_end": "08:00:00"}},
+            )).status_code == 422
+            assert (await client.put(
+                f"{base}/{channel_id}",
+                json={"name": "旧方法"},
+            )).status_code == 405
             assert (await client.put(
                 f"{base}/{channel_id}/config",
-                json={"detection_start": "20:00:00", "detection_end": "08:00:00"},
-            )).status_code == 422
+                json={"empty_grace_seconds": 4},
+            )).status_code == 404
 
             assert (await client.get(f"{base}/{channel_id}/status")).status_code == 200
             assert (await client.get(f"{base}/{channel_id}/frame.jpg")).status_code == 503
@@ -947,7 +925,7 @@ def test_four_features_are_isolated_and_whitelisted():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_viewer_department_access_and_admin_dependency_contract():
     general_feature = "detect_logistics_single_person"
-    viewer = {"role": "viewer", "department": "general_electric"}
+    viewer = {"role": "viewer", "departments": ["general_electric"]}
     assert api._require_feature_access(general_feature, viewer) == general_feature
     other = next(feature for feature in FEATURES if feature != general_feature)
     with pytest.raises(HTTPException) as caught:
@@ -1133,12 +1111,12 @@ def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeyp
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FakeService`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.LogisticsChannelPutRequest`、`api.update_channel`、`api.get_channel`、`api.delete_channel`、`pytest.raises`、`api.LogisticsChannelConfigUpdate`。
+#   - 内部调用：`FakeService`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.LogisticsChannelPatchRequest`、`api.update_channel`、`api.get_channel`、`api.delete_channel`、`pytest.raises`、`api.LogisticsChannelConfigUpdate`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_crud_config_and_validation_models():
     service = FakeService()
     channel = api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="初始"), ADMIN, service)
-    payload = api.LogisticsChannelPutRequest(
+    payload = api.LogisticsChannelPatchRequest(
         name="更新",
         config={
             "detection_start": "09:00:00", "detection_end": "18:00:00",

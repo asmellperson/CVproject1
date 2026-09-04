@@ -235,11 +235,11 @@ def test_site_api_routes_scope_sites_by_department(tmp_path):
 
     create_site(
         SiteCreateRequest(name="通用电气保安室", department="general_electric"),
-        _user={"role": "admin", "department": "all"},
+        _user={"role": "admin", "departments": ["all"]},
     )
     create_site(
         SiteCreateRequest(name="电子电工保安室", department="electronics_electrician"),
-        _user={"role": "admin", "department": "all"},
+        _user={"role": "admin", "departments": ["all"]},
     )
 
     assert [item["name"] for item in list_sites(department="general_electric")["items"]] == ["通用电气保安室"]

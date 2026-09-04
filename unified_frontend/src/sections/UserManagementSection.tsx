@@ -104,11 +104,9 @@ function getAvatarLabel(name: string) {
 }
 
 function getManagedUserDepartments(user: AdminUser): SelectableDepartment[] {
-  const assigned = user.departments.filter(
+  return user.departments.filter(
     (department): department is SelectableDepartment => department !== 'all',
   )
-  if (assigned.length > 0) return assigned
-  return user.department === 'all' ? [] : [user.department]
 }
 
 export function UserManagementSection() {

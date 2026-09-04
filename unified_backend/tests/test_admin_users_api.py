@@ -36,14 +36,14 @@ def _configure_users(monkeypatch, tmp_path):
         employee_id="10001",
         name="管理员",
         role="admin",
-        department="all",
+        departments=["all"],
         password="admin-password",
     )
     create_auth_user(
         employee_id="10002",
         name="普通用户",
         role="viewer",
-        department="general_electric",
+        departments=["general_electric"],
         password="viewer-password",
     )
 
@@ -101,7 +101,7 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
         "employee_id": "10001",
         "name": "管理员",
         "role": "admin",
-        "department": "all",
+        "departments": ["all"],
     }
 
     list_users, list_route = _endpoint(app, "/api/admin/users", "GET")
@@ -135,6 +135,7 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
 
     initial = list_users(admin)
     assert len(initial["items"]) == 2
+    assert all("department" not in item for item in initial["items"])
     _assert_no_password_material(initial)
 
     created = create_user(
@@ -150,11 +151,11 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
         ),
         admin,
     )
-    assert created["user"]["department"] == "electronics_electrician"
     assert created["user"]["departments"] == [
         "electronics_electrician",
         "electrical_components",
     ]
+    assert "department" not in created["user"]
     _assert_no_password_material(created)
 
     updated = update_user(
@@ -162,13 +163,12 @@ def test_admin_user_routes_cover_full_lifecycle(monkeypatch, tmp_path):
         AdminUserUpdateRequest(
             name="第二管理员",
             role="admin",
-            department=None,
+            departments=None,
             enabled=True,
         ),
         admin,
     )
     assert updated["user"]["role"] == "admin"
-    assert updated["user"]["department"] == "all"
     assert updated["user"]["departments"] == ["all"]
 
     reset = reset_password(
@@ -200,7 +200,7 @@ def test_viewer_is_rejected_by_admin_dependency():
             {
                 "employee_id": "10002",
                 "role": "viewer",
-                "department": "general_electric",
+                "departments": ["general_electric"],
             }
         )
     assert exc_info.value.status_code == 403
@@ -226,7 +226,7 @@ def test_admin_route_maps_self_delete_to_conflict(monkeypatch, tmp_path):
     admin = {
         "employee_id": "10001",
         "role": "admin",
-        "department": "all",
+        "departments": ["all"],
     }
 
     with pytest.raises(HTTPException) as exc_info:

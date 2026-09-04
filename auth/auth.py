@@ -14,7 +14,6 @@ import hmac
 import json
 import logging
 import os
-import secrets
 import threading
 import time
 from pathlib import Path
@@ -30,6 +29,7 @@ from auth.user_store import (
     UserStoreError,
     UserValidationError,
     default_database_path,
+    hash_password,
 )
 
 COOKIE_NAME = "aicv_auth_token"
@@ -89,7 +89,7 @@ class AuthError(Exception):
 #   - `data`（bytes）：待处理的数据
 # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`auth/auth.py` 的 `_json_b64` 调用本符号；`auth/auth.py` 的 `_password_hash` 调用本符号；`auth/auth.py` 的 `create_token` 调用本符号
+#   - 调用方：`auth/auth.py` 的 `_json_b64` 调用本符号；`auth/auth.py` 的 `create_token` 调用本符号
 #   - 内部调用：`base64.urlsafe_b64encode(data).rstrip(b'=').decode`、`base64.urlsafe_b64encode(data).rstrip`、`base64.urlsafe_b64encode`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _b64url_encode(data: bytes) -> str:
@@ -140,25 +140,13 @@ def get_auth_secret() -> str:
     return DEV_AUTH_SECRET
 
 
-# 功能：读取共享登录密码；输入与输出详见下方说明
-# 参数：无。
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`auth/auth.py` 的 `_verify_password` 调用本符号
-#   - 内部调用：`os.getenv`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def get_default_password() -> str:
-    """读取共享登录密码。"""
-    return os.getenv("AUTH_DEFAULT_PASSWORD", "Fuda@2026")
-
-
 # 功能：读取 Token 有效期小时数；输入与输出详见下方说明
 # 参数：无。
 # 返回：int | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`auth/auth.py` 的 `get_auth_cookie_max_age_seconds` 调用本符号；`auth/auth.py` 的 `create_token` 调用本符号
-#   - 内部调用：`os.getenv('AUTH_TOKEN_EXPIRE_HOURS', '').strip`、`os.getenv`、`raw.lower`、`int`、`logger.warning`。
-# 副作用/注意事项：会向日志系统输出运行或异常信息。
+#   - 内部调用：`os.getenv('AUTH_TOKEN_EXPIRE_HOURS', '').strip`、`os.getenv`、`raw.lower`、`int`。
+# 副作用/注意事项：配置非法时抛出明确异常。
 def get_token_expire_hours() -> int | None:
     """读取 Token 有效期小时数。
 
@@ -170,10 +158,17 @@ def get_token_expire_hours() -> int | None:
         return None
     try:
         hours = int(raw)
-    except ValueError:
-        logger.warning("Invalid AUTH_TOKEN_EXPIRE_HOURS=%r; using persistent login.", raw)
-        return None
-    if hours < 1:
+    except ValueError as exc:
+        raise ValueError(
+            "AUTH_TOKEN_EXPIRE_HOURS 必须是正整数，或 0/never/permanent/forever"
+            f"，当前值为 {raw!r}"
+        ) from exc
+    if hours < 0:
+        raise ValueError(
+            "AUTH_TOKEN_EXPIRE_HOURS 不能为负数"
+            f"，当前值为 {raw!r}"
+        )
+    if hours == 0:
         return None
     return hours
 
@@ -248,15 +243,13 @@ def load_auth_users() -> list[dict[str, Any]]:
 #   - 内部调用：`item.get`、`isinstance`、`str(item.get('employee_id', '')).strip`、`str`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _public_user(item: dict[str, Any]) -> dict[str, Any]:
-    department = item.get("department")
     departments = item.get("departments")
-    if not isinstance(departments, list) or not departments:
-        departments = [department] if department else []
+    if not isinstance(departments, list):
+        departments = []
     return {
         "employee_id": str(item.get("employee_id", "")).strip(),
         "name": str(item.get("name", "")),
         "role": str(item.get("role", "viewer")),
-        "department": department,
         "departments": departments,
         "auth_version": int(item.get("auth_version", 1) or 1),
     }
@@ -296,23 +289,6 @@ def find_enabled_user(identifier: str) -> dict[str, Any] | None:
     return _public_user(item)
 
 
-# 功能：实现 `_password_hash` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `password`（str）：`password` 对应的业务输入值
-#   - `salt`（str | None）：`salt` 对应的业务输入值；默认值为 `None`
-#   - `iterations`（int）：`iterations` 对应的业务输入值；默认值为 `260000`
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`auth/auth.py` 的 `_verify_password` 调用本符号；`auth/auth.py` 的 `change_own_password` 调用本符号；`auth/auth.py` 的 `create_auth_user`
-#         调用本符号；`auth/auth.py` 的 `reset_auth_user_password` 调用本符号
-#   - 内部调用：`secrets.token_urlsafe`、`hashlib.pbkdf2_hmac`、`password.encode`、`salt.encode`、`_b64url_encode`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _password_hash(password: str, salt: str | None = None, iterations: int = 260_000) -> str:
-    salt = salt or secrets.token_urlsafe(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations)
-    return f"pbkdf2_sha256${iterations}${salt}${_b64url_encode(digest)}"
-
-
 # 功能：实现 `_verify_password` 对应的认证授权逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `password`（str）：`password` 对应的业务输入值
@@ -320,18 +296,21 @@ def _password_hash(password: str, salt: str | None = None, iterations: int = 260
 # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`auth/auth.py` 的 `change_own_password` 调用本符号；`auth/auth.py` 的 `verify_login` 调用本符号
-#   - 内部调用：`hmac.compare_digest`、`get_default_password`、`stored_hash.split`、`_password_hash(password, salt=salt,
-#          iterations=int(iterations_raw)).rsplit`、`_password_hash`、`int`。
+#   - 内部调用：`hmac.compare_digest`、`stored_hash.split`、`hash_password`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _verify_password(password: str, stored_hash: str | None) -> bool:
-    if not stored_hash:
-        return hmac.compare_digest(password, get_default_password())
+    if not isinstance(stored_hash, str) or not stored_hash:
+        return False
     try:
         algorithm, iterations_raw, salt, digest = stored_hash.split("$", 3)
         if algorithm != "pbkdf2_sha256":
             return False
-        expected = _password_hash(password, salt=salt, iterations=int(iterations_raw)).rsplit("$", 1)[-1]
-    except Exception:
+        expected = hash_password(
+            password,
+            salt=salt,
+            iterations=int(iterations_raw),
+        ).rsplit("$", 1)[-1]
+    except (TypeError, ValueError, OverflowError):
         return False
     return hmac.compare_digest(expected, digest)
 
@@ -345,7 +324,7 @@ def _verify_password(password: str, stored_hash: str | None) -> bool:
 # 调用关系：
 #   - 调用方：`unified_backend/tests/test_auth_database.py` 的 `test_migrated_default_password_user_login_and_token_version`
 #         调用本符号；`unified_backend/app.py` 的 `create_app::change_password` 调用本符号
-#   - 内部调用：`str(employee_id).strip`、`str`、`len`、`AuthError`、`get_user_store().get_user_record`、`get_user_store`、`item.get`、`_verify_password`、`get_user_store().update_password_hash`、`_password_hash`
+#   - 内部调用：`str(employee_id).strip`、`str`、`len`、`AuthError`、`get_user_store().get_user_record`、`get_user_store`、`item.get`、`_verify_password`、`get_user_store().update_password_hash`、`hash_password`
 #          等共 11 个调用。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def change_own_password(employee_id: str, current_password: str, new_password: str) -> dict[str, Any]:
@@ -360,7 +339,7 @@ def change_own_password(employee_id: str, current_password: str, new_password: s
             raise AuthError("当前密码不正确")
         updated = get_user_store().update_password_hash(
             employee_id,
-            _password_hash(new_password),
+            hash_password(new_password),
         )
         return _public_user(updated)
     except UserNotFoundError as exc:
@@ -387,7 +366,6 @@ def create_token(user: dict[str, Any]) -> str:
         "sub": user["employee_id"],
         "name": user.get("name", ""),
         "role": user.get("role", "viewer"),
-        "department": user.get("department"),
         "departments": user.get("departments"),
         "auth_version": int(user.get("auth_version", 1) or 1),
         "iat": now,
@@ -555,22 +533,20 @@ def list_auth_users() -> list[dict[str, Any]]:
 #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
 #   - `name`（str）：业务对象名称
 #   - `role`（str）：`role` 对应的业务输入值
-#   - `department`（str | None）：业务部门名称或标识
 #   - `password`（str）：`password` 对应的业务输入值
-#   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+#   - `departments`（list[str] | None）：用户的事业部列表
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `create_app::admin_create_user` 调用本符号
-#   - 内部调用：`len`、`UserValidationError`、`get_user_store().create_user`、`get_user_store`、`_password_hash`。
+#   - 内部调用：`len`、`UserValidationError`、`get_user_store().create_user`、`get_user_store`、`hash_password`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def create_auth_user(
     *,
     employee_id: str,
     name: str,
     role: str,
-    department: str | None,
     password: str,
-    departments: list[str] | None = None,
+    departments: list[str] | None,
 ) -> dict[str, Any]:
     if len(password) < 6:
         raise UserValidationError("初始密码至少需要 6 位")
@@ -578,8 +554,7 @@ def create_auth_user(
         employee_id=employee_id,
         name=name,
         role=role,
-        department=department,
-        password_hash=_password_hash(password),
+        password_hash=hash_password(password),
         departments=departments,
     )
 
@@ -590,9 +565,8 @@ def create_auth_user(
 #   - `actor_employee_id`（str）：`actor_employee_id` 对应业务对象的唯一标识
 #   - `name`（str）：业务对象名称
 #   - `role`（str）：`role` 对应的业务输入值
-#   - `department`（str | None）：业务部门名称或标识
 #   - `enabled`（bool）：是否启用相应能力
-#   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+#   - `departments`（list[str] | None）：用户的事业部列表
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `create_app::admin_update_user` 调用本符号
@@ -604,16 +578,14 @@ def update_auth_user(
     actor_employee_id: str,
     name: str,
     role: str,
-    department: str | None,
     enabled: bool,
-    departments: list[str] | None = None,
+    departments: list[str] | None,
 ) -> dict[str, Any]:
     return get_user_store().update_user(
         employee_id,
         actor_employee_id=actor_employee_id,
         name=name,
         role=role,
-        department=department,
         enabled=enabled,
         departments=departments,
     )
@@ -626,7 +598,7 @@ def update_auth_user(
 # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `create_app::admin_reset_user_password` 调用本符号
-#   - 内部调用：`len`、`UserValidationError`、`get_user_store().update_password_hash`、`get_user_store`、`_password_hash`。
+#   - 内部调用：`len`、`UserValidationError`、`get_user_store().update_password_hash`、`get_user_store`、`hash_password`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def reset_auth_user_password(
     employee_id: str,
@@ -637,7 +609,7 @@ def reset_auth_user_password(
         raise UserValidationError("新密码至少需要 6 位")
     return get_user_store().update_password_hash(
         employee_id,
-        _password_hash(new_password),
+        hash_password(new_password),
     )
 
 
@@ -737,7 +709,6 @@ __all__ = [
     "get_auth_users_database_path",
     "get_current_user",
     "get_current_user_from_request",
-    "get_default_password",
     "get_token_expire_hours",
     "get_user_store",
     "load_auth_users",

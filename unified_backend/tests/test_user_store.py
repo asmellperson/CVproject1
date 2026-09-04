@@ -33,14 +33,14 @@ def _store(tmp_path):
         employee_id="10001",
         name="管理员",
         role="admin",
-        department="all",
+        departments=["all"],
         password_hash="hash-admin",
     )
     store.create_user(
         employee_id="10002",
         name="通用电气用户",
         role="viewer",
-        department="general_electric",
+        departments=["general_electric"],
         password_hash="hash-viewer",
     )
     return store
@@ -79,14 +79,13 @@ def test_create_update_reset_and_delete_user(tmp_path):
         employee_id="20001",
         name="电子电工用户",
         role="viewer",
-        department="electronics_electrician",
+        departments=["electronics_electrician"],
         password_hash="hash-new",
     )
     assert created == {
         "employee_id": "20001",
         "name": "电子电工用户",
         "role": "viewer",
-        "department": "electronics_electrician",
         "departments": ["electronics_electrician"],
         "enabled": True,
         "auth_version": 1,
@@ -97,11 +96,10 @@ def test_create_update_reset_and_delete_user(tmp_path):
         actor_employee_id="10001",
         name="新增管理员",
         role="admin",
-        department="general_electric",
+        departments=None,
         enabled=True,
     )
     assert updated["role"] == "admin"
-    assert updated["department"] == "all"
     assert updated["departments"] == ["all"]
 
     reset = store.update_password_hash("20001", "hash-reset")
@@ -128,11 +126,11 @@ def test_accepts_haoda_company_viewer_department(tmp_path):
         employee_id="20002",
         name="皓达公司用户",
         role="viewer",
-        department="皓达公司",
+        departments=["皓达公司"],
         password_hash="hash-haoda",
     )
 
-    assert created["department"] == "haoda_company"
+    assert created["departments"] == ["haoda_company"]
 
 
 # 功能：验证 `test_accepts_weida_company_as_legacy_department_alias` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -150,11 +148,11 @@ def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
         employee_id="20003",
         name="伟达公司用户",
         role="viewer",
-        department="伟达公司",
+        departments=["伟达公司"],
         password_hash="hash-weida",
     )
 
-    assert created["department"] == "precious_metal_recycling"
+    assert created["departments"] == ["precious_metal_recycling"]
 
 
 # 功能：验证 `test_creates_and_updates_viewer_with_multiple_departments` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -172,7 +170,6 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
         employee_id="20004",
         name="跨事业部负责人",
         role="viewer",
-        department=None,
         departments=[
             "electronics_electrician",
             "electrical_components",
@@ -181,7 +178,6 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
         password_hash="hash-multi",
     )
 
-    assert created["department"] == "electronics_electrician"
     assert created["departments"] == [
         "electronics_electrician",
         "electrical_components",
@@ -192,12 +188,10 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
         actor_employee_id="10001",
         name="跨公司负责人",
         role="viewer",
-        department=None,
         departments=["伟达公司", "皓达公司"],
         enabled=True,
     )
 
-    assert updated["department"] == "precious_metal_recycling"
     assert updated["departments"] == [
         "precious_metal_recycling",
         "haoda_company",
@@ -237,13 +231,22 @@ def test_backfills_departments_when_opening_older_sqlite_database(tmp_path):
 
     store = UserStore(database_path=database_path)
 
-    assert store.list_users()[0]["departments"] == ["general_electric"]
+    user = store.list_users()[0]
+    assert user["departments"] == ["general_electric"]
+    assert "department" not in user
     with sqlite3.connect(database_path) as connection:
         columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(auth_users)")
         }
+        migrated = connection.execute(
+            "SELECT department, departments, password_hash FROM auth_users"
+        ).fetchone()
     assert "departments" in columns
+    assert "department" in columns
+    assert migrated[0] == "general_electric"
+    assert migrated[1] == '["general_electric"]'
+    assert migrated[2].startswith("pbkdf2_sha256$")
 
 
 # 功能：验证 `test_rejects_invalid_or_duplicate_users` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -262,7 +265,7 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
             employee_id="10001",
             name="其他姓名",
             role="viewer",
-            department="general_electric",
+            departments=["general_electric"],
             password_hash="hash",
         )
     with pytest.raises(UserConflictError, match="姓名"):
@@ -270,7 +273,7 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
             employee_id="30001",
             name="管理员",
             role="viewer",
-            department="general_electric",
+            departments=["general_electric"],
             password_hash="hash",
         )
     with pytest.raises(UserValidationError, match="事业部"):
@@ -278,7 +281,7 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
             employee_id="30002",
             name="错误事业部",
             role="viewer",
-            department="unknown",
+            departments=["unknown"],
             password_hash="hash",
         )
     with pytest.raises(UserValidationError, match="至少选择一个"):
@@ -286,7 +289,6 @@ def test_rejects_invalid_or_duplicate_users(tmp_path):
             employee_id="30003",
             name="空事业部",
             role="viewer",
-            department=None,
             departments=[],
             password_hash="hash",
         )
@@ -309,7 +311,7 @@ def test_protects_current_user_and_last_enabled_admin(tmp_path):
             actor_employee_id="10001",
             name="管理员",
             role="admin",
-            department="all",
+            departments=None,
             enabled=False,
         )
     with pytest.raises(UserConflictError, match="当前登录"):
@@ -321,7 +323,7 @@ def test_protects_current_user_and_last_enabled_admin(tmp_path):
             actor_employee_id="another-admin",
             name="管理员",
             role="viewer",
-            department="general_electric",
+            departments=["general_electric"],
             enabled=True,
         )
     with pytest.raises(UserConflictError, match="最后一个"):
@@ -342,7 +344,7 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
         employee_id="10003",
         name="第二管理员",
         role="admin",
-        department=None,
+        departments=None,
         password_hash="hash",
     )
 
@@ -351,12 +353,12 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
         actor_employee_id="10003",
         name="前管理员",
         role="viewer",
-        department="research_institute",
+        departments=["research_institute"],
         enabled=True,
     )
 
     assert updated["role"] == "viewer"
-    assert updated["department"] == "research_institute"
+    assert updated["departments"] == ["research_institute"]
 
 
 # 功能：验证 `test_accepts_legacy_and_current_materials_institute_labels` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -368,16 +370,16 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`_store`、`store.create_user`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize("department", ["研究院", "人工智能研究院", "福达新材院"])
-def test_accepts_legacy_and_current_materials_institute_labels(tmp_path, department):
+@pytest.mark.parametrize("department_alias", ["研究院", "人工智能研究院", "福达新材院"])
+def test_accepts_legacy_and_current_materials_institute_labels(tmp_path, department_alias):
     store = _store(tmp_path)
 
     created = store.create_user(
-        employee_id=f"viewer-{department}",
+        employee_id=f"viewer-{department_alias}",
         name="新材院用户",
         role="viewer",
-        department=department,
+        departments=[department_alias],
         password_hash="hash",
     )
 
-    assert created["department"] == "research_institute"
+    assert created["departments"] == ["research_institute"]

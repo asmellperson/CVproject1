@@ -53,13 +53,13 @@ router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"]
 # 功能：通道元数据和通道级检测配置的一次更新；输入与输出详见下方说明
 # 参数：
 #   - `config`（LogisticsChannelConfigUpdate | None）：运行配置对象
-# 返回：LogisticsChannelPutRequest；返回新建的 `LogisticsChannelPutRequest` 实例。
+# 返回：LogisticsChannelPatchRequest；返回新建的 `LogisticsChannelPatchRequest` 实例。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`ConfigDict`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class LogisticsChannelPutRequest(LogisticsChannelUpdate):
-    """通道元数据和通道级检测配置的一次更新。"""
+class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
+    """物流通道局部更新请求。"""
 
     model_config = ConfigDict(extra="forbid")
     config: LogisticsChannelConfigUpdate | None = None
@@ -78,11 +78,7 @@ def _accessible_logistics_features(user: dict) -> list[str]:
     if user.get("role") == "admin":
         return list(LOGISTICS_FEATURES)
     raw_departments = user.get("departments")
-    candidates = (
-        raw_departments
-        if isinstance(raw_departments, list) and raw_departments
-        else [user.get("department")]
-    )
+    candidates = raw_departments if isinstance(raw_departments, list) else []
     departments = {
         str(department or "").strip()
         for department in candidates
@@ -120,8 +116,7 @@ def _require_feature_access(feature: str, user: dict) -> str:
 # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/api/logistics_channels.py` 的 `create_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的
-#         `update_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的 `update_channel_config`
-#         调用本符号；`AiVision/api/logistics_channels.py` 的 `add_camera` 调用本符号；另有 3 处静态调用
+#         `update_channel` 调用本符号；`AiVision/api/logistics_channels.py` 的 `add_camera` 调用本符号；另有 3 处静态调用
 #   - 内部调用：`str`、`any`、`HTTPException`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _raise_service_error(exc: ValueError) -> None:
@@ -287,19 +282,19 @@ def get_channel(
 # 参数：
 #   - `feature`（str）：`feature` 对应的业务输入值
 #   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
-#   - `payload`（LogisticsChannelPutRequest）：接口或事件携带的业务数据
+#   - `payload`（LogisticsChannelPatchRequest）：接口或事件携带的业务数据
 #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
 #   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
 # 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}', response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`_require_feature_access`、`payload.model_dump`、`service.update_channel_and_config`、`HTTPException`、`LogisticsChannelDetailResponse.model_validate`、`_raise_service_error`、`router.put`。
+#   - 调用方：由 FastAPI 按 `router.patch('/{feature}/{channel_id}', response_model=LogisticsChannelDetailResponse)` 注册，并在请求到达时调用以生成接口响应
+#   - 内部调用：`Depends`、`_require_feature_access`、`payload.model_dump`、`service.update_channel_and_config`、`HTTPException`、`LogisticsChannelDetailResponse.model_validate`、`_raise_service_error`、`router.patch`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-@router.put("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
+@router.patch("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
 def update_channel(
     feature: str,
     channel_id: int,
-    payload: LogisticsChannelPutRequest,
+    payload: LogisticsChannelPatchRequest,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
@@ -317,40 +312,6 @@ def update_channel(
         return LogisticsChannelDetailResponse.model_validate(result)
     except ValueError as exc:
         _raise_service_error(exc)
-
-
-# 功能：更新或保存 `update_channel_config` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `feature`（str）：`feature` 对应的业务输入值
-#   - `channel_id`（int）：`channel_id` 对应业务对象的唯一标识
-#   - `payload`（LogisticsChannelConfigUpdate）：接口或事件携带的业务数据
-#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(require_admin)`
-#   - `service`（未显式标注）：`service` 对应的业务输入值；默认值为 `Depends(get_logistics_channel_service)`
-# 返回：LogisticsChannelDetailResponse；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.put('/{feature}/{channel_id}/config', response_model=LogisticsChannelDetailResponse)`
-#         注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`_require_feature_access`、`service.update_config`、`_raise_service_error`、`HTTPException`、`LogisticsChannelDetailResponse.model_validate`、`router.put`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-@router.put(
-    "/{feature}/{channel_id}/config",
-    response_model=LogisticsChannelDetailResponse,
-)
-def update_channel_config(
-    feature: str,
-    channel_id: int,
-    payload: LogisticsChannelConfigUpdate,
-    user: dict = Depends(require_admin),
-    service=Depends(get_logistics_channel_service),
-) -> LogisticsChannelDetailResponse:
-    feature = _require_feature_access(feature, user)
-    try:
-        result = service.update_config(feature, channel_id, payload)
-    except ValueError as exc:
-        _raise_service_error(exc)
-    if result is None:
-        raise HTTPException(status_code=404, detail="logistics channel not found")
-    return LogisticsChannelDetailResponse.model_validate(result)
 
 
 # 功能：删除或清理 `delete_channel` 对应的`logistics_channels` 模块逻辑；输入由参数提供，处理结果见返回值说明

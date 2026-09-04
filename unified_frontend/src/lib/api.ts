@@ -99,6 +99,27 @@ export async function apiPut<T>(path: string, body?: unknown, init?: RequestInit
   return response.json() as Promise<T>
 }
 
+export async function apiPatch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    ...init,
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  notifyUnauthorized(response)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`PATCH ${path} failed: ${response.status} ${response.statusText} ${detail}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
 export async function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_PREFIX}${path}`, {
     ...init,

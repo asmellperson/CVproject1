@@ -13,7 +13,6 @@ export type AdminUser = {
   employee_id: string
   name: string
   role: AdminUserRole
-  department: AdminUserDepartment
   departments: AdminUserDepartment[]
   enabled: boolean
   auth_version: number

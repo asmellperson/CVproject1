@@ -222,6 +222,12 @@ class AccessAuditStore:
             visit_time = visit_time.replace(tzinfo=timezone.utc)
         visit_time = visit_time.astimezone(timezone.utc)
         timestamp = visit_time.isoformat().replace("+00:00", "Z")
+        raw_departments = user.get("departments")
+        primary_department = (
+            str(raw_departments[0]).strip()
+            if isinstance(raw_departments, list) and raw_departments
+            else None
+        )
         connection = self._connect()
         try:
             self._delete_expired(connection, visit_time)
@@ -247,7 +253,7 @@ class AccessAuditStore:
                     employee_id,
                     name,
                     str(user.get("role", "")).strip(),
-                    str(user.get("department", "")).strip() or None,
+                    primary_department,
                     timestamp,
                     timestamp,
                 ),

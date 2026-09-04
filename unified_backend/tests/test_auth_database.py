@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from starlette.requests import Request
 
@@ -11,7 +13,9 @@ from auth.auth import (
     change_own_password,
     create_auth_user,
     create_token,
+    decode_token,
     get_current_user_from_request,
+    get_token_expire_hours,
     verify_login,
 )
 
@@ -69,7 +73,7 @@ def _configure_database_user(monkeypatch, tmp_path):
         employee_id="10001",
         name="管理员",
         role="admin",
-        department="all",
+        departments=["all"],
         password="database-password",
     )
 
@@ -125,10 +129,76 @@ def test_version_one_token_without_auth_version_remains_compatible(monkeypatch, 
             "employee_id": user["employee_id"],
             "name": user["name"],
             "role": user["role"],
-            "department": user["department"],
+            "departments": user["departments"],
         }
     )
 
+    assert "department" not in decode_token(legacy_token)
     assert get_current_user_from_request(
         _request_with_token(legacy_token)
     )["auth_version"] == 1
+
+
+def test_migrates_hashless_legacy_users_before_login(monkeypatch, tmp_path):
+    database_path = tmp_path / "runtime" / "auth_users.db"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE auth_users (
+                employee_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL,
+                department TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                password_hash TEXT,
+                auth_version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO auth_users(
+                employee_id, name, role, department, enabled, password_hash
+            ) VALUES
+                ('legacy-viewer', '旧普通账号', 'viewer', 'general_electric', 1, NULL),
+                ('legacy-admin', '旧管理员', 'admin', 'general_electric', 1, '');
+            """
+        )
+    monkeypatch.setenv("AUTH_USERS_DB", str(database_path))
+    monkeypatch.setenv("AUTH_DEFAULT_PASSWORD", "legacy-default-password")
+
+    viewer = verify_login("legacy-viewer", "legacy-default-password")
+    admin = verify_login("legacy-admin", "legacy-default-password")
+
+    assert viewer is not None
+    assert viewer["departments"] == ["general_electric"]
+    assert "department" not in viewer
+    assert admin is not None
+    assert admin["departments"] == ["all"]
+    assert verify_login("legacy-viewer", "wrong-password") is None
+    with sqlite3.connect(database_path) as connection:
+        hashes = [
+            row[0]
+            for row in connection.execute(
+                "SELECT password_hash FROM auth_users ORDER BY employee_id"
+            )
+        ]
+    assert all(value.startswith("pbkdf2_sha256$") for value in hashes)
+    assert len(set(hashes)) == 2
+
+
+@pytest.mark.parametrize("value", ["", "0", "never", "permanent", "forever"])
+def test_persistent_token_values_remain_supported(monkeypatch, value):
+    monkeypatch.setenv("AUTH_TOKEN_EXPIRE_HOURS", value)
+    assert get_token_expire_hours() is None
+
+
+@pytest.mark.parametrize("value", ["invalid", "-1", "1.5"])
+def test_invalid_token_expiry_fails_fast(monkeypatch, value):
+    monkeypatch.setenv("AUTH_TOKEN_EXPIRE_HOURS", value)
+    with pytest.raises(ValueError, match="AUTH_TOKEN_EXPIRE_HOURS"):
+        get_token_expire_hours()
+
+
+def test_positive_token_expiry_is_returned(monkeypatch):
+    monkeypatch.setenv("AUTH_TOKEN_EXPIRE_HOURS", "24")
+    assert get_token_expire_hours() == 24

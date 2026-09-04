@@ -73,7 +73,7 @@ def test_security_vlm_viewer_can_read_but_cannot_mutate():
 #   - 内部调用：`_can_access_security_vlm`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_security_vlm_credentials_are_admin_only():
-    viewer = {"role": "viewer", "department": "electronics_electrician"}
+    viewer = {"role": "viewer", "departments": ["electronics_electrician"]}
     admin = {"role": "admin"}
     path = (
         "/security-vlm/api/departments/electronics_electrician/"
@@ -98,7 +98,7 @@ def test_security_vlm_credentials_are_admin_only():
 #   - 内部调用：`_can_access_security_vlm`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_security_vlm_viewer_can_only_read_own_department():
-    viewer = {"role": "viewer", "department": "electronics_electrician"}
+    viewer = {"role": "viewer", "departments": ["electronics_electrician"]}
 
     assert _can_access_security_vlm(
         viewer,
@@ -132,7 +132,6 @@ def test_security_vlm_viewer_can_only_read_own_department():
 def test_multi_department_viewer_receives_union_of_scoped_permissions():
     viewer = {
         "role": "viewer",
-        "department": "general_electric",
         "departments": ["general_electric", "electronics_electrician"],
     }
 
@@ -174,8 +173,8 @@ def test_multi_department_viewer_receives_union_of_scoped_permissions():
 #   - 内部调用：`_security_vlm_departments_for_user`、`_normalize_security_vlm_alarm`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_security_vlm_alarm_sources_are_department_scoped():
-    viewer = {"role": "viewer", "department": "electrical_components"}
-    admin = {"role": "admin", "department": "all"}
+    viewer = {"role": "viewer", "departments": ["electrical_components"]}
+    admin = {"role": "admin", "departments": ["all"]}
 
     assert _security_vlm_departments_for_user(viewer) == [
         "electrical_components"

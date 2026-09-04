@@ -1,11 +1,14 @@
-# 文件说明：封装`user_store` 模块的 React 状态与副作用。
+# 文件说明：封装 SQLite 用户存储、旧库迁移和用户数据读写。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 """SQLite-backed user storage."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import secrets
 import sqlite3
 import threading
 from contextlib import closing
@@ -22,6 +25,8 @@ ALLOWED_VIEWER_DEPARTMENTS = {
     "precious_metal_recycling",
     "haoda_company",
 }
+LEGACY_DEFAULT_PASSWORD = "Fuda@2026"
+PASSWORD_HASH_ITERATIONS = 260_000
 DEPARTMENT_ALIASES = {
     "ge": "general_electric",
     "general": "general_electric",
@@ -127,8 +132,7 @@ def _normalize_required(value: object, label: str) -> str:
 # 功能：转换或规范化 `_normalize_role_departments` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `role`（object）：`role` 对应的业务输入值
-#   - `department`（object）：业务部门名称或标识
-#   - `departments`（object）：`departments` 对应的业务输入值；默认值为 `None`
+#   - `departments`（object）：用户的事业部列表
 # 返回：tuple[str, list[str]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`auth/user_store.py` 的 `UserStore::initialize` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user` 调用本符号；
@@ -139,8 +143,7 @@ def _normalize_required(value: object, label: str) -> str:
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _normalize_role_departments(
     role: object,
-    department: object,
-    departments: object = None,
+    departments: object,
 ) -> tuple[str, list[str]]:
     normalized_role = str(role or "").strip().lower()
     if normalized_role not in ALLOWED_ROLES:
@@ -148,9 +151,7 @@ def _normalize_role_departments(
     if normalized_role == "admin":
         return normalized_role, ["all"]
 
-    if departments is None:
-        raw_departments = [department]
-    elif isinstance(departments, (list, tuple)):
+    if isinstance(departments, (list, tuple)):
         raw_departments = list(departments)
     else:
         raise UserValidationError("事业部必须是数组")
@@ -190,21 +191,45 @@ def _encode_departments(departments: list[str]) -> str:
 # 功能：实现 `_decode_departments` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `value`（object）：待转换、校验或写入的值
-#   - `fallback`（object）：`fallback` 对应的业务输入值
 # 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`auth/user_store.py` 的 `_public_user` 调用本符号；`auth/user_store.py` 的 `UserStore::initialize` 调用本符号
-#   - 内部调用：`isinstance`、`json.loads`、`str`、`str(fallback or '').strip`。
+#   - 内部调用：`isinstance`、`json.loads`、`str`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _decode_departments(value: object, fallback: object) -> list[str]:
+def _decode_departments(value: object) -> list[str]:
     try:
         decoded = json.loads(value) if isinstance(value, str) else value
     except json.JSONDecodeError:
         decoded = None
     if isinstance(decoded, list) and decoded:
         return [str(item) for item in decoded]
-    normalized_fallback = str(fallback or "").strip()
-    return [normalized_fallback] if normalized_fallback else []
+    return []
+
+
+def _legacy_default_password() -> str:
+    """仅供初始化时迁移无密码哈希的旧账号。"""
+    return os.getenv("AUTH_DEFAULT_PASSWORD", LEGACY_DEFAULT_PASSWORD)
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def hash_password(
+    password: str,
+    *,
+    salt: str | None = None,
+    iterations: int = PASSWORD_HASH_ITERATIONS,
+) -> str:
+    """生成用户数据库使用的 PBKDF2-HMAC-SHA256 密码哈希。"""
+    salt = salt or secrets.token_urlsafe(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    )
+    return f"pbkdf2_sha256${iterations}${salt}${_b64url_encode(digest)}"
 
 
 # 功能：实现 `_public_user` 对应的`user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -216,13 +241,11 @@ def _decode_departments(value: object, fallback: object) -> list[str]:
 #   - 内部调用：`_decode_departments`、`bool`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _public_user(row: sqlite3.Row) -> dict[str, Any]:
-    departments = _decode_departments(row["departments"], row["department"])
     return {
         "employee_id": row["employee_id"],
         "name": row["name"],
         "role": row["role"],
-        "department": row["department"],
-        "departments": departments,
+        "departments": _decode_departments(row["departments"]),
         "enabled": bool(row["enabled"]),
         "auth_version": int(row["auth_version"]),
     }
@@ -297,8 +320,8 @@ class UserStore:
     #         调用本符号；`auth/user_store.py` 的 `UserStore::find_enabled_user` 调用本符号；`auth/user_store.py` 的 `UserStore::create_user`
     #         调用本符号；另有 3 处静态调用
     #   - 内部调用：`self.database_path.parent.mkdir`、`self._connect`、`connection.execute`、`str`、`connection.execute('PRAGMA
-    #          table_info(auth_users)').fetchall`、`connection.execute('SELECT employee_id, role, department, departments FROM
-    #          auth_users').fetchall`、`_normalize_role_departments`、`_decode_departments`、`_encode_departments`。
+    #          table_info(auth_users)').fetchall`、`connection.execute('SELECT employee_id, role, department, departments, password_hash FROM
+    #          auth_users').fetchall`、`_normalize_role_departments`、`_decode_departments`、`_encode_departments`、`hash_password`。
     # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
     def initialize(self) -> None:
         if self._initialized:
@@ -338,26 +361,34 @@ class UserStore:
                         "ALTER TABLE auth_users "
                         "ADD COLUMN departments TEXT NOT NULL DEFAULT '[]'"
                     )
+                if "password_hash" not in columns:
+                    connection.execute(
+                        "ALTER TABLE auth_users ADD COLUMN password_hash TEXT"
+                    )
                 for row in connection.execute(
-                    "SELECT employee_id, role, department, departments "
+                    "SELECT employee_id, role, department, departments, password_hash "
                     "FROM auth_users"
                 ).fetchall():
+                    migrated_departments = _decode_departments(row["departments"])
+                    if not migrated_departments:
+                        legacy_department = str(row["department"] or "").strip()
+                        migrated_departments = [legacy_department] if legacy_department else []
                     role, departments = _normalize_role_departments(
                         row["role"],
-                        row["department"],
-                        _decode_departments(
-                            row["departments"],
-                            row["department"],
-                        ),
+                        migrated_departments,
                     )
+                    password_hash = str(row["password_hash"] or "").strip()
+                    if not password_hash:
+                        password_hash = hash_password(_legacy_default_password())
                     connection.execute(
                         "UPDATE auth_users "
-                        "SET role = ?, department = ?, departments = ? "
+                        "SET role = ?, department = ?, departments = ?, password_hash = ? "
                         "WHERE employee_id = ?",
                         (
                             role,
                             departments[0],
                             _encode_departments(departments),
+                            password_hash,
                             row["employee_id"],
                         ),
                     )
@@ -379,7 +410,7 @@ class UserStore:
     #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_initializes_and_reads_users_from_database`
     #         调用本符号；另有 1 处静态调用
     #   - 内部调用：`self.initialize`、`closing`、`self._connect`、`connection.execute('\n                SELECT employee_id, name, role,
-    #          department, departments, enabled,\n                       password_hash, auth_version\n                FROM
+    #          departments, enabled,\n                       password_hash, auth_version\n                FROM
     #          auth_users\n                ORDER BY employee_id\n                ').fetchall`、`connection.execute`、`_public_user`。
     # 副作用/注意事项：可能读取或修改数据库事务。
     def list_users(self) -> list[dict[str, Any]]:
@@ -387,7 +418,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT employee_id, name, role, department, departments, enabled,
+                SELECT employee_id, name, role, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 ORDER BY employee_id
@@ -405,7 +436,7 @@ class UserStore:
     #         调用本符号；`auth/user_store.py` 的 `UserStore::update_password_hash` 调用本符号；`auth/auth.py` 的 `change_own_password` 调用本符号；另有 2
     #         处静态调用
     #   - 内部调用：`self.initialize`、`closing`、`self._connect`、`connection.execute('\n                SELECT employee_id, name, role,
-    #          department, departments, enabled,\n                       password_hash, auth_version\n                FROM
+    #          departments, enabled,\n                       password_hash, auth_version\n                FROM
     #          auth_users\n                WHERE employee_id = ?\n                ',
     #          (str(employee_id).strip(),)).fetchone`、`connection.execute`、`str(employee_id).strip`、`str`、`UserNotFoundError`、`_user_record`。
     # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
@@ -414,7 +445,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
-                SELECT employee_id, name, role, department, departments, enabled,
+                SELECT employee_id, name, role, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 WHERE employee_id = ?
@@ -433,7 +464,7 @@ class UserStore:
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`self.initialize`、`str(identifier).strip`、`str`、`closing`、`self._connect`、`connection.execute('\n
-    #          SELECT employee_id, name, role, department, departments, enabled,\n                       password_hash,
+    #          SELECT employee_id, name, role, departments, enabled,\n                       password_hash,
     #          auth_version\n                FROM auth_users\n                WHERE enabled = 1 AND (employee_id = ? OR name = ?)\n
     #          LIMIT 1\n                ', (normalized, normalized)).fetchone`、`connection.execute`、`_user_record`。
     # 副作用/注意事项：可能读取或修改数据库事务。
@@ -445,7 +476,7 @@ class UserStore:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
-                SELECT employee_id, name, role, department, departments, enabled,
+                SELECT employee_id, name, role, departments, enabled,
                        password_hash, auth_version
                 FROM auth_users
                 WHERE enabled = 1 AND (employee_id = ? OR name = ?)
@@ -461,9 +492,8 @@ class UserStore:
     #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
     #   - `name`（str）：业务对象名称
     #   - `role`（str）：`role` 对应的业务输入值
-    #   - `department`（str | None）：业务部门名称或标识
     #   - `password_hash`（str）：`password_hash` 对应的业务输入值
-    #   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+    #   - `departments`（list[str] | None）：用户的事业部列表
     # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`auth/auth.py` 的 `create_auth_user` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
@@ -481,16 +511,14 @@ class UserStore:
         employee_id: str,
         name: str,
         role: str,
-        department: str | None,
         password_hash: str,
-        departments: list[str] | None = None,
+        departments: list[str] | None,
     ) -> dict[str, Any]:
         self.initialize()
         normalized_employee_id = _normalize_required(employee_id, "工号")
         normalized_name = _normalize_required(name, "姓名")
         normalized_role, normalized_departments = _normalize_role_departments(
             role,
-            department,
             departments,
         )
         if not password_hash:
@@ -542,9 +570,8 @@ class UserStore:
     #   - `actor_employee_id`（str）：`actor_employee_id` 对应业务对象的唯一标识
     #   - `name`（str）：业务对象名称
     #   - `role`（str）：`role` 对应的业务输入值
-    #   - `department`（str | None）：业务部门名称或标识
     #   - `enabled`（bool）：是否启用相应能力
-    #   - `departments`（list[str] | None）：`departments` 对应的业务输入值；默认值为 `None`
+    #   - `departments`（list[str] | None）：用户的事业部列表
     # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`auth/auth.py` 的 `update_auth_user` 调用本符号；`unified_backend/tests/test_admin_users_api.py` 的
@@ -564,9 +591,8 @@ class UserStore:
         actor_employee_id: str,
         name: str,
         role: str,
-        department: str | None,
         enabled: bool,
-        departments: list[str] | None = None,
+        departments: list[str] | None,
     ) -> dict[str, Any]:
         self.initialize()
         normalized_employee_id = _normalize_required(employee_id, "工号")
@@ -574,7 +600,6 @@ class UserStore:
         normalized_name = _normalize_required(name, "姓名")
         normalized_role, normalized_departments = _normalize_role_departments(
             role,
-            department,
             departments,
         )
         normalized_enabled = bool(enabled)
@@ -774,4 +799,5 @@ __all__ = [
     "UserStoreError",
     "UserValidationError",
     "default_database_path",
+    "hash_password",
 ]

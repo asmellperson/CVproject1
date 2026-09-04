@@ -460,7 +460,7 @@ def test_logistics_camera_inventory_batches_and_deduplicates_memberships(service
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service.create_channel`、`pytest.raises`、`service.update_channel`、`service.update_config`、`time`、`service.get_channel`、`service.list_channels`、`service.delete_channel`。
+#   - 内部调用：`service.create_channel`、`pytest.raises`、`service.update_channel_and_config`、`time`、`service.get_channel`、`service.list_channels`、`service.delete_channel`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_channel_crud_is_scoped_by_feature(service_db):
     service = service_db.service
@@ -470,14 +470,10 @@ def test_channel_crud_is_scoped_by_feature(service_db):
     with pytest.raises(ValueError, match="已存在"):
         service.create_channel(BASE_FEATURE, "收货通道")
 
-    updated = service.update_channel(
+    updated = service.update_channel_and_config(
         BASE_FEATURE,
         created["id"],
         {"name": "卸货通道", "enabled": False, "sort_order": 7},
-    )
-    configured = service.update_config(
-        BASE_FEATURE,
-        created["id"],
         {
             "detection_start": time(7, 30),
             "detection_end": time(19, 30),
@@ -496,9 +492,9 @@ def test_channel_crud_is_scoped_by_feature(service_db):
     assert updated["name"] == "卸货通道"
     assert updated["enabled"] is False
     assert updated["sort_order"] == 7
-    assert configured["config"]["confidence_threshold"] == 0.42
-    assert configured["config"]["empty_grace_seconds"] == 4.0
-    assert configured["config"]["alarm"]["wechat"]["user"] == "operator"
+    assert updated["config"]["confidence_threshold"] == 0.42
+    assert updated["config"]["empty_grace_seconds"] == 4.0
+    assert updated["config"]["alarm"]["wechat"]["user"] == "operator"
     assert service.get_channel(BASE_FEATURE, created["id"])["id"] == created["id"]
     assert [item["name"] for item in service.list_channels(BASE_FEATURE)["items"]] == ["卸货通道"]
     assert service.delete_channel(BASE_FEATURE, created["id"]) is True
@@ -576,9 +572,8 @@ def test_combined_channel_update_is_atomic_and_publishes_once(service_db, monkey
         ("list_channels", ()),
         ("get_channel", (1,)),
         ("create_channel", ("通道",)),
-        ("update_channel", (1, {})),
         ("delete_channel", (1,)),
-        ("update_config", (1, {})),
+        ("update_channel_and_config", (1, {}, {})),
         ("add_existing_camera", (1, 1)),
         ("create_camera_and_bind", (1, {"name": "相机", "url": "rtsp://example"})),
         ("move_camera", (1, 1)),
@@ -1855,19 +1850,27 @@ def test_create_camera_and_bind_translates_camera_integrity_error(service_db, mo
 #          method)`、`getattr`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize(
-    ("method", "payload", "field"),
+    ("method", "payload", "config", "field"),
     [
-        ("update_channel", {"enabled": None}, "enabled"),
-        ("update_channel", {"sort_order": None}, "sort_order"),
-        ("update_config", {"alarm_interval": None}, "alarm_interval"),
-        ("update_config", {"detection_start": None}, "detection_start"),
-        ("update_config", {"confidence_threshold": None}, "confidence_threshold"),
+        ("update_channel_and_config", {"enabled": None}, {}, "enabled"),
+        ("update_channel_and_config", {"sort_order": None}, {}, "sort_order"),
+        ("update_channel_and_config", {}, {"alarm_interval": None}, "alarm_interval"),
+        ("update_channel_and_config", {}, {"detection_start": None}, "detection_start"),
+        ("update_channel_and_config", {}, {"confidence_threshold": None}, "confidence_threshold"),
     ],
 )
-def test_updates_reject_explicit_none_for_not_null_fields(service_db, method, payload, field):
+def test_updates_reject_explicit_none_for_not_null_fields(
+    service_db,
+    method,
+    payload,
+    config,
+    field,
+):
     channel = service_db.service.create_channel(BASE_FEATURE, f"非空-{method}-{field}")
     with pytest.raises(ValueError, match=field):
-        getattr(service_db.service, method)(BASE_FEATURE, channel["id"], payload)
+        args = (BASE_FEATURE, channel["id"], payload)
+        args += (config,)
+        getattr(service_db.service, method)(*args)
 
 
 # 功能：验证 `test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明

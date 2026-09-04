@@ -1,11 +1,10 @@
-import { apiDelete, apiGet, apiPost, apiPut, apiUrl } from '@/lib/api'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUrl } from '@/lib/api'
 import type {
   CreateLogisticsChannelPayload,
   LogisticsCameraConfigPayload,
   LogisticsCameraConfigResponse,
   LogisticsCameraInventoryResponse,
   LogisticsChannelAlarmListResponse,
-  LogisticsChannelConfigPayload,
   LogisticsChannelDetail,
   LogisticsChannelListResponse,
   LogisticsChannelMemberPayload,
@@ -96,17 +95,7 @@ export const updateLogisticsChannel = (
   channelId: number,
   payload: UpdateLogisticsChannelPayload,
 ) => invalidateAfter(
-  apiPut<LogisticsChannelDetail>(logisticsChannelPath(feature, channelId), payload),
-  feature,
-  channelId,
-)
-
-export const updateLogisticsChannelConfig = (
-  feature: LogisticsFeatureName,
-  channelId: number,
-  payload: LogisticsChannelConfigPayload,
-) => invalidateAfter(
-  apiPut<LogisticsChannelDetail>(`${logisticsChannelPath(feature, channelId)}/config`, payload),
+  apiPatch<LogisticsChannelDetail>(logisticsChannelPath(feature, channelId), payload),
   feature,
   channelId,
 )

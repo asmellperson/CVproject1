@@ -233,11 +233,7 @@ def _department_scope(requested_department: str | None, user: object) -> str:
         return requested
 
     raw_departments = user.get("departments")
-    candidates = (
-        raw_departments
-        if isinstance(raw_departments, list) and raw_departments
-        else [user.get("department")]
-    )
+    candidates = raw_departments if isinstance(raw_departments, list) else []
     user_departments: list[str] = []
     for candidate in candidates:
         department = _normalize_department(candidate)
