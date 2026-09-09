@@ -167,6 +167,9 @@ def ensure_schema_compatible():
 
     # 先创建完全不存在的新表
     engine = get_engine()
+    # 物流合并需要先回填事业部并调整唯一约束，不能直接补一个 NOT NULL 列。
+    from AiVision.platform.logistics_channel.migration import prepare_logistics_schema
+    prepare_logistics_schema(engine)
     Base.metadata.create_all(bind=engine)  # 创建全新表，已存在的表跳过
     # 创建一个数据库结构检查器
     inspector = inspect(engine)

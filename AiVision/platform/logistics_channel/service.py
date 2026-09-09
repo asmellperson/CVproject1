@@ -5,22 +5,19 @@
     新建/修改/删除通道
     camera加入/移除/从一个通道移到另一个通道
     保证数据库事务安全
-    处理并发/死锁
+    通过成员事务模块处理并发/死锁
     修改成功红通知Runtime刷新
-    处理旧物流配置迁移
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from time import sleep
 from typing import Any
 
-from sqlalchemy import or_
-from sqlalchemy.exc import IntegrityError, OperationalError      # 数据库完整性错误，数据库运行错误
-from sqlalchemy.orm import selectinload                          # SQLAlchemy 的预加载关联数据
+from sqlalchemy.exc import IntegrityError      # 数据库完整性错误，数据库运行错误
+from sqlalchemy.orm import selectinload, with_loader_criteria                          # SQLAlchemy 的预加载关联数据
 
 from AiVision.core.cache import config_cache
-from AiVision.core.db import get_session, session_scope
+from AiVision.core.db import get_session
 from AiVision.core.events import ConfigChangeEvent, config_event_bus
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
@@ -28,67 +25,16 @@ from AiVision.platform.alarm_device.binding import validate_horn_binding
 from AiVision.platform.camera.orm import AiCameraConfig
 from AiVision.platform.camera.config_manager import (
     _camera_integrity_value_error,
-    _database_error_code,
     camera_config_manager,
 )                                                     # 摄像头仍然属于platform/camera/
 
 from .constants import (
-    DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
-    get_logistics_department,
-    LOGISTICS_FEATURES,
     MAX_CAMERAS_PER_CHANNEL,
     require_logistics_feature,
 )
+from .membership_transaction import MembershipTransaction
 from .orm import LogisticsChannel, LogisticsChannelCamera
 from .schema import LogisticsChannelDetailResponse, LogisticsChannelListResponse
-
-# 数据库重试参数，1205：数据库等太久，1213：死锁
-_MYSQL_RETRYABLE_LOCK_ERRORS = frozenset({1205, 1213})
-# 最多三次
-_MAX_WRITE_ATTEMPTS = 3
-# 第一次失败等20ms，第二次失败等40ms，第三次不用重试
-_WRITE_RETRY_BACKOFF_SECONDS = 0.02
-
-class _MembershipLockSetChanged(RuntimeError):
-    """预先查到的摄像头和通道的关系，在真正加锁之前已经被别人改了，这个时候抛这个错误，并且准备重新查一遍，再重新开启事务"""
-
-@dataclass(frozen=True)                # frozen:冻结，创建后不允许修改
-class _DiscoveredMembership:
-    """预查询阶段发现的一条物流摄像头的归属关系"""
-    member_id: int                     # 成员关系ID
-    channel_id: int                    # 通道id
-    camera_id: int                     # 摄像头id
-    feature_name: str
-
-@dataclass(frozen=True)
-class _MembershipDiscovery:
-    """某次操作开始前，发现的完整关联范围，后面会用于判断：加锁以后看到的数据，和预查询的数据是不是同一批"""
-    members: tuple[_DiscoveredMembership, ...]
-    camera_scope: tuple[int, ...]
-    channel_scope: tuple[int, ...]
-
-    @property
-    def member_ids(self) -> tuple[int, ...]:
-        return tuple(member.member_id for member in self.members)
-
-    @property
-    def member_channel_ids(self) -> tuple[int, ...]:
-        return tuple(member.channel_id for member in self.members)
-
-    @property 
-    def member_camera_ids(self) -> tuple[int, ...]:
-        return tuple(member.camera_id for member in self.members)
-
-    @property
-    def expected_pairs(self) -> set[tuple[int, int]]:
-        return {(member.member_id, member.channel_id) for member in self.members}
-
-@dataclass(frozen=True)
-class _LockedMembershipState:
-    """真正锁住以后拿到的数据库对象"""
-    channels: dict[int, LogisticsChannel]
-    cameras: dict[int, AiCameraConfig]
-    members: list[LogisticsChannelCamera]
 
 @dataclass(frozen=True)
 class _CameraRef:
@@ -105,26 +51,17 @@ class _PendingNotification:
     feature_action: str | None = None
     camera_added: _CameraRef | None = None
 
-@dataclass(frozen=True)
-class MigrationSummary:
-    """旧数据迁移的结果统计"""
-    created: int
-    skipped: int
-    failed: int
-    errors: tuple[str, ...] = ()
 
-class LogisticsChannelService:
+class LogisticsChannelService(MembershipTransaction):
     """物流通道配置与摄像头成员管理入口。"""
-    def list_channels(self, feature_name: str) -> dict:
+    def list_channels(self, feature_name: str, departments: list[str] | tuple[str, ...] | None = None) -> dict:
         feature_name = require_logistics_feature(feature_name)
         session = get_session()
         try:
-            channels = (
-                session.query(LogisticsChannel)
-                .filter_by(feature_name=feature_name)
-                .order_by(LogisticsChannel.sort_order, LogisticsChannel.id)
-                .all()
-            )
+            query = session.query(LogisticsChannel).filter_by(feature_name=feature_name)
+            if departments is not None:
+                query = query.filter(LogisticsChannel.department.in_(departments))
+            channels = query.order_by(LogisticsChannel.sort_order, LogisticsChannel.id).all()
             # 用Pydantic Schema把ORM数据校验并转换成API允许返回的结构
             return LogisticsChannelListResponse.model_validate(
                 {"items": channels}
@@ -135,6 +72,7 @@ class LogisticsChannelService:
     def list_camera_inventory(
         self,
         feature_names: list[str] | tuple[str, ...],
+        departments: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict]:
         """查看多个物流功能下，都有哪些摄像头，以及他们属于哪些通道"""
         # 校验、去重、以及保持原顺序
@@ -147,7 +85,7 @@ class LogisticsChannelService:
         session = get_session()
         try:
             # 准备好：LogisticsChannel、LogisticsChannelCamera、AiCameraConfig
-            channels = (
+            query = (
                 session.query(LogisticsChannel)
                 .options(
                     selectinload(LogisticsChannel.cameras)
@@ -159,8 +97,12 @@ class LogisticsChannelService:
                     LogisticsChannel.sort_order,
                     LogisticsChannel.id,
                 )
-                .all()
             )
+            if departments is not None:
+                query = query.filter(LogisticsChannel.department.in_(departments)).options(
+                    with_loader_criteria(AiCameraConfig, AiCameraConfig.department.in_(departments))
+                )
+            channels = query.all()
             inventory: dict[int, dict] = {}
             # 遍历每个通道
             for channel in channels:
@@ -174,10 +116,7 @@ class LogisticsChannelService:
                         "camera_id": camera.id,
                         "name": camera.name,
                         "shm_name": camera.shm_name,
-                        "department": (
-                            camera.department
-                            or get_logistics_department(channel.feature_name)
-                        ),
+                        "department": camera.department,
                         "enabled": bool(camera.enable),
                         "memberships": [],
                     })
@@ -211,10 +150,11 @@ class LogisticsChannelService:
         finally:
             session.close()
 
-    def create_channel(self, feature_name: str, name: str) -> dict:
+    def create_channel(self, feature_name: str, name: str, department: str) -> dict:
         """新建一个物流通道"""
         # 物流通道名不能为空
         feature_name = require_logistics_feature(feature_name)
+        department = self._require_department(feature_name, department)
         normalized_name = (name or "").strip()
         if not normalized_name:
             raise ValueError("通道名称不能为空")
@@ -222,14 +162,14 @@ class LogisticsChannelService:
         def create(session):
             duplicate = (
                 session.query(LogisticsChannel)
-                .filter_by(feature_name=feature_name, name=normalized_name)
+                .filter_by(feature_name=feature_name, department=department, name=normalized_name)
                 .first()
             )
-            # 当前规则是同一个功能，同一个通道名称不能重复
+            # 同一个功能、同一个事业部下，通道名称不能重复
             if duplicate is not None:
-                raise ValueError(f"同一功能下通道名称已存在: {normalized_name}")
+                raise ValueError(f"同一事业部下通道名称已存在: {normalized_name}")
             # 创建ORM对象
-            channel = LogisticsChannel(name=normalized_name, feature_name=feature_name)
+            channel = LogisticsChannel(name=normalized_name, feature_name=feature_name, department=department)
             session.add(channel)
             session.flush()
             return channel.id      # 拿到新创建的通道id
@@ -308,6 +248,8 @@ class LogisticsChannelService:
         """在单事务内更新通道元数据和检测配置，并只发布一次刷新事件。"""
         feature_name = require_logistics_feature(feature_name)
         channel_values = self._payload_dict(channel_payload)
+        if "department" in channel_values:
+            raise ValueError("通道 department 创建后不可修改")
         config_values = self._payload_dict(config_payload)
         # 如果调用方明确传了这些字段，就不能传None
         self._reject_none(channel_values, ("enabled", "sort_order"))
@@ -380,6 +322,7 @@ class LogisticsChannelService:
             camera = state.cameras.get(camera_id)
             if camera is None:
                 raise ValueError(f"摄像头不存在: {camera_id}")
+            self._require_camera_department(camera, channel)
             same_feature_members = [
                 member
                 for member in state.members
@@ -415,13 +358,8 @@ class LogisticsChannelService:
         """新建摄像头，同时加入通道"""
         feature_name = require_logistics_feature(feature_name)
         values = self._payload_dict(payload)
-        expected_department = get_logistics_department(feature_name)
-        requested_department = values.get("department")
-        if "department" in values and requested_department != expected_department:
-            raise ValueError(
-                f"department 必须与功能归属一致: {expected_department}"
-            )
-        values["department"] = expected_department
+        if "department" in values:
+            raise ValueError("新摄像头 department 由目标通道继承，不得单独指定")
 
         def discover():
             return self._discover_memberships(channel_ids=(channel_id,))
@@ -436,7 +374,7 @@ class LogisticsChannelService:
             if channel is None or channel.feature_name != feature_name:
                 raise ValueError(f"物流通道不存在: {channel_id}")
             self._require_capacity(state.members, channel.id)
-            camera = camera_config_manager.create_camera_record(session, values)
+            camera = camera_config_manager.create_camera_record(session, {**values, "department": channel.department})
             self._insert_locked_member(
                 session,
                 feature_name,
@@ -490,6 +428,7 @@ class LogisticsChannelService:
             camera = state.cameras.get(camera_id)
             if camera is None:
                 raise ValueError(f"摄像头不存在: {camera_id}")
+            self._require_camera_department(camera, target)
             feature_memberships = [
                 member
                 for member in state.members
@@ -669,118 +608,6 @@ class LogisticsChannelService:
         )
         return True
 
-    def migrate_existing_feature_cameras(self) -> MigrationSummary:
-        """历史迁移代码"""
-        candidates: list[tuple[str, int]] = []
-        read_session = get_session()
-        try:
-            for feature_name in sorted(LOGISTICS_FEATURES):
-                spec = all_specs()[feature_name]
-                camera_ids = (
-                    read_session.query(spec.orm_class.camera_id)
-                    .filter(spec.orm_class.enable.is_(True))
-                    .order_by(spec.orm_class.camera_id)
-                    .all()
-                )
-                candidates.extend((feature_name, row[0]) for row in camera_ids)
-        finally:
-            read_session.close()
-
-        created = skipped = failed = 0
-        errors: list[str] = []
-        pending_notifications: list[_PendingNotification] = []
-        for feature_name, camera_id in candidates:
-            try:
-                def discover():
-                    return self._discover_memberships(camera_ids=(camera_id,))
-
-                def migrate_one(session, discovery):
-                    # 迁移只锁 camera/config，之后只插入新 channel；不再获取任何
-                    # 已存在 channel 行锁，避免与 channels→cameras 层级形成环。
-                    camera = self._lock_migration_camera(session, camera_id)
-                    if camera is None:
-                        raise ValueError(f"摄像头不存在: {camera_id}")
-                    spec = all_specs()[feature_name]
-                    cfg = (
-                        session.query(spec.orm_class)
-                        .filter_by(camera_id=camera_id)
-                        .with_for_update()
-                        .first()
-                    )
-                    if cfg is None or not cfg.enable:
-                        return None
-                    current_members = self._build_membership_lock_query(
-                        session,
-                        member_ids=discovery.member_ids,
-                        camera_ids=discovery.camera_scope,
-                    ).all()
-                    current_pairs = {
-                        (member.id, member.channel_id) for member in current_members
-                    }
-                    if current_pairs != discovery.expected_pairs:
-                        raise _MembershipLockSetChanged()
-                    if any(
-                        member.feature_name == feature_name
-                        for member in discovery.members
-                    ):
-                        return None
-                    name = camera.name
-                    collision = (
-                        session.query(LogisticsChannel.id)
-                        .filter_by(feature_name=feature_name, name=name)
-                        .first()
-                    )
-                    if collision is not None:
-                        name = f"{camera.name}-{camera.id}"
-                    channel = LogisticsChannel(
-                        name=name,
-                        feature_name=feature_name,
-                        confidence_threshold=(
-                            cfg.CONF_THRESHOLD
-                            if cfg.CONF_THRESHOLD is not None
-                            else DEFAULT_PERSON_CONFIDENCE_THRESHOLD
-                        ),
-                        empty_grace_seconds=cfg.empty_grace_seconds,
-                        multi_grace_seconds=cfg.multi_grace_seconds,
-                        alarm_interval=cfg.alarm_interval,
-                        sql_enable=bool(cfg.sql_enable),
-                        horn_enable=bool(cfg.horn_enable),
-                        horn_id=cfg.horn_id,
-                        horn_event_id=cfg.horn_event_id,
-                        wechat_enable=bool(cfg.wechat_enable),
-                        wechat_user=cfg.wechat_user,
-                    )
-                    session.add(channel)
-                    session.flush()
-                    session.add(LogisticsChannelCamera(
-                        channel_id=channel.id,
-                        camera_id=camera_id,
-                        enabled=True,
-                        sort_order=0,
-                    ))
-                    session.flush()
-                    camera_ref = _CameraRef(camera.id, camera.shm_name)
-                    return _PendingNotification(
-                        channel_id=channel.id,
-                        feature_name=feature_name,
-                        camera_refs=(camera_ref,),
-                        feature_action="enabled",
-                    )
-
-                notification = self._run_membership_transaction(discover, migrate_one)
-                if notification is None:
-                    skipped += 1
-                    continue
-                created += 1
-                pending_notifications.append(notification)
-            except Exception as exc:
-                failed += 1
-                message = f"{feature_name}/camera_id={camera_id}: {exc}"
-                errors.append(message)
-                logger.warning(f"[LogisticsChannelService] 迁移失败 {message}")
-        if pending_notifications:
-            self._publish_notifications(pending_notifications)
-        return MigrationSummary(created, skipped, failed, tuple(errors))
 
     # ---------------  helper -----------------
     @staticmethod
@@ -813,13 +640,14 @@ class LogisticsChannelService:
                 session.query(LogisticsChannel)
                 .filter(
                     LogisticsChannel.feature_name == feature_name,
+                    LogisticsChannel.department == channel.department,
                     LogisticsChannel.name == name,
                     LogisticsChannel.id != channel_id,
                 )
                 .first()
             )
             if duplicate is not None:
-                raise ValueError(f"同一功能下通道名称已存在: {name}")
+                raise ValueError(f"同一事业部下通道名称已存在: {name}")
             channel.name = name
         for field in ("enabled", "sort_order"):
             if field in values:
@@ -868,57 +696,19 @@ class LogisticsChannelService:
             .first()
         )
 
-    @staticmethod
-    def _run_write_transaction(operation):
-        """每次尝试都创建新 session，并完整重跑锁定与业务校验。"""
-        for attempt in range(1, _MAX_WRITE_ATTEMPTS + 1):
-            try:
-                with session_scope() as session:
-                    return operation(session)
-            except OperationalError as exc:
-                code = _database_error_code(exc)
-                if code not in _MYSQL_RETRYABLE_LOCK_ERRORS or attempt >= _MAX_WRITE_ATTEMPTS:
-                    raise
-                logger.warning(
-                    f"[LogisticsChannelService] 写事务锁冲突 code={code}, "
-                    f"准备第 {attempt + 1}/{_MAX_WRITE_ATTEMPTS} 次尝试"
-                )
-            sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
-        raise RuntimeError("unreachable")
 
-    @staticmethod
-    def _run_membership_transaction(discover, operation):
-        """每次尝试先用已关闭短 session discovery，再开启全新正式事务。"""
-        for attempt in range(1, _MAX_WRITE_ATTEMPTS + 1):
-            discovery = discover()
-            try:
-                with session_scope() as session:
-                    return operation(session, discovery)
-            except _MembershipLockSetChanged:
-                if attempt >= _MAX_WRITE_ATTEMPTS:
-                    raise
-            except OperationalError as exc:
-                code = _database_error_code(exc)
-                if code not in _MYSQL_RETRYABLE_LOCK_ERRORS or attempt >= _MAX_WRITE_ATTEMPTS:
-                    raise
-                logger.warning(
-                    f"[LogisticsChannelService] 成员事务锁冲突 code={code}, "
-                    f"准备第 {attempt + 1}/{_MAX_WRITE_ATTEMPTS} 次尝试"
-                )
-            sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
-        raise RuntimeError("unreachable")
 
     @staticmethod
     def _channel_integrity_value_error(exc: IntegrityError) -> ValueError:
         message = str(exc.orig or exc).lower()
         if (
-            "uq_logistics_channel_feature_name" in message
+            "uq_logistics_channel_feature_department_name" in message
             or (
                 "ai_logistics_channel.feature_name" in message
                 and "ai_logistics_channel.name" in message
             )
         ):
-            return ValueError("同一功能下通道名称已存在")
+            return ValueError("同一事业部下通道名称已存在")
         return ValueError("物流通道数据约束冲突")
 
     @classmethod
@@ -938,146 +728,11 @@ class LogisticsChannelService:
             if field in values and values[field] is None:
                 raise ValueError(f"{field} 不可为 None")
 
-    @staticmethod
-    def _lock_channels(session, channel_ids) -> dict[int, LogisticsChannel]:
-        """锁层级 1：所有既有 channel 必须按 ID 升序先锁定。"""
-        ids = sorted(set(channel_ids))
-        if not ids:
-            return {}
-        rows = (
-            session.query(LogisticsChannel)
-            .filter(LogisticsChannel.id.in_(ids))
-            .order_by(LogisticsChannel.id)
-            .with_for_update()
-            .all()
-        )
-        return {row.id: row for row in rows}
 
-    @staticmethod
-    def _lock_cameras(session, camera_ids) -> dict[int, AiCameraConfig]:
-        """锁层级 2：channel 全部锁定后，再按 ID 升序锁 camera。"""
-        ids = sorted(set(camera_ids))
-        if not ids:
-            return {}
-        rows = (
-            session.query(AiCameraConfig)
-            .filter(AiCameraConfig.id.in_(ids))
-            .order_by(AiCameraConfig.id)
-            .with_for_update()
-            .all()
-        )
-        return {row.id: row for row in rows}
 
-    @staticmethod
-    def _lock_migration_camera(session, camera_id: int):
-        """迁移专用例外：锁 camera 后只写新 channel，不获取既有 channel 锁。"""
-        return (
-            session.query(AiCameraConfig)
-            .filter_by(id=camera_id)
-            .with_for_update()
-            .first()
-        )
 
-    @staticmethod
-    def _discover_memberships(
-        *,
-        camera_ids=(),
-        channel_ids=(),
-    ) -> _MembershipDiscovery:
-        """在独立短 session 中发现锁集合；返回前一定关闭该 session。"""
-        camera_scope = tuple(sorted(set(camera_ids)))
-        channel_scope = tuple(sorted(set(channel_ids)))
-        session = get_session()
-        try:
-            conditions = []
-            if camera_scope:
-                conditions.append(LogisticsChannelCamera.camera_id.in_(camera_scope))
-            if channel_scope:
-                conditions.append(LogisticsChannelCamera.channel_id.in_(channel_scope))
-            if not conditions:
-                return _MembershipDiscovery((), camera_scope, channel_scope)
-            rows = (
-                session.query(LogisticsChannelCamera)
-                .filter(or_(*conditions))
-                .order_by(LogisticsChannelCamera.id)
-                .all()
-            )
-            discovered_channel_ids = sorted({row.channel_id for row in rows})
-            feature_by_channel = {
-                row.id: row.feature_name
-                for row in (
-                    session.query(LogisticsChannel)
-                    .filter(LogisticsChannel.id.in_(discovered_channel_ids))
-                    .all()
-                )
-            } if discovered_channel_ids else {}
-            members = tuple(
-                _DiscoveredMembership(
-                    member_id=row.id,
-                    channel_id=row.channel_id,
-                    camera_id=row.camera_id,
-                    feature_name=feature_by_channel.get(row.channel_id, ""),
-                )
-                for row in rows
-            )
-            return _MembershipDiscovery(members, camera_scope, channel_scope)
-        finally:
-            session.close()
 
-    @staticmethod
-    def _build_membership_lock_query(
-        session,
-        *,
-        member_ids=(),
-        camera_ids=(),
-        channel_ids=(),
-    ):
-        """仅锁 membership 表；MySQL 编译结果不得包含 JOIN。"""
-        conditions = []
-        if member_ids:
-            conditions.append(LogisticsChannelCamera.id.in_(tuple(member_ids)))
-        if camera_ids:
-            conditions.append(LogisticsChannelCamera.camera_id.in_(tuple(camera_ids)))
-        if channel_ids:
-            conditions.append(LogisticsChannelCamera.channel_id.in_(tuple(channel_ids)))
-        query = session.query(LogisticsChannelCamera)
-        if conditions:
-            query = query.filter(or_(*conditions))
-        else:
-            query = query.filter(LogisticsChannelCamera.id.in_(()))
-        return query.order_by(LogisticsChannelCamera.id).with_for_update()
 
-    def _lock_membership_state(
-        self,
-        session,
-        discovery: _MembershipDiscovery,
-        *,
-        required_channel_ids=(),
-        required_camera_ids=(),
-    ) -> _LockedMembershipState:
-        """MySQL RR 正式事务：channels→cameras→memberships 全部 current read。"""
-        channel_ids = sorted({
-            *required_channel_ids,
-            *discovery.channel_scope,
-            *discovery.member_channel_ids,
-        })
-        camera_ids = sorted({
-            *required_camera_ids,
-            *discovery.camera_scope,
-            *discovery.member_camera_ids,
-        })
-        channels = self._lock_channels(session, channel_ids)
-        cameras = self._lock_cameras(session, camera_ids)
-        members = self._build_membership_lock_query(
-            session,
-            member_ids=discovery.member_ids,
-            camera_ids=discovery.camera_scope,
-            channel_ids=discovery.channel_scope,
-        ).all()
-        actual_pairs = {(member.id, member.channel_id) for member in members}
-        if actual_pairs != discovery.expected_pairs:
-            raise _MembershipLockSetChanged()
-        return _LockedMembershipState(channels, cameras, members)
 
     @staticmethod
     def _detail(channel: LogisticsChannel) -> dict:
@@ -1099,6 +754,7 @@ class LogisticsChannelService:
         return 0 if not sort_orders else max(sort_orders) + 1
 
     def _insert_locked_member(self, session, feature_name, channel, camera, members) -> None:
+        self._require_camera_department(camera, channel)
         self._require_capacity(members, channel.id)
         session.add(LogisticsChannelCamera(
             channel_id=channel.id,
@@ -1108,6 +764,20 @@ class LogisticsChannelService:
         ))
         self._set_feature_enabled(session, feature_name, camera.id, True)
         session.flush()
+
+    @staticmethod
+    def _require_department(feature_name: str, department: str) -> str:
+        spec = all_specs()[feature_name]
+        if not isinstance(department, str) or not department.strip():
+            raise ValueError("department 必填")
+        return spec.resolve_camera_department(department)
+
+    @staticmethod
+    def _require_camera_department(camera: AiCameraConfig, channel: LogisticsChannel) -> None:
+        if not camera.department:
+            raise ValueError("摄像头 department 为空，请先明确摄像头事业部")
+        if camera.department != channel.department:
+            raise ValueError("摄像头 department 必须与通道所属事业部一致")
 
     @staticmethod
     def _set_feature_enabled(session, feature_name: str, camera_id: int, enabled: bool):

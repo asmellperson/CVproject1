@@ -18,15 +18,15 @@ from unified_backend.app import (
 LOGISTICS_FEATURES = (
     ("detect_logistics_single_person", "general_electric"),
     (
-        "detect_logistics_single_person_electronics_electrician",
+        "detect_logistics_single_person",
         "electronics_electrician",
     ),
     (
-        "detect_logistics_single_person_electrical_components",
+        "detect_logistics_single_person",
         "electrical_components",
     ),
     (
-        "detect_logistics_single_person_precious_metal_recycling",
+        "detect_logistics_single_person",
         "precious_metal_recycling",
     ),
 )
@@ -314,7 +314,7 @@ def test_statistics_group_channel_alarms_by_channel_subject():
 def test_department_filter_uses_alarm_ownership_after_event_type_is_unified():
     electronics_alarm = _normalize_aivision_alarm(_channel_alarm(
         id="7",
-        feature_name="detect_logistics_single_person_electronics_electrician",
+        feature_name="detect_logistics_single_person",
         department="electronics_electrician",
     ))
     general_alarm = _normalize_aivision_alarm(_channel_alarm(

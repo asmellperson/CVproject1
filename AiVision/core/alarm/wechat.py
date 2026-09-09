@@ -35,9 +35,6 @@ _EVENT_DISPLAY = {
     "detect_human":  "人员违规逗留检测",
     "detect_human_haoda": "人员违规逗留检测（皓达公司）",
     "detect_logistics_single_person": "物流通道单人异常",
-    "detect_logistics_single_person_electronics_electrician": "物流通道单人异常（电子电工）",
-    "detect_logistics_single_person_electrical_components": "物流通道单人异常（电气部件）",
-    "detect_logistics_single_person_precious_metal_recycling": "物流通道单人异常（伟达公司）",
 }
 _TOKEN_REFRESH_MARGIN_SECONDS = 60
 

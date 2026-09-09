@@ -22,18 +22,19 @@ class LogisticsChannel(Base):
     """一个物流业务功能下的多摄像头检测通道。"""
     __tablename__ = "ai_logistics_channel"
     __table_args__ = (
-        #同一个Feature下，不能存在两个同名的物流通道
-        UniqueConstraint("feature_name", "name", name="uq_logistics_channel_feature_name"),
+        # 同一个 Feature、同一个事业部下，不能存在两个同名的物流通道
+        UniqueConstraint("feature_name", "department", "name", name="uq_logistics_channel_feature_department_name"),
         {
             "comment": "物流通道配置表",
             "mysql_engine": "InnoDB",
             "mysql_charset": "utf8mb4",
         },
     )
-    # 有功能名但是没有部门，设计上功能名间接代表部门
+    # 功能名保留为运行时命名空间，事业部由通道明确声明
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False, comment="通道名称")
     feature_name = Column(String(128), nullable=False, index=True, comment="物流检测功能名")
+    department = Column(String(100), nullable=False, index=True, comment="物流通道所属事业部")
     enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
     # 排序，主要是前端展示顺序
     sort_order = Column(Integer, nullable=False, default=0, comment="展示排序")

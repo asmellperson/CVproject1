@@ -35,6 +35,7 @@ from AiVision.core.cache import config_cache         # 摄像头配置改完后�
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
 from AiVision.platform.department.department_registry import require_department
+from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURE_NAME
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
 # 数据库写入时碰到1205/1213要稍微等一下会进行重启并且重试3次，1205：Lock wait timeout等数据库锁超时。1213：Deadlock数据库死锁。
@@ -70,6 +71,9 @@ def camera_access_departments(
     feature_specs = specs if specs is not None else all_specs()
     departments: set[str] = set()
     for feature_name in enabled_features:
+        # 统一物流 Feature 覆盖四个事业部，不能用它推断空归属 Camera 的可见范围。
+        if feature_name == LOGISTICS_FEATURE_NAME:
+            continue
         spec = feature_specs.get(feature_name)
         if spec is None:
             continue

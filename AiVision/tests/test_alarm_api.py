@@ -194,7 +194,7 @@ def test_alarm_statistics_uses_subject_contract_and_has_no_fake_week(monkeypatch
         _channel_row(
             id=1,
             violation_type=6,
-            feature_name="detect_logistics_single_person_electronics_electrician",
+            feature_name="detect_logistics_single_person",
             department="electronics_electrician",
             create_time=now,
         ),

@@ -424,7 +424,7 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
             ),
             update_config=lambda camera_id: calls.append(("base-config", camera_id)),
         ),
-        "detect_logistics_single_person_electrical_components": SimpleNamespace(
+        "detect_logistics_single_person": SimpleNamespace(
             update_status=lambda camera_id, enabled: calls.append(
                 ("electrical-components", camera_id, enabled)
             ),
@@ -442,7 +442,7 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
 
     orchestrator._handle_runtime_config_change(
         ConfigChangeEvent(
-            change_type="detect_logistics_single_person_electrical_components_enabled",
+            change_type="detect_logistics_single_person_enabled",
             camera_id=7,
             camera_name="7_logistics",
         )

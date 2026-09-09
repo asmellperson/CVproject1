@@ -10,7 +10,7 @@ from AiVision.core import db
 import AiVision.features as features
 from AiVision.platform.department.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.platform.department.service import DepartmentService
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES, get_logistics_department
+from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
 from auth.user_store import ALLOWED_VIEWER_DEPARTMENTS, UserStore, UserValidationError
 
 
@@ -63,17 +63,10 @@ def test_all_feature_departments_are_registered_and_logistics_uses_specs(monkeyp
     specs = features.all_specs()
     for spec in specs.values():
         assert set(spec.departments) <= DEPARTMENT_SPECS.keys()
-    for name in LOGISTICS_FEATURES:
-        assert len(specs[name].departments) == 1
-        assert get_logistics_department(name) == specs[name].departments[0]
-    feature = "detect_logistics_single_person"
-    monkeypatch.setitem(features._REGISTRY, feature, replace(specs[feature], departments=("haoda_company",)))
-    assert get_logistics_department(feature) == "haoda_company"
-    # 缺少归属或多归属时不再暗中使用旧物流常量。
-    for departments in ((), ("general_electric", "haoda_company")):
-        monkeypatch.setitem(features._REGISTRY, feature, replace(specs[feature], departments=departments))
-        with pytest.raises(ValueError, match="唯一归属"):
-            get_logistics_department(feature)
+    assert LOGISTICS_FEATURES == {"detect_logistics_single_person"}
+    assert specs["detect_logistics_single_person"].departments == (
+        "general_electric", "electronics_electrician", "electrical_components", "precious_metal_recycling",
+    )
 
 
 def test_discovery_rejects_unknown_department(monkeypatch):

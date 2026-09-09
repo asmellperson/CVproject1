@@ -20,9 +20,6 @@ export type PageId =
   | 'human-detection'
   | 'haoda-human-detection'
   | 'logistics-single-person-detection'
-  | 'logistics-single-person-electronics-electrician-detection'
-  | 'logistics-single-person-electrical-components-detection'
-  | 'logistics-single-person-precious-metal-recycling-detection'
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
@@ -67,38 +64,23 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electronics_electrician: {
-    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-electronics-electrician': {
         label: '保安行为规范检测',
         title: '保安行为规范检测',
         description: '电子电工保安行为规范监控与配置',
       },
-      'logistics-single-person-electronics-electrician-detection': {
-        label: '物流通道单人检测',
-        title: '物流通道单人检测（电子电工）',
-        description: '电子电工物流通道单人监控与配置入口',
-      },
     },
   },
   electrical_components: {
-    pages: ['overview', 'security-vlm-electrical-components', 'logistics-single-person-electrical-components-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electrical-components', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
-      'logistics-single-person-electrical-components-detection': {
-        label: '物流通道单人检测',
-        title: '物流通道单人检测（电气部件）',
-        description: '电气部件物流通道单人监控与配置入口',
-      },
     },
   },
   precious_metal_recycling: {
-    pages: ['overview', 'security-vlm-precious-metal-recycling', 'logistics-single-person-precious-metal-recycling-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-precious-metal-recycling', 'logistics-single-person-detection', 'alarms', 'statistics'],
     displayOverrides: {
-      'logistics-single-person-precious-metal-recycling-detection': {
-        label: '物流通道单人检测',
-        title: '物流通道单人检测（伟达公司）',
-        description: '伟达公司物流通道单人监控与配置入口',
-      },
     },
   },
   haoda_company: {
@@ -121,9 +103,6 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'human-detection': ['detect_human'],
   'haoda-human-detection': ['detect_human'],
   'logistics-single-person-detection': ['detect_logistics_single_person'],
-  'logistics-single-person-electronics-electrician-detection': ['detect_logistics_single_person'],
-  'logistics-single-person-electrical-components-detection': ['detect_logistics_single_person'],
-  'logistics-single-person-precious-metal-recycling-detection': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
 }
 
@@ -193,9 +172,6 @@ const pageIds = new Set<string>([
   'human-detection',
   'haoda-human-detection',
   'logistics-single-person-detection',
-  'logistics-single-person-electronics-electrician-detection',
-  'logistics-single-person-electrical-components-detection',
-  'logistics-single-person-precious-metal-recycling-detection',
   'phone-detection',
   'alarms',
   'statistics',

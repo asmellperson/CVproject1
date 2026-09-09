@@ -41,6 +41,7 @@ from AiVision.platform.camera.config_manager import camera_config_manager       
 from AiVision.platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
 from AiVision.platform.inference.model_registry import MODEL_SPECS
 from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.platform.logistics_channel.migration import migrate_legacy_logistics
 from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
 from AiVision.platform.logistics_channel.service import logistics_channel_service
 from AiVision.platform.alarm_device.runtime_manager import horn_runtime_manager                   # 喇叭设备
@@ -115,21 +116,23 @@ class Orchestrator:
         # 1) 数据库 schema 修补，在启动摄像头和模型之前，把配置整理干净
         ensure_schema_compatible()                             # 检查/修补数据库表结构
         camera_config_manager.normalize_shm_names()                   # 整理摄像头共享内存名称
-        camera_config_manager.ensure_feature_configs() # 确保每台摄像头需要的功能配置存在
-        config_cache.init()                                     # 把配置从数据库加载到运行时缓存
         # 物流通道迁移[历史迁移逻辑]
-        migration = logistics_channel_service.migrate_existing_feature_cameras()
+        migration = migrate_legacy_logistics()
         if migration.failed:
             logger.warning(
                 f"[Orchestrator] 物流通道迁移存在失败 created={migration.created} "
                 f"skipped={migration.skipped} failed={migration.failed} "
                 f"errors={migration.errors}"
             )
+            raise RuntimeError("物流数据迁移存在冲突，请处理错误后再启动：" + "; ".join(migration.errors))
         else:
             logger.info(
                 f"[Orchestrator] 物流通道迁移完成 created={migration.created} "
                 f"skipped={migration.skipped}"
             )
+
+        camera_config_manager.ensure_feature_configs() # 确保每台摄像头需要的功能配置存在
+        config_cache.init()                                     # 把配置从数据库加载到运行时缓存
 
         # 2) 企微客户端先初始化,摄像头启动异常可直接推送
         if settings.alarm.wechat_enable:

@@ -592,6 +592,7 @@ function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermissi
     : adminModuleGroups.filter((group) => userDepartments.has(group.id))
   const children = visibleModuleGroups.map((group) => {
     const items = group.pages.flatMap((pageId) => {
+      if (pageId === 'logistics-single-person-detection') return []
       const item = moduleItemsById.get(pageId)
       if (!item) return []
       groupedIds.add(item.id)

@@ -31,7 +31,7 @@ test('uses the current materials institute name throughout active frontend views
 })
 
 test('uses the current Weida company name throughout active frontend views', () => {
-  for (const source of [sidebar, securityVlm, logistics, nav]) {
+  for (const source of [sidebar, securityVlm]) {
     assert.match(source, /伟达公司/)
     assert.doesNotMatch(source, /贵金属回收/)
   }
@@ -39,7 +39,10 @@ test('uses the current Weida company name throughout active frontend views', () 
     assert.doesNotMatch(source, /伟达公司|贵金属回收/)
     assert.match(source, /物流通道单人/)
   }
-  assert.match(permissions, /title: '物流通道单人检测（伟达公司）'/)
+  assert.match(logistics, /useDepartmentCatalog/)
+  assert.match(logistics, /selectedChannel.department/)
+  assert.doesNotMatch(logistics, /FEATURE_DEPARTMENT_LABELS/)
+  assert.equal((nav.match(/id: 'logistics-single-person[^']*'/g) ?? []).length, 1)
   assert.doesNotMatch(permissions, /title: '物流通道单人检测（贵金属回收）'/)
 })
 

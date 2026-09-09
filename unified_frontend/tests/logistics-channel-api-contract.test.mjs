@@ -12,19 +12,18 @@ const [types, api, hooks] = await Promise.all([
   read('src/components/logistics_single_person/useLogisticsChannels.ts').catch(() => ''),
 ])
 
-test('declares the four isolated logistics features and exact response DTO fields', () => {
+test('declares one logistics feature with explicit department fields', () => {
   for (const feature of [
     'detect_logistics_single_person',
-    'detect_logistics_single_person_electronics_electrician',
-    'detect_logistics_single_person_electrical_components',
-    'detect_logistics_single_person_precious_metal_recycling',
   ]) assert.match(types, new RegExp(`'${feature}'`))
 
   for (const field of [
-    'feature_name', 'channel_id', 'channel_name', 'duration_seconds',
+    'feature_name', 'department', 'channel_id', 'channel_name', 'duration_seconds',
     'threshold_seconds', 'camera_ids', 'camera_counts', 'camera_states',
     'offending_camera_ids', 'detection_start', 'detection_end', 'confidence_threshold',
   ]) assert.match(types, new RegExp(field))
+  for (const department of ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling']) assert.match(types, new RegExp(`'${department}'`))
+  assert.doesNotMatch(types, /detect_logistics_single_person_/)
   assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\[\]/)
   assert.match(types, /type LogisticsCameraInventoryItem/)
   assert.match(types, /memberships: LogisticsCameraInventoryMembership\[\]/)

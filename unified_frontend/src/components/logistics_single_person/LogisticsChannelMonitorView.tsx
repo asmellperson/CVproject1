@@ -1,3 +1,4 @@
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import type { LucideIcon } from 'lucide-react'
 import { Activity, AlertTriangle, BellRing, Camera, Info, RefreshCw, Users, Video } from 'lucide-react'
 
@@ -135,6 +136,7 @@ export function LogisticsChannelMonitorView({
   onSelectChannel,
   onRefresh,
 }: LogisticsChannelMonitorViewProps) {
+  const { labels: departmentLabels } = useDepartmentCatalog()
   const reason = status?.reason ?? selectedChannelDetail?.status?.reason ?? 'unknown'
   const presentation = reasonPresentation[reason]
   const cameraStates = status
@@ -200,7 +202,7 @@ export function LogisticsChannelMonitorView({
                       <SelectTrigger id="logistics-channel-monitor-select" className="w-full rounded-xl border-slate-200 bg-slate-50/60 px-3.5 py-2.5 focus:border-[#1B3FA0] focus:ring-2 focus:ring-[#1B3FA0]/15 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200">
                         <SelectValue placeholder={loading ? '正在读取物流通道' : '请选择物流通道'} />
                       </SelectTrigger>
-                      <SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{departmentLabels[channel.department] ?? channel.department} · {channel.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefresh} disabled={loading}>

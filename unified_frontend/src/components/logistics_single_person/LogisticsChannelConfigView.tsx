@@ -1,3 +1,5 @@
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
+import { LOGISTICS_DEPARTMENTS } from './types'
 import { toFeatureAlarm, toLogisticsAlarm } from './alarmBinding'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
@@ -95,6 +97,8 @@ export function LogisticsChannelConfigView({
   onChannelDeleted,
   onChanged,
 }: Props) {
+  const departmentCatalog = useDepartmentCatalog()
+  const departmentOptions = departmentCatalog.options.filter(({ value }) => LOGISTICS_DEPARTMENTS.some((department) => department === value))
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('通道配置修改后请保存。')
@@ -128,9 +132,10 @@ export function LogisticsChannelConfigView({
   const membershipContextRef = useRef({ feature, channelIdsKey })
   membershipContextRef.current = { feature, channelIdsKey }
   const currentMemberIds = useMemo(() => new Set(members.map((member) => member.camera_id)), [members])
-  const availableCameras = membershipsLoaded ? filterBindableCameras(cameras, boundCameraIds) : []
+  const departmentCameras = cameras.filter((camera) => camera.department === selectedChannelDetail?.department)
+  const availableCameras = membershipsLoaded ? filterBindableCameras(departmentCameras, boundCameraIds) : []
   const movableCameras = membershipsLoaded
-    ? cameras.filter((camera) => boundCameraIds.has(camera.camera_id) && !currentMemberIds.has(camera.camera_id))
+    ? departmentCameras.filter((camera) => boundCameraIds.has(camera.camera_id) && !currentMemberIds.has(camera.camera_id))
     : []
   const existingCameraOptions = moveExisting ? movableCameras : availableCameras
 
@@ -283,10 +288,10 @@ export function LogisticsChannelConfigView({
 
   const createChannel = async () => {
     const name = createDialog.name.trim()
-    if (!isAdmin || createDialog.submitting || !name) return
+    if (!isAdmin || createDialog.submitting || !name || !createDialog.department) return
     dispatchCreateDialog({ type: 'submit' })
     try {
-      const result = await createLogisticsChannel(feature, { name })
+      const result = await createLogisticsChannel(feature, { name, department: createDialog.department })
       onChannelCreated(result)
       onChanged()
       setMessage('物流通道已新增。')
@@ -450,6 +455,7 @@ export function LogisticsChannelConfigView({
                       <div key={channel.id} className={`flex flex-col items-stretch gap-2 rounded-xl border px-3 py-3 transition-colors sm:flex-row sm:items-center sm:gap-3 ${selected ? 'border-blue-300 bg-blue-50/80 shadow-sm dark:border-blue-800 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/70'}`}>
                         <Button variant="ghost" className="w-full min-w-0 justify-start px-2 sm:w-auto sm:flex-1" onClick={() => onSelectChannel(channel.id)}>
                           <span className="truncate font-semibold">{channel.name}</span>
+                          <span className="ml-2 text-xs text-slate-500">{departmentCatalog.labels[channel.department] ?? channel.department}</span>
                         </Button>
                         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                           <Badge variant={channel.enabled ? 'default' : 'secondary'}>{channel.enabled ? '已启用' : '已停用'}</Badge>
@@ -599,7 +605,7 @@ export function LogisticsChannelConfigView({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加通道</DialogTitle>
-            <DialogDescription>输入物流通道名称。添加后将自动选中新通道。</DialogDescription>
+            <DialogDescription>输入物流通道名称并选择所属事业部。添加后将自动选中新通道。</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
             <Label htmlFor="logistics-new-channel-name">通道名称</Label>
@@ -614,11 +620,17 @@ export function LogisticsChannelConfigView({
               disabled={createDialog.submitting}
               autoFocus
             />
+            <Label htmlFor="logistics-new-channel-department">所属事业部</Label>
+            <Select value={createDialog.department} onValueChange={(department) => dispatchCreateDialog({ type: 'change-department', department })} disabled={createDialog.submitting || departmentCatalog.loading}>
+              <SelectTrigger id="logistics-new-channel-department"><SelectValue placeholder={departmentCatalog.loading ? '正在读取事业部' : '请选择事业部'} /></SelectTrigger>
+              <SelectContent>{departmentOptions.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+            </Select>
+            {departmentCatalog.error ? <p role="alert" className="text-sm text-rose-600">{departmentCatalog.error}</p> : null}
             {createDialog.error ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">添加失败：{createDialog.error}</p> : null}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dispatchCreateDialog({ type: 'close' })} disabled={createDialog.submitting}>取消</Button>
-            <Button onClick={() => void createChannel()} disabled={createDialog.submitting || !createDialog.name.trim()}>{createDialog.submitting ? '添加中…' : '确认添加'}</Button>
+            <Button onClick={() => void createChannel()} disabled={createDialog.submitting || !createDialog.name.trim() || !createDialog.department || departmentCatalog.loading}>{createDialog.submitting ? '添加中…' : '确认添加'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

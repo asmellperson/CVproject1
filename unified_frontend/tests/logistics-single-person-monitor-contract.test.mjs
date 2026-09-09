@@ -25,24 +25,7 @@ const logisticsPages = [
     feature: 'detect_logistics_single_person',
     title: '物流通道单人检测监控与配置',
   },
-  {
-    source: await readIfPresent('src/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection.tsx'),
-    exportName: 'LogisticsSinglePersonElectronicsElectricianDetectionSection',
-    feature: 'detect_logistics_single_person_electronics_electrician',
-    title: '物流通道单人检测（电子电工）监控与配置',
-  },
-  {
-    source: await readIfPresent('src/sections/LogisticsSinglePersonElectricalComponentsDetectionSection.tsx'),
-    exportName: 'LogisticsSinglePersonElectricalComponentsDetectionSection',
-    feature: 'detect_logistics_single_person_electrical_components',
-    title: '物流通道单人检测（电气部件）监控与配置',
-  },
-  {
-    source: await readIfPresent('src/sections/LogisticsSinglePersonPreciousMetalRecyclingDetectionSection.tsx'),
-    exportName: 'LogisticsSinglePersonPreciousMetalRecyclingDetectionSection',
-    feature: 'detect_logistics_single_person_precious_metal_recycling',
-    title: '物流通道单人检测（伟达公司）监控与配置',
-  },
+
 ]
 
 test('provides typed logistics monitor status without changing the frame endpoint', () => {

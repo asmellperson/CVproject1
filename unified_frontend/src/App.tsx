@@ -51,15 +51,6 @@ const HaodaHumanDetectionSection = lazy(() =>
 const LogisticsSinglePersonDetectionSection = lazy(() =>
   import('@/sections/LogisticsSinglePersonDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonDetectionSection })),
 )
-const LogisticsSinglePersonElectronicsElectricianDetectionSection = lazy(() =>
-  import('@/sections/LogisticsSinglePersonElectronicsElectricianDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonElectronicsElectricianDetectionSection })),
-)
-const LogisticsSinglePersonElectricalComponentsDetectionSection = lazy(() =>
-  import('@/sections/LogisticsSinglePersonElectricalComponentsDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonElectricalComponentsDetectionSection })),
-)
-const LogisticsSinglePersonPreciousMetalRecyclingDetectionSection = lazy(() =>
-  import('@/sections/LogisticsSinglePersonPreciousMetalRecyclingDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonPreciousMetalRecyclingDetectionSection })),
-)
 const PhoneDetectionSection = lazy(() =>
   import('@/sections/PhoneDetectionSection').then((module) => ({ default: module.PhoneDetectionSection })),
 )
@@ -143,12 +134,6 @@ function App() {
         return <HaodaHumanDetectionSection />
       case 'logistics-single-person-detection':
         return <LogisticsSinglePersonDetectionSection />
-      case 'logistics-single-person-electronics-electrician-detection':
-        return <LogisticsSinglePersonElectronicsElectricianDetectionSection />
-      case 'logistics-single-person-electrical-components-detection':
-        return <LogisticsSinglePersonElectricalComponentsDetectionSection />
-      case 'logistics-single-person-precious-metal-recycling-detection':
-        return <LogisticsSinglePersonPreciousMetalRecyclingDetectionSection />
       case 'phone-detection':
         return <PhoneDetectionSection />
       case 'security-vlm':

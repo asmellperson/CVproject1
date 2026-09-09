@@ -50,20 +50,21 @@ def __getattr__(name: str):
     """延迟导出数据库服务，避免 ORM 初始化期间形成包级循环导入。"""
     if name in {
         "LogisticsChannelService",
-        "MigrationSummary",
         "logistics_channel_service",
     }:
         from .service import (
             LogisticsChannelService,
-            MigrationSummary,
             logistics_channel_service,
         )
 
         return {
             "LogisticsChannelService": LogisticsChannelService,
-            "MigrationSummary": MigrationSummary,
             "logistics_channel_service": logistics_channel_service,
         }[name]
+    if name == "MigrationSummary":
+        from .migration import MigrationSummary
+
+        return MigrationSummary
     if name == "LogisticsChannelRuntime":
         from .runtime import LogisticsChannelRuntime
 

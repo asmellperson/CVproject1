@@ -66,8 +66,8 @@ class FakeService:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`deepcopy`、`self.channels[feature].values`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def list_channels(self, feature):
-        return {"items": [deepcopy(value) for value in self.channels[feature].values()]}
+    def list_channels(self, feature, departments=None):
+        return {"items": [deepcopy(value) for value in self.channels[feature].values() if departments is None or value["department"] in departments]}
 
     # 功能：按摄像头 ID 聚合指定物流功能的测试通道成员，模拟业务服务的安全清单输出。
     # 参数：
@@ -78,17 +78,19 @@ class FakeService:
     #   - 调用方：`list_logistics_camera_inventory` 路由调用本方法
     #   - 内部调用：`dict.setdefault`、`deepcopy`、`list.sort`。
     # 副作用/注意事项：仅读取当前实例的内存通道数据，不包含 RTSP 地址。
-    def list_camera_inventory(self, feature_names):
+    def list_camera_inventory(self, feature_names, departments=None):
         inventory = {}
         for feature in feature_names:
             for channel in self.channels[feature].values():
+                if departments is not None and channel["department"] not in departments:
+                    continue
                 for member in channel["members"]:
                     camera_id = member["camera_id"]
                     item = inventory.setdefault(camera_id, {
                         "camera_id": camera_id,
                         "name": f"物流摄像头 {camera_id}",
                         "shm_name": f"camera_{camera_id}",
-                        "department": api.get_logistics_department(feature),
+                        "department": channel["department"],
                         "enabled": True,
                         "memberships": [],
                     })
@@ -130,12 +132,12 @@ class FakeService:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`self._raise`、`deepcopy`。
     # 副作用/注意事项：会更新当前实例的运行状态。
-    def create_channel(self, feature, name):
+    def create_channel(self, feature, name, department):
         self._raise()
         channel_id = self.next_id
         self.next_id += 1
         value = {
-            "id": channel_id, "name": name, "feature_name": feature,
+            "id": channel_id, "name": name, "feature_name": feature, "department": department,
             "enabled": True, "sort_order": 0,
             "config": {
                 "detection_start": "08:00:00",
@@ -537,8 +539,8 @@ class EmptyAlarmSession:
 #         调用本符号；`AiVision/tests/test_logistics_channel_api.py` 的 `test_status_response_and_composite_jpeg_semantics` 调用本符号
 #   - 内部调用：`service.create_channel`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _seed(service, feature=FEATURES[0], name="一号通道"):
-    return service.create_channel(feature, name)
+def _seed(service, feature=FEATURES[0], name="一号通道", department="general_electric"):
+    return service.create_channel(feature, name, department=department)
 
 
 # 功能：验证 `test_router_exposes_full_channel_contract_and_app_registers_it` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -623,28 +625,13 @@ def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates
         },
     }
     channel_specs = (
-        ("detect_logistics_single_person", "通用物流通道", 7),
-        (
-            "detect_logistics_single_person_electrical_components",
-            "电气部件物流通道",
-            8,
-        ),
-        (
-            "detect_logistics_single_person_electronics_electrician",
-            "电子电工物流通道",
-            9,
-        ),
+        ("general_electric", "通用物流通道", 7),
+        ("electrical_components", "电气部件物流通道", 8),
+        ("electronics_electrician", "电子电工物流通道", 9),
     )
-    channel_ids = {}
-    for feature, name, camera_id in channel_specs:
-        channel = _seed(service, feature=feature, name=name)
-        channel_ids[feature] = channel["id"]
-        service.add_existing_camera(feature, channel["id"], camera_id)
-    service.add_existing_camera(
-        "detect_logistics_single_person_electrical_components",
-        channel_ids["detect_logistics_single_person_electrical_components"],
-        7,
-    )
+    for department, name, camera_id in channel_specs:
+        channel = _seed(service, name=name, department=department)
+        service.add_existing_camera(FEATURES[0], channel["id"], camera_id)
 
     app = FastAPI()
     app.include_router(api.router)
@@ -688,7 +675,7 @@ def test_logistics_camera_inventory_uses_membership_permissions_and_deduplicates
             assert all("url" not in item for item in items)
             assert items[0]["online"] is True
             assert items[0]["memberships"][0]["channel_name"] == "通用物流通道"
-            assert len(items[0]["memberships"]) == 2
+            assert len(items[0]["memberships"]) == 1
             assert items[1]["department"] == "electrical_components"
 
             app.dependency_overrides[api.get_current_user] = lambda: ADMIN
@@ -718,6 +705,7 @@ def test_fastapi_response_field_filters_and_rejects_invalid_output():
             "id": 1,
             "name": "一号通道",
             "feature_name": FEATURES[0],
+            "department": "general_electric",
             "enabled": True,
             "sort_order": 0,
             "server_only": "must be filtered",
@@ -754,6 +742,8 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     channel = _seed(service)
     feature = "detect_logistics_single_person"
     channel_id = channel["id"]
+    ee_channel = _seed(service, department="electronics_electrician")
+    ec_channel = _seed(service, department="electrical_components")
     service.add_existing_camera(feature, channel_id, 7)
     feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
@@ -797,8 +787,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             app.dependency_overrides[api.get_current_user] = lambda: viewer
             assert (await client.get(base)).status_code == 200
             assert (await client.get(
-                "/api/logistics-channels/"
-                "detect_logistics_single_person_electronics_electrician"
+                f"{base}/{ee_channel['id']}"
             )).status_code == 403
             multi_department_viewer = {
                 "role": "viewer",
@@ -806,12 +795,10 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             }
             app.dependency_overrides[api.get_current_user] = lambda: multi_department_viewer
             assert (await client.get(
-                "/api/logistics-channels/"
-                "detect_logistics_single_person_electrical_components"
+                f"{base}/{ec_channel['id']}"
             )).status_code == 200
             assert (await client.get(
-                "/api/logistics-channels/"
-                "detect_logistics_single_person_electronics_electrician"
+                f"{base}/{ee_channel['id']}"
             )).status_code == 403
             app.dependency_overrides[api.get_current_user] = lambda: viewer
             member_config_url = f"{base}/{channel_id}/cameras/7/config"
@@ -820,8 +807,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
             assert "url" not in member_config.json()["camera"]
             assert (await client.get(f"{base}/{channel_id}/cameras/999/config")).status_code == 404
             cross_config = (
-                "/api/logistics-channels/"
-                "detect_logistics_single_person_electronics_electrician/1/cameras/7/config"
+                f"{base}/{ee_channel['id']}/cameras/7/config"
             )
             assert (await client.get(cross_config)).status_code == 403
 
@@ -841,7 +827,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 assert response.status_code == 403, (method, url, response.text)
 
             app.dependency_overrides[api.require_admin] = lambda: ADMIN
-            created = await client.post(base, json={"name": "管理员新增"})
+            created = await client.post(base, json={"name": "管理员新增", "department": "general_electric"})
             assert created.status_code == 201
             assert created.json()["name"] == "管理员新增"
             assert (await client.patch(
@@ -908,7 +894,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
 def test_four_features_are_isolated_and_whitelisted():
     service = FakeService()
     for index, feature in enumerate(FEATURES):
-        api.create_channel(feature, api.LogisticsChannelCreate(name=f"通道-{index}"), ADMIN, service)
+        api.create_channel(feature, api.LogisticsChannelCreate(name=f"通道-{index}", department="general_electric"), ADMIN, service)
     for index, feature in enumerate(FEATURES):
         assert [item.name for item in api.list_channels(feature, ADMIN, service).items] == [f"通道-{index}"]
     with pytest.raises(HTTPException) as caught:
@@ -926,10 +912,13 @@ def test_four_features_are_isolated_and_whitelisted():
 def test_viewer_department_access_and_admin_dependency_contract():
     general_feature = "detect_logistics_single_person"
     viewer = {"role": "viewer", "departments": ["general_electric"]}
-    assert api._require_feature_access(general_feature, viewer) == general_feature
-    other = next(feature for feature in FEATURES if feature != general_feature)
+    assert api._require_feature_access(general_feature) == general_feature
+    service = FakeService()
+    own = _seed(service)
+    other = _seed(service, department="electronics_electrician")
+    assert api._require_channel_access(service, general_feature, own["id"], viewer) == own
     with pytest.raises(HTTPException) as caught:
-        api._require_feature_access(other, viewer)
+        api._require_channel_access(service, general_feature, other["id"], viewer)
     assert caught.value.status_code == 403
     create_route = next(
         route for route in api.router.routes
@@ -1115,7 +1104,7 @@ def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeyp
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_crud_config_and_validation_models():
     service = FakeService()
-    channel = api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="初始"), ADMIN, service)
+    channel = api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="初始", department="general_electric"), ADMIN, service)
     payload = api.LogisticsChannelPatchRequest(
         name="更新",
         config={
@@ -1199,7 +1188,7 @@ def test_service_errors_have_stable_http_mapping(message, expected):
     service = FakeService()
     service.error = message
     with pytest.raises(HTTPException) as caught:
-        api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="冲突"), ADMIN, service)
+        api.create_channel(FEATURES[0], api.LogisticsChannelCreate(name="冲突", department="general_electric"), ADMIN, service)
     assert caught.value.status_code == expected
 
 
@@ -1221,6 +1210,7 @@ def test_status_response_and_composite_jpeg_semantics():
 
     orchestrator.status = {
         "feature_name": feature,
+        "department": "general_electric",
         "channel_id": channel_id,
         "channel_name": "一号通道",
         "reason": "normal",

@@ -12,33 +12,10 @@ from AiVision.features._base.logistics_single_person_consumer import (
     build_monitor_snapshot,
 )
 from AiVision.features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
-from AiVision.features.detect_logistics_single_person_electrical_components.consumer import (
-    LogisticsSinglePersonElectricalComponentsConsumer,
-)
-from AiVision.features.detect_logistics_single_person_electronics_electrician.consumer import (
-    LogisticsSinglePersonElectronicsElectricianConsumer,
-)
-from AiVision.features.detect_logistics_single_person_precious_metal_recycling.consumer import (
-    LogisticsSinglePersonPreciousMetalRecyclingConsumer,
-)
-from AiVision.features.detect_logistics_single_person_precious_metal_recycling import (
-    SPEC as WEIDA_LOGISTICS_SPEC,
-)
+from AiVision.features.detect_logistics_single_person import SPEC as LOGISTICS_SPEC
 
-
-LOGISTICS_CONSUMER_CLASSES = (
-    LogisticsSinglePersonConsumer,
-    LogisticsSinglePersonElectronicsElectricianConsumer,
-    LogisticsSinglePersonElectricalComponentsConsumer,
-    LogisticsSinglePersonPreciousMetalRecyclingConsumer,
-)
-
-LOGISTICS_FEATURE_NAMES = (
-    "detect_logistics_single_person",
-    "detect_logistics_single_person_electronics_electrician",
-    "detect_logistics_single_person_electrical_components",
-    "detect_logistics_single_person_precious_metal_recycling",
-)
+LOGISTICS_CONSUMER_CLASSES = (LogisticsSinglePersonConsumer,)
+LOGISTICS_FEATURE_NAMES = ("detect_logistics_single_person",)
 
 
 def test_logistics_features_share_canonical_violation_type():
@@ -195,7 +172,8 @@ def test_all_logistics_consumers_share_the_common_implementation(consumer_class)
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_legacy_precious_metal_feature_uses_weida_company_display_name():
-    assert WEIDA_LOGISTICS_SPEC.display_name == "物流通道单人检测（伟达公司）"
+    assert LOGISTICS_SPEC.display_name == "物流通道单人检测"
+    assert "precious_metal_recycling" in LOGISTICS_SPEC.departments
 
 
 # 功能：验证 `test_all_logistics_consumers_publish_details_without_camera_alarm` 对应的`test_logistics_single_person`

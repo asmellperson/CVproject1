@@ -27,7 +27,10 @@ from AiVision.platform.logistics_channel.constants import (
     require_logistics_feature,
 )
 from AiVision.platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-from AiVision.platform.logistics_channel.service import LogisticsChannelService, MigrationSummary
+from AiVision.platform.logistics_channel.service import LogisticsChannelService
+from AiVision.platform.logistics_channel.migration import LogisticsChannelMigration, MigrationSummary
+import AiVision.platform.logistics_channel.membership_transaction as transaction_module
+import AiVision.platform.logistics_channel.migration as migration_module
 from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelAlarm,
     LogisticsChannelConfigUpdate,
@@ -134,8 +137,11 @@ def service_db(monkeypatch):
         finally:
             session.close()
 
-    monkeypatch.setattr(channel_service_module, "session_scope", test_session_scope, raising=False)
+    monkeypatch.setattr(transaction_module, "session_scope", test_session_scope, raising=False)
     monkeypatch.setattr(channel_service_module, "get_session", factory, raising=False)
+    monkeypatch.setattr(transaction_module, "session_scope", test_session_scope)
+    monkeypatch.setattr(transaction_module, "get_session", factory)
+    monkeypatch.setattr(migration_module, "get_session", factory)
     monkeypatch.setattr(camera_config_manager_module, "session_scope", test_session_scope)
     monkeypatch.setattr(camera_config_manager_module, "get_session", factory)
 
@@ -388,7 +394,7 @@ def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
 
 
 BASE_FEATURE = "detect_logistics_single_person"
-EE_FEATURE = "detect_logistics_single_person_electronics_electrician"
+EE_FEATURE = BASE_FEATURE
 
 
 # 功能：验证物流摄像头清单使用固定次数批量查询，并按摄像头 ID 合并跨功能成员关系。
@@ -410,16 +416,11 @@ def test_logistics_camera_inventory_batches_and_deduplicates_memberships(service
         "ee-logistics-camera",
         department="electronics_electrician",
     )
-    base_channel = service_db.service.create_channel(BASE_FEATURE, "通用物流通道")
-    ee_channel = service_db.service.create_channel(EE_FEATURE, "电子电工物流通道")
+    base_channel = service_db.service.create_channel(BASE_FEATURE, "通用物流通道", department="general_electric")
+    ee_channel = service_db.service.create_channel(EE_FEATURE, "电子电工物流通道", department="electronics_electrician")
     service_db.service.add_existing_camera(
         BASE_FEATURE,
         base_channel["id"],
-        shared_camera_id,
-    )
-    service_db.service.add_existing_camera(
-        EE_FEATURE,
-        ee_channel["id"],
         shared_camera_id,
     )
     service_db.service.add_existing_camera(
@@ -449,7 +450,7 @@ def test_logistics_camera_inventory_batches_and_deduplicates_memberships(service
         event.remove(service_db.engine, "before_cursor_execute", track_selects)
 
     assert [item["camera_id"] for item in items] == [shared_camera_id, ee_camera_id]
-    assert len(items[0]["memberships"]) == 2
+    assert len(items[0]["memberships"]) == 1
     assert items[1]["department"] == "electronics_electrician"
     assert all("url" not in item for item in items)
     assert len(select_statements) == 3
@@ -465,11 +466,11 @@ def test_logistics_camera_inventory_batches_and_deduplicates_memberships(service
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_channel_crud_is_scoped_by_feature(service_db):
     service = service_db.service
-    created = service.create_channel(BASE_FEATURE, "收货通道")
-    service.create_channel(EE_FEATURE, "收货通道")
+    created = service.create_channel(BASE_FEATURE, "收货通道", department="general_electric")
+    service.create_channel(EE_FEATURE, "收货通道", department="electronics_electrician")
 
     with pytest.raises(ValueError, match="已存在"):
-        service.create_channel(BASE_FEATURE, "收货通道")
+        service.create_channel(BASE_FEATURE, "收货通道", department="general_electric")
 
     updated = service.update_channel_and_config(
         BASE_FEATURE,
@@ -497,7 +498,7 @@ def test_channel_crud_is_scoped_by_feature(service_db):
     assert updated["config"]["empty_grace_seconds"] == 4.0
     assert updated["config"]["alarm"]["wechat"]["user"] == "operator"
     assert service.get_channel(BASE_FEATURE, created["id"])["id"] == created["id"]
-    assert [item["name"] for item in service.list_channels(BASE_FEATURE)["items"]] == ["卸货通道"]
+    assert [item["name"] for item in service.list_channels(BASE_FEATURE, departments=["general_electric"])["items"]] == ["卸货通道"]
     assert service.delete_channel(BASE_FEATURE, created["id"]) is True
     assert service.get_channel(BASE_FEATURE, created["id"]) is None
 
@@ -513,7 +514,7 @@ def test_channel_crud_is_scoped_by_feature(service_db):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_combined_channel_update_is_atomic_and_publishes_once(service_db, monkeypatch):
     service = service_db.service
-    created = service.create_channel(BASE_FEATURE, "原名称")
+    created = service.create_channel(BASE_FEATURE, "原名称", department="general_electric")
     service_db.notifications.clear()
 
     original_apply_config = service._apply_config_values
@@ -572,7 +573,7 @@ def test_combined_channel_update_is_atomic_and_publishes_once(service_db, monkey
     [
         ("list_channels", ()),
         ("get_channel", (1,)),
-        ("create_channel", ("通道",)),
+        ("create_channel", ("通道", "general_electric")),
         ("delete_channel", (1,)),
         ("update_channel_and_config", (1, {}, {})),
         ("add_existing_camera", (1, 1)),
@@ -598,7 +599,7 @@ def test_every_feature_scoped_entry_rejects_unknown_feature(service_db, method, 
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_add_existing_camera_enforces_nine_member_limit_and_rolls_back_tenth(service_db):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "九路通道")
+    channel = service.create_channel(BASE_FEATURE, "九路通道", department="general_electric")
     camera_ids = [_seed_camera(service_db, f"camera-{index}") for index in range(10)]
 
     for camera_id in camera_ids[:9]:
@@ -626,16 +627,19 @@ def test_add_existing_camera_enforces_nine_member_limit_and_rolls_back_tenth(ser
 def test_camera_membership_is_unique_within_feature_but_isolated_across_features(service_db):
     service = service_db.service
     camera_id = _seed_camera(service_db, "shared-camera")
-    first = service.create_channel(BASE_FEATURE, "一号")
-    second = service.create_channel(BASE_FEATURE, "二号")
-    other_feature = service.create_channel(EE_FEATURE, "一号")
+    first = service.create_channel(BASE_FEATURE, "一号", department="general_electric")
+    second = service.create_channel(BASE_FEATURE, "二号", department="general_electric")
+    other_feature = service.create_channel(EE_FEATURE, "一号", department="electronics_electrician")
     service.add_existing_camera(BASE_FEATURE, first["id"], camera_id)
 
     with pytest.raises(ValueError, match="已绑定"):
         service.add_existing_camera(BASE_FEATURE, second["id"], camera_id)
 
-    detail = service.add_existing_camera(EE_FEATURE, other_feature["id"], camera_id)
-    assert [member["camera_id"] for member in detail["members"]] == [camera_id]
+    with pytest.raises(ValueError, match="已绑定|department"):
+        service.add_existing_camera(BASE_FEATURE, other_feature["id"], camera_id)
+    with pytest.raises(ValueError, match="department"):
+        service.move_camera(BASE_FEATURE, camera_id, other_feature["id"])
+    assert service.get_channel(BASE_FEATURE, first["id"])["members"][0]["camera_id"] == camera_id
 
 
 # 功能：验证 `test_feature_membership_events_always_include_camera_shm_name` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -649,8 +653,8 @@ def test_camera_membership_is_unique_within_feature_but_isolated_across_features
 def test_feature_membership_events_always_include_camera_shm_name(service_db):
     service = service_db.service
     camera_id = _seed_camera(service_db, "event-camera")
-    source = service.create_channel(BASE_FEATURE, "事件来源")
-    target = service.create_channel(BASE_FEATURE, "事件目标")
+    source = service.create_channel(BASE_FEATURE, "事件来源", department="general_electric")
+    target = service.create_channel(BASE_FEATURE, "事件目标", department="general_electric")
 
     service_db.notifications.clear()
     service.add_existing_camera(BASE_FEATURE, source["id"], camera_id)
@@ -691,8 +695,8 @@ def test_feature_membership_events_always_include_camera_shm_name(service_db):
 def test_existing_member_writes_use_channels_then_cameras_lock_order(service_db, monkeypatch):
     service = service_db.service
     camera_id = _seed_camera(service_db, "lock-order")
-    source = service.create_channel(BASE_FEATURE, "锁来源")
-    target = service.create_channel(BASE_FEATURE, "锁目标")
+    source = service.create_channel(BASE_FEATURE, "锁来源", department="general_electric")
+    target = service.create_channel(BASE_FEATURE, "锁目标", department="general_electric")
     calls = []
     original_lock_channels = service._lock_channels
     original_lock_cameras = service._lock_cameras
@@ -792,9 +796,9 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
 
     service = service_db.service
     camera_id = _seed_camera(service_db, "discover-before-write")
-    channel = service.create_channel(BASE_FEATURE, "发现先于写")
-    original_get_session = channel_service_module.get_session
-    original_scope = channel_service_module.session_scope
+    channel = service.create_channel(BASE_FEATURE, "发现先于写", department="general_electric")
+    original_get_session = transaction_module.get_session
+    original_scope = transaction_module.session_scope
     tracked_sessions = []
     formal_reads = []
 
@@ -994,8 +998,8 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
         with original_scope() as session:
             yield FormalSession(session)
 
-    monkeypatch.setattr(channel_service_module, "get_session", tracked_get_session)
-    monkeypatch.setattr(channel_service_module, "session_scope", tracked_write_scope)
+    monkeypatch.setattr(transaction_module, "get_session", tracked_get_session)
+    monkeypatch.setattr(transaction_module, "session_scope", tracked_write_scope)
 
     service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
 
@@ -1011,18 +1015,18 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service.create_channel`、`channel_service_module._MembershipDiscovery`、`channel_service_module._DiscoveredMembership`、`monkeypatch.setattr`、`service._run_membership_transaction`、`sorted`、`tuple`、`len`、`id`。
+#   - 内部调用：`service.create_channel`、`transaction_module._MembershipDiscovery`、`transaction_module._DiscoveredMembership`、`monkeypatch.setattr`、`service._run_membership_transaction`、`sorted`、`tuple`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_membership_change_retries_with_new_discovery_and_channel_lock_set(service_db, monkeypatch):
     import AiVision.platform.logistics_channel.service as channel_service_module
 
     service = service_db.service
-    source_one = service.create_channel(BASE_FEATURE, "重试锁集合一")
-    source_two = service.create_channel(BASE_FEATURE, "重试锁集合二")
-    target = service.create_channel(BASE_FEATURE, "重试锁集合目标")
+    source_one = service.create_channel(BASE_FEATURE, "重试锁集合一", department="general_electric")
+    source_two = service.create_channel(BASE_FEATURE, "重试锁集合二", department="general_electric")
+    target = service.create_channel(BASE_FEATURE, "重试锁集合目标", department="general_electric")
     discoveries = [
-        channel_service_module._MembershipDiscovery(
-            members=(channel_service_module._DiscoveredMembership(
+        transaction_module._MembershipDiscovery(
+            members=(transaction_module._DiscoveredMembership(
                 member_id=10,
                 channel_id=source_one["id"],
                 camera_id=7,
@@ -1031,8 +1035,8 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
             camera_scope=(7,),
             channel_scope=(),
         ),
-        channel_service_module._MembershipDiscovery(
-            members=(channel_service_module._DiscoveredMembership(
+        transaction_module._MembershipDiscovery(
+            members=(transaction_module._DiscoveredMembership(
                 member_id=10,
                 channel_id=source_two["id"],
                 camera_id=7,
@@ -1068,7 +1072,7 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
     #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_run_write_transaction`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_write_transaction`
     #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_membership_transaction` 调用本符号
-    #   - 内部调用：`write_sessions.append`、`sorted`、`service._lock_channels`、`locked_channel_sets.append`、`tuple`、`len`、`channel_service_module._MembershipLockSetChanged`、`list`。
+    #   - 内部调用：`write_sessions.append`、`sorted`、`service._lock_channels`、`locked_channel_sets.append`、`tuple`、`len`、`transaction_module._MembershipLockSetChanged`、`list`。
     # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def operation(session, discovery):
         write_sessions.append(session)
@@ -1076,10 +1080,10 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
         locked = service._lock_channels(session, channel_ids)
         locked_channel_sets.append(tuple(locked))
         if len(write_sessions) == 1:
-            raise channel_service_module._MembershipLockSetChanged()
+            raise transaction_module._MembershipLockSetChanged()
         return list(locked)
 
-    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None)
+    monkeypatch.setattr(transaction_module, "sleep", lambda _: None)
     result = service._run_membership_transaction(discover, operation)
 
     assert result == sorted((source_two["id"], target["id"]))
@@ -1109,11 +1113,11 @@ def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`attempts.append`、`channel_service_module._MembershipDiscovery`。
+    #   - 内部调用：`attempts.append`、`transaction_module._MembershipDiscovery`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def discover():
         attempts.append("discover")
-        return channel_service_module._MembershipDiscovery(
+        return transaction_module._MembershipDiscovery(
             members=(),
             camera_scope=(),
             channel_scope=(),
@@ -1126,13 +1130,13 @@ def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`channel_service_module._MembershipLockSetChanged`。
+    #   - 内部调用：`transaction_module._MembershipLockSetChanged`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def always_changed(session, discovery):
-        raise channel_service_module._MembershipLockSetChanged()
+        raise transaction_module._MembershipLockSetChanged()
 
-    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None)
-    with pytest.raises(channel_service_module._MembershipLockSetChanged):
+    monkeypatch.setattr(transaction_module, "sleep", lambda _: None)
+    with pytest.raises(transaction_module._MembershipLockSetChanged):
         service_db.service._run_membership_transaction(discover, always_changed)
     assert attempts == ["discover", "discover", "discover"]
 
@@ -1148,7 +1152,7 @@ def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_capacity_and_sort_use_same_locked_membership_rows(service_db, monkeypatch):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "锁定行容量")
+    channel = service.create_channel(BASE_FEATURE, "锁定行容量", department="general_electric")
     camera_ids = [_seed_camera(service_db, f"locked-capacity-{index}") for index in range(10)]
     for camera_id in camera_ids[:8]:
         service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
@@ -1223,8 +1227,8 @@ def test_capacity_and_sort_use_same_locked_membership_rows(service_db, monkeypat
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_move_reorder_and_remove_preserve_camera_config(service_db):
     service = service_db.service
-    source = service.create_channel(BASE_FEATURE, "来源")
-    target = service.create_channel(BASE_FEATURE, "目标")
+    source = service.create_channel(BASE_FEATURE, "来源", department="general_electric")
+    target = service.create_channel(BASE_FEATURE, "目标", department="general_electric")
     camera_ids = [_seed_camera(service_db, f"route-{index}") for index in range(3)]
     with service_db.factory.begin() as session:
         retained_cfg = (
@@ -1274,8 +1278,8 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_move_to_full_channel_fails_without_losing_original_binding(service_db):
     service = service_db.service
-    source = service.create_channel(BASE_FEATURE, "来源")
-    target = service.create_channel(BASE_FEATURE, "满载目标")
+    source = service.create_channel(BASE_FEATURE, "来源", department="general_electric")
+    target = service.create_channel(BASE_FEATURE, "满载目标", department="general_electric")
     moving_id = _seed_camera(service_db, "moving")
     service.add_existing_camera(BASE_FEATURE, source["id"], moving_id)
     for index in range(MAX_CAMERAS_PER_CHANNEL):
@@ -1299,7 +1303,7 @@ def test_move_to_full_channel_fails_without_losing_original_binding(service_db):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_set_member_enabled_is_atomic_preserves_config_and_notifies_channel_once(service_db):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "成员启停")
+    channel = service.create_channel(BASE_FEATURE, "成员启停", department="general_electric")
     camera_id = _seed_camera(service_db, "toggle-member")
     service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
     service_db.notifications.clear()
@@ -1332,7 +1336,7 @@ def test_set_member_enabled_is_atomic_preserves_config_and_notifies_channel_once
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_delete_channel_disables_members_without_deleting_global_cameras(service_db):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "待删除")
+    channel = service.create_channel(BASE_FEATURE, "待删除", department="general_electric")
     camera_id = _seed_camera(service_db, "kept-camera")
     service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
 
@@ -1355,7 +1359,7 @@ def test_delete_channel_disables_members_without_deleting_global_cameras(service
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_and_bind_is_atomic_uses_feature_department_and_notifies_after_commit(service_db):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "新相机")
+    channel = service.create_channel(BASE_FEATURE, "新相机", department="general_electric")
     service_db.notifications.clear()
 
     detail = service.create_camera_and_bind(
@@ -1392,7 +1396,7 @@ def test_create_camera_and_bind_is_atomic_uses_feature_department_and_notifies_a
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_and_bind_rolls_back_camera_and_notifications_when_channel_is_full(service_db):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "满载")
+    channel = service.create_channel(BASE_FEATURE, "满载", department="general_electric")
     for index in range(MAX_CAMERAS_PER_CHANNEL):
         camera_id = _seed_camera(service_db, f"capacity-{index}")
         service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
@@ -1422,7 +1426,7 @@ def test_create_camera_and_bind_rolls_back_camera_and_notifications_when_channel
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_and_bind_rolls_back_all_rows_when_member_flush_fails(service_db, monkeypatch):
     service = service_db.service
-    channel = service.create_channel(BASE_FEATURE, "强制回滚")
+    channel = service.create_channel(BASE_FEATURE, "强制回滚", department="general_electric")
     original_bind = service._insert_locked_member
 
     # 功能：实现 `bind_then_fail` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -1464,7 +1468,7 @@ def test_create_camera_and_bind_rolls_back_all_rows_when_member_flush_fails(serv
 #   - 内部调用：`service_db.service.create_channel`、`pytest.raises`、`service_db.service.create_camera_and_bind`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_rejects_feature_department_mismatch(service_db):
-    channel = service_db.service.create_channel(EE_FEATURE, "电子电工")
+    channel = service_db.service.create_channel(EE_FEATURE, "电子电工", department="electronics_electrician")
     with pytest.raises(ValueError, match="department"):
         service_db.service.create_camera_and_bind(
             EE_FEATURE,
@@ -1486,7 +1490,7 @@ def test_create_camera_rejects_feature_department_mismatch(service_db):
 #   - 内部调用：`service_db.service.create_channel`、`pytest.raises`、`service_db.service.create_camera_and_bind`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_rejects_explicit_empty_department(service_db):
-    channel = service_db.service.create_channel(BASE_FEATURE, "空部门")
+    channel = service_db.service.create_channel(BASE_FEATURE, "空部门", department="general_electric")
     with pytest.raises(ValueError, match="department"):
         service_db.service.create_camera_and_bind(
             BASE_FEATURE,
@@ -1757,7 +1761,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
 ):
     import AiVision.platform.logistics_channel.service as channel_service_module
 
-    original_scope = channel_service_module.session_scope
+    original_scope = transaction_module.session_scope
     attempts = []
     sessions = []
 
@@ -1777,10 +1781,10 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
             if len(attempts) < 3:
                 raise OperationalError("commit", {}, Exception(error_code, "lock failure"))
 
-    monkeypatch.setattr(channel_service_module, "session_scope", flaky_scope)
-    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None, raising=False)
+    monkeypatch.setattr(transaction_module, "session_scope", flaky_scope)
+    monkeypatch.setattr(transaction_module, "sleep", lambda _: None, raising=False)
 
-    result = service_db.service.create_channel(BASE_FEATURE, f"重试-{error_code}")
+    result = service_db.service.create_channel(BASE_FEATURE, f"重试-{error_code}", department="general_electric")
 
     assert result["name"] == f"重试-{error_code}"
     assert len(attempts) == 3
@@ -1799,7 +1803,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
 def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
     import AiVision.platform.logistics_channel.service as channel_service_module
 
-    original_scope = channel_service_module.session_scope
+    original_scope = transaction_module.session_scope
     attempts = []
 
     # 功能：实现 `always_deadlocked` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -1816,11 +1820,11 @@ def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
             yield session
             raise OperationalError("commit", {}, Exception(1213, "deadlock"))
 
-    monkeypatch.setattr(channel_service_module, "session_scope", always_deadlocked)
-    monkeypatch.setattr(channel_service_module, "sleep", lambda _: None, raising=False)
+    monkeypatch.setattr(transaction_module, "session_scope", always_deadlocked)
+    monkeypatch.setattr(transaction_module, "sleep", lambda _: None, raising=False)
 
     with pytest.raises(OperationalError):
-        service_db.service.create_channel(BASE_FEATURE, "重试耗尽")
+        service_db.service.create_channel(BASE_FEATURE, "重试耗尽", department="general_electric")
     assert len(attempts) == 3
 
 
@@ -1836,7 +1840,7 @@ def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
 def test_write_transaction_does_not_retry_other_operational_errors(service_db, monkeypatch):
     import AiVision.platform.logistics_channel.service as channel_service_module
 
-    original_scope = channel_service_module.session_scope
+    original_scope = transaction_module.session_scope
     attempts = []
 
     # 功能：实现 `unavailable` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -1853,10 +1857,10 @@ def test_write_transaction_does_not_retry_other_operational_errors(service_db, m
             yield session
             raise OperationalError("commit", {}, Exception(2006, "server gone"))
 
-    monkeypatch.setattr(channel_service_module, "session_scope", unavailable)
+    monkeypatch.setattr(transaction_module, "session_scope", unavailable)
 
     with pytest.raises(OperationalError):
-        service_db.service.create_channel(BASE_FEATURE, "不重试")
+        service_db.service.create_channel(BASE_FEATURE, "不重试", department="general_electric")
     assert len(attempts) == 1
 
 
@@ -1965,8 +1969,8 @@ def test_camera_config_manager_translates_commit_integrity_errors(
 def test_create_camera_and_bind_translates_camera_integrity_error(service_db, monkeypatch):
     import AiVision.platform.logistics_channel.service as channel_service_module
 
-    channel = service_db.service.create_channel(BASE_FEATURE, "并发绑定")
-    original_scope = channel_service_module.session_scope
+    channel = service_db.service.create_channel(BASE_FEATURE, "并发绑定", department="general_electric")
+    original_scope = transaction_module.session_scope
 
     # 功能：实现 `name_conflict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：无。
@@ -1985,7 +1989,7 @@ def test_create_camera_and_bind_translates_camera_integrity_error(service_db, mo
                 Exception("Duplicate entry for key 'ai_camera_config.name'"),
             )
 
-    monkeypatch.setattr(channel_service_module, "session_scope", name_conflict)
+    monkeypatch.setattr(transaction_module, "session_scope", name_conflict)
     with pytest.raises(ValueError, match="name") as raised:
         service_db.service.create_camera_and_bind(
             BASE_FEATURE,
@@ -2024,7 +2028,7 @@ def test_updates_reject_explicit_none_for_not_null_fields(
     config,
     field,
 ):
-    channel = service_db.service.create_channel(BASE_FEATURE, f"非空-{method}-{field}")
+    channel = service_db.service.create_channel(BASE_FEATURE, f"非空-{method}-{field}", department="general_electric")
     with pytest.raises(ValueError, match=field):
         args = (BASE_FEATURE, channel["id"], payload)
         args += (config,)
@@ -2059,18 +2063,18 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
         base_cfg.wechat_enable = True
         base_cfg.wechat_user = "base-user"
         base_cfg.roi_pos = [[1, 2], [3, 4]]
-        session.add(LogisticsChannel(name="迁移相机", feature_name=BASE_FEATURE))
+        session.add(LogisticsChannel(name="迁移相机", feature_name=BASE_FEATURE, department="general_electric"))
 
     service_db.notifications.clear()
-    first = service_db.service.migrate_existing_feature_cameras()
+    first = LogisticsChannelMigration().migrate_existing_feature_cameras()
     first_notifications = list(service_db.notifications)
-    second = service_db.service.migrate_existing_feature_cameras()
+    second = LogisticsChannelMigration().migrate_existing_feature_cameras()
 
     assert isinstance(first, MigrationSummary)
-    assert (first.created, first.failed) == (2, 0)
+    assert (first.created, first.failed) == (1, 0)
     assert first.skipped == 0
     assert second.created == 0
-    assert second.skipped == 2
+    assert second.skipped == 1
     assert [item for item in first_notifications if item == ("cache", "reload")] == [
         ("cache", "reload")
     ]
@@ -2080,7 +2084,6 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
         if item[0] == "event" and item[1].change_type.endswith("_enabled")
     ]
     assert sorted(event.camera_name for event in migrated_enabled) == [
-        "shm_迁移相机",
         "shm_迁移相机",
     ]
     with service_db.factory() as session:
@@ -2112,65 +2115,27 @@ def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(serv
 #   - 内部调用：`enumerate`、`sorted`、`_seed_camera`、`service_db.factory.begin`、`session.query(all_specs()[feature_name].orm_class).filter_by(camera_id=camera_id).one`、`session.query(all_specs()[feature_name].orm_class).filter_by`、`session.query`、`all_specs`、`session.get`、`session.add`
 #          等共 20 个调用。
 # 副作用/注意事项：可能读取或修改数据库事务；可能启动、等待或停止线程/进程资源。
-def test_migration_rehearsal_covers_all_four_features_and_preserves_camera_configs(service_db):
-    camera_ids: dict[str, int] = {}
-    original_rois: dict[str, list[list[int]]] = {}
-    for index, feature_name in enumerate(sorted(LOGISTICS_FEATURES), start=1):
-        camera_id = _seed_camera(
-            service_db,
-            f"四模块迁移相机-{index}",
-            enabled_features=(feature_name,),
-        )
+def test_migration_rehearsal_covers_all_four_departments_and_preserves_camera_configs(service_db):
+    camera_ids = {}
+    original_rois = {}
+    for index, department in enumerate(all_specs()[BASE_FEATURE].departments, 1):
+        camera_id = _seed_camera(service_db, f"迁移-{department}", department=department, enabled_features=(BASE_FEATURE,))
         roi = [[index, index + 1], [index + 20, index + 30]]
         with service_db.factory.begin() as session:
-            cfg = session.query(all_specs()[feature_name].orm_class).filter_by(
-                camera_id=camera_id,
-            ).one()
-            cfg.roi_pos = roi
-        camera_ids[feature_name] = camera_id
-        original_rois[feature_name] = roi
-
-    collision_feature = sorted(LOGISTICS_FEATURES)[0]
-    collision_camera_id = camera_ids[collision_feature]
-    with service_db.factory.begin() as session:
-        collision_camera = session.get(AiCameraConfig, collision_camera_id)
-        session.add(LogisticsChannel(
-            feature_name=collision_feature,
-            name=collision_camera.name,
-        ))
-
-    first = service_db.service.migrate_existing_feature_cameras()
-    second = service_db.service.migrate_existing_feature_cameras()
-
+            session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one().roi_pos = roi
+        camera_ids[department] = camera_id
+        original_rois[department] = roi
+    first = LogisticsChannelMigration().migrate_existing_feature_cameras()
+    second = LogisticsChannelMigration().migrate_existing_feature_cameras()
     assert (first.created, first.skipped, first.failed) == (4, 0, 0)
     assert (second.created, second.skipped, second.failed) == (0, 4, 0)
     with service_db.factory() as session:
-        for feature_name, camera_id in camera_ids.items():
-            memberships = (
-                session.query(LogisticsChannelCamera)
-                .join(LogisticsChannel)
-                .filter(
-                    LogisticsChannel.feature_name == feature_name,
-                    LogisticsChannelCamera.camera_id == camera_id,
-                )
-                .all()
-            )
-            assert len(memberships) == 1
-            cfg = session.query(all_specs()[feature_name].orm_class).filter_by(
-                camera_id=camera_id,
-            ).one()
-            assert cfg.enable is True
-            assert cfg.roi_pos == original_rois[feature_name]
-
-        migrated_collision = (
-            session.query(LogisticsChannel)
-            .filter_by(
-                feature_name=collision_feature,
-                name=f"四模块迁移相机-1-{collision_camera_id}",
-            )
-            .one()
-        )
-        assert migrated_collision.cameras[0].camera_id == collision_camera_id
+        for department, camera_id in camera_ids.items():
+            channel = session.query(LogisticsChannel).filter_by(department=department).one()
+            assert channel.feature_name == BASE_FEATURE
+            assert [member.camera_id for member in channel.cameras] == [camera_id]
+            cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
+            assert cfg.roi_pos == original_rois[department] and cfg.enable is True
 
 
 # 功能：验证 `test_migration_records_one_camera_failure_and_continues` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -2196,11 +2161,11 @@ def test_migration_records_one_camera_failure_and_continues(service_db, caplog):
     )
     with service_db.factory.begin() as session:
         session.add_all([
-            LogisticsChannel(name="冲突相机", feature_name=BASE_FEATURE),
-            LogisticsChannel(name=f"冲突相机-{failed_camera_id}", feature_name=BASE_FEATURE),
+            LogisticsChannel(name="冲突相机", feature_name=BASE_FEATURE, department="general_electric"),
+            LogisticsChannel(name=f"冲突相机-{failed_camera_id}", feature_name=BASE_FEATURE, department="general_electric"),
         ])
 
-    summary = service_db.service.migrate_existing_feature_cameras()
+    summary = LogisticsChannelMigration().migrate_existing_feature_cameras()
 
     assert (summary.created, summary.failed) == (1, 1)
     assert len(summary.errors) == 1
@@ -2222,7 +2187,7 @@ def test_migration_records_one_camera_failure_and_continues(service_db, caplog):
 def test_migration_without_success_does_not_reload_cache(service_db):
     service_db.notifications.clear()
 
-    summary = service_db.service.migrate_existing_feature_cameras()
+    summary = LogisticsChannelMigration().migrate_existing_feature_cameras()
 
     assert summary.created == 0
     assert [item for item in service_db.notifications if item == ("cache", "reload")] == []
@@ -2263,7 +2228,7 @@ def test_notification_failure_is_logged_without_undoing_committed_channel(servic
             raise RuntimeError("event bus unavailable")
 
     monkeypatch.setattr(channel_service_module, "config_event_bus", FailingEventBus())
-    result = service_db.service.create_channel(BASE_FEATURE, "通知失败仍保留")
+    result = service_db.service.create_channel(BASE_FEATURE, "通知失败仍保留", department="general_electric")
 
     assert service_db.service.get_channel(BASE_FEATURE, result["id"])["name"] == "通知失败仍保留"
     assert "通道通知失败" in caplog.text
@@ -2513,7 +2478,7 @@ def test_enabled_horn_requires_positive_device_and_event_ids():
 #   - 内部调用：`service_db.service.create_channel`、`_seed_camera`、`service_db.service.add_existing_camera`、`service_db.factory.begin`、`session.delete`、`session.get`、`service_db.factory`、`session.query(LogisticsChannelCamera).filter_by(camera_id=camera_id).count`、`session.query(LogisticsChannelCamera).filter_by`、`session.query`。
 # 副作用/注意事项：可能读取或修改数据库事务。
 def test_sqlite_fixture_enforces_camera_delete_member_cascade(service_db):
-    channel = service_db.service.create_channel(BASE_FEATURE, "级联测试")
+    channel = service_db.service.create_channel(BASE_FEATURE, "级联测试", department="general_electric")
     camera_id = _seed_camera(service_db, "cascade-camera")
     service_db.service.add_existing_camera(BASE_FEATURE, channel["id"], camera_id)
 
@@ -2537,7 +2502,7 @@ def test_channel_orm_constraints_foreign_keys_and_relationships():
     camera_fk = next(fk for fk in LogisticsChannelCamera.__table__.foreign_keys if fk.column.table.name == "ai_camera_config")
     channel_fk = next(fk for fk in LogisticsChannelCamera.__table__.foreign_keys if fk.column.table.name == "ai_logistics_channel")
 
-    assert "uq_logistics_channel_feature_name" in channel_constraints
+    assert "uq_logistics_channel_feature_department_name" in channel_constraints
     assert "uq_logistics_channel_camera" in member_constraints
     assert camera_fk.ondelete == "CASCADE"
     assert channel_fk.ondelete == "CASCADE"
@@ -2571,7 +2536,7 @@ def test_detail_response_adapts_orm_flat_fields_and_camera_relationship():
         horn_event_id=4,
         wechat_enable=True,
         wechat_user="operator",
-    )
+     department="general_electric")
     channel.cameras = [LogisticsChannelCamera(id=7, channel_id=1, camera_id=9, enabled=True, sort_order=0)]
 
     response = LogisticsChannelDetailResponse.model_validate(channel)

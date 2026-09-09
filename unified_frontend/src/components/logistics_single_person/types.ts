@@ -1,9 +1,8 @@
 export const LOGISTICS_FEATURES = [
   'detect_logistics_single_person',
-  'detect_logistics_single_person_electronics_electrician',
-  'detect_logistics_single_person_electrical_components',
-  'detect_logistics_single_person_precious_metal_recycling',
 ] as const
+
+export const LOGISTICS_DEPARTMENTS = ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling'] as const
 
 export type LogisticsFeatureName = (typeof LOGISTICS_FEATURES)[number]
 
@@ -102,6 +101,7 @@ export type LogisticsChannel = {
   id: number
   name: string
   feature_name: LogisticsFeatureName
+  department: string
   enabled: boolean
   sort_order: number
   created_at: string | null
@@ -119,6 +119,7 @@ export type LogisticsChannelListResponse = {
 }
 
 export type LogisticsChannelRuntimeStatus = {
+  department: string
   feature_name: LogisticsFeatureName
   channel_id: number
   channel_name: string
@@ -134,6 +135,7 @@ export type LogisticsChannelRuntimeStatus = {
 }
 
 export type LogisticsChannelAlarm = {
+  department: string | null
   id: string
   feature_name: LogisticsFeatureName | null
   channel_id: number
@@ -161,7 +163,7 @@ export type LogisticsChannelStatistics = {
 
 export type LogisticsChannelOkResponse = { ok: boolean }
 
-export type CreateLogisticsChannelPayload = { name: string }
+export type CreateLogisticsChannelPayload = { name: string; department: string }
 
 export type UpdateLogisticsChannelPayload = {
   name?: string
@@ -181,7 +183,6 @@ export type CreateLogisticsCameraPayload = {
   name: string
   url: string
   fps?: number
-  department?: string | null
   shm_name?: string
 }
 

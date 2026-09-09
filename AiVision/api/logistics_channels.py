@@ -18,7 +18,6 @@ from AiVision.api.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
 from AiVision.features import all_specs
 from AiVision.platform.logistics_channel.constants import (
-    get_logistics_department,                      # 物流通道和事业部/部门之间的对应关系
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
 from AiVision.platform.logistics_channel.schema import (
@@ -47,33 +46,31 @@ class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
     model_config = ConfigDict(extra="forbid")
     config: LogisticsChannelConfigUpdate | None = None
 
-def _accessible_logistics_features(user: dict) -> list[str]:
-    """返回当前用户有权读取的物流功能集合。"""
+def _accessible_departments(user: dict) -> tuple[str, ...] | None:
+    """None 表示管理员/全部事业部；空元组表示没有可访问事业部。"""
     if user.get("role") == "admin":
-        return list(LOGISTICS_FEATURES)
+        return None
     raw_departments = user.get("departments")
     candidates = raw_departments if isinstance(raw_departments, list) else []
     # 部门数据清洗：去空字符串、去空格，自动去重
-    departments = {
-        str(department or "").strip()
-        for department in candidates
-        if str(department or "").strip()
-    }
-    if "all" in departments:
-        return list(LOGISTICS_FEATURES)
-    return [
-        feature
-        for feature in LOGISTICS_FEATURES                       # 遍历功能
-        if get_logistics_department(feature) in departments # 看下用户的可查看departments里有有没有这个功能
-    ]
+    departments = {str(value or "").strip() for value in candidates if str(value or "").strip()}
+    return None if "all" in departments else tuple(sorted(departments))
 
-def _require_feature_access(feature: str, user: dict) -> str:
-    """物流通道下功能的合法性校验以及部门权限检查"""
+
+def _require_feature_access(feature: str) -> str:
+    """只校验物流功能是否合法；事业部授权以 Channel 为准。"""
     if feature not in LOGISTICS_FEATURES:
         raise HTTPException(status_code=404, detail="logistics feature not found")
-    if feature not in _accessible_logistics_features(user):            # 功能不在当前用户能访问的功能里
-        raise HTTPException(status_code=403, detail="feature department permission required")
     return feature
+
+
+def _require_channel_access(service, feature: str, channel_id: int, user: dict) -> dict:
+    _require_feature_access(feature)
+    channel = _get_channel_or_404(service, feature, channel_id)
+    departments = _accessible_departments(user)
+    if departments is not None and channel["department"] not in departments:
+        raise HTTPException(status_code=403, detail="channel department permission required")
+    return channel
 
 def _raise_service_error(exc: ValueError) -> None:
     """把service层抛出来的ValueError，转换成合适的HTTP错误
@@ -106,7 +103,7 @@ def list_logistics_camera_inventory(
 ) -> LogisticsCameraInventoryResponse:
     """将当前所有用户有权限看到的所有物流摄像头汇总成一张摄像头清单，再结合Orchestrator的实时状态补充每台摄像头是否   """
     items = service.list_camera_inventory(
-        _accessible_logistics_features(user)         # 用户可以查看的物流Feature，然后针对这些feature在查询摄像头Inventory
+        list(LOGISTICS_FEATURES), departments=_accessible_departments(user)
     )
     # 当前请求期间的通道状态缓存，key：（feature,channel_id）
     # 避免同一个通道运行状态被重复读取
@@ -159,7 +156,7 @@ def list_channels(
 ) -> LogisticsChannelListResponse:
     """查询一个物流feature下的通道列表"""
     return LogisticsChannelListResponse.model_validate(
-        service.list_channels(_require_feature_access(feature, user))   # _require_feature_access：功能不是物流功能返回404，用户没有权限返回
+        service.list_channels(_require_feature_access(feature), departments=_accessible_departments(user))
     )
 
 @router.post(
@@ -175,11 +172,11 @@ def create_channel(
 ) -> LogisticsChannelDetailResponse:
     """新建一个物流通道"""
     # 功能权限校验
-    feature = _require_feature_access(feature, user)
+    feature = _require_feature_access(feature)
     try:
         # 调用通道管理服务去新建通道，并且做参数校验
         return LogisticsChannelDetailResponse.model_validate(
-            service.create_channel(feature, payload.name)
+            service.create_channel(feature, payload.name, payload.department)
         )
     except ValueError as exc:
         _raise_service_error(exc)
@@ -193,7 +190,7 @@ def get_channel(
 ) -> LogisticsChannelDetailResponse:
     """查询一个具体通道的完整详情"""
     return LogisticsChannelDetailResponse.model_validate(
-        _get_channel_or_404(service, _require_feature_access(feature, user), channel_id)
+        _require_channel_access(service, feature, channel_id, user)
     )
 
 @router.patch("/{feature}/{channel_id}", response_model=LogisticsChannelDetailResponse)
@@ -206,7 +203,7 @@ def update_channel(
 ) -> LogisticsChannelDetailResponse:
     """修改物流通道基础信息和通道级检测配置"""
     # 功能权限
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     # metadata：exclude_unset=True：前端没有主动提交的字段，不要拿默认值去覆盖数据库(局部更新语义)
     metadata = payload.model_dump(exclude_unset=True, exclude={"config"})
     try:
@@ -232,7 +229,7 @@ def delete_channel(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelOkResponse:
     """删除指定物流通道"""
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     if not service.delete_channel(feature, channel_id):      # 删除指定物流通道返回布尔值
         raise HTTPException(status_code=404, detail="logistics channel not found")
     return LogisticsChannelOkResponse(ok=True)
@@ -254,7 +251,7 @@ def add_camera(
         1、把已经存在的摄像头加入通道
         2、直接新建一台摄像头，并立即加入通道
     """
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     try:
         if payload.camera_id is not None:
             # 已经存在的摄像头加入通道
@@ -280,7 +277,7 @@ def reorder_cameras(
     """
     重新调整某个物流通道内成员摄像头的顺序，拼接画面的顺序
     """
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     try:
         # 调整顺序并校验
         return LogisticsChannelDetailResponse.model_validate(
@@ -301,7 +298,7 @@ def move_camera(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     "把一个摄像头从一个通道搬到另一个通道"
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     try:
         return LogisticsChannelDetailResponse.model_validate(
             service.move_camera(feature, camera_id, channel_id)
@@ -322,7 +319,7 @@ def set_camera_enabled(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelDetailResponse:
     "设置摄像头在当前物流通道开启工作还是不开启工作"
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     try:
         return LogisticsChannelDetailResponse.model_validate(
             service.set_member_enabled(
@@ -358,7 +355,7 @@ def get_member_camera_config(
     feature_config_manager=Depends(get_feature_config_manager),
 ) -> FeatureConfigResponse:
     """读取某个物流通道中某个成员自己的功能配置"""
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     _require_channel_member(service, feature, channel_id, camera_id)
     # 读取单摄像头配置
     result = feature_config_manager.get_config(all_specs()[feature], str(camera_id))
@@ -380,7 +377,7 @@ def update_member_camera_config(
     feature_config_manager=Depends(get_feature_config_manager),
 ) -> FeatureConfigResponse:
     """修改某个摄像头自己的功能配置"""
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     _require_channel_member(service, feature, channel_id, camera_id)
     spec = all_specs()[feature]
     try:
@@ -404,7 +401,7 @@ def remove_camera(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelOkResponse:
     """把摄像头从当前物流通道中移除"""
-    feature = _require_feature_access(feature, user)
+    _require_channel_access(service, feature, channel_id, user)
     if not service.remove_camera(feature, channel_id, camera_id):
         raise HTTPException(status_code=404, detail="channel camera membership not found")
     return LogisticsChannelOkResponse(ok=True)
@@ -421,8 +418,7 @@ def get_channel_status(
     orchestrator=Depends(get_current_orchestrator),
 ) -> LogisticsChannelRuntimeStatusResponse:
     """获取某个物流通道当前真正的实时运行这台"""
-    feature = _require_feature_access(feature, user)
-    channel = _get_channel_or_404(service, feature, channel_id)
+    channel = _require_channel_access(service, feature, channel_id, user)
     value = orchestrator.get_logistics_channel_status(feature, channel_id)
     if value is not None:
         return LogisticsChannelRuntimeStatusResponse.model_validate(value)
@@ -430,6 +426,7 @@ def get_channel_status(
         "feature_name": feature,
         "channel_id": channel_id,
         "channel_name": channel["name"],
+        "department": channel["department"],
         "reason": "unknown",
         "alarm": False,
         "camera_ids": [member["camera_id"] for member in channel.get("members", [])],
@@ -451,8 +448,7 @@ def get_channel_frame(
     orchestrator=Depends(get_current_orchestrator),
 ) -> Response:
     """返回整个物流通道多摄像头拼接预览画面"""
-    feature = _require_feature_access(feature, user)
-    _get_channel_or_404(service, feature, channel_id)
+    _require_channel_access(service, feature, channel_id, user)
     frame = orchestrator.get_logistics_channel_frame(feature, channel_id)
     if frame is None:
         raise HTTPException(status_code=503, detail="logistics channel frame not available")
@@ -478,6 +474,7 @@ def _alarm_dict(row: AiAlarmEvent) -> dict[str, Any]:
     return {
         "id": str(row.id),
         "feature_name": row.feature_name,
+        "department": row.department,
         "channel_id": int(row.subject_id),
         "channel_name": row.subject_name,
         "reason": row.reason,
@@ -506,8 +503,7 @@ def list_channel_alarms(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelAlarmListResponse:
     """查询一个物流通道自己的历史告警记录"""
-    feature = _require_feature_access(feature, user)
-    _get_channel_or_404(service, feature, channel_id)
+    _require_channel_access(service, feature, channel_id, user)
     session = get_session()
     try:
         rows = _channel_alarm_query(session, feature, channel_id).order_by(
@@ -531,8 +527,7 @@ def channel_statistics(
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsChannelStatisticsResponse:
     """统计某个物流通道最近N天的告警趋势"""
-    feature = _require_feature_access(feature, user)
-    _get_channel_or_404(service, feature, channel_id)
+    _require_channel_access(service, feature, channel_id, user)
     now = dt.datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     range_start = today_start - dt.timedelta(days=days - 1)

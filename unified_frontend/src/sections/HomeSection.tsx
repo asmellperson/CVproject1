@@ -133,18 +133,6 @@ const moduleEntries = [
     title: '物流通道单人检测入口',
   },
   {
-    id: 'logistics-single-person-electronics-electrician-detection',
-    title: '物流通道单人检测入口（电子电工）',
-  },
-  {
-    id: 'logistics-single-person-electrical-components-detection',
-    title: '物流通道单人检测入口（电气部件）',
-  },
-  {
-    id: 'logistics-single-person-precious-metal-recycling-detection',
-    title: '物流通道单人检测入口（伟达公司）',
-  },
-  {
     id: 'phone-detection',
     title: '手机使用检测入口',
   },
@@ -201,9 +189,6 @@ const guardPageByDepartment: Partial<Record<Department, string>> = {
 
 const logisticsPageByFeature: Record<LogisticsFeatureName, string> = {
   detect_logistics_single_person: 'logistics-single-person-detection',
-  detect_logistics_single_person_electronics_electrician: 'logistics-single-person-electronics-electrician-detection',
-  detect_logistics_single_person_electrical_components: 'logistics-single-person-electrical-components-detection',
-  detect_logistics_single_person_precious_metal_recycling: 'logistics-single-person-precious-metal-recycling-detection',
 }
 
 type ServiceKey = keyof PlatformStatus['services']
@@ -227,9 +212,6 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
   'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human_haoda' },
   'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
-  'logistics-single-person-electronics-electrician-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electronics_electrician' },
-  'logistics-single-person-electrical-components-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_electrical_components' },
-  'logistics-single-person-precious-metal-recycling-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person_precious_metal_recycling' },
   'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
 }
 
@@ -242,9 +224,6 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_human: '人员违规逗留检测',
   detect_human_haoda: '人员违规逗留检测（皓达公司）',
   detect_logistics_single_person: '物流单人',
-  detect_logistics_single_person_electronics_electrician: '物流单人（电子电工）',
-  detect_logistics_single_person_electrical_components: '物流单人（电气部件）',
-  detect_logistics_single_person_precious_metal_recycling: '物流单人（伟达公司）',
   detect_phone: '手机使用',
 }
 

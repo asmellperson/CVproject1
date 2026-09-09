@@ -13,5 +13,10 @@ SPEC = FeatureSpec(
     config_schema=LogisticsSinglePersonConfigSchema,
     required_models=("yolo_human",),
     violation_type=6,
-    departments=("general_electric",),
+    departments=(
+        "general_electric",
+        "electronics_electrician",
+        "electrical_components",
+        "precious_metal_recycling",
+    ),
 )

@@ -38,7 +38,7 @@ def binding_api(backend, monkeypatch):
         session.add_all([AiCameraConfig(name=f'Camera {i}', shm_name=f'cam_{i}', url='rtsp://test.local/video') for i in (1, 2)])
         session.commit()
     backend.horn = backend.service.create_horn(payload(enable=True))['id']
-    backend.channel_id = service.create_channel(FEATURE, '通道 A')['id']
+    backend.channel_id = service.create_channel(FEATURE, '通道 A', department="general_electric")['id']
     return backend
 
 

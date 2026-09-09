@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 FEATURE = "detect_logistics_single_person"
-OTHER_FEATURE = "detect_logistics_single_person_electronics_electrician"
+OTHER_FEATURE = FEATURE
 
 
 def test_default_camera_provider_preserves_numeric_primary_key(monkeypatch):
@@ -169,6 +169,7 @@ def channel(
     channel_id=3,
     *,
     feature=FEATURE,
+    department="general_electric",
     member_ids=(10, 11),
     empty_grace=0.0,
     multi_grace=0.0,
@@ -180,6 +181,7 @@ def channel(
         "id": channel_id,
         "name": f"物流通道-{channel_id}",
         "feature_name": feature,
+        "department": department,
         "enabled": enabled,
         "sort_order": 0,
         "config": {
@@ -629,9 +631,9 @@ def test_all_members_must_be_fresh_online_and_zero_for_empty_alarm():
 #   - 内部调用：`channel`、`time`、`build_runtime`、`datetime(2026, 8, 7, 10, 0,
 #          tzinfo=timezone.utc).astimezone`、`datetime`、`runtime.camera_should_run`、`runtime.evaluate`、`runtime.update_camera_snapshot`、`snapshot`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_schedule_and_feature_namespaces_are_isolated():
+def test_schedule_and_department_channels_are_isolated():
     outside = channel(channel_id=3, start=time(11, 0), end=time(12, 0))
-    other = channel(channel_id=3, feature=OTHER_FEATURE, member_ids=(10,))
+    other = channel(channel_id=4, department="electronics_electrician", member_ids=(12,))
     runtime, dispatcher = build_runtime(
         [outside, other],
         wall_time=lambda: datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc).astimezone(),
@@ -640,10 +642,12 @@ def test_schedule_and_feature_namespaces_are_isolated():
     assert runtime.camera_should_run(FEATURE, 10) is False
     assert runtime.evaluate(FEATURE, 3, now=100.0).reason == "inactive"
 
-    runtime.update_camera_snapshot(OTHER_FEATURE, snapshot(10, 2), None)
-    assert runtime.evaluate(OTHER_FEATURE, 3, now=100.0).reason == "multiple"
+    runtime.update_camera_snapshot(FEATURE, snapshot(12, 2), None)
+    assert runtime.evaluate(FEATURE, 4, now=100.0).reason == "multiple"
     assert len(dispatcher.requests) == 1
-    assert dispatcher.requests[0][0].feature_name == OTHER_FEATURE
+    assert dispatcher.requests[0][0].feature_name == FEATURE
+    assert dispatcher.requests[0][0].department == "electronics_electrician"
+    assert runtime.get_channel_status(FEATURE, 4)["department"] == "electronics_electrician"
 
 
 # 功能：验证 `test_refresh_clears_timing_snapshot_and_incident_state` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明

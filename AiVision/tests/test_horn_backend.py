@@ -192,7 +192,7 @@ def test_delete_protects_disabled_logistics_channel(backend):
     horn = backend.service.create_horn(payload())
     with backend.factory.begin() as session:
         session.add(LogisticsChannel(name="channel", feature_name="logistics", enabled=False,
-                                     horn_enable=False, horn_id=horn["id"]))
+                                     horn_enable=False, horn_id=horn["id"], department="general_electric"))
     assert backend.client.delete(f"/api/horns/{horn['id']}").status_code == 409
     with pytest.raises(HornInUseError):
         backend.service.delete_horn(horn["id"])

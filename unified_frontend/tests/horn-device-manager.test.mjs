@@ -330,7 +330,7 @@ test('each detection configuration uses the single public horn container', async
     if (!path.includes('SecurityVlm')) assert.match(content, /报警推送/, path)
   }
   assert.match(await source('sections/HaodaHumanDetectionSection.tsx'), /<HumanDetectionSection/)
-  for (const suffix of ['', 'ElectronicsElectrician', 'ElectricalComponents', 'PreciousMetalRecycling']) {
+  for (const suffix of ['']) {
     assert.match(await source(`sections/LogisticsSinglePerson${suffix}DetectionSection.tsx`), /<LogisticsChannelSection/)
   }
   assert.match(await source('sections/GuardBehaviorSection.tsx'), /<ConfigSection/)
