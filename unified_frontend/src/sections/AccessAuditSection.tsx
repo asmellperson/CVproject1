@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,16 +14,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { listAccessAudit, type AccessAuditItem } from '@/lib/access-audit'
-
-const departmentLabels: Record<string, string> = {
-  all: '全部事业部',
-  general_electric: '通用电气事业部',
-  research_institute: '福达新材院',
-  electronics_electrician: '电子电工事业部',
-  electrical_components: '电气部件事业部',
-  precious_metal_recycling: '伟达公司',
-  haoda_company: '皓达公司',
-}
 
 const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   year: 'numeric',
@@ -42,6 +33,11 @@ function formatDateTime(value: string) {
 export function AccessAuditSection() {
   const { user } = useAuth()
   const canViewAccessAudit = user?.capabilities?.view_access_audit === true
+  const {
+    labels: departmentLabels,
+    error: departmentsError,
+    reload: reloadDepartments,
+  } = useDepartmentCatalog(canViewAccessAudit)
   const [items, setItems] = useState<AccessAuditItem[]>([])
   const [loading, setLoading] = useState(canViewAccessAudit)
   const [error, setError] = useState('')
@@ -83,15 +79,15 @@ export function AccessAuditSection() {
             最近访问过视觉平台的 {items.length} 位用户
           </p>
         </div>
-        <Button variant="outline" onClick={() => void loadItems()} disabled={loading}>
+        <Button variant="outline" onClick={() => { reloadDepartments(); void loadItems() }} disabled={loading}>
           <RefreshCw className="mr-2 h-4 w-4" />
           刷新
         </Button>
       </div>
 
-      {error && (
+      {(error || departmentsError) && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">
-          {error}
+          {error || departmentsError}
         </div>
       )}
 

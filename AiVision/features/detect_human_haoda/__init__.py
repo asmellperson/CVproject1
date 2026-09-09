@@ -1,6 +1,3 @@
-# 文件说明：实现`__init__` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """皓达公司人员违规逗留检测：复用算法，独立保存摄像头与配置。"""
 
 from AiVision.features._base.spec import FeatureSpec

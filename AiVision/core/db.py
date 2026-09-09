@@ -1,46 +1,36 @@
-# 文件说明：定义`db` 模块的持久化模型、数据库连接或存取能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 core/db.py
 SQLAlchemy 引擎、会话、Base 声明。
-
 所有 ORM 类都继承自这里的 Base。
 """
 from __future__ import annotations
 import contextlib
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from sqlalchemy.schema import CreateColumn
+import re
+from sqlalchemy import create_engine, inspect, text       # create_engine:创建数据库连接引擎，inspect：查看数据库表、列，text：执行原生SQL
+from sqlalchemy.orm import declarative_base, sessionmaker, Session # declarative_base:ORM模型共同的父类，sessionmaker：创建session的工厂，Session：一次数据库操作的会话
+from sqlalchemy.schema import CreateColumn          # 根据ORM Column生成SQL列定义
 from AiVision.core.settings import settings
 from AiVision.core.logger import logger
 
-# 所有 ORM 模型的元数据基类，须在各 ORM 文件中 `class Foo(Base)` 继承
+# 所有Aivision ORM模型共同的父类，
+# Base.metadata：SQLAIchemy收集到的数据库结构总目录
 Base = declarative_base()
 
-# 模块级单例，延迟初始化（首次调用 get_engine() / get_session_factory() 时创建）
-_engine = None
-_session_factory: sessionmaker | None = None
+_engine = None                  # 全局SQLAIchemy Engine单例（engine是数据库连接池以及SQL执行入口）
+_session_factory: sessionmaker | None = None           # Session创建工厂
+_DATABASE_NAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,64}")
+_DATABASE_CHARSET_COLLATIONS = {
+    "utf8mb4": "utf8mb4_unicode_ci",
+}
 
-
-# 功能：提取 SQLAlchemy Column 的标量默认值，用于补列后的存量数据回填；输入与输出详见下方说明
-# 参数：
-#   - `column`（未显式标注）：`column` 对应的业务输入值
-# 返回：object | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/core/db.py` 的 `ensure_schema_compatible` 调用本符号
-#   - 内部调用：`isinstance`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _scalar_default(column) -> object | None:
     """
     提取 SQLAlchemy Column 的标量默认值，用于补列后的存量数据回填。
 
     仅处理可直接用于 SQL 参数的简单类型（str / int / float / bool）；
     可调用默认值（如 lambda、func.now()）无法在 Python 侧静态求值，返回 None。
-
     Args:
         column: SQLAlchemy Column 对象。
-
     Returns:
         标量默认值；无默认值或默认值为可调用时返回 None。
     """
@@ -52,17 +42,9 @@ def _scalar_default(column) -> object | None:
         return value
     return None
 
-
-# 功能：获取全局 SQLAlchemy Engine（单例，延迟创建）；输入与输出详见下方说明
-# 参数：无。
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_ensure_database_exists`、`create_engine`、`logger.info`。
-# 副作用/注意事项：会修改全局或闭包状态；会向日志系统输出运行或异常信息。
 def get_engine():
     """
-    获取全局 SQLAlchemy Engine（单例，延迟创建）。
+    获取全局唯一SQLAlchemy Engine，第一次调用时才创建（单例，延迟创建）。
 
     连接池配置说明:
         pool_size=20      : 保持的常驻连接数，适配中等并发推理场景。
@@ -76,11 +58,12 @@ def get_engine():
     """
     global _engine
     if _engine is None:
+        # 在setting.py里，如果AUTO_CREATE_DB环境变量为true，则先创建数据库，然后在创建Engine
         if settings.db.auto_create:
             _ensure_database_exists()  # 库不存在时自动 CREATE DATABASE
         _engine = create_engine(
-            settings.db.sqlalchemy_url,
-            pool_size=20,
+            settings.db.sqlalchemy_url,          # mysql+pymysql://user:password@host:3306/database?charset=utf8mb4
+            pool_size=20, 
             max_overflow=10,
             pool_recycle=3600,
             pool_pre_ping=True,
@@ -89,14 +72,6 @@ def get_engine():
         logger.info(f"[DB] 已连接到 {settings.db.name}@{settings.db.url}")
     return _engine
 
-
-# 功能：获取全局 Session 工厂（单例，延迟创建）；输入与输出详见下方说明
-# 参数：无。
-# 返回：sessionmaker；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`sessionmaker`、`get_engine`。
-# 副作用/注意事项：会修改全局或闭包状态。
 def get_session_factory() -> sessionmaker:
     """
     获取全局 Session 工厂（单例，延迟创建）。
@@ -111,43 +86,26 @@ def get_session_factory() -> sessionmaker:
     if _session_factory is None:
         _session_factory = sessionmaker(
             bind=get_engine(),
-            autocommit=False,
-            autoflush=False,
-            expire_on_commit=False,
+            autocommit=False,             # 修改数据库后不会自动提交
+            autoflush=False,              # 不要因为查询等操作帮我flush
+            expire_on_commit=False,       # commit后，已经加载到ORM对象里的字段继续可以使用
         )
     return _session_factory
 
-
-# 功能：创建并返回一个新的数据库会话；输入与输出详见下方说明
-# 参数：无。
-# 返回：Session；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`get_session_factory()`、`get_session_factory`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def get_session() -> Session:
     """
     创建并返回一个新的数据库会话。
-
     Note:
         调用方负责生命周期管理，必须在 finally 块中调用 session.close()，
         否则连接不会归还连接池。
         需要自动事务管理时，优先使用 session_scope()。
     """
-    return get_session_factory()()
+    return get_session_factory()()        
 
-
-# 功能：提供自动事务管理的上下文管理器；输入与输出详见下方说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`get_session`、`session.commit`、`session.rollback`、`session.close`。
-# 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
 @contextlib.contextmanager
 def session_scope():
     """
-    提供自动事务管理的上下文管理器。
+    提供自动事务管理的上下文管理器。自动管理Session + commit + rollback +close
 
     正常退出时自动 commit；with 块内抛出异常时自动 rollback 并重新抛出；
     无论成功与否，finally 中关闭会话并将连接归还连接池。
@@ -159,7 +117,7 @@ def session_scope():
     """
     session = get_session()
     try:
-        yield session
+        yield session     # 暂时把session交给with里面的代码使用。等里面代码结束以后在回来继续执行
         session.commit()
     except Exception:
         session.rollback()
@@ -167,14 +125,6 @@ def session_scope():
     finally:
         session.close()
 
-
-# 功能：根据所有已注册 ORM 模型在数据库中创建对应的表（不存在时创建，已存在时跳过）；输入与输出详见下方说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Base.metadata.create_all`、`get_engine`、`logger.info`。
-# 副作用/注意事项：会向日志系统输出运行或异常信息。
 def create_all_tables():
     """
     根据所有已注册 ORM 模型在数据库中创建对应的表（不存在时创建，已存在时跳过）。
@@ -187,14 +137,6 @@ def create_all_tables():
     logger.info("[DB] 数据库表已创建/验证")
 
 
-# 功能：Additive-only Schema 修补 — 补齐旧库中缺失的列，不删除或修改已有列；输入与输出详见下方说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::start` 调用本符号
-#   - 内部调用：`get_engine`、`Base.metadata.create_all`、`inspect`、`engine.begin`、`set`、`inspector.get_table_names`、`inspector.get_columns`、`str`、`CreateColumn(column).compile`、`CreateColumn`
-#          等共 14 个调用。
-# 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
 def ensure_schema_compatible():
     """
     Additive-only Schema 修补 — 补齐旧库中缺失的列，不删除或修改已有列。
@@ -214,31 +156,32 @@ def ensure_schema_compatible():
         仅做 additive 修补，不处理列类型变更、列删除、索引变更等场景。
         生产环境若有破坏性变更，需手动执行迁移脚本。
     """
-    # 强制 import，确保所有 ORM 类注册进 Base.metadata
+    # 强制 import，确保所有 ORM 类注册进 Base.metadata（这些import其实没有使用，目的是为了注册ORM模型到Base.metadata）
+    # noqa: F401: 这个import 没有直接使用不要警告
     from AiVision.features import all_specs  # noqa: F401
     from AiVision.core import system_config as _system_config_orm       # noqa: F401
     from AiVision.platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
     from AiVision.platform.camera import orm as _camera_orm              # noqa: F401
-    from AiVision.platform.department import orm as _department_orm       # noqa: F401
-    from AiVision.platform.inference import orm as _inference_orm        # noqa: F401
     from AiVision.platform.logistics_channel import orm as _logistics_channel_orm  # noqa: F401
     from AiVision.platform.violation import orm as _violation_orm        # noqa: F401
 
+    # 先创建完全不存在的新表
     engine = get_engine()
     Base.metadata.create_all(bind=engine)  # 创建全新表，已存在的表跳过
-
+    # 创建一个数据库结构检查器
     inspector = inspect(engine)
     patched = 0  # 本次新增的列数，用于最终日志汇报
 
     with engine.begin() as conn:  # engine.begin() 自动管理事务，异常时回滚
+        # 获取现有表
         existing_tables = set(inspector.get_table_names())
-
+        # 遍历所有ORM表（将代码里的表结构和数据库真实表结构进行比较）
         for table in Base.metadata.sorted_tables:
             if table.name not in existing_tables:
                 continue  # 新表已由 create_all() 创建，跳过
-
+            # 获取数据库现有列
             existing_columns = {col["name"] for col in inspector.get_columns(table.name)}
-
+            # 已存在直接跳过（绝不修改现有字段）
             for column in table.columns:
                 if column.name in existing_columns:
                     continue  # 列已存在，跳过
@@ -257,23 +200,17 @@ def ensure_schema_compatible():
                         ),
                         {"default": default_value},
                     )
+                # 以上：1、新代码新增ORM字段，旧数据库没有，自动自动 ALTER TABLE ADD COLUMN，如果有简单默认值给历史数据回填
 
                 patched += 1
-                logger.info(f"[DB] 已补齐字段 {table.name}.{column.name}")
-
+                logger.info(f"[DB] 已补齐字段 {table.name}.{column.name}")   # 统计本次启动一共补了多少列
+    # Schema检查日志
     if patched:
         logger.info(f"[DB] Schema 兼容修补完成，新增 {patched} 个字段")
     else:
         logger.info("[DB] Schema 兼容检查通过，无需补字段")
 
 
-# 功能：当 settings.db.auto_create 为 True 时，若目标数据库不存在则自动创建；输入与输出详见下方说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：`AiVision/core/db.py` 的 `get_engine` 调用本符号
-#   - 内部调用：`create_engine`、`temp_engine.connect`、`conn.execute`、`text`、`result.fetchone`、`conn.commit`、`logger.info`、`temp_engine.dispose`。
-# 副作用/注意事项：可能读取或修改数据库事务；会向日志系统输出运行或异常信息。
 def _ensure_database_exists():
     """
     当 settings.db.auto_create 为 True 时，若目标数据库不存在则自动创建。
@@ -283,33 +220,38 @@ def _ensure_database_exists():
         避免因库不存在导致 SQLAlchemy 引擎初始化失败。
         临时引擎用完后立即 dispose()，不复用全局 _engine。
     """
+    database_name = settings.db.name
+    charset = settings.db.charset
+    if not isinstance(database_name, str) or _DATABASE_NAME_PATTERN.fullmatch(database_name) is None:
+        raise ValueError("MYSQL_DB_NAME 只能包含字母、数字和下划线，且长度必须为 1 到 64 个字符")
+    collation = _DATABASE_CHARSET_COLLATIONS.get(charset)
+    if collation is None:
+        raise ValueError(f"不支持的 MYSQL_DB_CHARSET: {charset!r}；当前仅支持 utf8mb4")
+
     # 构造不含库名的 server-level 连接 URL
     server_url = (
         f"mysql+pymysql://{settings.db.user}:{settings.db.password}"
-        f"@{settings.db.url}:{settings.db.port}?charset={settings.db.charset}"
+        f"@{settings.db.url}:{settings.db.port}?charset={charset}"
     )
+    # 临时engine
     temp_engine = create_engine(server_url, echo=False)
     try:
+        # 检查数据库是否存在，不存在就创建
         with temp_engine.connect() as conn:
-            result = conn.execute(text(f"SHOW DATABASES LIKE '{settings.db.name}'"))
+            result = conn.execute(
+                text("SHOW DATABASES LIKE :database_name"),
+                {"database_name": database_name},
+            )
             if result.fetchone() is None:
                 conn.execute(text(
-                    f"CREATE DATABASE {settings.db.name} "
-                    f"CHARACTER SET {settings.db.charset} COLLATE utf8mb4_unicode_ci"
+                    f"CREATE DATABASE `{database_name}` "
+                    f"CHARACTER SET {charset} COLLATE {collation}"
                 ))
                 conn.commit()
-                logger.info(f"[DB] 自动创建数据库: {settings.db.name}")
+                logger.info(f"[DB] 自动创建数据库: {database_name}")
     finally:
         temp_engine.dispose()  # 释放临时连接，不污染全局连接池
 
-
-# 功能：优雅关闭全局数据库连接池；输入与输出详见下方说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_engine.dispose`、`logger.info`。
-# 副作用/注意事项：会修改全局或闭包状态；会向日志系统输出运行或异常信息。
 def dispose():
     """
     优雅关闭全局数据库连接池。
@@ -320,7 +262,7 @@ def dispose():
     """
     global _engine, _session_factory
     if _engine is not None:
-        _engine.dispose()
+        _engine.dispose()            # 当前 Engine 的连接池不要再继续用了，释放其中的连接资源。
         _engine = None
         _session_factory = None
         logger.info("[DB] 数据库连接池已释放")

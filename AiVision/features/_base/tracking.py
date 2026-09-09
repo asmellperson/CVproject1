@@ -4,10 +4,7 @@
 """
 features/_base/tracking.py
 通用 IOU 多目标跟踪器 — 消除 detect_face / detect_human 里完全相同的 Track / Tracker 重复实现。
-
-旧代码: face 和 human 各有一套 FaceTrack/FaceTracker、HumanTrack/HumanTracker,
-        除了类名什么都一样。
-新代码: 一份 IouTracker 通用实现,两个 feature 直接复用。
+一份 IouTracker 通用实现,两个 feature 直接复用。
 """
 from __future__ import annotations
 import time

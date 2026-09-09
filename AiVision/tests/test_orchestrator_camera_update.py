@@ -388,6 +388,24 @@ def test_camera_remove_refreshes_logistics_runtime_before_removal(monkeypatch):
     assert calls == [("refresh", 3), ("remove", "3_mq7r35ho")]
 
 
+def test_camera_remove_cleans_consumers_even_when_logistics_refresh_fails():
+    orchestrator = _orchestrator_without_init()
+    calls = []
+    orchestrator.consumers = {
+        "phone": SimpleNamespace(remove_camera=lambda camera_id, key: calls.append(("consumer", camera_id, key))),
+    }
+
+    def fail_refresh(_id):
+        raise RuntimeError("synthetic logistics failure")
+
+    orchestrator.logistics_channel_runtime.refresh_camera_all = fail_refresh
+    orchestrator.camera_runtime_manager = SimpleNamespace(remove_camera_config=lambda key: calls.append(("runtime", key)))
+    orchestrator._handle_runtime_config_change(ConfigChangeEvent(
+        change_type="camera_removed", camera_id=7, camera_name="deleted",
+    ))
+    assert calls == [("consumer", 7, "deleted"), ("runtime", "deleted")]
+
+
 # 功能：验证 `test_prefixed_logistics_feature_event_reaches_exact_consumer` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
@@ -752,9 +770,7 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
         raise RuntimeError("巡检线程停止超时")
 
     orchestrator.logistics_channel_runtime = SimpleNamespace(stop=fail_logistics_stop)
-    orchestrator._horn_dict = {
-        1: SimpleNamespace(stop_heartbeat=lambda: calls.append("horn"))
-    }
+    orchestrator.horn_runtime_manager = SimpleNamespace(stop=lambda: calls.append("horn"))
     orchestrator.camera_runtime_manager = SimpleNamespace(stop_all=lambda: calls.append("camera"))
     monkeypatch.setattr(
         orchestrator_module.inference_runtime_manager,
@@ -786,7 +802,6 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
         "db",
     ]
     assert orchestrator.consumers == {}
-    assert orchestrator._horn_dict == {}
     assert orchestrator._started is False
     assert "停止物流通道运行时失败，将继续清理其余资源" in caplog.text
     assert "巡检线程停止超时" in caplog.text

@@ -96,7 +96,7 @@ class BaseFunctionConsumer(ABC):
         spec: FeatureSpec,
         infer_dict: dict,                          # {model_name: Queue}，推理调度入口
         result_queue,                               # 本 feature 接收推理结果的队列
-        latest_frames: dict[str, np.ndarray],      # 由 CameraRuntimeManager 维护的最新帧字典
+        latest_frames: dict[str, np.ndarray],      # 由 FrameReaderRegistry 维护的最新帧字典
         is_camera_active,                           # callable(shm_name) -> bool，查询摄像头是否在线
         runtime_alert_handler: Callable[[str, str, str, str], None] | None = None,
     ):
@@ -115,6 +115,7 @@ class BaseFunctionConsumer(ABC):
         self._inference_last_status: dict[tuple[str, int], dict] = {}
         self._inference_last_alert_at: dict[tuple[str, int], float] = {}
         self._inference_status_lock = threading.Lock()
+        self._camera_state_lock = threading.RLock()
 
         # ---- 配置与帧缓存（以 camera_id 为索引）----
         self.config_cache: dict[int, dict] = {}        # 运行时功能配置快照
@@ -198,9 +199,10 @@ class BaseFunctionConsumer(ABC):
 
         仅加载 enable=True 的配置；未启用的摄像头不进入主循环。
         """
-        for (camera_id, fname), cfg in config_cache.get_all_function_configs().items():
-            if fname == self.feature_name and cfg.get("enable"):
-                self.config_cache[camera_id] = cfg
+        with self._camera_state_lock:
+            for (camera_id, fname), cfg in config_cache.get_all_function_configs().items():
+                if fname == self.feature_name and cfg.get("enable"):
+                    self.config_cache[camera_id] = cfg
 
     # ------------------------------------------------------------------ #
     #  配置变更回调（由 Orchestrator 路由事件触发）                          #
@@ -222,18 +224,19 @@ class BaseFunctionConsumer(ABC):
         同时清除 ROI 相关缓存，确保下一帧使用新配置重建掩码，
         避免旧 ROI 与新配置不匹配导致错误检测。
         """
-        cfg = config_cache.get_function_config(camera_id, self.feature_name)
-        if cfg and cfg.get("enable"):
-            self.config_cache[camera_id] = cfg
-            alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
-        else:
-            # 未绑定该功能的摄像头不能因参数热更新重新进入 Consumer 主循环。
-            self.update_status(camera_id, False)
-        # 清除 ROI 缓存，下轮迭代时按新配置重建
-        self._masks.pop(camera_id, None)
-        self._masks_roi_input.pop(camera_id, None)
-        self._masks_frame_shape.pop(camera_id, None)
-        self._roi_polygon_cache.pop(camera_id, None)
+        with self._camera_state_lock:
+            cfg = config_cache.get_function_config(camera_id, self.feature_name)
+            if cfg and cfg.get("enable"):
+                self.config_cache[camera_id] = cfg
+                alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
+            else:
+                # 未绑定该功能的摄像头不能因参数热更新重新进入 Consumer 主循环。
+                self.update_status(camera_id, False)
+            # 清除 ROI 缓存，下轮迭代时按新配置重建
+            self._masks.pop(camera_id, None)
+            self._masks_roi_input.pop(camera_id, None)
+            self._masks_frame_shape.pop(camera_id, None)
+            self._roi_polygon_cache.pop(camera_id, None)
 
     # 功能：响应摄像头功能启用/禁用事件；输入与输出详见下方说明
     # 参数：
@@ -253,19 +256,48 @@ class BaseFunctionConsumer(ABC):
         启用时：从缓存拉取最新配置加入监控列表。
         禁用时：从监控列表移除，并清理输出帧字典，避免 API 继续返回过期画面。
         """
-        cfg = (
-            config_cache.get_function_config(camera_id, self.feature_name)
-            if enabled
-            else None
-        )
-        if enabled and cfg and cfg.get("enable"):
-            self.config_cache[camera_id] = cfg
-        else:
-            cached_cfg = self.config_cache.pop(camera_id, None)
-            cam_name = (cached_cfg or cfg or {}).get("shm_name")
-            if cam_name:
-                self.result_dict.pop(cam_name, None)
-                self.result_updated_at.pop(cam_name, None)
+        with self._camera_state_lock:
+            cfg = (
+                config_cache.get_function_config(camera_id, self.feature_name)
+                if enabled
+                else None
+            )
+            if enabled and cfg and cfg.get("enable"):
+                self.config_cache[camera_id] = cfg
+            else:
+                cached_cfg = self.config_cache.pop(camera_id, None)
+                cam_name = (cached_cfg or cfg or {}).get("shm_name")
+                if cam_name:
+                    self.result_dict.pop(cam_name, None)
+                    self.result_updated_at.pop(cam_name, None)
+
+    def remove_camera(self, camera_id: int, shm_name: str | None = None):
+        """等待当前帧处理结束，再清除该摄像头持有的全部状态。"""
+        with self._camera_state_lock:
+            cfg = self.config_cache.get(camera_id) or {}
+            camera_key = cfg.get("shm_name") or shm_name
+            self.update_status(camera_id, False)
+            self._clear_camera_state(camera_id, camera_key)
+            alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
+
+    def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        for cache in (
+            self.frame_cache, self._roi_polygon_cache, self._masks,
+            self._masks_roi_input, self._masks_frame_shape, self.pre_roi,
+            self.blur_roi, self.frame_change_samples, self._pending_results,
+            self._expected_roi_count, self._pending_timestamps, self._last_process_at,
+        ):
+            cache.pop(camera_id, None)
+        if shm_name:
+            self.result_dict.pop(shm_name, None)
+            self.result_updated_at.pop(shm_name, None)
+        with self._inference_status_lock:
+            for cache in (
+                self._inference_outcome_counts_by_target, self._inference_consecutive_failures,
+                self._inference_last_status, self._inference_last_alert_at,
+            ):
+                for key in [key for key in cache if key[1] == camera_id]:
+                    cache.pop(key, None)
 
     # ------------------------------------------------------------------ #
     #  主循环                                                               #
@@ -297,39 +329,40 @@ class BaseFunctionConsumer(ABC):
                 self._collect_async_results()
 
                 for cam_id in list(self.config_cache.keys()):
-                    cam_name = self.config_cache[cam_id].get("shm_name")
-                    if not cam_name or not self.is_camera_active(cam_name):
-                        continue
+                    with self._camera_state_lock:
+                        cfg = self.config_cache.get(cam_id, {})
+                        cam_name = cfg.get("shm_name")
+                        if not cam_name or not self.is_camera_active(cam_name):
+                            continue
 
-                    frame = self.latest_frames.get(cam_name)
-                    if frame is None:
-                        continue
+                        frame = self.latest_frames.get(cam_name)
+                        if frame is None:
+                            continue
 
-                    cfg = self.config_cache.get(cam_id, {})
-                    if not self._should_process_now(cam_id, cfg):
-                        continue
+                        if not self._should_process_now(cam_id, cfg):
+                            continue
 
-                    self.frame_cache[cam_id] = frame  # 缓存供告警截图使用
+                        self.frame_cache[cam_id] = frame  # 缓存供告警截图使用
 
-                    roi_list = self._get_roi(cam_id, frame)
-                    frame_changed = self._frame_changed(cam_id, roi_list)
-                    now = time.time()
-                    cap_interval = float(self._value_config(cfg).get("cap_interval", 0.1) or 0.1)
-                    due_by_interval = now - self._last_process_at.get(cam_id, 0.0) >= cap_interval
+                        roi_list = self._get_roi(cam_id, frame)
+                        frame_changed = self._frame_changed(cam_id, roi_list)
+                        now = time.time()
+                        cap_interval = float(self._value_config(cfg).get("cap_interval", 0.1) or 0.1)
+                        due_by_interval = now - self._last_process_at.get(cam_id, 0.0) >= cap_interval
 
-                    # 跳帧：画面无变化 且 不需要处理静止帧（或未到采集间隔）
-                    if not frame_changed and not (
-                        self._process_static_frames(camera_id=cam_id, cfg=cfg) and due_by_interval
-                    ):
-                        continue
+                        # 跳帧：画面无变化 且 不需要处理静止帧（或未到采集间隔）
+                        if not frame_changed and not (
+                            self._process_static_frames(camera_id=cam_id, cfg=cfg) and due_by_interval
+                        ):
+                            continue
 
-                    result = self._process(roi_list, cam_id)
-                    self._last_process_at[cam_id] = now
-                    annotated = self.post_process(cam_id, result)
-                    self.result_dict[cam_name] = annotated
-                    self.result_updated_at[cam_name] = time.time()
+                        result = self._process(roi_list, cam_id)
+                        self._last_process_at[cam_id] = now
+                        annotated = self.post_process(cam_id, result)
+                        self.result_dict[cam_name] = annotated
+                        self.result_updated_at[cam_name] = time.time()
 
-                    self._handle_alarm(cam_id, result, annotated)
+                        self._handle_alarm(cam_id, result, annotated)
 
                 time.sleep(0.05)
             except Exception:
@@ -578,6 +611,13 @@ class BaseFunctionConsumer(ABC):
 
         cam_key = cfg.get("shm_name", "")
         cam_name = cfg.get("name") or cam_key
+        department = cfg.get("department")
+        if not department and len(self.spec.departments) == 1:
+            # 摄像头未限制部门时，使用当前 Feature 明确声明的唯一归属，不按告警编号推导。
+            department = self.spec.departments[0]
+        if not department or department not in self.spec.departments:
+            logger.error(f"[{self.feature_name}] 无法确定告警归属，跳过告警 camera_id={camera_id} department={department!r}")
+            return
 
         # 将 ORM 扁平字段重组为 AlarmDispatcher 期望的嵌套结构
         alarm_config = {
@@ -608,7 +648,7 @@ class BaseFunctionConsumer(ABC):
                 violation_type=self.spec.violation_type,
                 alarm_config=alarm_config,
                 camera_key=cam_key,
-                department=cfg.get("department") or "",
+                department=department,
             ),
             alarm_interval=cfg.get("alarm_interval", 5.0),
         )

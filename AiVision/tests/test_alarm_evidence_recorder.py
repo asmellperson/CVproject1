@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 import cv2
@@ -98,6 +99,7 @@ def test_recorder_keeps_pre_and_post_alarm_frames(tmp_path):
     finally:
         capture.release()
     assert frame_count >= 4
+    recorder.stop()
 
 
 # 功能：验证 `test_recorder_throttles_samples_and_discards_expired_prebuffer` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -125,3 +127,115 @@ def test_recorder_throttles_samples_and_discards_expired_prebuffer(tmp_path):
     buffered = recorder._buffers["camera-1"]
     assert len(buffered) == 1
     assert buffered[0][0] == 3.0
+
+
+def test_video_workers_and_total_tasks_are_bounded(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 3)
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_workers", 2)
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0)
+    release = threading.Event()
+    both_started = threading.Event()
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+    completed = []
+
+    def slow_write(task):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active == 2:
+                both_started.set()
+        assert release.wait(3)
+        with lock:
+            active -= 1
+            completed.append(task.video_path)
+
+    monkeypatch.setattr(recorder, "_finish_task", slow_write)
+    try:
+        paths = [recorder.start_alarm("camera-1", _frame(1)) for _ in range(3)]
+        assert all(paths)
+        assert both_started.wait(3)
+        for _ in range(50):
+            assert recorder.start_alarm("camera-1", _frame(1)) is None
+        assert len(recorder._writer_threads) == 2
+        assert recorder._write_queue.qsize() == 1
+    finally:
+        release.set()
+        recorder.stop()
+    assert sorted(completed) == sorted(paths)
+    assert peak == 2
+    assert not recorder._writer_threads
+    assert recorder._write_queue.unfinished_tasks == 0
+
+
+def test_pending_post_frames_share_capacity_and_stop_drains_them(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 2)
+    completed = []
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=10)
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: completed.append(task.video_path))
+    paths = [recorder.start_alarm("camera-1", _frame(1)) for _ in range(2)]
+    assert all(paths)
+    assert recorder.start_alarm("camera-2", _frame(2)) is None
+    recorder.stop()
+    assert sorted(completed) == sorted(paths)
+    assert not recorder._tasks
+    assert not recorder._buffers
+    assert recorder.start_alarm("camera-1", _frame(1)) is None
+    assert recorder.record_frame("camera-1", _frame(1)) is False
+    recorder.start(lambda: {})
+    assert recorder.start_alarm("camera-1", _frame(1)) is not None
+    recorder.stop()
+    assert len(completed) == 3
+
+
+def test_default_clip_preserves_ten_seconds_either_side_fps_and_width(tmp_path, monkeypatch):
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True)
+    assert (recorder.pre_seconds, recorder.post_seconds, recorder.fps, recorder.max_width) == (10, 10, 5, 960)
+    completed = []
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: completed.append(task))
+    frame = np.zeros((200, 1280, 3), dtype=np.uint8)
+    for tick in range(51):
+        recorder.record_frame("camera-1", frame, tick * 0.201)
+    recorder.start_alarm("camera-1", timestamp=50 * 0.201)
+    for tick in range(51, 101):
+        recorder.record_frame("camera-1", frame, tick * 0.201)
+    recorder.stop()
+    assert len(completed) == 1
+    assert len(completed[0].frames) == 100
+    assert recorder._decode_frame(completed[0].frames[0]).shape == (150, 960, 3)
+
+
+def test_failed_clip_releases_slot_and_reports_status(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
+    statuses = []
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0, status_callback=lambda *args: statuses.append(args))
+    first = recorder.start_alarm("empty-1")
+    recorder._write_queue.join()
+    second = recorder.start_alarm("empty-2")
+    recorder.stop()
+    assert first and second
+    assert statuses == [(first, "failed"), (second, "failed")]
+
+
+def test_unexpected_encoding_error_keeps_worker_alive(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
+    statuses = []
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0, status_callback=lambda *args: statuses.append(args))
+
+    def broken_encoder(task):
+        raise RuntimeError("encoder failure")
+
+    monkeypatch.setattr(recorder, "_finish_task", broken_encoder)
+    first = recorder.start_alarm("camera-1", _frame(1))
+    recorder._write_queue.join()
+    assert all(worker.is_alive() for worker in recorder._writer_threads)
+    second = recorder.start_alarm("camera-1", _frame(2))
+    recorder.stop()
+    assert first and second
+    assert statuses == [(first, "failed"), (second, "failed")]

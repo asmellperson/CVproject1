@@ -1,3 +1,4 @@
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -38,7 +39,6 @@ import {
   DetectionConfigCardContent,
   DetectionConfigCardHeader,
   DetectionConfigTab,
-  DetectionConfigTabsList,
 } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { DetectionRuntimeControl } from '@/components/detection/DetectionRuntimeControl'
@@ -834,11 +834,12 @@ export function SecurityVlmSection({
         </TabsContent>
 
         <TabsContent value="config" className="space-y-6">
-          <Tabs value={configTab} onValueChange={setConfigTab} className="space-y-6">
-            <DetectionConfigTabsList className="sm:grid-cols-2 lg:grid-cols-2">
+          <DetectionConfigTabs value={configTab} onValueChange={setConfigTab} className="space-y-6" tabListClassName="sm:grid-cols-3 lg:grid-cols-3"
+            tabs={<>
               <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
               <DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
-            </DetectionConfigTabsList>
+            </>}
+          >
 
             <TabsContent value="camera" className="space-y-6">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
@@ -997,7 +998,7 @@ export function SecurityVlmSection({
             </DetectionConfigCardContent>
           </Card>
             </TabsContent>
-          </Tabs>
+          </DetectionConfigTabs>
         </TabsContent>
       </Tabs>
       {cameraDialogOpen && (

@@ -1,11 +1,15 @@
 # 文件说明：包含企业微信通知的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
+import logging
+import threading
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
+from AiVision.core.alarm import wechat as wechat_module
 from AiVision.core.alarm.wechat import WeChatNotifier, _EVENT_DISPLAY
 
 
@@ -27,8 +31,9 @@ class FakeResponse:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：会更新当前实例的运行状态。
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     # 功能：实现 `json` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -73,15 +78,15 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
         lambda *args, **kwargs: posts.append(kwargs["json"]) or FakeResponse({"errcode": 0}),
     )
 
-    notifier.send(
+    sent = notifier.send(
         feature_name="blocks",
         camera_name="后大门",
-        image_jpeg_bytes=b"unused-for-news",
         recipients="zhangsan",
         image_url="https://aicv.fudar.com/api/alarms/42/image",
         detail_url="https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42",
     )
 
+    assert sent is True
     assert len(posts) == 1
     payload = posts[0]
     assert payload["msgtype"] == "news"
@@ -92,6 +97,170 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     assert article["description"] == "后大门"
     assert article["url"] == "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42"
     assert article["picurl"] == "https://aicv.fudar.com/api/alarms/42/image"
+
+
+def test_wechat_alarm_skips_when_card_urls_are_missing(monkeypatch, caplog):
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(
+        notifier,
+        "_get_token",
+        lambda: pytest.fail("missing card URLs should skip before requesting a token"),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        sent = notifier.send(
+            feature_name="blocks",
+            camera_name="后大门",
+            recipients="zhangsan",
+            image_url="",
+            detail_url="",
+        )
+
+    assert sent is False
+    assert "image_url, detail_url" in caplog.text
+
+
+def test_wechat_alarm_reports_news_send_failure(monkeypatch, caplog):
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(notifier, "_get_token", lambda: "token")
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "post",
+        lambda *_args, **_kwargs: FakeResponse({}, status_code=500),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        sent = notifier.send(
+            feature_name="blocks",
+            camera_name="后大门",
+            recipients="zhangsan",
+            image_url="https://aicv.fudar.com/api/alarms/42/image",
+            detail_url="https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42",
+        )
+
+    assert sent is False
+    assert "发送图文 HTTP 失败" in caplog.text
+
+
+def test_wechat_send_text_remains_available_for_system_notifications(monkeypatch):
+    posts = []
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(notifier, "_get_token", lambda: "token")
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "post",
+        lambda *_args, **kwargs: posts.append(kwargs["json"]) or FakeResponse({"errcode": 0}),
+    )
+
+    notifier.send_text("系统异常", "zhangsan")
+
+    assert len(posts) == 1
+    assert posts[0]["msgtype"] == "markdown"
+    assert posts[0]["markdown"]["content"] == "系统异常"
+
+
+def test_wechat_token_cache_uses_expiry_and_refresh_margin(monkeypatch):
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    now = [100.0]
+    responses = iter(
+        (
+            FakeResponse({"errcode": 0, "access_token": "token-1", "expires_in": 7200}),
+            FakeResponse({"errcode": 0, "access_token": "token-2", "expires_in": 7200}),
+        )
+    )
+    calls = []
+    monkeypatch.setattr(wechat_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "get",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or next(responses),
+    )
+
+    assert notifier._get_token() == "token-1"
+    now[0] = 7239.0
+    assert notifier._get_token() == "token-1"
+    now[0] = 7240.0
+    assert notifier._get_token() == "token-2"
+    assert len(calls) == 2
+
+
+def test_wechat_token_cache_prevents_concurrent_refresh(monkeypatch):
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    request_started = threading.Event()
+    release_request = threading.Event()
+    calls = []
+    results = []
+
+    def fake_get(*_args, **_kwargs):
+        calls.append("gettoken")
+        request_started.set()
+        assert release_request.wait(timeout=1)
+        return FakeResponse({"errcode": 0, "access_token": "shared", "expires_in": 7200})
+
+    monkeypatch.setattr(wechat_module.requests, "get", fake_get)
+    first = threading.Thread(target=lambda: results.append(notifier._get_token()))
+    second = threading.Thread(target=lambda: results.append(notifier._get_token()))
+    first.start()
+    assert request_started.wait(timeout=1)
+    second.start()
+    release_request.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert calls == ["gettoken"]
+    assert results == ["shared", "shared"]
+
+
+def test_wechat_token_failures_have_distinct_logs(monkeypatch, caplog):
+    missing = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    missing.corp_id = ""
+    missing.corp_secret = ""
+    with caplog.at_level(logging.WARNING):
+        assert missing._get_token() is None
+    assert "凭据未配置" in caplog.text
+
+    caplog.clear()
+    network = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            wechat_module.requests.ConnectionError("offline")
+        ),
+    )
+    with caplog.at_level(logging.WARNING):
+        assert network._get_token() is None
+    assert "网络失败" in caplog.text
+
+    caplog.clear()
+    business = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "get",
+        lambda *_args, **_kwargs: FakeResponse({"errcode": 40013, "errmsg": "invalid corpid"}),
+    )
+    with caplog.at_level(logging.WARNING):
+        assert business._get_token() is None
+    assert "业务失败" in caplog.text
+
+
+def test_dispatcher_wechat_thread_lifecycle_is_idempotent():
+    dispatcher = AlarmDispatcher()
+    dispatcher.configure(None, None, None)
+    first_thread = dispatcher._wechat_thread
+
+    dispatcher.configure(None, None, None)
+    assert dispatcher._wechat_thread is first_thread
+    assert first_thread is not None and first_thread.is_alive()
+
+    dispatcher.stop()
+    assert not first_thread.is_alive()
+
+    dispatcher.configure(None, None, None)
+    second_thread = dispatcher._wechat_thread
+    assert second_thread is not None and second_thread is not first_thread
+    assert second_thread.is_alive()
+    dispatcher.stop()
 
 
 # 功能：定义 `FakeViolationWriter` 类，封装企业微信通知相关的状态、约束与操作
@@ -191,14 +360,14 @@ def test_dispatcher_saves_record_before_wechat_card():
     dispatcher = AlarmDispatcher()
     writer = FakeViolationWriter()
     wechat = FakeWeChat()
-    dispatcher.horn_dict = {}
+    dispatcher.horn_runtime_manager = None
     dispatcher.wechat = wechat
     dispatcher.violation_writer = writer
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
 
     dispatcher._execute(
         AlarmRequest(
-            feature_name="blocks",
+            feature_name="blocks", department='research_institute',
             camera_id=7,
             camera_name="后大门",
             frame=frame,
@@ -225,14 +394,14 @@ def test_dispatcher_saves_record_before_wechat_card():
 def test_dispatcher_persists_card_record_when_sql_is_disabled():
     dispatcher = AlarmDispatcher()
     writer = FakeViolationWriter()
-    dispatcher.horn_dict = {}
+    dispatcher.horn_runtime_manager = None
     dispatcher.wechat = FakeWeChat()
     dispatcher.violation_writer = writer
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
 
     dispatcher._execute(
         AlarmRequest(
-            feature_name="detect_human",
+            feature_name="detect_human", department='general_electric',
             camera_id=7,
             camera_name="后大门",
             frame=frame,
@@ -284,14 +453,14 @@ def test_dispatcher_builds_public_image_and_detail_urls(monkeypatch):
 def test_dispatcher_keeps_async_writer_when_wechat_disabled():
     dispatcher = AlarmDispatcher()
     writer = FakeViolationWriter()
-    dispatcher.horn_dict = {}
+    dispatcher.horn_runtime_manager = None
     dispatcher.wechat = FakeWeChat()
     dispatcher.violation_writer = writer
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
 
     dispatcher._execute(
         AlarmRequest(
-            feature_name="blocks",
+            feature_name="blocks", department='research_institute',
             camera_id=7,
             camera_name="后大门",
             frame=frame,

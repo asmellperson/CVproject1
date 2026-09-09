@@ -20,7 +20,7 @@ from AiVision.features import all_specs
 from AiVision.platform.camera.config_manager import camera_config_manager
 
 from .compositor import CameraTile, compose_channel_frame
-from .constants import LOGISTICS_FEATURE_DEPARTMENTS, LOGISTICS_FEATURES, require_logistics_feature
+from .constants import get_logistics_department, LOGISTICS_FEATURES, require_logistics_feature
 from .service import logistics_channel_service
 from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, classify_channel
 
@@ -191,7 +191,7 @@ class LogisticsChannelRuntime:
     # 返回：None；初始化当前实例，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`camera_config_manager.get_camera`、`str`、`float`、`datetime.now().astimezone`、`datetime.now`、`all_specs`、`Event`、`Lock`、`RLock`、`set`。
+    #   - 内部调用：`camera_config_manager.get_camera`、`float`、`datetime.now().astimezone`、`datetime.now`、`all_specs`、`Event`、`Lock`、`RLock`、`set`。
     # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
@@ -213,7 +213,7 @@ class LogisticsChannelRuntime:
         self._service = channel_service
         self._dispatcher = dispatcher
         self._camera_provider = camera_provider or (
-            lambda camera_id: camera_config_manager.get_camera(str(camera_id))
+            lambda camera_id: camera_config_manager.get_camera(camera_id)
         )
         self._is_camera_active = is_camera_active or (lambda _shm_name: True)
         self._frame_provider = frame_provider or (lambda _shm_name: None)
@@ -1216,10 +1216,10 @@ class LogisticsChannelRuntime:
             camera_id=channel.channel_id,
             camera_name=channel.name,
             frame=evidence,
-            violation_type=int(self._violation_type_provider(channel.feature_name)),
+            violation_type=self._violation_type_provider(channel.feature_name),
             alarm_config=alarm_config,
             camera_key=self._evidence_key(channel),
-            department=LOGISTICS_FEATURE_DEPARTMENTS[channel.feature_name],
+            department=get_logistics_department(channel.feature_name),
             subject_type="logistics_channel",
             subject_id=str(channel.channel_id),
             subject_name=channel.name,

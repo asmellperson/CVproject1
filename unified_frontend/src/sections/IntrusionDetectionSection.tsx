@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, SlidersHorizontal, Waypoints } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
-import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
+import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -148,6 +149,9 @@ export function IntrusionDetectionSection() {
   const [cameraLoading, setCameraLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cameraAction, setCameraAction] = useState(false)
+  const selectedCameraRef = useRef('')
+  const configRequestRef = useRef(0)
+  const loadedCameraRef = useRef('')
 
   const getCameraDisplayName = (shmName: string, fallback?: string, source: AiVisionCamera[] = cameras) => {
     const key = shmName.trim()
@@ -156,6 +160,10 @@ export function IntrusionDetectionSection() {
 
   const loadConfig = async (cameraName = form.cameraName, source: AiVisionCamera[] = cameras) => {
     const shmName = cameraName.trim()
+    const requestId = ++configRequestRef.current
+    loadedCameraRef.current = ''
+    selectedCameraRef.current = shmName
+    setBlocks(defaultBlocks)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -165,13 +173,16 @@ export function IntrusionDetectionSection() {
     setMessage('正在读取当前配置...')
     try {
       const payload = await requestBlocksConfig(shmName)
+      if (requestId !== configRequestRef.current) return
+      loadedCameraRef.current = shmName
       setBlocks(payload.blocks)
       setForm(toForm(payload))
       setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的区域入侵配置。`)
     } catch (error) {
+      if (requestId !== configRequestRef.current) return
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setLoading(false)
+      if (requestId === configRequestRef.current) setLoading(false)
     }
   }
 
@@ -180,7 +191,8 @@ export function IntrusionDetectionSection() {
     try {
       const items = await getAiVisionCameras()
       setCameras(items)
-      const enabledCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
+      const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
+      const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
         setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
@@ -264,6 +276,12 @@ export function IntrusionDetectionSection() {
       return
     }
 
+    if (loading || loadedCameraRef.current !== shmName) {
+      setMessage('保存失败：请先成功读取当前摄像头的配置。')
+      return
+    }
+    const requestId = configRequestRef.current
+
     let linePoints: number[][]
     try {
       linePoints = parseLinePoints(form.linePoints)
@@ -303,13 +321,17 @@ export function IntrusionDetectionSection() {
     setMessage('正在保存配置...')
     try {
       await requestBlocksConfig(shmName, nextBlocks)
+      if (requestId !== configRequestRef.current) return
       setMessage('保存成功，正在重新读取当前摄像头配置...')
       const reloaded = await requestBlocksConfig(shmName)
+      if (requestId !== configRequestRef.current) return
       setBlocks(reloaded.blocks)
       setForm(toForm(reloaded))
       const items = await refreshCameraList()
+      if (requestId !== configRequestRef.current) return
       setMessage(`保存成功：已重新读取并确认 ${getCameraDisplayName(reloaded.shm_name, reloaded.name, items)} 的区域入侵配置。`)
     } catch (error) {
+      if (requestId !== configRequestRef.current) return
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setSaving(false)
@@ -342,14 +364,15 @@ export function IntrusionDetectionSection() {
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
-          <Tabs defaultValue="camera" className="space-y-6">
-            <DetectionConfigTabsList>
+          <DetectionConfigTabs defaultValue="camera" className="space-y-6"
+            tabs={<>
               <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
               <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
               <DetectionConfigTab value="line" icon={Waypoints}>ROI 配置</DetectionConfigTab>
               <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
               <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
-            </DetectionConfigTabsList>
+            </>}
+          >
 
             <TabsContent value="camera" className="space-y-6">
               <FeatureCameraManager
@@ -488,7 +511,7 @@ export function IntrusionDetectionSection() {
                 onSave={saveConfig}
               />
             </TabsContent>
-          </Tabs>
+          </DetectionConfigTabs>
         </TabsContent>
       </Tabs>
     </div>

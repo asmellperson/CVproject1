@@ -14,6 +14,20 @@ FEATURE = "detect_logistics_single_person"
 OTHER_FEATURE = "detect_logistics_single_person_electronics_electrician"
 
 
+def test_default_camera_provider_preserves_numeric_primary_key(monkeypatch):
+    import AiVision.platform.logistics_channel.runtime as runtime_module
+
+    requested = []
+    monkeypatch.setattr(
+        runtime_module.camera_config_manager, "get_camera",
+        lambda key: requested.append(key) or {"camera_id": key, "shm_name": "warehouse"},
+    )
+    runtime = runtime_module.LogisticsChannelRuntime(start_background=False)
+    assert runtime._camera_provider(12)["camera_id"] == 12
+    assert requested == [12]
+    assert isinstance(requested[0], int)
+
+
 # 功能：定义 `FakeChannelService` 类，封装运行时相关的状态、约束与操作
 # 参数：
 #   - `channels`（未显式标注）：`channels` 对应的业务输入值

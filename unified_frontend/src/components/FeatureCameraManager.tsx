@@ -25,9 +25,13 @@ type FeatureCameraManagerProps = {
   department: string
   currentCameraName: string
   disabled?: boolean
+
   onSelectCamera: (shmName: string) => void
+
   onAddCamera: (shmName: string) => Promise<void>
+
   onRemoveCamera: (shmName: string) => Promise<void>
+
   onConfigCopied?: (targetShmName: string) => void | Promise<void>
 }
 

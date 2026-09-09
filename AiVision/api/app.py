@@ -1,76 +1,84 @@
-# 文件说明：定义应用装配的 HTTP 接口、依赖注入或应用装配。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 api/app.py
 FastAPI 实例、CORS、中间件和路由注册。
+    1、_send_api_exception_alert():API异常时发送企业微信
+    2、create_app():创建整个FastAPI应用
+        3、lifespan（）：FastAPI启动/关闭时管理视觉子服务
+        4、auth_middleware():所有/api/请求统一做登录认证
+        5、unhandled_exception_handler():全局未处理异常兜底
+        6、include_router/mount:注册普通API+挂载两个复杂视觉子应用
+    app = create_app():创建一个全局FastAPI实例
 """
 from __future__ import annotations
 
 import threading
-import time
-from contextlib import asynccontextmanager
-from AiVision.platform.visual_services import ManagedVisualServices
+import time                                                        # 获取当前时间戳，用来判断异常报警是否还在冷却期
+from contextlib import asynccontextmanager                         # 管理FastAPI的启动和关闭生命周期
+from AiVision.platform.visual_services import ManagedVisualServices # 复杂管理复杂视觉任务
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware                 # 跨域访问控制
+from fastapi.responses import JSONResponse                         # 手工构造JSON HTTP响应
 
-from auth.auth import AuthError, get_current_user_from_request
-from AiVision.api.alarms import public_router as public_alarms_router
-from AiVision.api.alarms import router as alarms_router
-from AiVision.api.cameras import router as cameras_router
+from auth.auth import AuthError, get_current_user_from_request     # 认证模块
+
+# 拿取每个API文件里的路由，最后统一注册到FastAPI
+from AiVision.api.alarms import public_router as public_alarms_router 
+from AiVision.api.alarms import router as alarms_router              # 正常需要认证的报警
+from AiVision.api.cameras import router as cameras_router            # 对外公开、不要求普通认证的报警资源
 from AiVision.api.departments import router as departments_router
 from AiVision.api.exception_alerts import router as exception_alerts_router
 from AiVision.api.features import router as features_router
 from AiVision.api.logistics_channels import router as logistics_channels_router
 from AiVision.api.models import router as models_router
+from AiVision.api.horns import router as horns_router
 from AiVision.api.runtime import router as runtime_router
-from AiVision.core.alarm.wechat import WeChatNotifier
-from AiVision.core.logger import logger
-from AiVision.core.settings import settings
-from AiVision.core.system_config import system_config_service
 
+from AiVision.core.alarm.wechat import WeChatNotifier               # 调用企业微信发送报警信息
+from AiVision.core.logger import logger                             # 项目统一日志对象
+from AiVision.core.settings import settings                         # 全局settings（.env、默认值、运行参数）
+from AiVision.core.system_config import system_config_service       # 系统业务配置（管理页面可以修改的运行期间业务配置）
+
+# API 报警冷却记录表
 _api_exception_alerts: dict[tuple[str, str], float] = {}
 
 
-# 功能：发送或分发 `_send_api_exception_alert` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path`（str）：目标路径
-#   - `detail`（str）：`detail` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：`AiVision/api/app.py` 的 `create_app::unhandled_exception_handler` 调用本符号
-#   - 内部调用：`system_config_service.get_exception_alert`、`alert.get`、`str(alert.get('wechat_user') or
-#          '').strip`、`str`、`time.time`、`_api_exception_alerts.get`、`float`、`threading.Thread(target=_send, daemon=True,
-#          name='api-exception-alert').start`、`threading.Thread`。
-# 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
 def _send_api_exception_alert(path: str, detail: str):
+    """
+    当某个API出现未处理异常时，判断要不要发企业微信报警，如果要发，就异步开线程发送
+    参数：
+        path:哪个API出错
+        detail: 具体异常信息
+    """
+    # 检查企业微信报警功能有没有打开
     if not settings.alarm.wechat_enable:
         return
+    # 获取异常报警的配置
     alert = system_config_service.get_exception_alert()
+    # 检查异常报警自己的开关
     if not alert.get("wechat_enable"):
         return
+    # 获取接收人（所以走三层验证，一层是微信报警的总开关，一层是异常报警自己的开关，最后是接收人有没有）
     recipients = str(alert.get("wechat_user") or "").strip()
     if not recipients:
         return
-
+    # 构造异常唯一标识
     key = (path, "API 未处理异常")
+    # 获取当前时间
     now = time.time()
+    # 查询上一次报警时间
     last = _api_exception_alerts.get(key, 0.0)
+    # 重复报警的冷却时间
     cooldown_seconds = float(alert["repeat_interval_minutes"]) * 60.0
+    # 判断是否再冷却期
     if now - last < cooldown_seconds:
         return
-    _api_exception_alerts[key] = now
+    _api_exception_alerts[key] = now                  # 在真正发送企业微信之前，就先记录当前时间
 
-    # 功能：发送或分发 `_send` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`WeChatNotifier().send_text`、`WeChatNotifier`、`time.strftime`、`logger.warning`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _send():
+        """
+        负责真正发送企业微信消息
+        """
         try:
             WeChatNotifier().send_text(
                 content=(
@@ -85,116 +93,104 @@ def _send_api_exception_alert(path: str, detail: str):
             )
         except Exception as exc:
             logger.warning(f"[API] 异常企微推送失败: {exc}")
-
+    # 创建后台线程去发送企业微信
     threading.Thread(target=_send, daemon=True, name="api-exception-alert").start()
 
 
-# 功能：创建或构建 `create_app` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `managed_visual_services`（ManagedVisualServices | None）：`managed_visual_services` 对应的业务输入值；默认值为 `None`
-# 返回：FastAPI；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`ManagedVisualServices`、`FastAPI`、`app.add_middleware`、`app.include_router`、`app.mount`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app(
     *,
     managed_visual_services: ManagedVisualServices | None = None,
 ) -> FastAPI:
-    visual_services = managed_visual_services or ManagedVisualServices(
+    visual_services = managed_visual_services or ManagedVisualServices(                           # 创建视觉服务管理器
         guard_room_config_path=settings.visual_services.guard_room_config_path,
         security_vlm_config_path=settings.visual_services.security_vlm_config_path,
     )
+    """
+    创建并组装整个AiVision FastAPI应用
+        Guard_Room/Security VLM生命周期
+        CORS
+        登录认证中间件
+        全局异常处理
+        所有API Router
+        两个复杂视觉子应用
+    """
 
-    # 功能：实现 `lifespan` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `app`（FastAPI）：`app` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`visual_services.lifespan`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.managed_visual_services = visual_services
+        """
+        FastAPI的生命周期管理器
+        """
+        app.state.managed_visual_services = visual_services          # app.state:FastAPI应用自己的一个“全局运行状态容器”
         async with visual_services.lifespan():
             yield
 
+    # 创建FastAPI
     app = FastAPI(
-        title="AiVision Backend",
+        title="AiVision Backend",                                 # 主要用于Swagger文档
         version="2.0.0",
         description="AiVision features-first refactored backend.",
-        lifespan=lifespan,
+        lifespan=lifespan,                                        # 告诉FastAPI：启动和关闭的时候，用刚才定义的生命周期函数
     )
 
+    # 给整个AiVision HTTP服务增加跨域访问规则
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.api.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=settings.api.cors_origins,        # 假设settings.api.cors_origins = ["http://localhost:xxxx"]，那么前端可以通过localhost:xxxx访问它              
+        allow_credentials=True,                         # 表示允许跨域请求携带Cookie认证信息
+        allow_methods=["*"],                            # 表示允许所有GET、POST、PUT、PATCH等等所有HTTP方法
+        allow_headers=["*"],                            # 允许前端携带各种Header
     )
 
-    # 功能：实现 `auth_middleware` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    #   - `call_next`（未显式标注）：`call_next` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`path.startswith`、`call_next`、`get_current_user_from_request`、`JSONResponse`、`str`、`app.middleware`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
+    # 定义认证中间件,所有HTTP请求都会先经过它
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
+        """
+        参数：
+            request:当前这一次的HTTP请求
+            call_next:继续往后走
+        """
         path = request.url.path
+        # 先列出公共接口
         public_paths = {"/api/runtime/health"}
+        # 三种请求直接放行：OPTIONS、path in public_paths(目前是/api/runtime/health)、所有的/api/public/xxx
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):
             try:
+                # 解析用户，将用户保存到这一次的Request的状态里，而各api下的各函数下的get_current_user负责从request.state.user里面把用户提供给具体函数
                 request.state.user = get_current_user_from_request(request)
+            # 认证失败
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
         return await call_next(request)
 
-    # 功能：实现 `unhandled_exception_handler` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    #   - `exc`（Exception）：`exc` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`logger.exception`、`_send_api_exception_alert`、`str`、`JSONResponse`、`app.exception_handler`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
+    # 定义全局异常处理器，捕获没有被其他代码处理掉的异常
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
         logger.exception(f"[API] 未处理异常: {request.method} {request.url.path}: {exc}")
+        # 调用_send_api_exception_alert()
         _send_api_exception_alert(request.url.path, str(exc))
+        # 返回HTTP 500
         return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
-    # 功能：实现 `root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    # 根路径接口，告诉访问者这个服务是什么
     @app.get("/")
     def root():
         return {"name": "AiVision", "version": "2.0.0", "docs": "/docs"}
 
+    # 注册所有普通API
     app.include_router(runtime_router)
     app.include_router(exception_alerts_router)
     app.include_router(cameras_router)
     app.include_router(features_router)
     app.include_router(models_router)
+    app.include_router(horns_router)
     app.include_router(alarms_router)
     app.include_router(public_alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)
 
-    # 两套视觉服务直接运行在 AiVision 进程中。这里是 ASGI 子应用挂载，
-    # 不发起 HTTP 请求，也不需要 Guard Room / Security VLM 独立端口。
+    # mount（）：把一个完整的ASGI应用挂进当前FastAPI
     app.mount(
         "/api/integrations/guard-room",
         visual_services.guard_room,

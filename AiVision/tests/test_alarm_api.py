@@ -63,7 +63,7 @@ def _channel_row(**overrides):
 #   - 内部调用：`alarms._event_dict`、`_channel_row`、`alarms.AlarmListResponse.model_validate`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_event_dict_and_response_schema_keep_channel_alarm_fields():
-    event = alarms._event_dict(_channel_row(), {})
+    event = alarms._event_dict(_channel_row())
     response = alarms.AlarmListResponse.model_validate({"items": [event]})
     item = response.items[0]
 
@@ -88,26 +88,31 @@ def test_event_dict_and_response_schema_keep_channel_alarm_fields():
     assert item.image_url == "/api/alarms/42/image"
 
 
-# 功能：验证 `test_event_dict_and_response_schema_keep_legacy_camera_fallbacks` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_event_dict_and_response_schema_use_camera_snapshot_fields` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`SimpleNamespace`、`alarms._event_dict`、`alarms.AlarmListResponse.model_validate`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_event_dict_and_response_schema_keep_legacy_camera_fallbacks():
+def test_event_dict_and_response_schema_use_camera_snapshot_fields():
     row = SimpleNamespace(
         id=7,
         violation_type=5,
+        feature_name="detect_human",
+        department="general_electric",
+        subject_type="camera",
+        subject_id="7",
+        subject_name="七号摄像头",
         camera_no="camera_7",
         create_time=None,
         image_path="/tmp/legacy.png",
     )
-    event = alarms._event_dict(row, {"camera_7": "七号摄像头"})
+    event = alarms._event_dict(row)
     item = alarms.AlarmListResponse.model_validate({"items": [event]}).items[0]
 
     assert item.subject_type == "camera"
-    assert item.subject_id == "camera_7"
+    assert item.subject_id == "7"
     assert item.subject_name == "七号摄像头"
     assert item.event_label == "人员违规逗留检测"
     assert item.camera_no == "camera_7"
@@ -133,7 +138,7 @@ def test_event_dict_strictly_validates_both_camera_id_lists():
         "offending_camera_ids": list(raw_ids),
     }
 
-    event = alarms._event_dict(_channel_row(event_metadata=metadata), {})
+    event = alarms._event_dict(_channel_row(event_metadata=metadata))
 
     assert event["camera_ids"] == [10, 11]
     assert event["offending_camera_ids"] == [10, 11]
@@ -154,42 +159,22 @@ def test_event_dict_skips_oversized_camera_ids_without_response_failure():
         "offending_camera_ids": list(raw_ids),
     })
 
-    event = alarms._event_dict(row, {})
+    event = alarms._event_dict(row)
     item = alarms.AlarmListResponse.model_validate({"items": [event]}).items[0]
 
     assert item.camera_ids == [upper_bound]
     assert item.offending_camera_ids == [upper_bound]
 
 
-@pytest.mark.parametrize(
-    ("legacy_type", "canonical_type", "event_type", "feature_name", "department"),
-    [
-        (7, 6, "detect_logistics_single_person", "detect_logistics_single_person_electronics_electrician", "electronics_electrician"),
-        (8, 6, "detect_logistics_single_person", "detect_logistics_single_person_electrical_components", "electrical_components"),
-        (9, 6, "detect_logistics_single_person", "detect_logistics_single_person_precious_metal_recycling", "precious_metal_recycling"),
-        (10, 5, "detect_human", "detect_human_haoda", "haoda_company"),
-    ],
-)
-def test_legacy_violation_types_are_normalized_without_losing_ownership(
-    legacy_type,
-    canonical_type,
-    event_type,
-    feature_name,
-    department,
-):
-    row = _channel_row(
-        violation_type=legacy_type,
-        feature_name=None,
-        department=None,
-        event_metadata={},
-    )
-
-    event = alarms._event_dict(row, {})
-
-    assert event["violation_type"] == canonical_type
-    assert event["event_type"] == event_type
-    assert event["feature_name"] == feature_name
-    assert event["department"] == department
+@pytest.mark.parametrize("unsupported_type", [7, 8, 9, 10])
+def test_queries_do_not_recover_missing_ownership_from_old_types(unsupported_type):
+    row = _channel_row(violation_type=unsupported_type, feature_name=None, department=None,
+        event_metadata={"feature_name": "detect_human_haoda", "department": "haoda_company"})
+    event = alarms._event_dict(row)
+    assert event["violation_type"] == unsupported_type
+    assert event["event_type"] == "unknown"
+    assert event["feature_name"] is None
+    assert event["department"] is None
 
 
 def test_alarm_event_orm_renaming_keeps_historical_table_mapping():
@@ -208,9 +193,9 @@ def test_alarm_statistics_uses_subject_contract_and_has_no_fake_week(monkeypatch
     rows = [
         _channel_row(
             id=1,
-            violation_type=7,
-            feature_name=None,
-            department=None,
+            violation_type=6,
+            feature_name="detect_logistics_single_person_electronics_electrician",
+            department="electronics_electrician",
             create_time=now,
         ),
         _channel_row(id=2, create_time=now),
@@ -234,7 +219,6 @@ def test_alarm_statistics_uses_subject_contract_and_has_no_fake_week(monkeypatch
             return None
 
     monkeypatch.setattr(alarms, "get_session", Session)
-    monkeypatch.setattr(alarms, "_camera_details", lambda _session: {})
 
     statistics = alarms.alarm_statistics(days=7)
 

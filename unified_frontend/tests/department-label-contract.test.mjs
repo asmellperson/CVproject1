@@ -24,14 +24,14 @@ const [sidebar, home, users, audit, intrusion, face, phone, human, haodaHuman, d
 ])
 
 test('uses the current materials institute name throughout active frontend views', () => {
-  for (const source of [sidebar, home, users, audit, intrusion, face, phone]) {
+  for (const source of [sidebar, intrusion, face, phone]) {
     assert.match(source, /福达新材院/)
     assert.doesNotMatch(source, /人工智能研究院/)
   }
 })
 
 test('uses the current Weida company name throughout active frontend views', () => {
-  for (const source of [sidebar, home, users, audit, securityVlm, logistics, nav]) {
+  for (const source of [sidebar, securityVlm, logistics, nav]) {
     assert.match(source, /伟达公司/)
     assert.doesNotMatch(source, /贵金属回收/)
   }
@@ -78,4 +78,14 @@ test('shows human dwell and door detection under their actual navigation owners'
   assert.match(door, /departmentLabel="公共能力"/)
   assert.doesNotMatch(human, /人工智能研究院|福达新材院/)
   assert.doesNotMatch(door, /人工智能研究院|福达新材院/)
+})
+
+
+test('department selection and labels use the shared API catalog', () => {
+  for (const source of [home, users, audit]) {
+    assert.match(source, /useDepartmentCatalog/)
+    assert.doesNotMatch(source, /const (?:departments|departmentOptions):.*?= \[/)
+    assert.doesNotMatch(source, /const departmentLabels:.*?= \{/)
+    assert.doesNotMatch(source, /value: 'research_institute', label:/)
+  }
 })

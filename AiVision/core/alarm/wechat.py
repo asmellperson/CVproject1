@@ -1,29 +1,32 @@
-# 文件说明：实现企业微信通知相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 core/alarm/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
-
-旧代码硬编码了 corpid 和 corpsecret,本次改为从环境变量读取。
+负责拿token、上传告警图片、组织消息、然后调用企业微信HTTP API发出去
+AlarmDispatcher._wechat_loop()把Opencv帧编码成JPEG，然后调用self.wechat.sent(),通过wechatnotifier获取access_token,发生图文卡片，或降级 文本 + 图片，然后经过企业微信服务器，最后用户手机收到消息
 对应环境变量(可选,未配置时仅日志告警):
     WECHAT_CORP_ID
     WECHAT_CORP_SECRET
     WECHAT_AGENT_ID
+
+流程：
+    __init__():保存企业微信凭据
+    _get_token():crop_id + secret 获取access_token
+    _upload_image():从PEG bytes得到media_id
+    _send_news_card():单条图文卡片
+    send(): AI业务报警：正常:news图文卡片，降级：Markdown + 图片
+    send_text():系统异常等纯文本通知
 """
 from __future__ import annotations
 import os
-from io import BytesIO
-from typing import Optional
+import threading
+import time
+from typing import Optional         # 类型标注
 
-import requests
+import requests                     # 调企业微信HTTP API
 
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-
-
-# 功能内部名称 → 推送消息中的中文展示名
-# 新增事件类型时在此表补充，无需改动发送逻辑
+# 程序内部Feature名称转换为告警名称
 _EVENT_DISPLAY = {
     "blocks":        "区域入侵",
     "detect_face":   "人脸逗留",
@@ -36,18 +39,8 @@ _EVENT_DISPLAY = {
     "detect_logistics_single_person_electrical_components": "物流通道单人异常（电气部件）",
     "detect_logistics_single_person_precious_metal_recycling": "物流通道单人异常（伟达公司）",
 }
+_TOKEN_REFRESH_MARGIN_SECONDS = 60
 
-
-# 功能：企业微信应用消息发送器；输入与输出详见下方说明
-# 参数：
-#   - `corp_id`（Optional[str]）：`corp_id` 对应业务对象的唯一标识；默认值为 `None`
-#   - `corp_secret`（Optional[str]）：`corp_secret` 对应的业务输入值；默认值为 `None`
-#   - `agent_id`（Optional[int]）：`agent_id` 对应业务对象的唯一标识；默认值为 `None`
-# 返回：WeChatNotifier；返回新建的 `WeChatNotifier` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class WeChatNotifier:
     """
     企业微信应用消息发送器。
@@ -64,22 +57,11 @@ class WeChatNotifier:
         不影响其他告警通道（喇叭、SQL）的正常执行。
     """
 
-    # 功能：初始化或配置 `__init__` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `corp_id`（Optional[str]）：`corp_id` 对应业务对象的唯一标识；默认值为 `None`
-    #   - `corp_secret`（Optional[str]）：`corp_secret` 对应的业务输入值；默认值为 `None`
-    #   - `agent_id`（Optional[int]）：`agent_id` 对应业务对象的唯一标识；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`os.environ.get`、`int`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
-        corp_id: Optional[str] = None,
-        corp_secret: Optional[str] = None,
-        agent_id: Optional[int] = None,
+        corp_id: Optional[str] = None,                 # 企业ID
+        corp_secret: Optional[str] = None,             # 权限
+        agent_id: Optional[int] = None,                # 企业微信应用
     ):
         # 凭据按优先级合并：构造参数 > settings > 环境变量 > 默认值
         self.corp_id = corp_id or settings.alarm.wechat_corp_id or os.environ.get("WECHAT_CORP_ID", "")
@@ -87,23 +69,15 @@ class WeChatNotifier:
         self.agent_id = int(agent_id or settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", 1000050))
 
         self._token: Optional[str] = None  # 预留字段，当前每次 send() 都重新获取
+        self._token_expires_at = 0.0
+        self._token_lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #
-
-    # 功能：向企业微信接口换取 access_token；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：Optional[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号；`AiVision/core/alarm/wechat.py` 的
-    #         `WeChatNotifier::send_text` 调用本符号
-    #   - 内部调用：`requests.get`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def _get_token(self) -> Optional[str]:
         """
-        向企业微信接口换取 access_token。
+        使用corp_id + corp_secret向企业微信接口换取 access_token。
 
         Returns:
             成功时返回 token 字符串；凭据未配置或接口报错时返回 None。
@@ -113,80 +87,65 @@ class WeChatNotifier:
             若并发量大或调用频繁，可在此处加入过期时间缓存以减少接口压力。
         """
         if not self.corp_id or not self.corp_secret:
+            logger.warning("[WeChat] 企业微信凭据未配置，缺少 corp_id 或 corp_secret")
             return None  # 凭据缺失，无法请求，提前返回
 
-        try:
-            resp = requests.get(
-                "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
-                params={"corpid": self.corp_id, "corpsecret": self.corp_secret},
-                timeout=10,
-            )
-            data = resp.json()
-            if data.get("errcode", 0) != 0:
-                # errcode 非 0 表示企业微信侧返回业务错误（如凭据错误、IP 未加白）
-                logger.warning(f"[WeChat] 获取 access_token 失败: {data}")
-                return None
-            self._token = data.get("access_token")
+        now = time.monotonic()
+        if self._token and now < self._token_expires_at:
             return self._token
-        except Exception as e:
-            logger.warning(f"[WeChat] 获取 access_token 失败: {e}")
-            return None
 
-    # 功能：将 JPEG 图片上传为企业微信临时素材，获取 media_id；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `token`（str）：用于认证或续接请求的令牌
-    #   - `image_bytes`（bytes）：`image_bytes` 对应的业务输入值
-    # 返回：Optional[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号
-    #   - 内部调用：`requests.post`、`BytesIO`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
-    def _upload_image(self, token: str, image_bytes: bytes) -> Optional[str]:
-        """
-        将 JPEG 图片上传为企业微信临时素材，获取 media_id。
-
-        临时素材在企业微信服务端保留 3 天，期间可用 media_id 发送图片消息。
-        上传失败时返回 None，send() 将跳过图片消息，仅发送文本告警。
-
-        Args:
-            token      : 有效的 access_token。
-            image_bytes: JPEG 格式的图片字节流（由调用方负责编码格式正确）。
-
-        Returns:
-            成功时返回 media_id 字符串；失败时返回 None。
-        """
-        try:
-            resp = requests.post(
-                "https://qyapi.weixin.qq.com/cgi-bin/media/upload",
-                params={"access_token": token, "type": "image"},
-                # 以 multipart/form-data 格式上传，文件名固定为 alarm.jpg
-                files={"media": ("alarm.jpg", BytesIO(image_bytes), "image/jpeg")},
-                timeout=30,  # 图片上传网络耗时较长，超时设为 30 秒
-            )
-            data = resp.json()
-            if data.get("errcode", 0) != 0:
-                logger.warning(f"[WeChat] 上传图片失败: {data}")
+        with self._token_lock:
+            now = time.monotonic()
+            if self._token and now < self._token_expires_at:
+                return self._token
+            try:
+                # 请求token
+                resp = requests.get(
+                    "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
+                    params={"corpid": self.corp_id, "corpsecret": self.corp_secret},
+                    timeout=10,
+                )
+            except requests.RequestException as exc:
+                logger.warning(f"[WeChat] 获取 access_token 网络失败: {exc}")
                 return None
-            return data.get("media_id")
-        except Exception as e:
-            logger.warning(f"[WeChat] 上传图片失败: {e}")
-            return None
+            except Exception as exc:
+                logger.warning(f"[WeChat] 获取 access_token 请求异常: {exc}")
+                return None
 
-    # 功能：发送单条企业微信图文消息，缩略图与详情页均使用平台 URL；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `token`（str）：用于认证或续接请求的令牌
-    #   - `recipients`（str）：`recipients` 对应的业务输入值
-    #   - `title`（str）：`title` 对应的业务输入值
-    #   - `description`（str）：`description` 对应的业务输入值
-    #   - `detail_url`（str）：`detail_url` 对应的业务输入值
-    #   - `image_url`（str）：`image_url` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::send` 调用本符号
-    #   - 内部调用：`requests.post`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
+            status_code = getattr(resp, "status_code", 200)
+            if not 200 <= status_code < 300:
+                logger.warning(f"[WeChat] 获取 access_token HTTP 失败: status={status_code}")
+                return None
+            try:
+                data = resp.json()
+            except (TypeError, ValueError) as exc:
+                logger.warning(f"[WeChat] 获取 access_token 响应解析失败: {exc}")
+                return None
+            # 企业微信返回的errcode不为0就认为业务失败
+            if not isinstance(data, dict) or data.get("errcode", 0) != 0:
+                errcode = data.get("errcode") if isinstance(data, dict) else None
+                errmsg = data.get("errmsg") if isinstance(data, dict) else None
+                logger.warning(
+                    f"[WeChat] 获取 access_token 业务失败: errcode={errcode} errmsg={errmsg}"
+                )
+                return None
+            token = data.get("access_token")
+            if not isinstance(token, str) or not token:
+                logger.warning("[WeChat] 获取 access_token 业务失败: 响应缺少 access_token")
+                return None
+            try:
+                expires_in = max(1, int(data.get("expires_in", 7200)))
+            except (TypeError, ValueError):
+                expires_in = 7200
+            refresh_margin = min(
+                _TOKEN_REFRESH_MARGIN_SECONDS,
+                max(1, expires_in // 10),
+            )
+            # 保存access_token到self._token
+            self._token = token
+            self._token_expires_at = time.monotonic() + max(1, expires_in - refresh_margin)
+            return self._token
+
     def _send_news_card(
         self,
         *,
@@ -196,15 +155,15 @@ class WeChatNotifier:
         description: str,
         detail_url: str,
         image_url: str,
-    ) -> None:
+    ) -> bool:
         """发送单条企业微信图文消息，缩略图与详情页均使用平台 URL。"""
         try:
             resp = requests.post(
                 "https://qyapi.weixin.qq.com/cgi-bin/message/send",
                 params={"access_token": token},
                 json={
-                    "touser": recipients,
-                    "msgtype": "news",
+                    "touser": recipients,           # 发给谁
+                    "msgtype": "news",              # 发送图片卡片消息
                     "agentid": self.agent_id,
                     "news": {
                         "articles": [
@@ -216,43 +175,40 @@ class WeChatNotifier:
                             }
                         ]
                     },
-                    "safe": 0,
+                    "safe": 0,                    # 按照普通消息处理
                 },
                 timeout=10,
             )
+            status_code = getattr(resp, "status_code", 200)
+            if not 200 <= status_code < 300:
+                logger.warning(f"[WeChat] 发送图文 HTTP 失败: status={status_code}")
+                return False
             data = resp.json()
             if data.get("errcode", 0) != 0:
-                logger.warning(f"[WeChat] 发送图文失败: {data}")
-        except Exception as e:
-            logger.warning(f"[WeChat] 发送图文失败: {e}")
+                logger.warning(
+                    f"[WeChat] 发送图文业务失败: errcode={data.get('errcode')} "
+                    f"errmsg={data.get('errmsg')}"
+                )
+                return False
+            return True
+        except requests.RequestException as exc:
+            logger.warning(f"[WeChat] 发送图文网络失败: {exc}")
+        except Exception as exc:
+            logger.warning(f"[WeChat] 发送图文失败: {exc}")
+        return False
 
     # ------------------------------------------------------------------ #
     #  核心入口                                                             #
     # ------------------------------------------------------------------ #
 
-    # 功能：向指定接收人发送告警通知；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    #   - `camera_name`（str）：`camera_name` 对应的业务输入值
-    #   - `image_jpeg_bytes`（bytes）：`image_jpeg_bytes` 对应的业务输入值
-    #   - `recipients`（str）：`recipients` 对应的业务输入值
-    #   - `image_url`（str）：`image_url` 对应的业务输入值；默认值为 `''`
-    #   - `detail_url`（str）：`detail_url` 对应的业务输入值；默认值为 `''`
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._get_token`、`logger.info`、`_EVENT_DISPLAY.get`、`self._send_news_card`、`self._upload_image`、`requests.post`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def send(
         self,
         feature_name: str,
         camera_name: str,
-        image_jpeg_bytes: bytes,
         recipients: str,
         image_url: str = "",
         detail_url: str = "",
-    ):
+    ) -> bool:
         """向指定接收人发送告警通知。
 
         发送策略:
@@ -268,89 +224,38 @@ class WeChatNotifier:
             detail_url      : 平台报警详情页 URL。
         """
         if not recipients:
-            return  # 无接收人，跳过
-
+            return False  # 无接收人，跳过
+        if not image_url or not detail_url:
+            missing = []
+            if not image_url:
+                missing.append("image_url")
+            if not detail_url:
+                missing.append("detail_url")
+            logger.warning(
+                f"[WeChat] AI 告警图文卡片缺少 {', '.join(missing)}，跳过推送: "
+                f"feature={feature_name} target={camera_name}"
+            )
+            return False
+        # 先向企业微信认证，拿到后面接口所需的access_token
         token = self._get_token()
         if token is None:
-            logger.info("[WeChat] 未配置企业微信凭据,跳过推送")
-            return
+            return False
 
         # 将内部功能名映射为用户友好的中文标签；未收录的名称原样展示
         event_label = _EVENT_DISPLAY.get(feature_name, feature_name)
+        # 告警截图和告警详情URL都有
+        return self._send_news_card(
+            token=token,
+            recipients=recipients,
+            title=f"{event_label}告警",
+            description=camera_name,
+            detail_url=detail_url,
+            image_url=image_url,
+        )
 
-        if image_url and detail_url:
-            self._send_news_card(
-                token=token,
-                recipients=recipients,
-                title=f"{event_label}告警",
-                description=camera_name,
-                detail_url=detail_url,
-                image_url=image_url,
-            )
-            return
-
-        # 上传图片（失败时 media_id 为 None，后续图片消息跳过）
-        media_id = self._upload_image(token, image_jpeg_bytes)
-
-        # ---- 消息 1: Markdown 文本告警 ----
-        try:
-            resp = requests.post(
-                "https://qyapi.weixin.qq.com/cgi-bin/message/send",
-                params={"access_token": token},
-                json={
-                    "touser":  recipients,
-                    "msgtype": "markdown",
-                    "agentid": self.agent_id,
-                    "markdown": {
-                        "content": (
-                            f"检测到异常行为!\n"
-                            f"**事件**: {event_label}\n"
-                            f"**摄像头**: {camera_name}\n"
-                        )
-                    },
-                    "safe": 0,  # 0: 普通消息；1: 保密消息（不可转发）
-                },
-                timeout=10,
-            )
-            data = resp.json()
-            if data.get("errcode", 0) != 0:
-                logger.warning(f"[WeChat] 发送文本失败: {data}")
-        except Exception as e:
-            logger.warning(f"[WeChat] 发送文本失败: {e}")
-
-        # ---- 消息 2: 图片消息（依赖上传成功）----
-        if media_id is not None:
-            try:
-                resp = requests.post(
-                    "https://qyapi.weixin.qq.com/cgi-bin/message/send",
-                    params={"access_token": token},
-                    json={
-                        "touser":  recipients,
-                        "msgtype": "image",
-                        "agentid": self.agent_id,
-                        "image":   {"media_id": media_id},
-                        "safe": 0,
-                    },
-                    timeout=10,
-                )
-                data = resp.json()
-                if data.get("errcode", 0) != 0:
-                    logger.warning(f"[WeChat] 发送图片失败: {data}")
-            except Exception as e:
-                logger.warning(f"[WeChat] 发送图片失败: {e}")
-
-    # 功能：发送纯 Markdown 文本消息,用于系统运行状态类通知；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `content`（str）：`content` 对应的业务输入值
-    #   - `recipients`（str）：`recipients` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/api/app.py` 的 `_send_api_exception_alert::_send` 调用本符号
-    #   - 内部调用：`self._get_token`、`logger.info`、`requests.post`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
     def send_text(self, content: str, recipients: str):
         """
+        系统级运行异常消息
         发送纯 Markdown 文本消息,用于系统运行状态类通知。
 
         Args:
@@ -362,7 +267,6 @@ class WeChatNotifier:
 
         token = self._get_token()
         if token is None:
-            logger.info("[WeChat] 未配置企业微信凭据,跳过推送")
             return
 
         try:
@@ -378,8 +282,15 @@ class WeChatNotifier:
                 },
                 timeout=10,
             )
+            status_code = getattr(resp, "status_code", 200)
+            if not 200 <= status_code < 300:
+                logger.warning(f"[WeChat] 发送系统文本 HTTP 失败: status={status_code}")
+                return
             data = resp.json()
             if data.get("errcode", 0) != 0:
-                logger.warning(f"[WeChat] 发送文本失败: {data}")
+                logger.warning(
+                    f"[WeChat] 发送系统文本业务失败: errcode={data.get('errcode')} "
+                    f"errmsg={data.get('errmsg')}"
+                )
         except Exception as e:
             logger.warning(f"[WeChat] 发送文本失败: {e}")

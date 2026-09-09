@@ -62,7 +62,26 @@ class FeatureSpec:
     """告警性质枚举,用于写入历史表 ai_violation_image.violation_type。"""
 
     departments: tuple[str, ...] = field(default_factory=tuple)
-    """默认归属部门列表。空 tuple 表示无默认部门(可由 DB 覆盖)"""
+    """功能归属的唯一来源；编码必须在部门注册表中。空 tuple 表示无归属部门。"""
+
+    def resolve_camera_department(self, department: str | None) -> str | None:
+        """新建并启用、启用已有摄像头时共用的部门规则；不修改摄像头。"""
+        # 一个功能可以有多个事业部
+        allowed_departments = tuple(self.departments)
+        requested_department = department
+        # 如果检测功能只属于一个部门，不填摄像头的部门也没关系，直接使用检测功能的部门
+        # 如果检测功能支持多个部门，那必须让用户明确选择摄像头对应的部门
+        if allowed_departments:
+            if not requested_department:
+                if len(allowed_departments) != 1:
+                    raise ValueError("department 是必填项；请先明确选择摄像头所属部门后再启用")
+                requested_department = allowed_departments[0]
+            # 检测摄像头的部门是否属于功能所对应的部门
+            if requested_department not in allowed_departments:
+                raise ValueError(
+                    f"department 必须属于当前功能: {', '.join(allowed_departments)}"
+                )
+        return requested_department
 
     # 功能：实现 `__repr__` 对应的`spec` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

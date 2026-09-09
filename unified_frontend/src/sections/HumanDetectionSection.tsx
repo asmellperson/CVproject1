@@ -1,10 +1,11 @@
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionPresetActions } from '@/components/AiVisionPresetActions'
 import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
-import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
+import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { Badge } from '@/components/ui/badge'
@@ -170,6 +171,8 @@ export function HumanDetectionSection({
   const [cameraLoading, setCameraLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cameraAction, setCameraAction] = useState(false)
+  const configRequestRef = useRef(0)
+  const loadedCameraRef = useRef('')
   const selectedCameraRef = useRef('')
 
   const getCameraDisplayName = (shmName: string, fallback?: string, source: AiVisionCamera[] = cameras) => {
@@ -179,6 +182,10 @@ export function HumanDetectionSection({
 
   const loadConfig = async (cameraName = form.cameraName, source: AiVisionCamera[] = cameras) => {
     const shmName = cameraName.trim()
+    const requestId = ++configRequestRef.current
+    loadedCameraRef.current = ''
+    selectedCameraRef.current = shmName
+    setHumanConfig(defaultHumanConfig)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -188,15 +195,18 @@ export function HumanDetectionSection({
     setMessage('正在读取当前配置...')
     try {
       const payload = await getAiVisionFeatureConfig(feature, shmName)
+      if (requestId !== configRequestRef.current) return
+      loadedCameraRef.current = shmName
       const config = payload.config as HumanConfig
       selectedCameraRef.current = payload.camera.shm_name
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
       setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, source)} 的人员违规逗留检测配置。`)
     } catch (error) {
+      if (requestId !== configRequestRef.current) return
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setLoading(false)
+      if (requestId === configRequestRef.current) setLoading(false)
     }
   }
 
@@ -298,6 +308,12 @@ export function HumanDetectionSection({
       return
     }
 
+    if (loading || loadedCameraRef.current !== shmName) {
+      setMessage('保存失败：请先成功读取当前摄像头的配置。')
+      return
+    }
+    const requestId = configRequestRef.current
+
     let roiPos: unknown[]
     let region: number[]
     let aspectRatioRange: number[]
@@ -368,13 +384,16 @@ export function HumanDetectionSection({
     setMessage('正在保存配置...')
     try {
       const payload = await saveAiVisionFeatureConfig(feature, shmName, nextConfig)
+      if (requestId !== configRequestRef.current) return
       const config = payload.config as HumanConfig
       selectedCameraRef.current = payload.camera.shm_name
       setHumanConfig(config)
       setForm(toForm(payload.camera.shm_name, config))
       const items = await refreshCameraList()
+      if (requestId !== configRequestRef.current) return
       setMessage(`保存成功：${getCameraDisplayName(payload.camera.shm_name, payload.camera.name, items)} 的人员违规逗留检测配置已更新。`)
     } catch (error) {
+      if (requestId !== configRequestRef.current) return
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setSaving(false)
@@ -429,14 +448,15 @@ export function HumanDetectionSection({
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
-          <Tabs defaultValue="camera" className="space-y-6">
-            <DetectionConfigTabsList>
+          <DetectionConfigTabs defaultValue="camera" className="space-y-6"
+            tabs={<>
               <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
               <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
               <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
               <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
               <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
-            </DetectionConfigTabsList>
+            </>}
+          >
 
             <TabsContent value="camera" className="space-y-6">
               <FeatureCameraManager
@@ -662,7 +682,7 @@ export function HumanDetectionSection({
                 onSave={saveConfig}
               />
             </TabsContent>
-          </Tabs>
+          </DetectionConfigTabs>
         </TabsContent>
       </Tabs>
     </div>

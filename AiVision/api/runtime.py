@@ -1,62 +1,45 @@
-# 文件说明：定义运行时的 HTTP 接口、依赖注入或应用装配。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 api/runtime.py
 运行状态、健康检查接口。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from AiVision.api.deps import get_current_orchestrator
-from AiVision.core.settings import settings
+from fastapi import APIRouter, Depends                        # APIRouter：API路由分组器,Depends:FastAPI的依赖注入机制
 
+from AiVision.api.deps import get_current_orchestrator                 # 获取当前的Orchestrator实例，这是API层获取当前AiVision总调度器的统一入口
+from AiVision.core.settings import settings                            # AiVision全局配置对象，主要用于读取当前数据库名称
 
+# 创建“运行状态相关接口”的路由分组，并规定这组接口统一以/api/runtime开头
 router = APIRouter(prefix="/api/runtime", tags=["runtime"])
 
-
-# 功能：健康检查端点；输入与输出详见下方说明
-# 参数：
-#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
-# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.get('/health')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`orchestrator.runtime_status`、`bool`、`status.get`、`len`、`inference.get`、`worker_status.get`、`router.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@router.get("/health")
+@router.get("/health")               # FastAPI路由装饰器
 def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
-    """健康检查端点。
-
-    反映真实就绪状态供冷启动脚本与监控判定：
-        ready = orchestrator 已 start 且至少 1 个推理模型在跑
     """
-    status = orchestrator.runtime_status()
-    started = bool(status.get("started", False))
-    models = status.get("running_models") or []
-    model_ready = len(models) > 0
-    ready = started and model_ready
-    inference = status.get("inference") or {}
-    worker_status = inference.get("workers") or {}
+    AiVision健康检查接口
+    系统运行状态判定：Orchestrator已完成启动，并且至少一个模型正在运行，则ok=True
+    同时返回模型数量、Worker看门狗状态和数据库名称
+    主要供start.sh,status.sh及外部监控判断AiVision是否就绪
+    """
+    status = orchestrator.runtime_status()                   # 整个AiVision当前运行状态的汇总结果
+    started = bool(status.get("started", False))             # 启动流程是否完成
+    models = status.get("running_models") or []              # 获取运行中的模型
+    model_ready = len(models) > 0                            # 至少有一个模型在运行
+    ready = started and model_ready                          # orcheatrator完成启动，并且至少有一个模型正在运行，则代表Aivision健康
+    inference = status.get("inference") or {}                
+    worker_status = inference.get("workers") or {}           # 获取推理工作线程的运行状态
+    # 返回健康检查结果，FastAPI会自动转成JSON
     return {
         "ok": ready,
         "service": "AiVision",
         "started": started,
         "model_ready": model_ready,
         "running_models_count": len(models),
-        "worker_watchdog_running": bool(worker_status.get("watchdog_running", False)),
-        "model_workers": worker_status.get("models") or [],
-        "database": settings.db.name,
+        "worker_watchdog_running": bool(worker_status.get("watchdog_running", False)),     # 模型运行状态监控线程目前有没有在运行
+        "model_workers": worker_status.get("models") or [],                                # 每一个模型更详细的运行状态
+        "database": settings.db.name,                                                      # 返回当前AiVision配置连接的数据库名称
     }
 
-
-# 功能：实现 `runtime_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
-# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.get('/status')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`orchestrator.runtime_status`、`router.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/status")
 def runtime_status(orchestrator=Depends(get_current_orchestrator)) -> dict:
+    """AiVision完整运行状态查询接口"""
     return orchestrator.runtime_status()

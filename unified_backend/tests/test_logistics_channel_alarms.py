@@ -49,6 +49,9 @@ LOGISTICS_FEATURES = (
 def _channel_alarm(**overrides):
     alarm = {
         "id": "42",
+        "violation_type": 6,
+        "feature_name": "detect_logistics_single_person",
+        "department": "general_electric",
         "event_type": "detect_logistics_single_person",
         "event_label": "物流通道单人检测",
         "subject_type": "logistics_channel",
@@ -142,11 +145,13 @@ def test_alarm_type_metadata_is_canonical_and_has_no_colors():
     assert all("color" not in meta for meta in ALARM_TYPE_META.values())
 
 
-def test_unified_normalizer_recovers_legacy_type_ownership():
+def test_unified_normalizer_preserves_explicit_ownership():
     normalized = _normalize_aivision_alarm({
         "id": "10",
         "event_type": "detect_human",
-        "violation_type": 10,
+        "violation_type": 5,
+        "feature_name": "detect_human_haoda",
+        "department": "haoda_company",
         "camera_no": "haoda-camera",
     })
 
@@ -267,7 +272,7 @@ def test_all_logistics_alarm_features_have_type_and_department_mapping(
     department,
 ):
     normalized = _normalize_aivision_alarm(
-        _channel_alarm(event_type=feature_name)
+        _channel_alarm(feature_name=feature_name, department=department)
     )
 
     assert normalized["event_type"] == "detect_logistics_single_person"
@@ -309,7 +314,8 @@ def test_statistics_group_channel_alarms_by_channel_subject():
 def test_department_filter_uses_alarm_ownership_after_event_type_is_unified():
     electronics_alarm = _normalize_aivision_alarm(_channel_alarm(
         id="7",
-        event_type="detect_logistics_single_person_electronics_electrician",
+        feature_name="detect_logistics_single_person_electronics_electrician",
+        department="electronics_electrician",
     ))
     general_alarm = _normalize_aivision_alarm(_channel_alarm(
         id="8",
@@ -322,3 +328,11 @@ def test_department_filter_uses_alarm_ownership_after_event_type_is_unified():
     )
 
     assert [alarm["id"] for alarm in visible] == ["aivision:7"]
+
+
+def test_unified_normalizer_does_not_guess_missing_feature_or_department():
+    normalized = _normalize_aivision_alarm({"id": "old", "violation_type": 10,
+        "event_type": "detect_human", "metadata": {"department": "haoda_company"}})
+    assert normalized["violation_type"] == 10
+    assert normalized["feature_name"] is None
+    assert normalized["department"] is None

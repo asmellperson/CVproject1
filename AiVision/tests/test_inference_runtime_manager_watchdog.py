@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import queue
+import pytest
 
 from AiVision.platform.inference.runtime_manager import (
     InferenceRuntimeManager,
@@ -44,6 +45,10 @@ class FakeWorker:
         self.alive = alive
         self.failed = failed
         self.stop_calls = 0
+        self.model_path = "/test/model.pt"
+
+    def failure_message(self):
+        return "load failed" if self.failed else ""
 
     # 功能：检查或判断 `is_running` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -105,10 +110,11 @@ def _manager_with_worker(worker: FakeWorker) -> InferenceRuntimeManager:
     manager._model_configs = {
         "test-model": {
             "name": "test-model",
-            "import_path": "tests.fake.Worker",
+            "model_names": ["test-model"],
         }
     }
     manager._workers = {"test-model": worker}
+    manager._model_owners = {"test-model": "test-model"}
     manager._worker_states = {"test-model": WorkerWatchdogState()}
     return manager
 
@@ -225,3 +231,207 @@ def test_watchdog_stops_retrying_and_alerts_once_when_attempts_exhausted(monkeyp
     assert state.next_restart_at == 0.0
     assert [item[2] for item in alerts] == ["模型 Worker 重启耗尽"]
     assert manager.runtime_status()["models"][0]["status"] == "exhausted"
+
+
+class ManagedWorker(FakeWorker):
+    instances = []
+
+    def __init__(self, *, infer_queues, result_queues, model_name, model_path):
+        super().__init__(running=False, alive=False)
+        self.infer_queues = infer_queues
+        self.model_name = model_name
+        self.model_path = model_path
+        self.instances.append(self)
+
+    def start(self):
+        self.failed = "bad" in self.model_path
+        self.running = not self.failed
+        self.alive = not self.failed
+
+    def stop(self):
+        super().stop()
+        self.running = False
+        self.alive = False
+
+
+@pytest.fixture
+def fixed_runtime(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from AiVision.platform.inference import model_paths
+    from AiVision.platform.inference.model_registry import MODEL_SPECS
+
+    config = tmp_path / "model_paths.yaml"
+    shared = tmp_path / "shared.pt"
+    face = tmp_path / "face.pt"
+    shared.write_bytes(b"shared weights")
+    face.write_bytes(b"face weights")
+    config.write_text(
+        f"models:\n  yolo_human:\n    path: {shared}\n"
+        f"  yolo_phone:\n    path: {shared}\n  yolo_face:\n    path: {face}\n"
+    )
+    monkeypatch.setattr(model_paths.settings.model_paths, "config_path", str(config))
+    model_paths.clear_model_paths_cache()
+    monkeypatch.setattr(manager_module, "MODEL_SPECS", {
+        name: replace(spec, worker_class=ManagedWorker) for name, spec in MODEL_SPECS.items()
+    })
+    monkeypatch.setattr(manager_module, "Queue", queue.Queue)
+    ManagedWorker.instances = []
+    manager = InferenceRuntimeManager()
+    monkeypatch.setattr(manager, "_start_watchdog", lambda: None)
+    manager.initialize_queues()
+    manager.start_all()
+    yield manager, config, shared, face
+    manager.stop_all()
+    model_paths.clear_model_paths_cache()
+
+
+def test_fixed_models_share_one_physical_worker_and_report_logical_status(fixed_runtime):
+    manager, _, shared, _ = fixed_runtime
+    assert len(ManagedWorker.instances) == 2
+    assert set(manager.list_running()) == {"yolo_human", "yolo_phone", "yolo_face"}
+    assert manager._model_owners["yolo_human"] == manager._model_owners["yolo_phone"]
+    shared_worker = manager._workers["yolo_human"]
+    assert set(shared_worker.infer_queues) == {"yolo_human", "yolo_phone"}
+    items = {item["name"]: item for item in manager.list_models()}
+    assert items["yolo_phone"]["runtime"]["loaded_path"] == str(shared)
+    assert items["yolo_phone"]["runtime"]["shared_models"] == ["yolo_human", "yolo_phone"]
+    assert not any("enable" in item or "id" in item or "database_path" in item for item in items.values())
+
+
+def test_reload_splits_and_merges_shared_weights_without_changing_consumer_queues(fixed_runtime, tmp_path):
+    manager, _, shared, _ = fixed_runtime
+    queues = dict(manager.infer_queues)
+    original_shared = manager._workers["yolo_human"]
+    original_face = manager._workers["yolo_face"]
+    manager._worker_states["yolo_face"].restart_attempts = 2
+    phone = tmp_path / "phone.pt"
+    phone.write_bytes(b"phone weights")
+
+    result = manager.update_model_path("yolo_phone", str(phone))
+    assert result["configuration_saved"] is True
+    assert result["load_status"] == "loading"
+    manager._reload_thread.join(timeout=2)
+    assert not manager._reload_thread.is_alive()
+    assert len(manager._workers) == 3
+    assert original_shared.stop_calls == 1
+    assert original_face.stop_calls == 0
+    assert manager._workers["yolo_face"] is original_face
+    assert manager._worker_states["yolo_face"].restart_attempts == 2
+    assert manager._workers["yolo_phone"].model_path == str(phone)
+    assert manager.infer_queues == queues
+    assert manager._reload_results["yolo_phone"]["status"] == "succeeded"
+
+    manager.update_model_path("yolo_phone", str(shared))
+    manager._reload_thread.join(timeout=2)
+    assert len(manager._workers) == 2
+    assert manager._model_owners["yolo_phone"] == "yolo_human"
+    assert manager.infer_queues == queues
+    assert manager._workers["yolo_face"] is original_face
+
+
+def test_physical_identity_deduplicates_symlinks_and_hardlinks(fixed_runtime, tmp_path):
+    import os
+
+    manager, _, shared, _ = fixed_runtime
+    alias = tmp_path / "linked.pt"
+    os.link(shared, alias)
+    manager.update_model_path("yolo_phone", str(alias))
+    manager._reload_thread.join(timeout=2)
+    assert len(manager._workers) == 2
+    assert manager._model_owners["yolo_phone"] == "yolo_human"
+    symlink = tmp_path / "symlink.pt"
+    symlink.symlink_to(shared)
+    result = manager.update_model_path("yolo_phone", str(symlink))
+    manager._reload_thread.join(timeout=2)
+    assert result["path"] == str(shared)
+    assert len(manager._workers) == 2
+
+
+def test_failed_reload_is_saved_but_failed_and_still_watched(fixed_runtime, tmp_path, monkeypatch):
+    from AiVision.platform.inference.model_paths import load_model_paths
+
+    manager, _, _, _ = fixed_runtime
+    bad = tmp_path / "bad.pt"
+    bad.write_bytes(b"invalid weights")
+    result = manager.update_model_path("yolo_phone", str(bad))
+    manager._reload_thread.join(timeout=2)
+    assert result["configuration_saved"] is True
+    assert load_model_paths()["yolo_phone"] == str(bad)
+    phone = next(item for item in manager.list_models() if item["name"] == "yolo_phone")
+    assert phone["reload"] == {"status": "failed", "error": "load failed"}
+    assert phone["runtime"]["running"] is False
+    assert phone["runtime"]["loaded_path"] == ""
+    monkeypatch.setattr(manager_module.settings.runtime, "model_worker_restart_backoff_seconds", 1)
+    manager._watchdog_tick(now=100)
+    assert manager._worker_states["yolo_phone"].next_restart_at == 101
+    manager._watchdog_tick(now=101)
+    assert manager._worker_states["yolo_phone"].restart_attempts == 1
+
+
+def test_concurrent_save_is_rejected_before_second_write(fixed_runtime, tmp_path, monkeypatch):
+    import threading
+    from AiVision.platform.inference.model_paths import load_model_paths
+
+    manager, _, _, _ = fixed_runtime
+    entered, release = threading.Event(), threading.Event()
+
+    def held_reload(name):
+        entered.set()
+        release.wait(timeout=2)
+
+    monkeypatch.setattr(manager, "_reload_affected", held_reload)
+    first = tmp_path / "first.pt"
+    second = tmp_path / "second.pt"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    try:
+        assert manager.update_model_path("yolo_phone", str(first))["configuration_saved"]
+        assert entered.wait(timeout=1)
+        with pytest.raises(RuntimeError, match="正在重载"):
+            manager.update_model_path("yolo_phone", str(second))
+        assert load_model_paths()["yolo_phone"] == str(first)
+    finally:
+        release.set()
+        manager._reload_thread.join(timeout=2)
+
+
+def test_save_while_service_stopped_does_not_start_or_claim_loaded(fixed_runtime, tmp_path):
+    manager, _, _, _ = fixed_runtime
+    manager.stop_all()
+    weight = tmp_path / "later.pt"
+    weight.write_bytes(b"later")
+    result = manager.update_model_path("yolo_phone", str(weight))
+    assert result["configuration_saved"]
+    assert result["load_status"] == "not_started"
+    assert manager._reload_thread is None
+    assert manager.list_running() == []
+    manager.start_all()
+    assert manager._workers["yolo_phone"].model_path == str(weight)
+
+
+def test_startup_rejects_unregistered_feature_model(fixed_runtime, monkeypatch):
+    from types import SimpleNamespace
+
+    manager, _, _, _ = fixed_runtime
+    manager.stop_all()
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {
+        "test": SimpleNamespace(required_models=["custom"])
+    })
+    with pytest.raises(ValueError, match="未注册模型"):
+        manager.start_all()
+
+
+def test_reload_timeout_stops_worker_and_reports_failed(fixed_runtime, monkeypatch):
+    manager, _, shared, _ = fixed_runtime
+
+    def start_loading(self):
+        self.alive = True
+        self.running = False
+        self.failed = False
+
+    monkeypatch.setattr(ManagedWorker, "start", start_loading)
+    monkeypatch.setattr(manager_module.settings.runtime, "model_worker_ready_timeout_seconds", 0.01)
+    manager.update_model_path("yolo_phone", str(shared))
+    manager._reload_thread.join(timeout=2)
+    assert manager._reload_results["yolo_phone"] == {"status": "failed", "error": "模型加载超时"}
+    assert not manager._workers["yolo_human"].is_alive()

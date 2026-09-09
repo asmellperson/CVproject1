@@ -1,3 +1,4 @@
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { TabsContent } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Video, Shield, Box, Bell, UserRound, Smartphone, Moon, Settings2, Plus, Trash2, Building2, Car, MousePointer2 } from 'lucide-react'
@@ -17,7 +18,6 @@ import {
   DetectionConfigCardContent,
   DetectionConfigCardHeader,
   DetectionConfigTab,
-  DetectionConfigTabsList,
   DetectionSaveBar,
 } from '@/components/detection/DetectionConfigUi'
 import { GuardRoomVehicleRoiEditor } from '@/components/guard_room/GuardRoomVehicleRoiEditor'
@@ -300,7 +300,7 @@ function ConfigSection({
   }, [loadConfig])
 
   useEffect(() => {
-    if (!site && activeTab !== 'sites') {
+    if (!site && activeTab !== 'sites' && activeTab !== 'horns') {
       setActiveTab('sites')
     }
   }, [activeTab, site])
@@ -470,8 +470,8 @@ async function waitUntilRunning(timeoutMs: number) {
 
   return (
     <div className="space-y-6 text-slate-950 dark:text-slate-100">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <DetectionConfigTabsList>
+      <DetectionConfigTabs value={activeTab} onValueChange={setActiveTab} className="space-y-6"
+        tabs={<>
           <DetectionConfigTab value="sites" icon={Building2}>
             保安室管理
           </DetectionConfigTab>
@@ -487,7 +487,8 @@ async function waitUntilRunning(timeoutMs: number) {
           <DetectionConfigTab value="wechat" icon={Bell} disabled={!site}>
             报警推送
           </DetectionConfigTab>
-        </DetectionConfigTabsList>
+        </>}
+      >
 
         <TabsContent value="sites" className="space-y-6">
           <Card className={DETECTION_CONFIG_CARD_CLASS}>
@@ -1212,9 +1213,9 @@ async function waitUntilRunning(timeoutMs: number) {
             </DetectionConfigCardContent>
           </Card>
         </TabsContent>
-      </Tabs>
+      </DetectionConfigTabs>
 
-      {activeTab !== 'sites' && site ? (
+      {activeTab !== 'sites' && activeTab !== 'horns' && site ? (
         <DetectionSaveBar
           message={saveError
             ? `保存失败：${saveError}`

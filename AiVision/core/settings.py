@@ -1,6 +1,3 @@
-# 文件说明：实现配置相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 core/settings.py
 统一配置入口 — Pydantic Settings,替代散落的 os.getenv 调用。
@@ -18,85 +15,44 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict           # BaseSettings：自动从环境变量/.env文件读取配置
 
-
-# 功能：数据库连接配置；输入与输出详见下方说明
-# 参数：
-#   - `enable`（bool）：`enable` 对应的业务输入值
-#   - `url`（str）：目标接口、媒体流或页面地址
-#   - `port`（int）：`port` 对应的业务输入值
-#   - `user`（str）：当前用户或待处理用户对象
-#   - `password`（str）：`password` 对应的业务输入值
-#   - `name`（str）：业务对象名称
-#   - `charset`（str）：`charset` 对应的业务输入值
-#   - `auto_create`（bool）：`auto_create` 对应的业务输入值
-# 返回：DatabaseSettings；返回新建的 `DatabaseSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DatabaseSettings(BaseSettings):
     """
     数据库连接配置。
 
     必填项（无默认值，缺失时启动报错）: url、user、password、name。
-    对应环境变量见各字段 alias。
+    alias：这个Python字段对应哪个环境变量
+    比如settings.db.url实际上读取的是MySQL_DB_URL=xxxxxxx
     """
-    enable: bool      = Field(True,      alias="SQL_ENABLE")
-    url: str          = Field(...,        alias="MYSQL_DB_URL")
-    port: int         = Field(3306,       alias="MYSQL_DB_PORT")
-    user: str         = Field(...,        alias="MYSQL_DB_USER")
-    password: str     = Field(...,        alias="MYSQL_DB_PASSWORD")
-    name: str         = Field(...,        alias="MYSQL_DB_NAME")
-    charset: str      = Field("utf8mb4",  alias="MYSQL_DB_CHARSET")
-    # True 时若目标数据库不存在则自动 CREATE DATABASE（见 core.db._ensure_database_exists）
-    auto_create: bool = Field(False,      alias="AUTO_CREATE_DB")
+    enable: bool      = Field(True,      alias="SQL_ENABLE")          # 数据库功能总开关
+    url: str          = Field(...,        alias="MYSQL_DB_URL")       # MySQL主机地址
+    port: int         = Field(3306,       alias="MYSQL_DB_PORT")      # MySQL默认端口
+    user: str         = Field(...,        alias="MYSQL_DB_USER")      # 数据库用户名
+    password: str     = Field(...,        alias="MYSQL_DB_PASSWORD")  # 数据库密码
+    name: str         = Field(...,        alias="MYSQL_DB_NAME")      # 数据库名
+    charset: str      = Field("utf8mb4",  alias="MYSQL_DB_CHARSET")   # 字符集，默认utf8mb4，可以支持中文、Emoji、Unicode
 
-    # 功能：拼装 SQLAlchemy 连接 URL，供 create_engine() 直接使用；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @property
+    
+    auto_create: bool = Field(False,      alias="AUTO_CREATE_DB")     # 如果数据库不存在，不要自动创建
+
+    @property                                     # 访问时settings.db.sqlalchemy_url
     def sqlalchemy_url(self) -> str:
-        """拼装 SQLAlchemy 连接 URL，供 create_engine() 直接使用。"""
+        """把前面的数据库配置组合成SQLAIchemy可以直接使用的连接字符串，比如得到mysql+pymysql://root:123456@127.0.0.1:3306/aivision?charset=utf8mb4"""
         return (
             f"mysql+pymysql://{self.user}:{self.password}"
             f"@{self.url}:{self.port}/{self.name}?charset={self.charset}"
         )
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")            # 除系统环境变量外，也读取.env文件
 
-
-# 功能：本地文件存储配置；输入与输出详见下方说明
-# 参数：
-#   - `data_path`（str）：`data_path` 对应的业务输入值
-#   - `max_event_count`（int）：`max_event_count` 对应的数量或大小
-#   - `flush_interval_seconds`（int）：`flush_interval_seconds` 对应的时间间隔或时长
-#   - `alarm_media_retention_days`（int）：`alarm_media_retention_days` 对应的业务输入值
-#   - `alarm_media_max_gb`（float）：`alarm_media_max_gb` 对应的业务输入值
-#   - `alarm_media_cleanup_interval_minutes`（int）：`alarm_media_cleanup_interval_minutes` 对应的时间间隔或时长
-#   - `alarm_clip_enabled`（bool）：`alarm_clip_enabled` 对应的业务输入值
-#   - `alarm_clip_pre_seconds`（float）：`alarm_clip_pre_seconds` 对应的时间间隔或时长
-#   - `alarm_clip_post_seconds`（float）：`alarm_clip_post_seconds` 对应的时间间隔或时长
-#   - `alarm_clip_fps`（float）：`alarm_clip_fps` 对应的业务输入值
-#   - `alarm_clip_max_width`（int）：`alarm_clip_max_width` 对应的业务输入值
-# 返回：StorageSettings；返回新建的 `StorageSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class StorageSettings(BaseSettings):
     """
-    本地文件存储配置。
+    本地文件、告警配置、告警视频等存储相关配置。
 
     data_path           : 违规截图等文件的根目录（必填）。
     max_event_count     : 异步写入器单批最大入库数量。
-    flush_interval_seconds: 写入任务的批量落盘间隔（秒）。
+    flush_interval_seconds: 写入任务的批量落盘间隔（秒）。  即使还没攒够max_event_count,多久也要强制刷一次
     alarm_media_retention_days: 报警图片保留天数。
     alarm_media_max_gb  : 报警图片目录容量上限（GB）。
     alarm_media_cleanup_interval_minutes: 清理任务运行间隔（分钟）。
@@ -104,35 +60,24 @@ class StorageSettings(BaseSettings):
     data_path: str              = Field(...,  alias="DATA_PATH")
     max_event_count: int        = Field(30,   alias="MAX_EVENT_COUNT")
     flush_interval_seconds: int = Field(5,    alias="INTERVAL")
+    alarm_db_write_attempts: int = Field(3, ge=1, alias="ALARM_DB_WRITE_ATTEMPTS")
+    alarm_db_retry_backoff_seconds: float = Field(0.5, ge=0, alias="ALARM_DB_RETRY_BACKOFF_SECONDS")
     alarm_media_retention_days: int = Field(7, alias="ALARM_MEDIA_RETENTION_DAYS")
     alarm_media_max_gb: float = Field(10.0, alias="ALARM_MEDIA_MAX_GB")
     alarm_media_cleanup_interval_minutes: int = Field(
         60,
         alias="ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES",
-    )
-    alarm_clip_enabled: bool = Field(True, alias="ALARM_CLIP_ENABLED")
-    alarm_clip_pre_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_PRE_SECONDS")
-    alarm_clip_post_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_POST_SECONDS")
-    alarm_clip_fps: float = Field(5.0, gt=0, alias="ALARM_CLIP_FPS")
-    alarm_clip_max_width: int = Field(960, ge=160, alias="ALARM_CLIP_MAX_WIDTH")
+    )                                                                  # 每60分钟运行一次告警媒体清理
+    alarm_clip_enabled: bool = Field(True, alias="ALARM_CLIP_ENABLED") # 告警视频开关
+    alarm_clip_pre_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_PRE_SECONDS")  # 告警发生前保留多少秒视频
+    alarm_clip_post_seconds: float = Field(10.0, ge=0, alias="ALARM_CLIP_POST_SECONDS") # 报警之后再录10秒（一个报警片段大概前十秒 + 报警点 + 后十秒，大概20秒左右）
+    alarm_clip_fps: float = Field(5.0, gt=0, alias="ALARM_CLIP_FPS")   # 告警视频输出FPS
+    alarm_clip_max_width: int = Field(960, ge=160, alias="ALARM_CLIP_MAX_WIDTH")      # 告警录像最大宽度默认960像素
+    alarm_clip_workers: int = Field(2, ge=1, le=2, alias="ALARM_CLIP_WORKERS")
+    alarm_clip_max_tasks: int = Field(32, ge=1, alias="ALARM_CLIP_MAX_TASKS")  # 含采帧中、排队中和写入中的录像
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-
-# 功能：全局告警通道开关与凭据；输入与输出详见下方说明
-# 参数：
-#   - `horn_enable`（bool）：`horn_enable` 对应的业务输入值
-#   - `horn_url`（str）：`horn_url` 对应的业务输入值
-#   - `wechat_enable`（bool）：`wechat_enable` 对应的业务输入值
-#   - `wechat_corp_id`（str）：`wechat_corp_id` 对应业务对象的唯一标识
-#   - `wechat_corp_secret`（str）：`wechat_corp_secret` 对应的业务输入值
-#   - `wechat_agent_id`（int）：`wechat_agent_id` 对应业务对象的唯一标识
-#   - `wechat_card_base_url`（str）：`wechat_card_base_url` 对应的业务输入值
-# 返回：AlarmSettings；返回新建的 `AlarmSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AlarmSettings(BaseSettings):
     """
     全局告警通道开关与凭据。
@@ -142,27 +87,22 @@ class AlarmSettings(BaseSettings):
         两者均启用时告警才真正触发。
         微信凭据留空时，WeChatNotifier 会静默跳过推送（见 core.alarm.wechat）。
     """
-    horn_enable: bool       = Field(True,       alias="HORN_ENABLE")
+    horn_enable: bool       = Field(True,       alias="HORN_ENABLE")              # 喇叭
     horn_url: str           = Field("http://localhost:8000/", alias="HORN_URL")
-    wechat_enable: bool     = Field(True,        alias="WECHAT_ENABLE")
-    wechat_corp_id: str     = Field("",          alias="WECHAT_CORP_ID")
-    wechat_corp_secret: str = Field("",          alias="WECHAT_CORP_SECRET")
-    wechat_agent_id: int    = Field(1000050,     alias="WECHAT_AGENT_ID")
+    horn_request_timeout_seconds: float = Field(5.0, gt=0, alias="HORN_REQUEST_TIMEOUT_SECONDS")
+    horn_heartbeat_interval_seconds: float = Field(60.0, gt=0, alias="HORN_HEARTBEAT_INTERVAL_SECONDS")
+    horn_play_cooldown_seconds: float = Field(1.0, ge=0, alias="HORN_PLAY_COOLDOWN_SECONDS")
+    horn_queue_size: int = Field(100, gt=0, alias="HORN_QUEUE_SIZE")
+    horn_queue_ttl_seconds: float = Field(10.0, gt=0, alias="HORN_QUEUE_TTL_SECONDS")
+    horn_reconcile_interval_seconds: float = Field(5.0, gt=0, alias="HORN_RECONCILE_INTERVAL_SECONDS")
+    wechat_enable: bool     = Field(True,        alias="WECHAT_ENABLE")           # 企业微信
+    wechat_corp_id: str     = Field("",          alias="WECHAT_CORP_ID")          # 企业ID
+    wechat_corp_secret: str = Field("",          alias="WECHAT_CORP_SECRET")      # 应用Secrect
+    wechat_agent_id: int    = Field(1000050,     alias="WECHAT_AGENT_ID")         # AgentID
     wechat_card_base_url: str = Field("https://aicv.fudar.com", alias="WECHAT_CARD_BASE_URL")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-
-# 功能：FastAPI 服务器配置；输入与输出详见下方说明
-# 参数：
-#   - `host`（str）：`host` 对应的业务输入值
-#   - `port`（int）：`port` 对应的业务输入值
-#   - `cors_origins`（list[str]）：`cors_origins` 对应的业务输入值
-# 返回：ApiSettings；返回新建的 `ApiSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ApiSettings(BaseSettings):
     """
     FastAPI 服务器配置。
@@ -170,80 +110,71 @@ class ApiSettings(BaseSettings):
     cors_origins: 允许跨域的来源列表，默认 ["*"] 表示不限制；
                   生产环境建议收窄为实际前端域名。
     """
-    host: str              = Field("0.0.0.0", alias="API_HOST")
+    host: str              = Field("0.0.0.0", alias="API_HOST")             # 监听本机所有网卡
     port: int              = Field(7862,       alias="API_PORT")
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")     # 允许所有来源
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-# 功能：AiVision 主进程的图像处理运行参数；输入与输出详见下方说明
-# 参数：
-#   - `opencv_threads`（int）：`opencv_threads` 对应的业务输入值
-#   - `slow_frame_log_seconds`（float）：`slow_frame_log_seconds` 对应的时间间隔或时长
-#   - `logistics_status_stale_seconds`（float）：`logistics_status_stale_seconds` 对应的时间间隔或时长
-#   - `inference_alert_consecutive_failures`（int）：`inference_alert_consecutive_failures` 对应的业务输入值
-#   - `inference_alert_cooldown_seconds`（float）：`inference_alert_cooldown_seconds` 对应的时间间隔或时长
-#   - `model_worker_ready_timeout_seconds`（float）：`model_worker_ready_timeout_seconds` 对应的时间间隔或时长
-#   - `model_worker_watchdog_interval_seconds`（float）：`model_worker_watchdog_interval_seconds` 对应的时间间隔或时长
-#   - `model_worker_restart_max_attempts`（int）：`model_worker_restart_max_attempts` 对应的业务输入值
-#   - `model_worker_restart_backoff_seconds`（float）：`model_worker_restart_backoff_seconds` 对应的时间间隔或时长
-#   - `model_worker_restart_max_backoff_seconds`（float）：`model_worker_restart_max_backoff_seconds` 对应的时间间隔或时长
-#   - `model_worker_restart_reset_seconds`（float）：`model_worker_restart_reset_seconds` 对应的时间间隔或时长
-# 返回：RuntimeSettings；返回新建的 `RuntimeSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class RuntimeSettings(BaseSettings):
     """
-    AiVision 主进程的图像处理运行参数。
+    AiVision 主运行进程、推理Worker、运行时监控的一系列参数。
 
     OpenCV 默认按宿主机全部 CPU 创建内部线程池。在多摄像头、多 Consumer
     场景中，应用层已经存在并发，继续按全机核心数并行会造成线程争抢。
     """
-    opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")
-    slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")
+    opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")      # 限制OpenCV自己内部最多开多少CPU线程
+    slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")   # 一次获取摄像头画面超过多少秒，就记慢请求日志
+    # 物流通道状态多久没更新，就认为他过旧
     logistics_status_stale_seconds: float = Field(
         5.0,
         ge=0,
         alias="LOGISTICS_STATUS_STALE_SECONDS",
-    )
+    ) 
+    # 推理Worker连续失败几次以后才发系统异常告警
     inference_alert_consecutive_failures: int = Field(
         3,
         ge=1,
         alias="INFERENCE_ALERT_CONSECUTIVE_FAILURES",
     )
+    # 推理异常报警冷却时间
     inference_alert_cooldown_seconds: float = Field(
         300.0,
         ge=0,
         alias="INFERENCE_ALERT_COOLDOWN_SECONDS",
     )
+    # 启动模型Woker后，最多等多久认为它应该已经准备好
     model_worker_ready_timeout_seconds: float = Field(
         60.0,
         ge=0,
         alias="MODEL_WORKER_READY_TIMEOUT",
     )
+    # watchdog多久检查一次Worker状态
     model_worker_watchdog_interval_seconds: float = Field(
         5.0,
         gt=0,
         alias="MODEL_WORKER_WATCHDOG_INTERVAL_SECONDS",
     )
+    # Worker崩了以后，最多自动重启几次
     model_worker_restart_max_attempts: int = Field(
         3,
         ge=0,
         alias="MODEL_WORKER_RESTART_MAX_ATTEMPTS",
     )
+    # 第一次重启前至少等多久
     model_worker_restart_backoff_seconds: float = Field(
         5.0,
         ge=0,
         alias="MODEL_WORKER_RESTART_BACKOFF_SECONDS",
     )
+    # 重启失败后通常会逐渐延长等待时间，这里设置最大的等待时间
     model_worker_restart_max_backoff_seconds: float = Field(
         60.0,
         ge=0,
         alias="MODEL_WORKER_RESTART_MAX_BACKOFF_SECONDS",
     )
+    # Worker如果稳定运行了足够久，就把以前的连续重启失败清掉
     model_worker_restart_reset_seconds: float = Field(
         300.0,
         ge=0,
@@ -252,22 +183,12 @@ class RuntimeSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-
+# 计算Aivision根目录
 _AIVISION_ROOT = Path(__file__).resolve().parents[1]
 
-
-# 功能：由 AiVision 同一进程承载的扩展视觉能力配置；输入与输出详见下方说明
-# 参数：
-#   - `guard_room_config_path`（Path）：`guard_room_config_path` 对应的业务输入值
-#   - `security_vlm_config_path`（Path）：`security_vlm_config_path` 对应的业务输入值
-# 返回：ManagedVisualServiceSettings；返回新建的 `ManagedVisualServiceSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ManagedVisualServiceSettings(BaseSettings):
     """由 AiVision 同一进程承载的扩展视觉能力配置。"""
-
+    # 两个复杂视觉检测任务的各自配置文件的目录
     guard_room_config_path: Path = Field(
         _AIVISION_ROOT / "integrations" / "guard_room" / "config" / "config.yaml",
         alias="GUARD_ROOM_CONFIG_PATH",
@@ -279,15 +200,6 @@ class ManagedVisualServiceSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-
-# 功能：本机模型路径配置；输入与输出详见下方说明
-# 参数：
-#   - `config_path`（str）：`config_path` 对应的业务输入值
-# 返回：ModelPathSettings；返回新建的 `ModelPathSettings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `Settings::__init__` 实例化本符号
-#   - 内部调用：`Field`、`SettingsConfigDict`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ModelPathSettings(BaseSettings):
     """
     本机模型路径配置。
@@ -295,18 +207,12 @@ class ModelPathSettings(BaseSettings):
     模型文件路径只从此配置读取，不回退数据库 ai_model.path。
     这样同一套数据库可以部署到不同服务器，只需要调整本机配置文件。
     """
+    # 本机模型真实路径配置文件的位置
     config_path: str = Field("config/model_paths.yaml", alias="MODEL_PATHS_CONFIG")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-# 功能：配置聚合根，将各子配置组合为单一访问点；输入与输出详见下方说明
-# 参数：无。
-# 返回：Settings；返回新建的 `Settings` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/core/settings.py` 的 `get_settings` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class Settings:
     """
     配置聚合根，将各子配置组合为单一访问点。
@@ -316,14 +222,7 @@ class Settings:
         settings.db.sqlalchemy_url
         settings.alarm.horn_enable
     """
-    # 功能：初始化或配置 `__init__` 对应的配置逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`DatabaseSettings`、`StorageSettings`、`AlarmSettings`、`ApiSettings`、`RuntimeSettings`、`ManagedVisualServiceSettings`、`ModelPathSettings`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
+  
     def __init__(self):
         self.db      = DatabaseSettings()
         self.storage = StorageSettings()
@@ -333,14 +232,7 @@ class Settings:
         self.visual_services = ManagedVisualServiceSettings()
         self.model_paths = ModelPathSettings()
 
-
-# 功能：返回全局 Settings 单例（lru_cache 保证只实例化一次）；输入与输出详见下方说明
-# 参数：无。
-# 返回：Settings；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Settings`、`lru_cache`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# Settings只创建一次，后面重复调用直接返回缓存对象
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """

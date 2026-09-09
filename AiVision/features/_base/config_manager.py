@@ -3,23 +3,19 @@
 
 """
 features/_base/config_manager.py
-通用功能配置读写服务 — 替代旧 SQL 类里 5 个 save_xxx_config_by_shm_name 方法。
-
-旧代码: save_blocks_config_by_shm_name / save_door_config_by_shm_name / 
-        save_face_config_by_shm_name / save_phone_config_by_shm_name / 
-        save_human_config_by_shm_name — 每个 80 行,完全相同的逻辑只换字段名。
-
-新代码: 一个 save_config(spec, shm_name, payload) 通过 SPEC.orm_class 反射搞定。
+通用功能配置读写服务
+ 一个 save_config(spec, shm_name, payload) 通过 SPEC.orm_class 反射搞定。
 """
 from __future__ import annotations
 from typing import Optional
-from sqlalchemy import or_
 
 from AiVision.core.db import session_scope, get_session
 from AiVision.core.events import config_event_bus, ConfigChangeEvent
 from AiVision.core.cache import config_cache
 from AiVision.features._base.spec import FeatureSpec
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.platform.alarm_device.binding import validate_horn_binding
+from AiVision.platform.camera.orm import AiCameraConfig, get_camera_by_key
+from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
 
 
 # 功能：所有功能配置的 CRUD 入口；输入与输出详见下方说明
@@ -130,21 +126,28 @@ class FeatureConfigManager:
             if camera is None:
                 return None
 
+            # 同一摄像头的功能启用串行校验，避免并发请求按旧的空部门分别补齐。
+            session.refresh(camera, with_for_update=True)
             cfg = (
                 session.query(spec.orm_class)
                 .filter_by(camera_id=camera.id)
+                .with_for_update()
                 .first()
             )
             old_enable = bool(cfg.enable) if cfg is not None else False
+            new_enable = bool(payload.get("enable", False))
+            if new_enable and not old_enable and spec.name not in LOGISTICS_FEATURES:
+                camera.department = spec.resolve_camera_department(camera.department)
+
             if cfg is None:
                 cfg = spec.orm_class(camera_id=camera.id)
                 session.add(cfg)
                 session.flush()
 
-            new_enable = bool(payload.get("enable", False))
             cfg.enable = new_enable
             cfg.apply_value_dict(payload.get("value") or {})
             cfg.apply_alarm_dict(payload.get("alarm") or {})
+            validate_horn_binding(session, cfg.horn_enable, cfg.horn_id, cfg.horn_event_id)
 
             # 提交后刷新缓存 + 发事件
             camera_id = camera.id
@@ -180,22 +183,12 @@ class FeatureConfigManager:
     # 调用关系：
     #   - 调用方：`AiVision/features/_base/config_manager.py` 的 `FeatureConfigManager::get_config` 调用本符号；`AiVision/features/_base/config_manager.py` 的
     #         `FeatureConfigManager::save_config` 调用本符号
-    #   - 内部调用：`(key or
-    #          '').strip`、`key.isdigit`、`filters.append`、`int`、`key.startswith`、`key.removeprefix('camera_').isdigit`、`key.removeprefix`、`session.query(AiCameraConfig).filter(or_(*filters)).first`、`session.query(AiCameraConfig).filter`、`session.query`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
+    #   - 内部调用：`get_camera_by_key`，与 CameraConfigManager 共用查询优先级。
+    # 副作用/注意事项：执行摄像头查询，不管理线程/进程。
     @staticmethod
     def _get_camera_by_key(session, key: str) -> Optional[AiCameraConfig]:
-        """支持 shm_name / name / 数字 id / 'camera_{id}' 多种 key 格式"""
-        key = (key or "").strip()
-        if not key:
-            return None
-        filters = [AiCameraConfig.shm_name == key, AiCameraConfig.name == key]
-        if key.isdigit():
-            filters.append(AiCameraConfig.id == int(key))
-        elif key.startswith("camera_") and key.removeprefix("camera_").isdigit():
-            filters.append(AiCameraConfig.id == int(key.removeprefix("camera_")))
-        return session.query(AiCameraConfig).filter(or_(*filters)).first()
+        """字符串按 shm_name / name / 数字 id 或 'camera_{id}' 的优先级查询"""
+        return get_camera_by_key(session, key)
 
     # 功能：转换或规范化 `_camera_to_dict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

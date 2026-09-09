@@ -128,6 +128,13 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         self._trackers: dict[tuple[int, int], IouTracker] = {}
         self.monitor_status: dict[str, dict] = {}
 
+    def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        super()._clear_camera_state(camera_id, shm_name)
+        for key in [key for key in self._trackers if key[0] == camera_id]:
+            self._trackers.pop(key, None)
+        if shm_name:
+            self.monitor_status.pop(shm_name, None)
+
     # 功能：处理 `_process` 对应的视频帧消费与检测逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例

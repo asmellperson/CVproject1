@@ -33,6 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   filterHomeModulesByPermission,
   getAccessibleAlarmEventTypes,
@@ -178,26 +179,13 @@ type PlatformCameraInventoryItem = {
   securityVlmCamera?: SecurityVlmCamera
 }
 
-const departmentOptions: Array<{ value: Exclude<Department, 'all'>; label: string }> = [
-  { value: 'general_electric', label: '通用电气事业部' },
-  { value: 'research_institute', label: '福达新材院' },
-  { value: 'electronics_electrician', label: '电子电工事业部' },
-  { value: 'electrical_components', label: '电气部件事业部' },
-  { value: 'precious_metal_recycling', label: '伟达公司' },
-  { value: 'haoda_company', label: '皓达公司' },
-]
-
 const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
   { value: 'aivision', label: 'AiVision 通用检测' },
   { value: 'guard_room', label: '保安行为规范检测' },
   { value: 'security_vlm', label: '安检流程规范检测' },
 ]
 
-const cameraSourceDepartments: Record<CameraSource, Array<Exclude<Department, 'all'>>> = {
-  aivision: departmentOptions.map((item) => item.value),
-  guard_room: ['general_electric', 'electronics_electrician'],
-  security_vlm: [...SECURITY_VLM_DEPARTMENTS],
-}
+const guardCameraDepartments: Array<Exclude<Department, 'all'>> = ['general_electric', 'electronics_electrician']
 
 const securityPageByDepartment: Record<SecurityVlmDepartment, string> = {
   general_electric: 'security-vlm-general-electric',
@@ -306,21 +294,11 @@ function getAlarmLocation(alarm: AlarmEvent) {
   return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
-function departmentLabel(departments: Department[]) {
+function departmentLabel(departments: Department[], labels: Record<string, string>) {
   if (departments.includes('all')) return '全局视图'
   if (departments.length > 1) return `${departments.length} 个事业部 / 公司视图`
   const department = departments[0] ?? null
-  if (department === 'general_electric') return '通用电气视图'
-  if (department === 'electronics_electrician') return '电子电工视图'
-  if (department === 'electrical_components') return '电气部件视图'
-  if (department === 'precious_metal_recycling') return '伟达公司视图'
-  if (department === 'haoda_company') return '皓达公司视图'
-  if (department === 'research_institute') return '福达新材院视图'
-  return '权限视图'
-}
-
-function cameraDepartmentLabel(department?: string | null) {
-  return departmentOptions.find((item) => item.value === department)?.label || '未分配事业部'
+  return department && labels[department] ? `${labels[department]}视图` : '权限视图'
 }
 
 function cameraSourceLabel(source: CameraSource) {
@@ -480,7 +458,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
   const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
   const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
-  const [cameraDepartment, setCameraDepartment] = useState<Exclude<Department, 'all'>>('general_electric')
+  const [cameraDepartment, setCameraDepartment] = useState('')
   const [cameraGuardSiteId, setCameraGuardSiteId] = useState('')
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
@@ -489,6 +467,22 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const [cameraActionKey, setCameraActionKey] = useState('')
   const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
   const [cameraDeleteError, setCameraDeleteError] = useState('')
+  const {
+    options: departmentOptions,
+    labels: departmentLabels,
+    loading: departmentsLoading,
+    error: departmentsError,
+    reload: reloadDepartments,
+  } = useDepartmentCatalog(Boolean(user))
+  const departmentsUnavailable = departmentsLoading || Boolean(departmentsError)
+  const cameraSourceDepartments: Record<CameraSource, string[]> = useMemo(() => ({
+    aivision: departmentOptions.map((item) => item.value),
+    guard_room: guardCameraDepartments,
+    security_vlm: [...SECURITY_VLM_DEPARTMENTS],
+  }), [departmentOptions])
+  const cameraDepartmentLabel = (name?: string | null) => (
+    name ? departmentLabels[name] || name : '未分配事业部'
+  )
   const userDepartments = useMemo(() => getUserDepartments(user), [user])
   const department = getUserDepartment(user)
   const visiblePageIds = useMemo(
@@ -504,7 +498,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     [visiblePageIds],
   )
   const visibleGuardDepartments = useMemo(
-    () => cameraSourceDepartments.guard_room.filter((item) => {
+    () => guardCameraDepartments.filter((item) => {
       const pageId = guardPageByDepartment[item]
       return pageId ? visiblePageIds.has(pageId) : false
     }),
@@ -710,7 +704,8 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraDialogMode('create')
     resetCameraForm()
     setCameraSource('aivision')
-    setCameraDepartment(department && department !== 'all' ? department : 'general_electric')
+    setCameraDepartment(departmentOptions.some((item) => item.value === department) ? department! : departmentOptions[0]?.value || '')
+    if (departmentsError) reloadDepartments()
     setCameraGuardSiteId('')
     setCameraDialogOpen(true)
   }
@@ -719,7 +714,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     const departments = cameraSourceDepartments[source]
     const nextDepartment = departments.includes(cameraDepartment)
       ? cameraDepartment
-      : departments[0]
+      : departments[0] || ''
     setCameraSource(source)
     setCameraDepartment(nextDepartment)
     setCameraGuardSiteId(
@@ -730,7 +725,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     setCameraFormError('')
   }
 
-  const handleCameraDepartmentChange = (nextDepartment: Exclude<Department, 'all'>) => {
+  const handleCameraDepartmentChange = (nextDepartment: string) => {
     setCameraDepartment(nextDepartment)
     setCameraGuardSiteId(
       cameraSource === 'guard_room'
@@ -761,6 +756,15 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     }
     if ((cameraDialogMode === 'edit' || cameraSource === 'aivision') && (!Number.isInteger(fps) || fps < 1)) {
       setCameraFormError('FPS 必须是大于等于 1 的整数。')
+      return
+    }
+
+    if (cameraDialogMode === 'create' && (
+      departmentsUnavailable
+      || !allowedCameraDepartments.includes(cameraDepartment)
+      || !departmentOptions.some((item) => item.value === cameraDepartment)
+    )) {
+      setCameraFormError(departmentsError || '请选择已有事业部，等待事业部列表加载完成。')
       return
     }
 
@@ -890,7 +894,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
           <div className="relative z-[3] flex min-h-[240px] items-center justify-center px-3 py-5 text-center sm:min-h-[280px] sm:px-10 sm:py-7 lg:px-14 2xl:min-h-[380px] 2xl:px-20 2xl:py-10">
             <div className="relative z-[3] flex -translate-y-3 flex-col items-center justify-center sm:-translate-y-4">
               <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
-                {departmentLabel(userDepartments)}
+                {departmentLabel(userDepartments, departmentLabels)}
               </Badge>
               <h2 className="whitespace-nowrap text-[clamp(1rem,4.5vw,3rem)] font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] dark:text-white dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.55)] 2xl:text-6xl">
                 福达 AI 视觉安全监管平台
@@ -1189,7 +1193,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 </div>
               </div>
               <Badge className="border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100 dark:hover:bg-blue-950/50">
-                {departmentLabel(userDepartments)}
+                {departmentLabel(userDepartments, departmentLabels)}
               </Badge>
             </div>
 
@@ -1268,11 +1272,11 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                   <Label htmlFor="overview-camera-department">所属事业部</Label>
                   <Select
                     value={cameraDepartment}
-                    onValueChange={(value) => handleCameraDepartmentChange(value as Exclude<Department, 'all'>)}
-                    disabled={Boolean(cameraActionKey)}
+                    onValueChange={handleCameraDepartmentChange}
+                    disabled={Boolean(cameraActionKey) || departmentsLoading}
                   >
                     <SelectTrigger id="overview-camera-department">
-                      <SelectValue />
+                      <SelectValue placeholder={departmentsLoading ? '加载事业部...' : '选择事业部'} />
                     </SelectTrigger>
                     <SelectContent>
                       {departmentOptions
@@ -1338,7 +1342,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                 />
               </div>
             ) : null}
-            {cameraFormError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraFormError}</div> : null}
+            {(cameraFormError || (cameraDialogMode === 'create' && departmentsError)) ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraFormError || departmentsError}</div> : null}
           </div>
 
           <DialogFooter>
@@ -1348,7 +1352,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
             <Button
               className="gap-2"
               onClick={handleSaveCamera}
-              disabled={Boolean(cameraActionKey) || (cameraDialogMode === 'create' && cameraSource === 'guard_room' && !cameraGuardSiteId)}
+              disabled={Boolean(cameraActionKey) || (cameraDialogMode === 'create' && (departmentsUnavailable || !cameraDepartment || (cameraSource === 'guard_room' && !cameraGuardSiteId)))}
             >
               {cameraDialogMode === 'edit' ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               {cameraActionKey ? '保存中' : '保存'}

@@ -1,0 +1,34 @@
+"""固定事业部目录；增删或改名只在开发阶段修改此注册表。
+
+功能归属由各功能的 FeatureSpec.departments 声明，此处不维护功能映射。
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import MappingProxyType
+
+
+@dataclass(frozen=True)
+class DepartmentSpec:
+    name: str
+    display_name: str
+
+
+DEPARTMENT_SPECS = MappingProxyType({
+    spec.name: spec
+    for spec in (
+        DepartmentSpec("general_electric", "通用电气"),
+        DepartmentSpec("research_institute", "福达新材院"),
+        DepartmentSpec("electronics_electrician", "电子电工"),
+        DepartmentSpec("electrical_components", "电气部件事业部"),
+        DepartmentSpec("precious_metal_recycling", "伟达公司"),
+        DepartmentSpec("haoda_company", "皓达公司"),
+    )
+})
+
+
+def require_department(name: str) -> str:
+    """只接受注册表中的部门编码，不创建部门或转换历史别名。"""
+    if not isinstance(name, str) or name not in DEPARTMENT_SPECS:
+        raise ValueError(f"unknown department: {name!r}")
+    return name

@@ -1,173 +1,182 @@
-# 文件说明：实现模型相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+"""
+/platform/inference/model_paths.py
+本机模型路径配置。
 
-"""本机模型路径配置。
-
-模型文件路径会随部署服务器变化，不能依赖数据库中的 ai_model.path。
 这里按模型 name 读取本机配置文件，作为 worker 实际加载模型时唯一的路径来源。
 """
 from __future__ import annotations
 
+import fcntl
 import json
-from dataclasses import dataclass
+import os
+import stat
+import tempfile
+import threading
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
-from AiVision.core.logger import logger
+import yaml
+from yaml.nodes import MappingNode, ScalarNode
+
 from AiVision.core.settings import settings
-
-try:
-    import yaml
-except Exception:  # pragma: no cover - 仅在缺少 PyYAML 的环境下触发
-    yaml = None
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PATH_LOCK = threading.RLock()
 
 
-# 功能：定义 `ModelPathResolution` 类，封装模型相关的状态、约束与操作
-# 参数：
-#   - `path`（str）：目标路径
-#   - `source`（str）：`source` 对应的业务输入值
-#   - `database_path`（str）：`database_path` 对应的业务输入值
-# 返回：ModelPathResolution；返回新建的 `ModelPathResolution` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `resolve_model_path` 实例化本符号
-#   - 内部调用：`dataclass`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@dataclass(frozen=True)
-class ModelPathResolution:
-    path: str
-    source: str
-    database_path: str
-
-
-# 功能：计算或解析 `_resolve_config_path` 对应的模型逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path_value`（str）：`path_value` 对应的业务输入值
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `load_model_path_overrides` 调用本符号
-#   - 内部调用：`Path(path_value).expanduser`、`Path`、`path.is_absolute`、`(_PROJECT_ROOT / path).resolve`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _resolve_config_path(path_value: str) -> Path:
+    """model_paths.yaml这个配置文件在哪里"""
     path = Path(path_value).expanduser()
-    if path.is_absolute():
-        return path
-    return (_PROJECT_ROOT / path).resolve()
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    path = path.resolve()
+    if path.suffix.lower() not in {".yaml", ".yml"}:
+        raise ValueError("MODEL_PATHS_CONFIG 必须指向 YAML 文件")
+    return path
 
 
-# 功能：读取或查询 `_read_config` 对应的模型逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path`（Path）：目标路径
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `load_model_path_overrides` 调用本符号
-#   - 内部调用：`path.exists`、`path.suffix.lower`、`json.loads`、`path.read_text`、`logger.warning`、`yaml.safe_load`、`isinstance`。
-# 副作用/注意事项：会向日志系统输出运行或异常信息。
-def _read_config(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
+def _mapping(node: yaml.Node) -> dict[str, yaml.Node]:
+    if not isinstance(node, MappingNode):
+        raise ValueError("模型路径配置必须使用 YAML mapping")
+    result = {}
+    for key, value in node.value:
+        if not isinstance(key, ScalarNode) or key.tag != "tag:yaml.org,2002:str":
+            raise ValueError("模型路径配置的键必须是字符串")
+        if key.value in result:
+            raise ValueError(f"模型路径配置存在重复键: {key.value}")
+        result[key.value] = value
+    return result
 
+
+def _read_document(path: Path) -> tuple[str, MappingNode | None]:
+    source = path.read_text(encoding="utf-8") if path.exists() else ""
     try:
-        if path.suffix.lower() == ".json":
-            data = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            if yaml is None:
-                logger.warning(f"[ModelPaths] PyYAML 未安装，无法读取 YAML 配置: {path}")
-                return {}
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.warning(f"[ModelPaths] 读取本地模型路径配置失败 {path}: {exc}")
-        return {}
+        if any(isinstance(token, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken))
+               for token in yaml.scan(source)):
+            raise ValueError("模型路径配置不支持 YAML anchor / alias")
+        root = yaml.compose(source, Loader=yaml.SafeLoader)
+        if root is not None:
+            entries = _mapping(root)
+            if "models" not in entries:
+                raise ValueError("模型路径配置缺少 models mapping")
+            for model in _mapping(entries["models"]).values():
+                fields = _mapping(model)
+                value = fields.get("path")
+                if value is not None and (
+                    not isinstance(value, ScalarNode) or value.tag != "tag:yaml.org,2002:str"
+                ):
+                    raise ValueError("模型 path 必须是字符串")
+        return source, root
+    except yaml.YAMLError as exc:
+        raise ValueError(f"模型路径 YAML 无效: {exc}") from exc
 
-    return data if isinstance(data, dict) else {}
 
-
-# 功能：读取本机模型路径覆盖表，返回 {model_name: path}；输入与输出详见下方说明
-# 参数：无。
-# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `resolve_model_path` 调用本符号
-#   - 内部调用：`_resolve_config_path`、`_read_config`、`raw.get`、`isinstance`、`section.items`、`item.get`、`path_value.strip`、`str`、`logger.info`、`',
-#          '.join` 等共 12 个调用。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
+# 第一次读取YAML后，就把结果缓存起来
 @lru_cache(maxsize=1)
-def load_model_path_overrides() -> dict[str, str]:
-    """读取本机模型路径覆盖表，返回 {model_name: path}。"""
+def _load_model_paths() -> dict[str, str]:
+    """读取 models.<name>.path；保存后显式清除此缓存。"""
+    _, root = _read_document(_resolve_config_path(settings.model_paths.config_path))
+    if root is None:
+        return {}
+    return {
+        name: fields["path"].value.strip()
+        for name, node in _mapping(_mapping(root)["models"]).items()
+        if "path" in (fields := _mapping(node))
+    }
+
+
+def load_model_paths() -> dict[str, str]:
+    with _PATH_LOCK:
+        return dict(_load_model_paths())
+
+
+def clear_model_paths_cache() -> None:
+    with _PATH_LOCK:
+        _load_model_paths.cache_clear()
+
+
+def validate_model_path(value: str) -> str:
+    if not value.strip() or any(ord(char) < 32 for char in value):
+        raise ValueError("模型路径不能为空或包含控制字符")
+    path = Path(value.strip()).expanduser()
+    if not path.is_absolute():
+        raise ValueError("请提供当前服务器上的绝对模型文件路径")
+    try:
+        path = path.resolve(strict=True)
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError("模型路径必须指向非空的普通文件")
+        with path.open("rb") as stream:
+            stream.read(1)
+    except OSError as exc:
+        raise ValueError(f"模型文件不存在或不可读: {exc}") from exc
+    return str(path)
+
+
+def _insert_entry(source: str, node: MappingNode, entry: str) -> str:
+    if node.flow_style:
+        if not node.value:
+            replacement = json.dumps(yaml.safe_load(entry), ensure_ascii=False)
+            return source[:node.start_mark.index] + replacement + source[node.end_mark.index:]
+        raise ValueError("新增模型路径时请使用块状 models mapping，不能使用内联 mapping")
+    lines = source.splitlines(keepends=True)
+    offset = (len(source) if node.end_mark.index == len(source)
+              else sum(len(line) for line in lines[:node.end_mark.line]))
+    if offset and not source[:offset].endswith("\n"):
+        entry = "\n" + entry
+    return source[:offset] + entry + source[offset:]
+
+
+def _updated_document(source: str, root: MappingNode | None, name: str, path: str) -> str:
+    scalar = json.dumps(path, ensure_ascii=False)
+    if root is None:
+        prefix = source + ("\n" if source and not source.endswith("\n") else "")
+        return prefix + f"models:\n  {name}:\n    path: {scalar}\n"
+    models = _mapping(root)["models"]
+    entries = _mapping(models)
+    if name not in entries:
+        indent = " " * models.start_mark.column
+        return _insert_entry(source, models, f"{indent}{name}:\n{indent}  path: {scalar}\n")
+    model = entries[name]
+    fields = _mapping(model)
+    if "path" not in fields:
+        return _insert_entry(source, model, f"{' ' * model.start_mark.column}path: {scalar}\n")
+    node = fields["path"]
+    # 只替换目标 scalar，保留手写注释及其他模型配置。
+    if node.style in {"|", ">"}:
+        scalar += "\n"
+    return source[:node.start_mark.index] + scalar + source[node.end_mark.index:]
+
+
+def save_model_path(name: str, value: str) -> str:
+    from .model_registry import get_model_spec
+
+    get_model_spec(name)
+    model_path = validate_model_path(value)
     config_path = _resolve_config_path(settings.model_paths.config_path)
-    raw = _read_config(config_path)
-    section = raw.get("models") or raw.get("model_paths") or raw
-
-    overrides: dict[str, str] = {}
-    if not isinstance(section, dict):
-        return overrides
-
-    for model_name, item in section.items():
-        path_value = item.get("path") if isinstance(item, dict) else item
-        if not isinstance(path_value, str):
-            continue
-        path_value = path_value.strip()
-        if path_value:
-            overrides[str(model_name)] = path_value
-
-    if overrides:
-        logger.info(
-            f"[ModelPaths] 已加载本地模型路径配置 {config_path}，覆盖模型: {', '.join(sorted(overrides))}"
-        )
-    return overrides
-
-
-# 功能：返回模型实际加载路径；输入与输出详见下方说明
-# 参数：
-#   - `model_cfg`（dict[str, Any]）：`model_cfg` 对应的业务输入值
-# 返回：ModelPathResolution；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/model_paths.py` 的 `apply_model_path_override` 调用本符号；`AiVision/platform/inference/config_manager.py`
-#         的 `ModelConfigManager::_to_dict` 调用本符号
-#   - 内部调用：`str`、`model_cfg.get`、`load_model_path_overrides().get`、`load_model_path_overrides`、`ModelPathResolution`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def resolve_model_path(model_cfg: dict[str, Any]) -> ModelPathResolution:
-    """返回模型实际加载路径。
-
-    只使用本机配置文件中的路径；缺失时不再回退数据库 path。
-    """
-    name = str(model_cfg.get("name") or "")
-    database_path = str(model_cfg.get("path") or "")
-    override_path = load_model_path_overrides().get(name)
-    if override_path:
-        return ModelPathResolution(
-            path=override_path,
-            source="local_config",
-            database_path=database_path,
-        )
-    return ModelPathResolution(
-        path="",
-        source="missing_local_config",
-        database_path=database_path,
-    )
-
-
-# 功能：复制模型配置，并把 path 替换成 worker 应加载的本机路径；输入与输出详见下方说明
-# 参数：
-#   - `model_cfg`（dict[str, Any]）：`model_cfg` 对应的业务输入值
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/base_worker.py` 的 `BaseModelWorker::__init__` 调用本符号
-#   - 内部调用：`resolve_model_path`、`str`、`model_cfg.get`、`RuntimeError`、`dict`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def apply_model_path_override(model_cfg: dict[str, Any]) -> dict[str, Any]:
-    """复制模型配置，并把 path 替换成 worker 应加载的本机路径。"""
-    resolution = resolve_model_path(model_cfg)
-    if not resolution.path:
-        name = str(model_cfg.get("name") or "<unknown>")
-        raise RuntimeError(
-            f"模型 {name} 未在本机模型路径配置中设置 path；"
-            f"请检查 MODEL_PATHS_CONFIG 指向的配置文件。"
-        )
-    next_cfg = dict(model_cfg)
-    next_cfg["database_path"] = resolution.database_path
-    next_cfg["path"] = resolution.path
-    next_cfg["path_source"] = resolution.source
-    return next_cfg
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with _PATH_LOCK, config_path.with_suffix(config_path.suffix + ".lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        source, root = _read_document(config_path)
+        updated = _updated_document(source, root, name, model_path)
+        parsed = yaml.safe_load(updated)
+        if parsed["models"][name]["path"] != model_path:
+            raise ValueError("模型路径配置更新校验失败")
+        mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o600
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=config_path.parent,
+                prefix=f".{config_path.name}.", suffix=".tmp", delete=False,
+            ) as stream:
+                temporary = Path(stream.name)
+                os.fchmod(stream.fileno(), mode)
+                stream.write(updated)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, config_path)
+            clear_model_paths_cache()
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return model_path

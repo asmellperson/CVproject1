@@ -200,33 +200,8 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "security_vlm_error": {"name": "安检判定错误"},
 }
 
-AIVISION_EVENT_TYPE_ALIASES = {
-    "detect_human_haoda": "detect_human",
-    "detect_logistics_single_person_electronics_electrician": "detect_logistics_single_person",
-    "detect_logistics_single_person_electrical_components": "detect_logistics_single_person",
-    "detect_logistics_single_person_precious_metal_recycling": "detect_logistics_single_person",
-}
 
-AIVISION_FEATURE_DEPARTMENTS = {
-    "blocks": "research_institute",
-    "detect_door": "general_electric",
-    "detect_phone": "research_institute",
-    "detect_face": "research_institute",
-    "detect_human": "general_electric",
-    "detect_human_haoda": "haoda_company",
-    "detect_logistics_single_person": "general_electric",
-    "detect_logistics_single_person_electronics_electrician": "electronics_electrician",
-    "detect_logistics_single_person_electrical_components": "electrical_components",
-    "detect_logistics_single_person_precious_metal_recycling": "precious_metal_recycling",
-}
 
-LEGACY_VIOLATION_TYPE_ALIASES = {7: 6, 8: 6, 9: 6, 10: 5}
-LEGACY_VIOLATION_CONTEXT = {
-    7: ("detect_logistics_single_person_electronics_electrician", "electronics_electrician"),
-    8: ("detect_logistics_single_person_electrical_components", "electrical_components"),
-    9: ("detect_logistics_single_person_precious_metal_recycling", "precious_metal_recycling"),
-    10: ("detect_human_haoda", "haoda_company"),
-}
 
 GUARD_EVENT_META: dict[str, dict[str, str]] = {
     "absent": {"event_type": "guard_absent", "event_label": "保安离岗"},
@@ -644,29 +619,10 @@ def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     subject_type = str(alarm.get("subject_type") or "camera")
     is_channel = subject_type == "logistics_channel"
     raw_event_type = str(alarm.get("event_type") or "unknown")
-    raw_violation_type = alarm.get("violation_type")
-    try:
-        raw_violation_type_number = int(raw_violation_type) if raw_violation_type is not None else None
-        violation_type = LEGACY_VIOLATION_TYPE_ALIASES.get(
-            raw_violation_type_number,
-            raw_violation_type_number,
-        ) if raw_violation_type is not None else None
-    except (TypeError, ValueError, OverflowError):
-        raw_violation_type_number = None
-        violation_type = None
-    legacy_context = LEGACY_VIOLATION_CONTEXT.get(raw_violation_type_number)
-    feature_name = str(
-        alarm.get("feature_name")
-        or (legacy_context[0] if legacy_context else "")
-        or raw_event_type
-    )
-    event_type = AIVISION_EVENT_TYPE_ALIASES.get(raw_event_type, raw_event_type)
-    department = (
-        alarm.get("department")
-        or metadata.get("department")
-        or (legacy_context[1] if legacy_context else "")
-        or AIVISION_FEATURE_DEPARTMENTS.get(feature_name)
-    )
+    violation_type = alarm.get("violation_type")
+    feature_name = alarm.get("feature_name")
+    event_type = raw_event_type
+    department = alarm.get("department")
 
     channel_id_value = alarm.get("channel_id") or alarm.get("subject_id") or metadata.get("channel_id")
     channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
@@ -1491,7 +1447,7 @@ def _service_status(name: str, url: str, online: bool, latency_ms: float | None,
         **extra,
     }
 
-
+# 读取请求体以及发送上游HTTP，都属于I/O操作，因此使用异步函数来处理请求转发，避免阻塞事件循环，提高并发性能。
 # 功能：实现 `_proxy` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `request`（Request）：当前 HTTP 请求及上下文
@@ -1508,9 +1464,9 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
     body = await request.body()
     try:
         upstream = await request.app.state.proxy_client.send(
-            method=request.method,
+            method=request.method,      #前端发送的method
             url=url,
-            body=body,
+            body=body,                  
             headers=_request_headers(request),
         )
     except ProxyRequestError as exc:
@@ -2155,6 +2111,7 @@ def create_app() -> FastAPI:
         )
         return _build_alarm_statistics(alarms, days=days)
 
+    # 后面不管跟什么路径，我全接住（统一后端没有做处理手机的配置，只做(收到请求->原样转发->AiVision）
     # 功能：实现 `proxy_aivision_root_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `path`（str）：目标路径

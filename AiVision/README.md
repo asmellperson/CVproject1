@@ -52,8 +52,7 @@ GET    /api/features/{feature}/configs/{shm_name}
 PUT    /api/features/{feature}/configs/{shm_name}
 GET    /api/features/{feature}/cameras/{key}/status
 GET    /api/models
-POST   /api/models
-PATCH  /api/models/{model_id}
+PATCH  /api/models/{model_name}/path
 GET    /api/alarms
 GET    /api/alarms/{alarm_id}/image
 GET    /api/alarms/{alarm_id}/video
@@ -63,9 +62,19 @@ GET    /api/departments/{name}/features
 
 ## 模型配置
 
-推理 Worker 仍从数据库 `ai_model` 表读取模型名称、`import_path` 和 `description`，
-但模型文件路径只从本机配置文件读取，不再回退数据库 `ai_model.path`。
-这样同一套数据库部署到不同服务器时，只需要调整每台机器自己的本机配置文件。
+模型名称、Worker 类和推理参数固定注册在 `platform/inference/model_registry.py`。
+模型文件路径只从本机 YAML 配置读取，不再依赖 `ai_model` 表。
+相同物理权重由多个逻辑模型共享一个 Worker，保留各自的类别过滤与结果标签。
+
+管理员通过 `PATCH /api/models/{model_name}/path` 保存路径；接口校验本机文件，
+保留 YAML 注释并原子写入、清除路径缓存，返回 HTTP 202 与
+`configuration_saved=true`。重载在后台进行，通过 `GET /api/models` 查询
+`reload.status`（`loading/succeeded/failed`）及真实 `runtime` 状态。
+服务未启动时返回 `not_started`，不把配置保存当成模型加载成功。
+修改共享权重的路径会重载相关逻辑模型，不会替换 Consumer 持有的队列。
+
+旧数据库中的 `ai_model` 表不再创建、读取或修改；升级不自动 DROP 历史表。
+确认没有旧版本服务使用该表并备份后，可由数据库维护流程删除。
 
 本机配置：
 
@@ -87,16 +96,7 @@ models:
     path: /path/to/yolov8x-face.pt
 ```
 
-数据库中的 `import_path` 建议统一指向：
-
-```text
-AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker
-```
-
-`description` 字段使用 JSON 控制类别过滤，例如：
-
-```json
-{"class_filter":[1],"type_label":"phone","conf":0.7}
-```
+固定注册项直接引用 Worker 类，并通过 `class_filter`、`type_label`、`conf`、`iou`
+明确声明推理参数，不再解析数据库导入路径或 description JSON。
 
 详细迁移步骤见 `MIGRATION.md`。

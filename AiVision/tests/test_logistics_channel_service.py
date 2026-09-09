@@ -19,6 +19,7 @@ from AiVision.features import all_specs
 from AiVision.platform.alarm_device.orm import AiHornConfig
 from AiVision.platform.camera.orm import AiCameraConfig
 from AiVision.platform.camera.config_manager import CameraConfigManager
+from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.platform.logistics_channel.constants import (
     DEFAULT_STATUS_STALE_SECONDS,
     LOGISTICS_FEATURES,
@@ -1519,6 +1520,163 @@ def test_camera_config_manager_create_camera_allows_missing_shm_name_and_keeps_r
     assert all(enabled is False for enabled in result["functions"].values())
 
 
+def test_camera_create_inserts_default_features_without_selecting_them(service_db):
+    selects = []
+
+    def track_selects(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(service_db.engine, "before_cursor_execute", track_selects)
+    try:
+        with service_db.factory() as session:
+            camera = service_db.camera_config_manager.create_camera_record(session, {
+                "name": "direct-defaults", "url": "rtsp://example/defaults",
+            })
+            camera_id = camera.id
+            session.commit()
+    finally:
+        event.remove(service_db.engine, "before_cursor_execute", track_selects)
+
+    for spec in all_specs().values():
+        assert not any(spec.orm_class.__tablename__ in sql for sql in selects)
+        with service_db.factory() as session:
+            config = session.query(spec.orm_class).filter_by(camera_id=camera_id).one()
+            assert config.enable is False
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, camera_id).function_config == {}
+
+
+def test_camera_create_feature_unique_conflict_rolls_back_camera(service_db, monkeypatch):
+    import AiVision.platform.camera.config_manager as module
+
+    spec = next(iter(all_specs().values()))
+    monkeypatch.setattr(module, "all_specs", lambda: {"first": spec, "duplicate": spec})
+    with pytest.raises(ValueError, match="约束冲突"):
+        service_db.camera_config_manager.create_camera({
+            "name": "feature-conflict", "url": "rtsp://example/conflict",
+        })
+    with service_db.factory() as session:
+        assert session.query(AiCameraConfig).count() == 0
+        assert session.query(spec.orm_class).count() == 0
+    assert service_db.notifications == []
+
+
+def test_camera_enabled_boundary_and_single_refresh(service_db):
+    manager = service_db.camera_config_manager
+    camera = manager.create_camera({
+        "name": "enabled-boundary", "url": "rtsp://example/enabled", "enable": False,
+    })
+    assert camera["enabled"] is True
+    assert len([item for item in service_db.notifications if item[:2] == ("cache", "feature")]) == len(all_specs())
+
+    service_db.notifications.clear()
+    updated = manager.update_camera(camera["shm_name"], {"enabled": False, "enable": True})
+    assert updated["enabled"] is False
+    assert service_db.notifications[0] == ("cache", "camera", camera["camera_id"])
+    assert len(service_db.notifications) == 2
+    assert service_db.notifications[1][1].new_value["enabled"] is False
+    assert manager.update_camera(camera["shm_name"], {"enable": True})["enabled"] is False
+
+
+def test_ensure_feature_configs_only_fills_missing_disabled_rows(service_db):
+    camera_id = _seed_camera(service_db, "ensure-defaults", enabled_features=("detect_human",))
+    missing_spec = all_specs()["detect_phone"]
+    with service_db.factory() as session:
+        session.query(missing_spec.orm_class).filter_by(camera_id=camera_id).delete()
+        session.commit()
+    assert service_db.camera_config_manager.ensure_feature_configs() == 1
+    assert service_db.camera_config_manager.ensure_feature_configs() == 0
+    with service_db.factory() as session:
+        assert session.query(missing_spec.orm_class).filter_by(camera_id=camera_id).one().enable is False
+        assert session.query(all_specs()["detect_human"].orm_class).filter_by(camera_id=camera_id).one().enable is True
+    with pytest.raises(TypeError):
+        service_db.camera_config_manager.ensure_feature_configs(enable_all=True)
+
+
+@pytest.mark.parametrize("key,expected_id", [
+    ("camera_12", 5), ("warehouse", 12), ("12", 30), ("5", 5),
+    ("camera_30", 30), ("  warehouse  ", 12), ("unknown", None), ("", None), ("²", None),
+    (12, 12), (5, 5), (999, None),
+])
+def test_camera_and_feature_key_precedence_agree(service_db, key, expected_id):
+    with service_db.factory() as session:
+        session.add_all([
+            AiCameraConfig(id=5, name="A", shm_name="camera_12", url="synthetic"),
+            AiCameraConfig(id=12, name="camera_12", shm_name="warehouse", url="synthetic"),
+            AiCameraConfig(id=20, name="warehouse", shm_name="twenty", url="synthetic"),
+            AiCameraConfig(id=30, name="12", shm_name="thirty", url="synthetic"),
+        ])
+        session.commit()
+        for resolve in (CameraConfigManager._get_orm_by_key, FeatureConfigManager._get_camera_by_key):
+            camera = resolve(session, key)
+            assert (camera.id if camera is not None else None) == expected_id
+
+
+def test_camera_delete_cleans_legacy_feature_rows_before_event(service_db, monkeypatch):
+    import AiVision.platform.camera.config_manager as camera_module
+    from AiVision.core.cache import ConfigCache
+    import AiVision.core.cache as cache_module
+
+    camera_id = _seed_camera(service_db, "delete-target")
+    other_id = _seed_camera(service_db, "delete-survivor")
+    with service_db.engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 0
+    spec = next(iter(all_specs().values()))
+    orphan_id = 9999
+    with service_db.factory() as session:
+        session.add(spec.orm_class(camera_id=orphan_id, enable=False))
+        session.commit()
+
+    cache = ConfigCache()
+    monkeypatch.setattr(cache_module, "get_session", service_db.factory)
+    cache.init()
+    monkeypatch.setattr(camera_module, "config_cache", cache)
+    monkeypatch.setattr(cache, "reload", lambda: pytest.fail("single delete must not reload all cameras"))
+    events = []
+
+    def observe(event_value):
+        assert cache.get_camera_config(camera_id) is None
+        assert not any(key[0] == camera_id for key in cache.get_all_function_configs())
+        with service_db.factory() as session:
+            assert session.get(AiCameraConfig, camera_id) is None
+            for feature in all_specs().values():
+                assert session.query(feature.orm_class).filter_by(camera_id=camera_id).count() == 0
+        events.append(event_value)
+
+    monkeypatch.setattr(camera_module.config_event_bus, "publish", observe)
+    assert service_db.camera_config_manager.delete_camera("delete-target") is True
+    assert [item.change_type for item in events] == ["camera_removed"]
+    assert cache.get_camera_config(other_id) is not None
+    assert cache.get_function_config(orphan_id, spec.name) is not None
+    with service_db.factory() as session:
+        assert session.query(spec.orm_class).filter_by(camera_id=orphan_id).count() == 1
+    assert service_db.camera_config_manager.delete_camera("delete-target") is False
+    assert len(events) == 1
+
+
+def test_camera_delete_feature_failure_rolls_back_entire_transaction(service_db):
+    camera_id = _seed_camera(service_db, "delete-rollback")
+    table = list(all_specs().values())[1].orm_class.__tablename__
+
+    def fail_delete(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("DELETE") and table in statement:
+            raise RuntimeError("synthetic feature delete failure")
+
+    event.listen(service_db.engine, "before_cursor_execute", fail_delete)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic feature delete"):
+            service_db.camera_config_manager.delete_camera("delete-rollback")
+    finally:
+        event.remove(service_db.engine, "before_cursor_execute", fail_delete)
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, camera_id) is not None
+        for spec in all_specs().values():
+            assert session.query(spec.orm_class).filter_by(camera_id=camera_id).count() == 1
+    assert service_db.notifications == []
+
+
 # 功能：验证 `test_camera_config_manager_create_camera_for_feature_enables_only_target_atomically` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
@@ -2422,3 +2580,54 @@ def test_detail_response_adapts_orm_flat_fields_and_camera_relationship():
     assert response.config.alarm.horn.horn_id == 3
     assert response.config.alarm.wechat.user == "operator"
     assert response.members[0].camera_id == 9
+
+
+@pytest.mark.parametrize("department", ["unknown", "all", " general_electric"])
+def test_camera_api_rejects_unregistered_department_without_writes(service_db, department):
+    from fastapi import HTTPException
+    from AiVision.api.cameras import CameraCreateRequest, CameraUpdateRequest, create_camera, patch_camera
+
+    manager = service_db.camera_config_manager
+    with pytest.raises(HTTPException) as error:
+        create_camera(
+            CameraCreateRequest(name="invalid", url="rtsp://example/invalid", shm_name="invalid", department=department),
+            _user={"role": "admin"}, camera_config_manager=manager,
+        )
+    assert error.value.status_code == 400
+    with service_db.factory() as session:
+        assert session.query(AiCameraConfig).count() == 0
+    camera_id = _seed_camera(service_db, "existing")
+    service_db.notifications.clear()
+    with pytest.raises(HTTPException) as error:
+        patch_camera(
+            str(camera_id), CameraUpdateRequest(department=department),
+            _user={"role": "admin"}, camera_config_manager=manager,
+        )
+    assert error.value.status_code == 400
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, camera_id).department == "general_electric"
+    assert service_db.notifications == []
+
+
+def test_camera_create_and_update_can_select_every_registered_department(service_db):
+    from AiVision.platform.department.department_registry import DEPARTMENT_SPECS
+
+    manager = service_db.camera_config_manager
+    for index, department in enumerate(DEPARTMENT_SPECS):
+        camera = manager.create_camera({
+            "name": f"registered-{index}", "url": "rtsp://example/camera", "department": department,
+        })
+        assert camera["department"] == department
+        updated = manager.update_camera(camera["shm_name"], {"department": "research_institute"})
+        assert updated["department"] == "research_institute"
+
+
+def test_camera_without_explicit_department_keeps_legacy_feature_fallback(service_db):
+    from AiVision.platform.camera.config_manager import camera_access_departments
+
+    manager = service_db.camera_config_manager
+    camera = manager.create_camera_for_feature("detect_phone", {
+        "name": "legacy-phone", "url": "rtsp://example/phone", "department": "research_institute",
+    })
+    updated = manager.update_camera(camera["shm_name"], {"department": None})
+    assert camera_access_departments(updated) == set(all_specs()["detect_phone"].departments)

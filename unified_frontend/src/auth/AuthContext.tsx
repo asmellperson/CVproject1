@@ -13,7 +13,6 @@ async function readError(response: Response) {
     return text || `${response.status} ${response.statusText}`
   }
 }
-
 async function fetchCurrentUser() {
   const response = await fetch('/api/auth/me', {
     method: 'GET',

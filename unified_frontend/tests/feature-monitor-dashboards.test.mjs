@@ -132,7 +132,7 @@ test('opts the four pages into the approved shell while preserving configuration
     assert.match(source, new RegExp(`subtitle="${subtitle}"`))
     assert.match(source, /presentation="feature-dashboard"/)
     assert.match(source, /bg-\[#F3F5FA\]/)
-    assert.match(source, /DetectionConfigTabsList/)
+    assert.match(source, /DetectionConfigTabs/)
     for (const binding of [
       'loadConfig', 'loadCameras', 'saveConfig', 'addCameraToFeature', 'removeCameraFromFeature',
       'FeatureCameraManager', 'AiVisionRoiEditor', 'AiVisionModelConfig', 'AlarmPushConfig',

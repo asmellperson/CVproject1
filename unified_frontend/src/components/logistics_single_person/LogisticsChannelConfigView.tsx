@@ -1,3 +1,6 @@
+import { toFeatureAlarm, toLogisticsAlarm } from './alarmBinding'
+import { validateHornBinding } from '@/lib/horn-alarm-binding'
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Bell, Camera, Crosshair, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 
@@ -8,7 +11,6 @@ import {
   DetectionConfigCardContent,
   DetectionConfigCardHeader,
   DetectionConfigTab,
-  DetectionConfigTabsList,
   DetectionSaveBar,
 } from '@/components/detection/DetectionConfigUi'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { TabsContent } from '@/components/ui/tabs'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 
 import {
@@ -296,6 +298,8 @@ export function LogisticsChannelConfigView({
 
   const saveChannel = () => {
     if (!selectedChannelDetail || !config) return
+    const hornError = validateHornBinding(toFeatureAlarm(config.alarm).horn)
+    if (hornError) { setMessage(hornError); return }
     void run(() => updateLogisticsChannel(feature, selectedChannelDetail.id, {
       name: channelName.trim(),
       config: {
@@ -411,14 +415,15 @@ export function LogisticsChannelConfigView({
     <div className="space-y-5">
       {!isAdmin ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">当前为 viewer 只读模式，只有管理员可以修改物流通道配置。</div> : null}
 
-      <Tabs defaultValue="channels" className="space-y-5">
-        <DetectionConfigTabsList>
+      <DetectionConfigTabs defaultValue="channels" className="space-y-5"
+        tabs={<>
           <DetectionConfigTab value="channels" icon={Layers3}>通道管理</DetectionConfigTab>
           <DetectionConfigTab value="members" icon={Camera}>摄像头</DetectionConfigTab>
           <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
           <DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
           <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
-        </DetectionConfigTabsList>
+        </>}
+      >
 
         <TabsContent value="channels" className="mt-0">
           <Card className={DETECTION_CONFIG_CARD_CLASS}>
@@ -475,7 +480,11 @@ export function LogisticsChannelConfigView({
         </TabsContent>
 
         {!selectedChannelDetail || !config ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">请先在“通道管理”中选择物流通道进行配置。</div>
+          ['members', 'params', 'roi', 'alarm'].map((tab) => (
+            <TabsContent key={tab} value={tab}>
+              <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">请先在“通道管理”中选择物流通道进行配置。</div>
+            </TabsContent>
+          ))
         ) : (
           <>
 
@@ -561,31 +570,20 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
               <AlarmPushConfig
-                alarm={{
-                  wechat: {
-                    enable: config.alarm.wechat.enabled,
-                    parm: { user: config.alarm.wechat.user },
-                  },
-                }}
+                alarm={toFeatureAlarm(config.alarm)}
                 disabled={!isAdmin || busy}
                 saving={busy}
                 message={message}
                 onChange={(alarm) => setConfig({
                   ...config,
-                  alarm: {
-                    ...config.alarm,
-                    wechat: {
-                      enabled: Boolean(alarm.wechat?.enable),
-                      user: alarm.wechat?.parm?.user ?? '',
-                    },
-                  },
+                  alarm: toLogisticsAlarm(alarm),
                 })}
                 onSave={saveChannel}
               />
             </TabsContent>
           </>
         )}
-      </Tabs>
+      </DetectionConfigTabs>
 
       {cameraDialogOpen ? (
         <LogisticsCameraCreateDialog

@@ -27,8 +27,11 @@ type AiVisionRoiEditorProps = {
   saving?: boolean
   message?: string
   minRoiArea?: number
+
   onChange: (roiJson: string) => void
+
   onRegionChange?: (regionJson: string) => void
+
   onSave: () => void
 }
 
@@ -128,7 +131,8 @@ export function AiVisionRoiEditor({
   const canSave = valid && !outOfBounds && !areaTooSmall
 
   useEffect(() => {
-    setPoints(parseRoiPoints(regionJson || roiJson))
+
+setPoints(parseRoiPoints(regionJson || roiJson))
   }, [mode, regionJson, roiJson])
 
   const commitPoints = (nextPoints: Point[]) => {

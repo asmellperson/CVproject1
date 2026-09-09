@@ -44,6 +44,10 @@ def _configure_opencv_threads(thread_count: int) -> int:
     return int(cv2.getNumThreads())   # 实际配置线程数
 
 def main() -> None:
+    """
+    程序启动：init_orchestrator(mp_manager)，Orchestrator.__init__()，orchestrator.start()，
+
+    """
     # 1、解析命令行参数，不传的话就使用配置文件的settings.api.host
     parser = argparse.ArgumentParser(description="AiVision FastAPI Server")
     parser.add_argument("--host", default=None, help="覆盖 API_HOST")

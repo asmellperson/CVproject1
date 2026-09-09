@@ -334,7 +334,7 @@ def test_dispatcher_attaches_pending_shared_evidence_video():
     dispatcher.evidence_recorder = Recorder()
     dispatcher._execute(
         AlarmRequest(
-            feature_name="blocks",
+            feature_name="blocks", department='research_institute',
             camera_id=7,
             camera_name="后大门",
             frame=np.zeros((2, 2, 3), np.uint8),
@@ -390,7 +390,7 @@ def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_defaul
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def request(alarm_config):
         return AlarmRequest(
-            feature_name="detect_logistics_single_person",
+            feature_name="detect_logistics_single_person", department='general_electric',
             camera_id=3,
             camera_name="物流通道一",
             frame=np.zeros((2, 2, 3), np.uint8),
@@ -406,3 +406,26 @@ def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_defaul
     dispatcher._execute(request({"sql": {"enable": True}}))
     dispatcher._execute(request({}))
     assert len(calls) == 2
+
+
+def test_camera_department_reaches_alarm_without_changing_feature_scope(monkeypatch):
+    from AiVision.core.cache import ConfigCache
+    from AiVision.platform.camera.orm import AiCameraConfig
+
+    cache = ConfigCache()
+    camera = AiCameraConfig(id=7, name="camera", shm_name="camera_7", enable=True, department="research_institute")
+    cache._camera_cache[7] = cache._orm_to_dict(camera)
+    cfg = cache._enrich_function_config({
+        "camera_id": 7, "enable": True, "departments": ["research", "general"],
+        "sql_enable": True,
+    })
+    assert cfg["departments"] == ["research", "general"]
+    consumer = DummyConsumer(
+        spec=SimpleNamespace(name="blocks", violation_type=1, departments=("research_institute",)),
+        infer_dict={}, result_queue=None, latest_frames={}, is_camera_active=lambda _key: True,
+    )
+    consumer.config_cache[7] = cfg
+    requests = []
+    monkeypatch.setattr(consumer_module.alarm_dispatcher, "maybe_dispatch", lambda request, **_kwargs: requests.append(request))
+    consumer._handle_alarm(7, [(True, {})], None)
+    assert requests[0].department == "research_institute"

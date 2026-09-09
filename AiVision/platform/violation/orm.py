@@ -1,56 +1,82 @@
-# 文件说明：定义数据库模型的持久化模型、数据库连接或存取能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
+"""
+platform/violation/orm.py
 
-"""platform/violation/orm.py"""
-from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, text
+一条告警事件最终在数据库里保存成什么样
+调用链：
+    Consumer判断违规 -> AlarmDispatcher -> 违规图片和视频 -> AsyncViolationWriter -> AiAlarmEvent -> MySQL表ai_violation_image
+ AiAlarmEvent：
+    ① 基础身份
+        id
+        violation_type
+        feature_name
+        create_time
+
+    ② 证据文件
+        image_path
+        video_path
+        video_status
+
+    ③ 归属/主体
+        department
+        camera_no
+        subject_type
+        subject_id
+        subject_name
+
+    ④ 告警详情
+        reason
+        event_metadata
+    
+"""
+from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, text, event
 from sqlalchemy.dialects.mysql import BIGINT
 from AiVision.core.db import Base
+from .validation import validate_alarm_identity
 
-
-# 功能：定义 `AiAlarmEvent` 类，封装完整告警事件的持久化状态
-# 参数：无。
-# 返回：AiAlarmEvent；返回新建的 `AiAlarmEvent` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/tests/test_violation_media_cleanup.py` 的 `_add_record` 实例化本符号；`AiVision/platform/violation/service.py` 的
-#         `AsyncViolationWriter::save_now` 实例化本符号；`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::_flush_batch`
-#         实例化本符号
-#   - 内部调用：`Column`、`BIGINT`、`String`、`text`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# Python类 AiAlarmEvent <--> 数据库表 ai_violation_image
 class AiAlarmEvent(Base):
-    """完整告警事件；沿用历史表名以保留现有数据。"""
+    """完整告警事件"""
 
     __tablename__ = "ai_violation_image"
     __table_args__ = {
-        "comment": "AI告警事件表（沿用历史表名）",
-        "mysql_engine": "InnoDB",
-        "mysql_charset": "utf8mb4",
+        "comment": "AI告警事件表",
+        "mysql_engine": "InnoDB",     # InnoDB是MySQL存储引擎，支持事务
+        "mysql_charset": "utf8mb4",   # utf8mb4：字符集，可以保存中文、英文、特殊字符、emoji
     }
-
+    # BIGINT：更大的整数空间。unsigned=True：这个整数没有负数
     id = Column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     image_path = Column(String(500), nullable=False, comment="违规图片存储路径")
     video_path = Column(String(500), nullable=True, comment="报警证据视频路径")
+    # pengding:视频还在生成，ready:视频已经生成好了，failed：视频生成失败
     video_status = Column(String(20), nullable=True, comment="视频状态: pending/ready/failed")
+    # SmallInteger告警类型有限
     violation_type = Column(SmallInteger, nullable=False, comment="告警类型枚举")
     feature_name = Column(String(128), nullable=True, comment="触发告警的检测功能")
     department = Column(String(100), nullable=True, comment="告警归属部门")
     camera_no = Column(String(100), nullable=True, comment="摄像头主体的 shm_name")
+    # 告警是什么对象触发的：摄像头或者物流通道
     subject_type = Column(String(50), nullable=True, comment="告警主体类型")
+    # shm_name或者是物流通道的id（给程序识别）
     subject_id = Column(String(128), nullable=True, comment="告警主体ID")
+    # 摄像头的前端显示名称或者是某个物流通道的名称（给人看）
     subject_name = Column(String(255), nullable=True, comment="告警主体名称快照")
     reason = Column(String(50), nullable=True, comment="异常原因")
     event_metadata = Column(JSON, nullable=True, comment="告警结构化元数据")
+    # 告警记录创建时间
     create_time = Column(
         DateTime, nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
 
-    # 功能：实现 `__repr__` 对应的数据库模型逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    def __init__(self, *, violation_type: int, feature_name: str, department: str, **kwargs):
+        validate_alarm_identity(violation_type, feature_name, department)
+        super().__init__(violation_type=violation_type, feature_name=feature_name, department=department, **kwargs)
+
     def __repr__(self):
         return f"<AiAlarmEvent id={self.id} type={self.violation_type}>"
+
+
+@event.listens_for(AiAlarmEvent, "before_insert")
+def _validate_new_alarm(_mapper, _connection, target: AiAlarmEvent) -> None:
+    # 防止对象创建后、真正 INSERT 前被改成缺失或不一致的正式字段；不改变数据库列定义。
+    validate_alarm_identity(target.violation_type, target.feature_name, target.department)

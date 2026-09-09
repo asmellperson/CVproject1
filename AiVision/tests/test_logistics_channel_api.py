@@ -88,7 +88,7 @@ class FakeService:
                         "camera_id": camera_id,
                         "name": f"物流摄像头 {camera_id}",
                         "shm_name": f"camera_{camera_id}",
-                        "department": api.LOGISTICS_FEATURE_DEPARTMENTS[feature],
+                        "department": api.get_logistics_department(feature),
                         "enabled": True,
                         "memberships": [],
                     })

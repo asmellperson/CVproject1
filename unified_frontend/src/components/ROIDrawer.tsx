@@ -60,7 +60,7 @@ export function ROIDrawer({
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggedPoint, setDraggedPoint] = useState<{ roiIndex: number; pointIndex: number } | null>(null);
 
-  const scaleX = 1920 / width;
+const scaleX = 1920 / width;
   const scaleY = 1080 / height;
 
   const draw = useCallback(() => {
@@ -70,15 +70,16 @@ export function ROIDrawer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, width, height);
+ctx.clearRect(0, 0, width, height);
 
-    if (backgroundImage) {
+if (backgroundImage) {
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0, width, height);
       };
       img.src = backgroundImage;
     } else {
+
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(0, 0, width, height);
 
@@ -101,7 +102,7 @@ export function ROIDrawer({
       }
     }
 
-    rois.forEach((roi, roiIndex) => {
+rois.forEach((roi, roiIndex) => {
       const isActive = roiIndex === activeROIIndex;
 
       if (roi.points.length > 0) {
@@ -124,7 +125,7 @@ export function ROIDrawer({
         }
         ctx.stroke();
 
-        roi.points.forEach((point, pointIndex) => {
+roi.points.forEach((point, pointIndex) => {
           ctx.beginPath();
           ctx.arc(point.x, point.y, isActive ? 6 : 4, 0, Math.PI * 2);
           ctx.fillStyle = roi.color;
@@ -133,7 +134,7 @@ export function ROIDrawer({
           ctx.lineWidth = 2;
           ctx.stroke();
 
-          if (isActive) {
+if (isActive) {
             ctx.fillStyle = '#fff';
             ctx.font = '10px sans-serif';
             ctx.textAlign = 'center';
@@ -142,7 +143,7 @@ export function ROIDrawer({
           }
         });
 
-        if (isActive && hoverPoint && !roi.closed && isDrawing) {
+if (isActive && hoverPoint && !roi.closed && isDrawing) {
           ctx.beginPath();
           ctx.setLineDash([5, 5]);
           ctx.strokeStyle = roi.color;
@@ -154,7 +155,7 @@ export function ROIDrawer({
             ctx.lineTo(hoverPoint.x, hoverPoint.y);
           }
 
-          if (roi.points.length > 2) {
+if (roi.points.length > 2) {
             const firstPoint = roi.points[0];
             const dist = Math.sqrt(
               Math.pow(hoverPoint.x - firstPoint.x, 2) +
@@ -170,7 +171,7 @@ export function ROIDrawer({
           ctx.setLineDash([]);
         }
 
-        if (roi.points.length > 0) {
+if (roi.points.length > 0) {
           const firstPoint = roi.points[0];
           ctx.fillStyle = roi.color;
           ctx.font = 'bold 12px sans-serif';
@@ -205,7 +206,7 @@ export function ROIDrawer({
     const point = getCanvasPoint(e);
     const roi = rois[activeROIIndex];
 
-    for (let i = 0; i < roi.points.length; i++) {
+for (let i = 0; i < roi.points.length; i++) {
       const p = roi.points[i];
       const dist = Math.sqrt(Math.pow(point.x - p.x, 2) + Math.pow(point.y - p.y, 2));
       if (dist < 10) {
@@ -216,7 +217,7 @@ export function ROIDrawer({
 
     if (!isDrawing || roi.closed) return;
 
-    if (roi.points.length > 2) {
+if (roi.points.length > 2) {
       const firstPoint = roi.points[0];
       const dist = Math.sqrt(
         Math.pow(point.x - firstPoint.x, 2) +
@@ -228,7 +229,7 @@ export function ROIDrawer({
       }
     }
 
-    const newRois = [...rois];
+const newRois = [...rois];
     newRois[activeROIIndex].points.push(point);
     setRois(newRois);
   };
@@ -304,6 +305,7 @@ export function ROIDrawer({
 
   return (
     <div className="space-y-4">
+
       <div className="flex flex-wrap gap-2">
         {rois.map((roi, index) => (
           <Button
@@ -330,7 +332,7 @@ export function ROIDrawer({
         ))}
       </div>
 
-      <Card className="overflow-hidden">
+<Card className="overflow-hidden">
         <CardContent className="p-0">
           <div className="relative">
             <canvas
@@ -351,7 +353,7 @@ export function ROIDrawer({
               }}
             />
 
-            <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm">
+<div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm">
               <p className="font-medium">{rois[activeROIIndex].name}</p>
               <p className="text-xs text-slate-300">
                 {rois[activeROIIndex].closed
@@ -362,7 +364,7 @@ export function ROIDrawer({
               </p>
             </div>
 
-            {hoverPoint && (
+{hoverPoint && (
               <div className="absolute bottom-4 left-4 bg-black/70 text-white px-2 py-1 rounded text-xs font-mono">
                 ({Math.round(hoverPoint.x * scaleX)}, {Math.round(hoverPoint.y * scaleY)})
               </div>
@@ -371,7 +373,7 @@ export function ROIDrawer({
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap items-center gap-3">
+<div className="flex flex-wrap items-center gap-3">
         {!rois[activeROIIndex].closed ? (
           <>
             {!isDrawing ? (
@@ -444,7 +446,7 @@ export function ROIDrawer({
         </Button>
       </div>
 
-      <Card className="bg-slate-50">
+<Card className="bg-slate-50">
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-slate-700">配置预览 (1920x1080坐标)</span>

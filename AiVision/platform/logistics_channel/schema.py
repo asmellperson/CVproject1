@@ -8,6 +8,7 @@ from datetime import datetime, time
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from AiVision.platform.alarm_device.binding import MAX_HORN_ID
 
 from .constants import (
     DEFAULT_DETECTION_END,
@@ -42,8 +43,8 @@ class LogisticsChannelAlarmChannel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    horn_id: int | None = Field(default=None, gt=0)
-    horn_event_id: int | None = Field(default=None, gt=0)
+    horn_id: int | None = Field(default=None, gt=0, le=MAX_HORN_ID, strict=True)
+    horn_event_id: int | None = Field(default=None, gt=0, le=MAX_HORN_ID, strict=True)
 
     # 功能：检查或判断 `_validate_enabled_horn` 对应的数据结构逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：

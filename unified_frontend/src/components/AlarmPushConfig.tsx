@@ -1,4 +1,6 @@
 import { Bell } from 'lucide-react'
+import { useState } from 'react'
+import { HornAlarmBinding } from '@/components/horn/HornAlarmBinding'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,12 +19,15 @@ type AlarmPushConfigProps = {
   disabled?: boolean
   saving?: boolean
   message?: string
+
   onChange: (alarm: FeatureAlarmConfig) => void
+
   onSave?: () => void
 }
 
 export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, onSave }: AlarmPushConfigProps) {
   const merged = normalizeFeatureAlarmConfig(alarm)
+  const [hornError, setHornError] = useState<string | null>(null)
 
   const updateWechat = (patch: Partial<{ enable: boolean; user: string }>) => {
     onChange({
@@ -44,9 +49,11 @@ export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, on
           icon={Bell}
           tone="amber"
           title="报警推送"
-          description="维护报警总开关及企业微信接收成员，原有提交格式保持不变。"
+          description="维护当前检测配置的企业微信推送与喇叭告警。"
         />
         <DetectionConfigCardContent className="space-y-4">
+          <HornAlarmBinding value={merged.horn} disabled={disabled}
+            onChange={(horn) => onChange({ ...merged, horn })} onValidationChange={setHornError} />
           <label
             htmlFor="feature-wechat-enable"
             className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40"
@@ -77,7 +84,7 @@ export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, on
           </div>
         </DetectionConfigCardContent>
       </Card>
-      {onSave ? <DetectionSaveBar message={message || '修改报警推送后需要保存配置才会生效。'} saving={saving} disabled={disabled} onSave={onSave} /> : null}
+      {onSave ? <DetectionSaveBar message={message || '修改报警推送后需要保存配置才会生效。'} saving={saving} disabled={disabled || Boolean(hornError)} onSave={() => { if (!hornError) onSave() }} /> : null}
     </>
   )
 }

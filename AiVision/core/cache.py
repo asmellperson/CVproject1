@@ -1,6 +1,3 @@
-# 文件说明：实现`cache` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 core/cache.py
 功能配置内存缓存 — 避免每次推理/告警循环反复查数据库。
@@ -19,14 +16,6 @@ from typing import Optional
 from AiVision.core.db import get_session
 from AiVision.core.logger import logger
 
-
-# 功能：摄像头基础信息 + 功能配置的进程内内存缓存；输入与输出详见下方说明
-# 参数：无。
-# 返回：ConfigCache；返回新建的 `ConfigCache` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ConfigCache:
     """
     摄像头基础信息 + 功能配置的进程内内存缓存。
@@ -44,35 +33,18 @@ class ConfigCache:
         Consumer 可直接使用，无需二次查摄像头表。
 
     线程安全:
-        写操作（init/reload/refresh_*）通过 _lock 保护；
+        单条刷新及 reload 清空缓存时通过 _lock 保护；init 全量加载不持锁；
         读操作（get_*）不加锁，依赖 CPython GIL 保证字典读取的原子性。
     """
 
-    # 功能：初始化或配置 `__init__` 对应的`cache` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`threading.Lock`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self):
         # {camera_id: dict} — 摄像头基础信息，由 _load_cameras() 填充
         self._camera_cache: dict[int, dict] = {}
         # {(camera_id, feature_name): dict} — 功能配置，由 _load_function_configs() 填充
-        self._function_cache: dict[tuple[int, str], dict] = {}
+        self._function_cache: dict[tuple[int, str], dict] = {}  # 缓存层将摄像头配置和Feature配置合并为完整运行配置
         self._lock = threading.Lock()   # 保护缓存字典的写操作
         self._initialized = False       # 防止 init() 被重复调用
 
-    # 功能：启动时一次性全量加载，须在 features 注册表初始化完成后调用；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::reload` 调用本符号；`AiVision/platform/orchestrator.py` 的 `Orchestrator::start`
-    #         调用本符号
-    #   - 内部调用：`logger.info`、`self._load_cameras`、`self._load_function_configs`、`len`。
-    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def init(self):
         """
         启动时一次性全量加载，须在 features 注册表初始化完成后调用。
@@ -84,6 +56,7 @@ class ConfigCache:
         if self._initialized:
             return
         logger.info("[ConfigCache] 正在初始化缓存...")
+        # 先加载摄像头，再加载功能配置
         self._load_cameras()
         self._load_function_configs()
         self._initialized = True
@@ -92,14 +65,6 @@ class ConfigCache:
             f"{len(self._function_cache)} 个功能配置"
         )
 
-    # 功能：清空并全量重载所有缓存；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._camera_cache.clear`、`self._function_cache.clear`、`self.init`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def reload(self):
         """
         清空并全量重载所有缓存。
@@ -117,14 +82,6 @@ class ConfigCache:
     #  摄像头缓存                                                           #
     # ------------------------------------------------------------------ #
 
-    # 功能：从数据库全量加载摄像头基础配置到 _camera_cache；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::init` 调用本符号
-    #   - 内部调用：`get_session`、`session.query(AiCameraConfig).all`、`session.query`、`self._orm_to_dict`、`session.close`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _load_cameras(self):
         """从数据库全量加载摄像头基础配置到 _camera_cache。"""
         from AiVision.platform.camera.orm import AiCameraConfig
@@ -135,46 +92,33 @@ class ConfigCache:
         finally:
             session.close()
 
-    # 功能：按 camera_id 查询摄像头配置，未命中时返回 None；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（int）：摄像头唯一标识
-    # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._camera_cache.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_camera_config(self, camera_id: int) -> Optional[dict]:
         """按 camera_id 查询摄像头配置，未命中时返回 None。"""
         return self._camera_cache.get(camera_id)
 
-    # 功能：单条热更新摄像头缓存；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（int）：摄像头唯一标识
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_session`、`session.query(AiCameraConfig).get`、`session.query`、`self._camera_cache.pop`、`self._orm_to_dict`、`logger.info`、`session.close`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def refresh_camera(self, camera_id: int):
         """
         单条热更新摄像头缓存。
 
-        数据库中该摄像头已删除时，同步从缓存中移除；
+        数据库中该摄像头已删除时，同步移除摄像头及其关联功能缓存；
         存在时重新读取最新值并覆盖。
-        注意：摄像头更新后其关联的功能配置缓存（_function_cache）不会自动
-        同步 name/shm_name 等注入字段，必要时需同步调用 refresh_function()。
+        已缓存的关联功能配置会自动同步 name/shm_name/department 等注入字段；
+        新增或修改功能自身配置时，仍需调用 refresh_function() 加载。
         """
         from AiVision.platform.camera.orm import AiCameraConfig
         session = get_session()
         try:
-            cam = session.query(AiCameraConfig).get(camera_id)
+            cam = session.get(AiCameraConfig, camera_id)
             with self._lock:
                 if cam is None:
                     self._camera_cache.pop(camera_id, None)  # 已删除，移出缓存
+                    for key in [key for key in self._function_cache if key[0] == camera_id]:
+                        self._function_cache.pop(key, None)
                 else:
-                    self._camera_cache[camera_id] = self._orm_to_dict(cam)
+                    self._camera_cache[camera_id] = self._orm_to_dict(cam)  # 还存在，直接覆盖旧值
+                    for key, cfg in list(self._function_cache.items()):
+                        if key[0] == camera_id:
+                            self._function_cache[key] = self._enrich_function_config(cfg)
             logger.info(f"[ConfigCache] 刷新摄像头: camera_id={camera_id}")
         finally:
             session.close()
@@ -183,14 +127,6 @@ class ConfigCache:
     #  功能配置缓存                                                         #
     # ------------------------------------------------------------------ #
 
-    # 功能：通过 features 注册表反射，全量加载所有功能的摄像头配置；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::init` 调用本符号
-    #   - 内部调用：`get_session`、`all_specs().values`、`all_specs`、`session.query(spec.orm_class).all`、`session.query`、`self._enrich_function_config`、`self._orm_to_dict`、`session.close`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _load_function_configs(self):
         """
         通过 features 注册表反射，全量加载所有功能的摄像头配置。
@@ -205,35 +141,17 @@ class ConfigCache:
             for spec in all_specs().values():
                 for cfg in session.query(spec.orm_class).all():
                     key = (cfg.camera_id, spec.name)
+                    # 每条配置经 _enrich_function_config() 注入摄像头基础字段后存入缓存。
                     self._function_cache[key] = self._enrich_function_config(
                         self._orm_to_dict(cfg)
                     )
         finally:
             session.close()
 
-    # 功能：按 (camera_id, feature_name) 查询功能配置，未命中时返回 None；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（int）：摄像头唯一标识
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._function_cache.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_function_config(self, camera_id: int, feature_name: str) -> Optional[dict]:
         """按 (camera_id, feature_name) 查询功能配置，未命中时返回 None。"""
         return self._function_cache.get((camera_id, feature_name))
 
-    # 功能：返回 _function_cache 的浅拷贝；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/features/_base/consumer.py` 的 `BaseFunctionConsumer::_load_initial_configs`
-    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_collect_initial_configs` 调用本符号
-    #   - 内部调用：`dict`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_all_function_configs(self) -> dict:
         """
         返回 _function_cache 的浅拷贝。
@@ -243,16 +161,6 @@ class ConfigCache:
         """
         return dict(self._function_cache)
 
-    # 功能：单条热更新功能配置缓存；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（int）：摄像头唯一标识
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_spec`、`get_session`、`session.query(spec.orm_class).filter_by(camera_id=camera_id).first`、`session.query(spec.orm_class).filter_by`、`session.query`、`self._function_cache.pop`、`logger.info`、`self._enrich_function_config`、`self._orm_to_dict`、`session.close`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def refresh_function(self, camera_id: int, feature_name: str):
         """
         单条热更新功能配置缓存。
@@ -275,6 +183,7 @@ class ConfigCache:
                     self._function_cache.pop(key, None)
                     logger.info(f"[ConfigCache] 删除功能配置: {key}")
                 else:
+                    # 覆盖内存
                     self._function_cache[key] = self._enrich_function_config(self._orm_to_dict(cfg))
                     logger.info(f"[ConfigCache] 刷新功能配置: {key}")
         finally:
@@ -283,32 +192,11 @@ class ConfigCache:
     # ------------------------------------------------------------------ #
     #  工具方法                                                             #
     # ------------------------------------------------------------------ #
-
-    # 功能：将 SQLAlchemy ORM 实例转为普通字典，仅包含表列字段；输入与输出详见下方说明
-    # 参数：
-    #   - `obj`（未显式标注）：`obj` 对应的业务输入值
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::_load_cameras` 调用本符号；`AiVision/core/cache.py` 的 `ConfigCache::refresh_camera`
-    #         调用本符号；`AiVision/core/cache.py` 的 `ConfigCache::_load_function_configs` 调用本符号；`AiVision/core/cache.py` 的
-    #         `ConfigCache::refresh_function` 调用本符号
-    #   - 内部调用：`getattr`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _orm_to_dict(obj) -> dict:
         """将 SQLAlchemy ORM 实例转为普通字典，仅包含表列字段。"""
         return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-
-    # 功能：将摄像头基础信息注入功能配置字典，避免 Consumer 运行时二次查表；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `cfg`（dict）：运行配置对象
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/cache.py` 的 `ConfigCache::_load_function_configs` 调用本符号；`AiVision/core/cache.py` 的
-    #         `ConfigCache::refresh_function` 调用本符号
-    #   - 内部调用：`self._camera_cache.get`、`cfg.get`、`dict`、`camera.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    
     def _enrich_function_config(self, cfg: dict) -> dict:
         """
         将摄像头基础信息注入功能配置字典，避免 Consumer 运行时二次查表。
@@ -325,7 +213,7 @@ class ConfigCache:
         if camera:
             cfg = dict(cfg)  # 浅拷贝，避免修改调用方持有的原始字典
             cfg["name"]          = camera.get("name")
-            cfg["shm_name"]      = camera.get("shm_name") or f"camera_{cfg.get('camera_id')}"
+            cfg["shm_name"]      = camera.get("shm_name") or f"camera_{cfg.get('camera_id')}"   # 如果没有shm_name就自动使用camera_id作为共享内存的名字
             cfg["camera_enable"] = camera.get("enable")
             cfg["department"]    = camera.get("department")
         return cfg

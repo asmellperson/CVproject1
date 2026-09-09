@@ -1,4 +1,6 @@
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+import { validateHornBinding } from '@/lib/horn-alarm-binding'
+import type { FeatureAlarmConfig } from '@/lib/alarm-config'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -58,17 +60,31 @@ export type AiVisionExceptionAlertSettings = {
 }
 
 export type AiVisionModel = {
-  id: number
   name: string
   type: string
   path: string
-  import_path?: string | null
-  description?: string | null
-  enable: boolean
+  runtime: {
+    status: 'not_started' | 'running' | 'starting' | 'backoff' | 'exhausted' | 'stopped' | 'failed'
+    running: boolean
+    alive: boolean
+    loaded_path: string
+    last_failure: string
+    shared_models: string[]
+    restart_attempts: number
+    next_restart_in_seconds: number
+  }
+  reload: {
+    status: 'idle' | 'loading' | 'succeeded' | 'failed' | 'not_started'
+    error: string
+  }
 }
 
-export type CreateAiVisionModelPayload = Pick<AiVisionModel, 'name' | 'type' | 'path'> &
-  Partial<Pick<AiVisionModel, 'import_path' | 'description' | 'enable'>>
+export type AiVisionModelPathSaveResult = {
+  configuration_saved: boolean
+  name: string
+  path: string
+  load_status: 'loading' | 'not_started'
+}
 
 export type AiVisionFeatureConfig = {
   enable: boolean
@@ -162,8 +178,8 @@ export async function getAiVisionHumanDwellStatus(cameraKey: string, feature = '
   return (await response.json()) as AiVisionHumanDwellStatus
 }
 
-export async function getAiVisionDepartments() {
-  const response = await fetch('/api/departments', { credentials: 'include' })
+export async function getAiVisionDepartments(signal?: AbortSignal) {
+  const response = await fetch('/api/departments', { credentials: 'include', signal })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -308,6 +324,9 @@ export async function getAiVisionFeatureConfig(feature: string, cameraKey: strin
 }
 
 export async function saveAiVisionFeatureConfig(feature: string, cameraKey: string, config: AiVisionFeatureConfig) {
+  const horn = (config.alarm as FeatureAlarmConfig | undefined)?.horn
+  const hornError = horn && validateHornBinding(horn)
+  if (hornError) throw new Error(hornError)
   const response = await fetch(`/api/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {
     method: 'PUT',
     credentials: 'include',
@@ -322,8 +341,8 @@ export async function saveAiVisionFeatureConfig(feature: string, cameraKey: stri
   return (await response.json()) as AiVisionFeatureConfigResponse
 }
 
-export async function getAiVisionModels() {
-  const response = await fetch('/api/models', { credentials: 'include' })
+export async function getAiVisionModels(signal?: AbortSignal) {
+  const response = await fetch('/api/models', { credentials: 'include', signal })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
@@ -331,30 +350,16 @@ export async function getAiVisionModels() {
   return (await response.json()) as AiVisionModel[]
 }
 
-export async function updateAiVisionModel(modelId: number, payload: Partial<Pick<AiVisionModel, 'path'>>) {
-  const response = await fetch(`/api/models/${encodeURIComponent(String(modelId))}`, {
+export async function updateAiVisionModelPath(modelName: string, path: string) {
+  const response = await fetch(`/api/models/${encodeURIComponent(modelName)}/path`, {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ path }),
   })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }
 
-  return (await response.json()) as AiVisionModel
-}
-
-export async function createAiVisionModel(payload: CreateAiVisionModelPayload) {
-  const response = await fetch('/api/models', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) {
-    throw new Error(await readAiVisionError(response))
-  }
-
-  return (await response.json()) as AiVisionModel
+  return (await response.json()) as AiVisionModelPathSaveResult
 }

@@ -1,47 +1,38 @@
-# 文件说明：定义数据库模型的持久化模型、数据库连接或存取能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """platform/alarm_device/orm.py — 喇叭设备配置表"""
-from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP, text
-from AiVision.core.db import Base
+from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP, text     # Column:定义数据库的一列，Integer：整数，string：字符串，Boolen：布尔值，text：长文本，TIMESTAMP：时间，text():写数据库原生SQL表达式
+from AiVision.core.db import Base    # 所有ORM表模型的父类
 
-
-# 功能：定义 `AiHornConfig` 类，封装数据库模型相关的状态、约束与操作
-# 参数：无。
-# 返回：AiHornConfig；返回新建的 `AiHornConfig` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::create_horn` 实例化本符号
-#   - 内部调用：`Column`、`String`、`text`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# AiHornConfig：喇叭设备配置表在Python里的ORM映射（Python 类 AiHornConfig <--> MySQL 表 ai_horn_config）
 class AiHornConfig(Base):
     __tablename__ = "ai_horn_config"
+    # 建表参数
     __table_args__ = {
-        "comment": "喇叭设备配置表",
-        "mysql_engine": "InnoDB",
-        "mysql_charset": "utf8mb4",
+        "comment": "喇叭设备配置表",       # 给数据库表加说明
+        "mysql_engine": "InnoDB",          # InnoDB 是 MySQL 常用的事务型存储引擎。
+        "mysql_charset": "utf8mb4",        # 数据库字符编码
     }
 
+    # 每一条喇叭记录的数据库唯一编号，autoincrement=True:自动增长
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # nullable=False：不能是None。也就是喇叭必须有名字，unique=True名字不能重复
     name = Column(String(100), nullable=False, unique=True, index=True)
+    # 喇叭设备的网络地址
     url = Column(String(500), nullable=False)
+    # 访问这个喇叭地址的用户名和密码
     username = Column(String(100), nullable=False, default="admin")
-    password = Column(String(200), nullable=False, default="admin")
+    password = Column(String(200), nullable=False)
+    # 这个喇叭配置是否启用
     enable = Column(Boolean, default=True, index=True)
+    # 普通备注
     description = Column(Text, nullable=True)
+    # 数据库新增这一行时，自动记录创建时间
     created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    # 修改配置记录的时间
     updated_at = Column(
         TIMESTAMP,
         server_default=text("CURRENT_TIMESTAMP"),
         onupdate=text("CURRENT_TIMESTAMP"),
     )
 
-    # 功能：实现 `__repr__` 对应的数据库模型逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def __repr__(self):
         return f"<AiHornConfig id={self.id} name={self.name!r}>"

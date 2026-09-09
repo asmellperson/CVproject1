@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/auth/useAuth'
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   createAdminUser,
   deleteAdminUser,
@@ -56,32 +57,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-type SelectableDepartment = Exclude<AdminUserDepartment, 'all'>
-
-const departments: Array<{ value: SelectableDepartment; label: string }> = [
-  { value: 'general_electric', label: '通用电气事业部' },
-  { value: 'research_institute', label: '福达新材院' },
-  { value: 'electronics_electrician', label: '电子电工事业部' },
-  { value: 'electrical_components', label: '电气部件事业部' },
-  { value: 'precious_metal_recycling', label: '伟达公司' },
-  { value: 'haoda_company', label: '皓达公司' },
-]
-
-const departmentLabels: Record<AdminUserDepartment, string> = {
-  all: '全部事业部',
-  general_electric: '通用电气事业部',
-  research_institute: '福达新材院',
-  electronics_electrician: '电子电工事业部',
-  electrical_components: '电气部件事业部',
-  precious_metal_recycling: '伟达公司',
-  haoda_company: '皓达公司',
-}
-
 type EditorForm = {
   employeeId: string
   name: string
   role: AdminUserRole
-  departments: SelectableDepartment[]
+  departments: AdminUserDepartment[]
   password: string
   confirmPassword: string
 }
@@ -90,7 +70,7 @@ const emptyEditorForm: EditorForm = {
   employeeId: '',
   name: '',
   role: 'viewer',
-  departments: ['general_electric'],
+  departments: [],
   password: '',
   confirmPassword: '',
 }
@@ -103,14 +83,22 @@ function getAvatarLabel(name: string) {
   return normalizedName.slice(-1) || '用'
 }
 
-function getManagedUserDepartments(user: AdminUser): SelectableDepartment[] {
+function getManagedUserDepartments(user: AdminUser): AdminUserDepartment[] {
   return user.departments.filter(
-    (department): department is SelectableDepartment => department !== 'all',
+    (department) => department !== 'all',
   )
 }
 
 export function UserManagementSection() {
   const { user: currentUser, isAdmin } = useAuth()
+  const {
+    options: departments,
+    labels: departmentLabels,
+    loading: departmentsLoading,
+    error: departmentsError,
+    reload: reloadDepartments,
+  } = useDepartmentCatalog(isAdmin)
+  const departmentsUnavailable = departmentsLoading || Boolean(departmentsError)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -146,7 +134,7 @@ export function UserManagementSection() {
 
   const openCreate = () => {
     setEditingUser(null)
-    setEditorForm(emptyEditorForm)
+    setEditorForm({ ...emptyEditorForm, departments: departments.slice(0, 1).map((item) => item.value) })
     setError('')
     setEditorOpen(true)
   }
@@ -181,6 +169,13 @@ export function UserManagementSection() {
         setError('两次输入的初始密码不一致。')
         return
       }
+    }
+    if (editorForm.role === 'viewer' && (
+      departmentsUnavailable
+      || editorForm.departments.some((name) => !departments.some((item) => item.value === name))
+    )) {
+      setError(departmentsError || '请选择已有事业部，等待事业部列表加载完成。')
+      return
     }
     if (editorForm.role === 'viewer' && editorForm.departments.length === 0) {
       setError('普通用户至少需要选择一个事业部或公司。')
@@ -314,7 +309,7 @@ export function UserManagementSection() {
             <Button
               variant="outline"
               className="h-10 flex-1 rounded-xl border-cyan-500/30 bg-cyan-50/60 px-4 text-cyan-700 shadow-none hover:border-cyan-500/60 hover:bg-cyan-100/70 hover:text-cyan-800 dark:bg-cyan-500/5 dark:text-cyan-300 dark:hover:bg-cyan-500/10 sm:flex-none"
-              onClick={() => void loadUsers()}
+              onClick={() => { reloadDepartments(); void loadUsers() }}
               disabled={loading || busy}
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -332,9 +327,9 @@ export function UserManagementSection() {
         </div>
       </div>
 
-      {error && (
+      {(error || departmentsError) && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">
-          {error}
+          {error || departmentsError}
         </div>
       )}
 
@@ -537,6 +532,10 @@ export function UserManagementSection() {
                 >
                   {editorForm.role === 'admin' ? (
                     <div className="col-span-full text-sm text-muted-foreground">管理员默认负责全部事业部和公司。</div>
+                  ) : departmentsLoading ? (
+                    <p className="col-span-full text-sm text-muted-foreground">事业部列表加载中...</p>
+                  ) : departmentsError ? (
+                    <p role="alert" className="col-span-full text-sm text-destructive">{departmentsError}</p>
                   ) : departments.map((department) => {
                     const checkboxId = `user-department-${department.value}`
                     return (
@@ -547,6 +546,7 @@ export function UserManagementSection() {
                       >
                         <Checkbox
                           id={checkboxId}
+                          disabled={departmentsLoading}
                           checked={editorForm.departments.includes(department.value)}
                           onCheckedChange={(checked) => setEditorForm((value) => ({
                             ...value,
@@ -590,7 +590,7 @@ export function UserManagementSection() {
             )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditorOpen(false)} disabled={busy}>取消</Button>
-              <Button type="submit" disabled={busy}>{busy ? '保存中...' : '保存'}</Button>
+              <Button type="submit" disabled={busy || (editorForm.role === 'viewer' && departmentsUnavailable)}>{busy ? '保存中...' : '保存'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

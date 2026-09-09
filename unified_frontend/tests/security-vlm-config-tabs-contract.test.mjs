@@ -23,7 +23,7 @@ test('uses realtime monitor and nested configuration tabs', () => {
   assert.match(section, /monitorValue="dashboard"/)
   assert.match(section, /<DetectionRuntimeControl/)
   assert.match(section, /scope="检测控制 · 项目启动时默认关闭"/)
-  assert.match(section, /<Tabs value=\{configTab\} onValueChange=\{setConfigTab\}/)
+  assert.match(section, /<DetectionConfigTabs value=\{configTab\} onValueChange=\{setConfigTab\}/)
   assert.match(section, /<DetectionConfigTab value="camera" icon=\{Camera\}>摄像头/)
   assert.match(section, /<DetectionConfigTab value="roi" icon=\{Crosshair\}>ROI 配置/)
 

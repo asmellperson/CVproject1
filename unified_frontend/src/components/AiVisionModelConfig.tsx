@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Box, RefreshCw, Save } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,115 +10,96 @@ import {
 } from '@/components/detection/DetectionConfigUi'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { createAiVisionModel, getAiVisionModels, updateAiVisionModel, type AiVisionModel } from '@/lib/aivision'
+import { getAiVisionModels, updateAiVisionModelPath, type AiVisionModel } from '@/lib/aivision'
+import { useSerialPoll } from '@/hooks/use-serial-poll'
 import { useAuth } from '@/auth/useAuth'
 
 type AiVisionModelConfigProps = {
   requiredModels: string[]
 }
 
+const STATUS_LABELS: Record<AiVisionModel['runtime']['status'], string> = {
+  not_started: '未启动', running: '运行中', starting: '加载中', backoff: '等待重试',
+  exhausted: '重试已耗尽', stopped: '已停止', failed: '加载失败',
+}
+
 export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps) {
   const { isAdmin } = useAuth()
   const [models, setModels] = useState<AiVisionModel[]>([])
-  const [paths, setPaths] = useState<Record<number, string>>({})
-  const [newPaths, setNewPaths] = useState<Record<string, string>>({})
+  const [paths, setPaths] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('正在读取模型配置...')
   const [loadFailed, setLoadFailed] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [savingId, setSavingId] = useState<number | null>(null)
-  const [creatingName, setCreatingName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [savingName, setSavingName] = useState<string | null>(null)
+  const [waitingModel, setWaitingModel] = useState<string | null>(null)
 
-  const loadModels = async () => {
-    setLoading(true)
+  const loadModels = async (signal?: AbortSignal, resetPaths = false) => {
+    const items = await getAiVisionModels(signal)
+    if (signal?.aborted) return
+    setModels(items)
+    setPaths((previous) => Object.fromEntries(items.map((model) => [
+      model.name, resetPaths ? model.path : previous[model.name] ?? model.path,
+    ])))
     setLoadFailed(false)
-    setMessage('正在读取模型配置...')
-    try {
-      const items = await getAiVisionModels()
-      setModels(items)
-      setPaths(Object.fromEntries(items.map((model) => [model.id, model.path || ''])))
-      setMessage('模型配置读取成功。')
-    } catch (error) {
-      setModels([])
-      setLoadFailed(true)
-      setMessage(`模型配置读取失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setLoading(false)
+    setLoading(false)
+    if (loading && waitingModel === null && savingName === null) {
+      setMessage('模型配置和运行状态读取成功。')
+    }
+    const updated = items.find((model) => model.name === waitingModel)
+    if (updated && updated.reload.status !== 'loading' && updated.reload.status !== 'idle') {
+      if (updated.reload.status === 'succeeded') {
+        setMessage(`配置保存成功；${updated.name} 模型加载成功。`)
+      } else if (updated.reload.status === 'failed') {
+        setMessage(`配置已保存，但 ${updated.name} 模型加载失败：${updated.reload.error}`)
+      } else {
+        setMessage('配置保存成功；运行服务未启动，模型将在服务启动时加载。')
+      }
+      setWaitingModel(null)
     }
   }
 
-  useEffect(() => {
-    loadModels()
-  }, [])
+  useSerialPoll(loadModels, {
+    intervalMs: 2000,
+    timeoutMs: 8000,
+    enabled: savingName === null,
+    onError: (error) => {
+      setLoadFailed(true)
+      setLoading(false)
+      setMessage(`模型状态读取失败：${error instanceof Error ? error.message : String(error)}`)
+    },
+  })
 
-  const visibleModels = useMemo(() => {
-    if (requiredModels.length === 0) return []
-    return requiredModels.map((name) => ({
-      name,
-      model: models.find((item) => item.name === name),
-    }))
-  }, [models, requiredModels])
+  const visibleModels = useMemo(() => requiredModels.map((name) => ({
+    name, model: models.find((item) => item.name === name),
+  })), [models, requiredModels])
 
   const saveModelPath = async (model: AiVisionModel) => {
-    if (!isAdmin) {
-      setMessage('当前账号为 viewer，只能查看模型配置。')
-      return
-    }
-    setSavingId(model.id)
-    setMessage(`正在保存 ${model.name} 模型路径...`)
+    if (!isAdmin) return
+    setSavingName(model.name)
+    setMessage(`正在保存 ${model.name} 的本机模型路径...`)
     try {
-      const updated = await updateAiVisionModel(model.id, { path: paths[model.id] ?? '' })
-      setModels((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
-      setPaths((prev) => ({ ...prev, [updated.id]: updated.path || '' }))
-      setMessage(`保存成功：${updated.name} 模型路径已更新。`)
+      const result = await updateAiVisionModelPath(model.name, paths[model.name] ?? '')
+      setPaths((previous) => ({ ...previous, [model.name]: result.path }))
+      if (result.load_status === 'loading') {
+        setWaitingModel(model.name)
+        setMessage('配置保存成功，正在重载模型；加载结果会自动更新。')
+      } else {
+        setMessage('配置保存成功；运行服务未启动，模型将在服务启动时加载。')
+      }
     } catch (error) {
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setSavingId(null)
+      setSavingName(null)
     }
   }
 
-  const modelDefaults = (name: string) => {
-    const defaults: Record<string, { description: string }> = {
-      yolo_human: { description: '{"class_filter":[0],"type_label":"person"}' },
-      yolo_phone: { description: '{"class_filter":[1],"type_label":"phone"}' },
-      yolo_face: { description: '{"type_label":"face","conf":0.6}' },
-    }
-    return {
-      type: 'yolo',
-      import_path: 'AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker',
-      enable: true,
-      description: defaults[name]?.description || '{}',
-    }
-  }
-
-  const createMissingModel = async (name: string) => {
-    if (!isAdmin) {
-      setMessage('当前账号为 viewer，只能查看模型配置。')
-      return
-    }
-    const path = (newPaths[name] || '').trim()
-    if (!path) {
-      setMessage(`创建失败：请先填写 ${name} 的模型路径。`)
-      return
-    }
-
-    setCreatingName(name)
-    setMessage(`正在创建 ${name} 模型配置...`)
-    try {
-      const created = await createAiVisionModel({
-        name,
-        path,
-        ...modelDefaults(name),
-      })
-      setModels((prev) => [...prev, created])
-      setPaths((prev) => ({ ...prev, [created.id]: created.path || '' }))
-      setNewPaths((prev) => ({ ...prev, [name]: '' }))
-      setMessage(`创建成功：${created.name} 模型配置已写入数据库。`)
-    } catch (error) {
-      setMessage(`创建失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCreatingName(null)
-    }
+  const refreshModels = () => {
+    setLoading(true)
+    loadModels(undefined, true).catch((error) => {
+      setLoadFailed(true)
+      setLoading(false)
+      setMessage(`模型状态读取失败：${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   return (
@@ -127,9 +108,9 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
         icon={Box}
         tone="violet"
         title="模型配置"
-        description="查看模型加载状态并维护当前检测功能使用的模型路径。"
+        description="查看固定模型的真实运行状态，保存本机路径后自动重载。"
         actions={(
-          <Button variant="outline" className="gap-2 rounded-xl" onClick={loadModels} disabled={loading || savingId !== null}>
+          <Button variant="outline" className="gap-2 rounded-xl" onClick={refreshModels} disabled={loading || savingName !== null}>
             <RefreshCw className="h-4 w-4" />
             {loading ? '读取中' : '重新读取'}
           </Button>
@@ -138,7 +119,7 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
       <DetectionConfigCardContent className="space-y-5">
         {loadFailed ? (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            模型接口不可用。请确认 AiVision 后端已重启并加载最新接口。
+            无法读取本机模型配置或运行状态，请查看下方错误信息。
           </div>
         ) : requiredModels.length === 0 ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -153,45 +134,40 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
                     <div className="font-medium text-slate-900">{name}</div>
                     {model ? <div className="text-xs text-slate-500">类型：{model.type}</div> : null}
                   </div>
-                  <Badge variant={model?.enable ? 'default' : 'outline'}>{model ? (model.enable ? '已启用' : '未启用') : '未找到'}</Badge>
+                  <Badge variant={model?.runtime.running ? 'default' : 'outline'}>
+                    {model ? STATUS_LABELS[model.runtime.status] : (loading ? '读取中' : '未注册')}
+                  </Badge>
                 </div>
 
                 {model ? (
                   <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                     <div className="space-y-2">
-                      <Label htmlFor={`model-path-${model.id}`}>模型路径</Label>
+                      <Label htmlFor={`model-path-${model.name}`}>本机模型路径</Label>
                       <Input
-                        id={`model-path-${model.id}`}
-                        value={paths[model.id] ?? ''}
-                        onChange={(event) => setPaths((prev) => ({ ...prev, [model.id]: event.target.value }))}
+                        id={`model-path-${model.name}`}
+                        value={paths[model.name] ?? ''}
+                        onChange={(event) => setPaths((prev) => ({ ...prev, [model.name]: event.target.value }))}
                         className="font-mono"
-                        disabled={!isAdmin || loading || savingId !== null}
+                        disabled={!isAdmin || loading || savingName !== null || waitingModel !== null}
                       />
                     </div>
-                    <Button className="gap-2" onClick={() => saveModelPath(model)} disabled={!isAdmin || loading || savingId !== null}>
+                    <Button className="gap-2" onClick={() => saveModelPath(model)} disabled={!isAdmin || loading || savingName !== null || waitingModel !== null}>
                       <Save className="h-4 w-4" />
-                      {savingId === model.id ? '保存中' : '保存路径'}
+                      {savingName === model.name ? '保存中' : waitingModel === model.name ? '加载中' : '保存路径'}
                     </Button>
                   </div>
                 ) : (
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                    <div className="space-y-2">
-                      <Label htmlFor={`new-model-path-${name}`}>模型路径</Label>
-                      <Input
-                        id={`new-model-path-${name}`}
-                        value={newPaths[name] ?? ''}
-                        onChange={(event) => setNewPaths((prev) => ({ ...prev, [name]: event.target.value }))}
-                        className="font-mono"
-                        placeholder="填写模型文件路径后创建"
-                        disabled={!isAdmin || loading || creatingName !== null}
-                      />
-                    </div>
-                    <Button className="gap-2" onClick={() => createMissingModel(name)} disabled={!isAdmin || loading || creatingName !== null}>
-                      <Save className="h-4 w-4" />
-                      {creatingName === name ? '创建中' : '创建模型'}
-                    </Button>
+                  <div className="text-sm text-slate-500">
+                    {loading ? '正在读取固定模型...' : '系统未注册该模型，请检查服务版本。'}
                   </div>
                 )}
+                {model?.runtime.loaded_path ? <div className="text-xs text-slate-500">实际加载：{model.runtime.loaded_path}</div> : null}
+                {model && model.runtime.shared_models.length > 1 ? (
+                  <div className="text-xs text-slate-500">共享权重：{model.runtime.shared_models.join('、')}</div>
+                ) : null}
+                {model?.reload.status === 'failed' ? (
+                  <div className="text-sm text-red-600 dark:text-red-400">最近重载失败：{model.reload.error}</div>
+                ) : model?.runtime.last_failure ? <div className="text-sm text-red-600 dark:text-red-400">{model.runtime.last_failure}</div> : null}
               </div>
             ))}
           </div>

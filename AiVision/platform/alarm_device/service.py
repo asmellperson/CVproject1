@@ -1,169 +1,152 @@
-# 文件说明：封装业务服务的业务规则与持久化访问。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 platform/alarm_device/service.py
-喇叭设备 CRUD + 启动时加载所有已启用喇叭的运行时实例。
+喇叭设备 CRUD；提交成功后通知 HornRuntimeManager 热同步。
+
+职责：
+    数据库配置层：
+        查喇叭
+        新增喇叭
+        修改喇叭
+        删除喇叭
+    运行时配置：
+        仅向 HornRuntimeManager 提供内部凭据；公开查询只返回 password_set。
 """
 from __future__ import annotations
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
-from AiVision.core.db import session_scope, get_session
-from AiVision.core.logger import logger
-from AiVision.core.alarm.horn import Horn
-from .orm import AiHornConfig
+from AiVision.core.db import session_scope, get_session          # session_scope:自动提交，异常回退，以及最后关闭与数据库的会话，get_session:自己创建一个数据Session
+from .schema import HornCreate, HornUpdate
+from .orm import AiHornConfig                           # 数据库里的配置
+
+class HornInUseError(ValueError):
+    """设备仍被告警配置引用，不允许删除。"""
 
 
-# 功能：定义 `HornService` 类，封装业务服务相关的状态、约束与操作
-# 参数：无。
-# 返回：HornService；返回新建的 `HornService` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class HornService:
+    def __init__(self, runtime_manager=None):
+        self._runtime_manager = runtime_manager
 
-    # 功能：读取或查询 `list_horns` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `enabled_only`（bool）：`enabled_only` 对应的业务输入值；默认值为 `False`
-    # 返回：list[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::load_runtime_instances` 调用本符号
-    #   - 内部调用：`get_session`、`session.query`、`q.filter`、`AiHornConfig.enable.is_`、`self._to_dict`、`q.all`、`session.close`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    def _sync_after_commit(self, horn_id: int):
+        runtime = self._runtime_manager
+        if runtime is None:
+            from .runtime_manager import horn_runtime_manager
+            runtime = horn_runtime_manager
+        runtime.sync(horn_id)
+
     def list_horns(self, enabled_only: bool = False) -> list[dict]:
+        """查询所有喇叭配置"""
+        # 创建数据库会话
         session = get_session()
         try:
+            # 构建查询对象q
             q = session.query(AiHornConfig)
+            # 查询语句
             if enabled_only:
                 q = q.filter(AiHornConfig.enable.is_(True))
+            # q.all：执行查询
             return [self._to_dict(h) for h in q.all()]
         finally:
             session.close()
 
-    # 功能：读取或查询 `get_horn` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `horn_id`（int）：`horn_id` 对应业务对象的唯一标识
-    # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_session`、`session.query(AiHornConfig).get`、`session.query`、`self._to_dict`、`session.close`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_horn(self, horn_id: int) -> Optional[dict]:
+        """根据数据库主键ID查一个喇叭"""
         session = get_session()
         try:
-            h = session.query(AiHornConfig).get(horn_id)
+            # 找到dict，没找到None
+            h = session.get(AiHornConfig, horn_id)
             return self._to_dict(h) if h else None
         finally:
             session.close()
 
-    # 功能：创建或构建 `create_horn` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `payload`（dict）：接口或事件携带的业务数据
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`session_scope`、`AiHornConfig`、`payload.get`、`bool`、`session.add`、`session.flush`、`self._to_dict`。
-    # 副作用/注意事项：可能读取或修改数据库事务。
     def create_horn(self, payload: dict) -> dict:
+        """新增喇叭"""
+        payload = HornCreate.model_validate(payload).write_values()
+        # 开启数据库事务
         with session_scope() as session:
+            # 内存对象
             h = AiHornConfig(
                 name=payload["name"],
                 url=payload["url"],
                 username=payload.get("username", "admin"),
-                password=payload.get("password", "admin"),
+                password=payload["password"],
                 enable=bool(payload.get("enable", True)),
                 description=payload.get("description"),
             )
+            # 告诉SQLAIchemy：我要新增这个对象，此时是pending（等待INSERT）
             session.add(h)
+            # 构造SQL语句
             session.flush()
-            return self._to_dict(h)
-
-    # 功能：更新或保存 `update_horn` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `horn_id`（int）：`horn_id` 对应业务对象的唯一标识
-    #   - `payload`（dict）：接口或事件携带的业务数据
-    # 返回：Optional[dict]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`session_scope`、`session.query(AiHornConfig).get`、`session.query`、`setattr`、`bool`、`self._to_dict`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def update_horn(self, horn_id: int, payload: dict) -> Optional[dict]:
-        with session_scope() as session:
-            h = session.query(AiHornConfig).get(horn_id)
-            if h is None:
-                return None
-            for f in ("name", "url", "username", "password", "description"):
-                if f in payload:
-                    setattr(h, f, payload[f])
-            if "enable" in payload:
-                h.enable = bool(payload["enable"])
-            return self._to_dict(h)
-
-    # 功能：删除或清理 `delete_horn` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `horn_id`（int）：`horn_id` 对应业务对象的唯一标识
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`session_scope`、`session.query(AiHornConfig).get`、`session.query`、`session.delete`。
-    # 副作用/注意事项：可能读取或修改数据库事务。
-    def delete_horn(self, horn_id: int) -> bool:
-        with session_scope() as session:
-            h = session.query(AiHornConfig).get(horn_id)
-            if h is None:
-                return False
-            session.delete(h)
-            return True
-
-    # ---------- Runtime ----------
-
-    # 功能：启动时调用 — 实例化所有已启用的喇叭并启动心跳；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：dict[int, Horn]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::start` 调用本符号
-    #   - 内部调用：`self.list_horns`、`Horn`、`horn.start_heartbeat`、`logger.info`、`len`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
-    def load_runtime_instances(self) -> dict[int, Horn]:
-        """启动时调用 — 实例化所有已启用的喇叭并启动心跳"""
-        result: dict[int, Horn] = {}
-        for cfg in self.list_horns(enabled_only=True):
-            horn = Horn({
-                "horn_url": cfg["url"],
-                "username": cfg["username"],
-                "password": cfg["password"],
-            })
-            horn.start_heartbeat()
-            result[cfg["id"]] = horn
-        logger.info(f"[HornService] 已加载 {len(result)} 个喇叭设备")
+            result = self._to_dict(h)
+        self._sync_after_commit(result["id"])
         return result
 
-    # 功能：转换或规范化 `_to_dict` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `h`（AiHornConfig）：`h` 对应的业务输入值
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::list_horns`
-    #         调用本符号；`AiVision/platform/alarm_device/service.py` 的 `HornService::get_horn`
-    #         调用本符号；`AiVision/platform/alarm_device/service.py` 的 `HornService::create_horn`
-    #         调用本符号；`AiVision/platform/alarm_device/service.py` 的 `HornService::update_horn` 调用本符号
-    #   - 内部调用：`bool`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    def update_horn(self, horn_id: int, payload: dict) -> Optional[dict]:
+        """更新数据库"""
+        payload = HornUpdate.model_validate(payload).write_values()
+        with session_scope() as session:
+            h = session.get(AiHornConfig, horn_id, with_for_update=True)
+            if h is None:
+                return None
+            # 这些字段允许被修改
+            for f in ("name", "url", "username", "password", "description"):
+                # 只有payload里真正传来的字段才改
+                if f in payload and (f != "password" or payload[f]):
+                    setattr(h, f, payload[f])
+            # 单独处理enable
+            if "enable" in payload:
+                h.enable = bool(payload["enable"])
+            result = self._to_dict(h)
+        self._sync_after_commit(horn_id)
+        return result
+
+    def delete_horn(self, horn_id: int) -> bool:
+        """删除喇叭"""
+        with session_scope() as session:
+            h = session.get(AiHornConfig, horn_id, with_for_update=True)
+            if h is None:
+                return False
+            from AiVision.features import all_specs
+            from AiVision.platform.logistics_channel.orm import LogisticsChannel
+
+            # 包括停用的功能/通道配置；存在引用时不依赖外键 SET NULL 隐式解绑。
+            models = [spec.orm_class for spec in all_specs().values()]
+            models.append(LogisticsChannel)
+            for model in models:
+                if session.query(model).filter(model.horn_id == horn_id).with_for_update().first() is not None:
+                    raise HornInUseError("喇叭仍被功能或物流通道配置引用，请先解除绑定")
+            session.delete(h)
+        self._sync_after_commit(horn_id)
+        return True
+
+    # ---------- Runtime ----------
+    def runtime_configs(self, horn_id: int | None = None) -> list[dict]:
+        """内部凭据读取，仅供运行管理器/连接测试；不能用于 API 查询响应。"""
+        session = get_session()
+        try:
+            query = session.query(AiHornConfig)
+            if horn_id is not None:
+                query = query.filter(AiHornConfig.id == horn_id)
+            return [dict(self._to_dict(h), url=h.url, password=h.password) for h in query.all()]
+        finally:
+            session.close()
+
     @staticmethod
     def _to_dict(h: AiHornConfig) -> dict:
+        """ORM对象转普通字典"""
+        # 兼容历史地址中夹带认证信息的记录；公开读取也不能泄露 URL 中的凭据。
+        try:
+            address = urlsplit(h.url)
+            public_url = urlunsplit((address.scheme, address.netloc.rsplit("@", 1)[-1],
+                                     address.path, "", ""))
+        except ValueError:
+            public_url = ""
         return {
             "id": h.id,
             "name": h.name,
-            "url": h.url,
+            "url": public_url,
             "username": h.username,
-            "password": h.password,
+            "password_set": bool(h.password),
             "enable": bool(h.enable),
             "description": h.description,
         }

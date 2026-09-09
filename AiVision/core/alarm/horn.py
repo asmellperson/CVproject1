@@ -1,28 +1,41 @@
-# 文件说明：实现`horn` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 core/alarm/horn.py
 IP 喇叭设备控制 — 通过 HTTP API 触发语音告警。
-
+AlarmDispatcher 将播放任务交给 HornRuntimeManager，后台调用 horn.play(event_id) 请求设备播放预录语音
 包装登录认证、心跳保活、告警触发(带冷却防抖)。
+流程:
+    Horn(config)->__init__() -> connect() -> POST/login -> 获得access_key/access_id ->status=True
+    HornRuntimeManager -> start_heartbeat() -> 创建后台线程 -> _heart_loop -> 每60秒_send_heart() -> POST/online -> 维持登录
+    发生告警 -> AlarmDispatcher -> HornRuntimeManager 播放队列 -> horn.play(event_id) - > 检查一秒设备冷却 -> POST/run_task -> IP喇叭播放预录语音
+    系统关闭 -> stop_heatbeat() -> _stop_event.set() -> 心跳线程退出
 """
 from __future__ import annotations
-import threading
-import time
-import requests
+from functools import wraps
+import threading                  # 心跳线程+play()并发锁
+import time                       # 告警冷却时间
+import requests                   # requests：HTTP访问IP喇叭
 
 from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 
 
-# 功能：单个 IP 喇叭设备的控制器；输入与输出详见下方说明
-# 参数：
-#   - `config`（dict）：运行配置对象
-# 返回：Horn；返回新建的 `Horn` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::load_runtime_instances` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+def _serialized(method):
+    """同一设备的认证、心跳和播放串行；停止后的排队调用直接退出。"""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._io_lock:
+            if self._stop_event.is_set():
+                return False
+            with self._state_lock:
+                self._inflight += 1
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                with self._state_lock:
+                    self._inflight -= 1
+    return guarded
+
+
 class Horn:
     """
     单个 IP 喇叭设备的控制器。
@@ -35,53 +48,48 @@ class Horn:
 
     线程安全:
         play() 使用 _lock 保护冷却时间戳，可被多线程并发调用。
-        心跳线程与业务线程共享 status 标志，status 仅做可见性用途，无需额外同步。
+        网络操作由 _io_lock 串行化；状态与停止门控由 _state_lock 保护。
     """
 
-    # 功能：初始化或配置 `__init__` 对应的`horn` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `config`（dict）：运行配置对象
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`config.get`、`threading.Event`、`threading.Lock`、`self.connect`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, *, connect_on_init: bool = True):
+        """接受一台喇叭的配置"""
         # ---- 设备连接参数 ----
-        self.url: str = config.get("horn_url", "")          # HTTP API 根地址，末尾须带 /
+        raw_url = str(config.get("horn_url") or "").strip()
+        self.url: str = f"{raw_url.rstrip('/')}" + "/" if raw_url else ""          # HTTP API 根地址，末尾须带 /
+        # 喇叭设备自己的登录账号密码
         self.username: str = config.get("username", "admin")
-        self.password: str = config.get("password", "admin")
+        self.password: str = config.get("password") or ""
 
         # ---- 登录态凭证（connect() 成功后填充）----
+        # login后返回access_key和access_id
         self.access_key: str | None = None  # 设备颁发的访问密钥，后续请求携带
         self.access_id: str | None = None   # 设备颁发的访问 ID，与 access_key 配对使用
         self.status: bool = False           # 设备当前是否处于可用状态
 
         # ---- 心跳保活 ----
-        self._heart_interval = 60           # 心跳发送间隔（秒），与设备端 Session 超时对齐
+        self._heart_interval = settings.alarm.horn_heartbeat_interval_seconds           # 心跳发送间隔（秒），与设备端 Session 超时对齐
         self._stop_event = threading.Event()           # 置位时通知心跳线程退出
-        self._heart_thread: threading.Thread | None = None
+        self._heart_thread: threading.Thread | None = None   # 真正启动心跳时，这里会保存心跳线程对象
 
         # ---- 触发冷却防抖 ----
-        self._cooldown = 1.0        # 两次 play() 之间的最小间隔（秒），防止语音重叠
+        # dispatcher也有冷却，它是业务防重复报警，这里是设备保护，防止声音重叠
+        self._cooldown = settings.alarm.horn_play_cooldown_seconds        # 两次 play() 之间的最小间隔（秒），防止语音重叠
         self._last_trigger = 0.0   # 上次实际触发的 Unix 时间戳
         self._lock = threading.Lock()  # 保护 _last_trigger 的并发写入
+        self._connect_lock = threading.Lock()
+        self._io_lock = threading.RLock()
+        self._state_lock = threading.Lock()
+        self._inflight = 0
+        self._state = "connecting"
+        self._last_error: str | None = None
+        self._last_seen_at: float | None = None
+        self._request_timeout = settings.alarm.horn_request_timeout_seconds
 
-        # 构造时立即尝试登录；失败时 status=False，后续 play() 仍可安全调用
-        self.connect()
+        # 直接使用时保留自动登录；管理器与连接测试延迟到后台/请求线程执行网络操作。
+        if connect_on_init:
+            self.connect()
 
-    # 功能：向设备发起登录请求，获取 access_key / access_id 并更新 status；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/horn.py` 的 `Horn::__init__` 调用本符号；`AiVision/core/db.py` 的 `_ensure_database_exists`
-    #         调用本符号；`AiVision/integrations/guard_room/src/db.py` 的 `ping`
-    #         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的
-    #         `test_database_migration_preserves_records_and_is_idempotent` 调用本符号；另有 7 处静态调用
-    #   - 内部调用：`requests.post`、`resp.json`、`data.get`、`logger.warning`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
+    @_serialized
     def connect(self) -> bool:
         """
         向设备发起登录请求，获取 access_key / access_id 并更新 status。
@@ -93,73 +101,109 @@ class Horn:
         Note:
             登录失败不抛异常，仅记录警告日志，调用方可稍后重试。
         """
-        try:
-            resp = requests.post(
-                self.url + "login",
-                json={"user": self.username, "password": self.password},
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                self.access_key = data.get("access_key")
-                self.access_id = data.get("access_id")
-                self.status = True
-                return True
-        except Exception as e:
-            logger.warning(f"[Horn] 登录失败 {self.url}: {e}")
-        self.status = False
-        return False
+        with self._connect_lock:
+            self._set_state("connecting")
+            self.access_key = None
+            self.access_id = None
+            if not self.url:
+                self._set_state("failed", "未配置 horn_url，无法登录")
+                return False
+            if self._stop_event.is_set():
+                return False
+            try:
+                resp = requests.post(
+                    self.url + "login",
+                    json={"user": self.username, "password": self.password},
+                    timeout=self._request_timeout,              # 默认最多等5秒
+                    allow_redirects=False,
+                )
+                # 状态码为200说明登录成功
+                if resp.status_code != 200:
+                    self._set_state("failed", f"登录失败: HTTP {resp.status_code}")
+                    return False
+                data = resp.json()              # 返回JSON转Python dict
+                access_key = data.get("access_key")
+                access_id = data.get("access_id")
+                if not access_key or not access_id:
+                    self._set_state("failed", "登录响应缺少 access_key/access_id")
+                    return False
+                with self._state_lock:
+                    if self._stop_event.is_set():
+                        return False
+                    self.access_key = access_key
+                    self.access_id = access_id
+                return self._set_state("online")
+            except Exception:
+                self._set_state("failed", "登录请求失败")
+                return False
 
     # ------------------------------------------------------------------ #
     #  心跳保活                                                             #
     # ------------------------------------------------------------------ #
-
-    # 功能：启动后台心跳守护线程，每隔 _heart_interval 秒向设备发送在线心跳；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/alarm_device/service.py` 的 `HornService::load_runtime_instances` 调用本符号
-    #   - 内部调用：`self._heart_thread.is_alive`、`self._stop_event.clear`、`threading.Thread`、`self._heart_thread.start`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def start_heartbeat(self):
         """
-        启动后台心跳守护线程，每隔 _heart_interval 秒向设备发送在线心跳。
-
+        启动后台心跳守护线程，每隔 _heart_interval=60 秒向设备发送在线心跳。
+        外部调用时，Horn(config)本身只是登录，真正启动心跳的是 HornRuntimeManager
         幂等：线程已存活时重复调用无副作用。
         """
-        if self._heart_thread and self._heart_thread.is_alive():
-            return  # 已在运行，跳过
-        self._stop_event.clear()
-        self._heart_thread = threading.Thread(target=self._heart_loop, daemon=True)
-        self._heart_thread.start()
+        with self._state_lock:
+            # 防止重复启动
+            if self._stop_event.is_set() or (self._heart_thread and self._heart_thread.is_alive()):
+                return  # 已在运行，跳过
+            # 停止信号不再清掉；停用后的实例不可复活，重新启用由管理器创建新实例。
+            # 创建线程，守护线程，如果主Aivision进程彻底退出了，它不会为了等中国心跳线程而阻止程序退出
+            self._heart_thread = threading.Thread(target=self._heart_loop, daemon=True, name="horn-heartbeat")
+            self._heart_thread.start()
 
-    # 功能：通知心跳线程退出并等待其结束（最多 2 秒）；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/orchestrator.py` 的 `Orchestrator::stop` 调用本符号
-    #   - 内部调用：`self._stop_event.set`、`self._heart_thread.join`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-    def stop_heartbeat(self):
+    def stop_heartbeat(self, timeout: float = 2.0):
         """
         通知心跳线程退出并等待其结束（最多 2 秒）。
 
         进程退出前调用，确保后台线程优雅终止；超时后守护线程会随进程自动回收。
         """
-        self._stop_event.set()
+        # 告诉线程该结束了
+        self.request_stop()
         if self._heart_thread:
-            self._heart_thread.join(timeout=2)
+            # join的意思：当前线程等一下心跳线程，让它有机会正常退出（最多2秒）
+            self._heart_thread.join(timeout=timeout)
 
-    # 功能：心跳线程主循环；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.is_set`、`self._send_heart`、`self._stop_event.wait`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息。
+    def request_stop(self):
+        """立即关闭入口，不等待正在执行的 HTTP；返回后不再安排新的请求。"""
+        with self._state_lock:
+            self._stop_event.set()
+            self.status = False
+            self.access_key = self.access_id = None
+            self._state = "stopping"
+
+    def snapshot(self) -> dict:
+        with self._state_lock:
+            alive = bool(self._heart_thread and self._heart_thread.is_alive())
+            state = self._state
+            if self._stop_event.is_set():
+                state = "stopping" if alive or self._inflight else "stopped"
+            return {"state": state, "online": self.status,
+                    "heartbeat_alive": alive, "last_error": self._last_error,
+                    "last_seen_at": self._last_seen_at}
+
+    def _set_state(self, state: str, error: str | None = None) -> bool:
+        with self._state_lock:
+            if self._stop_event.is_set():
+                return False
+            self._state = state
+            self.status = state == "online"
+            self._last_error = error
+            if self.status:
+                self._last_seen_at = time.time()
+        if error:
+            logger.warning(f"[Horn] {error}")
+        return self.status
+
+    @_serialized
+    def check_connection(self) -> dict:
+        """只登录/检查在线；不启动心跳，不播放，不持久化配置。"""
+        self._send_heart()
+        return self.snapshot()
+
     def _heart_loop(self):
         """
         心跳线程主循环。
@@ -169,51 +213,46 @@ class Horn:
         """
         while not self._stop_event.is_set():
             try:
+                # 真正向喇叭/online接口发送一次HTTP心跳
                 self._send_heart()
             except Exception:
                 # 心跳异常不向上抛，标记设备不可用后继续循环，等待下次重试
-                self.status = False
+                self._set_state("offline", "心跳执行失败")
+            # 只要其他线程调用_stop_event.set()，它就立即醒，并且退出循环
             self._stop_event.wait(self._heart_interval)  # 可被 stop_heartbeat() 提前唤醒
 
-    # 功能：向设备端 /online 接口发送一次心跳以维持 Session 活跃；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/horn.py` 的 `Horn::_heart_loop` 调用本符号
-    #   - 内部调用：`requests.post`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息。
+    @_serialized
     def _send_heart(self):
         """
         向设备端 /online 接口发送一次心跳以维持 Session 活跃。
 
-        设备返回非 200 时将 status 置 False，下次 play() 调用将因
-        access_key 失效而请求报错，需外部重新调用 connect()。
+        设备返回失败时将 status 置 False，下次心跳或 play() 自动重新登录。
         """
-        if not self.status:
-            return  # 设备已离线，无需发送（避免用失效凭证刷接口）
-        resp = requests.post(
-            self.url + "online",
-            json={"access_key": self.access_key, "access_id": self.access_id},
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            self.status = False  # 心跳被拒，Session 可能已过期
+        if not self.status and not self.connect():
+            logger.warning("[Horn] 心跳重连失败")
+            return
+        if self._stop_event.is_set():
+            return False
+        try:
+            resp = requests.post(
+                self.url + "online",
+                json={"access_key": self.access_key, "access_id": self.access_id},
+                timeout=self._request_timeout,
+                allow_redirects=False,
+            )
+            if not 200 <= resp.status_code < 300:
+                # 心跳被拒，Session 可能已过期
+                self._set_state("offline", f"心跳失败: HTTP {resp.status_code}")
+            else:
+                self._set_state("online")
+        except Exception:
+            self._set_state("offline", "心跳请求失败")
 
     # ------------------------------------------------------------------ #
     #  告警触发                                                             #
     # ------------------------------------------------------------------ #
-
-    # 功能：触发设备上预录制的语音任务；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `event_id`（str | int）：`event_id` 对应业务对象的唯一标识
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/dispatcher.py` 的 `AlarmDispatcher::_execute` 调用本符号
-    #   - 内部调用：`time.time`、`requests.post`、`logger.warning`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能发起网络请求或发送外部消息；会向日志系统输出运行或异常信息。
-    def play(self, event_id: str | int):
+    @_serialized
+    def play(self, event_id: str | int, *, expires_at: float | None = None):
         """
         触发设备上预录制的语音任务。
 
@@ -228,21 +267,34 @@ class Horn:
             HTTP 请求失败时仅记录警告日志，不向调用方抛出异常，
             保证告警链路中单个设备故障不影响其他通道。
         """
+        if expires_at is not None and time.monotonic() >= expires_at:
+            return False
+        if not self.status and not self.connect():
+            logger.warning("[Horn] 设备离线且重连失败，跳过播放")
+            return
+
         now = time.time()
         with self._lock:
             if now - self._last_trigger < self._cooldown:
                 return  # 仍在冷却期，静默丢弃
             self._last_trigger = now  # 占位，防止并发重入
 
+        if self._stop_event.is_set() or (expires_at is not None and time.monotonic() >= expires_at):
+            return False
         try:
-            requests.post(
-                self.url + "run_task",
+            resp = requests.post(
+                self.url + "run_task",             # 播放预录语音
                 json={
                     "access_key": self.access_key,
                     "access_id": self.access_id,
                     "id": event_id,
                 },
-                timeout=5,
+                timeout=self._request_timeout,
+                allow_redirects=False,
             )
-        except Exception as e:
-            logger.warning(f"[Horn] 触发告警音失败: {e}")
+            if not 200 <= resp.status_code < 300:
+                self._set_state("offline", f"触发告警音失败: HTTP {resp.status_code}")
+            else:
+                self._set_state("online")
+        except Exception:
+            self._set_state("offline", "触发告警音请求失败")

@@ -163,8 +163,11 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
         wechat = alarm.get("wechat", {}) or {}
         self.sql_enable = sql.get("enable", False)
         self.horn_enable = horn.get("enable", False)
-        self.horn_id = (horn.get("parm") or {}).get("horn_id")
-        self.horn_event_id = (horn.get("parm") or {}).get("horn_event_id")
+        horn_parm = horn.get("parm") or {}
+        if "horn_id" in horn_parm:
+            self.horn_id = horn_parm["horn_id"]
+        if "horn_event_id" in horn_parm:
+            self.horn_event_id = horn_parm["horn_event_id"]
         self.wechat_enable = wechat.get("enable", False)
         self.wechat_user = (wechat.get("parm") or {}).get("user", "")
 

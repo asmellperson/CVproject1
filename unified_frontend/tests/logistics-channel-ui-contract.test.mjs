@@ -69,7 +69,7 @@ test('shared channel configuration separates parameters and alarm push for every
   assert.match(config, /onCheckedChange=\{\(enabled\) => setChannelEnabled\(channel, enabled\)\}/)
   assert.match(config, /channel\.enabled \? '停用通道' : '启用通道'/)
   assert.doesNotMatch(config, /启用当前物流通道/)
-  assert.match(config, /DetectionConfigTabsList/)
+  assert.match(config, /DetectionConfigTabs/)
   assert.match(config, /DetectionConfigCardHeader/)
   assert.match(config, /绑定已有摄像头/)
   assert.match(config, /新建摄像头并绑定/)

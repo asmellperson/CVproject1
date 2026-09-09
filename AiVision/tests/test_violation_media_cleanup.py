@@ -3,6 +3,7 @@
 
 import datetime
 import os
+import pytest
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -83,7 +84,7 @@ def _add_record(
             id=row_id,
             image_path=str(image_path),
             video_path=str(video_path) if video_path else None,
-            violation_type=6,
+            violation_type=6, feature_name="detect_logistics_single_person", department="general_electric",
             camera_no="camera-1",
             create_time=created_at,
         ))
@@ -220,3 +221,70 @@ def test_cleanup_capacity_keeps_fresh_image_during_push_grace_period(tmp_path):
     assert remaining_ids == [2]
     assert not old_image.exists()
     assert fresh_image.exists()
+
+
+@pytest.mark.parametrize("max_bytes", [0, 1])
+def test_cleanup_never_scans_other_business_media_or_empty_directories(tmp_path, max_bytes):
+    factory, scope = _database()
+    now = datetime.datetime.now()
+    root = tmp_path / "data"
+    unrelated = [root / "face_library" / "portrait.png", root / "uploads" / "video.mp4", root / "snapshot.jpg"]
+    old_alarm = root / "9" / "old.png"
+    for path in [*unrelated, old_alarm]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"12345678")
+        old = (now - datetime.timedelta(days=8)).timestamp()
+        os.utime(path, (old, old))
+    empty_business = root / "uploads" / "empty"
+    empty_business.mkdir()
+    _add_record(factory, row_id=1, image_path=unrelated[0], created_at=now - datetime.timedelta(days=8))
+    cleaner = violation_cleanup.ViolationMediaCleaner(root, retention_days=7, max_bytes=max_bytes, session_scope_factory=scope)
+    assert cleaner._media_size() == 8
+    stats = cleaner.cleanup(now=now)
+    assert all(path.is_file() for path in unrelated)
+    assert empty_business.is_dir()
+    assert not old_alarm.exists()
+    assert cleaner._media_size() == 0
+    assert stats.skipped_unsafe_paths >= 1
+    with factory() as session:
+        assert session.query(AiAlarmEvent).count() == 1
+
+
+def test_cleanup_rejects_symlinks_and_traversal_even_inside_data_path(tmp_path):
+    _, scope = _database()
+    root = tmp_path / "data"
+    media = root / "1"
+    media.mkdir(parents=True)
+    other = root / "uploads"
+    other.mkdir()
+    image = other / "portrait.png"
+    image.write_bytes(b"portrait")
+    linked_file = media / "linked.png"
+    linked_file.symlink_to(image)
+    linked_dir = media / "nested"
+    linked_dir.symlink_to(other, target_is_directory=True)
+    (root / "alarm_clips").symlink_to(other, target_is_directory=True)
+    cleaner = violation_cleanup.ViolationMediaCleaner(root, retention_days=7, max_bytes=1, session_scope_factory=scope)
+    assert cleaner._media_files() == []
+    stats = violation_cleanup.MediaCleanupStats()
+    for path in [linked_file, linked_dir / image.name, root / "alarm_clips" / image.name, media / ".." / "uploads" / image.name, media / "notes.json"]:
+        assert cleaner._remove_managed_file(path, stats) == (False, 0)
+    assert stats.skipped_unsafe_paths == 5
+    assert image.read_bytes() == b"portrait"
+
+
+def test_quota_keeps_fresh_orphan_and_removes_old_orphan_only(tmp_path):
+    _, scope = _database()
+    now = datetime.datetime.now()
+    root = tmp_path / "data"
+    fresh = root / "alarm_clips" / "fresh.mp4"
+    old = root / "alarm_clips" / "old.mp4"
+    fresh.parent.mkdir(parents=True)
+    for path, seconds in [(fresh, 30), (old, 601)]:
+        path.write_bytes(b"12345678")
+        ts = (now - datetime.timedelta(seconds=seconds)).timestamp()
+        os.utime(path, (ts, ts))
+    cleaner = violation_cleanup.ViolationMediaCleaner(root, retention_days=7, max_bytes=1, session_scope_factory=scope)
+    cleaner.cleanup(now=now)
+    assert fresh.is_file()
+    assert not old.exists()

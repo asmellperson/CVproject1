@@ -1,69 +1,50 @@
-# 文件说明：实现`probe` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
-"""Probe camera stream metadata in an isolated ffprobe subprocess."""
+"""
+检查摄像头能否正常解析，并拿到视频分辨率
+三大部分：
+    1、CameraProbeError:统一探测失败异常
+    2、_redact_rtsp_credentials(): 错误日志里隐藏RTSP用户名密码
+    3、probe_video_shape():真正调用ffprobe分辨率
+"""
 from __future__ import annotations
 
 import json
 import re
 import subprocess
-
+# 一次摄像头探测最多等8秒
 FFPROBE_TIMEOUT_SECONDS = 8.0
+# 正则匹配
 _RTSP_CREDENTIALS = re.compile(r"(rtsp://)[^/@\s]+@")
 
-
-# 功能：A safe, expected failure while probing camera metadata；输入与输出详见下方说明
-# 参数：无。
-# 返回：CameraProbeError；返回新建的 `CameraProbeError` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/platform/camera/probe.py` 的 `probe_video_shape` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraProbeError(RuntimeError):
-    """A safe, expected failure while probing camera metadata."""
+    """"""
 
-
-# 功能：实现 `_redact_rtsp_credentials` 对应的`probe` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（str）：待转换、校验或写入的值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/platform/camera/probe.py` 的 `probe_video_shape` 调用本符号
-#   - 内部调用：`_RTSP_CREDENTIALS.sub`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _redact_rtsp_credentials(value: str) -> str:
+    """把错误信息里的RTSP账号密码脱敏，将账号密码改为***:***"""
     return _RTSP_CREDENTIALS.sub(r"\1***:***@", value)
 
-
-# 功能：实现 `probe_video_shape` 对应的`probe` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `url`（str）：目标接口、媒体流或页面地址
-#   - `timeout_seconds`（float）：`timeout_seconds` 对应的时间间隔或时长；默认值为 `FFPROBE_TIMEOUT_SECONDS`
-# 返回：tuple[int, int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`subprocess.run`、`CameraProbeError`、`_redact_rtsp_credentials`、`str`、`result.stderr.strip`、`json.loads`、`isinstance`、`payload.get`、`stream.get`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
 def probe_video_shape(
     url: str,
     *,
     timeout_seconds: float = FFPROBE_TIMEOUT_SECONDS,
 ) -> tuple[int, int, int]:
+    """用ffprobe读取摄像头第一路视频流的宽、高，然后返回(H,W,3)"""
+    # ffprobe很适合做视频编码、分辨率、帧率、音视频信息元数据探测
     command = [
         "ffprobe",
         "-v",
-        "error",
-        "-rtsp_transport",
-        "tcp",
+        "error",            # -v error:只输出错误
+        "-rtsp_transport",  
+        "tcp",              # -rtsp_transport tcp: RTSP用TCP传输
         "-select_streams",
-        "v:0",
+        "v:0",              # -select_streams v:0: 第一条视频流
         "-show_entries",
-        "stream=width,height",
+        "stream=width,height",   # 只取宽、高
         "-of",
-        "json",
+        "json",      # -of json : 要求ffprobe输出json格式
         url,
     ]
     try:
+        # Python启动一个ffprobe字进程，并等待结果
         result = subprocess.run(
             command,
             capture_output=True,
@@ -71,35 +52,42 @@ def probe_video_shape(
             timeout=timeout_seconds,
             check=False,
         )
+    # 三类启动异常
+    # 1、ffprobe没装
     except FileNotFoundError as exc:
         raise CameraProbeError("ffprobe 未安装，无法探测摄像头") from exc
+    # 2、超时
     except subprocess.TimeoutExpired as exc:
         raise CameraProbeError(
             f"ffprobe 探测超时 ({timeout_seconds:g}s)"
         ) from exc
+    # 3、系统启动失败，确保及时异常里面带RTSP URL 也不会泄露密码
     except OSError as exc:
         detail = _redact_rtsp_credentials(str(exc))
         raise CameraProbeError(f"无法启动 ffprobe: {detail}") from exc
-
+    # 启动成功但返回失败
     if result.returncode != 0:
         detail = _redact_rtsp_credentials(result.stderr.strip())
         if not detail:
             detail = f"退出码 {result.returncode}"
-        raise CameraProbeError(f"ffprobe 探测失败: {detail[:300]}")
+        raise CameraProbeError(f"ffprobe 探测失败: {detail[:300]}")      # 最多保留300个字符，避免错误信息太长 
 
     try:
+        # 解析JSON
         payload = json.loads(result.stdout)
+    # 如果输出不是合法JSON就报输出无效
     except (TypeError, json.JSONDecodeError) as exc:
         raise CameraProbeError("ffprobe 输出无效: 不是 JSON") from exc
-
+    # 找第一条视频流
     streams = payload.get("streams") if isinstance(payload, dict) else None
     stream = streams[0] if isinstance(streams, list) and streams else None
     if not isinstance(stream, dict):
         raise CameraProbeError("ffprobe 输出无效: 未找到视频流")
-
+    # 取宽高
     width = stream.get("width")
     height = stream.get("height")
     if (
+        # 严格校验
         not isinstance(width, int)
         or isinstance(width, bool)
         or width <= 0

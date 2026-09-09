@@ -1,13 +1,8 @@
+import type { AiVisionDepartment } from './aivision'
+
 export type AdminUserRole = 'admin' | 'viewer'
 
-export type AdminUserDepartment =
-  | 'all'
-  | 'general_electric'
-  | 'research_institute'
-  | 'electronics_electrician'
-  | 'electrical_components'
-  | 'precious_metal_recycling'
-  | 'haoda_company'
+export type AdminUserDepartment = AiVisionDepartment['name']
 
 export type AdminUser = {
   employee_id: string

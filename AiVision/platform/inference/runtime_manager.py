@@ -1,79 +1,50 @@
-# 文件说明：实现`manager` 模块相关的基础能力。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 platform/inference/runtime_manager.py
-推理 Worker 进程生命周期管理 — 替代旧 CapManager.start_inferworker。
+所有模型Worker的总运行调度器
 
-启动时按数据库 ai_model 表逐个尝试加载模型元数据，模型文件路径来自本机配置文件。
-导入失败 / 模型缺失 / 本机路径未配置时会跳过,
-不影响其他模型。Consumer 那边通过 _dispatch_frame 找不到对应模型时也会优雅降级。
+负责建队列、查模型配置、启动Worker、判断是否就绪、Worker挂掉后自动恢复、提供运行状态
+
+启动时加载固定模型注册配置，模型文件路径来自本机配置文件。
+模型缺失 / 本机路径未配置时记录失败，由 Watchdog 重试，
+不影响其他模型。Consumer 继续通过推理结果 contract 处理超时或失败。
+
 """
 from __future__ import annotations
-import importlib
 import queue
 import threading
 import time
 from dataclasses import dataclass
 from multiprocessing import Queue
+from pathlib import Path
 from typing import Callable
 
 from AiVision.core.logger import logger
-from AiVision.core.cache import config_cache
 from AiVision.core.settings import settings
 from AiVision.features import all_specs
-from .config_manager import model_config_manager
+from .model_registry import MODEL_SPECS, get_model_spec
+from .model_paths import load_model_paths, save_model_path, validate_model_path
 
-
-# 功能：定义 `WorkerWatchdogState` 类，封装`manager` 模块相关的状态、约束与操作
-# 参数：
-#   - `restart_attempts`（int）：`restart_attempts` 对应的业务输入值
-#   - `next_restart_at`（float）：`next_restart_at` 对应的业务输入值
-#   - `ready_deadline`（float）：`ready_deadline` 对应的业务输入值
-#   - `running_since`（float | None）：`running_since` 对应的业务输入值
-#   - `last_restart_at`（float | None）：`last_restart_at` 对应的业务输入值
-#   - `last_failure_at`（float | None）：`last_failure_at` 对应的业务输入值
-#   - `last_failure`（str）：`last_failure` 对应的业务输入值
-#   - `exhausted`（bool）：`exhausted` 对应的业务输入值
-#   - `exhausted_alerted`（bool）：`exhausted_alerted` 对应的业务输入值
-# 返回：WorkerWatchdogState；返回新建的 `WorkerWatchdogState` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::start_all` 实例化本符号；`AiVision/platform/inference/runtime_manager.py` 的
-#         `InferenceRuntimeManager::_watchdog_tick` 实例化本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_restart_worker`
-#         实例化本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::runtime_status` 实例化本符号；另有 1 处静态调用
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass
 class WorkerWatchdogState:
+    """记录某一个模型Worker当前自动恢复到什么状态了"""
+    # 已经重启几次
     restart_attempts: int = 0
+    # 下一次允许什么时候重启
     next_restart_at: float = 0.0
+    # 新Worker最迟什么时候必须加载完成
     ready_deadline: float = 0.0
+    # 从什么时候开始稳定运行
     running_since: float | None = None
     last_restart_at: float | None = None
+    # 上次失败原因
     last_failure_at: float | None = None
     last_failure: str = ""
+    # 重启机会是不是已经用完
     exhausted: bool = False
     exhausted_alerted: bool = False
 
-
-# 功能：所有推理 Worker 进程的管理器；输入与输出详见下方说明
-# 参数：无。
-# 返回：InferenceRuntimeManager；返回新建的 `InferenceRuntimeManager` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的 `_manager_with_worker` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class InferenceRuntimeManager:
     """所有推理 Worker 进程的管理器"""
-
-    # 功能：初始化或配置 `__init__` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`threading.RLock`、`threading.Event`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self):
         # model_name → infer_queue (Consumer 投递任务给 Worker)
         self.infer_queues: dict[str, Queue] = {}
@@ -82,199 +53,150 @@ class InferenceRuntimeManager:
         # model_name → BaseModelWorker 实例
         self._workers: dict[str, object] = {}
         self._model_configs: dict[str, dict] = {}
+        self._model_owners: dict[str, str] = {}
         self._worker_states: dict[str, WorkerWatchdogState] = {}
         self._runtime_alert_handler: Callable[[str, str, str, str], None] | None = None
         self._runtime_monitor_handler: Callable[[], None] | None = None
         self._lock = threading.RLock()
+        self._lifecycle_lock = threading.RLock()
+        self._configuration_lock = threading.RLock()
+        self._reload_thread: threading.Thread | None = None
+        self._reload_results: dict[str, dict] = {}
+        self._active = False
         self._watchdog_stop = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
         self._shutting_down = False
-
-    # 功能：启动前预创建所有队列；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`model_config_manager.list_models`、`Queue`、`all_specs`、`logger.info`、`len`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
+    
     def initialize_queues(self):
-        """启动前预创建所有队列"""
-        # 一个 model 一个推理输入队列
-        for m in model_config_manager.list_models(enabled_only=True):
-            self.infer_queues[m["name"]] = Queue(maxsize=10)
+        """启动前预创建所有队列
+        一个模型一个输入队列
+        一个功能一个输出队列
+        """
+        # 一个逻辑模型一个推理输入队列
+        for name in MODEL_SPECS:
+            if name not in self.infer_queues:
+                self.infer_queues[name] = Queue(maxsize=10)
         # 一个 feature 一个结果队列
         for fname in all_specs():
-            self.result_queues[fname] = Queue(maxsize=10)
+            if fname not in self.result_queues:
+                self.result_queues[fname] = Queue(maxsize=10)
 
         logger.info(
             f"[InferenceRuntimeManager] 初始化 {len(self.infer_queues)} 个推理队列, "
             f"{len(self.result_queues)} 个结果队列"
         )
 
-    # 功能：加载并启动所有已启用的推理 Worker；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`model_config_manager.list_models`、`dict`、`WorkerWatchdogState`、`self._start_one`、`len`、`self._wait_for_workers_ready`、`time.monotonic`、`self._workers.items`、`worker.is_running`、`self._worker_states.setdefault`
-    #          等共 13 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def start_all(self):
-        """加载并启动所有已启用的推理 Worker"""
-        models = model_config_manager.list_models(enabled_only=True)
+        """加载固定模型；同一物理权重只启动一个 Worker。"""
+        with self._lifecycle_lock:
+            self._start_all()
+
+    def _start_all(self):
+        if self._active:
+            return
+        unknown = {name for spec in all_specs().values() for name in spec.required_models} - MODEL_SPECS.keys()
+        if unknown:
+            raise ValueError(f"Feature 引用了未注册模型: {sorted(unknown)}")
+        groups, owners = self._build_model_groups()
+        models = list(groups.values())
         with self._lock:
+            self._active = True
             self._shutting_down = False
-            self._model_configs = {model["name"]: dict(model) for model in models}
+            self._model_configs = groups
+            self._model_owners = owners
             self._worker_states = {
                 model["name"]: WorkerWatchdogState()
                 for model in models
             }
         for model in models:
+            # 给一个模型配置，创建并启动它对应的Worker
             self._start_one(model)
-        total_workers = len(self._workers)
+        total_workers = len(self._model_owners)
+        # 等待Working已经准备加载好
         self._wait_for_workers_ready()
         now = time.monotonic()
         with self._lock:
             for name, worker in self._workers.items():
                 if worker.is_running():
                     self._worker_states.setdefault(name, WorkerWatchdogState()).running_since = now
+        # 启动看门狗
         self._start_watchdog()
         logger.info(
             f"[InferenceRuntimeManager] 模型就绪 {len(self.list_running())}/{total_workers}: "
             f"{self.list_running()}"
         )
 
-    # 功能：停止并释放 `stop_all` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_watchdog`、`list`、`self._workers.items`、`self._workers.clear`、`self._model_configs.clear`、`self._worker_states.clear`、`worker.stop`、`logger.warning`。
-    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
     def stop_all(self):
+        """
+        流程：
+            self._shutting_down = True
+            先停watchdog
+            取出所有Worker
+            逐个worker.stop()
+            清内部注册
+        """
         with self._lock:
             self._shutting_down = True
+            self._active = False
         self._stop_watchdog()
-        with self._lock:
-            workers = list(self._workers.items())
-            self._workers.clear()
-            self._model_configs.clear()
-            self._worker_states.clear()
-        for name, worker in workers:
-            try:
+        with self._lifecycle_lock:
+            with self._lock:
+                workers = list(self._workers.items())
+            for name, worker in workers:
                 worker.stop()
-            except Exception as e:
-                logger.warning(f"[InferenceRuntimeManager] 停止 {name} 失败: {e}")
+                with self._lock:
+                    self._workers.pop(name, None)
+            with self._lock:
+                self._model_configs.clear()
+                self._model_owners.clear()
+                self._worker_states.clear()
 
-    # 功能：初始化或配置 `configure_runtime_alerts` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `handler`（Callable[[str, str, str, str], None] | None）：负责处理事件或结果的回调函数
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def configure_runtime_alerts(self, handler: Callable[[str, str, str, str], None] | None):
+        """模型异常报警（model worker）"""
         self._runtime_alert_handler = handler
 
     def configure_runtime_monitor(self, handler: Callable[[], None] | None) -> None:
-        """注册由现有 watchdog 周期调用的额外运行状态检查。"""
+        """注册由现有 watchdog 周期调用的额外运行状态检查。（顺便执行运行状态监控）"""
         with self._lock:
             self._runtime_monitor_handler = handler
 
-    # 功能：启动或执行 `_start_one` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `model_cfg`（dict）：`model_cfg` 对应的业务输入值
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::start_all`
-    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_restart_worker` 调用本符号
-    #   - 内部调用：`model_cfg.get`、`logger.info`、`self._collect_initial_configs`、`self._import_worker_class`、`logger.warning`、`self._notify_runtime_alert`、`str`、`self.infer_queues.get`、`worker_cls`、`worker.start`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _start_one(self, model_cfg: dict) -> bool:
+        """启动单个模型"""
         name = model_cfg["name"]
-        import_path = model_cfg.get("import_path")
-        if not import_path:
-            logger.info(f"[InferenceRuntimeManager] 模型 {name} 未配置 import_path,跳过")
-            return False
-
-        # 收集本模型对应的初始 camera 配置(供 Worker 用)
-        initial_configs = self._collect_initial_configs(name)
-
         try:
-            worker_cls = self._import_worker_class(import_path)
-        except Exception as e:
-            logger.warning(f"[InferenceRuntimeManager] 模型 {name} 导入失败 ({import_path}): {e}")
-            self._notify_runtime_alert(name, name, "模型导入失败", str(e))
-            return False
-
-        infer_queue = self.infer_queues.get(name)
-        if infer_queue is None:
-            logger.warning(f"[InferenceRuntimeManager] 模型 {name} 缺少 infer_queue")
-            self._notify_runtime_alert(name, name, "模型队列缺失", "缺少 infer_queue")
-            return False
-
-        try:
+            model_path = validate_model_path(model_cfg["path"])
+            worker_cls = model_cfg["worker_class"]
+            # 创建Worker
             worker = worker_cls(
-                infer_queue=infer_queue,
+                infer_queues={key: self.infer_queues[key] for key in model_cfg["model_names"]},
                 result_queues=self.result_queues,
-                model_cfg=model_cfg,
-                initial_configs=initial_configs,
+                model_name=name,
+                model_path=model_path,
             )
+            # 开启（一个物理权重一个python子进程）
             worker.start()
             with self._lock:
                 self._workers[name] = worker
+                state = self._worker_states.setdefault(name, WorkerWatchdogState())
+                state.ready_deadline = time.monotonic() + settings.runtime.model_worker_ready_timeout_seconds
             logger.info(f"[InferenceRuntimeManager] 推理 Worker 启动: {name}")
             return True
         except Exception as e:
+            with self._lock:
+                state = self._worker_states.setdefault(name, WorkerWatchdogState())
+                state.last_failure = str(e)
+                state.last_failure_at = time.time()
             logger.exception(f"[InferenceRuntimeManager] 启动 Worker {name} 失败: {e}")
             self._notify_runtime_alert(name, name, "模型 Worker 启动失败", str(e))
             return False
 
-    # 功能：收集所有依赖该模型的 (camera_id, function) 配置；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `model_name`（str）：`model_name` 对应的业务输入值
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_start_one` 调用本符号
-    #   - 内部调用：`config_cache.get_all_function_configs`、`all_specs`、`all_cfg.items`、`specs.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def _collect_initial_configs(self, model_name: str) -> dict:
-        """收集所有依赖该模型的 (camera_id, function) 配置"""
-        result = {}
-        all_cfg = config_cache.get_all_function_configs()
-        specs = all_specs()
-        for (cam_id, fname), cfg in all_cfg.items():
-            spec = specs.get(fname)
-            if spec is None:
-                continue
-            if model_name in spec.required_models:
-                result[cam_id] = cfg
-        return result
-
-    # 功能：等待子进程完成模型加载,避免状态接口把加载失败的模型误判为在线；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::start_all` 调用本符号
-    #   - 内部调用：`time.monotonic`、`max`、`set`、`self._workers.keys`、`list`、`self._workers.get`、`pending.discard`、`worker.is_running`、`worker.is_failed`、`worker.is_alive`
-    #          等共 16 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态；会向日志系统输出运行或异常信息。
-    def _wait_for_workers_ready(self):
+    def _wait_for_workers_ready(self, names: set[str] | None = None):
         """等待子进程完成模型加载,避免状态接口把加载失败的模型误判为在线。"""
         timeout = settings.runtime.model_worker_ready_timeout_seconds
 
         deadline = time.monotonic() + max(0.0, timeout)
         with self._lock:
-            pending = set(self._workers.keys())
+            pending = set(self._workers.keys()) if names is None else names & self._workers.keys()
 
         while pending and time.monotonic() < deadline:
             for name in list(pending):
@@ -283,10 +205,15 @@ class InferenceRuntimeManager:
                 if worker is None:
                     pending.discard(name)
                     continue
+                # 循环判断Worker是不是在运行，在的话从pending移除
                 if worker.is_running():
                     pending.discard(name)
                     continue
                 if worker.is_failed() or not worker.is_alive():
+                    state = self._worker_states[name]
+                    state.last_failure = worker.failure_message() or "worker 加载失败或进程已退出"
+                    state.last_failure_at = time.time()
+                    worker.stop()
                     logger.warning(f"[InferenceRuntimeManager] 模型 {name} 未就绪,worker 已失败或退出")
                     self._notify_runtime_alert(name, name, "模型 Worker 未就绪", "worker 已失败或退出")
                     pending.discard(name)
@@ -294,7 +221,10 @@ class InferenceRuntimeManager:
             if pending:
                 time.sleep(0.2)
 
+        # 进程活着，但是模型30秒没加载成功，就stop
         for name in sorted(pending):
+            self._worker_states[name].last_failure = "模型加载超时"
+            self._worker_states[name].last_failure_at = time.time()
             logger.warning(
                 f"[InferenceRuntimeManager] 模型 {name} 在 {timeout:.1f}s 内未完成加载,暂不计入运行模型"
             )
@@ -307,23 +237,7 @@ class InferenceRuntimeManager:
                 except Exception as e:
                     logger.warning(f"[InferenceRuntimeManager] 停止未就绪模型 {name} 失败: {e}")
 
-        with self._lock:
-            self._workers = {
-                name: worker
-                for name, worker in self._workers.items()
-                if worker.is_running()
-            }
-
     # ---------- Worker 看门狗 ----------
-
-    # 功能：启动或执行 `_start_watchdog` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::start_all` 调用本符号
-    #   - 内部调用：`self._watchdog_thread.is_alive`、`self._watchdog_stop.clear`、`threading.Thread`、`self._watchdog_thread.start`、`logger.info`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源；会向日志系统输出运行或异常信息。
     def _start_watchdog(self) -> None:
         with self._lock:
             if not self._model_configs and self._runtime_monitor_handler is None:
@@ -339,14 +253,6 @@ class InferenceRuntimeManager:
             self._watchdog_thread.start()
         logger.info("[InferenceRuntimeManager] 模型 Worker 看门狗已启动")
 
-    # 功能：停止并释放 `_stop_watchdog` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::stop_all` 调用本符号
-    #   - 内部调用：`self._watchdog_stop.set`、`threading.current_thread`、`thread.join`、`max`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def _stop_watchdog(self) -> None:
         self._watchdog_stop.set()
         with self._lock:
@@ -355,14 +261,6 @@ class InferenceRuntimeManager:
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=max(1.0, settings.runtime.model_worker_watchdog_interval_seconds * 2))
 
-    # 功能：实现 `_watchdog_loop` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._watchdog_stop.wait`、`self._watchdog_tick`、`logger.exception`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _watchdog_loop(self) -> None:
         interval = settings.runtime.model_worker_watchdog_interval_seconds
         while not self._watchdog_stop.wait(interval):
@@ -371,21 +269,17 @@ class InferenceRuntimeManager:
             except Exception:
                 logger.exception("[InferenceRuntimeManager] 模型 Worker 看门狗异常")
 
-    # 功能：执行一次存活检查；独立成方法便于确定性测试；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `now`（float | None）：`now` 对应的业务输入值；默认值为 `None`
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_loop`
-    #         调用本符号；`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的 `test_watchdog_restarts_dead_worker_after_backoff`
-    #         调用本符号；`AiVision/tests/test_inference_runtime_manager_watchdog.py` 的
-    #         `test_watchdog_stops_retrying_and_alerts_once_when_attempts_exhausted` 调用本符号
-    #   - 内部调用：`time.monotonic`、`list`、`self._workers.get`、`self._worker_states.setdefault`、`WorkerWatchdogState`、`dict`、`worker.is_running`、`self._mark_worker_running`、`worker.is_alive`、`worker.is_failed`
-    #          等共 17 个调用。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _watchdog_tick(self, now: float | None = None) -> None:
-        """执行一次存活检查；独立成方法便于确定性测试。"""
+        with self._lifecycle_lock:
+            self._watchdog_tick_locked(now)
+        self._run_runtime_monitor()
+
+    def _watchdog_tick_locked(self, now: float | None = None) -> None:
+        """
+        执行一次存活检查；独立成方法便于确定性测试。
+        整体思路：
+            每隔N秒，检查所有启动时配置的Model。worker正常就什么都不做，Worker异常记录失败，等backoff，重启，如果又失败，在等更久，达到最大次数，exhausted + 报警
+        """
         current = time.monotonic() if now is None else now
         with self._lock:
             if self._shutting_down:
@@ -399,6 +293,7 @@ class InferenceRuntimeManager:
                 model_cfg = dict(self._model_configs[name])
 
             if worker is not None and worker.is_running():
+                # Worker稳定运行超过model_worker_restart_reset_seconds会restart_attempts=0
                 self._mark_worker_running(state, current)
                 continue
 
@@ -432,6 +327,7 @@ class InferenceRuntimeManager:
                             state.exhausted_alerted = True
                             notify_exhausted = True
                     else:
+                        # _restart_backoff_seconds():指数退避：假设基础间隔5秒钟，这里第一次5秒，第二次10秒，第三次20秒...
                         delay = self._restart_backoff_seconds(state.restart_attempts)
                         state.next_restart_at = current + delay
                         state.exhausted = False
@@ -469,8 +365,6 @@ class InferenceRuntimeManager:
             if should_restart:
                 self._restart_worker(name, model_cfg, attempt, current)
 
-        self._run_runtime_monitor()
-
     def _run_runtime_monitor(self) -> None:
         with self._lock:
             handler = self._runtime_monitor_handler
@@ -481,16 +375,6 @@ class InferenceRuntimeManager:
         except Exception:
             logger.exception("[InferenceRuntimeManager] 附加运行状态检查异常")
 
-    # 功能：实现 `_mark_worker_running` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `state`（WorkerWatchdogState）：`state` 对应的业务输入值
-    #   - `now`（float）：`now` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_tick` 调用本符号
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _mark_worker_running(self, state: WorkerWatchdogState, now: float) -> None:
         with self._lock:
             if state.running_since is None:
@@ -504,16 +388,6 @@ class InferenceRuntimeManager:
             if state.restart_attempts and now - state.running_since >= reset_seconds:
                 state.restart_attempts = 0
 
-    # 功能：实现 `_worker_failure_reason` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `worker`（object | None）：`worker` 对应的业务输入值
-    #   - `state`（WorkerWatchdogState）：`state` 对应的业务输入值
-    #   - `now`（float）：`now` 对应的业务输入值
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_tick` 调用本符号
-    #   - 内部调用：`worker.is_failed`、`worker.is_alive`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _worker_failure_reason(
         worker: object | None,
@@ -521,41 +395,21 @@ class InferenceRuntimeManager:
         now: float,
     ) -> str:
         if worker is None:
-            return "worker 不存在"
+            return state.last_failure or "worker 不存在"
         if worker.is_failed():
-            return "worker 报告失败"
+            return worker.failure_message() or state.last_failure or "worker 报告失败"
         if not worker.is_alive():
             return "worker 进程已退出"
         if state.ready_deadline and now >= state.ready_deadline:
             return "worker 加载超时"
         return "worker 未就绪"
 
-    # 功能：实现 `_restart_backoff_seconds` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `previous_attempts`（int）：`previous_attempts` 对应的业务输入值
-    # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_tick` 调用本符号
-    #   - 内部调用：`min`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _restart_backoff_seconds(previous_attempts: int) -> float:
         base = settings.runtime.model_worker_restart_backoff_seconds
         maximum = settings.runtime.model_worker_restart_max_backoff_seconds
         return min(base * (2 ** previous_attempts), maximum)
 
-    # 功能：实现 `_restart_worker` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `name`（str）：业务对象名称
-    #   - `model_cfg`（dict）：`model_cfg` 对应的业务输入值
-    #   - `attempt`（int）：`attempt` 对应的业务输入值
-    #   - `now`（float）：`now` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_tick` 调用本符号
-    #   - 内部调用：`self._workers.pop`、`old_worker.stop`、`logger.warning`、`self._discard_pending_tasks`、`self._start_one`、`self._worker_states.setdefault`、`WorkerWatchdogState`、`time.time`、`self._notify_runtime_alert`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _restart_worker(
         self,
         name: str,
@@ -563,16 +417,28 @@ class InferenceRuntimeManager:
         attempt: int,
         now: float,
     ) -> None:
+        """
+        重启流程：
+            old_worker.stop()
+            从_workers移除旧worker
+            丢弃关联逻辑模型队列中的待处理任务
+            _start_one(model_cfg)
+            创建新Worker
+            等待ready
+        """
         with self._lock:
             if self._shutting_down:
                 return
-            old_worker = self._workers.pop(name, None)
+            old_worker = self._workers.get(name)
         if old_worker is not None:
             try:
                 old_worker.stop()
             except Exception as e:
                 logger.warning(f"[InferenceRuntimeManager] 回收异常 Worker {name} 失败: {e}")
-        discarded = self._discard_pending_tasks(name)
+                return
+            with self._lock:
+                self._workers.pop(name, None)
+        discarded = sum(self._discard_pending_tasks(key) for key in model_cfg["model_names"])
         if discarded:
             logger.warning(f"[InferenceRuntimeManager] 重启模型 {name} 前丢弃 {discarded} 个过期任务")
 
@@ -585,7 +451,7 @@ class InferenceRuntimeManager:
                 state.last_failure = ""
             else:
                 state.ready_deadline = 0.0
-                state.last_failure = "worker 重启启动失败"
+                state.last_failure = state.last_failure or "worker 重启启动失败"
                 state.last_failure_at = time.time()
 
         if not started:
@@ -596,16 +462,8 @@ class InferenceRuntimeManager:
                 f"第 {attempt} 次重启未能启动进程",
             )
 
-    # 功能：实现 `_discard_pending_tasks` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `name`（str）：业务对象名称
-    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_restart_worker` 调用本符号
-    #   - 内部调用：`self.infer_queues.get`、`infer_queue.get_nowait`、`logger.warning`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _discard_pending_tasks(self, name: str) -> int:
+        """丢弃未处理的任务"""
         infer_queue = self.infer_queues.get(name)
         if infer_queue is None:
             return 0
@@ -620,72 +478,150 @@ class InferenceRuntimeManager:
                 logger.warning(f"[InferenceRuntimeManager] 清理模型 {name} 待处理队列失败: {exc}")
                 return discarded
 
-    # 功能：支持两种格式:；输入与输出详见下方说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    # 返回：type；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_start_one` 调用本符号
-    #   - 内部调用：`ImportError`、`path.rsplit`、`importlib.import_module`、`getattr`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @staticmethod
-    def _import_worker_class(path: str) -> type:
-        """支持两种格式:
-        - module 路径(模块内有 ModelWorker 类): 'AiVision.platform.inference.workers.yolo_detector'
-        - 完整类路径: 'AiVision.platform.inference.workers.yolo_detector.YoloDetectorWorker'
+    def _build_model_groups(self) -> tuple[dict[str, dict], dict[str, str]]:
+        paths = load_model_paths()
+        groups, owners, identities = {}, {}, {}
+        for name, spec in MODEL_SPECS.items():
+            path = paths.get(name, "")
+            try:
+                resolved = Path(validate_model_path(path))
+                info = resolved.stat()
+                identity = (spec.worker_class, info.st_dev, info.st_ino)
+            except (OSError, ValueError):
+                identity = (name,)
+            owner = identities.setdefault(identity, name)
+            owners[name] = owner
+            group = groups.setdefault(owner, {
+                "name": owner, "path": path, "worker_class": spec.worker_class, "model_names": [],
+            })
+            group["model_names"].append(name)
+        return groups, owners
 
-        兼容旧数据库中的 ``platform.inference`` 前缀。这里在实际导入前再次
-        归一化，避免数据库迁移尚未执行或共享数据库仍保留旧值时启动失败。
-        """
-        if "." not in path:
-            raise ImportError(f"无效的 import_path: {path}")
-        if path.startswith("platform.inference."):
-            path = f"AiVision.{path}"
-        # 尝试当作完整类路径
-        try:
-            mod_path, cls_name = path.rsplit(".", 1)
-            module = importlib.import_module(mod_path)
-            cls = getattr(module, cls_name, None)
-            if cls is not None:
-                return cls
-        except ImportError:
-            pass
-        # fallback: 当作 module 路径,用 ModelWorker 名字
-        module = importlib.import_module(path)
-        return module.ModelWorker
+    def list_models(self) -> list[dict]:
+        paths = load_model_paths()
+        statuses = {item["model_name"]: item for item in self.runtime_status()["models"]}
+        with self._lock:
+            return [{
+                "name": name,
+                "type": spec.type,
+                "path": paths.get(name, ""),
+                "runtime": statuses.get(name, {
+                    "status": "not_started", "running": False, "alive": False,
+                    "loaded_path": "", "last_failure": "", "shared_models": [name],
+                }),
+                "reload": dict(self._reload_results.get(name, {"status": "idle", "error": ""})),
+            } for name, spec in MODEL_SPECS.items()]
+
+    def update_model_path(self, name: str, path: str) -> dict:
+        get_model_spec(name)
+        with self._configuration_lock:
+            if self._reload_thread is not None and self._reload_thread.is_alive():
+                raise RuntimeError("已有模型正在重载，请等待加载完成后再保存")
+            saved_path = save_model_path(name, path)
+            with self._lock:
+                active = self._active and not self._shutting_down
+                self._reload_results[name] = {
+                    "status": "loading" if active else "not_started", "error": "",
+                }
+            if active:
+                self._reload_thread = threading.Thread(
+                    target=self._reload_affected, args=(name,),
+                    name="inference-model-reload", daemon=True,
+                )
+                self._reload_thread.start()
+            return {
+                "configuration_saved": True,
+                "name": name,
+                "path": saved_path,
+                "load_status": "loading" if active else "not_started",
+            }
+
+    def _reload_affected(self, name: str) -> None:
+        affected = {name}
+        with self._lifecycle_lock:
+            try:
+                if not self._active or self._shutting_down:
+                    with self._lock:
+                        self._reload_results[name] = {"status": "not_started", "error": ""}
+                    return
+                groups, owners = self._build_model_groups()
+                with self._lock:
+                    previous = dict(self._model_configs)
+                while True:
+                    expanded = set(affected)
+                    for group in (*previous.values(), *groups.values()):
+                        if affected.intersection(group["model_names"]):
+                            expanded.update(group["model_names"])
+                    if expanded == affected:
+                        break
+                    affected = expanded
+                with self._lock:
+                    for key in affected:
+                        self._reload_results[key] = {"status": "loading", "error": ""}
+                old_owners = [key for key, group in previous.items()
+                              if affected.intersection(group["model_names"])]
+                for owner in old_owners:
+                    worker = self._workers.get(owner)
+                    if worker is not None:
+                        worker.stop()
+                        with self._lock:
+                            self._workers.pop(owner, None)
+                new_groups = {key: group for key, group in groups.items()
+                              if affected.intersection(group["model_names"])}
+                with self._lock:
+                    for owner in old_owners:
+                        self._model_configs.pop(owner, None)
+                        self._worker_states.pop(owner, None)
+                    self._model_configs.update(new_groups)
+                    self._model_owners.update({key: owners[key] for key in affected})
+                    for owner in new_groups:
+                        self._worker_states[owner] = WorkerWatchdogState()
+                for key in affected:
+                    self._discard_pending_tasks(key)
+                for group in new_groups.values():
+                    self._start_one(group)
+                self._wait_for_workers_ready(set(new_groups))
+                with self._lock:
+                    for key in affected:
+                        owner = owners[key]
+                        worker = self._workers.get(owner)
+                        running = worker is not None and worker.is_running()
+                        self._reload_results[key] = {
+                            "status": "succeeded" if running else "failed",
+                            "error": "" if running else self._worker_states[owner].last_failure or "模型加载失败",
+                        }
+            except Exception as exc:
+                logger.exception(f"[InferenceRuntimeManager] 重载模型 {name} 失败")
+                with self._lock:
+                    for key in affected:
+                        self._reload_results[key] = {"status": "failed", "error": str(exc)}
 
     # ---------- 状态查询 ----------
-
-    # 功能：读取或查询 `list_running` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::start_all` 调用本符号
-    #   - 内部调用：`list`、`self._workers.items`、`worker.is_running`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def list_running(self) -> list[str]:
         with self._lock:
-            workers = list(self._workers.items())
-        return [name for name, worker in workers if worker.is_running()]
+            return [name for name, owner in self._model_owners.items()
+                    if owner in self._workers and self._workers[owner].is_running()]
 
-    # 功能：返回 Worker 与自动恢复状态，不改变任何运行状态；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`time.monotonic`、`sorted`、`self._workers.get`、`self._worker_states.setdefault`、`WorkerWatchdogState`、`worker.is_running`、`worker.is_alive`、`models.append`、`round`、`max`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def runtime_status(self) -> dict:
-        """返回 Worker 与自动恢复状态，不改变任何运行状态。"""
+        """返回 Worker 与自动恢复状态，不改变任何运行状态。
+        告诉前端：
+            running
+            starting
+            backoff
+            exhausted
+            stopped
+        返回：
+            restart_attempts
+            next_restart_in_seconds
+            last_restart_at
+            last_failure
+        """
         now = time.monotonic()
         with self._lock:
             models = []
-            for name in sorted(self._model_configs):
-                worker = self._workers.get(name)
-                state = self._worker_states.setdefault(name, WorkerWatchdogState())
+            for name, owner in sorted(self._model_owners.items()):
+                worker = self._workers.get(owner)
+                state = self._worker_states[owner]
                 running = worker is not None and worker.is_running()
                 alive = worker is not None and worker.is_alive()
                 if running:
@@ -696,6 +632,8 @@ class InferenceRuntimeManager:
                     status = "starting"
                 elif state.next_restart_at > now:
                     status = "backoff"
+                elif state.last_failure or (worker is not None and worker.is_failed()):
+                    status = "failed"
                 else:
                     status = "stopped"
                 models.append({
@@ -703,6 +641,8 @@ class InferenceRuntimeManager:
                     "status": status,
                     "running": running,
                     "alive": alive,
+                    "loaded_path": worker.model_path if running else "",
+                    "shared_models": list(self._model_configs[owner]["model_names"]),
                     "restart_attempts": state.restart_attempts,
                     "next_restart_in_seconds": round(max(0.0, state.next_restart_at - now), 3),
                     "last_restart_at": state.last_restart_at,
@@ -715,33 +655,21 @@ class InferenceRuntimeManager:
                 "models": models,
             }
 
-    # 功能：发送或分发 `_notify_runtime_alert` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `target_name`（str）：`target_name` 对应的业务输入值
-    #   - `target_key`（str）：`target_key` 对应的业务输入值
-    #   - `event_type`（str）：事件类型标识
-    #   - `detail`（str）：`detail` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_start_one`
-    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_wait_for_workers_ready`
-    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_watchdog_tick`
-    #         调用本符号；`AiVision/platform/inference/runtime_manager.py` 的 `InferenceRuntimeManager::_restart_worker` 调用本符号
-    #   - 内部调用：`threading.Thread(target=_send, daemon=True, name=f'inference-runtime-alert-{target_key}').start`、`threading.Thread`。
-    # 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
     def _notify_runtime_alert(self, target_name: str, target_key: str, event_type: str, detail: str):
+        """
+        异常报警
+        为了不阻塞watchdog，会新开一个守护线程去发送异常通知
+        类型：
+            模型导入失败
+            模型加载超时
+            Worker退出
+            Worker重启失败
+            重启次数耗尽
+        """
         handler = self._runtime_alert_handler
         if handler is None:
             return
 
-        # 功能：发送或分发 `_send` 对应的`manager` 模块逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：无。
-        # 返回：None；仅执行处理流程，不返回业务数据。
-        # 调用关系：
-        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`handler`、`logger.warning`。
-        # 副作用/注意事项：会向日志系统输出运行或异常信息。
         def _send():
             try:
                 handler(target_name, target_key, event_type, detail)

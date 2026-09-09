@@ -1,5 +1,20 @@
 """
 AiVision的总启动/停止调度中心
+AIVision运行资源：
+      Cameramanager：摄像头采集进程，负责rtsp采集和写共享内存
+      InferenceRuntimeManager：模型推理进程，负责加载模型和推理任务队列
+      Consumers：各检测功能的处理线程，负责从摄像头获取最新帧，调用模型推理，处理结果，写违规记录
+      LogisticsChannelRuntime：物流通道实时检测模块，负责从摄像头获取最新帧，调用模型推理，处理结果，写违规记录
+      FrameReeaderRegistry：帧读取模块，负责从共享内存中读取最新帧，给Consumers和LogisticsChannelRuntime使用
+      AlarmDispatcher：统一告警模块，负责喇叭、企业微信、违规记录、告警视频等告警相关的处理
+      ViolationWriter：违规记录写入模块，负责违规截图，违规数据库记录，视频路径，状态
+函数：
+    生命周期          _init__()  start()  stop()
+    consumer启动      _start_consumers()  _start_consumer()
+    配置热更新        _handle_runtime_config_change() 以及摄像头辅助函数
+    API查询接口       get_xxx()  runtime_status()
+    异常监控          _monitor_consumer_threads()  _send_system_exception_alert()
+    全局实例          init_orchestrator()  get_orchestrator()
 """
 from __future__ import annotations
 import datetime as dt
@@ -24,11 +39,11 @@ from AiVision.platform.camera.runtime_manager import CameraRuntimeManager       
 from AiVision.platform.camera.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
 from AiVision.platform.camera.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
 from AiVision.platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
-from AiVision.platform.inference.config_manager import model_config_manager               # 模型配置/数据库
+from AiVision.platform.inference.model_registry import MODEL_SPECS
 from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
 from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
 from AiVision.platform.logistics_channel.service import logistics_channel_service
-from AiVision.platform.alarm_device.service import horn_service                   # 喇叭设备
+from AiVision.platform.alarm_device.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.platform.violation.service import violation_writer                  # 写入违规记录
 from AiVision.platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
 
@@ -51,14 +66,20 @@ class Orchestrator:
     def __init__(self, mp_manager):
         """此阶段主要创建和保存各子模块对象
         接收mp_manager:跨进程共享管理器
+        主要创建：
+            1、摄像头采集进程管理器CameraRuntimeManager
+            2、各检测功能的Consumer字典
+            3、喇叭运行管理器
+            4、企业微信通知对象（告警对象）
+            5、物流通道实时业务模块LogisticsChannelRuntime
         """
         self.camera_runtime_manager = CameraRuntimeManager(mp_manager)                      # 摄像头采集进程
         self.consumers: dict[str, BaseFunctionConsumer] = {}                 # 所有检测业务处理器，字典，key为检测业务名称，Value为具体的检测业务对象，取具体检测业务的时候只要名字就行
-        self._horn_dict: dict = {}                                           # 当前运行中的喇叭设备
+        self.horn_runtime_manager = horn_runtime_manager                                           # 当前运行中的喇叭设备
         self._wechat: Optional[WeChatNotifier] = None                        # 企业微信
         self._started = False                                                # 启动按钮
-        self._last_system_exception_alerts: dict[tuple[str, str], float] = {}
-        self._system_exception_alert_lock = threading.Lock()
+        self._last_system_exception_alerts: dict[tuple[str, str], float] = {} # 系统异常告警最后发送时间表
+        self._system_exception_alert_lock = threading.Lock()                 # 异常告警的锁
         # 物流通道实时业务模块
         self.logistics_channel_runtime = LogisticsChannelRuntime(
             channel_service=logistics_channel_service,            # 查物流通道配置的服务
@@ -93,9 +114,8 @@ class Orchestrator:
 
         # 1) 数据库 schema 修补，在启动摄像头和模型之前，把配置整理干净
         ensure_schema_compatible()                             # 检查/修补数据库表结构
-        model_config_manager.normalize_builtin_models()               # 整理系统内置模型配置
         camera_config_manager.normalize_shm_names()                   # 整理摄像头共享内存名称
-        camera_config_manager.ensure_feature_configs(enable_all=False) # 确保每台摄像头需要的功能配置存在
+        camera_config_manager.ensure_feature_configs() # 确保每台摄像头需要的功能配置存在
         config_cache.init()                                     # 把配置从数据库加载到运行时缓存
         # 物流通道迁移[历史迁移逻辑]
         migration = logistics_channel_service.migrate_existing_feature_cameras()
@@ -122,11 +142,10 @@ class Orchestrator:
 
         # 3) 摄像头进程
         cameras = camera_config_manager.list_cameras()                   # 查摄像头数据库配置
-        models = model_config_manager.list_models(enabled_only=True)     # 查模型数据库配置
         cleanup_count = cleanup_aivision_residual_processes(      # 清理残留进程
             camera_shm_names=[c["shm_name"] for c in cameras],
             camera_urls=[c["url"] for c in cameras],
-            model_names=[m["name"] for m in models],
+            model_names=list(MODEL_SPECS),
         )
         if cleanup_count:
             logger.warning(f"[Orchestrator] 启动前已清理 {cleanup_count} 个 AiVision 残留进程")
@@ -155,10 +174,10 @@ class Orchestrator:
         violation_writer.start()          # 启动违规记录写入模块，负责违规截图，违规数据库记录，视频路径，状态
 
         # 5) 告警通道
-        self._horn_dict = horn_service.load_runtime_instances()      #创建真正运行中的喇叭对象
+        self.horn_runtime_manager.start()      #创建真正运行中的喇叭对象
         # 告警模块配置（依赖注入：调度器把报警依赖交给AlarmDispatcher，将工具给它，以后由它负责告警）
         alarm_dispatcher.configure(
-            horn_dict=self._horn_dict,             #喇叭对象
+            horn_runtime_manager=self.horn_runtime_manager,             #喇叭对象
             wechat=self._wechat,                   # 微信客户端
             violation_writer=violation_writer,     # 违规保存数据库记录模块
             evidence_recorder=alarm_evidence_recorder,  # 报警视频模块
@@ -172,7 +191,7 @@ class Orchestrator:
         # 7) 开启物流通道实时检测模块
         self.logistics_channel_runtime.start()
         # 开启所有检测功能的处理线程
-        self._start_consumers()
+        self._start_consumers()                               # 调用函数
 
         self._started = True                          # Orchestrator已经完成启动流程
         logger.info("=" * 20 + " Orchestrator 启动完成 " + "=" * 20)
@@ -207,13 +226,15 @@ class Orchestrator:
             inference_runtime_manager.stop_all()
         except Exception as e:
             logger.warning(f"[Orchestrator] 停止推理失败: {e}")
-            # 3、停止喇叭心跳
-        for horn in self._horn_dict.values():
-            try:
-                horn.stop_heartbeat()
-            except Exception:
-                pass
-        self._horn_dict.clear()
+        try:
+            alarm_dispatcher.stop()
+        except Exception as e:
+            logger.warning(f"[Orchestrator] 停止微信告警线程失败: {e}")
+        # 3、停止喇叭心跳
+        try:
+            self.horn_runtime_manager.stop()
+        except Exception as e:
+            logger.warning(f"[Orchestrator] 停止喇叭运行管理器失败: {e}")
         # 4、停止告警视频记录模块
         try:
             alarm_evidence_recorder.stop()
@@ -310,6 +331,7 @@ class Orchestrator:
             consumer_kwargs["logistics_runtime"] = self.logistics_channel_runtime # 关键词参数加上logistics_runtime
         # 创建各检测功能的consumer
         consumer = spec.consumer_cls(**consumer_kwargs)
+        # 启动线程主要调用函数
         consumer.start()                               # 启动当前功能consumer线程
         self.consumers[name] = consumer                # 保存实例
         return consumer                                # consumer对象
@@ -325,6 +347,13 @@ class Orchestrator:
             1、物流通道变化：刷新对应的LogisticsChannelRuntime
             2、摄像头新增、修改、删除，动态启动、重启、停止或移除摄像头
             3、检测功能配置变化，找对对应的Consumer，enabled、disabled、config_updated
+        函数调用链：
+            1、摄像头新增：_add_camera_to_runtime（热添加摄像头）  ===>  build_camera_runtime_config（从数据库加载新配置，整理成comsumer所需要的配置）  ===>  camera_has_enabled_feature()
+            2、摄像头修改：_camera_update_requires_restart(摄像头配置修改后的重启需求)  
+            3、摄像头修改：_restart_or_stop_camera（停止旧进程，新配置重新启动）  ===>  build_camera_runtime_config 
+            4、普通信息修改： _refresh_consumer_camera_config（让正在运行的Comsumer去加载新配置）
+            5、功能绑定启用/禁用：_sync_camera_process_state（让摄像头实际运行状态和配置要求状态一致）  +===>  build_camera_runtime_config  +===>
+            6、物流配置变化：logistics_channel_runtime.refresh_xxx()
         """
         # 取字段
         change = event.change_type
@@ -361,9 +390,18 @@ class Orchestrator:
                 logger.info(f"[Orchestrator] 摄像头展示信息已热更新 cam_id={cam_id} shm={event.camera_name}")
             return
         if change == "camera_removed":
+            if cam_id is not None:
+                for name, consumer in list(self.consumers.items()):
+                    try:
+                        consumer.remove_camera(cam_id, event.camera_name)
+                    except Exception:
+                        logger.exception(f"[Orchestrator] 清理 Consumer 失败 feature={name} cam_id={cam_id}")
             # 通知物流模块，这台摄像头已经不存在了
             if cam_id is not None:
-                self.logistics_channel_runtime.refresh_camera_all(cam_id)
+                try:
+                    self.logistics_channel_runtime.refresh_camera_all(cam_id)
+                except Exception:
+                    logger.exception(f"[Orchestrator] 删除后刷新物流通道失败 cam_id={cam_id}")
             # 从CameraRuntimeManager运行配置里彻底移除这台摄像头
             self.camera_runtime_manager.remove_camera_config(event.camera_name)
             logger.info(f"[Orchestrator] 摄像头已热移除 cam_id={cam_id} shm={event.camera_name}")
@@ -500,7 +538,7 @@ class Orchestrator:
             logger.warning(f"[Orchestrator] 摄像头热启动失败 shm={shm_name}")
 
     def _sync_camera_process_state(self, key: str):
-        """按最新功能绑定同步摄像头进程，只处理期望状态与实际状态的差异。"""
+        """检查摄像头现在应该运行还是停止，然后让实际状态和配置一致"""
         cfg = self._build_camera_runtime_config(key)
         if cfg is None:
             return
@@ -520,6 +558,7 @@ class Orchestrator:
 
     def _restart_or_stop_camera(self, key: str):
         """
+        摄像头底层参数真正变化时，先停旧进程，在感觉新配置决定是否重新启动
         将这个与_add_camera_to_runtime做区分：
             _add_camera_to_runtime: 读取配置，更新配置，需要运行：start（不会强制stop）
             _restart_or_stop_camera: 读取配置，先stop，更新配置，还需要运行:是就start，否就保持停止
@@ -627,6 +666,18 @@ class Orchestrator:
         return event_type
 
     # ---------- API 查询函数 ----------
+
+    """
+    以下是给前端或者其他模块提供的查询接口，主要是获取摄像头画面和检测状态
+    1、get_camera_frame(shm_name, feature=None) 获取摄像头画面，优先取标注后的帧，没有就取原始帧
+       →  get_camera_frame_info(shm_name, feature=None) 获取摄像头画面和更新时间，优先取标注后的帧，没有就取原始帧
+    2、get_feature_monitor_status(shm_name, feature) 获取摄像头在某个检测功能下的实时监控状态，主要供前端实时状态展示使用
+    3、get_logistics_channel_status(shm_name, feature, channel_id) 获取摄像头在某个物流通道下的实时监控状态，主要供前端实时状态展示使用
+        → LogisticsChannelRuntime.get_channel_status()
+    4、get_logistics_channel_frame(shm_name, feature, channel_id) 获取摄像头在某个物流通道下的标注画面，主要供前端实时状态展示使用
+         → LogisticsChannelRuntime.get_channel_frame()
+    5、runtime_status() 获取AiVision Orchestrator的运行状态，主要供前端实时状态展示使用
+    """
 
     def get_camera_frame(self, shm_name: str, feature: str | None = None):
         """获取摄像头画面 — 优先取 feature 标注后的帧,无则取原始帧"""

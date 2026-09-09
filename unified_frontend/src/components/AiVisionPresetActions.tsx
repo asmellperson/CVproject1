@@ -3,7 +3,9 @@ import { Button } from '@/components/ui/button'
 
 type AiVisionPresetActionsProps = {
   disabled?: boolean
+
   onApplyDay: () => void
+
   onApplyNight: () => void
 }
 

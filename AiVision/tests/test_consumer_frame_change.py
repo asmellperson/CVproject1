@@ -2,6 +2,9 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 from types import SimpleNamespace
+import threading
+
+import pytest
 
 import cv2
 import numpy as np
@@ -59,6 +62,42 @@ def _consumer() -> FrameChangeConsumer:
         latest_frames={},
         is_camera_active=lambda _name: True,
     )
+
+
+@pytest.mark.parametrize("operation", ["update_config", "update_status"])
+def test_camera_delete_waits_for_inflight_config_update(monkeypatch, operation):
+    from AiVision.features._base import consumer as consumer_module
+
+    consumer = _consumer()
+    entered = threading.Event()
+    release = threading.Event()
+    removed = threading.Event()
+
+    def slow_read(*args):
+        entered.set()
+        assert release.wait(timeout=2)
+        return {"enable": True, "shm_name": "camera"}
+
+    monkeypatch.setattr(consumer_module.config_cache, "get_function_config", slow_read)
+    monkeypatch.setattr(consumer_module.alarm_dispatcher, "reset_cooldown", lambda *args: None)
+    args = (7, True) if operation == "update_status" else (7,)
+    updater = threading.Thread(target=getattr(consumer, operation), args=args)
+    deleter = threading.Thread(target=lambda: (consumer.remove_camera(7, "camera"), removed.set()))
+    try:
+        updater.start()
+        assert entered.wait(timeout=1)
+        deleter.start()
+        assert not removed.wait(timeout=0.05)
+        release.set()
+        updater.join(timeout=2)
+        deleter.join(timeout=2)
+        assert removed.is_set()
+        assert 7 not in consumer.config_cache
+    finally:
+        release.set()
+        updater.join(timeout=2)
+        if deleter.ident is not None:
+            deleter.join(timeout=2)
 
 
 # 功能：实现 `_high_contrast_frame` 对应的视频帧消费与检测、视频帧逻辑；输入由参数提供，处理结果见返回值说明
@@ -147,3 +186,102 @@ def test_visibly_changed_frame_refreshes_full_resolution_blur():
 
     assert consumer._frame_changed(1, [changed]) is True
     assert not np.array_equal(consumer.blur_roi[1][0], previous_blur)
+
+
+@pytest.mark.parametrize("kind", ["base", "door", "dwell", "logistics"])
+def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
+    from AiVision.features.detect_door.consumer import DoorConsumer
+    from AiVision.features.detect_human.consumer import HumanConsumer
+    from AiVision.features._base.logistics_single_person_consumer import LogisticsSinglePersonConsumerBase
+
+    classes = {"base": FrameChangeConsumer, "door": DoorConsumer, "dwell": HumanConsumer, "logistics": LogisticsSinglePersonConsumerBase}
+    kwargs = {"logistics_runtime": SimpleNamespace()} if kind == "logistics" else {}
+    consumer = classes[kind](
+        spec=SimpleNamespace(name="delete-test"), infer_dict={}, result_queue=None,
+        latest_frames={}, is_camera_active=lambda _name: True, **kwargs,
+    )
+    consumer.config_cache = {7: {"shm_name": "deleted"}, 8: {"shm_name": "kept"}}
+    states = (
+        "frame_cache", "_masks", "_masks_roi_input", "_masks_frame_shape", "_roi_polygon_cache",
+        "pre_roi", "blur_roi", "frame_change_samples", "_pending_results", "_expected_roi_count",
+        "_pending_timestamps", "_last_process_at", "_pre_gray", "_bg_gray", "_candidate_state", "_alarm_state",
+    )
+    for name in states:
+        if hasattr(consumer, name):
+            getattr(consumer, name).update({7: object(), 8: object()})
+    for name in ("result_dict", "result_updated_at", "monitor_status"):
+        if hasattr(consumer, name):
+            getattr(consumer, name).update({"deleted": object(), "kept": object()})
+    if hasattr(consumer, "_trackers"):
+        consumer._trackers = {(7, 0): object(), (8, 0): object()}
+    consumer._inference_last_status = {("model", 7): {}, ("model", 8): {}}
+
+    consumer.remove_camera(7, "deleted")
+
+    assert set(consumer.config_cache) == {8}
+    for name in states:
+        if hasattr(consumer, name):
+            assert set(getattr(consumer, name)) == {8}
+    for name in ("result_dict", "result_updated_at", "monitor_status"):
+        if hasattr(consumer, name):
+            assert set(getattr(consumer, name)) == {"kept"}
+    if hasattr(consumer, "_trackers"):
+        assert set(consumer._trackers) == {(8, 0)}
+    assert set(consumer._inference_last_status) == {("model", 8)}
+
+
+def test_camera_removal_waits_for_inflight_processing_and_removes_its_result(monkeypatch):
+    consumer = _consumer()
+    consumer.config_cache = {7: {"shm_name": "deleted", "enable": True}}
+    consumer.latest_frames["deleted"] = np.zeros((8, 8, 3), np.uint8)
+    processing = threading.Event()
+    finish = threading.Event()
+    removed = threading.Event()
+    monkeypatch.setattr(consumer, "_should_process_now", lambda *_args: True)
+    monkeypatch.setattr(consumer, "_get_roi", lambda *_args: [])
+    monkeypatch.setattr(consumer, "_frame_changed", lambda *_args: True)
+    monkeypatch.setattr(consumer, "_handle_alarm", lambda *_args: None)
+
+    def process(*_args):
+        processing.set()
+        assert finish.wait(2)
+        consumer.running = False
+        return []
+
+    monkeypatch.setattr(consumer, "_process", process)
+    monkeypatch.setattr(consumer, "post_process", lambda *_args: np.ones((8, 8, 3), np.uint8))
+    consumer.running = True
+    worker = threading.Thread(target=consumer._run)
+    worker.start()
+    try:
+        assert processing.wait(2)
+        deletion = threading.Thread(target=lambda: (consumer.remove_camera(7, "deleted"), removed.set()))
+        deletion.start()
+        assert not removed.wait(0.05)
+        finish.set()
+        deletion.join(2)
+        assert removed.is_set()
+    finally:
+        finish.set()
+        consumer.running = False
+        worker.join(2)
+    assert consumer.config_cache == {}
+    assert consumer.frame_cache == {}
+    assert consumer.result_dict == {}
+
+
+def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
+    from AiVision.features.detect_door.consumer import DoorConsumer
+
+    original = np.zeros((16, 16, 3), np.uint8)
+    original.setflags(write=False)
+    consumer = DoorConsumer(
+        spec=SimpleNamespace(name="door"), infer_dict={}, result_queue=None,
+        latest_frames={"door": original}, is_camera_active=lambda _name: True,
+    )
+    consumer.frame_cache[7] = original
+    monkeypatch.setattr(consumer, "_get_roi_polygons", lambda _id: [[[0, 0], [15, 0], [15, 15], [0, 15]]])
+    annotated = consumer.post_process(7, [(True, "open")])
+    assert original.sum() == 0
+    assert annotated.sum() > 0
+    assert not np.shares_memory(original, annotated)

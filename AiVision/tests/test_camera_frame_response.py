@@ -3,6 +3,7 @@
 
 import asyncio
 import importlib
+from types import SimpleNamespace
 
 import anyio.to_thread
 import cv2
@@ -14,6 +15,19 @@ from fastapi import FastAPI, HTTPException
 
 cameras_module = importlib.import_module("AiVision.api.cameras")
 get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
+
+
+@pytest.mark.parametrize("key", ["12", "camera_12", "display name"])
+def test_camera_frame_resolves_alias_to_actual_shm_name(monkeypatch, key):
+    observed = []
+    manager = SimpleNamespace(get_camera=lambda value: {"shm_name": "warehouse", "department": "general_electric"})
+    orchestrator = SimpleNamespace(get_camera_frame_info=lambda value, feature: observed.append(value) or (np.zeros((8, 8, 3), np.uint8), 123.0))
+    response = get_camera_frame_jpg(
+        key=key, feature=None, quality=85, max_width=None, max_height=None,
+        user={"role": "admin"}, camera_config_manager=manager, orchestrator=orchestrator,
+    )
+    assert response.status_code == 200
+    assert observed == ["warehouse"]
 
 
 # 功能：定义 `FrameOrchestrator` 类，封装摄像头、视频帧相关的状态、约束与操作

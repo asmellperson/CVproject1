@@ -78,10 +78,10 @@ class OutcomeWorker(BaseModelWorker):
     # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, *, should_fail: bool = False):
         super().__init__(
-            infer_queue=queue.Queue(),
+            infer_queues={"yolo_human": queue.Queue()},
             result_queues={},
-            model_cfg={"name": "yolo_human", "path": "unused-test-model.pt"},
-            initial_configs={},
+            model_name="yolo_human",
+            model_path="unused-test-model.pt",
         )
         self.should_fail = should_fail
 
@@ -111,6 +111,70 @@ class OutcomeWorker(BaseModelWorker):
         if self.should_fail:
             raise RuntimeError("broken inference")
         return [{"type": "person", "confidence": 0.9}]
+
+
+class ProcessOutcomeWorker(BaseModelWorker):
+    def load_model(self):
+        return object()
+
+    def infer(self, model, frame, task_meta):
+        return [{"type": task_meta["model_name"], "confidence": 0.9}]
+
+
+class FailedLoadWorker(ProcessOutcomeWorker):
+    def load_model(self):
+        raise RuntimeError("invalid test weights")
+
+
+def test_shared_process_preserves_each_logical_models_result_contract():
+    import multiprocessing as mp
+
+    inputs = {name: mp.Queue() for name in ("yolo_human", "yolo_phone")}
+    results = mp.Queue()
+    worker = ProcessOutcomeWorker(
+        infer_queues=inputs, result_queues={"test": results},
+        model_name="test-inference-shared", model_path="/unused-test.pt",
+    )
+    try:
+        worker.start()
+        assert worker._ready_event.wait(timeout=5)
+        for index, (name, inbox) in enumerate(inputs.items()):
+            inbox.put({
+                "frame": None, "model_name": name, "function_name": "test",
+                "camera_id": 7, "roi_id": index, "request_id": name,
+            })
+        received = {result["model_name"]: result for result in (
+            results.get(timeout=5), results.get(timeout=5),
+        )}
+        assert set(received) == set(inputs)
+        for index, name in enumerate(inputs):
+            assert received[name]["status"] == INFERENCE_STATUS_OK
+            assert received[name]["request_id"] == name
+            assert received[name]["roi_id"] == index
+            assert received[name]["camera_id"] == 7
+            assert received[name]["function_name"] == "test"
+    finally:
+        worker.stop()
+        for channel in (*inputs.values(), results):
+            channel.close()
+            channel.join_thread()
+    assert not worker.is_alive()
+
+
+def test_loading_error_reaches_parent_and_never_reports_ready():
+    worker = FailedLoadWorker(
+        infer_queues={}, result_queues={},
+        model_name="test-inference-failure", model_path="/unused-test.pt",
+    )
+    try:
+        worker.start()
+        assert worker._failed_event.wait(timeout=5)
+        assert worker.failure_message() == "invalid test weights"
+        assert not worker.is_running()
+        assert not worker.is_ready()
+    finally:
+        worker.stop()
+    assert not worker.is_alive()
 
 
 # 功能：实现 `_consumer` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明

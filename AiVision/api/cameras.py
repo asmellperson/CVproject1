@@ -1,6 +1,3 @@
-# 文件说明：定义`cameras` 模块的 HTTP 接口、依赖注入或应用装配。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 api/cameras.py
 摄像头 CRUD + 当前帧 JPEG 输出。
@@ -21,47 +18,19 @@ from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.platform.camera.config_manager import camera_access_departments
 
-
+# 摄像头API路由基础定义
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
-_JPEG_CACHE_MAX_ITEMS = 128
-_jpeg_cache_lock = threading.Lock()
-_jpeg_cache: dict[tuple[Any, ...], bytes] = {}
-_jpeg_cache_order: list[tuple[Any, ...]] = []
+# ------- JPEG图片缓存 -------------
+_JPEG_CACHE_MAX_ITEMS = 128                    # JPEG缓存最多保存128个结果
+_jpeg_cache_lock = threading.Lock()            # 同一时间只允许一个线程修改JPEG缓存
+_jpeg_cache: dict[tuple[Any, ...], bytes] = {} # JPEG缓存字典
+_jpeg_cache_order: list[tuple[Any, ...]] = []  # 记录加入顺序，超过128时知道先删谁
 
-
-# 功能：提取当前用户可访问的全部事业部；输入用户字典，输出去重后的事业部标识列表。
-# 参数：
-#   - `user`（dict）：当前用户对象，使用统一的多事业部 `departments` 字段
-# 返回：list[str]；返回用户可访问的事业部标识，保持原始授权顺序并去除空值与重复值。
-# 调用关系：
-#   - 调用方：`camera_read_department`、`camera_list_response_for_user`、`get_camera_for_user` 调用本符号以统一摄像头读取权限
-#   - 内部调用：`user.get`、`isinstance`、`str`、`strip`、`append`。
-# 副作用/注意事项：不修改用户对象；缺少有效事业部时返回空列表。
-def _camera_departments_for_user(user: dict) -> list[str]:
-    raw_departments = user.get("departments")
-    candidates = raw_departments if isinstance(raw_departments, list) else []
-    departments: list[str] = []
-    for candidate in candidates:
-        department = str(candidate or "").strip()
-        if department and department not in departments:
-            departments.append(department)
-    return departments
-
-
-# 功能：定义 `CameraCreateRequest` 类，封装`cameras` 模块相关的状态、约束与操作
-# 参数：
-#   - `name`（str）：业务对象名称
-#   - `url`（str）：目标接口、媒体流或页面地址
-#   - `shm_name`（str）：摄像头共享内存名称
-#   - `fps`（int）：`fps` 对应的业务输入值
-#   - `enabled`（bool | None）：是否启用相应能力
-#   - `department`（str | None）：业务部门名称或标识
-# 返回：CameraCreateRequest；返回新建的 `CameraCreateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Field`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# ------------------- 请求模型 ------------------
+# 创建摄像头时前端可以传什么
+# 平台总览：name + url + fps + department
+# 检测功能：name + url + fps +department
 class CameraCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
     url: str = Field(..., min_length=1)
@@ -70,19 +39,7 @@ class CameraCreateRequest(BaseModel):
     enabled: bool | None = None
     department: str | None = None
 
-
-# 功能：定义 `CameraUpdateRequest` 类，封装`cameras` 模块相关的状态、约束与操作
-# 参数：
-#   - `name`（str | None）：业务对象名称
-#   - `url`（str | None）：目标接口、媒体流或页面地址
-#   - `fps`（int | None）：`fps` 对应的业务输入值
-#   - `enabled`（bool | None）：是否启用相应能力
-#   - `department`（str | None）：业务部门名称或标识
-# 返回：CameraUpdateRequest；返回新建的 `CameraUpdateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Field`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# 修改摄像头时前端可以传什么
 class CameraUpdateRequest(BaseModel):
     name: str | None = None
     url: str | None = None
@@ -90,169 +47,142 @@ class CameraUpdateRequest(BaseModel):
     enabled: bool | None = None
     department: str | None = None
 
+# ------------------  摄像头访问权限  ------------------------
 
-# 功能：返回当前用户可读取的部门过滤值；输入与输出详见下方说明
-# 参数：
-#   - `user`（dict）：当前用户或待处理用户对象
-#   - `requested_department`（str | None）：`requested_department` 对应的业务输入值
-# 返回：str | None；返回下推给摄像头服务的部门过滤值，多事业部且未指定部门时返回 None 并由响应层执行授权集合过滤。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `list_cameras` 调用本符号
-#   - 内部调用：`user.get`、`_camera_departments_for_user`、`len`、`HTTPException`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
+def _camera_departments_for_user(user: dict) -> list[str]:
+    """从当前登录用户信息里，整理出这个用户有权限访问的所有部门"""
+    raw_departments = user.get("departments")
+    candidates = raw_departments if isinstance(raw_departments, list) else []
+    departments: list[str] = []
+    for candidate in candidates:
+        department = str(candidate or "").strip()               # 去空格
+        if department and department not in departments:        # 去空值+去重复
+            departments.append(department)
+    return departments                                          # 返回这个用户允许访问的事业部列表
+
+
 def camera_read_department(user: dict, requested_department: str | None) -> str | None:
-    """返回当前用户可读取的部门过滤值。"""
+    """返回当前用户可读取的部门过滤值。
+    参数：
+        user：当前登录用户账号
+        requested_department: 前端请求携带的部门（访问前端的部门）
+    """
+    # 管理员不按部门过滤，管理员可以查看所有摄像头
     if user.get("role") == "admin":
         return requested_department
+    # 普通用户先获取自己的授权部门
     departments = _camera_departments_for_user(user)
+    # 用户没有权限，返回403
     if not departments:
         raise HTTPException(status_code=403, detail="camera department permission required")
     if requested_department is not None:
+        # 防止用户可以查看未授权的事业部
         if requested_department not in departments:
             raise HTTPException(status_code=403, detail="camera department permission required")
         return requested_department
-    return departments[0] if len(departments) == 1 else None
+    
+    # 前端没有携带需要查看的部门时，如果user本身可查看的部门只有一个，就返回这个部门，如果有多个就返回None
+    return departments[0] if len(departments) == 1 else None    
 
-
-# 功能：普通用户只读取运行所需元数据，摄像头连接地址仅管理员可见；输入与输出详见下方说明
-# 参数：
-#   - `camera`（dict[str, Any]）：摄像头配置或实体
-#   - `user`（dict）：当前用户或待处理用户对象
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `camera_list_response_for_user` 调用本符号；`AiVision/api/cameras.py` 的 `get_camera_for_user`
-#         调用本符号
-#   - 内部调用：`dict`、`user.get`、`response.pop`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, Any]:
-    """普通用户只读取运行所需元数据，摄像头连接地址仅管理员可见。"""
+    """ 根据用户身份，决定返回给前端的摄像头信息里要不要包含RTSP地址"""
     response = dict(camera)
+    # 不是管理员就不让看url
     if user.get("role") != "admin":
         response.pop("url", None)
+    # 是管理员就让看所有摄像头相关的参数
     return response
 
-
-# 功能：读取或查询 `camera_list_response_for_user` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `cameras`（list[dict[str, Any]]）：`cameras` 对应的业务输入值
-#   - `user`（dict）：当前用户或待处理用户对象
-# 返回：list[dict[str, Any]]；返回当前用户授权事业部内的摄像头列表，viewer 响应不含连接地址。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `list_cameras` 调用本符号
-#   - 内部调用：`user.get`、`set`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+# 批量过滤用户不能看的摄像头
 def camera_list_response_for_user(
     cameras: list[dict[str, Any]],
     user: dict,
 ) -> list[dict[str, Any]]:
+    """
+    1、普通用户只保留自己有权限的摄像头
+    2、再把普通用户不能看的url隐藏掉
+    """
     visible_cameras = cameras
+
     if user.get("role") != "admin":
+        # 获取当前用户可以查看的所有部门
         departments = set(_camera_departments_for_user(user))
+
+        # 用户授权的部门和摄像头所属的部门，只要有至少一个重合，就允许查看
+        # A.isdisjoint(B):表示A和B的交集是不是空集（前面加个not就是A和B有交集）
         visible_cameras = [
             camera for camera in cameras
-            if not departments.isdisjoint(camera_access_departments(camera))
+            if not departments.isdisjoint(camera_access_departments(camera))       # camera_access_department返回这个摄像头属于哪些事业部
         ]
-    return [camera_response_for_user(camera, user) for camera in visible_cameras]
+    
+    # 对可以查看的摄像头做字段脱敏（普通用户删除RTSP）
+    return [camera_response_for_user(camera, user) for camera in visible_cameras]     
 
-
-# 功能：按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门；输入与输出详见下方说明
-# 参数：
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `user`（dict）：当前用户或待处理用户对象
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `get_camera`、`get_camera_frame_jpg` 调用本符号；另有 1 处静态调用
-#   - 内部调用：`camera_config_manager.get_camera`、`HTTPException`、`user.get`、`_camera_departments_for_user`、`camera_access_departments`、`isdisjoint`、`camera_response_for_user`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
+# 指定访问某一台摄像头时，单独检查一次是否越权
 def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str, Any]:
-    """按 key 读取摄像头，并阻止 viewer 通过 id/shm 枚举其他部门。"""
+    """
+    查询单台摄像头，检查当前用户有没有权限看，并最后做字段脱敏
+    """
+    # 查询key所对应摄像头的完整的配置
     camera = camera_config_manager.get_camera(key)
     if camera is None:
         raise HTTPException(status_code=404, detail="camera not found")
     if user.get("role") != "admin":
+        # 查当前用户所能查看的所有部门
         departments = set(_camera_departments_for_user(user))
+        # 没有授权部门或者这个摄像头不在当前部门读取列表中，就报403
         if not departments or departments.isdisjoint(camera_access_departments(camera)):
             raise HTTPException(status_code=403, detail="camera department permission required")
+
+    # 做字段脱敏
     return camera_response_for_user(camera, user)
 
+# ------------------ 摄像头CRUD -------------------------
 
-# 功能：读取或查询 `list_cameras` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `department`（str | None）：业务部门名称或标识；默认值为 `Query(None, description='可选按部门过滤')`
-#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.get('')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`Depends`、`camera_list_response_for_user`、`camera_config_manager.list_cameras`、`camera_read_department`、`router.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("")
 def list_cameras(
-    department: str | None = Query(None, description="可选按部门过滤"),
+    department: str | None = Query(None, description="可选按部门过滤"),           # 前端可以选择传部门也可以不传
     user: dict = Depends(get_current_user),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> list[dict[str, Any]]:
+    """
+    获取摄像头列表API
+    """
+    # 做用户权限过滤和敏感字段过滤
     return camera_list_response_for_user(
+        # 从数据库查询部门所有的摄像头
         camera_config_manager.list_cameras(
-            department=camera_read_department(user, department)
+            # 判断用户可以查看的部门
+            department=camera_read_department(user, department)      
         ),
         user,
     )
 
-
-# 功能：创建或构建 `create_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `payload`（CameraCreateRequest）：接口或事件携带的业务数据
-#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.post('', status_code=status.HTTP_201_CREATED)` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_config_manager.create_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.post`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)      # HTTP给201  Created表示新的摄像头创建成功了
 def create_camera(
-    payload: CameraCreateRequest,
-    _user: dict = Depends(require_admin),
+    payload: CameraCreateRequest,                         # 创建的摄像头数据
+    _user: dict = Depends(require_admin),                 # 只有管理员能创建
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
+    """
+    新增摄像头
+    """
     try:
         return camera_config_manager.create_camera(payload.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-# 功能：读取或查询 `get_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.get('/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`get_camera_for_user`、`router.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/{key}")
 def get_camera(
     key: str,
     user: dict = Depends(get_current_user),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, Any]:
+    """
+    接收摄像头key和当前用户，然后调用统一的单摄像头权限查询函数
+    """
     return get_camera_for_user(camera_config_manager, key, user)
 
-
-# 功能：实现 `patch_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `payload`（CameraUpdateRequest）：接口或事件携带的业务数据
-#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.patch('/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_config_manager.update_camera`、`payload.model_dump`、`HTTPException`、`str`、`router.patch`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.patch("/{key}")
 def patch_camera(
     key: str,
@@ -269,42 +199,21 @@ def patch_camera(
         raise HTTPException(status_code=404, detail="camera not found")
     return camera
 
-
-# 功能：删除或清理 `delete_camera` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-# 返回：dict[str, bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.delete('/{key}')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Depends`、`camera_config_manager.delete_camera`、`HTTPException`、`router.delete`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 @router.delete("/{key}")
 def delete_camera(
     key: str,
     _user: dict = Depends(require_admin),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> dict[str, bool]:
+    """
+    删除摄像头的HTTP接口
+    """
     ok = camera_config_manager.delete_camera(key)
     if not ok:
         raise HTTPException(status_code=404, detail="camera not found")
     return {"ok": True}
 
-
-# 功能：转换或规范化 `encode_frame_to_jpeg` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `frame`（未显式标注）：待处理的视频图像帧
-#   - `quality`（int）：`quality` 对应的业务输入值；默认值为 `85`
-#   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `None`
-#   - `max_height`（int | None）：`max_height` 对应的业务输入值；默认值为 `None`
-#   - `cache_token`（tuple[Any, ...] | None）：`cache_token` 对应的业务输入值；默认值为 `None`
-# 返回：bytes；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `build_camera_frame_response` 调用本符号
-#   - 内部调用：`HTTPException`、`max`、`min`、`int`、`_jpeg_cache.get`、`cv2.resize`、`cv2.imencode`、`encoded.tobytes`、`_jpeg_cache_order.append`、`len`
-#          等共 12 个调用。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
+# -------------------------  摄像头画面JPG输出 --------------------------
 def encode_frame_to_jpeg(
     frame,
     quality: int = 85,
@@ -312,57 +221,69 @@ def encode_frame_to_jpeg(
     max_height: int | None = None,
     cache_token: tuple[Any, ...] | None = None,
 ) -> bytes:
+    """
+    把OpenCV图像帧转成浏览器能直接显示的JPEG二进制
+    按照指定尺寸和质量压缩成JPEG，如果同一帧已经压缩过，直接走缓存
+    参数：
+        frame: Opencv图像帧，numpy.ndarray格式，三通道
+        qulity：JPEG压缩质量：1~100：越大越清晰，文件大小越大
+        max_width: 图片最大的宽度值
+        max_height: 图片最大的高度值
+        cache_token: 用来标识当前是否与上一帧相同的缓存标识，里面有updated_at,uodate_at没变说明就是同一帧
+    """
+    # 没有画面报404
     if frame is None:
         raise HTTPException(status_code=404, detail="frame not available")
+    # 限制JPEG的质量范围
     quality = max(1, min(int(quality), 100))
+    # 构造缓存key
     cache_key = (cache_token, quality, max_width, max_height) if cache_token is not None else None
+    # 如果已经编码过完全相同的缓存帧，就直接返回JPEG
     if cache_key is not None:
         with _jpeg_cache_lock:
             cached = _jpeg_cache.get(cache_key)
             if cached is not None:
                 return cached
 
+    # 图片缩放（只有前端要求最大宽度或最大高度时才考虑缩图）
     if max_width or max_height:
         height, width = frame.shape[:2]
+        # 计算宽高的缩放比例
         width_scale = (max_width / width) if max_width and width > max_width else 1.0
         height_scale = (max_height / height) if max_height and height > max_height else 1.0
         scale = min(width_scale, height_scale)
         if scale < 1.0:
+            # 图片缩小
             frame = cv2.resize(
                 frame,
                 (max(1, int(width * scale)), max(1, int(height * scale))),
                 interpolation=cv2.INTER_AREA,
             )
+    # 对opencv图像进行编码，编码失败HTTP 500，opencv返回的encode是numpy数组
     ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
     if not ok:
         raise HTTPException(status_code=500, detail="failed to encode frame")
+    # 将编码的numpy数组转换为二进制数据
     content = encoded.tobytes()
     if cache_key is not None:
         with _jpeg_cache_lock:
             if cache_key not in _jpeg_cache:
-                _jpeg_cache_order.append(cache_key)
-            _jpeg_cache[cache_key] = content
+                _jpeg_cache_order.append(cache_key)   # 记录缓存加入顺序 
+            _jpeg_cache[cache_key] = content   # 将刚刚编码的帧放入缓存
+            # 删除最老的一条缓存
             while len(_jpeg_cache_order) > _JPEG_CACHE_MAX_ITEMS:
                 old_key = _jpeg_cache_order.pop(0)
                 _jpeg_cache.pop(old_key, None)
     return content
 
-
-# 功能：实现 `frame_size_headers` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `frame`（未显式标注）：待处理的视频图像帧
-#   - `max_width`（int | None）：响应图片的最大宽度
-#   - `max_height`（int | None）：响应图片的最大高度
-# 返回：dict[str, str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `build_camera_frame_response` 调用本符号
-#   - 内部调用：`min`、`max`、`int`、`str`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def frame_size_headers(
     frame,
     max_width: int | None = None,
     max_height: int | None = None,
 ) -> dict[str, str]:
+    """
+    将当前图像帧的宽度和高度，放进HTTP响应头里返回给前端
+    """
     if frame is None:
         return {}
     height, width = frame.shape[:2]
@@ -388,36 +309,34 @@ def frame_coordinate_size_headers(frame) -> dict[str, str]:
         "X-Frame-Coordinate-Height": str(height),
     }
 
-# 功能：读取、编码并返回预览帧；慢请求输出分阶段耗时；输入与输出详见下方说明
-# 参数：
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `feature`（str | None）：`feature` 对应的业务输入值
-#   - `quality`（int）：`quality` 对应的业务输入值
-#   - `max_width`（int | None）：`max_width` 对应的业务输入值
-#   - `max_height`（int | None）：`max_height` 对应的业务输入值
-#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值
-# 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/api/cameras.py` 的 `get_camera_frame_jpg` 调用本符号
-#   - 内部调用：`time.monotonic`、`orchestrator.get_camera_frame_info`、`HTTPException`、`encode_frame_to_jpeg`、`logger.warning`、`Response`、`frame_size_headers`。
-# 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
 def build_camera_frame_response(
     *,
-    key: str,
-    feature: str | None,
-    quality: int,
+    key: str,                                         # 摄像头
+    feature: str | None,                              # 要不要优先取某个检测功能的标注画面
+    quality: int,                                     
     max_width: int | None,
     max_height: int | None,
-    orchestrator,
+    orchestrator,                                     # 当前画面从这里拿
 ) -> Response:
-    """读取、编码并返回预览帧；慢请求输出分阶段耗时。"""
+    """
+    摄像头预览图HTTP响应总流程：
+        取帧
+        判断新鲜度
+        JPEG编码
+        性能监控
+        返回图片
+    """
+    # 开始计时
     started_at = time.monotonic()
+    # 从Orchestrator获取画面
     frame, updated_at = orchestrator.get_camera_frame_info(key, feature=feature)
+    # 计算取帧耗时
     lookup_seconds = time.monotonic() - started_at
-
+    # 画面是否过期，HTTP503
     if frame is None and updated_at:
         raise HTTPException(status_code=503, detail="camera frame is stale")
 
+    # 开始统计JPEG编码时间
     encode_started_at = time.monotonic()
     content = encode_frame_to_jpeg(
         frame,
@@ -426,18 +345,22 @@ def build_camera_frame_response(
         max_height=max_height,
         cache_token=(key, feature or "", updated_at),
     )
+    # 计算JPEG编码耗时
     encode_seconds = time.monotonic() - encode_started_at
+    # 计算整个请求耗时
     total_seconds = time.monotonic() - started_at
 
+    # 请求耗时大于配置的值，就会打印Warning日志
     if total_seconds >= settings.runtime.slow_frame_log_seconds:
         height, width = frame.shape[:2]
         logger.warning(
-            f"[CameraFrame] 慢响应 key={key} feature={feature or '-'} "
-            f"lookup={lookup_seconds:.3f}s encode={encode_seconds:.3f}s "
-            f"total={total_seconds:.3f}s source={width}x{height} "
-            f"max_width={max_width or '-'} max_height={max_height or '-'}"
+            f"[CameraFrame] 慢响应 key={key} feature={feature or '-'} "         # 哪个摄像头、哪个功能
+            f"lookup={lookup_seconds:.3f}s encode={encode_seconds:.3f}s "       # 查帧耗时、编码耗时
+            f"total={total_seconds:.3f}s source={width}x{height} "              # 总耗时、原始分辨率
+            f"max_width={max_width or '-'} max_height={max_height or '-'}"      # 要求的最大宽高
         )
 
+    # 最后返回HTTP图片
     return Response(
         content=content,
         media_type="image/jpeg",
@@ -447,22 +370,6 @@ def build_camera_frame_response(
         },
     )
 
-
-# 功能：读取或查询 `get_camera_frame_jpg` 对应的`cameras` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `feature`（str | None）：`feature` 对应的业务输入值；默认值为 `Query(None, description='可选 feature 名，优先返回该功能的标注帧')`
-#   - `quality`（int）：`quality` 对应的业务输入值；默认值为 `Query(85, ge=1, le=100)`
-#   - `max_width`（int | None）：`max_width` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
-#   - `max_height`（int | None）：`max_height` 对应的业务输入值；默认值为 `Query(None, ge=1, le=4096)`
-#   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-#   - `camera_config_manager`（未显式标注）：`camera_config_manager` 对应的业务输入值；默认值为 `Depends(get_camera_config_manager)`
-#   - `orchestrator`（未显式标注）：`orchestrator` 对应的业务输入值；默认值为 `Depends(get_current_orchestrator)`
-# 返回：Response；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：由 FastAPI 按 `router.get('/{key}/frame.jpg')` 注册，并在请求到达时调用以生成接口响应
-#   - 内部调用：`Query`、`Depends`、`get_camera_for_user`、`build_camera_frame_response`、`router.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @router.get("/{key}/frame.jpg")
 def get_camera_frame_jpg(
     key: str,
@@ -474,9 +381,22 @@ def get_camera_frame_jpg(
     camera_config_manager=Depends(get_camera_config_manager),
     orchestrator=Depends(get_current_orchestrator),
 ) -> Response:
-    get_camera_for_user(camera_config_manager, key, user)
+    """
+    摄像头实时预览图的HTTP入口，先做权限检查、再从Orchestrator取图并返回JPEG
+    参数：
+        key：哪台摄像头
+        feature： 有feature就会优先返回检测好的标注帧
+        quality: JPEG压缩质量
+        max_width: 前端要求的最大宽
+        max_height: 前端要求的最大高度
+        user: 获取当前登录用户
+        camera_config_manager:做摄像头存在性和部门权限检查
+        orchestrator：提供当前运行画面的对象
+    """
+    # 这个函数做：1、摄像头不存在：404，2、用户没有权限：403，3、有权限：继续
+    camera = get_camera_for_user(camera_config_manager, key, user)
     return build_camera_frame_response(
-        key=key,
+        key=camera["shm_name"],
         feature=feature,
         quality=quality,
         max_width=max_width,

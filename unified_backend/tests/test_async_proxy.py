@@ -480,7 +480,7 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
     #   - 内部调用：`routes['proxy_guard_room_api'].endpoint`、`routes['proxy_security_vlm'].endpoint`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def scenario():
-        await routes["proxy_guard_room_api"].endpoint("sites", request)
+        await routes["proxy_aivision_root_api"].endpoint("sites", request)
         await routes["proxy_security_vlm"].endpoint(
             "api/departments/general_electric/history",
             request,
@@ -490,7 +490,7 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             request,
         )
         await routes["proxy_aivision_root_api"].endpoint(
-            "models/7",
+            "models/yolo_human/path",
             request,
         )
 
@@ -515,7 +515,7 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
         (
             request,
             "http://aivision:7862",
-            "/api/models/7",
+            "/api/models/yolo_human/path",
         ),
     ]
 
