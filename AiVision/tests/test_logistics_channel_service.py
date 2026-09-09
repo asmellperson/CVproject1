@@ -28,9 +28,7 @@ from AiVision.platform.logistics_channel.constants import (
 )
 from AiVision.platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
 from AiVision.platform.logistics_channel.service import LogisticsChannelService
-from AiVision.platform.logistics_channel.migration import LogisticsChannelMigration, MigrationSummary
 import AiVision.platform.logistics_channel.membership_transaction as transaction_module
-import AiVision.platform.logistics_channel.migration as migration_module
 from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelAlarm,
     LogisticsChannelConfigUpdate,
@@ -64,7 +62,6 @@ def test_logistics_channel_package_exports_service_without_hiding_state_exports(
     import AiVision.platform.logistics_channel as package
 
     assert package.LogisticsChannelService is LogisticsChannelService
-    assert package.MigrationSummary is MigrationSummary
     assert isinstance(package.logistics_channel_service, LogisticsChannelService)
     assert callable(package.classify_channel)
 
@@ -141,7 +138,6 @@ def service_db(monkeypatch):
     monkeypatch.setattr(channel_service_module, "get_session", factory, raising=False)
     monkeypatch.setattr(transaction_module, "session_scope", test_session_scope)
     monkeypatch.setattr(transaction_module, "get_session", factory)
-    monkeypatch.setattr(migration_module, "get_session", factory)
     monkeypatch.setattr(camera_config_manager_module, "session_scope", test_session_scope)
     monkeypatch.setattr(camera_config_manager_module, "get_session", factory)
 
@@ -891,12 +887,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
         #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
         # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
         # 调用关系：
-        #   - 调用方：`AiVision/platform/logistics_channel/service.py` 的
-        #         `LogisticsChannelService::migrate_existing_feature_cameras::migrate_one`
-        #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_channels`
-        #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_cameras`
-        #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_lock_migration_camera`
-        #         调用本符号；另有 1 处静态调用
+        #   - 调用方：`AiVision/platform/logistics_channel/membership_transaction.py` 的成员关系事务锁查询。
         #   - 内部调用：`self.wrapped.with_for_update`。
         # 副作用/注意事项：会更新当前实例的运行状态。
         def with_for_update(self, *args, **kwargs):
@@ -2033,164 +2024,6 @@ def test_updates_reject_explicit_none_for_not_null_fields(
         args = (BASE_FEATURE, channel["id"], payload)
         args += (config,)
         getattr(service_db.service, method)(*args)
-
-
-# 功能：验证 `test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_seed_camera`、`service_db.factory.begin`、`session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one`、`session.query(all_specs()[BASE_FEATURE].orm_class).filter_by`、`session.query`、`all_specs`、`session.add`、`LogisticsChannel`、`service_db.notifications.clear`、`service_db.service.migrate_existing_feature_cameras`
-#          等共 18 个调用。
-# 副作用/注意事项：可能读取或修改数据库事务。
-def test_migration_is_feature_isolated_copies_flat_fields_and_is_idempotent(service_db):
-    camera_id = _seed_camera(
-        service_db,
-        "迁移相机",
-        enabled_features=(BASE_FEATURE, EE_FEATURE),
-    )
-    with service_db.factory.begin() as session:
-        base_cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
-        base_cfg.empty_grace_seconds = 6.0
-        base_cfg.multi_grace_seconds = 7.0
-        base_cfg.CONF_THRESHOLD = 0.46
-        base_cfg.alarm_interval = 12.0
-        base_cfg.sql_enable = True
-        base_cfg.horn_enable = True
-        base_cfg.horn_id = None
-        base_cfg.horn_event_id = 8
-        base_cfg.wechat_enable = True
-        base_cfg.wechat_user = "base-user"
-        base_cfg.roi_pos = [[1, 2], [3, 4]]
-        session.add(LogisticsChannel(name="迁移相机", feature_name=BASE_FEATURE, department="general_electric"))
-
-    service_db.notifications.clear()
-    first = LogisticsChannelMigration().migrate_existing_feature_cameras()
-    first_notifications = list(service_db.notifications)
-    second = LogisticsChannelMigration().migrate_existing_feature_cameras()
-
-    assert isinstance(first, MigrationSummary)
-    assert (first.created, first.failed) == (1, 0)
-    assert first.skipped == 0
-    assert second.created == 0
-    assert second.skipped == 1
-    assert [item for item in first_notifications if item == ("cache", "reload")] == [
-        ("cache", "reload")
-    ]
-    migrated_enabled = [
-        item[1]
-        for item in first_notifications
-        if item[0] == "event" and item[1].change_type.endswith("_enabled")
-    ]
-    assert sorted(event.camera_name for event in migrated_enabled) == [
-        "shm_迁移相机",
-    ]
-    with service_db.factory() as session:
-        base_channel = session.query(LogisticsChannel).filter_by(
-            feature_name=BASE_FEATURE,
-            name=f"迁移相机-{camera_id}",
-        ).one()
-        ee_channel = session.query(LogisticsChannel).filter_by(
-            feature_name=EE_FEATURE,
-            name="迁移相机",
-        ).one()
-        assert base_channel.confidence_threshold == 0.46
-        assert base_channel.empty_grace_seconds == 6.0
-        assert base_channel.multi_grace_seconds == 7.0
-        assert base_channel.alarm_interval == 12.0
-        assert base_channel.sql_enable is True
-        assert base_channel.wechat_user == "base-user"
-        assert ee_channel.id != base_channel.id
-        base_cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
-        assert base_cfg.roi_pos == [[1, 2], [3, 4]]
-
-
-# 功能：验证 `test_migration_rehearsal_covers_all_four_features_and_preserves_camera_configs` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`enumerate`、`sorted`、`_seed_camera`、`service_db.factory.begin`、`session.query(all_specs()[feature_name].orm_class).filter_by(camera_id=camera_id).one`、`session.query(all_specs()[feature_name].orm_class).filter_by`、`session.query`、`all_specs`、`session.get`、`session.add`
-#          等共 20 个调用。
-# 副作用/注意事项：可能读取或修改数据库事务；可能启动、等待或停止线程/进程资源。
-def test_migration_rehearsal_covers_all_four_departments_and_preserves_camera_configs(service_db):
-    camera_ids = {}
-    original_rois = {}
-    for index, department in enumerate(all_specs()[BASE_FEATURE].departments, 1):
-        camera_id = _seed_camera(service_db, f"迁移-{department}", department=department, enabled_features=(BASE_FEATURE,))
-        roi = [[index, index + 1], [index + 20, index + 30]]
-        with service_db.factory.begin() as session:
-            session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one().roi_pos = roi
-        camera_ids[department] = camera_id
-        original_rois[department] = roi
-    first = LogisticsChannelMigration().migrate_existing_feature_cameras()
-    second = LogisticsChannelMigration().migrate_existing_feature_cameras()
-    assert (first.created, first.skipped, first.failed) == (4, 0, 0)
-    assert (second.created, second.skipped, second.failed) == (0, 4, 0)
-    with service_db.factory() as session:
-        for department, camera_id in camera_ids.items():
-            channel = session.query(LogisticsChannel).filter_by(department=department).one()
-            assert channel.feature_name == BASE_FEATURE
-            assert [member.camera_id for member in channel.cameras] == [camera_id]
-            cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_id).one()
-            assert cfg.roi_pos == original_rois[department] and cfg.enable is True
-
-
-# 功能：验证 `test_migration_records_one_camera_failure_and_continues` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
-#   - `caplog`（未显式标注）：`caplog` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_seed_camera`、`service_db.factory.begin`、`session.add_all`、`LogisticsChannel`、`service_db.service.migrate_existing_feature_cameras`、`len`、`service_db.factory`、`session.query(LogisticsChannelCamera).filter_by(camera_id=failed_camera_id).count`、`session.query(LogisticsChannelCamera).filter_by`、`session.query`
-#          等共 11 个调用。
-# 副作用/注意事项：可能读取或修改数据库事务。
-def test_migration_records_one_camera_failure_and_continues(service_db, caplog):
-    failed_camera_id = _seed_camera(
-        service_db,
-        "冲突相机",
-        enabled_features=(BASE_FEATURE,),
-    )
-    successful_camera_id = _seed_camera(
-        service_db,
-        "可迁移相机",
-        enabled_features=(BASE_FEATURE,),
-    )
-    with service_db.factory.begin() as session:
-        session.add_all([
-            LogisticsChannel(name="冲突相机", feature_name=BASE_FEATURE, department="general_electric"),
-            LogisticsChannel(name=f"冲突相机-{failed_camera_id}", feature_name=BASE_FEATURE, department="general_electric"),
-        ])
-
-    summary = LogisticsChannelMigration().migrate_existing_feature_cameras()
-
-    assert (summary.created, summary.failed) == (1, 1)
-    assert len(summary.errors) == 1
-    assert f"camera_id={failed_camera_id}" in summary.errors[0]
-    assert "迁移失败" in caplog.text
-    with service_db.factory() as session:
-        assert session.query(LogisticsChannelCamera).filter_by(camera_id=failed_camera_id).count() == 0
-        assert session.query(LogisticsChannelCamera).filter_by(camera_id=successful_camera_id).count() == 1
-
-
-# 功能：验证 `test_migration_without_success_does_not_reload_cache` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service_db.notifications.clear`、`service_db.service.migrate_existing_feature_cameras`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_migration_without_success_does_not_reload_cache(service_db):
-    service_db.notifications.clear()
-
-    summary = LogisticsChannelMigration().migrate_existing_feature_cameras()
-
-    assert summary.created == 0
-    assert [item for item in service_db.notifications if item == ("cache", "reload")] == []
 
 
 # 功能：验证 `test_notification_failure_is_logged_without_undoing_committed_channel` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明

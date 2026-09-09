@@ -32,7 +32,6 @@ __all__ = [
     "letterbox",
     "render_placeholder",
     "LogisticsChannelService",
-    "MigrationSummary",
     "logistics_channel_service",
     "LogisticsChannelRuntime",
 ]
@@ -61,10 +60,6 @@ def __getattr__(name: str):
             "LogisticsChannelService": LogisticsChannelService,
             "logistics_channel_service": logistics_channel_service,
         }[name]
-    if name == "MigrationSummary":
-        from .migration import MigrationSummary
-
-        return MigrationSummary
     if name == "LogisticsChannelRuntime":
         from .runtime import LogisticsChannelRuntime
 

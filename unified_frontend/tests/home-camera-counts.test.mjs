@@ -81,7 +81,7 @@ test('merges channel-backed logistics cameras into the overview without double c
     online: false,
     memberships: [{
       ...memberships[0],
-      feature_name: 'detect_logistics_single_person_electrical_components',
+      feature_name: 'detect_logistics_single_person',
       channel_id: 2,
       channel_name: '二号物流通道',
       online: false,
@@ -97,7 +97,7 @@ test('merges channel-backed logistics cameras into the overview without double c
   assert.equal(merged[1].camera_id, 8)
   assert.equal(merged[1].inventoryOnly, true)
   assert.equal(
-    merged[1].functions.detect_logistics_single_person_electrical_components,
+    merged[1].functions.detect_logistics_single_person,
     true,
   )
 })

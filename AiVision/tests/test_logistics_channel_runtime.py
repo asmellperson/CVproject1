@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from datetime import datetime, time, timezone
 from threading import Event, Thread
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -84,16 +83,6 @@ class FakeChannelService:
     def get_channel(self, feature_name, channel_id):
         return self.channels.get((feature_name, channel_id))
 
-    # 功能：实现 `migrate_existing_feature_cameras` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`SimpleNamespace`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def migrate_existing_feature_cameras(self):
-        return SimpleNamespace(created=0, skipped=0, failed=0, errors=())
 
 
 # 功能：定义 `FakeDispatcher` 类，封装运行时相关的状态、约束与操作
