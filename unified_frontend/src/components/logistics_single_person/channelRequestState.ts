@@ -1,5 +1,6 @@
 export type ChannelListRequestIdentity = {
   feature: string
+  department: string
   generation: number
 }
 
@@ -9,6 +10,7 @@ export type ChannelDetailRequestIdentity = ChannelListRequestIdentity & {
 
 export type ChannelRequestCursor = {
   feature: string
+  department: string
   listGeneration: number
   detailGeneration: number
   selectedChannelId: number | null
@@ -18,7 +20,9 @@ export function isCurrentChannelListRequest(
   request: ChannelListRequestIdentity,
   current: ChannelListRequestIdentity,
 ) {
-  return request.feature === current.feature && request.generation === current.generation
+  return request.feature === current.feature
+    && request.department === current.department
+    && request.generation === current.generation
 }
 
 export function isCurrentChannelDetailRequest(

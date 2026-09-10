@@ -7,17 +7,18 @@ import { LogisticsChannelConfigView } from './LogisticsChannelConfigView'
 import { LogisticsChannelMonitorView } from './LogisticsChannelMonitorView'
 import { LogisticsChannelRuntimeControl } from './LogisticsChannelRuntimeControl'
 import { useLogisticsChannels, useLogisticsChannelStatus } from './useLogisticsChannels'
-import type { LogisticsFeatureName } from './types'
+import type { LogisticsDepartment, LogisticsFeatureName } from './types'
 
 export type LogisticsChannelSectionProps = {
   feature: LogisticsFeatureName
+  department: LogisticsDepartment
   title: string
 }
 
-export function LogisticsChannelSection({ feature, title }: LogisticsChannelSectionProps) {
+export function LogisticsChannelSection({ feature, department, title }: LogisticsChannelSectionProps) {
   const { isAdmin } = useAuth()
   const { labels } = useDepartmentCatalog()
-  const channelQuery = useLogisticsChannels(feature)
+  const channelQuery = useLogisticsChannels(feature, department)
   const runtimeQuery = useLogisticsChannelStatus(feature, channelQuery.selectedChannelId)
 
   const refreshAll = () => {
@@ -34,7 +35,7 @@ export function LogisticsChannelSection({ feature, title }: LogisticsChannelSect
         <DetectionPageHeader
           title={title.replace(/监控与配置$/, '')}
           subtitle="物流通道单人检测监控面板"
-          departmentLabel={channelQuery.selectedChannel ? (labels[channelQuery.selectedChannel.department] ?? channelQuery.selectedChannel.department) : '物流通道'}
+          departmentLabel={labels[department] ?? department}
           runtimeControl={(
             <LogisticsChannelRuntimeControl
               feature={feature}
@@ -67,6 +68,7 @@ export function LogisticsChannelSection({ feature, title }: LogisticsChannelSect
         </TabsContent>
         <TabsContent value="config" className="mt-0">
           <LogisticsChannelConfigView
+            department={department}
             feature={feature}
             channels={channelQuery.channels}
             selectedChannelId={channelQuery.selectedChannelId}

@@ -115,3 +115,68 @@ def test_api_list_passes_user_departments_to_database(service_db, user, expected
     for department in ("general_electric", "electronics_electrician"):
         service.create_channel(FEATURE, "同名", department)
     assert [item.department for item in api.list_channels(FEATURE, user, service).items] == expected
+
+
+@pytest.mark.parametrize("user", [
+    {"role": "admin"},
+    {"role": "viewer", "departments": ["all"]},
+    {"role": "viewer", "departments": ["general_electric", "electronics_electrician"]},
+    {"role": "viewer", "departments": ["electronics_electrician"]},
+])
+def test_department_page_filters_channels_and_inventory_before_response(service_db, user):
+    service = service_db.service
+    channels = {}
+    cameras = {}
+    for department in all_specs()[FEATURE].departments:
+        channels[department] = service.create_channel(FEATURE, "同名通道", department)
+        cameras[department] = _seed_camera(service_db, department, department=department)
+        service.add_existing_camera(FEATURE, channels[department]["id"], cameras[department])
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_current_user] = lambda: user
+    app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
+    app.dependency_overrides[api.get_current_orchestrator] = lambda: SimpleNamespace(
+        get_logistics_channel_status=lambda *args: {},
+    )
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            department = "electronics_electrician"
+            response = await client.get(f"/api/logistics-channels/{FEATURE}", params={"department": department})
+            assert response.status_code == 200, response.text
+            assert [(item["id"], item["department"]) for item in response.json()["items"]] == [
+                (channels[department]["id"], department),
+            ]
+            response = await client.get("/api/logistics-channels/inventory", params={"department": department})
+            assert response.status_code == 200, response.text
+            assert [(item["camera_id"], item["department"]) for item in response.json()["items"]] == [
+                (cameras[department], department),
+            ]
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("resource", [FEATURE, "inventory"])
+@pytest.mark.parametrize("departments,requested,expected", [
+    (["general_electric"], "electronics_electrician", 403),
+    (["general_electric", "electronics_electrician"], "electrical_components", 403),
+    ([], "general_electric", 403),
+    (["all"], "all", 400),
+    (["all"], "research_institute", 400),
+    (["all"], "", 400),
+])
+def test_department_query_cannot_bypass_permissions(resource, departments, requested, expected):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("越权或非法事业部请求不得查询数据库")
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_current_user] = lambda: {"role": "viewer", "departments": departments}
+    app.dependency_overrides[api.get_logistics_channel_service] = lambda: SimpleNamespace(
+        list_channels=forbidden, list_camera_inventory=forbidden,
+    )
+    app.dependency_overrides[api.get_current_orchestrator] = lambda: SimpleNamespace()
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            response = await client.get(f"/api/logistics-channels/{resource}", params={"department": requested})
+            assert response.status_code == expected, response.text
+    asyncio.run(scenario())

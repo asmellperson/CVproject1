@@ -19,7 +19,10 @@ export type PageId =
   | 'face-detection'
   | 'human-detection'
   | 'haoda-human-detection'
-  | 'logistics-single-person-detection'
+  | 'logistics-single-person-general-electric'
+  | 'logistics-single-person-electronics-electrician'
+  | 'logistics-single-person-electrical-components'
+  | 'logistics-single-person-precious-metal-recycling'
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
@@ -39,7 +42,7 @@ type DepartmentPermission = {
 
 export const departmentPermissions: Record<Exclude<Department, 'all'>, DepartmentPermission> = {
   general_electric: {
-    pages: ['overview', 'security-vlm-general-electric', 'guard-behavior-general-electric', 'human-detection', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-general-electric', 'guard-behavior-general-electric', 'human-detection', 'logistics-single-person-general-electric', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-general-electric': {
         label: '保安行为规范检测',
@@ -64,7 +67,7 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electronics_electrician: {
-    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-electronics-electrician': {
         label: '保安行为规范检测',
@@ -74,12 +77,12 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electrical_components: {
-    pages: ['overview', 'security-vlm-electrical-components', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electrical-components', 'logistics-single-person-electrical-components', 'alarms', 'statistics'],
     displayOverrides: {
     },
   },
   precious_metal_recycling: {
-    pages: ['overview', 'security-vlm-precious-metal-recycling', 'logistics-single-person-detection', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-precious-metal-recycling', 'logistics-single-person-precious-metal-recycling', 'alarms', 'statistics'],
     displayOverrides: {
     },
   },
@@ -102,7 +105,10 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'face-detection': ['detect_face'],
   'human-detection': ['detect_human'],
   'haoda-human-detection': ['detect_human'],
-  'logistics-single-person-detection': ['detect_logistics_single_person'],
+  'logistics-single-person-general-electric': ['detect_logistics_single_person'],
+  'logistics-single-person-electronics-electrician': ['detect_logistics_single_person'],
+  'logistics-single-person-electrical-components': ['detect_logistics_single_person'],
+  'logistics-single-person-precious-metal-recycling': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
 }
 
@@ -171,7 +177,10 @@ const pageIds = new Set<string>([
   'face-detection',
   'human-detection',
   'haoda-human-detection',
-  'logistics-single-person-detection',
+  'logistics-single-person-general-electric',
+  'logistics-single-person-electronics-electrician',
+  'logistics-single-person-electrical-components',
+  'logistics-single-person-precious-metal-recycling',
   'phone-detection',
   'alarms',
   'statistics',

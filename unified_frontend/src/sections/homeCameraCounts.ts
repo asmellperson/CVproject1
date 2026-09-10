@@ -7,6 +7,7 @@ import type {
 export type FeatureCameraCounts = Record<string, {
   cameraCount: number
   enabledCameraCount: number
+  onlineCameraCount?: number
 }>
 
 type CameraInventoryItem = {
@@ -14,6 +15,7 @@ type CameraInventoryItem = {
   shm_name?: string
   camera_id?: number
   enabled: boolean
+  department?: string | null
   functions: Record<string, boolean> | string[]
   logisticsOnline?: boolean
 }
@@ -94,13 +96,17 @@ export function mergeAiVisionAndLogisticsCameras(
 export function getLoadedAiVisionFeatureCounts(
   cameras: CameraInventoryItem[],
   loaded: boolean,
+  department?: string,
 ): FeatureCameraCounts | undefined {
   if (!loaded) return undefined
   return AI_VISION_FEATURES.reduce<FeatureCameraCounts>((counts, feature) => {
-    const featureCameras = cameras.filter((camera) => hasFeature(camera, feature))
+    const featureCameras = cameras.filter((camera) => hasFeature(camera, feature) && (!department || camera.department === department))
     counts[feature] = {
       cameraCount: featureCameras.length,
       enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
+      ...(department && feature === 'detect_logistics_single_person'
+        ? { onlineCameraCount: featureCameras.filter((camera) => camera.logisticsOnline === true).length }
+        : {}),
     }
     return counts
   }, {})

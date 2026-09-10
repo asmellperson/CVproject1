@@ -70,7 +70,7 @@ import {
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
 import type { GuardRoomCamera, GuardRoomSite } from '@/types'
 import { getLogisticsCameraInventory } from '@/components/logistics_single_person/api'
-import type { LogisticsFeatureName } from '@/components/logistics_single_person/types'
+import type { LogisticsDepartment } from '@/components/logistics_single_person/types'
 import {
   getCameraInventorySummary,
   getLoadedAiVisionFeatureCounts,
@@ -129,7 +129,19 @@ const moduleEntries = [
     title: '人员违规逗留检测入口（皓达公司）',
   },
   {
-    id: 'logistics-single-person-detection',
+    id: 'logistics-single-person-general-electric',
+    title: '物流通道单人检测入口',
+  },
+  {
+    id: 'logistics-single-person-electronics-electrician',
+    title: '物流通道单人检测入口',
+  },
+  {
+    id: 'logistics-single-person-electrical-components',
+    title: '物流通道单人检测入口',
+  },
+  {
+    id: 'logistics-single-person-precious-metal-recycling',
     title: '物流通道单人检测入口',
   },
   {
@@ -187,8 +199,11 @@ const guardPageByDepartment: Partial<Record<Department, string>> = {
   electronics_electrician: 'guard-behavior-electronics-electrician',
 }
 
-const logisticsPageByFeature: Record<LogisticsFeatureName, string> = {
-  detect_logistics_single_person: 'logistics-single-person-detection',
+const logisticsPageByDepartment: Record<LogisticsDepartment, string> = {
+  general_electric: 'logistics-single-person-general-electric',
+  electronics_electrician: 'logistics-single-person-electronics-electrician',
+  electrical_components: 'logistics-single-person-electrical-components',
+  precious_metal_recycling: 'logistics-single-person-precious-metal-recycling',
 }
 
 type ServiceKey = keyof PlatformStatus['services']
@@ -196,6 +211,7 @@ type ServiceKey = keyof PlatformStatus['services']
 type ModuleStatusSource = {
   serviceKey: ServiceKey
   featureKey?: string
+  department?: LogisticsDepartment
 }
 
 const moduleStatusSources: Record<string, ModuleStatusSource> = {
@@ -211,11 +227,14 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
   'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human_haoda' },
-  'logistics-single-person-detection': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
+  'logistics-single-person-general-electric': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'general_electric' },
+  'logistics-single-person-electronics-electrician': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'electronics_electrician' },
+  'logistics-single-person-electrical-components': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'electrical_components' },
+  'logistics-single-person-precious-metal-recycling': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'precious_metal_recycling' },
   'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
 }
 
-type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource
+type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource & { featureCounts?: FeatureCameraCounts }
 
 const aiVisionFeatureLabels: Record<string, string> = {
   blocks: '区域入侵',
@@ -326,6 +345,8 @@ function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: 
 
 function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   const localCount = getLocalFeatureCount(featureCounts, featureKey)
+  const localOnline = featureKey ? featureCounts?.[featureKey]?.onlineCameraCount : undefined
+  if (typeof localOnline === 'number') return localOnline
   const featureStatus = getFeatureStatus(service, featureKey)
   if (typeof localCount === 'number') {
     return Math.min(localCount, Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0))
@@ -360,16 +381,22 @@ function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: Platf
   if (!cards.length || !platformStatus) return 'down'
   const services = cards.map((card) => platformStatus.services[card.serviceKey])
   const onlineCount = services.filter((service) => service?.online).length
-  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)).length
+  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)).length
   if (onlineCount === cards.length && runningCount === cards.length) return 'healthy'
   if (onlineCount > 0) return 'degraded'
   return 'down'
 }
 
-function getVisibleStatusCards(visibleEntries: typeof moduleEntries): ModuleStatusCard[] {
+function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean): ModuleStatusCard[] {
   return visibleEntries.flatMap((entry) => {
     const source = moduleStatusSources[entry.id]
-    return source ? [{ ...entry, ...source }] : []
+    return source ? [{
+      ...entry,
+      ...source,
+      featureCounts: source.department
+        ? getLoadedAiVisionFeatureCounts(loaded ? cameras : [], true, source.department)
+        : undefined,
+    }] : []
   })
 }
 
@@ -395,10 +422,10 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
     return total + Number(platformStatus.services[serviceKey]?.online_camera_count || 0)
   }, 0)
   const featureCameraTotal = featureCards.reduce((total, card) => {
-    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)
+    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)
   }, 0)
   const featureCameraOnline = featureCards.reduce((total, card) => {
-    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)
+    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)
   }, 0)
   const cameraTotal = serviceCameraTotal + featureCameraTotal
   const cameraOnline = serviceCameraOnline + featureCameraOnline
@@ -406,7 +433,7 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
   return {
     capabilityTotal: cards.length,
     capabilityOnline: cards.filter((card) => platformStatus.services[card.serviceKey]?.online).length,
-    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, featureCounts)).length,
+    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)).length,
     cameraTotal,
     cameraOnline,
     cameraOffline: Math.max(0, cameraTotal - cameraOnline),
@@ -416,7 +443,6 @@ function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: Platf
 export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
   const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
-  const visibleStatusCards = useMemo(() => getVisibleStatusCards(visibleModuleEntries), [visibleModuleEntries])
   const [overview, setOverview] = useState<OverviewState>(defaultOverview)
   const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
   const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
@@ -495,6 +521,10 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     ),
     [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras],
   )
+  const visibleStatusCards = useMemo(
+    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded),
+    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded],
+  )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
     const aiVisionItems = mergedAiVisionCameras.map((camera) => ({
@@ -510,7 +540,7 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
         : undefined,
       featureLabels: getAiVisionCameraFeatureLabels(camera),
       pageId: camera.inventoryOnly
-        ? logisticsPageByFeature[camera.logisticsMemberships?.[0]?.feature_name as LogisticsFeatureName]
+        ? logisticsPageByDepartment[camera.department as LogisticsDepartment]
         : undefined,
       aiVisionCamera: camera.inventoryOnly ? undefined : camera,
     }))
@@ -1148,9 +1178,9 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
                   <ServiceStatusCard
                     key={card.id}
                     service={platformStatus?.services[card.serviceKey]}
-                    displayName={card.title}
+                    displayName={card.department ? `${departmentLabels[card.department] ?? card.department} · ${card.title}` : card.title}
                     featureKey={card.featureKey}
-                    featureCounts={card.serviceKey === 'aivision' ? aiVisionFeatureCounts : undefined}
+                    featureCounts={card.featureCounts ?? (card.serviceKey === 'aivision' ? aiVisionFeatureCounts : undefined)}
                   />
                 ))}
               </div>

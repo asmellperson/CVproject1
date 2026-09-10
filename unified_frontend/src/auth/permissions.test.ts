@@ -133,7 +133,7 @@ if (getUserDepartment(weidaAliasUser) !== 'precious_metal_recycling') {
   throw new Error('expected 伟达公司 alias to normalize')
 }
 
-if (!hasPageAccess(electricalComponentsUser, 'logistics-single-person-detection')) {
+if (!hasPageAccess(electricalComponentsUser, 'logistics-single-person-electrical-components')) {
   throw new Error('expected electrical components department to access its logistics single person page')
 }
 
@@ -145,23 +145,23 @@ if (!hasPageAccess(preciousMetalRecyclingUser, 'security-vlm-precious-metal-recy
   throw new Error('expected precious metal recycling department to access its security VLM page')
 }
 
-if (!hasPageAccess(preciousMetalRecyclingUser, 'logistics-single-person-detection')) {
+if (!hasPageAccess(preciousMetalRecyclingUser, 'logistics-single-person-precious-metal-recycling')) {
   throw new Error('expected precious metal recycling department to access its logistics single person page')
 }
 
-if (hasPageAccess({ ...electricalComponentsUser, departments: ['research_institute'] }, 'logistics-single-person-detection')) {
+if (hasPageAccess({ ...electricalComponentsUser, departments: ['research_institute'] }, 'logistics-single-person-electrical-components')) {
   throw new Error('expected research institute to remain outside logistics departments')
 }
 
-if (hasPageAccess({ ...preciousMetalRecyclingUser, departments: ['haoda_company'] }, 'logistics-single-person-detection')) {
+if (hasPageAccess({ ...preciousMetalRecyclingUser, departments: ['haoda_company'] }, 'logistics-single-person-electrical-components')) {
   throw new Error('expected haoda company to remain outside logistics departments')
 }
 
-if (alarmEventTypesByPage['logistics-single-person-detection']?.join(',') !== 'detect_logistics_single_person') {
+if (alarmEventTypesByPage['logistics-single-person-electrical-components']?.join(',') !== 'detect_logistics_single_person') {
   throw new Error('expected electrical components logistics page to map to the canonical alarm event type')
 }
 
-if (alarmEventTypesByPage['logistics-single-person-detection']?.join(',') !== 'detect_logistics_single_person') {
+if (alarmEventTypesByPage['logistics-single-person-precious-metal-recycling']?.join(',') !== 'detect_logistics_single_person') {
   throw new Error('expected precious metal recycling logistics page to map to the canonical alarm event type')
 }
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ConfigDict
@@ -18,6 +18,7 @@ from AiVision.api.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
 from AiVision.features import all_specs
 from AiVision.platform.logistics_channel.constants import (
+    LOGISTICS_FEATURE_NAME,
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
 from AiVision.platform.logistics_channel.schema import (
@@ -64,6 +65,18 @@ def _require_feature_access(feature: str) -> str:
     return feature
 
 
+def _query_departments(user: dict, department: str | None) -> tuple[str, ...] | None:
+    """页面事业部与用户授权取交集，交给 service 在数据库层过滤。"""
+    accessible = _accessible_departments(user)
+    if department is None:
+        return accessible
+    if department not in all_specs()[LOGISTICS_FEATURE_NAME].departments:
+        raise HTTPException(status_code=400, detail="invalid logistics department")
+    if accessible is not None and department not in accessible:
+        raise HTTPException(status_code=403, detail="department permission required")
+    return (department,)
+
+
 def _require_channel_access(service, feature: str, channel_id: int, user: dict) -> dict:
     _require_feature_access(feature)
     channel = _get_channel_or_404(service, feature, channel_id)
@@ -100,10 +113,11 @@ def list_logistics_camera_inventory(
     user: dict = Depends(get_current_user),             # 当前登录用户
     service=Depends(get_logistics_channel_service),     # 物流通道管理服务
     orchestrator=Depends(get_current_orchestrator),     
+    department: Annotated[str | None, Query()] = None,
 ) -> LogisticsCameraInventoryResponse:
     """将当前所有用户有权限看到的所有物流摄像头汇总成一张摄像头清单，再结合Orchestrator的实时状态补充每台摄像头是否   """
     items = service.list_camera_inventory(
-        list(LOGISTICS_FEATURES), departments=_accessible_departments(user)
+        list(LOGISTICS_FEATURES), departments=_query_departments(user, department)
     )
     # 当前请求期间的通道状态缓存，key：（feature,channel_id）
     # 避免同一个通道运行状态被重复读取
@@ -153,10 +167,11 @@ def list_channels(
     feature: str,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
+    department: Annotated[str | None, Query()] = None,
 ) -> LogisticsChannelListResponse:
     """查询一个物流feature下的通道列表"""
     return LogisticsChannelListResponse.model_validate(
-        service.list_channels(_require_feature_access(feature), departments=_accessible_departments(user))
+        service.list_channels(_require_feature_access(feature), departments=_query_departments(user, department))
     )
 
 @router.post(

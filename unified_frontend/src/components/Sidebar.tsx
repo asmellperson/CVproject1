@@ -579,7 +579,7 @@ function itemTone(itemId: string): NavTone {
 function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
   const visibleGroups = filterNavGroupsByPermission(user, navGroups)
   const userDepartments = new Set<string>(getUserDepartments(user))
-  const shouldGroupByDepartment = isAdmin || userDepartments.size > 1
+  const shouldGroupByDepartment = isAdmin || userDepartments.size > 1 || userDepartments.has('all')
   if (!shouldGroupByDepartment) return visibleGroups
 
   const modules = visibleGroups.find((group) => group.id === 'modules')
@@ -592,7 +592,6 @@ function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermissi
     : adminModuleGroups.filter((group) => userDepartments.has(group.id))
   const children = visibleModuleGroups.map((group) => {
     const items = group.pages.flatMap((pageId) => {
-      if (pageId === 'logistics-single-person-detection') return []
       const item = moduleItemsById.get(pageId)
       if (!item) return []
       groupedIds.add(item.id)

@@ -30,6 +30,7 @@ import type {
   LogisticsChannelReason,
   LogisticsChannelRuntimeStatus,
   LogisticsChannelStatistics,
+  LogisticsDepartment,
   LogisticsFeatureName,
 } from './types'
 
@@ -51,7 +52,7 @@ function isToday(value: string | null, now = new Date()) {
     && date.getDate() === now.getDate()
 }
 
-export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = true) {
+export function useLogisticsChannels(feature: LogisticsFeatureName, department: LogisticsDepartment, enabled = true) {
   const [channels, setChannels] = useState<LogisticsChannel[]>([])
   const [selectedChannelDetail, setSelectedChannelDetail] = useState<LogisticsChannelDetail | null>(null)
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
@@ -60,23 +61,26 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   const [listRevision, refresh] = useReducer((value: number) => value + 1, 0)
   const [detailRevision, refreshSelectedChannel] = useReducer((value: number) => value + 1, 0)
   const currentFeatureRef = useRef(feature)
+  const currentDepartmentRef = useRef(department)
   const currentSelectedChannelIdRef = useRef(selectedChannelId)
   const listRequestGenerationRef = useRef(0)
   const detailRequestGenerationRef = useRef(0)
 
   useEffect(() => {
     currentFeatureRef.current = feature
+    currentDepartmentRef.current = department
     currentSelectedChannelIdRef.current = selectedChannelId
-  }, [feature, selectedChannelId])
+  }, [feature, department, selectedChannelId])
 
   const loadChannels = useCallback(async (signal?: AbortSignal) => {
-    const request = { feature, generation: listRequestGenerationRef.current }
+    const request = { feature, department, generation: listRequestGenerationRef.current }
     const isCurrentRequest = () => isCurrentChannelListRequest(request, {
       feature: currentFeatureRef.current,
+      department: currentDepartmentRef.current,
       generation: listRequestGenerationRef.current,
     })
     try {
-      const response = await listLogisticsChannels(request.feature, { signal })
+      const response = await listLogisticsChannels(request.feature, request.department, { signal })
       if (!isCurrentRequest()) return
       setChannels(response.items)
       setSelectedChannelId((current) => {
@@ -92,17 +96,19 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     } finally {
       if (isCurrentRequest()) setLoading(false)
     }
-  }, [feature])
+  }, [feature, department])
 
   const loadSelectedChannel = useCallback(async (signal?: AbortSignal) => {
     if (selectedChannelId === null) return
     const request = {
       feature,
+      department,
       channelId: selectedChannelId,
       generation: detailRequestGenerationRef.current,
     }
     const isCurrentRequest = () => isCurrentChannelDetailRequest(request, {
       feature: currentFeatureRef.current,
+      department: currentDepartmentRef.current,
       channelId: currentSelectedChannelIdRef.current,
       generation: detailRequestGenerationRef.current,
     })
@@ -115,10 +121,11 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
       if (signal?.aborted || !isCurrentRequest()) return
       setError(reason instanceof Error ? reason.message : '物流通道详情加载失败')
     }
-  }, [feature, selectedChannelId])
+  }, [feature, department, selectedChannelId])
 
   useEffect(() => {
     currentFeatureRef.current = feature
+    currentDepartmentRef.current = department
     listRequestGenerationRef.current += 1
     detailRequestGenerationRef.current += 1
     setChannels([])
@@ -126,11 +133,11 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     setSelectedChannelId(null)
     setError(null)
     setLoading(enabled)
-  }, [enabled, feature])
+  }, [enabled, feature, department])
 
   useEffect(() => {
     setSelectedChannelDetail(null)
-  }, [feature, selectedChannelId])
+  }, [feature, department, selectedChannelId])
 
   useSerialPoll(
     async (signal) => loadChannels(signal),
@@ -138,7 +145,7 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
       intervalMs: CHANNEL_LIST_POLL_INTERVAL_MS,
       timeoutMs: JSON_REQUEST_TIMEOUT_MS,
       enabled,
-      restartKey: `${feature}:${listRevision}`,
+      restartKey: `${feature}:${department}:${listRevision}`,
     },
   )
 
@@ -146,7 +153,7 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
     intervalMs: CHANNEL_LIST_POLL_INTERVAL_MS,
     timeoutMs: JSON_REQUEST_TIMEOUT_MS,
     enabled: enabled && selectedChannelId !== null,
-    restartKey: `${feature}:${selectedChannelId ?? ''}:${detailRevision}`,
+    restartKey: `${feature}:${department}:${selectedChannelId ?? ''}:${detailRevision}`,
   })
 
   useEffect(() => {
@@ -186,8 +193,10 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
   }, [])
 
   const selectCreatedChannelLocally = useCallback((channel: LogisticsChannelDetail) => {
+    if (channel.department !== department) return
     const next = advanceChannelRequestsForCreatedChannel({
       feature,
+      department,
       listGeneration: listRequestGenerationRef.current,
       detailGeneration: detailRequestGenerationRef.current,
       selectedChannelId: currentSelectedChannelIdRef.current,
@@ -204,7 +213,7 @@ export function useLogisticsChannels(feature: LogisticsFeatureName, enabled = tr
       ))
     })
     refresh()
-  }, [feature])
+  }, [feature, department])
 
   return {
     channels,

@@ -52,7 +52,10 @@ export const navGroups: NavGroup[] = [
       { id: 'face-detection', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
       { id: 'human-detection', label: '人员违规逗留检测', icon: Clock3, description: '人员违规逗留检测监控与配置入口' },
       { id: 'haoda-human-detection', label: '人员违规逗留检测', icon: Clock3, description: '皓达公司人员违规逗留检测监控与配置入口' },
-      { id: 'logistics-single-person-detection', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-general-electric', label: '物流通道单人检测', icon: UsersRound, description: '通用电气物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-electronics-electrician', label: '物流通道单人检测', icon: UsersRound, description: '电子电工物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-electrical-components', label: '物流通道单人检测', icon: UsersRound, description: '电气部件物流通道单人监控与配置入口' },
+      { id: 'logistics-single-person-precious-metal-recycling', label: '物流通道单人检测', icon: UsersRound, description: '伟达公司物流通道单人监控与配置入口' },
       { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
 
     ],

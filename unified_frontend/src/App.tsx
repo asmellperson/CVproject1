@@ -132,8 +132,14 @@ function App() {
         return <HumanDetectionSection />
       case 'haoda-human-detection':
         return <HaodaHumanDetectionSection />
-      case 'logistics-single-person-detection':
-        return <LogisticsSinglePersonDetectionSection />
+      case 'logistics-single-person-general-electric':
+        return <LogisticsSinglePersonDetectionSection department="general_electric" />
+      case 'logistics-single-person-electronics-electrician':
+        return <LogisticsSinglePersonDetectionSection department="electronics_electrician" />
+      case 'logistics-single-person-electrical-components':
+        return <LogisticsSinglePersonDetectionSection department="electrical_components" />
+      case 'logistics-single-person-precious-metal-recycling':
+        return <LogisticsSinglePersonDetectionSection department="precious_metal_recycling" />
       case 'phone-detection':
         return <PhoneDetectionSection />
       case 'security-vlm':

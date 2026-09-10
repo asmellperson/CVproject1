@@ -57,7 +57,7 @@ function deferred() {
 test('stale list requests cannot apply delayed resolve, reject, or finally state', async () => {
   const source = await read('src/components/logistics_single_person/channelRequestState.ts')
   const { isCurrentChannelListRequest } = await importTypeScript(source)
-  let current = { feature: 'feature-a', generation: 0 }
+  let current = { feature: 'feature-a', department: 'general_electric', generation: 0 }
   const state = { channels: ['current'], error: null, loading: true }
 
   const run = async (work) => {
@@ -90,7 +90,7 @@ test('stale list requests cannot apply delayed resolve, reject, or finally state
 test('stale detail requests cannot apply delayed resolve or reject state', async () => {
   const source = await read('src/components/logistics_single_person/channelRequestState.ts')
   const { isCurrentChannelDetailRequest } = await importTypeScript(source)
-  let current = { feature: 'feature-a', channelId: 1, generation: 0 }
+  let current = { feature: 'feature-a', department: 'general_electric', channelId: 1, generation: 0 }
   const state = { detail: 'current', error: null }
 
   const run = async (work) => {
@@ -105,7 +105,7 @@ test('stale detail requests cannot apply delayed resolve or reject state', async
 
   const slowResolve = deferred()
   const resolving = run(slowResolve.promise)
-  current = { feature: 'feature-a', channelId: 2, generation: 1 }
+  current = { feature: 'feature-a', department: 'general_electric', channelId: 2, generation: 1 }
   slowResolve.resolve('deleted-channel-detail')
   await resolving
   assert.deepEqual(state, { detail: 'current', error: null })
@@ -122,16 +122,16 @@ test('a delayed pre-create list response cannot replace the newly selected chann
   const source = await read('src/components/logistics_single_person/channelRequestState.ts')
   const { advanceChannelRequestsForCreatedChannel, isCurrentChannelListRequest } = await importTypeScript(source)
   let cursor = {
-    feature: 'feature-a',
+    feature: 'feature-a', department: 'general_electric',
     listGeneration: 4,
     detailGeneration: 8,
     selectedChannelId: 1,
   }
   const state = { channels: [{ id: 1 }], selectedChannelId: 1 }
-  const oldRequest = { feature: cursor.feature, generation: cursor.listGeneration }
+  const oldRequest = { feature: cursor.feature, department: cursor.department, generation: cursor.listGeneration }
   const slowList = deferred()
   const applyingOldList = slowList.promise.then((items) => {
-    const current = { feature: cursor.feature, generation: cursor.listGeneration }
+    const current = { feature: cursor.feature, department: cursor.department, generation: cursor.listGeneration }
     if (!isCurrentChannelListRequest(oldRequest, current)) return
     state.channels = items
     state.selectedChannelId = items[0]?.id ?? null
@@ -144,7 +144,7 @@ test('a delayed pre-create list response cannot replace the newly selected chann
   await applyingOldList
 
   assert.deepEqual(cursor, {
-    feature: 'feature-a',
+    feature: 'feature-a', department: 'general_electric',
     listGeneration: 5,
     detailGeneration: 9,
     selectedChannelId: 9,
@@ -156,7 +156,7 @@ test('a failed create request leaves request generations and selection unchanged
   const source = await read('src/components/logistics_single_person/channelRequestState.ts')
   const { advanceChannelRequestsForCreatedChannel } = await importTypeScript(source)
   const original = {
-    feature: 'feature-a',
+    feature: 'feature-a', department: 'general_electric',
     listGeneration: 2,
     detailGeneration: 3,
     selectedChannelId: 1,

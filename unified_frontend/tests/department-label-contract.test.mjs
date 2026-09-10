@@ -40,9 +40,9 @@ test('uses the current Weida company name throughout active frontend views', () 
     assert.match(source, /物流通道单人/)
   }
   assert.match(logistics, /useDepartmentCatalog/)
-  assert.match(logistics, /selectedChannel.department/)
+  assert.match(logistics, /labels\[department\]/)
   assert.doesNotMatch(logistics, /FEATURE_DEPARTMENT_LABELS/)
-  assert.equal((nav.match(/id: 'logistics-single-person[^']*'/g) ?? []).length, 1)
+  assert.equal((nav.match(/id: 'logistics-single-person[^']*'/g) ?? []).length, 4)
   assert.doesNotMatch(permissions, /title: '物流通道单人检测（贵金属回收）'/)
 })
 
