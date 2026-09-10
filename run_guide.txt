@@ -31,28 +31,25 @@ apt install -y tmux iproute2 curl wget vim
 
 2. 准备 Python 3.11 环境
 
-所有 Python 依赖安装都应使用根目录 requirements-python311.lock 约束版本。
+Python 依赖按各服务目录中的 requirements.txt 安装。
 
 AiVision 必须使用名为 aivision 的 Conda 环境：
 
 conda create -n aivision python=3.11 -y
 conda run -n aivision python -m pip install \
-  -r /srv/Fuda_CVPreject/AiVision/requirements.txt \
-  -c /srv/Fuda_CVPreject/requirements-python311.lock
+  -r /srv/Fuda_CVPreject/AiVision/requirements.txt
 
 Security VLM 按需 worker 使用 security_vlm Conda 环境：
 
 conda create -n security_vlm python=3.11 -y
 conda run -n security_vlm python -m pip install \
-  -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt \
-  -c /srv/Fuda_CVPreject/requirements-python311.lock
+  -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt
 
 统一后端可使用系统 Python、unified_backend Conda 环境，或通过
 UNIFIED_BACKEND_PYTHON 指定解释器。依赖安装示例：
 
 python3 -m pip install \
-  -r /srv/Fuda_CVPreject/unified_backend/requirements.txt \
-  -c /srv/Fuda_CVPreject/requirements-python311.lock
+  -r /srv/Fuda_CVPreject/unified_backend/requirements.txt
 
 3. 准备 Node.js 20 和前端依赖
 

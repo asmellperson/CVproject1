@@ -136,6 +136,13 @@ AiVision/config/model_paths.yaml
 .codegraph/
 .claude/
 agents.md
+AGENTS.md
+.agents/
+/requirements-dev.txt
+/requirements-python311.lock
+/代码调用关系说明.md
+/unified_frontend/info.md
+/AiVision/integrations/security_vlm/logical_explanation.md
 
 # ======================
 # Python virtual env

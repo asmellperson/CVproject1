@@ -367,7 +367,6 @@ UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
   "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
 SECURITY_VLM_WORKER_ENV="${SECURITY_VLM_WORKER_ENV:-security_vlm}"
-PYTHON_CONSTRAINTS="${PROJECT_ROOT}/requirements-python311.lock"
 
 # 健康检查上限（秒）- 可在 cold_start.env 中覆盖
 WAIT_AIVISION="${WAIT_AIVISION:-90}"
@@ -685,9 +684,9 @@ suggest_fix_from_log() {
     if [[ -n "$env_name" && -n "$CONDA_SH_PATH" ]]; then
       hint "缺少 Python 包 '${pkg:-?}'。执行："
       if [[ "$name" == "aivision" ]]; then
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS}"
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt"
       else
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt -c ${PYTHON_CONSTRAINTS}"
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
       fi
     else
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
@@ -704,7 +703,7 @@ suggest_fix_from_log() {
   elif echo "$log" | grep -qE 'CUDA.*error|no CUDA-capable device'; then
     hint "GPU 不可用（可能不致命）。如需 GPU 请检查: nvidia-smi"
   elif echo "$log" | grep -qE 'ImportError.*cannot import name'; then
-    hint "依赖版本不匹配，建议按锁重装: pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS} --upgrade"
+    hint "依赖版本不匹配，建议按对应 requirements.txt 重装: pip install -r ${workdir}/requirements.txt --upgrade"
   elif echo "$log" | grep -qE 'No such file or directory.*\.env'; then
     hint "缺少配置文件 .env，请从老机器拷贝或从示例创建"
   elif echo "$log" | grep -qE 'No such file or directory.*config'; then
@@ -736,13 +735,13 @@ suggest_dep_fix() {
         hint "conda 环境 '${AIVISION_ENV}' 不存在。执行："
         hint "  source ${CONDA_SH_PATH}"
         hint "  conda create -n ${AIVISION_ENV} python=3.11 -y"
-        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt -c ${PYTHON_CONSTRAINTS}"
+        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt"
       fi
       ;;
     unified_backend)
       hint "未找到 unified_backend Conda 环境或可用 Python。建议执行："
       hint "  conda create -n ${UNIFIED_BACKEND_ENV} python=3.11 -y"
-      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt -c ${PYTHON_CONSTRAINTS}"
+      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
       hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_ENV 或 UNIFIED_BACKEND_PYTHON"
       ;;
     unified_frontend)
@@ -799,7 +798,7 @@ precheck_one() {
       fi
       if [[ -n "$CONDA_SH_PATH" ]] && ! conda_env_exists "$SECURITY_VLM_WORKER_ENV" "$CONDA_SH_PATH"; then
         cfg "Security VLM 按需推理环境 '${SECURITY_VLM_WORKER_ENV}' 不存在；AiVision 可启动，但安检检测无法开启"
-        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt -c ${PYTHON_CONSTRAINTS}"
+        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt"
       fi
       ;;
     unified_frontend)
@@ -996,7 +995,6 @@ main() {
   log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
   log "  SECURITY_VLM_WORKER_ENV = ${SECURITY_VLM_WORKER_ENV}"
   log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND} frontend=${WAIT_FRONTEND}"
-  log "  PYTHON_LOCK  = ${PYTHON_CONSTRAINTS}"
 
   # AUTH_SECRET 状态
   if [[ "$AUTH_SECRET_SOURCE" == "reuse" ]]; then

@@ -23,8 +23,7 @@ Security VLM 的 API 由 AiVision 进程内托管；本目录位于 `AiVision/in
 ```bash
 conda create -n security_vlm python=3.11 -y
 conda run -n security_vlm python -m pip install \
-  -r AiVision/integrations/security_vlm/requirements.txt \
-  -c requirements-python311.lock
+  -r AiVision/integrations/security_vlm/requirements.txt
 # 记下 python 路径
 which python
 ffmpeg -version
