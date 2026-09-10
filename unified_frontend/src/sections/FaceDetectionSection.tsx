@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
@@ -250,7 +251,7 @@ export function FaceDetectionSection() {
     let roiPos: number[][]
     let yawThreshold: number[]
     try {
-      const parsedRoi = JSON.parse(form.roiPos)
+      const parsedRoi = parseNormalizedRoi(form.roiPos)
       const parsedYaw = JSON.parse(form.yawThreshold)
       if (!Array.isArray(parsedRoi) || !Array.isArray(parsedYaw)) {
         throw new Error('ROI 和偏航角阈值必须是数组')

@@ -8,7 +8,7 @@ import {
   DetectionConfigCardHeader,
 } from '@/components/detection/DetectionConfigUi'
 import { aiVisionFrameUrl } from '@/lib/aivision'
-import { clientPointToImagePoint, imagePixelsPerRenderedPixel } from './AiVisionRoiEditor.geometry'
+import { clientPointToImagePoint, imagePixelsPerRenderedPixel, normalizedPointsToPixels, parseNormalizedPoints, pixelsToNormalizedPoints } from './AiVisionRoiEditor.geometry'
 
 type Point = {
   x: number
@@ -22,26 +22,16 @@ type AiVisionRoiEditorProps = {
   cameraKey: string
   mode?: RoiMode
   roiJson: string
-  regionJson?: string
   disabled?: boolean
   saving?: boolean
   message?: string
   minRoiArea?: number
-
   onChange: (roiJson: string) => void
-
-  onRegionChange?: (regionJson: string) => void
-
   onSave: () => void
 }
 
-const fallbackSize = { width: 1920, height: 1080 }
 const DRAG_THRESHOLD_PX = 8
 const DEFAULT_MIN_ROI_AREA = 2500
-
-function roundPoint(point: Point) {
-  return [Math.round(point.x), Math.round(point.y)]
-}
 
 function rectToPoints(rect: number[]): Point[] {
   const [x1, y1, x2, y2] = rect
@@ -77,42 +67,21 @@ function pointDistance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function parseRoiPoints(raw: string): Point[] {
-  try {
-    const parsed = JSON.parse(raw || '[]')
-    if (!Array.isArray(parsed) || parsed.length === 0) return []
-
-    if (parsed.length >= 4 && parsed.every((item) => typeof item === 'number')) {
-      return rectToPoints(parsed.slice(0, 4) as number[])
-    }
-
-    const polygon = Array.isArray(parsed[0]?.[0]) ? parsed[0] : parsed
-    if (!Array.isArray(polygon)) return []
-
-    return polygon
-      .filter((point) => Array.isArray(point) && point.length >= 2)
-      .map((point) => ({ x: Number(point[0]) || 0, y: Number(point[1]) || 0 }))
-  } catch {
-    return []
-  }
-}
-
 export function AiVisionRoiEditor({
   title,
   cameraKey,
   mode = 'polygon',
   roiJson,
-  regionJson,
   disabled,
   saving,
   message,
   minRoiArea = DEFAULT_MIN_ROI_AREA,
   onChange,
-  onRegionChange,
   onSave,
 }: AiVisionRoiEditorProps) {
-  const [points, setPoints] = useState<Point[]>(() => parseRoiPoints(regionJson || roiJson))
-  const [imageSize, setImageSize] = useState(fallbackSize)
+  const [points, setPoints] = useState<Point[]>([])
+  const [coordinateError, setCoordinateError] = useState('')
+  const [loadedImage, setLoadedImage] = useState<{ frameUrl: string; width: number; height: number } | null>(null)
   const [nonce, setNonce] = useState(0)
   const [dragStart, setDragStart] = useState<Point | null>(null)
   const [draftPoint, setDraftPoint] = useState<Point | null>(null)
@@ -122,36 +91,42 @@ export function AiVisionRoiEditor({
     () => (cameraKey ? aiVisionFrameUrl(cameraKey, undefined, nonce) : ''),
     [cameraKey, nonce],
   )
+  const imageSize = loadedImage?.frameUrl === frameUrl ? loadedImage : null
   const valid = mode === 'line' ? points.length === 2 : mode === 'rect' ? points.length === 4 : points.length >= 3
   const outOfBounds = points.some(
-    (point) => point.x < 0 || point.y < 0 || point.x > imageSize.width || point.y > imageSize.height,
+    (point) => point.x < 0 || point.y < 0 || point.x > (imageSize?.width ?? 0) || point.y > (imageSize?.height ?? 0),
   )
   const roiArea = valid && mode !== 'line' ? polygonArea(points) : 0
   const areaTooSmall = valid && mode !== 'line' && roiArea < minRoiArea
-  const canSave = valid && !outOfBounds && !areaTooSmall
+  const canSave = Boolean(imageSize) && !coordinateError && (points.length === 0 || valid) && !outOfBounds && !areaTooSmall
 
   useEffect(() => {
+    try {
+      const normalized = parseNormalizedPoints(roiJson)
+      setPoints(imageSize ? normalizedPointsToPixels(normalized, imageSize) : [])
+      setCoordinateError('')
+    } catch (error) {
+      setPoints([])
+      setCoordinateError(error instanceof Error ? error.message : 'ROI 坐标无效')
+    }
+  }, [mode, roiJson, imageSize])
 
-setPoints(parseRoiPoints(regionJson || roiJson))
-  }, [mode, regionJson, roiJson])
+  useEffect(() => {
+    setDragStart(null)
+    setDraftPoint(null)
+    setDragPointIndex(null)
+  }, [mode, imageSize])
 
   const commitPoints = (nextPoints: Point[]) => {
+    if (!imageSize) return
     setPoints(nextPoints)
-    if (mode === 'rect') {
-      const rect = nextPoints.length === 4 ? pointsToRect(nextPoints) : []
-      const nextJson = JSON.stringify(rect)
-      onChange(nextJson)
-      onRegionChange?.(nextJson)
-      return
-    }
-    if (mode === 'line') {
-      onChange(JSON.stringify(nextPoints.slice(0, 2).map(roundPoint)))
-      return
-    }
-    onChange(JSON.stringify(nextPoints.map(roundPoint)))
+    setCoordinateError('')
+    const normalized = pixelsToNormalizedPoints(mode === 'line' ? nextPoints.slice(0, 2) : nextPoints, imageSize)
+    onChange(JSON.stringify(normalized))
   }
 
   const getPoint = (event: PointerEvent<SVGSVGElement>): Point => {
+    if (!imageSize) throw new Error('请先加载摄像头实际画面')
     const rect = event.currentTarget.getBoundingClientRect()
     return clientPointToImagePoint({
       clientX: event.clientX,
@@ -162,12 +137,13 @@ setPoints(parseRoiPoints(regionJson || roiJson))
   }
 
   const getHitRadius = (event: PointerEvent<SVGSVGElement>) => {
+    if (!imageSize) return 0
     const rect = event.currentTarget.getBoundingClientRect()
     return Math.max(12, 14 * imagePixelsPerRenderedPixel(rect, imageSize))
   }
 
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !cameraKey) return
+    if (disabled || !cameraKey || !imageSize) return
     const point = getPoint(event)
     event.currentTarget.setPointerCapture(event.pointerId)
 
@@ -185,7 +161,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
   }
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !cameraKey || !dragStart) return
+    if (disabled || !cameraKey || !imageSize || !dragStart) return
     const point = getPoint(event)
     if (dragPointIndex !== null) {
       const nextPoints = points.map((existing, index) => (index === dragPointIndex ? point : existing))
@@ -196,6 +172,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
   }
 
   const handlePointerUp = (event: PointerEvent<SVGSVGElement>) => {
+    if (!imageSize) return
     event.currentTarget.releasePointerCapture(event.pointerId)
     if (dragPointIndex !== null) {
       setDragPointIndex(null)
@@ -233,6 +210,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
   const bbox = displayPoints.length ? pointsToRect(displayPoints) : []
 
   const useFullFrame = () => {
+    if (!imageSize) return
     commitPoints(rectToPoints([0, 0, imageSize.width, imageSize.height]))
   }
 
@@ -254,7 +232,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
         icon={MousePointer2}
         tone="rose"
         title={title}
-        description="沿用当前摄像头画布、坐标与保存方式，进入本标签后可直接绘制。"
+        description="在实际摄像头画面上绘制区域；保存后会随码流分辨率自动适配。"
         actions={(
           <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
             <RefreshCw className="h-4 w-4" />
@@ -271,21 +249,22 @@ setPoints(parseRoiPoints(regionJson || roiJson))
             </div>
             {frameUrl ? (
               <img
+                key={frameUrl}
                 src={frameUrl}
                 alt=""
                 className="block h-auto max-h-[68vh] w-full object-contain"
                 onLoad={(event) => {
                   const image = event.currentTarget
-                  setImageSize({
-                    width: image.naturalWidth || fallbackSize.width,
-                    height: image.naturalHeight || fallbackSize.height,
-                  })
+                  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                    setLoadedImage({ frameUrl, width: image.naturalWidth, height: image.naturalHeight })
+                  }
                 }}
+                onError={() => setLoadedImage(null)}
               />
             ) : (
               <div className="aspect-video w-full" />
             )}
-            <svg
+            {imageSize && <svg
               viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
               className="absolute inset-0 h-full w-full touch-none"
               onPointerDown={handlePointerDown}
@@ -315,7 +294,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
                   ))}
                 </>
               ) : null}
-            </svg>
+            </svg>}
           </div>
         </div>
 
@@ -327,17 +306,21 @@ setPoints(parseRoiPoints(regionJson || roiJson))
                 ? points.length === 2
                   ? `警戒线: [${Math.round(points[0].x)}, ${Math.round(points[0].y)}] -> [${Math.round(points[1].x)}, ${Math.round(points[1].y)}]`
                   : `端点数: ${points.length}/2`
+                : points.length === 0 && !coordinateError
+                ? '全画面检测（未限定 ROI）'
                 : bbox.length === 4
                 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px²`
                 : mode === 'polygon'
                   ? `顶点数: ${points.length}`
                   : '未绘制区域'}
             </div>
+            {!imageSize ? <div className="mt-2 text-amber-700">请先加载摄像头画面后再编辑和保存。</div> : null}
+            {coordinateError ? <div role="alert" className="mt-2 text-rose-600">{coordinateError}</div> : null}
             {outOfBounds || areaTooSmall ? (
               <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize.width} / 0-{imageSize.height} 内。</div> : null}
+                  {outOfBounds ? <div>坐标超出当前画面范围，请调整到 0-{imageSize?.width} / 0-{imageSize?.height} 内。</div> : null}
                   {areaTooSmall ? <div>ROI 面积过小，当前 {Math.round(roiArea)} px²，至少需要 {minRoiArea} px²。</div> : null}
                 </div>
               </div>
@@ -353,7 +336,7 @@ setPoints(parseRoiPoints(regionJson || roiJson))
               清空
             </Button>
             {mode !== 'line' ? (
-              <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraKey}>
+              <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraKey || !imageSize}>
                 <RotateCcw className="h-4 w-4" />
                 全画面
               </Button>

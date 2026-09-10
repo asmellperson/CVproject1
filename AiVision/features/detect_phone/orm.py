@@ -5,7 +5,7 @@ from AiVision.features._base.orm import FeatureConfigBase
 class PhoneConfigORM(FeatureConfigBase):
     __tablename__ = "ai_camera_config_detect_phone"
 
-    roi_pos = Column(JSON, nullable=True)
+    roi_pos = Column(JSON, nullable=False, default=list)
     CONF_THRESHOLD = Column(Float, default=0.7)
     IOU_THR = Column(Float, default=0.5)
     MIN_CONFIRM_SECONDS = Column(Float, default=1.2)

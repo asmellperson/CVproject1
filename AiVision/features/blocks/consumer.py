@@ -9,97 +9,74 @@ from __future__ import annotations
 import cv2
 import numpy as np
 from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._base.roi import LINE_ADAPTER
 
 
 class BlocksConsumer(BaseFunctionConsumer):
     """区域入侵检测 — YOLO 人体检测 + 警戒线入侵侧存在告警"""
-    def _get_roi(self, camera_id: int, frame: np.ndarray) -> list[np.ndarray]:
-        """blocks 使用全帧检测，警戒线负责过滤入侵侧，避免依赖复杂 ROI。"""
-        h, w = frame.shape[:2]
-        self._roi_polygon_cache[camera_id] = [[[0, 0], [w, 0], [w, h], [0, h]]]
-        return [frame]
-
-    def _process(self, roi_list, camera_id):
-        """全帧人体检测后，仅脚底点落在警戒线入侵侧的人触发告警。"""
+    def _process(self, roi, camera_id):
+        """在唯一 ROI 内检测，恢复原始帧坐标后判断脚底点是否位于入侵侧。"""
         config = self._value_config(self.config_cache.get(camera_id, {}))
         conf = float(config.get("threshold", 0.3) or 0.3)
         frame = self.frame_cache.get(camera_id)
         line_points, alarm_side = self._line_config(config, frame)
         foot_ratio = self._foot_ratio(config)
 
-        detections = self.dispatch_inference_sync(
+        outcome = self.dispatch_inference_sync(
             camera_id,
             "yolo_human",
-            roi_list,
+            roi,
             task_meta={"conf": conf},
             timeout=1.0,
         )
-        detections_by_roi = {int(item.get("roi_id", 0)): item.get("detections", []) for item in detections}
-        results = []
-        for roi_id in range(len(roi_list)):
-            roi_detections = []
-            intrusions = []
-            for det in detections_by_roi.get(roi_id, []):
-                enriched = dict(det)
-                bbox = enriched.get("bbox") or []
-                foot_point = self._foot_point(bbox, foot_ratio)
-                side = self._point_side(line_points, foot_point) if line_points and foot_point is not None else 0.0
-                intrusion = self._is_alarm_side(side, alarm_side) if line_points and foot_point is not None else False
-                enriched["foot_point"] = foot_point
-                enriched["line_side"] = side
-                enriched["intrusion"] = intrusion
-                roi_detections.append(enriched)
-                if intrusion:
-                    intrusions.append(enriched)
-            results.append((
-                len(intrusions) > 0,
-                {
-                    "detections": roi_detections,
-                    "intrusions": intrusions,
-                    "line_points": line_points,
-                    "alarm_side": alarm_side,
-                    "foot_ratio": foot_ratio,
-                },
-            ))
-        return results
+        roi_detections = []
+        intrusions = []
+        ox, oy = self._get_roi_offset(camera_id)
+        for det in outcome.get("detections", []):
+            enriched = dict(det)
+            bbox = enriched.get("bbox") or []
+            if len(bbox) == 4:
+                bbox = [bbox[0] + ox, bbox[1] + oy, bbox[2] + ox, bbox[3] + oy]
+                enriched["bbox"] = bbox
+            foot_point = self._foot_point(bbox, foot_ratio)
+            side = self._point_side(line_points, foot_point) if line_points and foot_point is not None else 0.0
+            intrusion = self._is_alarm_side(side, alarm_side) if line_points and foot_point is not None else False
+            enriched.update(foot_point=foot_point, line_side=side, intrusion=intrusion)
+            roi_detections.append(enriched)
+            if intrusion:
+                intrusions.append(enriched)
+        return bool(intrusions), {
+            "detections": roi_detections, "intrusions": intrusions,
+            "line_points": line_points, "alarm_side": alarm_side, "foot_ratio": foot_ratio,
+        }
 
     def post_process(self, camera_id, result):
         """绘制警戒线、入侵侧方向、人体框和脚底点。"""
-        frame = self.frame_cache.get(camera_id)
-        if frame is None:
+        frame_copy = self._annotated_frame(camera_id)
+        if frame_copy is None:
             return None
-        frame_copy = frame.copy()
-
-        line_points = []
-        alarm_side = 1
-        for _alarm, msg in result or []:
-            line_points = (msg or {}).get("line_points") or line_points
-            alarm_side = int((msg or {}).get("alarm_side") or alarm_side)
-            if line_points:
-                break
-        self._draw_line(frame_copy, line_points, alarm_side)
-
-        for i, (alarm, _msg) in enumerate(result):
-            for det in (_msg or {}).get("detections", []):
-                x1, y1, x2, y2 = [int(v) for v in det.get("bbox", [0, 0, 0, 0])]
-                intrusion = bool(det.get("intrusion"))
-                color = (0, 0, 255) if intrusion else (34, 197, 94)
-                cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
-                foot_point = det.get("foot_point")
-                if foot_point:
-                    fx, fy = [int(v) for v in foot_point]
-                    cv2.circle(frame_copy, (fx, fy), 5, color, -1)
-                conf = float(det.get("confidence", 0.0))
-                label = "intrusion" if intrusion else "person"
-                cv2.putText(
-                    frame_copy,
-                    f"{label} {conf:.2f}",
-                    (x1, max(0, y1 - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    color,
-                    2,
-                )
+        _alarm, _msg = result
+        self._draw_line(frame_copy, _msg["line_points"], _msg["alarm_side"])
+        for det in (_msg or {}).get("detections", []):
+            x1, y1, x2, y2 = [int(v) for v in det.get("bbox", [0, 0, 0, 0])]
+            intrusion = bool(det.get("intrusion"))
+            color = (0, 0, 255) if intrusion else (34, 197, 94)
+            cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
+            foot_point = det.get("foot_point")
+            if foot_point:
+                fx, fy = [int(v) for v in foot_point]
+                cv2.circle(frame_copy, (fx, fy), 5, color, -1)
+            conf = float(det.get("confidence", 0.0))
+            label = "intrusion" if intrusion else "person"
+            cv2.putText(
+                frame_copy,
+                f"{label} {conf:.2f}",
+                (x1, max(0, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )
         return frame_copy
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
@@ -115,32 +92,16 @@ class BlocksConsumer(BaseFunctionConsumer):
 
     @classmethod
     def _line_config(cls, config: dict, frame: np.ndarray | None) -> tuple[list[list[float]], int]:
-        raw_points = config.get("line_points") or []
-        points = cls._normalize_line_points(raw_points, frame)
+        raw_points = config.get("line_points", [])
+        points = LINE_ADAPTER.validate_python(raw_points)
+        if frame is not None:
+            h, w = frame.shape[:2]
+            points = [[x * w, y * h] for x, y in points]
         try:
             alarm_side = -1 if int(config.get("alarm_side", 1) or 1) < 0 else 1
         except (TypeError, ValueError):
             alarm_side = 1
         return points, alarm_side
-
-    @staticmethod
-    def _normalize_line_points(raw_points, frame: np.ndarray | None) -> list[list[float]]:
-        if not isinstance(raw_points, list) or len(raw_points) < 2:
-            return []
-        points = []
-        for item in raw_points[:2]:
-            if not isinstance(item, list) or len(item) < 2:
-                return []
-            try:
-                points.append([float(item[0]), float(item[1])])
-            except (TypeError, ValueError):
-                return []
-        if frame is not None and all(0.0 <= coord <= 1.0 for point in points for coord in point):
-            h, w = frame.shape[:2]
-            points = [[points[0][0] * w, points[0][1] * h], [points[1][0] * w, points[1][1] * h]]
-        if abs(points[0][0] - points[1][0]) < 1e-6 and abs(points[0][1] - points[1][1]) < 1e-6:
-            return []
-        return points
 
     @staticmethod
     def _foot_point(bbox, foot_ratio: float) -> list[float] | None:

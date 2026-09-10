@@ -196,8 +196,7 @@ export type LogisticsCameraRoiPoint = [number, number]
 export type LogisticsCameraRoiPolygon = LogisticsCameraRoiPoint[]
 
 export type LogisticsCameraDetectionValue = {
-  roi_pos: LogisticsCameraRoiPolygon[]
-  region?: number[]
+  roi_pos: LogisticsCameraRoiPolygon
   CONF_THRESHOLD?: number
   IOU_THR?: number
   MIN_BOX_AREA?: number

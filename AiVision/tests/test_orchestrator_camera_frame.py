@@ -20,7 +20,7 @@ Orchestrator = orchestrator_module.Orchestrator
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_missing_raw_frame_does_not_return_expired_annotated_frame`
 #         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_fresh_annotated_frame_is_preferred`
-#         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_expired_annotated_frame_falls_back_to_fresh_raw`
+#         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_expired_annotated_frame_does_not_expose_raw_in_monitor`
 #         调用本符号；`AiVision/tests/test_orchestrator_camera_frame.py` 的 `test_all_expired_frames_return_latest_known_timestamp` 调用本符号
 #   - 内部调用：`object.__new__`、`SimpleNamespace`、`monkeypatch.setattr`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -100,7 +100,7 @@ def test_fresh_annotated_frame_is_preferred(monkeypatch):
     ) == (annotated, 99.5)
 
 
-# 功能：验证 `test_expired_annotated_frame_falls_back_to_fresh_raw` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_expired_annotated_frame_does_not_expose_raw_in_monitor` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -108,7 +108,7 @@ def test_fresh_annotated_frame_is_preferred(monkeypatch):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`monkeypatch.setattr`、`object`、`_orchestrator`、`instance.get_camera_frame_info`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_expired_annotated_frame_falls_back_to_fresh_raw(monkeypatch):
+def test_expired_annotated_frame_does_not_expose_raw_in_monitor(monkeypatch):
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: 100.0)
     raw, annotated = object(), object()
     instance = _orchestrator(
@@ -121,7 +121,8 @@ def test_expired_annotated_frame_falls_back_to_fresh_raw(monkeypatch):
 
     assert instance.get_camera_frame_info(
         "logistics", feature="detect_logistics_single_person"
-    ) == (raw, 99.0)
+    ) == (None, 99.0)
+    assert instance.get_camera_frame_info("logistics") == (raw, 99.0)
 
 
 # 功能：验证 `test_all_expired_frames_return_latest_known_timestamp` 对应的摄像头、视频帧逻辑；输入由参数提供，处理结果见返回值说明

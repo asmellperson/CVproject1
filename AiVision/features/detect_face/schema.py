@@ -1,9 +1,13 @@
 """features/detect_face/schema.py"""
 from typing import List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+from AiVision.features._base.roi import NormalizedRoi
 
 class FaceValueSchema(BaseModel):
-    roi_pos: List[List[List[int]]] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    roi_pos: NormalizedRoi = Field(default_factory=list)
     FACE_SCORE_THR: float = Field(0.6, ge=0, le=1)
     YAW_THRESHOLD: List[float] = Field(default_factory=lambda: [0.0, 0.3])
     MAX_TIME: float = Field(10.0, ge=0)
@@ -12,15 +16,6 @@ class FaceValueSchema(BaseModel):
     cap_interval: float = Field(0.1, gt=0)
     alarm_interval: float = Field(5.0, gt=0)
 
-    @field_validator("roi_pos", mode="before")
-    @classmethod
-    def _normalize_roi(cls, v):
-        if not isinstance(v, list) or not v:
-            return v
-        first = v[0]
-        if isinstance(first, list) and first and not isinstance(first[0], list):
-            return [v]
-        return v
 
 class _AlarmChannel(BaseModel):
     enable: bool = False

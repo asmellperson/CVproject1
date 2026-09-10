@@ -127,8 +127,8 @@ def test_identical_high_contrast_frame_is_not_reported_as_changed():
     consumer = _consumer()
     frame = _high_contrast_frame()
 
-    assert consumer._frame_changed(1, [frame]) is True
-    assert consumer._frame_changed(1, [frame.copy()]) is False
+    assert consumer._frame_changed(1, frame) is True
+    assert consumer._frame_changed(1, frame.copy()) is False
 
 
 # 功能：验证 `test_unchanged_frame_only_blurs_downsampled_comparison_image` 对应的视频帧消费与检测、视频帧逻辑；输入由参数提供，处理结果见返回值说明
@@ -161,12 +161,12 @@ def test_unchanged_frame_only_blurs_downsampled_comparison_image(monkeypatch):
 
     monkeypatch.setattr(cv2, "GaussianBlur", recording_gaussian_blur)
 
-    assert consumer._frame_changed(1, [frame]) is True
+    assert consumer._frame_changed(1, frame) is True
     full_resolution_blurs = blurred_shapes.count(frame.shape)
-    assert consumer._frame_changed(1, [frame.copy()]) is False
+    assert consumer._frame_changed(1, frame.copy()) is False
 
     assert blurred_shapes.count(frame.shape) == full_resolution_blurs
-    assert consumer.blur_roi[1][0].shape == frame.shape
+    assert consumer.blur_roi[1].shape == frame.shape
 
 
 # 功能：验证 `test_visibly_changed_frame_refreshes_full_resolution_blur` 对应的视频帧消费与检测、视频帧逻辑；输入由参数提供，处理结果见返回值说明
@@ -174,18 +174,18 @@ def test_unchanged_frame_only_blurs_downsampled_comparison_image(monkeypatch):
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_consumer`、`_high_contrast_frame`、`consumer._frame_changed`、`consumer.blur_roi[1][0].copy`、`np.array_equal`。
+#   - 内部调用：`_consumer`、`_high_contrast_frame`、`consumer._frame_changed`、`consumer.blur_roi[1].copy`、`np.array_equal`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_visibly_changed_frame_refreshes_full_resolution_blur():
     consumer = _consumer()
     frame = _high_contrast_frame()
     changed = 255 - frame
 
-    assert consumer._frame_changed(1, [frame]) is True
-    previous_blur = consumer.blur_roi[1][0].copy()
+    assert consumer._frame_changed(1, frame) is True
+    previous_blur = consumer.blur_roi[1].copy()
 
-    assert consumer._frame_changed(1, [changed]) is True
-    assert not np.array_equal(consumer.blur_roi[1][0], previous_blur)
+    assert consumer._frame_changed(1, changed) is True
+    assert not np.array_equal(consumer.blur_roi[1], previous_blur)
 
 
 @pytest.mark.parametrize("kind", ["base", "door", "dwell", "logistics"])
@@ -203,8 +203,7 @@ def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
     consumer.config_cache = {7: {"shm_name": "deleted"}, 8: {"shm_name": "kept"}}
     states = (
         "frame_cache", "_masks", "_masks_roi_input", "_masks_frame_shape", "_roi_polygon_cache",
-        "pre_roi", "blur_roi", "frame_change_samples", "_pending_results", "_expected_roi_count",
-        "_pending_timestamps", "_last_process_at", "_pre_gray", "_bg_gray", "_candidate_state", "_alarm_state",
+        "pre_roi", "blur_roi", "frame_change_samples", "_last_process_at", "_pre_gray", "_bg_gray", "_candidate_state", "_alarm_state",
     )
     for name in states:
         if hasattr(consumer, name):
@@ -213,7 +212,7 @@ def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
         if hasattr(consumer, name):
             getattr(consumer, name).update({"deleted": object(), "kept": object()})
     if hasattr(consumer, "_trackers"):
-        consumer._trackers = {(7, 0): object(), (8, 0): object()}
+        consumer._trackers = {7: object(), 8: object()}
     consumer._inference_last_status = {("model", 7): {}, ("model", 8): {}}
 
     consumer.remove_camera(7, "deleted")
@@ -226,7 +225,7 @@ def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
         if hasattr(consumer, name):
             assert set(getattr(consumer, name)) == {"kept"}
     if hasattr(consumer, "_trackers"):
-        assert set(consumer._trackers) == {(8, 0)}
+        assert set(consumer._trackers) == {8}
     assert set(consumer._inference_last_status) == {("model", 8)}
 
 
@@ -280,8 +279,8 @@ def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
         latest_frames={"door": original}, is_camera_active=lambda _name: True,
     )
     consumer.frame_cache[7] = original
-    monkeypatch.setattr(consumer, "_get_roi_polygons", lambda _id: [[[0, 0], [15, 0], [15, 15], [0, 15]]])
-    annotated = consumer.post_process(7, [(True, "open")])
+    consumer._get_roi(7, original)
+    annotated = consumer.post_process(7, (True, "open"))
     assert original.sum() == 0
     assert annotated.sum() > 0
     assert not np.shares_memory(original, annotated)

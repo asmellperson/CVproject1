@@ -70,12 +70,13 @@ test('never exposes another camera configuration after camera switching', async 
   assert.equal(resolveCameraFeatureValue(cameraAState, 'cam-b'), null)
 })
 
-test('derives configured state from the feature overlay that is actually present', async () => {
-  const { isFeatureOverlayConfigured } = await importTypeScript(stateSource)
-  assert.equal(isFeatureOverlayConfigured('blocks', 2, 0), false)
-  assert.equal(isFeatureOverlayConfigured('blocks', 0, 1), true)
-  assert.equal(isFeatureOverlayConfigured('detect_face', 0, 1), false)
-  assert.equal(isFeatureOverlayConfigured('detect_face', 1, 0), true)
+test('derives configured state from configuration without drawing an overlay', async () => {
+  const { isFeatureRegionConfigured } = await importTypeScript(stateSource)
+  assert.equal(isFeatureRegionConfigured('blocks', { roi_pos: [[0, 0], [1, 0], [1, 1]], line_points: [] }), false)
+  assert.equal(isFeatureRegionConfigured('blocks', { line_points: [[0, 0], [1, 1]] }), true)
+  assert.equal(isFeatureRegionConfigured('detect_face', null), false)
+  assert.equal(isFeatureRegionConfigured('detect_face', { roi_pos: [] }), true)
+  assert.equal(isFeatureRegionConfigured('detect_face', { roi_pos: [[0, 0], [1, 0], [1, 1]] }), true)
 })
 
 test('polls the existing alarm endpoint serially and resets on camera changes', () => {
@@ -86,18 +87,15 @@ test('polls the existing alarm endpoint serially and resets on camera changes', 
   assert.doesNotMatch(hookSource, /window\.setInterval/)
 })
 
-test('renders the approved shared dashboard and source-coordinate overlays', () => {
+test('renders the approved shared dashboard and backend annotated frame', () => {
   for (const label of ['摄像头状态', '启用摄像头', '监控对象', '判定说明', '最近报警']) {
     assert.match(viewSource, new RegExp(label))
   }
   assert.match(viewSource, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
   assert.match(viewSource, /ResizableMonitorLayout id=\{`feature-dashboard-\$\{feature\}`\}/)
   assert.match(viewSource, /lg:col-span-2/)
-  assert.match(viewSource, /#22D3EE/)
-  assert.match(viewSource, /rgba\(34,211,238,0\.10\)/)
   assert.match(viewSource, /bg-black\/45/)
   assert.match(viewSource, /from-black\/30 via-transparent to-black\/15/)
-  assert.match(viewSource, /preserveAspectRatio="xMidYMid meet"/)
   assert.match(viewSource, /pointer-events-none/)
 })
 
@@ -107,7 +105,6 @@ test('adds a presentation without changing the existing frame lifecycle', () => 
   assert.match(monitorSource, /window\.setTimeout\(loadFrame, Math\.max\(0, FRAME_REFRESH_MS - elapsed\)\)/)
   assert.match(monitorSource, /scheduleFrameRequestAbort\(controller, FRAME_REQUEST_TIMEOUT_MS\)/)
   assert.match(monitorSource, /URL\.revokeObjectURL/)
-  assert.match(monitorSource, /image\.naturalWidth/)
 })
 
 test('shared detection header stays inside the existing platform shell', async () => {

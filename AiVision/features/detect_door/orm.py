@@ -5,7 +5,7 @@ from AiVision.features._base.orm import FeatureConfigBase
 class DoorConfigORM(FeatureConfigBase):
     __tablename__ = "ai_camera_config_detect_door"
 
-    roi_pos = Column(JSON, nullable=True)
+    roi_pos = Column(JSON, nullable=False, default=list)
     threshold = Column(Float, default=0.5)
     blur_kernel = Column(Integer, default=5)
     diff_threshold = Column(Integer, default=5)

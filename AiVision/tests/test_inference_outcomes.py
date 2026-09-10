@@ -237,25 +237,25 @@ def test_worker_distinguishes_success_from_model_error():
     assert failure["detections"] == []
 
 
-# 功能：验证 `test_dispatch_reports_model_unavailable_for_every_roi` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_dispatch_reports_model_unavailable_for_camera_roi` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_dispatch_reports_model_unavailable_for_every_roi():
+def test_dispatch_reports_model_unavailable_for_camera_roi():
     consumer = _consumer({})
 
     results = consumer.dispatch_inference_sync(
         7,
         "missing-model",
-        [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)],
+        np.zeros((4, 4, 3), dtype=np.uint8),
     )
 
-    assert [item["roi_id"] for item in results] == [0, 1]
-    assert {item["status"] for item in results} == {INFERENCE_STATUS_UNAVAILABLE}
-    assert {item["error_code"] for item in results} == {INFERENCE_ERROR_UNAVAILABLE}
+    assert results["roi_id"] == 0
+    assert results["status"] == INFERENCE_STATUS_UNAVAILABLE
+    assert results["error_code"] == INFERENCE_ERROR_UNAVAILABLE
 
 
 # 功能：验证 `test_dispatch_reports_queue_full_without_losing_roi_identity` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
@@ -273,13 +273,13 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
     results = consumer.dispatch_inference_sync(
         7,
         "test-model",
-        [np.zeros((4, 4, 3), dtype=np.uint8)],
+        np.zeros((4, 4, 3), dtype=np.uint8),
     )
 
-    assert results[0]["roi_id"] == 0
-    assert results[0]["status"] == INFERENCE_STATUS_DROPPED
-    assert results[0]["error_code"] == INFERENCE_ERROR_QUEUE_FULL
-    assert results[0]["detections"] == []
+    assert results["roi_id"] == 0
+    assert results["status"] == INFERENCE_STATUS_DROPPED
+    assert results["error_code"] == INFERENCE_ERROR_QUEUE_FULL
+    assert results["detections"] == []
 
 
 # 功能：验证 `test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
@@ -290,35 +290,28 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`monkeypatch.setattr`、`queue.Queue`、`result_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout(monkeypatch):
+def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch):
     monkeypatch.setattr("AiVision.features._base.consumer.time.monotonic_ns", lambda: 123)
-    infer_queue = queue.Queue()
-    result_queue = queue.Queue()
-    result_queue.put({
-        "roi_id": 1,
-        "camera_id": 7,
-        "function_name": "outcome-test",
-        "request_id": "outcome-test:7:123",
-        "detections": [{"type": "person"}],
-    })
+    infer_queue, result_queue = queue.Queue(), queue.Queue()
+    task = _task()
+    result_queue.put({**task, "request_id": "stale", "detections": [{"type": "wrong"}]})
+    result_queue.put({**task, "detections": [{"type": "person"}]})
     consumer = _consumer({"test-model": infer_queue}, result_queue)
+    roi = np.zeros((4, 4, 3), dtype=np.uint8)
+    result = consumer.dispatch_inference_sync(7, "test-model", roi, timeout=0.01)
+    assert result["status"] == INFERENCE_STATUS_OK
+    assert result["detections"] == [{"type": "person"}]
+    assert consumer.inference_outcome_counts == {INFERENCE_STATUS_OK: 1}
+    assert infer_queue.qsize() == 1
+    assert infer_queue.get_nowait()["frame"] is roi
 
-    results = consumer.dispatch_inference_sync(
-        7,
-        "test-model",
-        [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)],
-        timeout=0.001,
-    )
 
-    assert [item["roi_id"] for item in results] == [0, 1]
-    assert results[0]["status"] == INFERENCE_STATUS_TIMEOUT
-    assert results[0]["error_code"] == INFERENCE_ERROR_TIMEOUT
-    assert results[1]["status"] == INFERENCE_STATUS_OK
-    assert results[1]["detections"] == [{"type": "person"}]
-    assert consumer.inference_outcome_counts == {
-        INFERENCE_STATUS_TIMEOUT: 1,
-        INFERENCE_STATUS_OK: 1,
-    }
+def test_dispatch_reports_timeout_for_missing_current_camera_result():
+    consumer = _consumer({"test-model": queue.Queue()})
+    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3), np.uint8), timeout=0)
+    assert result["status"] == INFERENCE_STATUS_TIMEOUT
+    assert result["error_code"] == INFERENCE_ERROR_TIMEOUT
+    assert result["camera_id"] == 7
 
 
 # 功能：验证 `test_consecutive_failures_emit_one_alert_and_are_exposed` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
@@ -351,7 +344,7 @@ def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
         consumer.dispatch_inference_sync(
             7,
             "test-model",
-            [np.zeros((4, 4, 3), dtype=np.uint8)],
+            np.zeros((4, 4, 3), dtype=np.uint8),
             timeout=0,
         )
 

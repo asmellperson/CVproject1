@@ -1,9 +1,12 @@
 """features/detect_door/schema.py"""
-from typing import List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+from AiVision.features._base.roi import NormalizedRoi
 
 class DoorValueSchema(BaseModel):
-    roi_pos: List[List[List[int]]] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    roi_pos: NormalizedRoi = Field(default_factory=list)
     threshold: float = Field(0.5, ge=0)
     blur_kernel: int = Field(5, ge=1)
     diff_threshold: int = Field(5, ge=0)
@@ -18,15 +21,6 @@ class DoorValueSchema(BaseModel):
     cap_interval: float = Field(0.1, gt=0)
     alarm_interval: float = Field(5.0, gt=0)
 
-    @field_validator("roi_pos", mode="before")
-    @classmethod
-    def _normalize_roi(cls, v):
-        if not isinstance(v, list) or not v:
-            return v
-        first = v[0]
-        if isinstance(first, list) and first and not isinstance(first[0], list):
-            return [v]
-        return v
 
 class _AlarmChannel(BaseModel):
     enable: bool = False

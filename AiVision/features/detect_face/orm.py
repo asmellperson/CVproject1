@@ -5,7 +5,7 @@ from AiVision.features._base.orm import FeatureConfigBase
 class FaceConfigORM(FeatureConfigBase):
     __tablename__ = "ai_camera_config_detect_face"
 
-    roi_pos = Column(JSON, nullable=True)
+    roi_pos = Column(JSON, nullable=False, default=list)
     FACE_SCORE_THR = Column(Float, default=0.6)
     YAW_THRESHOLD = Column(JSON, nullable=True)
     # 复用基类的 cap_interval / alarm_interval

@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
@@ -48,8 +49,7 @@ type HumanConfig = AiVisionFeatureConfig & {
     IOU_THR?: number
     MAX_LOST?: number
     MAX_TIME?: number
-    roi_pos?: unknown[]
-    region?: number[]
+    roi_pos: number[][]
     MIN_BOX_AREA?: number
     ASPECT_RATIO_RANGE?: number[]
     CENTER_DIST_THR?: number
@@ -62,8 +62,7 @@ type HumanConfig = AiVisionFeatureConfig & {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[100,100,500,500]',
-  region: '[100,100,500,500]',
+  roiPos: '[]',
   confidenceThreshold: '0.3',
   iouThreshold: '0.3',
   maxTime: '10',
@@ -86,8 +85,7 @@ const defaultHumanConfig: HumanConfig = {
     IOU_THR: 0.3,
     MAX_LOST: 5,
     MAX_TIME: 10,
-    roi_pos: [100, 100, 500, 500],
-    region: [100, 100, 500, 500],
+    roi_pos: [],
     MIN_BOX_AREA: 0,
     ASPECT_RATIO_RANGE: [0, 10],
     CENTER_DIST_THR: 0.65,
@@ -106,33 +104,11 @@ function formatJson(value: unknown) {
   return JSON.stringify(value || [])
 }
 
-function bboxFromRoiJson(roiJson: string, fallback = '[100,100,500,500]') {
-  try {
-    const parsed = JSON.parse(roiJson)
-    const polygon = Array.isArray(parsed?.[0]?.[0]) ? parsed[0] : parsed
-    if (!Array.isArray(polygon)) return fallback
-    const points = polygon.filter((point: unknown) => Array.isArray(point) && point.length >= 2) as unknown[][]
-    if (!points.length) return fallback
-    const xs = points.map((point) => Number(point[0])).filter(Number.isFinite)
-    const ys = points.map((point) => Number(point[1])).filter(Number.isFinite)
-    if (!xs.length || !ys.length) return fallback
-    return JSON.stringify([
-      Math.round(Math.min(...xs)),
-      Math.round(Math.min(...ys)),
-      Math.round(Math.max(...xs)),
-      Math.round(Math.max(...ys)),
-    ])
-  } catch {
-    return fallback
-  }
-}
-
 function toForm(shmName: string, config: HumanConfig) {
   const value = config.value
   return {
     cameraName: shmName,
-    roiPos: formatJson(value.roi_pos ?? [100, 100, 500, 500]),
-    region: formatJson(value.region ?? [100, 100, 500, 500]),
+    roiPos: formatJson(value.roi_pos),
     confidenceThreshold: String(value.CONF_THRESHOLD ?? 0.3),
     iouThreshold: String(value.IOU_THR ?? 0.3),
     maxTime: String(value.MAX_TIME ?? 10),
@@ -314,18 +290,15 @@ export function HumanDetectionSection({
     }
     const requestId = configRequestRef.current
 
-    let roiPos: unknown[]
-    let region: number[]
+    let roiPos: number[][]
     let aspectRatioRange: number[]
     try {
-      const parsedRoi = JSON.parse(form.roiPos)
-      const parsedRegion = JSON.parse(form.region)
+      const parsedRoi = parseNormalizedRoi(form.roiPos)
       const parsedAspect = JSON.parse(form.aspectRatioRange)
-      if (!Array.isArray(parsedRoi) || !Array.isArray(parsedRegion) || !Array.isArray(parsedAspect)) {
-        throw new Error('ROI、关注区域和宽高比范围必须是数组')
+      if (!Array.isArray(parsedRoi) || !Array.isArray(parsedAspect)) {
+        throw new Error('ROI 和宽高比范围必须是数组')
       }
       roiPos = parsedRoi
-      region = parsedRegion
       aspectRatioRange = parsedAspect
     } catch (error) {
       setMessage(`保存失败：数组字段不是合法 JSON。${error instanceof Error ? error.message : ''}`)
@@ -364,7 +337,6 @@ export function HumanDetectionSection({
       value: {
         ...humanConfig.value,
         roi_pos: roiPos,
-        region,
         CONF_THRESHOLD: confidenceThreshold,
         IOU_THR: iouThreshold,
         MAX_TIME: maxTime,
@@ -489,7 +461,7 @@ export function HumanDetectionSection({
                   disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
-                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos, region: bboxFromRoiJson(roiPos, prev.region) }))}
+                  onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
                   onSave={saveConfig}
                 />
               </Suspense>
@@ -633,20 +605,11 @@ export function HumanDetectionSection({
 
                 <div className="grid gap-5 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label htmlFor="human-roi">人体 ROI</Label>
+                    <Label htmlFor="human-roi">人体 ROI（0~1 归一化坐标）</Label>
                     <Textarea
                       id="human-roi"
                       value={form.roiPos}
                       onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
-                      rows={5}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="human-region">关注区域</Label>
-                    <Textarea
-                      id="human-region"
-                      value={form.region}
-                      onChange={(event) => setForm((prev) => ({ ...prev, region: event.target.value }))}
                       rows={5}
                     />
                   </div>

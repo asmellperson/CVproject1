@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
@@ -34,7 +35,7 @@ function LazyConfigFallback({ label }: { label: string }) {
   )
 }
 
-type PhoneRoiPos = number[][][]
+type PhoneRoiPos = number[][]
 
 type PhoneConfig = {
   enable: boolean
@@ -97,14 +98,6 @@ const defaultPhoneConfig: PhoneConfig = {
 
 function formatJson(value: unknown) {
   return JSON.stringify(value || [])
-}
-
-function normalizePhoneRoiPos(value: unknown[]): PhoneRoiPos {
-  const first = value[0]
-  if (Array.isArray(first) && first.length > 0 && !Array.isArray(first[0])) {
-    return [value as number[][]]
-  }
-  return value as PhoneRoiPos
 }
 
 function toForm(payload: PhoneConfigResponse) {
@@ -279,11 +272,11 @@ export function PhoneDetectionSection() {
     }
     const requestId = configRequestRef.current
 
-    let roiPos: unknown
+    let roiPos: PhoneRoiPos
     try {
-      roiPos = JSON.parse(form.roiPos || '[]')
-    } catch {
-      setMessage('保存失败：ROI 区域坐标必须是合法 JSON。')
+      roiPos = parseNormalizedRoi(form.roiPos)
+    } catch (error) {
+      setMessage(`保存失败：${error instanceof Error ? error.message : 'ROI 坐标无效'}`)
       return
     }
 
@@ -318,7 +311,7 @@ export function PhoneDetectionSection() {
       enable: true,
       value: {
         ...phoneConfig.value,
-        roi_pos: normalizePhoneRoiPos(roiPos),
+        roi_pos: roiPos,
         CONF_THRESHOLD: confidenceThreshold,
         PERSON_CONF_THRESHOLD: personConfidenceThreshold,
         IOU_THR: iouThreshold,

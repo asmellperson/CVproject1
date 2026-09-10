@@ -5,7 +5,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 
 const source = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')
-const paths = ['lib/aivision.ts', 'lib/alarm-config.ts', 'lib/horn-alarm-binding.ts', 'components/horn/hornDeviceForm.ts',
+const paths = ['components/AiVisionRoiEditor.geometry.ts', 'lib/aivision.ts', 'lib/alarm-config.ts', 'lib/horn-alarm-binding.ts', 'components/horn/hornDeviceForm.ts',
   'components/horn/HornAlarmBinding.tsx', 'components/horn/useHornCatalog.ts', 'components/AlarmPushConfig.tsx',
   'components/logistics_single_person/alarmBinding.ts',
   ...['Face', 'Human', 'Phone', 'Door', 'Intrusion'].map((name) => `sections/${name}DetectionSection.tsx`)]
@@ -180,6 +180,7 @@ for (const [name, configKey, defaults] of [['Face', 'detect_face', 'defaultFaceC
     const view = moduleOf(`sections/${name}DetectionSection.tsx`, {
       react: state.react, '@/auth/useAuth': { useAuth: () => ({ isAdmin: true }) },
       '@/lib/aivision': api, '@/lib/alarm-config': alarmModule,
+      '@/components/AiVisionRoiEditor.geometry': moduleOf('components/AiVisionRoiEditor.geometry.ts'),
     }, `\nexport const testDefaults = ${defaults}`)
     function response(key, config) {
       return { camera: { id: key === 'a' ? 1 : 2, shm_name: key, name: key, enable: true }, feature: configKey,

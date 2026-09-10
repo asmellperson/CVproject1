@@ -74,7 +74,7 @@ class FeatureConfigBase(_CommonFieldsMixin, _AlarmFieldsMixin, Base):
     示例:
         class BlocksConfigORM(FeatureConfigBase):
             __tablename__ = "ai_camera_config_blocks"
-            roi_pos = Column(JSON, nullable=True)
+            roi_pos = Column(JSON, nullable=False, default=list)
             threshold = Column(Float, default=0.1)
             blur_kernel = Column(Integer, default=5)
             ...

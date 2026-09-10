@@ -24,7 +24,7 @@ test('declares one logistics feature with explicit department fields', () => {
   ]) assert.match(types, new RegExp(field))
   for (const department of ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling']) assert.match(types, new RegExp(`'${department}'`))
   assert.doesNotMatch(types, /detect_logistics_single_person_/)
-  assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\[\]/)
+  assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\b/)
   assert.match(types, /type LogisticsCameraInventoryItem/)
   assert.match(types, /memberships: LogisticsCameraInventoryMembership\[\]/)
 })

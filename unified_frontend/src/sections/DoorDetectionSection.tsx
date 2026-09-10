@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
@@ -63,7 +64,7 @@ type DoorConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[[100,100],[500,100],[500,500],[100,500]]',
+  roiPos: '[]',
   threshold: '0.5',
   firstAlarm: '60',
   alarmInterval: '5.0',
@@ -273,7 +274,7 @@ export function DoorDetectionSection() {
 
     let roiPos: number[][]
     try {
-      const parsed = JSON.parse(form.roiPos)
+      const parsed = parseNormalizedRoi(form.roiPos)
       if (!Array.isArray(parsed)) {
         throw new Error('ROI 必须是二维数组')
       }
@@ -539,7 +540,7 @@ export function DoorDetectionSection() {
                     value={form.roiPos}
                     onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
                     rows={6}
-                    placeholder="[[100,100],[500,100],[500,500],[100,500]]"
+                    placeholder="[[0.1,0.1],[0.5,0.1],[0.5,0.5],[0.1,0.5]]"
                   />
                 </div>
 

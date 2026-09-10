@@ -27,3 +27,19 @@ test('logistics ROI hydration depends on stable IDs instead of polled objects', 
   assert.match(hydration, /\[feature, selectedCameraId, selectedChannelDetailId\]/)
   assert.doesNotMatch(hydration, /\[feature, selectedCamera, selectedChannelDetail\]/)
 })
+
+
+test('only the editor draws ROI geometry; monitor views display backend frames', () => {
+  for (const path of [
+    'components/AiVisionMonitor.tsx',
+    'components/human_dwell/HumanDwellMonitorView.tsx',
+    'components/feature_dashboard/FeatureDashboardMonitorView.tsx',
+    'components/logistics_single_person/LogisticsChannelMonitorView.tsx',
+  ]) assert.doesNotMatch(read(`src/${path}`), /<svg|<polygon|roiPolygons|buildAiVisionMonitorOverlay/)
+  const editor = read('src/components/AiVisionRoiEditor.tsx')
+  assert.match(editor, /image.naturalWidth/)
+  assert.match(editor, /image.naturalHeight/)
+  assert.match(editor, /pixelsToNormalizedPoints/)
+  assert.match(editor, /normalizedPointsToPixels/)
+  assert.doesNotMatch(editor, /regionJson|onRegionChange|width: 1920|height: 1080/)
+})

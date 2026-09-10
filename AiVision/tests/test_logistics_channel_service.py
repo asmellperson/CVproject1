@@ -1227,7 +1227,7 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
             .filter_by(camera_id=camera_ids[1])
             .one()
         )
-        retained_cfg.roi_pos = [[10, 20], [30, 40]]
+        retained_cfg.roi_pos = [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
         retained_cfg.CONF_THRESHOLD = 0.66
     for camera_id in camera_ids:
         service.add_existing_camera(BASE_FEATURE, source["id"], camera_id)
@@ -1255,7 +1255,7 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
         assert session.get(AiCameraConfig, camera_ids[1]) is not None
         cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[1]).one()
         assert cfg.enable is False
-        assert cfg.roi_pos == [[10, 20], [30, 40]]
+        assert cfg.roi_pos == [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
         assert cfg.CONF_THRESHOLD == 0.66
 
 

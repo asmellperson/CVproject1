@@ -1,14 +1,17 @@
 """features/detect_human/schema.py"""
 from typing import List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from AiVision.features._base.roi import NormalizedRoi
 
 class HumanValueSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     CONF_THRESHOLD: float = Field(0.3, ge=0, le=1)
     IOU_THR: float = Field(0.3, ge=0, le=1)
     MAX_LOST: int = Field(5, ge=0)
     MAX_TIME: float = Field(10.0, ge=0)
-    roi_pos: list = Field(default_factory=lambda: [100, 100, 500, 500])
-    region: List[int] = Field(default_factory=lambda: [100, 100, 500, 500])
+    roi_pos: NormalizedRoi = Field(default_factory=list)
     MIN_BOX_AREA: int = Field(0, ge=0)
     ASPECT_RATIO_RANGE: List[float] = Field(default_factory=lambda: [0.0, 10.0])
     CENTER_DIST_THR: float = Field(0.65, ge=0)

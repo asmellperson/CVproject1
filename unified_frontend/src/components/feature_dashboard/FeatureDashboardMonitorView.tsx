@@ -19,10 +19,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
-import type { OverlayPoint } from '../AiVisionMonitor.overlay'
 import {
   FEATURE_DASHBOARD_PROFILES,
-  isFeatureOverlayConfigured,
+  isFeatureRegionConfigured,
   type FeatureDashboardKey,
 } from './monitorState'
 
@@ -156,9 +155,6 @@ export type FeatureDashboardMonitorViewProps = {
   featureValue: Record<string, unknown> | null
   alarms: AlarmEvent[]
   todayAlarmCount: number
-  roiPolygons: OverlayPoint[][]
-  alarmLines: [OverlayPoint, OverlayPoint][]
-  imageSize: { width: number; height: number }
   onSelectCamera: (cameraKey: string) => void
   onRefreshCameras: () => void
 }
@@ -175,9 +171,6 @@ export function FeatureDashboardMonitorView({
   featureValue,
   alarms,
   todayAlarmCount,
-  roiPolygons,
-  alarmLines,
-  imageSize,
   onSelectCamera,
   onRefreshCameras,
 }: FeatureDashboardMonitorViewProps) {
@@ -186,7 +179,7 @@ export function FeatureDashboardMonitorView({
   const cameraName = selectedCameraInfo?.name || '未选择摄像头'
   const fps = selectedCameraInfo?.fps
   const rows = ruleRows(feature, featureValue)
-  const overlayConfigured = isFeatureOverlayConfigured(feature, roiPolygons.length, alarmLines.length)
+  const regionConfigured = isFeatureRegionConfigured(feature, featureValue)
 
   return (
     <div className="space-y-5">
@@ -236,11 +229,8 @@ export function FeatureDashboardMonitorView({
           <CardContent className="p-0">
             <div className="relative overflow-hidden bg-slate-950">
               <div className="relative aspect-video w-full saturate-[.85]">{frameContent}</div>
-              {frameConnected && (roiPolygons.length > 0 || alarmLines.length > 0) && <svg viewBox={`0 0 ${imageSize.width} ${imageSize.height}`} preserveAspectRatio="xMidYMid meet" className="pointer-events-none absolute inset-0 h-full w-full">
-                {roiPolygons.map((polygon, index) => { const anchor = polygon[0]; return <g key={`feature-roi-${index}`}><polygon points={polygon.map((point) => `${point.x},${point.y}`).join(' ')} fill="rgba(34,211,238,0.10)" stroke="#22D3EE" strokeWidth="4" />{anchor && <><rect x={anchor.x} y={Math.max(0, anchor.y - 24)} width="82" height="22" rx="5" fill="rgba(34,211,238,0.90)" /><text x={anchor.x + 7} y={Math.max(15, anchor.y - 9)} fill="#020617" fontSize="12" fontWeight="700">{profile.overlayLabel}</text></>}</g> })}
-                {alarmLines.map(([start, end], index) => <g key={`feature-line-${index}`}><line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="rgb(239, 68, 68)" strokeWidth="5" strokeLinecap="round" /><rect x={start.x} y={Math.max(0, start.y - 24)} width="78" height="22" rx="5" fill="rgba(244,63,94,0.90)" /><text x={start.x + 7} y={Math.max(15, start.y - 9)} fill="white" fontSize="12" fontWeight="700">alarm_line</text></g>)}
-              </svg>}
-              <div className="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap gap-2"><GlassPill danger={!frameConnected}><span className="relative flex h-1.5 w-1.5"><span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-70', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} /><span className={cn('relative inline-flex h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} /></span>{frameConnected ? '实时检测' : '检测离线'}</GlassPill><GlassPill danger={!frameConnected}><span className={cn('h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} />{cameraKey || 'cam'} · {frameConnected ? '在线' : '离线'}</GlassPill><GlassPill danger={!overlayConfigured}>{profile.statusSubject}{overlayConfigured ? '已配置' : '未配置'}</GlassPill></div>
+
+              <div className="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap gap-2"><GlassPill danger={!frameConnected}><span className="relative flex h-1.5 w-1.5"><span className={cn('absolute inline-flex h-full w-full animate-ping rounded-full opacity-70', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} /><span className={cn('relative inline-flex h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} /></span>{frameConnected ? '实时检测' : '检测离线'}</GlassPill><GlassPill danger={!frameConnected}><span className={cn('h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} />{cameraKey || 'cam'} · {frameConnected ? '在线' : '离线'}</GlassPill><GlassPill danger={!regionConfigured}>{profile.statusSubject}{feature !== 'blocks' && Array.isArray(featureValue?.roi_pos) && featureValue.roi_pos.length === 0 ? '：全画面' : regionConfigured ? '已配置' : '未配置'}</GlassPill></div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" />
               <div className="pointer-events-none absolute bottom-3 left-4 font-mono font-semibold text-white/95 [text-shadow:0_1px_4px_rgba(0,0,0,0.85)]"><Clock3 className="mr-1.5 inline h-4 w-4" />{browserTimestamp()}</div>
               <span className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-black/45 px-2 py-1 font-mono text-[10px] text-white backdrop-blur-sm">实时画面</span>

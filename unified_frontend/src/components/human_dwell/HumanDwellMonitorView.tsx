@@ -20,7 +20,6 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { getAiVisionCameraKey, type AiVisionCamera, type AiVisionHumanDwellStatus } from '@/lib/aivision'
-import type { OverlayPoint } from '../AiVisionMonitor.overlay'
 import type { HumanDwellMonitorEvent } from './monitorState'
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
@@ -96,8 +95,6 @@ export type HumanDwellMonitorViewProps = {
   events: HumanDwellMonitorEvent[]
   todayAlarmCount: number
   latestAlarmAt: string | null
-  roiPolygons: OverlayPoint[][]
-  imageSize: { width: number; height: number }
   onSelectCamera: (cameraKey: string) => void
   onRefreshCameras: () => void
 }
@@ -115,8 +112,6 @@ export function HumanDwellMonitorView({
   events,
   todayAlarmCount,
   latestAlarmAt,
-  roiPolygons,
-  imageSize,
   onSelectCamera,
   onRefreshCameras,
 }: HumanDwellMonitorViewProps) {
@@ -161,7 +156,7 @@ export function HumanDwellMonitorView({
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>
             <CardContent className="space-y-3 px-5 pb-5 text-sm">
-              <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">监测区域</span><span className="text-slate-700">蓝色区域（loitering_roi）</span></div>
+              <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">监测区域</span><span className="text-slate-700">画面中的青色 ROI 边框</span></div>
               <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">判定规则</span><span className="text-slate-700">人员进入区域并停留超过 {configuredThresholdText} 秒</span></div>
               <div className="grid grid-cols-[76px_1fr] gap-2"><span className="text-slate-400">告警方式</span><span className="text-slate-700">平台实时推送 + 报警记录入库</span></div>
             </CardContent>
@@ -189,7 +184,7 @@ export function HumanDwellMonitorView({
           <CardContent className="p-0">
             <div className="relative overflow-hidden bg-slate-950">
               <div className="relative aspect-video w-full saturate-[.85]">{frameContent}</div>
-              {frameConnected && roiPolygons.length > 0 && <svg viewBox={`0 0 ${imageSize.width} ${imageSize.height}`} preserveAspectRatio="xMidYMid meet" className="pointer-events-none absolute inset-0 h-full w-full">{roiPolygons.map((polygon, index) => { const anchor = polygon[0]; return <g key={`loitering-roi-${index}`}><polygon points={polygon.map((point) => `${point.x},${point.y}`).join(' ')} fill="rgba(34,211,238,0.10)" stroke="#22D3EE" strokeWidth="4" />{anchor && <><rect x={anchor.x} y={Math.max(0, anchor.y - 24)} width="92" height="22" rx="5" fill="rgba(34,211,238,0.90)" /><text x={anchor.x + 7} y={Math.max(15, anchor.y - 9)} fill="#020617" fontSize="12" fontWeight="700">loitering_roi</text></>}</g> })}</svg>}
+
               <div className="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap gap-2"><GlassPill><span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" /></span>实时检测</GlassPill><GlassPill danger={!frameConnected}><span className={cn('h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} />{cameraKey || 'cam'} · {frameConnected ? '在线' : '离线'}</GlassPill><GlassPill danger={alarm}>区域人数 {countText}</GlassPill>{alarm && <GlassPill danger><AlertTriangle className="h-3.5 w-3.5" />逗留超时告警</GlassPill>}</div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" />
               <div className="pointer-events-none absolute bottom-3 left-4 font-mono font-semibold text-white/95 [text-shadow:0_1px_4px_rgba(0,0,0,0.85)]"><Clock3 className="mr-1.5 inline h-4 w-4" />{timestamp}</div>

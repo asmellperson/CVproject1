@@ -312,7 +312,7 @@ def frame_coordinate_size_headers(frame) -> dict[str, str]:
 def build_camera_frame_response(
     *,
     key: str,                                         # 摄像头
-    feature: str | None,                              # 要不要优先取某个检测功能的标注画面
+    feature: str | None,                              # 指定功能只返回该功能的标注画面
     quality: int,                                     
     max_width: int | None,
     max_height: int | None,
@@ -373,7 +373,7 @@ def build_camera_frame_response(
 @router.get("/{key}/frame.jpg")
 def get_camera_frame_jpg(
     key: str,
-    feature: str | None = Query(None, description="可选 feature 名，优先返回该功能的标注帧"),
+    feature: str | None = Query(None, description="指定 feature 时只返回该功能标注帧；不传则返回原始帧"),
     quality: int = Query(85, ge=1, le=100),
     max_width: int | None = Query(None, ge=1, le=4096),
     max_height: int | None = Query(None, ge=1, le=4096),

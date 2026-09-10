@@ -124,27 +124,17 @@ class RuntimeSpy:
 #   - 内部调用：`object.__new__`、`SimpleNamespace`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def build_consumer(consumer_class, *, runtime=None):
-    consumer = object.__new__(consumer_class)
-    consumer.spec = SimpleNamespace(required_models=("person-detector",))
-    consumer.feature_name = "detect_logistics_single_person"
-    consumer.logistics_runtime = runtime
-    consumer.config_cache = {
-        7: {
-            "name": "Camera 7",
-            "shm_name": "cam-7",
-            "value": {
-                "CONF_THRESHOLD": 0.4,
-                "IOU_THR": 0.3,
-                "MIN_BOX_AREA": 0,
-                "ASPECT_RATIO_RANGE": [0, 10],
-            },
-        }
-    }
-    consumer.frame_cache = {}
-    consumer.monitor_status = {}
-    consumer._masks = {}
-    consumer._roi_polygon_cache = {}
-    consumer.is_camera_active = lambda _camera_key: True
+    consumer = consumer_class(
+        spec=SimpleNamespace(name="detect_logistics_single_person", required_models=("person-detector",)),
+        infer_dict={}, result_queue=None, latest_frames={},
+        is_camera_active=lambda _camera_key: True,
+        logistics_runtime=runtime or RuntimeSpy(confidence_threshold=0.4),
+    )
+    consumer.config_cache = {7: {
+        "name": "Camera 7", "shm_name": "cam-7",
+        "value": {"CONF_THRESHOLD": 0.4, "IOU_THR": 0.3,
+                  "MIN_BOX_AREA": 0, "ASPECT_RATIO_RANGE": [0, 10], "roi_pos": []},
+    }}
     return consumer
 
 
@@ -188,22 +178,20 @@ def test_legacy_precious_metal_feature_uses_weida_company_display_name():
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
 def test_all_logistics_consumers_publish_details_without_camera_alarm(consumer_class):
     consumer = build_consumer(consumer_class)
-    consumer.dispatch_inference_sync = lambda *_args, **_kwargs: [
-        {
+    consumer.dispatch_inference_sync = lambda *_args, **_kwargs: {
             "roi_id": 0,
             "detections": [
                 {"type": "person", "bbox": [1, 2, 21, 62], "confidence": 0.9},
                 {"type": "human", "bbox": [30, 2, 50, 62], "confidence": 0.8},
             ],
         }
-    ]
 
-    result = consumer._process([np.zeros((64, 64, 3), dtype=np.uint8)], camera_id=7)
+    result = consumer._process(np.zeros((64, 64, 3), dtype=np.uint8), camera_id=7)
 
-    assert all(alarm is False for alarm, _detail in result)
-    assert sum(len(detail["detections"]) for _alarm, detail in result) == 2
-    assert result[0][1]["reason"] == "multiple"
-    assert result[0][1]["person_count"] == 2
+    assert result[0] is False
+    assert len(result[1]["detections"]) == 2
+    assert result[1]["reason"] == "multiple"
+    assert result[1]["person_count"] == 2
 
 
 # 功能：验证 `test_process_preserves_model_and_camera_filter_configuration` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -235,8 +223,7 @@ def test_process_preserves_model_and_camera_filter_configuration():
             roi_list=roi_list,
             task_meta=task_meta,
         )
-        return [
-            {
+        return {
                 "roi_id": 0,
                 "detections": [
                     {"type": "vehicle", "bbox": [0, 0, 50, 50], "confidence": 0.9},
@@ -244,21 +231,20 @@ def test_process_preserves_model_and_camera_filter_configuration():
                     {"type": "person", "bbox": [2, 2, 22, 62], "confidence": 0.8},
                 ],
             }
-        ]
 
     consumer.config_cache[7]["value"]["MIN_BOX_AREA"] = 100
     consumer.dispatch_inference_sync = dispatch
     roi = np.zeros((64, 64, 3), dtype=np.uint8)
 
-    result = consumer._process([roi], camera_id=7)
+    result = consumer._process(roi, camera_id=7)
 
     assert dispatched == {
         "camera_id": 7,
         "model_name": "person-detector",
-        "roi_list": [roi],
+        "roi_list": roi,
         "task_meta": {"conf": 0.4, "iou": 0.3},
     }
-    assert [item["bbox"] for item in result[0][1]["detections"]] == [[2, 2, 22, 62]]
+    assert [item["bbox"] for item in result[1]["detections"]] == [[2, 2, 22, 62]]
 
 
 # 功能：验证 `test_process_uses_channel_person_confidence_threshold` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -286,10 +272,10 @@ def test_process_uses_channel_person_confidence_threshold():
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def dispatch(_camera_id, _model_name, _roi_list, task_meta):
         dispatched.update(task_meta)
-        return [{"roi_id": 0, "detections": []}]
+        return {"roi_id": 0, "detections": []}
 
     consumer.dispatch_inference_sync = dispatch
-    consumer._process([np.zeros((16, 16, 3), dtype=np.uint8)], camera_id=7)
+    consumer._process(np.zeros((16, 16, 3), dtype=np.uint8), camera_id=7)
 
     assert dispatched == {"conf": 0.72, "iou": 0.3}
 
@@ -302,51 +288,29 @@ def test_process_uses_channel_person_confidence_threshold():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`RuntimeSpy`、`build_consumer`、`np.zeros`、`consumer.post_process`、`np.any`、`len`、`consumer.get_monitor_status`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot():
+def test_post_process_restores_crop_offset_and_publishes_snapshot():
     runtime = RuntimeSpy()
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
-    consumer.frame_cache[7] = np.zeros((100, 100, 3), dtype=np.uint8)
-    consumer._roi_polygon_cache[7] = [
-        [[0, 0], [60, 0], [60, 90], [0, 90]],
-        [[10, 10], [70, 10], [70, 100], [10, 100]],
-    ]
-    consumer._masks[7] = [
-        (None, 0, 90, 0, 60),
-        (None, 10, 100, 10, 70),
-    ]
-    result = [
-        (
-            False,
-            {
-                "reason": "normal",
-                "person_count": 1,
-                "detections": [
-                    {"type": "person", "bbox": [20, 20, 50, 80], "confidence": 0.9}
-                ],
-            },
-        ),
-        (
-            False,
-            {
-                "reason": "normal",
-                "person_count": 1,
-                "detections": [
-                    {"type": "person", "bbox": [10, 10, 40, 70], "confidence": 0.8}
-                ],
-            },
-        ),
-    ]
-
+    original = np.zeros((100, 100, 3), dtype=np.uint8)
+    consumer.frame_cache[7] = original
+    consumer.config_cache[7]["value"]["roi_pos"] = [[0.1, 0.1], [0.7, 0.1], [0.7, 1], [0.1, 1]]
+    consumer._get_roi(7, original)
+    result = (False, {
+        "reason": "normal", "person_count": 1,
+        "detections": [{"type": "person", "bbox": [10, 10, 40, 70], "confidence": 0.9}],
+    })
     annotated = consumer.post_process(7, result)
-
-    assert annotated.shape == (100, 100, 3)
+    assert annotated.shape == original.shape
     assert np.any(annotated)
+    assert not np.any(original)
     assert len(runtime.snapshot_calls) == 1
     feature_name, snapshot, published_frame = runtime.snapshot_calls[0]
     assert feature_name == consumer.feature_name
     assert snapshot.camera_id == 7
     assert snapshot.camera_name == "Camera 7"
     assert snapshot.count == 1
+    assert (annotated[50, 20] == consumer.BBOX_COLOR_NORMAL).all()
+    assert not annotated[50, 10].tolist() == list(consumer.BBOX_COLOR_NORMAL)
     assert snapshot.online is True
     assert snapshot.updated_at > 0
     assert published_frame is annotated
@@ -360,27 +324,15 @@ def test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`RuntimeSpy`、`build_consumer`、`np.zeros`、`consumer.post_process`、`consumer.get_monitor_status`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def test_missing_roi_result_publishes_unknown_snapshot():
+def test_failed_inference_publishes_unknown_snapshot():
     runtime = RuntimeSpy()
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
-    consumer.frame_cache[7] = np.zeros((40, 40, 3), dtype=np.uint8)
-    consumer._roi_polygon_cache[7] = [
-        [[0, 0], [20, 0], [20, 20], [0, 20]],
-        [[20, 20], [40, 20], [40, 40], [20, 40]],
-    ]
-    consumer._masks[7] = [
-        (None, 0, 20, 0, 20),
-        (None, 20, 40, 20, 40),
-    ]
-
-    consumer.post_process(
-        7,
-        [
-            (False, {"reason": "empty", "person_count": 0, "detections": []}),
-            (False, {"reason": "unknown", "person_count": None, "detections": []}),
-        ],
-    )
-
+    frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    consumer.frame_cache[7] = frame
+    roi = consumer._get_roi(7, frame)
+    consumer.dispatch_inference_sync = lambda *_args, **_kwargs: {"status": "timeout", "detections": []}
+    result = consumer._process(roi, 7)
+    consumer.post_process(7, result)
     assert runtime.snapshot_calls[0][1].count is None
     assert consumer.get_monitor_status("cam-7")["reason"] == "unknown"
 
@@ -465,18 +417,8 @@ def test_all_logistics_consumers_accept_injected_channel_runtime(consumer_class)
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`build_monitor_snapshot`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_monitor_snapshot_sums_known_roi_counts_and_preserves_alarm():
+def test_monitor_snapshot_uses_single_roi_count_and_preserves_alarm():
     snapshot = build_monitor_snapshot(
-        [
-            (False, {"reason": "normal", "person_count": 1}),
-            (True, {"reason": "multiple", "person_count": 2}),
-        ],
-        updated_at=100.0,
+        (True, {"reason": "multiple", "person_count": 2}), updated_at=100.0,
     )
-
-    assert snapshot == {
-        "count": 3,
-        "alarm": True,
-        "reason": "multiple",
-        "updated_at_s": 100.0,
-    }
+    assert snapshot == {"count": 2, "alarm": True, "reason": "multiple", "updated_at_s": 100.0}

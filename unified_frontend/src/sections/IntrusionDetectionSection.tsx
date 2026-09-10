@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Bell, Box, Camera, SlidersHorizontal, Waypoints } from 'lucide-react'
@@ -90,7 +91,7 @@ const defaultBlocks: BlocksConfig = {
 }
 
 function formatLinePoints(linePoints?: number[][]) {
-  return JSON.stringify(linePoints && linePoints.length >= 2 ? linePoints.slice(0, 2) : defaultBlocks.value.line_points)
+  return JSON.stringify(linePoints ?? [])
 }
 
 function toForm(payload: BlocksConfigResponse) {
@@ -102,28 +103,6 @@ function toForm(payload: BlocksConfigResponse) {
     threshold: String(payload.blocks.value.threshold ?? 0.1),
     alarmInterval: String(payload.blocks.value.alarm_interval ?? 5.0),
   }
-}
-
-function parseLinePoints(raw: string) {
-  const parsed = JSON.parse(raw)
-  if (!Array.isArray(parsed) || parsed.length < 2) {
-    throw new Error('警戒线必须包含两个点')
-  }
-  const points = parsed.slice(0, 2).map((point) => {
-    if (!Array.isArray(point) || point.length < 2) {
-      throw new Error('每个点必须是 [x,y]')
-    }
-    const x = Number(point[0])
-    const y = Number(point[1])
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new Error('坐标必须是数字')
-    }
-    return [x, y]
-  })
-  if (points[0][0] === points[1][0] && points[0][1] === points[1][1]) {
-    throw new Error('两个点不能相同')
-  }
-  return points
 }
 
 async function requestBlocksConfig(shmName: string, config?: BlocksConfig) {
@@ -284,7 +263,7 @@ export function IntrusionDetectionSection() {
 
     let linePoints: number[][]
     try {
-      linePoints = parseLinePoints(form.linePoints)
+      linePoints = parseNormalizedRoi(form.linePoints, 'line')
     } catch (error) {
       setMessage(`保存失败：警戒线坐标不是合法 JSON。${error instanceof Error ? error.message : ''}`)
       return

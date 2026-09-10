@@ -48,7 +48,7 @@ test('polls status and existing alarms serially', () => {
   assert.doesNotMatch(hook, /window\.setInterval/)
 })
 
-test('renders the approved dwell dashboard and cyan ROI overlay', () => {
+test('renders the approved dwell dashboard and backend annotated frame', () => {
   for (const label of [
     '摄像头状态', '区域当前人数', '逗留阈值', '今日逗留告警次数',
     '监控对象', '判定说明', '实时事件', '人员违规逗留检测监控', '逗留超时告警',
@@ -56,9 +56,6 @@ test('renders the approved dwell dashboard and cyan ROI overlay', () => {
   assert.match(view, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
   assert.match(view, /ResizableMonitorLayout id="human-dwell"/)
   assert.match(view, /lg:col-span-2/)
-  assert.match(view, /#22D3EE/)
-  assert.match(view, /rgba\(34,211,238,0\.10\)/)
-  assert.match(view, /loitering_roi/)
   assert.match(view, /bg-black\/45/)
   assert.match(view, /from-black\/30 via-transparent to-black\/15/)
   assert.match(view, /font-mono/)
@@ -71,7 +68,6 @@ test('preserves frame lifecycle and configuration behavior', () => {
   assert.match(monitor, /window\.setTimeout\(loadFrame, Math\.max\(0, FRAME_REFRESH_MS - elapsed\)\)/)
   assert.match(monitor, /scheduleFrameRequestAbort\(controller, FRAME_REQUEST_TIMEOUT_MS\)/)
   assert.match(monitor, /URL\.revokeObjectURL/)
-  assert.match(monitor, /image\.naturalWidth/)
   assert.match(page, /DetectionPageHeader/)
   assert.match(page, /title = '人员违规逗留检测'/)
   assert.match(page, /区域逗留超时监控面板/)

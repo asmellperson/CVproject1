@@ -12,13 +12,10 @@ import {
   isAiVisionFeatureEnabled,
   type AiVisionCamera,
 } from '@/lib/aivision'
-import { buildAiVisionMonitorOverlay } from './AiVisionMonitor.overlay'
 import {
   buildAiVisionPreviewFrameUrl,
   FRAME_REQUEST_TIMEOUT_MS,
-  readFrameCoordinateSize,
   scheduleFrameRequestAbort,
-  type FrameCoordinateSize,
 } from './AiVisionMonitor.frame'
 import { LogisticsSinglePersonMonitorView } from './logistics_single_person/LogisticsSinglePersonMonitorView'
 import { useLogisticsSinglePersonMonitor } from './logistics_single_person/useLogisticsSinglePersonMonitor'
@@ -40,7 +37,6 @@ type AiVisionMonitorProps = {
 }
 
 const FRAME_REFRESH_MS = 200
-const fallbackImageSize = { width: 1920, height: 1080 }
 
 export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
@@ -49,21 +45,15 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const [frameSrc, setFrameSrc] = useState('')
   const [message, setMessage] = useState('正在读取摄像头列表...')
   const [featureValueState, setFeatureValueState] = useState<CameraFeatureValueState | null>(null)
-  const [imageSize, setImageSize] = useState(fallbackImageSize)
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
   const objectUrlRef = useRef<string | null>(null)
-  const frameCoordinateSizeRef = useRef<FrameCoordinateSize | null>(null)
 
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
     [cameras, selectedCamera],
   )
   const featureValue = resolveCameraFeatureValue(featureValueState, selectedCamera)
-  const overlay = useMemo(
-    () => buildAiVisionMonitorOverlay({ feature, value: featureValue, imageSize }),
-    [feature, featureValue, imageSize],
-  )
   const logisticsMonitor = useLogisticsSinglePersonMonitor({
     enabled: presentation === 'logistics-single-person',
     feature,
@@ -195,11 +185,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           throw new Error(`${response.status} ${response.statusText}`)
         }
 
-        const frameCoordinateSize = readFrameCoordinateSize(response.headers)
-        frameCoordinateSizeRef.current = frameCoordinateSize
-        if (frameCoordinateSize) {
-          setImageSize(frameCoordinateSize)
-        }
         const blob = await response.blob()
         if (requestTimeoutId) {
           clearTimeout(requestTimeoutId)
@@ -252,16 +237,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
             src={frameSrc}
             alt={`${title}实时画面`}
             className="h-full w-full object-contain"
-            onLoad={(event) => {
-              const image = event.currentTarget
-              const frameCoordinateSize = frameCoordinateSizeRef.current
-              setImageSize(
-                frameCoordinateSize || {
-                  width: image.naturalWidth || fallbackImageSize.width,
-                  height: image.naturalHeight || fallbackImageSize.height,
-                },
-              )
-            }}
             onError={() => setMessage('画面渲染失败：请刷新后重试。')}
           />
         ) : (
@@ -274,35 +249,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           {loading ? '正在读取摄像头...' : message}
         </div>
       )}
-      {presentation !== 'human-dwell' && presentation !== 'feature-dashboard' && frameSrc && (overlay.polygons.length > 0 || overlay.lines.length > 0) ? (
-        <svg
-          viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {overlay.polygons.map((polygon, index) => (
-            <polygon
-              key={`roi-${index}`}
-              points={polygon.map((point) => `${point.x},${point.y}`).join(' ')}
-              fill="rgba(14, 165, 233, 0.16)"
-              stroke="rgb(14, 165, 233)"
-              strokeWidth="4"
-            />
-          ))}
-          {overlay.lines.map(([start, end], index) => (
-            <line
-              key={`line-${index}`}
-              x1={start.x}
-              y1={start.y}
-              x2={end.x}
-              y2={end.y}
-              stroke="rgb(239, 68, 68)"
-              strokeWidth="5"
-              strokeLinecap="round"
-            />
-          ))}
-        </svg>
-      ) : null}
       {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
     </>
   )
@@ -343,8 +289,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         events={humanDwellMonitor.events}
         todayAlarmCount={humanDwellMonitor.todayAlarmCount}
         latestAlarmAt={humanDwellMonitor.latestAlarmAt}
-        roiPolygons={overlay.polygons}
-        imageSize={imageSize}
         onSelectCamera={handleSelectCamera}
         onRefreshCameras={refreshCameras}
       />
@@ -365,9 +309,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         featureValue={featureValue}
         alarms={featureDashboardAlarms.recent}
         todayAlarmCount={featureDashboardAlarms.todayCount}
-        roiPolygons={overlay.polygons}
-        alarmLines={overlay.lines}
-        imageSize={imageSize}
         onSelectCamera={handleSelectCamera}
         onRefreshCameras={refreshCameras}
       />

@@ -1,3 +1,4 @@
+import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import { toFeatureAlarm, toLogisticsAlarm } from './alarmBinding'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
@@ -79,12 +80,6 @@ const timeForApi = (value: string) => value.length === 5 ? `${value}:00` : value
 
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
-}
-
-function roiPayload(raw: string) {
-  const parsed = JSON.parse(raw || '[]') as unknown
-  if (!Array.isArray(parsed) || parsed.length === 0) return []
-  return Array.isArray(parsed[0]) && typeof parsed[0][0] === 'number' ? [parsed] : parsed
 }
 
 export function LogisticsChannelConfigView({
@@ -412,7 +407,7 @@ export function LogisticsChannelConfigView({
       selectedCamera.camera_id,
       {
       ...cameraConfig.config,
-      value: { ...cameraConfig.config.value, roi_pos: roiPayload(roiJson) },
+      value: { ...cameraConfig.config.value, roi_pos: parseNormalizedRoi(roiJson) },
       },
     ), '当前摄像头 ROI 已保存。')
   }

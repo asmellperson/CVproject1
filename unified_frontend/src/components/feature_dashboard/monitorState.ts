@@ -8,7 +8,6 @@ export type FeatureDashboardProfile = {
   videoTitle: string
   metricLabel: string
   eventLabel: string
-  overlayLabel: string
   statusSubject: string
 }
 
@@ -19,7 +18,6 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
     videoTitle: '区域入侵检测监控',
     metricLabel: '警戒方向',
     eventLabel: '入侵告警',
-    overlayLabel: 'alarm_line',
     statusSubject: '警戒线',
   },
   detect_face: {
@@ -28,7 +26,6 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
     videoTitle: '人脸检测监控',
     metricLabel: '人脸置信度阈值',
     eventLabel: '人脸告警',
-    overlayLabel: 'face_roi',
     statusSubject: '人脸区域',
   },
   detect_phone: {
@@ -37,7 +34,6 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
     videoTitle: '手机识别检测监控',
     metricLabel: '确认持续时间',
     eventLabel: '手机告警',
-    overlayLabel: 'phone_roi',
     statusSubject: '手机区域',
   },
   detect_door: {
@@ -46,7 +42,6 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
     videoTitle: '大门开关检测监控',
     metricLabel: '首次告警时间',
     eventLabel: '大门告警',
-    overlayLabel: 'door_roi',
     statusSubject: '大门区域',
   },
 }
@@ -67,12 +62,12 @@ export function resolveCameraFeatureValue(
   return state?.cameraKey === selectedCamera ? state.value : null
 }
 
-export function isFeatureOverlayConfigured(
+export function isFeatureRegionConfigured(
   feature: FeatureDashboardKey,
-  roiCount: number,
-  alarmLineCount: number,
+  value: Record<string, unknown> | null,
 ) {
-  return feature === 'blocks' ? alarmLineCount > 0 : roiCount > 0
+  const points = feature === 'blocks' ? value?.line_points : value?.roi_pos
+  return Array.isArray(points) && (feature === 'blocks' ? points.length === 2 : points.length === 0 || points.length >= 3)
 }
 
 function isSameLocalDay(value: string | undefined, now: Date) {

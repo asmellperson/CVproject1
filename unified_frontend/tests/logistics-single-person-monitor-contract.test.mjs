@@ -79,8 +79,6 @@ test('polls display data separately while preserving the existing frame lifecycl
   assert.match(monitor, /buildAiVisionPreviewFrameUrl\(selectedCamera, feature, Date\.now\(\)\)/)
   assert.match(monitor, /window\.setTimeout\(loadFrame, Math\.max\(0, FRAME_REFRESH_MS - elapsed\)\)/)
   assert.match(monitor, /URL\.revokeObjectURL/)
-  assert.match(monitor, /readFrameCoordinateSize\(response\.headers\)/)
-  assert.match(monitor, /image\.naturalWidth/)
   assert.match(monitor, /presentation\?: 'default' \| 'logistics-single-person'/)
 })
 

@@ -21,113 +21,92 @@ class PhoneConsumer(BaseFunctionConsumer):
         self._tracks: dict[int, dict[int, dict]] = {}
         self._next_track_id: dict[int, int] = {}
 
-    def _process(self, roi_list, camera_id):
+    def _process(self, roi, camera_id):
         if not self.spec.required_models:
-            return [(False, None) for _ in roi_list]
+            return False, None
         cfg = self._value_config(self.config_cache.get(camera_id, {}))
         conf_thr = float(cfg.get("CONF_THRESHOLD", 0.7))
         iou_thr = float(cfg.get("IOU_THR", 0.5))
         require_person = bool(cfg.get("REQUIRE_PERSON_ASSOCIATION", True))
         person_available = self.PERSON_MODEL_NAME in self.infer_dict
         model_name = self.spec.required_models[0]
-        phone_results = self._results_by_roi(self.dispatch_inference_sync(
+        phone_result = self.dispatch_inference_sync(
             camera_id,
             model_name,
-            roi_list,
+            roi,
             task_meta={"conf": conf_thr, "iou": iou_thr},
-        ))
-        person_results = {}
+        )
+        person_result = {}
         if require_person and person_available:
-            person_results = self._results_by_roi(self.dispatch_inference_sync(
+            person_result = self.dispatch_inference_sync(
                 camera_id,
                 self.PERSON_MODEL_NAME,
-                roi_list,
+                roi,
                 task_meta={
                     "conf": float(cfg.get("PERSON_CONF_THRESHOLD", 0.3)),
                     "iou": float(cfg.get("PERSON_IOU_THR", 0.3)),
                 },
                 timeout=0.6,
-            ))
-
-        results = []
-        now = time.time()
-        roi_offsets = self._get_roi_offsets(camera_id)
-        for roi_index in range(len(roi_list)):
-            phones = phone_results.get(roi_index, {}).get("detections", []) or []
-            persons = person_results.get(roi_index, {}).get("detections", []) or []
-            ox, oy = roi_offsets[roi_index] if roi_index < len(roi_offsets) else (0, 0)
-            candidates = self._qualified_phone_detections(
-                camera_id=camera_id,
-                roi_index=roi_index,
-                detections=phones,
-                persons=persons,
-                offset=(ox, oy),
-                cfg=cfg,
-                now=now,
-                enforce_person=require_person and person_available,
             )
-            results.append((any(item.get("confirmed") for item in candidates), candidates))
+
+        now = time.time()
+        phones = phone_result.get("detections", []) or []
+        persons = person_result.get("detections", []) or []
+        ox, oy = self._get_roi_offset(camera_id)
+        candidates = self._qualified_phone_detections(
+            camera_id=camera_id,
+            detections=phones,
+            persons=persons,
+            offset=(ox, oy),
+            cfg=cfg,
+            now=now,
+            enforce_person=require_person and person_available,
+        )
         self._prune_tracks(camera_id, now, float(cfg.get("TRACK_TTL_SECONDS", 2.0)))
-        return results
+        return any(item.get("confirmed") for item in candidates), candidates
 
     def post_process(self, camera_id, result):
-        frame = self.frame_cache.get(camera_id)
-        if frame is None:
+        frame_copy = self._annotated_frame(camera_id)
+        if frame_copy is None:
             return None
-        frame_copy = frame.copy()
-        roi_offsets = self._get_roi_offsets(camera_id)
-
-        for roi_index, (alarm, detections) in enumerate(result):
-            if not detections:
+        ox, oy = self._get_roi_offset(camera_id)
+        _alarm, detections = result
+        for det in detections or []:
+            bbox = det.get("bbox", [])
+            if len(bbox) < 4:
                 continue
-            ox, oy = roi_offsets[roi_index] if roi_index < len(roi_offsets) else (0, 0)
-            for det in detections:
-                bbox = det.get("bbox", [])
-                if len(bbox) < 4:
-                    continue
-                x1, y1, x2, y2 = (
-                    int(bbox[0]) + ox, int(bbox[1]) + oy,
-                    int(bbox[2]) + ox, int(bbox[3]) + oy,
-                )
-                conf = det.get("confidence", 0)
-                confirmed = bool(det.get("confirmed"))
-                color = (0, 255, 0) if confirmed else (0, 191, 255)
-                label = "phone" if confirmed else "phone?"
-                cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(
-                    frame_copy,
-                    f"{label} {conf:.2f} {int(det.get('hits', 1))}x",
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    color,
-                    2,
-                )
+            x1, y1, x2, y2 = (
+                int(bbox[0]) + ox, int(bbox[1]) + oy,
+                int(bbox[2]) + ox, int(bbox[3]) + oy,
+            )
+            conf = det.get("confidence", 0)
+            confirmed = bool(det.get("confirmed"))
+            color = (0, 255, 0) if confirmed else (0, 191, 255)
+            label = "phone" if confirmed else "phone?"
+            cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(
+                frame_copy,
+                f"{label} {conf:.2f} {int(det.get('hits', 1))}x",
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+            )
         return frame_copy
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True
 
-    def _get_roi_offsets(self, camera_id: int) -> list[tuple[int, int]]:
-        offsets = []
-        if camera_id in self._masks:
-            for _mask, y_min, _y_max, x_min, _x_max in self._masks[camera_id]:
-                offsets.append((x_min, y_min))
-        return offsets
-
-    @staticmethod
-    def _results_by_roi(results: list[dict]) -> dict[int, dict]:
-        return {
-            int(item.get("roi_id", index)): item
-            for index, item in enumerate(results or [])
-            if isinstance(item, dict)
-        }
+    def _on_roi_changed(self, camera_id: int) -> None:
+        super()._on_roi_changed(camera_id)
+        self._tracks.pop(camera_id, None)
+        self._next_track_id.pop(camera_id, None)
 
     def _qualified_phone_detections(
         self,
         *,
         camera_id: int,
-        roi_index: int,
         detections: list[dict],
         persons: list[dict],
         offset: tuple[int, int],
@@ -143,7 +122,7 @@ class PhoneConsumer(BaseFunctionConsumer):
             global_bbox = self._offset_bbox(bbox, offset)
             if enforce_person and not self._is_near_person_hand_region(global_bbox, persons, offset, cfg):
                 continue
-            track = self._update_track(camera_id, roi_index, global_bbox, now, cfg)
+            track = self._update_track(camera_id, global_bbox, now, cfg)
             duration = now - float(track["first_seen"])
             confirmed = (
                 int(track["hits"]) >= int(cfg.get("MIN_CONSECUTIVE_HITS", 3))
@@ -192,13 +171,11 @@ class PhoneConsumer(BaseFunctionConsumer):
                 return True
         return False
 
-    def _update_track(self, camera_id: int, roi_index: int, bbox, now: float, cfg: dict) -> dict:
+    def _update_track(self, camera_id: int, bbox, now: float, cfg: dict) -> dict:
         tracks = self._tracks.setdefault(camera_id, {})
         match = None
         min_iou = float(cfg.get("TRACK_IOU_THRESHOLD", 0.2))
         for track in tracks.values():
-            if track.get("roi_index") != roi_index:
-                continue
             if self._iou(bbox, track["bbox"]) >= min_iou or self._center_distance_ratio(bbox, track["bbox"]) <= 0.6:
                 match = track
                 break
@@ -206,7 +183,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         if match is None:
             track_id = self._next_track_id.get(camera_id, 1)
             self._next_track_id[camera_id] = track_id + 1
-            match = {"id": track_id, "roi_index": roi_index, "bbox": bbox, "first_seen": now, "last_seen": now, "hits": 0}
+            match = {"id": track_id, "bbox": bbox, "first_seen": now, "last_seen": now, "hits": 0}
             tracks[track_id] = match
         elif now - float(match.get("last_seen", 0.0)) > float(cfg.get("MAX_MISSED_SECONDS", 0.6)):
             match["first_seen"] = now

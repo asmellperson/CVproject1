@@ -667,7 +667,7 @@ class Orchestrator:
     """
 
     def get_camera_frame(self, shm_name: str, feature: str | None = None):
-        """获取摄像头画面 — 优先取 feature 标注后的帧,无则取原始帧"""
+        """获取摄像头画面：指定 feature 只返回标注帧；配置编辑读取原始帧"""
         # frame:图像，_updated_at:最后更新的时间
         frame, _updated_at = self.get_camera_frame_info(shm_name, feature=feature)
         return frame
@@ -675,9 +675,9 @@ class Orchestrator:
     def get_camera_frame_info(self, shm_name: str, feature: str | None = None):
         """
         从原始帧和算法标注帧中，选择当前最适合展示的一帧
-            1、如果指定了检测功能，并且对应Consumer有最近2秒内的更新的标注画面，则优先返回标注画面
-            2、否则，如果摄像头原始画面最近10秒内有更新，则返回原始画面
-            3、两个都过期或不存在就返回None
+            1、指定检测功能时，只返回对应 Consumer 最近 2 秒内的标注画面
+            2、未指定检测功能时，返回最近 10 秒内的原始画面供配置编辑
+            3、需要的画面过期或不存在时返回 None
         """
         now = time.time()
         # 获取原始帧，来自于共享内存的lastest_frames
@@ -700,8 +700,8 @@ class Orchestrator:
             )
             if annotated_is_fresh:
                 return annotated, annotated_updated_at      # 标注有效就返回标注帧
-        if raw_is_fresh:
-            return raw, raw_updated_at              # 没有标注帧就退回原始帧
+        if not feature and raw_is_fresh:
+            return raw, raw_updated_at              # 原始帧仅用于配置编辑
         return (
             None,
             max(raw_updated_at, annotated_updated_at),
