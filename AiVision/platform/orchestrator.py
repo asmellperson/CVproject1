@@ -744,6 +744,7 @@ class Orchestrator:
                 "duration_seconds": None,
                 "threshold_seconds": None,
                 "updated_at": None,
+                **({"detections": [], "frame_width": None, "frame_height": None} if feature == "recognize_face" else {}),
             }
         # 如果状态有效，就转换时间
         updated_at = dt.datetime.fromtimestamp(
@@ -760,6 +761,11 @@ class Orchestrator:
             "duration_seconds": snapshot.get("duration_seconds"),
             "threshold_seconds": snapshot.get("threshold_seconds"),
             "updated_at": updated_at,
+            **({
+                "detections": snapshot.get("detections", []) if online else [],
+                "frame_width": snapshot.get("frame_width"),
+                "frame_height": snapshot.get("frame_height"),
+            } if feature == "recognize_face" else {}),
         }
 
     def get_logistics_channel_status(self, feature: str, channel_id: int) -> dict | None:

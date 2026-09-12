@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 
@@ -10,7 +10,19 @@ from AiVision.connectors.hikvision import HikvisionPerson
 from AiVision.core.db import get_session, session_scope
 
 from . import HIKVISION_SOURCES, PersonSyncError
-from .orm import FacePerson
+from .constants import EMBEDDING_DIM
+from .index import encode_embedding, photo_signature
+from .orm import FaceEmbedding, FacePerson
+
+
+@dataclass(frozen=True)
+class EmbeddingCandidate:
+    person_id: int
+    hik_source: str
+    pic_uri: str | None = field(repr=False)
+    server_index_code: str | None = field(repr=False)
+    embedding_model_name: str | None
+    embedding_photo_signature: str | None
 
 
 @dataclass(frozen=True)
@@ -23,6 +35,34 @@ class SyncCounts:
 
 
 class FaceLibraryService:
+    def list_embedding_candidates(self) -> list[EmbeddingCandidate]:
+        with get_session() as session:
+            rows = session.query(FacePerson, FaceEmbedding).outerjoin(
+                FaceEmbedding, FaceEmbedding.person_id == FacePerson.id,
+            ).filter(FacePerson.is_active.is_(True)).order_by(FacePerson.id).all()
+            return [EmbeddingCandidate(
+                person.id, person.hik_source, person.pic_uri, person.server_index_code,
+                embedding.model_name if embedding is not None else None,
+                embedding.photo_signature if embedding is not None else None,
+            ) for person, embedding in rows]
+
+    def save_embedding(self, person_id: int, embedding, *, model_name: str, signature: str) -> None:
+        data = encode_embedding(embedding)
+        with session_scope() as session:
+            person = session.query(FacePerson).filter_by(id=person_id).with_for_update().one()
+            if not person.is_active or not person.pic_uri or not person.server_index_code:
+                raise PersonSyncError("人员已停用或照片字段已移除，本次特征不写入")
+            if photo_signature(person.pic_uri, person.server_index_code) != signature:
+                raise PersonSyncError("生成期间人员照片发生变化，本次特征不写入")
+            stored = session.query(FaceEmbedding).filter_by(person_id=person_id).one_or_none()
+            if stored is None:
+                stored = FaceEmbedding(person_id=person_id)
+                session.add(stored)
+            stored.embedding = data
+            stored.embedding_dim = EMBEDDING_DIM
+            stored.model_name = model_name
+            stored.photo_signature = signature
+
     @staticmethod
     def _require_source(source: str) -> None:
         if source not in HIKVISION_SOURCES:

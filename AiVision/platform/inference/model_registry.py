@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from .workers.yolo_detector import YoloDetectorWorker
+from .workers.face_recognizer import FaceRecognizerWorker
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ MODEL_SPECS = MappingProxyType({
         ModelSpec("yolo_human", YoloDetectorWorker, "person", (0,)),
         ModelSpec("yolo_phone", YoloDetectorWorker, "phone", (1,)),
         ModelSpec("yolo_face", YoloDetectorWorker, "face", conf=0.6),
+        ModelSpec("insightface", FaceRecognizerWorker, "face_identity", type="insightface"),
     )
 })
 

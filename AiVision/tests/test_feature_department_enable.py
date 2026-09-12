@@ -111,6 +111,11 @@ def test_single_department_enable_commits_autofill_before_cache_and_events(
     cfg = api.cache.get_function_config(camera["camera_id"], spec.name)
     assert cfg["department"] == spec.departments[0]
 
+    # 无报警能力的 Feature 只验证部门提交和运行时配置，不伪造报警结果。
+    if spec.violation_type == 0:
+        assert cfg["sql_enable"] is False
+        return
+
     import AiVision.features._base.consumer as consumer_module
     requests = []
     monkeypatch.setattr(consumer_module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: requests.append(req))

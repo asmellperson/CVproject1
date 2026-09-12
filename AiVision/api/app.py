@@ -29,6 +29,7 @@ from AiVision.api.cameras import router as cameras_router            # 对外公
 from AiVision.api.departments import router as departments_router
 from AiVision.api.exception_alerts import router as exception_alerts_router
 from AiVision.api.features import router as features_router
+from AiVision.api.face_recognition import router as face_recognition_router
 from AiVision.api.logistics_channels import router as logistics_channels_router
 from AiVision.api.models import router as models_router
 from AiVision.api.horns import router as horns_router
@@ -183,6 +184,7 @@ def create_app(
     app.include_router(exception_alerts_router)
     app.include_router(cameras_router)
     app.include_router(features_router)
+    app.include_router(face_recognition_router)
     app.include_router(models_router)
     app.include_router(horns_router)
     app.include_router(alarms_router)

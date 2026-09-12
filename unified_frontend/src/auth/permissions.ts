@@ -17,6 +17,7 @@ export type PageId =
   | 'intrusion-detection'
   | 'door-detection'
   | 'face-detection'
+  | 'face-recognition'
   | 'human-detection'
   | 'haoda-human-detection'
   | 'logistics-single-person-general-electric'
@@ -67,7 +68,7 @@ export const departmentPermissions: Record<Exclude<Department, 'all'>, Departmen
     },
   },
   electronics_electrician: {
-    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician', 'alarms', 'statistics'],
+    pages: ['overview', 'security-vlm-electronics-electrician', 'guard-behavior-electronics-electrician', 'logistics-single-person-electronics-electrician', 'face-recognition', 'alarms', 'statistics'],
     displayOverrides: {
       'guard-behavior-electronics-electrician': {
         label: '保安行为规范检测',
@@ -175,6 +176,7 @@ const pageIds = new Set<string>([
   'intrusion-detection',
   'door-detection',
   'face-detection',
+  'face-recognition',
   'human-detection',
   'haoda-human-detection',
   'logistics-single-person-general-electric',

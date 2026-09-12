@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Settings2, ShieldCheck, Video } from 'lucide-react'
+import { History, Settings2, ShieldCheck, Video } from 'lucide-react'
 
 import { TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -10,6 +10,7 @@ type DetectionPageHeaderProps = {
   runtimeControl?: ReactNode
   monitorValue?: string
   configValue?: string
+  recordsValue?: string
 }
 
 export function DetectionPageHeader({
@@ -19,6 +20,7 @@ export function DetectionPageHeader({
   runtimeControl,
   monitorValue = 'monitor',
   configValue = 'config',
+  recordsValue,
 }: DetectionPageHeaderProps) {
   return (
     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -36,7 +38,7 @@ export function DetectionPageHeader({
 
       <div className="flex w-full flex-col gap-3 sm:items-stretch xl:w-auto xl:flex-row xl:items-center">
         {runtimeControl}
-        <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 rounded-2xl border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto">
+        <TabsList className={`grid h-auto w-full shrink-0 ${recordsValue ? 'grid-cols-3' : 'grid-cols-2'} rounded-2xl border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto`}>
           <TabsTrigger
             value={monitorValue}
             className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"
@@ -44,6 +46,7 @@ export function DetectionPageHeader({
             <Video className="h-4 w-4" />
             实时监控
           </TabsTrigger>
+          {recordsValue && <TabsTrigger value={recordsValue} className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"><History className="h-4 w-4" />识别记录</TabsTrigger>}
           <TabsTrigger
             value={configValue}
             className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"

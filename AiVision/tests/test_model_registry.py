@@ -23,11 +23,14 @@ def local_paths(tmp_path, monkeypatch):
 
 
 def test_fixed_registry_has_explicit_inference_settings():
-    assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "yolo_face"}
+    assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "yolo_face", "insightface"}
     assert get_model_spec("yolo_human").class_filter == (0,)
     assert get_model_spec("yolo_phone").class_filter == (1,)
     assert get_model_spec("yolo_face").conf == 0.6
-    assert all(spec.worker_class is YoloDetectorWorker for spec in MODEL_SPECS.values())
+    assert all(spec.worker_class is YoloDetectorWorker for spec in MODEL_SPECS.values() if spec.type == "yolo")
+    from AiVision.platform.inference.workers.face_recognizer import FaceRecognizerWorker
+    assert get_model_spec("insightface").worker_class is FaceRecognizerWorker
+    assert get_model_spec("insightface").type == "insightface"
     with pytest.raises(TypeError):
         MODEL_SPECS["new"] = get_model_spec("yolo_human")
     with pytest.raises(FrozenInstanceError):

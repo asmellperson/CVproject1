@@ -10,3 +10,6 @@ models:
     path: /path/to/person_phone.pt
   yolo_face:
     path: /path/to/yolov8x-face.pt
+  # buffalo_l 解压目录，包含完整的五个 ONNX 文件；应用不会联网下载。
+  insightface:
+    path: /srv/models/insightface/buffalo_l

@@ -164,7 +164,7 @@ class InferenceRuntimeManager:
         """启动单个模型"""
         name = model_cfg["name"]
         try:
-            model_path = validate_model_path(model_cfg["path"])
+            model_path = validate_model_path(model_cfg["path"], model_type=get_model_spec(name).type)
             worker_cls = model_cfg["worker_class"]
             # 创建Worker
             worker = worker_cls(
@@ -484,7 +484,7 @@ class InferenceRuntimeManager:
         for name, spec in MODEL_SPECS.items():
             path = paths.get(name, "")
             try:
-                resolved = Path(validate_model_path(path))
+                resolved = Path(validate_model_path(path, model_type=spec.type))
                 info = resolved.stat()
                 identity = (spec.worker_class, info.st_dev, info.st_ino)
             except (OSError, ValueError):

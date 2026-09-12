@@ -66,7 +66,7 @@ def test_orm_revalidates_identity_before_insert(writer_db):
         assert session.query(AiAlarmEvent).count() == 0
 
 
-@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics") and len(spec.departments) == 1], ids=lambda spec: spec.name)
+@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if spec.violation_type > 0 and not spec.name.startswith("detect_logistics") and len(spec.departments) == 1], ids=lambda spec: spec.name)
 def test_regular_features_emit_explicit_identity_for_camera_without_department(monkeypatch, spec):
     import AiVision.features._base.consumer as module
     captured = []

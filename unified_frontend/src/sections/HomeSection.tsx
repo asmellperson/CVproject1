@@ -121,6 +121,10 @@ const moduleEntries = [
     title: '人脸检测入口',
   },
   {
+    id: 'face-recognition',
+    title: '人脸身份识别入口',
+  },
+  {
     id: 'human-detection',
     title: '人员违规逗留检测入口',
   },
@@ -225,6 +229,7 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'intrusion-detection': { serviceKey: 'aivision', featureKey: 'blocks' },
   'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
+  'face-recognition': { serviceKey: 'aivision', featureKey: 'recognize_face', department: 'electronics_electrician' },
   'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
   'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human_haoda' },
   'logistics-single-person-general-electric': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'general_electric' },
@@ -240,6 +245,7 @@ const aiVisionFeatureLabels: Record<string, string> = {
   blocks: '区域入侵',
   detect_door: '大门开关',
   detect_face: '人脸检测',
+  recognize_face: '人脸身份识别',
   detect_human: '人员违规逗留检测',
   detect_human_haoda: '人员违规逗留检测（皓达公司）',
   detect_logistics_single_person: '物流单人',

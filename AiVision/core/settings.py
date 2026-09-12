@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict           # BaseSettings：自动从环境变量/.env文件读取配置
@@ -213,6 +214,20 @@ class ModelPathSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+class FaceRecognitionSettings(BaseSettings):
+    """人脸推理运行参数；模型目录只从 model_paths.yaml 读取。"""
+
+    provider: Literal["CPUExecutionProvider", "CUDAExecutionProvider"] = Field(
+        "CPUExecutionProvider", alias="INSIGHTFACE_EXECUTION_PROVIDER",
+    )
+    device_id: int = Field(0, ge=0, alias="INSIGHTFACE_DEVICE_ID")
+    detection_size: int = Field(640, ge=32, alias="INSIGHTFACE_DETECTION_SIZE")
+    detection_threshold: float = Field(0.5, ge=0, le=1, alias="INSIGHTFACE_DETECTION_THRESHOLD")
+    index_refresh_seconds: float = Field(60.0, ge=1, alias="FACE_INDEX_REFRESH_SECONDS")
+    inference_timeout: float = Field(5.0, gt=0, alias="FACE_INFERENCE_TIMEOUT")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
 class Settings:
     """
     配置聚合根，将各子配置组合为单一访问点。
@@ -231,6 +246,7 @@ class Settings:
         self.runtime = RuntimeSettings()
         self.visual_services = ManagedVisualServiceSettings()
         self.model_paths = ModelPathSettings()
+        self.face_recognition = FaceRecognitionSettings()
 
 # Settings只创建一次，后面重复调用直接返回缓存对象
 @lru_cache(maxsize=1)

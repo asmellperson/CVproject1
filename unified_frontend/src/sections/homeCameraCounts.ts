@@ -36,6 +36,7 @@ const AI_VISION_FEATURES = [
   'blocks',
   'detect_door',
   'detect_face',
+  'recognize_face',
   'detect_human',
   'detect_human_haoda',
   'detect_logistics_single_person',

@@ -56,7 +56,7 @@ def test_path_save_and_list_use_local_yaml_and_real_runtime_state(client, tmp_pa
         assert response.json()["configuration_saved"] is True
         assert response.json()["load_status"] == "not_started"
         items = {item["name"]: item for item in http.get("/api/models").json()}
-        assert set(items) == {"yolo_human", "yolo_phone", "yolo_face"}
+        assert set(items) == {"yolo_human", "yolo_phone", "yolo_face", "insightface"}
         assert items["yolo_human"]["path"] == str(weight)
         assert items["yolo_human"]["runtime"]["running"] is False
         assert items["yolo_human"]["runtime"]["status"] == "not_started"

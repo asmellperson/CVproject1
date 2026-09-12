@@ -96,18 +96,29 @@ def clear_model_paths_cache() -> None:
         _load_model_paths.cache_clear()
 
 
-def validate_model_path(value: str) -> str:
+def validate_model_path(value: str, *, model_type: str = "yolo") -> str:
     if not value.strip() or any(ord(char) < 32 for char in value):
         raise ValueError("模型路径不能为空或包含控制字符")
     path = Path(value.strip()).expanduser()
     if not path.is_absolute():
-        raise ValueError("请提供当前服务器上的绝对模型文件路径")
+        raise ValueError("请提供当前服务器上的绝对模型路径")
     try:
         path = path.resolve(strict=True)
-        if not path.is_file() or path.stat().st_size == 0:
-            raise ValueError("模型路径必须指向非空的普通文件")
-        with path.open("rb") as stream:
-            stream.read(1)
+        if model_type == "insightface":
+            from AiVision.platform.face_library.constants import MODEL_FILES
+
+            if not path.is_dir():
+                raise ValueError("InsightFace 模型路径必须是 buffalo_l 模型目录")
+            files = [path / filename for filename in MODEL_FILES]
+        elif model_type == "yolo":
+            files = [path]
+        else:
+            raise ValueError("不支持的模型类型")
+        for model_file in files:
+            if not model_file.is_file() or model_file.stat().st_size == 0:
+                raise ValueError(f"模型路径必须指向非空的普通文件: {model_file.name}")
+            with model_file.open("rb") as stream:
+                stream.read(1)
     except OSError as exc:
         raise ValueError(f"模型文件不存在或不可读: {exc}") from exc
     return str(path)
@@ -151,8 +162,8 @@ def _updated_document(source: str, root: MappingNode | None, name: str, path: st
 def save_model_path(name: str, value: str) -> str:
     from .model_registry import get_model_spec
 
-    get_model_spec(name)
-    model_path = validate_model_path(value)
+    spec = get_model_spec(name)
+    model_path = validate_model_path(value, model_type=spec.type)
     config_path = _resolve_config_path(settings.model_paths.config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with _PATH_LOCK, config_path.with_suffix(config_path.suffix + ".lock").open("a") as lock:

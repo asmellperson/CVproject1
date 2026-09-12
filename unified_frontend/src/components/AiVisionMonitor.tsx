@@ -28,12 +28,13 @@ import {
   type CameraFeatureValueState,
 } from './feature_dashboard/monitorState'
 import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
+import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department?: string
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -252,6 +253,14 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       {loading && <Skeleton className="absolute inset-4 bg-slate-800/70" />}
     </>
   )
+
+  if (presentation === 'face-identity') {
+    return <FaceRecognitionMonitorView
+      cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
+      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
+    />
+  }
 
   if (presentation === 'logistics-single-person') {
     return (
