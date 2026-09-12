@@ -28,8 +28,9 @@ face-cpu = [
     "insightface==0.7.3", "numpy==1.26.4", "onnx==1.17.0", "onnxruntime==1.20.1",
     "opencv-python==4.11.0.86", "opencv-python-headless==4.11.0.86", "albumentations==1.4.3",
 ]
+# 正式 GPU 环境：Python 3.11、PyTorch CUDA 13、cuDNN 9。
 face-gpu = [
-    "insightface==0.7.3", "numpy==1.26.4", "onnx==1.17.0", "onnxruntime-gpu==1.20.1",
+    "insightface==0.7.3", "numpy==1.26.4", "onnx==1.17.0", "onnxruntime-gpu==1.27.0",
     "opencv-python==4.11.0.86", "opencv-python-headless==4.11.0.86", "albumentations==1.4.3",
 ]
 dev = [
