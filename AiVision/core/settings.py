@@ -220,7 +220,6 @@ class FaceRecognitionSettings(BaseSettings):
     provider: Literal["CPUExecutionProvider", "CUDAExecutionProvider"] = Field(
         "CPUExecutionProvider", alias="INSIGHTFACE_EXECUTION_PROVIDER",
     )
-    device_id: int = Field(0, ge=0, alias="INSIGHTFACE_DEVICE_ID")
     detection_size: int = Field(640, ge=32, alias="INSIGHTFACE_DETECTION_SIZE")
     detection_threshold: float = Field(0.5, ge=0, le=1, alias="INSIGHTFACE_DETECTION_THRESHOLD")
     index_refresh_seconds: float = Field(60.0, ge=1, alias="FACE_INDEX_REFRESH_SECONDS")

@@ -1,5 +1,6 @@
 """以虚构人员、内存照片、SQLite 和 Mock 验证整条身份识别链路。"""
 from datetime import datetime
+import os
 import queue
 import sys
 import time
@@ -17,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from AiVision.core import db
-from AiVision.core.settings import settings
+from AiVision.core.settings import FaceRecognitionSettings, settings
 from AiVision.features.recognize_face import SPEC, records
 from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
 from AiVision.features.recognize_face.orm import FaceRecognitionRecord
@@ -393,12 +394,21 @@ def test_insightface_directory_validation_preserves_yolo_rules(model_directory, 
         model_paths.validate_model_path(str(model_directory), model_type="insightface")
 
 
+@pytest.mark.parametrize("provider", ["CPUExecutionProvider", "CUDAExecutionProvider"])
+def test_face_settings_select_provider_without_independent_device(provider, monkeypatch):
+    monkeypatch.setenv("INSIGHTFACE_EXECUTION_PROVIDER", provider)
+    config = FaceRecognitionSettings(_env_file=None)
+    assert config.provider == provider
+    assert "device_id" not in config.model_dump()
+
+
+@pytest.mark.parametrize("visible_devices", ["3", "4,1"])
 @pytest.mark.parametrize("provider,context,options", [
     ("CPUExecutionProvider", -1, [{}]),
     ("CUDAExecutionProvider", 0, [{"device_id": "0"}]),
 ])
 def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
-    model_directory, monkeypatch, provider, context, options,
+    model_directory, monkeypatch, provider, context, options, visible_devices,
 ):
     detector = Mock(taskname="detection")
     detector.session.get_providers.return_value = [provider]
@@ -411,7 +421,7 @@ def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
     monkeypatch.setitem(sys.modules, "insightface.model_zoo", SimpleNamespace(get_model=get_model))
     monkeypatch.setitem(sys.modules, "insightface.app.common", SimpleNamespace(Face=SimpleNamespace))
     monkeypatch.setattr(settings.face_recognition, "provider", provider)
-    monkeypatch.setattr(settings.face_recognition, "device_id", 0)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible_devices)
     backend = face_recognizer.InsightFaceRecognizer(str(model_directory))
     for call in get_model.call_args_list:
         assert call.kwargs["download"] is False
@@ -428,6 +438,7 @@ def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
     assert len(backend.get_faces(np.zeros((100, 100, 3), dtype=np.uint8))) == 2
     assert detector.detect.call_args.kwargs["max_num"] == 0
     assert recognizer.get.call_count == 2
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == visible_devices
 
 
 def test_missing_models_fail_before_loading_or_downloading(tmp_path, monkeypatch):

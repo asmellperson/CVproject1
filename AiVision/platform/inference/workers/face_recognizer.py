@@ -29,7 +29,8 @@ class InsightFaceRecognizer:
 
         if config.provider not in onnxruntime.get_available_providers():
             raise RuntimeError(f"未安装可用的 {config.provider}，请检查 ONNX Runtime 和运行环境")
-        options = [{"device_id": str(config.device_id)}] if config.provider == "CUDAExecutionProvider" else [{}]
+        # 逻辑设备 0 相对于进程的 CUDA_VISIBLE_DEVICES；物理 GPU 由 AiVision 运行环境统一管理。
+        options = [{"device_id": "0"}] if config.provider == "CUDAExecutionProvider" else [{}]
         # 传入完整文件名并显式禁止下载，不调用会自动下载模型包的 FaceAnalysis 构造器。
         self.detector = get_model(
             str(directory / DETECTION_MODEL_FILE), download=False,
@@ -44,7 +45,7 @@ class InsightFaceRecognizer:
                 raise RuntimeError(f"buffalo_l 的 {task} 模型无效")
             if config.provider not in model.session.get_providers():
                 raise RuntimeError(f"{config.provider} 初始化失败，请检查 GPU、CUDA 和 cuDNN")
-        context = config.device_id if config.provider == "CUDAExecutionProvider" else -1
+        context = 0 if config.provider == "CUDAExecutionProvider" else -1
         self.detector.prepare(
             ctx_id=context, input_size=(config.detection_size, config.detection_size),
             det_thresh=config.detection_threshold,
