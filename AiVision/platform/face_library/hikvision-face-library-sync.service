@@ -1,0 +1,27 @@
+[Unit]
+Description=海康人员库同步（one、two）
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Python 环境位于 /root，使用 root 运行。
+User=root
+WorkingDirectory=/srv/Fuda_CVPreject
+# 同步入口自行读取 /srv/Fuda_CVPreject/AiVision/.env 中的海康及数据库配置。
+# 此处只设置日志输出方式，不存放业务凭据。
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/miniconda3/envs/aivision/bin/python -m AiVision.platform.face_library.sync
+
+# oneshot 的运行时间受启动超时限制；停止后最多等待 30 秒，再强制结束。
+TimeoutStartSec=8min
+TimeoutStopSec=30s
+KillMode=control-group
+# 执行结束后退出，允许 timer 再次启动。
+RemainAfterExit=no
+
+# 同一个 service 运行期间，重复启动请求不会创建并发实例。
+# 手动同步也请使用 systemctl start hikvision-face-library-sync.service。
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hikvision-face-library-sync
