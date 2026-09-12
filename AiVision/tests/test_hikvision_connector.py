@@ -112,6 +112,33 @@ def test_person_list_detail_and_missing_person_code_are_typed(transport):
     assert "测试人员" not in repr(person)
 
 
+@pytest.mark.parametrize("organization_fields,expected", [
+    ({"orgIndexCode": "test-org"}, "test-org"),
+    ({}, None),
+])
+def test_person_list_org_index_code(transport, organization_fields, expected):
+    replies, _ = transport
+    replies.append(response(payload={"code": "0", "data": {
+        "total": 1, "pageNo": 1, "pageSize": 10,
+        "list": [{**TEST_PERSON, **organization_fields}],
+    }}))
+    with HikvisionClient(config()) as client:
+        page = HikvisionPersons(client).list_persons()
+    assert page.persons[0].org_index_code == expected
+
+
+@pytest.mark.parametrize("organization_fields,expected", [
+    ({"orgIndexCode": "test-org"}, "test-org"),
+    ({}, None),
+])
+def test_person_info_org_index_code(transport, organization_fields, expected):
+    replies, _ = transport
+    replies.append(response(payload={"code": "0", "data": {**TEST_PERSON, **organization_fields}}))
+    with HikvisionClient(config()) as client:
+        person = HikvisionPersons(client).get_person("test-person")
+    assert person.org_index_code == expected
+
+
 def test_picture_uses_official_parameters_and_separate_unsigned_download(transport):
     replies, calls = transport
     target = "https://hik.example:6114" + TEST_URI + "&AccessKeyId=test-access&Expires=123&Signature=test-signature"

@@ -25,6 +25,10 @@ class HikvisionPerson(BaseModel):
     person_id: str = Field(alias="personId", min_length=1, repr=False)
     person_name: str | None = Field(default=None, alias="personName", repr=False)
     person_code: str | None = Field(default=None, alias="personCode", repr=False)
+    org_index_code: str | None = Field(
+        default=None,
+        alias="orgIndexCode"
+    )
     job_no: str | None = Field(default=None, alias="jobNo", repr=False)
     person_photo: PersonPhoto | None = Field(default=None, alias="personPhoto", repr=False)
 
