@@ -121,11 +121,59 @@ def test_missing_person_is_deactivated_only_for_completed_source(library):
     assert library.service.get_person("one", "person-b").is_active is True
 
 
-def test_successful_empty_snapshot_deactivates_source(library):
+@pytest.mark.parametrize("source", ["one", "two"])
+def test_empty_snapshot_with_active_person_is_rejected_without_writes(library, source):
+    library.service.apply_snapshot(source, [person(personName="保持姓名"), person("inactive")])
+    timestamp = datetime(2020, 1, 1)
+    with library.factory.begin() as session:
+        for stored in session.query(FacePerson).all():
+            stored.is_active = stored.hik_person_id != "inactive"
+            stored.created_at = stored.updated_at = stored.last_synced_at = timestamp
+    before = [
+        {column.name: getattr(stored, column.name) for column in FacePerson.__table__.columns}
+        for stored in library.service.list_persons(source)
+    ]
+    library.statements.clear()
+    with pytest.raises(sync.PersonSyncError, match="完整分页总数为 0"):
+        sync.sync_source(source, remote(page(1, 0, [])), library.service, page_size=1)
+    assert not any(sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in library.statements)
+    after = [
+        {column.name: getattr(stored, column.name) for column in FacePerson.__table__.columns}
+        for stored in library.service.list_persons(source)
+    ]
+    assert after == before
+
+
+def test_service_rejects_empty_snapshot_with_active_person(library):
     library.service.apply_snapshot("one", [person()])
-    assert sync.sync_source("one", remote(page(1, 0, [])), library.service, page_size=1) == SyncCounts(
-        total=0, deactivated=1,
-    )
+    with pytest.raises(sync.PersonSyncError):
+        library.service.apply_snapshot("one", [])
+    assert library.service.get_person("one", "person-a").is_active is True
+
+
+@pytest.mark.parametrize("source, other_source", [("one", "two"), ("two", "one")])
+def test_first_empty_sync_succeeds_even_if_other_source_has_active_people(library, source, other_source):
+    library.service.apply_snapshot(other_source, [person()])
+    library.statements.clear()
+    assert sync.sync_source(source, remote(page(1, 0, [])), library.service, page_size=1) == SyncCounts(total=0)
+    assert not any(sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in library.statements)
+    assert library.service.list_persons(source) == []
+    assert library.service.get_person(other_source, "person-a").is_active is True
+
+
+def test_empty_snapshot_with_only_inactive_people_keeps_them_unchanged(library):
+    library.service.apply_snapshot("one", [person()])
+    timestamp = datetime(2020, 1, 1)
+    with library.factory.begin() as session:
+        stored = session.query(FacePerson).one()
+        stored.is_active = False
+        stored.created_at = stored.updated_at = stored.last_synced_at = timestamp
+    library.statements.clear()
+    assert sync.sync_source("one", remote(page(1, 0, [])), library.service, page_size=1) == SyncCounts(total=0)
+    assert not any(sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in library.statements)
+    stored = library.service.get_person("one", "person-a")
+    assert stored.is_active is False
+    assert stored.created_at == stored.updated_at == stored.last_synced_at == timestamp
 
 
 def test_fetches_every_page_before_any_database_operation(library):
@@ -231,7 +279,8 @@ def test_settings_read_each_source_and_tls_from_environment(monkeypatch):
     assert sync.HikvisionSyncSettings(_env_prefix="HIKVISION_TWO_").client_config().verify_tls is True
 
 
-def test_cli_continues_two_after_one_fails_and_reports_nonzero(library, monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("empty_result", [False, True])
+def test_cli_continues_two_after_one_fails_and_reports_nonzero(library, monkeypatch, tmp_path, capsys, empty_result):
     configure_sources(monkeypatch)
     monkeypatch.setattr(sync, "_ENV_FILE", tmp_path / ".env")
     library.service.apply_snapshot("one", [person()])
@@ -240,6 +289,8 @@ def test_cli_continues_two_after_one_fails_and_reports_nonzero(library, monkeypa
     def api(client):
         sources.append(client.config.base_url)
         if client.config.base_url == "https://one.example":
+            if empty_result:
+                return remote(page(1, 0, []))
             return remote(page(1, 2, [person()]), HikvisionError("HTTP 503"))
         return remote(page(1, 1, [person()]))
 

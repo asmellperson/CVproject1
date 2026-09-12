@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from AiVision.connectors.hikvision import HikvisionPerson
 from AiVision.core.db import get_session, session_scope
 
-from . import HIKVISION_SOURCES
+from . import HIKVISION_SOURCES, PersonSyncError
 from .orm import FacePerson
 
 
@@ -58,6 +58,8 @@ class FaceLibraryService:
                 person.hik_person_id: person
                 for person in session.query(FacePerson).filter_by(hik_source=source).with_for_update().all()
             }
+            if not persons and any(person.is_active for person in existing.values()):
+                raise PersonSyncError(f"{source} 完整分页总数为 0，但数据库仍有 active 人员，已拒绝本次同步")
             synced_at = session.scalar(select(func.current_timestamp()))
             for person in persons:
                 photo = person.person_photo

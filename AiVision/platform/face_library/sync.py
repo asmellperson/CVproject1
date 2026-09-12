@@ -13,7 +13,7 @@ from AiVision.connectors.hikvision import HikvisionClient, HikvisionConfig, Hikv
 from AiVision.connectors.hikvision.client import DEFAULT_TIMEOUT
 from AiVision.core.logger import logger
 
-from . import HIKVISION_SOURCES
+from . import HIKVISION_SOURCES, PersonSyncError
 
 if TYPE_CHECKING:
     from .service import FaceLibraryService, SyncCounts
@@ -40,10 +40,6 @@ class HikvisionSyncSettings(BaseSettings):
             app_secret=self.app_secret.get_secret_value(), artemis_path=self.artemis_path,
             verify_tls=self.verify_tls, timeout=(self.connect_timeout, self.read_timeout),
         )
-
-
-class PersonSyncError(RuntimeError):
-    """不含人员字段的完整性检查错误。"""
 
 
 def fetch_persons(persons: HikvisionPersons, *, page_size: int) -> tuple[HikvisionPerson, ...]:
