@@ -23,15 +23,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 固定 InsightFace 的 NumPy ABI；OpenCV 两个发行包均需使用支持 NumPy 1 的版本。
+# InsightFace 1.0.1 基础推理使用纯 Python wheel，沿用项目的 NumPy 与 opencv-python。
+# 不安装 gui/face3d extra；基础推理不需要 Cython、albumentations 或 headless OpenCV。
 face-cpu = [
-    "insightface==0.7.3", "numpy==1.26.4", "onnx==1.17.0", "onnxruntime==1.20.1",
-    "opencv-python==4.11.0.86", "opencv-python-headless==4.11.0.86", "albumentations==1.4.3",
+    "insightface==1.0.1", "onnx==1.20.1", "onnxruntime==1.20.1",
 ]
 # 正式 GPU 环境：Python 3.11、PyTorch CUDA 13、cuDNN 9。
+# 上游强制依赖 CPU onnxruntime，pip 无法用 GPU 包替代该依赖声明。
+# GPU 部署必须分步：安装 InsightFace 和依赖，卸载 CPU Runtime，最后安装 GPU Runtime。
+# 不要直接一次安装此 extra，否则会同时安装两种 Runtime；替换后 pip check 会提示上游缺少 CPU 包。
 face-gpu = [
-    "insightface==0.7.3", "numpy==1.26.4", "onnx==1.17.0", "onnxruntime-gpu==1.27.0",
-    "opencv-python==4.11.0.86", "opencv-python-headless==4.11.0.86", "albumentations==1.4.3",
+    "insightface==1.0.1", "onnx==1.20.1", "onnxruntime-gpu==1.27.0",
 ]
 dev = [
     "httpx>=0.27,<1.0",

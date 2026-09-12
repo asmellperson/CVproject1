@@ -393,22 +393,38 @@ def test_insightface_directory_validation_preserves_yolo_rules(model_directory, 
         model_paths.validate_model_path(str(model_directory), model_type="insightface")
 
 
-def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(model_directory, monkeypatch):
+@pytest.mark.parametrize("provider,context,options", [
+    ("CPUExecutionProvider", -1, [{}]),
+    ("CUDAExecutionProvider", 0, [{"device_id": "0"}]),
+])
+def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
+    model_directory, monkeypatch, provider, context, options,
+):
     detector = Mock(taskname="detection")
-    detector.session.get_providers.return_value = ["CPUExecutionProvider"]
+    detector.session.get_providers.return_value = [provider]
     detector.detect.return_value = (np.array([[1, 2, 30, 40, .9], [40, 2, 70, 40, .8]]), np.zeros((2, 5, 2)))
     recognizer = Mock(taskname="recognition")
-    recognizer.session.get_providers.return_value = ["CPUExecutionProvider"]
+    recognizer.session.get_providers.return_value = [provider]
     get_model = Mock(side_effect=[detector, recognizer])
-    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(get_available_providers=lambda: ["CPUExecutionProvider"]))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(get_available_providers=lambda: [provider]))
     monkeypatch.setitem(sys.modules, "insightface.model_zoo", SimpleNamespace(get_model=get_model))
     monkeypatch.setitem(sys.modules, "insightface.app.common", SimpleNamespace(Face=SimpleNamespace))
-    monkeypatch.setattr(settings.face_recognition, "provider", "CPUExecutionProvider")
+    monkeypatch.setattr(settings.face_recognition, "provider", provider)
+    monkeypatch.setattr(settings.face_recognition, "device_id", 0)
     backend = face_recognizer.InsightFaceRecognizer(str(model_directory))
     for call in get_model.call_args_list:
         assert call.kwargs["download"] is False
-        assert call.kwargs["providers"] == ["CPUExecutionProvider"]
+        assert call.kwargs["providers"] == [provider]
+        assert call.kwargs["provider_options"] == options
         assert str(model_directory) in call.args[0]
+    # 显式检测尺寸防止上游默认的多尺寸检测改变当前项目的推理配置。
+    detector.prepare.assert_called_once_with(
+        ctx_id=context,
+        input_size=(settings.face_recognition.detection_size, settings.face_recognition.detection_size),
+        det_thresh=settings.face_recognition.detection_threshold,
+    )
+    recognizer.prepare.assert_called_once_with(ctx_id=context)
     assert len(backend.get_faces(np.zeros((100, 100, 3), dtype=np.uint8))) == 2
     assert detector.detect.call_args.kwargs["max_num"] == 0
     assert recognizer.get.call_count == 2
