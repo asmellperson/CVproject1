@@ -34,6 +34,11 @@ yarn-debug.log*
 pnpm-debug.log*
 
 # ======================
+# GitHub automation
+# ======================
+/.github/
+
+# ======================
 # IDE
 # ======================
 .vscode/
