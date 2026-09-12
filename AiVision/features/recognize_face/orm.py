@@ -4,7 +4,8 @@ from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, JSON, String
 from AiVision.core.db import Base
 from AiVision.features._base.orm import FeatureConfigBase
 from AiVision.platform.face_library.constants import (
-    DEFAULT_CAPTURE_INTERVAL, DEFAULT_RECORD_COOLDOWN_SECONDS, DEFAULT_SIMILARITY_THRESHOLD,
+    DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
+    DEFAULT_SIMILARITY_THRESHOLD,
 )
 from AiVision.platform.face_library.orm import FaceEmbedding, FacePerson  # noqa: F401
 
@@ -14,6 +15,10 @@ class FaceRecognitionConfig(FeatureConfigBase):
 
     roi_pos = Column(JSON, nullable=False, default=list)
     cap_interval = Column(Float, nullable=False, default=DEFAULT_CAPTURE_INTERVAL)
+    detection_threshold = Column(
+        Float, nullable=False, default=DEFAULT_DETECTION_THRESHOLD,
+        server_default=text(str(DEFAULT_DETECTION_THRESHOLD)),
+    )
     similarity_threshold = Column(Float, nullable=False, default=DEFAULT_SIMILARITY_THRESHOLD)
     record_cooldown_seconds = Column(Float, nullable=False, default=DEFAULT_RECORD_COOLDOWN_SECONDS)
     record_enabled = Column(Boolean, nullable=False, default=True)

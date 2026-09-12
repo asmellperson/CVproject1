@@ -78,6 +78,34 @@ def save(api, feature, enabled, camera="test_camera", **payload):
     return api.client.put(f"/api/features/{feature}/configs/{camera}", json={"enable": enabled, **payload})
 
 
+@pytest.mark.parametrize("threshold", [0.0, 0.35, 1.0])
+def test_recognize_face_detection_threshold_is_persisted_per_camera(department_api, threshold):
+    api = department_api
+    camera = create_camera(api, department="electronics_electrician")
+    create_camera(api, name="另一台识别摄像头", shm_name="other_camera", department="electronics_electrician")
+    path = "/api/features/recognize_face/configs/test_camera"
+    initial = api.client.get(path)
+    assert initial.status_code == 200
+    payload = initial.json()["config"]
+    expected = dict(payload["value"], detection_threshold=threshold)
+    assert payload["value"]["detection_threshold"] == 0.5
+    payload["value"]["detection_threshold"] = threshold
+    saved = api.client.put(path, json=payload)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["config"]["value"] == expected
+    assert api.client.get(path).json()["config"]["value"] == expected
+    assert api.client.get("/api/features/recognize_face/configs/other_camera").json()["config"]["value"]["detection_threshold"] == 0.5
+    with api.factory() as session:
+        stored = session.query(get_spec("recognize_face").orm_class).filter_by(camera_id=camera["camera_id"]).one()
+        assert stored.detection_threshold == threshold
+    cached = api.cache.get_function_config(camera["camera_id"], "recognize_face")
+    assert cached["detection_threshold"] == threshold
+    for invalid in (-0.1, 1.1):
+        payload["value"]["detection_threshold"] = invalid
+        assert api.client.put(path, json=payload).status_code == 400
+        assert api.client.get(path).json()["config"]["value"] == expected
+
+
 @pytest.mark.parametrize("department", [None, ""])
 @pytest.mark.parametrize("enabled", [False, True])
 def test_camera_creation_and_disabled_feature_saves_allow_empty_department(department_api, department, enabled):

@@ -5,10 +5,10 @@ import time
 
 import cv2
 
-from AiVision.core.settings import settings
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.platform.face_library.constants import (
-    DEFAULT_CAPTURE_INTERVAL, DEFAULT_RECORD_COOLDOWN_SECONDS, DEFAULT_SIMILARITY_THRESHOLD,
+    DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
+    DEFAULT_SIMILARITY_THRESHOLD,
 )
 from .records import RecognitionRecorder
 
@@ -36,8 +36,10 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         value = self._value_config(self.config_cache[camera_id])
         response = self.dispatch_inference_sync(
             camera_id, "insightface", roi,
-            task_meta={"similarity_threshold": value.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD)},
-            timeout=settings.face_recognition.inference_timeout,
+            task_meta={
+                "conf": value.get("detection_threshold", DEFAULT_DETECTION_THRESHOLD),
+                "similarity_threshold": value.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD),
+            },
         )
         # 身份识别结果永远不触发现有报警分发器。
         return False, response

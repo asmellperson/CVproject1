@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from AiVision.features._base.roi import NormalizedRoi
 from AiVision.platform.face_library.constants import (
-    DEFAULT_CAPTURE_INTERVAL, DEFAULT_RECORD_COOLDOWN_SECONDS, DEFAULT_SIMILARITY_THRESHOLD,
+    DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
+    DEFAULT_SIMILARITY_THRESHOLD,
 )
 
 
@@ -14,6 +15,7 @@ class FaceRecognitionValue(BaseModel):
     model_config = ConfigDict(extra="forbid")
     roi_pos: NormalizedRoi = Field(default_factory=list)
     cap_interval: float = Field(DEFAULT_CAPTURE_INTERVAL, ge=0.1, le=1.0)
+    detection_threshold: float = Field(DEFAULT_DETECTION_THRESHOLD, ge=0, le=1)
     similarity_threshold: float = Field(DEFAULT_SIMILARITY_THRESHOLD, ge=0, le=1)
     record_enabled: bool = True
     record_cooldown_seconds: float = Field(DEFAULT_RECORD_COOLDOWN_SECONDS, ge=1)

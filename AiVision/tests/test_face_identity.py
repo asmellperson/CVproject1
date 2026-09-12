@@ -1,6 +1,7 @@
 """以虚构人员、内存照片、SQLite 和 Mock 验证整条身份识别链路。"""
 from datetime import datetime
 import os
+from pathlib import Path
 import queue
 import sys
 import time
@@ -18,14 +19,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from AiVision.core import db
-from AiVision.core.settings import FaceRecognitionSettings, settings
+from AiVision.core.settings import settings
 from AiVision.features.recognize_face import SPEC, records
 from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
 from AiVision.features.recognize_face.orm import FaceRecognitionRecord
 from AiVision.features.recognize_face.schema import FaceRecognitionConfigSchema
 from AiVision.platform.camera.orm import AiCameraConfig
 from AiVision.platform.face_library import PersonSyncError, service
-from AiVision.platform.face_library.constants import EMBEDDING_DIM, MODEL_FILES, MODEL_NAME
+from AiVision.platform.face_library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
 from AiVision.platform.face_library.embedding import generate_embeddings
 from AiVision.platform.face_library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
 from AiVision.platform.face_library.orm import FaceEmbedding, FacePerson
@@ -235,7 +236,7 @@ def test_index_excludes_inactive_or_outdated_photo(library, field, value):
     assert index.match(vector(), .5)["matched"] is False
 
 
-def test_worker_recognizes_every_face_and_refreshes_on_interval(library, monkeypatch):
+def test_worker_recognizes_every_face_and_refreshes_on_interval(library, monkeypatch, removed_face_environment):
     add_person(library)
     add_person(library, person_id=2, source="two")
     save_vector(library, 1, 0)
@@ -245,15 +246,18 @@ def test_worker_recognizes_every_face_and_refreshes_on_interval(library, monkeyp
     worker = face_recognizer.FaceRecognizerWorker({}, {}, "insightface", "/mock/models")
     assert worker.load_model() is backend
     library.statements.clear()
-    for _ in range(5):
-        results = worker.infer(backend, np.zeros((100, 100, 3), dtype=np.uint8), {"similarity_threshold": 0.5})
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    for camera_id, conf in [(1, .2), (2, .8), (1, .3), (2, .7), (1, .5)]:
+        results = worker.infer(backend, image, {"camera_id": camera_id, "conf": conf, "similarity_threshold": 0.5})
+        backend.get_faces.assert_called_with(image, detection_threshold=conf)
         assert [item["person_id"] for item in results] == [1, 2, None]
         assert all(item["type"] == "face_identity" for item in results)
     assert library.statements == []
     with library.factory.begin() as session:
         session.get(FacePerson, 1).is_active = False
-    worker._index_refreshed_at -= settings.face_recognition.index_refresh_seconds + 1
+    worker._index_refreshed_at -= INDEX_REFRESH_SECONDS + 1
     assert worker.infer(backend, None, {})[0]["person_id"] is None
+    backend.get_faces.assert_called_with(None, detection_threshold=0.5)
 
 
 def test_index_refresh_failure_is_not_retried_every_frame(monkeypatch):
@@ -296,9 +300,11 @@ def test_record_failure_is_bounded_and_can_retry(library, monkeypatch):
     assert recorder._recorded_at == {}
 
 
-def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library):
+def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment):
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
-    consumer.config_cache[7] = {"shm_name": "camera_7", "cap_interval": .5, "similarity_threshold": .7}
+    consumer.config_cache[7] = {
+        "shm_name": "camera_7", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
+    }
     consumer.frame_cache[7] = np.zeros((120, 200, 3), dtype=np.uint8)
     consumer._masks[7] = (None, 10, 100, 20, 150)
     detections = [dict(bbox=[0, 0, 30, 40], matched=False, person_id=None, person_name="未知人员",
@@ -307,7 +313,8 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     result = consumer._process(consumer.frame_cache[7], 7)
     assert result[0] is False
     assert consumer.dispatch_inference_sync.call_args.args[1] == "insightface"
-    assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"similarity_threshold": .7}
+    assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"conf": .35, "similarity_threshold": .7}
+    assert "timeout" not in consumer.dispatch_inference_sync.call_args.kwargs
     assert consumer.post_process(7, result).shape == (120, 200, 3)
     snapshot = consumer.get_monitor_status("camera_7")
     assert snapshot["count"] == 3 and snapshot["alarm"] is False
@@ -394,51 +401,104 @@ def test_insightface_directory_validation_preserves_yolo_rules(model_directory, 
         model_paths.validate_model_path(str(model_directory), model_type="insightface")
 
 
-@pytest.mark.parametrize("provider", ["CPUExecutionProvider", "CUDAExecutionProvider"])
-def test_face_settings_select_provider_without_independent_device(provider, monkeypatch):
-    monkeypatch.setenv("INSIGHTFACE_EXECUTION_PROVIDER", provider)
-    config = FaceRecognitionSettings(_env_file=None)
-    assert config.provider == provider
-    assert "device_id" not in config.model_dump()
+@pytest.fixture
+def removed_face_environment(monkeypatch):
+    values = {
+        "INSIGHTFACE_EXECUTION_PROVIDER": "CPUExecutionProvider",
+        "INSIGHTFACE_DETECTION_SIZE": "invalid",
+        "INSIGHTFACE_DETECTION_THRESHOLD": "invalid",
+        "FACE_INDEX_REFRESH_SECONDS": "invalid",
+        "FACE_INFERENCE_TIMEOUT": "invalid",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    return values
+
+
+def test_face_runtime_has_no_environment_settings(removed_face_environment):
+    import AiVision.core.settings as settings_module
+
+    assert not hasattr(settings_module, "FaceRecognitionSettings")
+    assert not hasattr(settings_module.Settings(), "face_recognition")
+    assert INDEX_REFRESH_SECONDS == 60.0
+    example = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    assert all(name not in example for name in removed_face_environment)
 
 
 @pytest.mark.parametrize("visible_devices", ["3", "4,1"])
-@pytest.mark.parametrize("provider,context,options", [
-    ("CPUExecutionProvider", -1, [{}]),
-    ("CUDAExecutionProvider", 0, [{"device_id": "0"}]),
-])
 def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
-    model_directory, monkeypatch, provider, context, options, visible_devices,
+    model_directory, monkeypatch, visible_devices, removed_face_environment,
 ):
     detector = Mock(taskname="detection")
-    detector.session.get_providers.return_value = [provider]
-    detector.detect.return_value = (np.array([[1, 2, 30, 40, .9], [40, 2, 70, 40, .8]]), np.zeros((2, 5, 2)))
+    detector.session.get_providers.return_value = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    boxes = np.array([[1, 2, 30, 40, .9], [40, 2, 70, 40, .8]])
+    landmarks = np.zeros((2, 5, 2))
+
+    def detect(*args, **kwargs):
+        selected = boxes[:, 4] >= detector.det_thresh
+        return boxes[selected], landmarks[selected]
+
+    detector.detect.side_effect = detect
     recognizer = Mock(taskname="recognition")
-    recognizer.session.get_providers.return_value = [provider]
+    recognizer.session.get_providers.return_value = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     get_model = Mock(side_effect=[detector, recognizer])
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
-    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(get_available_providers=lambda: [provider]))
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(
+        get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    ))
     monkeypatch.setitem(sys.modules, "insightface.model_zoo", SimpleNamespace(get_model=get_model))
     monkeypatch.setitem(sys.modules, "insightface.app.common", SimpleNamespace(Face=SimpleNamespace))
-    monkeypatch.setattr(settings.face_recognition, "provider", provider)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible_devices)
     backend = face_recognizer.InsightFaceRecognizer(str(model_directory))
     for call in get_model.call_args_list:
         assert call.kwargs["download"] is False
-        assert call.kwargs["providers"] == [provider]
-        assert call.kwargs["provider_options"] == options
+        assert call.kwargs["providers"] == ["CUDAExecutionProvider"]
+        assert call.kwargs["provider_options"] == [{"device_id": "0"}]
         assert str(model_directory) in call.args[0]
     # 显式检测尺寸防止上游默认的多尺寸检测改变当前项目的推理配置。
     detector.prepare.assert_called_once_with(
-        ctx_id=context,
-        input_size=(settings.face_recognition.detection_size, settings.face_recognition.detection_size),
-        det_thresh=settings.face_recognition.detection_threshold,
+        ctx_id=0, input_size=(640, 640), det_thresh=0.5,
     )
-    recognizer.prepare.assert_called_once_with(ctx_id=context)
-    assert len(backend.get_faces(np.zeros((100, 100, 3), dtype=np.uint8))) == 2
+    recognizer.prepare.assert_called_once_with(ctx_id=0)
+    detector.session.disable_fallback.assert_called_once()
+    recognizer.session.disable_fallback.assert_called_once()
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    for threshold, count in ((.2, 2), (.85, 1), (.3, 2), (.95, 0)):
+        assert len(backend.get_faces(image, detection_threshold=threshold)) == count
+        assert detector.det_thresh == threshold
+    # 注册照片调用默认参数时恢复默认阈值，不继承最近一次摄像头阈值。
+    assert len(backend.get_faces(image)) == 2
+    assert detector.det_thresh == 0.5
     assert detector.detect.call_args.kwargs["max_num"] == 0
-    assert recognizer.get.call_count == 2
+    assert recognizer.get.call_count == 7
     assert os.environ["CUDA_VISIBLE_DEVICES"] == visible_devices
+    detector.detect.side_effect = RuntimeError("CUDA inference failed")
+    with pytest.raises(RuntimeError, match="CUDA inference failed"):
+        backend.get_faces(image)
+    detector.session.set_providers.assert_not_called()
+    recognizer.session.set_providers.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "detection", "recognition"])
+def test_recognizer_rejects_cpu_when_cuda_is_unavailable_or_fails(model_directory, monkeypatch, failure):
+    models = [Mock(taskname="detection"), Mock(taskname="recognition")]
+    for model in models:
+        model.session.get_providers.return_value = [
+            "CPUExecutionProvider" if failure == model.taskname else "CUDAExecutionProvider",
+        ]
+    get_model = Mock(side_effect=models)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(
+        get_available_providers=lambda: ["CPUExecutionProvider"] if failure == "unavailable" else ["CUDAExecutionProvider"],
+    ))
+    monkeypatch.setitem(sys.modules, "insightface.model_zoo", SimpleNamespace(get_model=get_model))
+    with pytest.raises(RuntimeError, match="CUDAExecutionProvider"):
+        face_recognizer.InsightFaceRecognizer(str(model_directory))
+    if failure == "unavailable":
+        get_model.assert_not_called()
+    for model in models:
+        model.prepare.assert_not_called()
+        model.session.set_providers.assert_not_called()
 
 
 def test_missing_models_fail_before_loading_or_downloading(tmp_path, monkeypatch):

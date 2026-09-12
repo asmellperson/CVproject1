@@ -31,6 +31,7 @@ def test_fixed_registry_has_explicit_inference_settings():
     from AiVision.platform.inference.workers.face_recognizer import FaceRecognizerWorker
     assert get_model_spec("insightface").worker_class is FaceRecognizerWorker
     assert get_model_spec("insightface").type == "insightface"
+    assert get_model_spec("insightface").conf == 0.5
     with pytest.raises(TypeError):
         MODEL_SPECS["new"] = get_model_spec("yolo_human")
     with pytest.raises(FrozenInstanceError):
