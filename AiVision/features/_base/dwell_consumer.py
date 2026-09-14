@@ -6,6 +6,8 @@ detect_face 和 detect_human 的告警逻辑实质上一样:
     - 跟踪每个目标的逗留时间
     - 达到 MAX_TIME 后轨迹保持告警状态，直至轨迹删除
     - 仅本次匹配到目标（lost == 0）的轨迹参与当前告警；重复通知由 alarm_interval 冷却控制
+    - 推理故障保留轨迹并暂停计时；恢复后重新匹配，不补计故障跨越的间隔
+    - 故障持续期间不按时长删除轨迹；恢复后的有效观测未匹配才累计 MAX_LOST
 
 它们的唯一区别是:
     - 用的模型不同(face 用人脸模型, human 用人体模型)
@@ -14,32 +16,70 @@ detect_face 和 detect_human 的告警逻辑实质上一样:
 所以本模板把这个共性抽出来,detect_face/detect_human 极简继承即可。
 """
 from __future__ import annotations
+from dataclasses import dataclass
+from math import isfinite
+from time import monotonic
 import time
 import cv2
 
+from AiVision.core.logger import logger
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.features._base.tracking import IouTracker
+from AiVision.platform.inference.contracts import INFERENCE_STATUS_OK
+
+
+@dataclass
+class DwellObservationClock:
+    """只累计相邻两次有效推理之间的单调时间，故障及恢复首帧均不推进。"""
+    elapsed: float = 0.0
+    last_success_at: float = 0.0
+    valid: bool = False
+
+    def observe(self, now: float) -> None:
+        if self.valid:
+            self.elapsed += max(0.0, now - self.last_success_at)
+        self.last_success_at = now
+        self.valid = True
+
+
+def validated_dwell_detections(result: dict) -> list[dict]:
+    """整帧校验后再交给跟踪器；损坏的框不能被静默当成未检测到目标。"""
+    detections = result.get("detections")
+    if not isinstance(detections, list):
+        raise ValueError("detections 必须是列表")
+    for detection in detections:
+        if not isinstance(detection, dict):
+            raise ValueError("检测项必须是对象")
+        bbox = detection.get("bbox")
+        confidence = detection.get("confidence")
+        class_id = detection.get("class_id")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            raise ValueError("bbox 必须是四坐标列表")
+        if (
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v) for v in (*bbox, confidence))
+            or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]
+            or not 0 <= confidence <= 1
+            or not isinstance(class_id, int) or isinstance(class_id, bool) or class_id < 0
+            or not isinstance(detection.get("type"), str) or not detection["type"]
+        ):
+            raise ValueError("检测项的 bbox、confidence、class_id 或 type 无效")
+    return detections
 
 def build_dwell_monitor_snapshot(
     trackers: dict,                    # camera_id：每台 Camera 有一个独立 Tracker。
     *,
     camera_id: int,
     threshold_seconds: float,
-    now: float | None = None,
     updated_at: float | None = None,
 ) -> dict:
-    """Build a display-only snapshot from the existing dwell trackers."""
-    current_time = time.time() if now is None else float(now)
+    """展示最后一次有效观测中的可见轨迹，时长与告警使用同一时间轴。"""
     tracker = trackers.get(camera_id)
     visible_tracks = [
-        track for track in tracker.tracks.values() if int(getattr(track, "lost", 0)) == 0
+        track for track in tracker.tracks.values() if track.lost == 0
     ] if tracker is not None else []
 
-    durations = [
-        max(0.0, current_time - float(getattr(track, "first_seen", current_time)))
-        for track in visible_tracks
-    ]
-    alarm = any(bool(getattr(track, "alarmed", False)) for track in visible_tracks)
+    durations = [track.dwell_time for track in visible_tracks]
+    alarm = any(track.alarmed for track in visible_tracks)
     return {
         "count": len(visible_tracks),
         "alarm": alarm,
@@ -60,17 +100,22 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         super().__init__(*args, **kwargs)
         # camera_id → IouTracker
         self._trackers: dict[int, IouTracker] = {}
+        self._observation_clocks: dict[int, DwellObservationClock] = {}
         self.monitor_status: dict[str, dict] = {}
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         super()._clear_camera_state(camera_id, shm_name)
         self._trackers.pop(camera_id, None)
+        self._observation_clocks.pop(camera_id, None)
         if shm_name:
             self.monitor_status.pop(shm_name, None)
 
     def _on_roi_changed(self, camera_id: int) -> None:
         super()._on_roi_changed(camera_id)
         self._trackers.pop(camera_id, None)
+        self._observation_clocks.pop(camera_id, None)
+        camera_key = self.config_cache[camera_id].get("shm_name")
+        self.monitor_status.pop(camera_key, None)
 
     def _detection_options(self, cfg: dict) -> tuple:
         raise NotImplementedError
@@ -81,6 +126,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         """
         # 读取算法参数
         cfg = self.config_cache[camera_id]
+        clock = self._observation_clocks.setdefault(camera_id, DwellObservationClock())
         max_time = cfg["MAX_TIME"]
         detection_iou = cfg["DETECTION_IOU_THR"]
         track_iou = cfg["TRACK_IOU_THR"]
@@ -89,15 +135,27 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         min_aspect, max_aspect = aspect_range
 
         # 统一推理接口；具体模型由功能声明，检测 NMS 与跟踪匹配分别配置。
-        if not self.spec.required_models:
-            return False, None
         model_name = self.spec.required_models[0]
-        det_result = self.dispatch_inference_sync(
-            camera_id,
-            model_name,
-            roi,
-            task_meta={"conf": conf_thr, "iou": detection_iou},
-        )
+        try:
+            det_result = self.dispatch_inference_sync(
+                camera_id, model_name, roi,
+                task_meta={"conf": conf_thr, "iou": detection_iou},
+            )
+        except Exception:
+            clock.valid = False
+            logger.exception(f"[{self.feature_name}] 推理调用失败，逗留计时暂停 camera_id={camera_id}")
+            return False, None
+        if not isinstance(det_result, dict) or det_result.get("status") != INFERENCE_STATUS_OK:
+            clock.valid = False
+            return False, None
+        try:
+            raw_detections = validated_dwell_detections(det_result)
+        except ValueError as exc:
+            clock.valid = False
+            logger.warning(f"[{self.feature_name}] 推理结果无效，逗留计时暂停 camera_id={camera_id}: {exc}")
+            return False, None
+
+        clock.observe(monotonic())
 
         # 每台摄像头对应一个 Tracker
         tracker_key = camera_id
@@ -116,35 +174,29 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
 
         # 提取检测框
         detections = []
-        for det in det_result.get("detections", []):
+        for det in raw_detections:
             # 1、检测类别过滤
             if self.REQUIRED_DETECTION_TYPE and det.get("type") != self.REQUIRED_DETECTION_TYPE:
                 continue
-            bbox = det.get("bbox")
-            if bbox and len(bbox) >= 4:
-                width = max(0.0, float(bbox[2]) - float(bbox[0]))
-                height = max(0.0, float(bbox[3]) - float(bbox[1]))
-                area = width * height
-                # 2、最小框面积过滤，去掉特别小的远距离目标或者噪声框
-                if area < min_box_area:
-                    continue
-                if height > 0 and min_aspect is not None and max_aspect is not None:
-                    # 3、高宽比过滤，异常扁平或者扁长框进行过滤
-                    aspect = width / height
-                    if aspect < min_aspect or aspect > max_aspect:
-                        continue
-                detections.append({"bbox": bbox})
+            bbox = det["bbox"]
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
+            # 最小框面积与宽高比是业务过滤，正常过滤为空仍然属于有效观测。
+            if width * height < min_box_area:
+                continue
+            if min_aspect is not None and max_aspect is not None and not min_aspect <= width / height <= max_aspect:
+                continue
+            detections.append({"bbox": bbox})
         # 进入跟踪
-        tracks = tracker.update(detections)
+        tracks = tracker.update(detections, now=clock.elapsed)
 
         # 判定告警
         has_alarm = False
         alarm_msgs = []
-        now = time.time()
         for tid, trk in tracks.items():
             if trk.lost > 0:              # 本帧没有真正检测到的人，不参与当前逗留告警判断
                 continue
-            dwell_time = now - trk.first_seen
+            dwell_time = trk.dwell_time
             if not trk.alarmed and dwell_time >= max_time:
                 trk.alarmed = True
             # Track一旦报警就一直保持报警，直到这个Track被删除
@@ -165,6 +217,8 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             画Track框
         """
         cfg = self.config_cache[camera_id]
+        clock = self._observation_clocks.get(camera_id)
+        valid = clock is not None and clock.valid
         camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
         if camera_key:
             # build_dwell_monitor_snapshot只统计当前真正可见Track，track.lost == 0才算
@@ -172,16 +226,24 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
                 self._trackers,
                 camera_id=camera_id,
                 threshold_seconds=cfg["MAX_TIME"],
-            )
+            ) if valid else {
+                "count": None, "alarm": False, "reason": "unknown",
+                "duration_seconds": None, "threshold_seconds": cfg["MAX_TIME"],
+                "updated_at_s": time.time(),
+            }
         frame_copy = self._annotated_frame(camera_id)
         if frame_copy is None:
             return None
+        if not valid:
+            cv2.putText(frame_copy, "UNKNOWN - inference failed; dwell paused", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 2)
+            return frame_copy
         tracker = self._trackers.get(camera_id)
         if tracker is None:
             return frame_copy
         ox, oy = self._get_roi_offset(camera_id)
         for tid, trk in tracker.tracks.items():
-            dwell_time = time.time() - trk.first_seen if trk.lost == 0 else trk.dwell_time
+            dwell_time = trk.dwell_time
             x1, y1, x2, y2 = (
                 int(trk.bbox[0]) + ox, int(trk.bbox[1]) + oy,
                 int(trk.bbox[2]) + ox, int(trk.bbox[3]) + oy,
@@ -206,8 +268,9 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         return frame_copy
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
-        value = self.monitor_status.get(camera_key)
-        return dict(value) if value else None
+        with self._camera_state_lock:
+            value = self.monitor_status.get(camera_key)
+            return dict(value) if value else None
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True

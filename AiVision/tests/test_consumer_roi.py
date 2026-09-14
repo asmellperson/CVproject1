@@ -244,7 +244,7 @@ def test_each_feature_crops_infers_and_draws_in_current_frame_coordinates(featur
     def infer(camera_id, model, roi, **_kwargs):
         calls.append((camera_id, model, roi.copy()))
         kind = "face" if feature == "detect_face" else "phone" if feature == "detect_phone" else "person"
-        return {"status": "ok", "detections": [{"type": kind, "bbox": [10, 10, 30, 40], "confidence": 0.9}]}
+        return {"status": "ok", "detections": [{"type": kind, "bbox": [10, 10, 30, 40], "confidence": 0.9, "class_id": 0}]}
 
     consumer.dispatch_inference_sync = infer
     for height, width in [(100, 200), (200, 400)]:

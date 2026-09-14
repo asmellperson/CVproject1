@@ -28,6 +28,7 @@ INFERENCE_ERROR_MODEL: Final = "model_inference_error"
 INFERENCE_ERROR_QUEUE_FULL: Final = "infer_queue_full"
 INFERENCE_ERROR_TIMEOUT: Final = "inference_timeout"
 INFERENCE_ERROR_UNAVAILABLE: Final = "model_unavailable"
+INFERENCE_ERROR_INVALID_RESULT: Final = "invalid_inference_result"
 
 def build_inference_result(
     task: dict,

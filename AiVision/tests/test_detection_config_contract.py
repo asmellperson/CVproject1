@@ -149,7 +149,7 @@ def consumer(feature, **values):
 def test_independent_iou_hot_update_zero_time_and_visible_tracks(feature):
     instance = consumer(feature, DETECTION_IOU_THR=0.0, TRACK_IOU_THR=1.0, MAX_LOST=0, MAX_TIME=0)
     kind = "face" if feature == "detect_face" else "person"
-    instance.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": [{"type": kind, "bbox": [0, 0, 10, 20]}]})
+    instance.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": [{"type": kind, "bbox": [0, 0, 10, 20], "confidence": .9, "class_id": 0}]})
     roi = np.zeros((20, 20, 3), dtype=np.uint8)
     assert instance._process(roi, 1)[0] is True
     assert instance.dispatch_inference_sync.call_args.kwargs["task_meta"]["iou"] == 0.0
@@ -158,7 +158,7 @@ def test_independent_iou_hot_update_zero_time_and_visible_tracks(feature):
     assert instance._process(roi, 1)[0] is True
     assert instance.dispatch_inference_sync.call_args.kwargs["task_meta"]["iou"] == 0.9
     assert instance._trackers[1].iou_thr == 0.1
-    instance.dispatch_inference_sync.return_value = {"detections": []}
+    instance.dispatch_inference_sync.return_value = {"status": "ok", "detections": []}
     assert instance._process(roi, 1)[0] is False
     assert not instance._trackers[1].tracks  # MAX_LOST=0 的第一次丢失立即删除
 

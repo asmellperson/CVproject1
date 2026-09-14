@@ -29,19 +29,19 @@ def iou(box_a: list[float], box_b: list[float]) -> float:
 class Track:
     """单个跟踪轨迹"""
     bbox: list[float]
-    first_seen: float               # 第一次看到这个人的时间
-    last_seen: float                # 最后一次匹配到检测框的时间
+    first_seen: float               # 首次匹配时间；时间轴由 update(now=...) 的调用方决定
+    last_seen: float                # 同一时间轴上的最后一次匹配时间
     velocity: tuple[float, float] = (0.0, 0.0)     # 描述上一帧到这一帧目标中心移动了多少像素
     lost: int = 0                   # 连续丢失的跟踪更新次数
     alarmed: bool = False           # 当前这个人是否已经进入告警状态
 
     @classmethod
-    def new(cls, bbox: list[float]) -> "Track":
+    def new(cls, bbox: list[float], *, now: float | None = None) -> "Track":
         """新目标出现"""
-        now = time.time()
+        now = time.time() if now is None else now
         return cls(bbox=list(bbox), first_seen=now, last_seen=now)
 
-    def update(self, bbox: list[float], smooth_alpha: float = defaults.TRACK_SMOOTH_ALPHA):
+    def update(self, bbox: list[float], smooth_alpha: float = defaults.TRACK_SMOOTH_ALPHA, *, now: float | None = None):
         """已有目标再次检测到"""
         # 计算旧框与新框的中心
         old_cx, old_cy = box_center(self.bbox)
@@ -50,7 +50,7 @@ class Track:
         self.velocity = (new_cx - old_cx, new_cy - old_cy)
         # 检测框平滑Bt​=(1−α)Bt−1​+αBdet​，当前α = 0.7，旧框占 30%，新检测框占 70%(检测框中心会按这个去走)
         self.bbox = smooth_box(self.bbox, list(bbox), smooth_alpha)
-        self.last_seen = time.time()
+        self.last_seen = time.time() if now is None else now
         self.lost = 0
 
     def step_lost(self):
@@ -102,7 +102,7 @@ class IouTracker:
         self._tracks: dict[int, Track] = {}
         self._next_id = 1
 
-    def update(self, detections: list[dict]) -> dict[int, Track]:
+    def update(self, detections: list[dict], *, now: float | None = None) -> dict[int, Track]:
         """
         用当前帧检测结果刷新所有轨迹。
 
@@ -112,7 +112,9 @@ class IouTracker:
         
         detections: [{"bbox": [x1,y1,x2,y2], ...}, ...]
         返回更新后的 {track_id: Track}
+        now：调用方提供的计时秒数；逗留检测使用扣除推理故障间隔的观测时间轴。
         """
+        now = time.time() if now is None else now
         used_tracks: set[int] = set()
         used_detections: set[int] = set()
         candidates = []
@@ -126,7 +128,7 @@ class IouTracker:
         for _score, tid, det_idx in sorted(candidates, key=lambda item: item[0], reverse=True):
             if tid in used_tracks or det_idx in used_detections or tid not in self._tracks:
                 continue
-            self._tracks[tid].update(detections[det_idx]["bbox"], smooth_alpha=self.smooth_alpha)
+            self._tracks[tid].update(detections[det_idx]["bbox"], smooth_alpha=self.smooth_alpha, now=now)
             used_tracks.add(tid)
             used_detections.add(det_idx)
 
@@ -141,7 +143,7 @@ class IouTracker:
         # 2) 未匹配的检测开新轨迹
         for i, det in enumerate(detections):
             if i not in used_detections:
-                self._tracks[self._next_id] = Track.new(det["bbox"])
+                self._tracks[self._next_id] = Track.new(det["bbox"], now=now)
                 self._next_id += 1
 
         return self._tracks

@@ -32,11 +32,13 @@ from AiVision.core.settings import settings
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.roi import roi_to_pixels
 from AiVision.platform.inference.contracts import (
+    INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,
     INFERENCE_FAILURE_STATUSES,
     INFERENCE_STATUS_DROPPED,
+    INFERENCE_STATUS_ERROR,
     INFERENCE_STATUS_OK,
     INFERENCE_STATUS_TIMEOUT,
     INFERENCE_STATUS_UNAVAILABLE,
@@ -651,12 +653,15 @@ class BaseFunctionConsumer(ABC):
                         and outcome.get("roi_id") == 0
                     ):
                         result = dict(outcome)
-                        result.setdefault("model_name", model_name)
-                        result.setdefault("status", INFERENCE_STATUS_OK)
-                        result.setdefault("error_code", None)
-                        result.setdefault("error_message", None)
-                        result.setdefault("inference_ms", None)
-                        result.setdefault("detections", [])
+                        if (
+                            result.get("status") not in (INFERENCE_STATUS_OK, *INFERENCE_FAILURE_STATUSES)
+                            or not isinstance(result.get("detections"), list)
+                        ):
+                            result = build_inference_result(
+                                task, status=INFERENCE_STATUS_ERROR,
+                                error_code=INFERENCE_ERROR_INVALID_RESULT,
+                                error_message="推理结果必须包含明确的 status 和 detections 列表",
+                            )
                         break
         self._record_inference_outcomes(camera_id=camera_id, model_name=model_name, outcomes=[result])
         return result

@@ -237,6 +237,7 @@ def test_dwell_time_loss_updates_and_alarm_cooldown_at_different_rates(monkeypat
 
     now = [100.0]
     monkeypatch.setattr(dwell_consumer.time, "time", lambda: now[0])
+    monkeypatch.setattr(dwell_consumer, "monotonic", lambda: now[0])
     dispatcher = AlarmDispatcher()
     monkeypatch.setattr(dispatcher, "_execute", Mock())
     monkeypatch.setattr(base_consumer, "alarm_dispatcher", dispatcher)
@@ -256,7 +257,7 @@ def test_dwell_time_loss_updates_and_alarm_cooldown_at_different_rates(monkeypat
         assert result[0] == (i * period >= 2)
     assert dispatcher._execute.call_count == 2
     track_id = next(iter(consumer._trackers[1].tracks))
-    assert consumer._trackers[1].tracks[track_id].first_seen == 100
+    assert consumer._trackers[1].tracks[track_id].first_seen == 0
     consumer.dispatch_inference_sync.return_value = {"status": "ok", "detections": []}
     for lost in [1, 2]:
         now[0] += period

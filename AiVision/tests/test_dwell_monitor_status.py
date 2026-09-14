@@ -1,9 +1,8 @@
 # 文件说明：包含监控展示的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-from types import SimpleNamespace
-
 from AiVision.features._base.dwell_consumer import build_dwell_monitor_snapshot
+from AiVision.features._base.tracking import Track
 
 
 # 功能：定义 `FakeTracker` 类，封装监控展示相关的状态、约束与操作
@@ -40,12 +39,12 @@ class FakeTracker:
 def test_dwell_snapshot_counts_visible_tracks_and_longest_duration():
     trackers = {
         7: FakeTracker({
-            1: SimpleNamespace(first_seen=100.0, lost=0, alarmed=False),
-            2: SimpleNamespace(first_seen=90.0, lost=0, alarmed=True),
-            3: SimpleNamespace(first_seen=80.0, lost=1, alarmed=True),
+            1: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=100.0, lost=0, alarmed=False),
+            2: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=90.0, lost=0, alarmed=True),
+            3: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=80.0, lost=1, alarmed=True),
         }),
         8: FakeTracker({
-            4: SimpleNamespace(first_seen=70.0, lost=0, alarmed=True),
+            4: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=70.0, lost=0, alarmed=True),
         }),
     }
 
@@ -53,7 +52,6 @@ def test_dwell_snapshot_counts_visible_tracks_and_longest_duration():
         trackers,
         camera_id=7,
         threshold_seconds=15.0,
-        now=110.0,
         updated_at=109.5,
     )
 
@@ -76,10 +74,9 @@ def test_dwell_snapshot_counts_visible_tracks_and_longest_duration():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks():
     snapshot = build_dwell_monitor_snapshot(
-        {7: FakeTracker({1: SimpleNamespace(first_seen=90.0, lost=2, alarmed=True)})},
+        {7: FakeTracker({1: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=90.0, lost=2, alarmed=True)})},
         camera_id=7,
         threshold_seconds=30.0,
-        now=110.0,
         updated_at=110.0,
     )
 
@@ -100,12 +97,11 @@ def test_dwell_snapshot_is_normal_when_roi_has_no_visible_tracks():
 def test_dwell_snapshot_ignores_other_cameras():
     snapshot = build_dwell_monitor_snapshot(
         {
-            7: FakeTracker({1: SimpleNamespace(first_seen=105.0, lost=0, alarmed=False)}),
-            8: FakeTracker({2: SimpleNamespace(first_seen=80.0, lost=0, alarmed=True)}),
+            7: FakeTracker({1: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=105.0, lost=0, alarmed=False)}),
+            8: FakeTracker({2: Track(bbox=[0, 0, 10, 20], last_seen=110.0, first_seen=80.0, lost=0, alarmed=True)}),
         },
         camera_id=7,
         threshold_seconds=10.0,
-        now=110.0,
         updated_at=110.0,
     )
 

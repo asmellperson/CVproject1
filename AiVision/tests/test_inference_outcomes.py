@@ -7,11 +7,13 @@ import queue
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.platform.inference.base_worker import BaseModelWorker
 from AiVision.platform.inference.contracts import (
     INFERENCE_ERROR_MODEL,
+    INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,
@@ -295,7 +297,7 @@ def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch)
     infer_queue, result_queue = queue.Queue(), queue.Queue()
     task = _task()
     result_queue.put({**task, "request_id": "stale", "detections": [{"type": "wrong"}]})
-    result_queue.put({**task, "detections": [{"type": "person"}]})
+    result_queue.put({**task, "status": INFERENCE_STATUS_OK, "detections": [{"type": "person"}]})
     consumer = _consumer({"test-model": infer_queue}, result_queue)
     roi = np.zeros((4, 4, 3), dtype=np.uint8)
     result = consumer.dispatch_inference_sync(7, "test-model", roi, timeout=0.01)
@@ -304,6 +306,23 @@ def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch)
     assert consumer.inference_outcome_counts == {INFERENCE_STATUS_OK: 1}
     assert infer_queue.qsize() == 1
     assert infer_queue.get_nowait()["frame"] is roi
+
+
+@pytest.mark.parametrize("payload", [
+    {"detections": []}, {"status": INFERENCE_STATUS_OK},
+    {"status": "unexpected", "detections": []},
+    {"status": INFERENCE_STATUS_OK, "detections": None},
+    {"status": INFERENCE_STATUS_OK, "detections": {}},
+])
+def test_dispatch_rejects_incomplete_results_instead_of_defaulting_to_success(monkeypatch, payload):
+    monkeypatch.setattr("AiVision.features._base.consumer.time.monotonic_ns", lambda: 123)
+    infer_queue, result_queue = queue.Queue(), queue.Queue()
+    result_queue.put({**_task(), **payload})
+    consumer = _consumer({"test-model": infer_queue}, result_queue)
+    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=.01)
+    assert result["status"] == INFERENCE_STATUS_ERROR
+    assert result["error_code"] == INFERENCE_ERROR_INVALID_RESULT
+    assert consumer.inference_outcome_counts == {INFERENCE_STATUS_ERROR: 1}
 
 
 def test_dispatch_reports_timeout_for_missing_current_camera_result():
