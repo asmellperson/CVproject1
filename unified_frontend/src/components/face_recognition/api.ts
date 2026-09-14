@@ -8,6 +8,9 @@ export type FaceIdentity = {
   matched: boolean
   person_id: number | null
   person_name: string
+  job_no: string | null
+  person_code: string | null
+  org_index_code: string | null
   similarity: number
   type: 'face_identity'
 }
@@ -30,6 +33,8 @@ export type RecognitionRecord = {
   person_name: string
   similarity: number
   recognized_at: string
+  image_path: string | null
+  image_url: string | null
 }
 
 export type RecognitionRecordPage = { total: number; page: number; page_size: number; items: RecognitionRecord[] }
@@ -53,4 +58,8 @@ export function getRecognitionRecords(page: number, cameraId: string, signal?: A
   const params = new URLSearchParams({ page: String(page), page_size: '20' })
   if (cameraId) params.set('camera_id', cameraId)
   return readRecognitionResponse<RecognitionRecordPage>(`face-recognition/records?${params}`, signal)
+}
+
+export function recognitionImageUrl(path: string) {
+  return `${AIVISION_URL.replace(/\/$/, '')}${path}`
 }

@@ -58,7 +58,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             color = (80, 200, 60) if detection["matched"] else (0, 180, 255)
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
         config = self.config_cache[camera_id]
-        # 姓名由前端以中文字体绘制，坐标使用原始图像尺寸。
+        # 标注帧只画 ROI / bbox；姓名、工号与相似度由前端结构化展示。
         self.monitor_status[config["shm_name"]] = {
             "detections": detections, "frame_width": frame.shape[1], "frame_height": frame.shape[0],
             "count": len(detections) if response["status"] == "ok" else None,
@@ -69,6 +69,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         if value.get("record_enabled", True):
             self.recorder.record(
                 camera_id, detections, float(value.get("record_cooldown_seconds", DEFAULT_RECORD_COOLDOWN_SECONDS)),
+                frame=frame,
             )
         return frame
 

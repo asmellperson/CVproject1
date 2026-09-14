@@ -22,9 +22,10 @@ from AiVision.core import db
 from AiVision.core.settings import settings
 from AiVision.features.recognize_face import SPEC, records
 from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
-from AiVision.features.recognize_face.orm import FaceRecognitionRecord
+from AiVision.features.recognize_face.orm import FaceRecognitionConfig, FaceRecognitionRecord
 from AiVision.features.recognize_face.schema import FaceRecognitionConfigSchema
 from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.platform.alarm_device.orm import AiHornConfig
 from AiVision.platform.face_library import PersonSyncError, service
 from AiVision.platform.face_library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
 from AiVision.platform.face_library.embedding import generate_embeddings
@@ -45,9 +46,11 @@ def face(position=0, bbox=(10, 20, 50, 70)):
 
 
 @pytest.fixture
-def library(monkeypatch):
+def library(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings.storage, "data_path", str(tmp_path))
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    tables = [FacePerson.__table__, FaceEmbedding.__table__, FaceRecognitionRecord.__table__, AiCameraConfig.__table__]
+    tables = [FacePerson.__table__, FaceEmbedding.__table__, FaceRecognitionRecord.__table__,
+              AiCameraConfig.__table__, AiHornConfig.__table__, FaceRecognitionConfig.__table__]
     db.Base.metadata.create_all(engine, tables=tables)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     for module in (db, service, records):
@@ -67,6 +70,7 @@ def add_person(library, person_id=1, source="one", active=True, pic_uri="/pic?to
     with library.factory.begin() as session:
         session.add(FacePerson(
             id=person_id, hik_source=source, hik_person_id="person-a", person_name=f"测试人员{person_id}",
+            job_no=f"JOB-{person_id}", person_code=f"CODE-{person_id}", org_index_code="ORG-A",
             is_active=active, pic_uri=pic_uri, server_index_code=server, last_synced_at=datetime.now(),
         ))
     return person_id
@@ -218,10 +222,15 @@ def test_index_matches_known_unknown_and_does_not_query_per_face(library):
     assert index.refresh() == 2
     library.statements.clear()
     for _ in range(10):
-        assert index.match(vector(0), 0.5)["person_id"] == 1
+        known = index.match(vector(0), 0.5)
+        assert known["person_id"] == 1
+        assert known["job_no"] == "JOB-1"
+        assert known["person_code"] == "CODE-1"
+        assert known["org_index_code"] == "ORG-A"
         assert index.match(vector(1), 0.5)["person_name"] == "测试人员2"
         unknown = index.match(vector(2), 0.5)
-        assert unknown == {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": 0.0}
+        assert unknown == {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": 0.0,
+                           "job_no": None, "person_code": None, "org_index_code": None}
     assert library.statements == []
 
 
@@ -271,23 +280,33 @@ def test_index_refresh_failure_is_not_retried_every_frame(monkeypatch):
     worker.index.refresh.assert_called_once()
 
 
-def test_recorder_cooldown_deduplicates_camera_person_and_unknown(library, monkeypatch):
+def test_recorder_cools_known_people_and_preserves_every_unknown_in_one_frame(library, monkeypatch):
     add_person(library)
     recorder = records.RecognitionRecorder()
     clock = [100.0]
     monkeypatch.setattr(records.time, "monotonic", lambda: clock[0])
-    known = {"person_id": 1, "person_name": "测试人员", "similarity": .9}
-    unknown = {"person_id": None, "person_name": "未知人员", "similarity": .2}
-    assert recorder.record(1, [known, known, unknown, unknown], 30) == 2
+    frame = np.zeros((120, 200, 3), dtype=np.uint8)
+    known = {"matched": True, "person_id": 1, "person_name": "测试人员", "similarity": .9}
+    unknown = {"matched": False, "bbox": [0, 0, 30, 40], "person_id": None, "person_name": "未知人员", "similarity": .2}
+    assert recorder.record(1, [known, known, unknown, {**unknown, "bbox": [50, 0, 80, 40]}], 30, frame=frame) == 3
     library.statements.clear()
     for _ in range(5):
-        assert recorder.record(1, [known, unknown], 30) == 0
+        assert recorder.record(1, [known, unknown], 30, frame=frame) == 0
     assert library.statements == []
-    assert recorder.record(2, [known], 30) == 1
+    assert recorder.record(2, [known], 30, frame=frame) == 1
     clock[0] = 130
-    assert recorder.record(1, [known, unknown], 30) == 2
+    assert recorder.record(1, [known, unknown], 30, frame=frame) == 2
     with library.factory() as session:
-        assert session.query(FaceRecognitionRecord).count() == 5
+        assert session.query(FaceRecognitionRecord).count() == 6
+        first_frame = session.query(FaceRecognitionRecord).order_by(FaceRecognitionRecord.id).limit(3).all()
+        assert len({record.image_path for record in first_frame}) == 1
+        assert len({record.recognized_at for record in first_frame}) == 1
+        assert sum(record.person_id is None for record in first_frame) == 2
+        np.testing.assert_array_equal(cv2.imread(first_frame[0].image_path), frame)
+    assert len(list(Path(settings.storage.data_path).rglob("*.png"))) == 3
+    recorder.clear_camera(1)
+    assert 1 not in recorder._unknown_recorded_at
+    assert all(key[0] != 1 for key in recorder._recorded_at)
 
 
 def test_record_failure_is_bounded_and_can_retry(library, monkeypatch):
@@ -295,9 +314,12 @@ def test_record_failure_is_bounded_and_can_retry(library, monkeypatch):
     scope = Mock(side_effect=RuntimeError("offline"))
     monkeypatch.setattr(records, "session_scope", scope)
     for _ in range(5):
-        assert recorder.record(1, [{"person_id": None, "person_name": "未知人员", "similarity": .1}], 30) == 0
+        assert recorder.record(1, [{"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}], 30,
+                               frame=np.zeros((20, 20, 3), dtype=np.uint8)) == 0
     scope.assert_called_once()
     assert recorder._recorded_at == {}
+    assert recorder._unknown_recorded_at == {}
+    assert list(Path(settings.storage.data_path).rglob("*.png")) == []
 
 
 def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment):
@@ -315,7 +337,14 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     assert consumer.dispatch_inference_sync.call_args.args[1] == "insightface"
     assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"conf": .35, "similarity_threshold": .7}
     assert "timeout" not in consumer.dispatch_inference_sync.call_args.kwargs
-    assert consumer.post_process(7, result).shape == (120, 200, 3)
+    annotated = consumer.post_process(7, result)
+    assert annotated.shape == (120, 200, 3)
+    assert np.any(annotated != consumer.frame_cache[7])
+    with library.factory() as session:
+        saved = session.query(FaceRecognitionRecord).all()
+        assert len(saved) == 3
+        assert len({row.image_path for row in saved}) == 1
+        np.testing.assert_array_equal(cv2.imread(saved[0].image_path), annotated)
     snapshot = consumer.get_monitor_status("camera_7")
     assert snapshot["count"] == 3 and snapshot["alarm"] is False
     assert snapshot["detections"][0]["bbox"] == [20, 10, 50, 50]
@@ -343,9 +372,12 @@ def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatc
     orchestrator = object.__new__(Orchestrator)
     orchestrator.camera_runtime_manager = Mock(list_running=Mock(return_value=["camera_7"]))
     snapshot = {"updated_at_s": time.time(), "count": 1, "detections": [{"person_name": "测试"}],
-                "frame_width": 200, "frame_height": 120}
+                "frame_width": 200, "frame_height": 120, "reason": "normal"}
     orchestrator.consumers = {"recognize_face": Mock(get_monitor_status=Mock(return_value=snapshot))}
     assert orchestrator.get_feature_monitor_status("camera_7", "recognize_face")["detections"] == snapshot["detections"]
+    orchestrator.camera_runtime_manager.list_running.return_value = []
+    assert orchestrator.get_feature_monitor_status("camera_7", "recognize_face")["detections"] == []
+    orchestrator.camera_runtime_manager.list_running.return_value = ["camera_7"]
     snapshot["updated_at_s"] -= 10
     assert orchestrator.get_feature_monitor_status("camera_7", "recognize_face")["detections"] == []
 
@@ -354,11 +386,16 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
     from auth.auth import get_current_user
     from AiVision.api.face_recognition import router
 
+    directory = Path(settings.storage.data_path) / "recognize_face"
+    directory.mkdir()
+    image_path = directory / "test.png"
+    assert cv2.imwrite(str(image_path), np.zeros((20, 30, 3), dtype=np.uint8))
     with library.factory.begin() as session:
         for camera_id, department in [(1, "electronics_electrician"), (2, "research_institute")]:
             session.add(AiCameraConfig(id=camera_id, name=f"测试摄像头{camera_id}", shm_name=f"camera_{camera_id}",
                                        url="test-camera", department=department))
-            session.add(FaceRecognitionRecord(camera_id=camera_id, person_id=None, person_name="未知人员", similarity=.1))
+            session.add(FaceRecognitionRecord(camera_id=camera_id, person_id=None, person_name="未知人员",
+                                              similarity=.1, image_path=str(image_path)))
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["electronics_electrician"]}
@@ -367,11 +404,95 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
         assert response.status_code == 200
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["camera_id"] == 1
+        item = response.json()["items"][0]
+        assert item["image_path"] == str(image_path)
+        image = client.get(item["image_url"])
+        assert image.status_code == 200
+        assert image.headers["content-type"] == "image/png"
+        assert image.content == image_path.read_bytes()
+        assert client.get("/api/face-recognition/records/2/image").status_code == 404
+        assert client.get("/api/face-recognition/records/999/image").status_code == 404
         assert client.get("/api/face-recognition/records?camera_id=2").json()["total"] == 0
         assert client.get("/api/face-recognition/records?page=2").json()["items"] == []
         assert client.get("/api/face-recognition/records?page_size=101").status_code == 422
         app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["research_institute"]}
         assert client.get("/api/face-recognition/records").status_code == 403
+        assert client.get(item["image_url"]).status_code == 403
+
+
+@pytest.mark.parametrize("threshold", [0.0, .37, 1.0])
+def test_recognition_config_api_preserves_threshold_and_feature_switch(library, monkeypatch, threshold):
+    from auth.auth import get_current_user, require_admin
+    from AiVision.api.features import create_features_router
+    from AiVision.features._base import config_manager
+
+    monkeypatch.setattr(config_manager, "get_session", library.factory)
+    monkeypatch.setattr(config_manager, "config_cache", Mock())
+    events = Mock()
+    monkeypatch.setattr(config_manager, "config_event_bus", events)
+    with library.factory.begin() as session:
+        session.add(AiCameraConfig(id=1, name="测试", shm_name="test_camera", url="test-camera",
+                                   department="electronics_electrician"))
+    app = FastAPI()
+    app.include_router(create_features_router(config_manager.FeatureConfigManager()))
+    app.dependency_overrides[require_admin] = lambda: {"role": "admin"}
+    app.dependency_overrides[get_current_user] = lambda: {"role": "admin"}
+    path = "/api/features/recognize_face/configs/test_camera"
+    with TestClient(app) as client:
+        for enabled in [True, False, False, True]:
+            response = client.put(path, json={"enable": enabled, "value": {"detection_threshold": threshold}})
+            assert response.status_code == 200, response.text
+            saved = client.get(path).json()["config"]
+            assert saved["enable"] is enabled
+            assert saved["value"]["detection_threshold"] == threshold
+        assert [call.args[0].change_type for call in events.publish.call_args_list] == [
+            "recognize_face_config_updated", "recognize_face_enabled",
+            "recognize_face_config_updated", "recognize_face_disabled",
+            "recognize_face_config_updated",
+            "recognize_face_config_updated", "recognize_face_enabled",
+        ]
+        for invalid in [-.01, 1.01]:
+            assert client.put(path, json={"value": {"detection_threshold": invalid}}).status_code == 400
+        assert client.get(path).json()["config"]["value"]["detection_threshold"] == threshold
+
+
+def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(library, monkeypatch):
+    from AiVision.api.cameras import build_camera_frame_response
+    from AiVision.features._base import consumer as consumer_module
+    from AiVision.platform.orchestrator import Orchestrator
+
+    frame = np.zeros((120, 200, 3), dtype=np.uint8)
+    consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {"camera_7": frame}, lambda _: True)
+    consumer.config_cache[7] = {"shm_name": "camera_7", "record_enabled": False, "roi_pos": []}
+    consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": [
+        {"bbox": [20, 20, 50, 60], "matched": False, "person_id": None,
+         "person_name": "未知人员", "similarity": .1},
+    ]})
+    consumer.recorder.record = Mock()
+    monkeypatch.setattr(consumer_module.time, "sleep", lambda _: setattr(consumer, "running", False))
+    consumer.running = True
+    consumer._run()
+    annotated = consumer.result_dict["camera_7"]
+    assert consumer.result_updated_at["camera_7"] > 0
+    assert np.any(annotated != frame)
+    consumer.recorder.record.assert_not_called()
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.consumers = {"recognize_face": consumer}
+    assert orchestrator.get_camera_frame_info("camera_7", "recognize_face")[0] is annotated
+    response = build_camera_frame_response(key="camera_7", feature="recognize_face", quality=85,
+        max_width=None, max_height=None, orchestrator=orchestrator)
+    assert response.media_type == "image/jpeg"
+    decoded = cv2.imdecode(np.frombuffer(response.body, np.uint8), cv2.IMREAD_COLOR)
+    assert decoded.shape == frame.shape and np.any(decoded != frame)
+
+
+def test_screenshot_failure_never_creates_text_only_records(library, monkeypatch):
+    recorder = records.RecognitionRecorder()
+    monkeypatch.setattr(records.cv2, "imwrite", Mock(return_value=False))
+    detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
+    assert recorder.record(1, [detection], 30, frame=np.zeros((10, 10, 3), np.uint8)) == 0
+    assert library.statements == []
+    assert recorder._unknown_recorded_at == {}
 
 
 @pytest.fixture

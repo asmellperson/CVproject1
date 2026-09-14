@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { History, RefreshCw } from 'lucide-react'
+import { ImagePreviewDialog } from '@/components/ImagePreviewDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
-import { FACE_DEPARTMENT, getRecognitionRecords, type RecognitionRecordPage } from './api'
+import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { FACE_DEPARTMENT, FACE_FEATURE, getRecognitionRecords, recognitionImageUrl, type RecognitionRecord, type RecognitionRecordPage } from './api'
 
 export function RecognitionRecordsView() {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraId, setCameraId] = useState('')
+  const [previewRecord, setPreviewRecord] = useState<RecognitionRecord | null>(null)
   const [page, setPage] = useState(1)
   const [revision, setRevision] = useState(0)
   const queryKey = `${cameraId}:${page}:${revision}`
@@ -19,11 +21,18 @@ export function RecognitionRecordsView() {
   const error = loading ? '' : responseState.error
   useEffect(() => {
     let cancelled = false
-    getAiVisionCameras(FACE_DEPARTMENT).then((items) => { if (!cancelled) setCameras(items) }).catch((reason) => {
+    getAiVisionCameras(FACE_DEPARTMENT).then((items) => {
+      if (!cancelled) {
+        const featureCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
+        setCameras(featureCameras)
+        setCameraId((current) => featureCameras.some((camera) => String(camera.camera_id) === current) ? current : '')
+        setCameraError('')
+      }
+    }).catch((reason) => {
       if (!cancelled) setCameraError(`摄像头列表读取失败：${String(reason)}`)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [revision])
   useEffect(() => {
     const controller = new AbortController()
     getRecognitionRecords(page, cameraId, controller.signal).then((value) => {
@@ -50,12 +59,15 @@ export function RecognitionRecordsView() {
         {cameraError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{cameraError}</p>}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 dark:bg-slate-950 dark:text-slate-400"><tr>{['识别时间', '摄像头', '姓名', '相似度'].map((title) => <th key={title} className="whitespace-nowrap px-4 py-3 font-medium">{title}</th>)}</tr></thead>
+            <thead className="bg-slate-50 text-slate-500 dark:bg-slate-950 dark:text-slate-400"><tr>{['识别时间', '摄像头', '姓名', '相似度', '截图'].map((title) => <th key={title} className="whitespace-nowrap px-4 py-3 font-medium">{title}</th>)}</tr></thead>
             <tbody>{result?.items.map((record) => <tr key={record.id} className="border-b border-slate-100 dark:border-slate-800">
               <td className="whitespace-nowrap px-4 py-3">{new Date(record.recognized_at).toLocaleString('zh-CN', { hour12: false })}</td>
               <td className="px-4 py-3">{cameras.find((camera) => camera.camera_id === record.camera_id)?.name || `摄像头 ${record.camera_id}`}</td>
               <td className="px-4 py-3">{record.person_name}</td>
               <td className="px-4 py-3 font-mono">{(record.similarity * 100).toFixed(1)}%</td>
+              <td className="px-4 py-3">{record.image_url ? <button type="button" className="block cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700" aria-label="放大查看识别截图" onClick={() => setPreviewRecord(record)}>
+                <img src={recognitionImageUrl(record.image_url)} alt="识别截图" loading="lazy" className="h-16 w-28 object-cover" />
+              </button> : <span className="text-slate-400">无截图</span>}</td>
             </tr>)}</tbody>
           </table>
           {!result?.items.length && <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">{loading ? '正在读取识别记录…' : error ? '识别记录读取失败' : '暂无识别记录'}</p>}
@@ -65,6 +77,10 @@ export function RecognitionRecordsView() {
           <div className="flex gap-2"><Button variant="outline" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><Button variant="outline" disabled={loading || !result || page * result.page_size >= result.total} onClick={() => setPage((value) => value + 1)}>下一页</Button></div>
         </div>
       </CardContent>
+      {previewRecord?.image_url && <ImagePreviewDialog
+        src={recognitionImageUrl(previewRecord.image_url)} title="识别截图" filename={`recognition-${previewRecord.id}.png`}
+        onClose={() => setPreviewRecord(null)}
+      />}
     </Card>
   )
 }

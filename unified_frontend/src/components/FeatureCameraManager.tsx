@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -77,16 +78,19 @@ export function FeatureCameraManager({
     }
   }, [cameras, copySourceCamera, copyTargetCamera])
 
+  const canAddSelectedCamera = availableCameras.some((camera) => camera.shm_name === selectedExistingCamera && camera.enabled)
+
   const handleEnableExisting = async () => {
     const shmName = selectedExistingCamera.trim()
-    if (!shmName) return
+    if (!shmName || !canAddSelectedCamera) return
 
     setWorkingCamera(shmName)
     try {
       await onAddCamera(shmName)
       setSelectedExistingCamera('')
-      window.dispatchEvent(new Event('aivision:cameras-changed'))
       notifyPlatformCamerasChanged()
+    } catch (error) {
+      setCopyError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setWorkingCamera('')
     }
@@ -96,8 +100,9 @@ export function FeatureCameraManager({
     setWorkingCamera(shmName)
     try {
       await onRemoveCamera(shmName)
-      window.dispatchEvent(new Event('aivision:cameras-changed'))
       notifyPlatformCamerasChanged()
+    } catch (error) {
+      setCopyError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setWorkingCamera('')
     }
@@ -114,14 +119,15 @@ export function FeatureCameraManager({
     setWorkingCamera(target)
     setCopyError('')
     try {
-      const sourceConfig = await getAiVisionFeatureConfig(feature, source)
+      const [sourceConfig, targetConfig] = await Promise.all([
+        getAiVisionFeatureConfig(feature, source), getAiVisionFeatureConfig(feature, target),
+      ])
       await saveAiVisionFeatureConfig(feature, target, {
         ...sourceConfig.config,
-        enable: true,
+        enable: targetConfig.config.enable,
       })
       await onConfigCopied?.(target)
       setCopyTargetCamera('')
-      window.dispatchEvent(new Event('aivision:cameras-changed'))
       notifyPlatformCamerasChanged()
     } catch (error) {
       setCopyError(`复制失败：${error instanceof Error ? error.message : String(error)}`)
@@ -156,7 +162,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前功能摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">这里的摄像头会运行当前检测功能，并用于预览、ROI 和告警配置。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">当前功能已启用的摄像头；全局停用的摄像头不会运行检测。</div>
           </div>
           <div className="overflow-hidden rounded-xl border border-[#E2E7F2] bg-white dark:border-slate-800 dark:bg-slate-900/80">
             {enabledCameras.length === 0 ? (
@@ -175,7 +181,7 @@ export function FeatureCameraManager({
                       className="min-w-0 text-left"
                       disabled={disabled}
                     >
-                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
+                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}{!camera.enabled && <Badge variant="secondary" className="ml-2 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">摄像头已停用</Badge>}</div>
                       <div className="mt-1 text-xs text-slate-500">{active ? <span className="rounded-md bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">当前正在编辑</span> : '点击切换配置'}</div>
                     </button>
                     <Button
@@ -198,7 +204,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从已有摄像头加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">从平台全局摄像头池选择；加入当前功能不会修改摄像头的所属事业部或公司。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">从平台全局摄像头池选择；已有明确归属时，加入当前功能不会修改摄像头的所属事业部或公司。停用摄像头需先在平台启用。</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Select
@@ -211,8 +217,8 @@ export function FeatureCameraManager({
               </SelectTrigger>
               <SelectContent>
                 {availableCameras.map((camera) => (
-                  <SelectItem key={camera.id} value={camera.shm_name}>
-                    {camera.name}
+                  <SelectItem key={camera.id} value={camera.shm_name} disabled={!camera.enabled}>
+                    {camera.name}{!camera.enabled ? '（已停用）' : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -220,7 +226,7 @@ export function FeatureCameraManager({
             <Button
               className="gap-2"
               onClick={handleEnableExisting}
-              disabled={disabled || Boolean(workingCamera) || !selectedExistingCamera}
+              disabled={disabled || Boolean(workingCamera) || !canAddSelectedCamera}
             >
               <Power className="h-4 w-4" />
               加入当前功能

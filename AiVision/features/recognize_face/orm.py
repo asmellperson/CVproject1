@@ -33,4 +33,5 @@ class FaceRecognitionRecord(Base):
     person_id = Column(Integer, ForeignKey("ai_face_person.id", ondelete="SET NULL"), nullable=True, index=True)
     person_name = Column(String(255), nullable=False)
     similarity = Column(Float, nullable=False)
+    image_path = Column(String(512), nullable=True)
     recognized_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"), index=True)

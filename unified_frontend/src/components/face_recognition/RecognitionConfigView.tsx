@@ -33,7 +33,7 @@ export function RecognitionConfigView() {
         <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={FACE_DEPARTMENT}
           currentCameraName={state.cameraKey} disabled={state.disabled} onSelectCamera={state.selectCamera}
           onAddCamera={(key) => state.setCameraEnabled(key, true)} onRemoveCamera={(key) => state.setCameraEnabled(key, false)}
-          onConfigCopied={(key) => { state.selectCamera(key); return state.loadConfig(key) }} />
+          />
         <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{state.message}</p>
       </TabsContent>
       <TabsContent value="params" className="space-y-6">
@@ -43,17 +43,18 @@ export function RecognitionConfigView() {
             <div className="space-y-2"><Label htmlFor="identity-config-camera">摄像头</Label>
               <Select value={state.cameraKey} onValueChange={state.selectCamera} disabled={state.loading || state.saving || !featureCameras.length}>
                 <SelectTrigger id="identity-config-camera" className="w-full"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
-                <SelectContent>{featureCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{featureCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}{!camera.enabled ? '（摄像头已停用）' : ''}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             {([
+              ['detectionThreshold', '人脸检测置信度阈值', '0', '1', '0.01'],
               ['threshold', '身份相似度阈值', '0', '1', '0.01'],
               ['interval', '采集间隔（秒）', '0.1', '1', '0.1'],
-              ['cooldown', '同一人员记录冷却（秒）', '1', undefined, '1'],
+              ['cooldown', '识别记录冷却（秒）', '1', undefined, '1'],
             ] as const).map(([key, label, min, max, step]) => <div key={key} className="space-y-2">
               <Label htmlFor={`identity-${key}`}>{label}</Label><Input id={`identity-${key}`} type="number" min={min} max={max} step={step} value={state.form[key]} disabled={state.disabled || !state.cameraKey} onChange={(event) => state.setForm((form) => ({ ...form, [key]: event.target.value }))} />
             </div>)}
-            <div className="flex items-center gap-3"><Switch id="identity-record-enabled" checked={state.form.recordEnabled} disabled={state.disabled || !state.cameraKey} onCheckedChange={(recordEnabled) => state.setForm((form) => ({ ...form, recordEnabled }))} /><Label htmlFor="identity-record-enabled">保存基础识别记录</Label></div>
+            <div className="flex items-center gap-3"><Switch id="identity-record-enabled" checked={state.form.recordEnabled} disabled={state.disabled || !state.cameraKey} onCheckedChange={(recordEnabled) => state.setForm((form) => ({ ...form, recordEnabled }))} /><Label htmlFor="identity-record-enabled">保存识别记录和截图</Label></div>
           </DetectionConfigCardContent>
         </Card>
         <DetectionSaveBar message={state.message} loading={state.loading} saving={state.saving} disabled={!state.canSave} onReload={() => state.loadConfig(state.cameraKey)} onSave={state.save} />

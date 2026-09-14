@@ -27,7 +27,7 @@ import {
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 
-function StatCard({
+export function StatCard({
   label,
   value,
   detail,

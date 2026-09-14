@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from AiVision.features._base.roi import NormalizedRoi
 from AiVision.platform.face_library.constants import (
@@ -47,7 +47,13 @@ class RecognitionRecordItem(BaseModel):
     person_id: int | None
     person_name: str
     similarity: float
+    image_path: str | None
     recognized_at: datetime
+
+    @computed_field
+    @property
+    def image_url(self) -> str | None:
+        return f"/api/face-recognition/records/{self.id}/image" if self.image_path else None
 
 
 class RecognitionRecordPage(BaseModel):
