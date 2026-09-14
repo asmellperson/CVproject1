@@ -1,7 +1,7 @@
 """只读数据库结构核验；不在服务启动时转换历史表或数据。"""
 import re
 
-from sqlalchemy import CheckConstraint, UniqueConstraint, inspect
+from sqlalchemy import CheckConstraint, String, UniqueConstraint, inspect
 
 
 def _default(value):
@@ -17,6 +17,12 @@ def _default(value):
 
 
 def _type(column_type, dialect):
+    if isinstance(column_type, String):
+        # MySQL 反射可能显式携带继承的字符集/排序规则；它们不是 VARCHAR 长度等类型属性。
+        column_type = column_type.copy()
+        column_type.collation = None
+        if hasattr(column_type, "charset"):
+            column_type.charset = None
     value = str(column_type.compile(dialect=dialect)).upper()
     return {"BOOL": "BOOLEAN", "TINYINT(1)": "BOOLEAN", "INTEGER": "INT"}.get(value, value)
 
@@ -40,6 +46,10 @@ def assert_table_matches(connection, table, *, actual_name=None):
             continue
         if _type(column.type, connection.dialect) != _type(actual["type"], connection.dialect):
             errors.append(f"{column.name}: 类型不一致")
+        for attribute in ("charset", "collation"):
+            expected = getattr(column.type, attribute, None)
+            if expected is not None and expected != getattr(actual["type"], attribute, None):
+                errors.append(f"{column.name}: {attribute} 不一致")
         if actual["nullable"] != column.nullable:
             errors.append(f"{column.name}: nullable 不一致")
         expected_default = column.server_default.arg if column.server_default is not None else None

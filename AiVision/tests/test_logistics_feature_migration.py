@@ -61,6 +61,19 @@ def test_real_migration_keeps_three_tables_and_all_authoritative_data(source_db)
         migration.migrate(engine, apply=True)
 
 
+def test_explicit_aspect_assignment_preserves_other_camera_values(source_db):
+    engine, source = source_db
+    with engine.begin() as connection:
+        connection.execute(source.update().values(ASPECT_RATIO_RANGE=None, enable=False))
+    changes = {"1": {"expected": {"ASPECT_RATIO_RANGE": None, "enable": False},
+                     "values": {"ASPECT_RATIO_RANGE": [0, 10]}}}
+    assert migration.migrate(engine, value_changes=changes, apply=True) == 1
+    with engine.connect() as connection:
+        row = connection.execute(select(SPEC.orm_class.__table__)).mappings().one()
+        assert row["ASPECT_RATIO_RANGE"] == [0, 10] and row["enable"] is False
+        assert row["IOU_THR"] == .3
+
+
 @pytest.mark.parametrize('assignment', [
     '"IOU_THR" = 1.1', '"IOU_THR" = NULL', '"MIN_BOX_AREA" = 0.5',
     'cap_interval = 0', "ASPECT_RATIO_RANGE = '[3, 1]'", 'enable = 2',

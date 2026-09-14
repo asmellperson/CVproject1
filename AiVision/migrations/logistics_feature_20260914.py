@@ -8,10 +8,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, MetaData, String, Table, cast, create_engine, inspect, select, text
+from sqlalchemy import Boolean, Column, DefaultClause, Float, ForeignKey, Integer, JSON, MetaData, String, Table, cast, create_engine, inspect, select, text
+from sqlalchemy.schema import CreateColumn
 
 from AiVision.core.schema import assert_table_matches
+from AiVision.migrations.value_changes import apply_row_changes, check_row_ids
 from AiVision.features.detect_logistics_single_person import SPEC
 from AiVision.features.detect_logistics_single_person.constants import MAX_CAMERAS_PER_CHANNEL
 from AiVision.features.detect_logistics_single_person.orm import (
@@ -28,6 +31,7 @@ REVISION = "logistics_feature_20260914"
 REMOVED_COLUMNS = {
     "CONF_THRESHOLD", "empty_grace_seconds", "multi_grace_seconds", "alarm_interval",
     "sql_enable", "horn_enable", "horn_id", "horn_event_id", "wechat_enable", "wechat_user",
+    "region",
 }
 
 
@@ -37,8 +41,11 @@ def source_table():
     for table in SPEC.orm_class.metadata.sorted_tables:
         table.to_metadata(metadata)
     source = metadata.tables[SPEC.orm_class.__tablename__]
+    source.c.roi_pos.server_default = DefaultClause(text("(json_array())"))
     for name in sorted(REMOVED_COLUMNS):
-        if name in {"sql_enable", "horn_enable", "wechat_enable"}:
+        if name == "region":
+            column = Column(name, JSON)
+        elif name in {"sql_enable", "horn_enable", "wechat_enable"}:
             column = Column(name, Boolean)
         elif name == "wechat_user":
             column = Column(name, String(255))
@@ -70,7 +77,7 @@ def _read_rows(connection, table):
     return connection.execute(select(*columns)).mappings()
 
 
-def preflight(connection):
+def preflight(connection, *, value_changes=None):
     """验证结构、所有保留配置及成员归属；任何错误均在 DDL 前失败。"""
     dialect = connection.dialect.name
     if dialect not in {"mysql", "sqlite"}:
@@ -92,10 +99,18 @@ def preflight(connection):
     assert_table_matches(connection, expected_source)
     for model in (LogisticsChannel, LogisticsChannelCamera):
         assert_table_matches(connection, model.__table__)
-    for name in present:
-        for fk in inspector.get_foreign_keys(name):
-            if fk["referred_table"] == table.name:
-                raise ValueError(f"{name} 引用摄像头功能配置表，须先审查外部外键")
+    if dialect == "mysql":
+        incoming = connection.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE "
+            "WHERE REFERENCED_TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME=:name"
+        ), {"name": table.name}).scalars().all()
+        if incoming:
+            raise ValueError(f"{incoming} 引用摄像头功能配置表，须先审查外部外键")
+    else:
+        for name in present:
+            for fk in inspector.get_foreign_keys(name):
+                if fk["referred_table"] == table.name:
+                    raise ValueError(f"{name} 引用摄像头功能配置表，须先审查外部外键")
     if dialect == "sqlite":
         triggers = connection.execute(text("SELECT tbl_name FROM sqlite_master WHERE type='trigger'")).scalars()
     else:
@@ -109,7 +124,11 @@ def preflight(connection):
     cameras = {row.id: row.department for row in connection.execute(select(AiCameraConfig.id, AiCameraConfig.department))}
     rows = []
     configured = set()
-    for source in _read_rows(connection, actual):
+    source_rows = list(_read_rows(connection, actual))
+    changes = {} if value_changes is None else value_changes
+    check_row_ids(changes, [row["id"] for row in source_rows])
+    for source in source_rows:
+        source = apply_row_changes(source, changes, allowed_fields={"ASPECT_RATIO_RANGE"})
         row = _validated_row({key: source[key] for key in table.columns.keys()}, SPEC.orm_class)
         if row["camera_id"] not in cameras or row["camera_id"] in configured:
             raise ValueError(f"摄像头配置 id={row['id']}: 无效或重复 camera_id")
@@ -154,25 +173,40 @@ def preflight(connection):
     return rows
 
 
-def migrate(engine, *, apply=False):
+def migrate(engine, *, value_changes=None, apply=False):
     """MySQL 原表一次 ALTER 删除列；SQLite 测试库在事务中重建该配置表。"""
     target = LogisticsSinglePersonConfigORM.__table__
     with engine.connect() as connection:
         if connection.dialect.name == "sqlite":
             connection.exec_driver_sql("BEGIN IMMEDIATE" if apply else "BEGIN")
-        rows = preflight(connection)
+        rows = preflight(connection, value_changes=value_changes)
         if not apply:
             connection.rollback()
             return len(rows)
+        locked = connection.dialect.name == "mysql"
+        if locked:
+            quote = connection.dialect.identifier_preparer.quote
+            tables = [target.name, AiCameraConfig.__tablename__, AiHornConfig.__tablename__,
+                      LogisticsChannel.__tablename__, LogisticsChannelCamera.__tablename__]
+            connection.exec_driver_sql("SET SESSION lock_wait_timeout=15")
+            connection.exec_driver_sql("LOCK TABLES " + ", ".join(
+                f"{quote(name)} {'WRITE' if name == target.name else 'READ'}" for name in tables))
         try:
             if connection.dialect.name == "mysql":
+                rows = preflight(connection, value_changes=value_changes)
                 quote = connection.dialect.identifier_preparer.quote
                 operations = []
                 for fk in inspect(connection).get_foreign_keys(target.name):
                     if set(fk["constrained_columns"]) & REMOVED_COLUMNS:
                         operations.append(f"DROP FOREIGN KEY {quote(fk['name'])}")
                 operations.extend(f"DROP COLUMN {quote(name)}" for name in sorted(REMOVED_COLUMNS))
+                operations.append("MODIFY COLUMN " + str(CreateColumn(target.c.roi_pos).compile(dialect=connection.dialect)))
                 connection.exec_driver_sql(f"ALTER TABLE {quote(target.name)} " + ", ".join(operations))
+                # 保留配置时间戳，避免 ORM 的 onupdate 将离线赋值伪装成新的业务修改。
+                for row in rows:
+                    if value_changes and str(row["id"]) in value_changes:
+                        connection.execute(target.update().where(target.c.id == row["id"]).values(
+                            **value_changes[str(row["id"])]["values"], updated_at=row["updated_at"]))
             else:
                 connection.exec_driver_sql(f'DROP TABLE "{target.name}"')
                 target.create(connection)
@@ -187,6 +221,9 @@ def migrate(engine, *, apply=False):
         except Exception:
             connection.rollback()
             raise
+        finally:
+            if locked:
+                connection.exec_driver_sql("UNLOCK TABLES")
     return len(rows)
 
 
@@ -194,13 +231,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url-env", default="MIGRATION_DATABASE_URL")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--value-changes", type=Path, help="按行 ID 指定 expected 原值与 values 新值")
     args = parser.parse_args()
     url = os.environ.get(args.database_url_env)
     if not url:
         parser.error(f"请显式设置 {args.database_url_env}，不读取应用连接配置")
     engine = create_engine(url, hide_parameters=True)
     try:
-        count = migrate(engine, apply=args.apply)
+        changes = json.loads(args.value_changes.read_text()) if args.value_changes else {}
+        count = migrate(engine, value_changes=changes, apply=args.apply)
         print(json.dumps({"revision": REVISION, "applied": args.apply, "camera_configs": count}))
     finally:
         engine.dispose()

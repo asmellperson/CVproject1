@@ -12,11 +12,12 @@ import os
 import re
 from pathlib import Path
 
-from sqlalchemy import Boolean, MetaData, Table, create_engine, inspect, select, text
+from sqlalchemy import Boolean, Integer, MetaData, Table, cast, create_engine, inspect, select, text
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from AiVision.core.schema import assert_table_matches
 from AiVision.features import all_specs
+from AiVision.migrations.value_changes import apply_row_changes, check_row_ids
 
 
 REVISION = "config_20260914"
@@ -24,8 +25,8 @@ REMOVED = {
     "blocks": {"blur_kernel", "diff_threshold", "diff_threshold_env", "env_threshold"},
     "detect_door": {"blur_kernel"},
     "detect_face": {"YAW_THRESHOLD", "IOU_THR"},
-    "detect_human": {"IOU_THR"},
-    "detect_human_haoda": {"IOU_THR"},
+    "detect_human": {"IOU_THR", "region"},
+    "detect_human_haoda": {"IOU_THR", "region"},
     "detect_phone": set(),
 }
 DWELL = {"detect_face", "detect_human", "detect_human_haoda"}
@@ -48,7 +49,7 @@ def _integer(value, location):
     return int(value)
 
 
-def preflight(connection, iou_values: dict):
+def preflight(connection, iou_values: dict, *, value_changes: dict | None = None, staged=False):
     """只读：核对前版本列集合、引用/触发器和每行最终配置；全通过才允许写库。"""
     if connection.dialect.name not in {"mysql", "sqlite"}:
         raise ValueError("仅支持 MySQL 8.0.16+ 和 SQLite 隔离测试数据库")
@@ -61,15 +62,27 @@ def preflight(connection, iou_values: dict):
     inspector = inspect(connection)
     table_names = set(inspector.get_table_names())
     targets = specs()
+    value_changes = {} if value_changes is None else value_changes
+    if not isinstance(value_changes, dict) or set(value_changes) - set(targets):
+        raise ValueError("赋值计划包含未定义功能")
     selected = {spec.orm_class.__tablename__ for spec in targets.values()}
     if not selected <= table_names:
         raise ValueError(f"缺少前版本表: {sorted(selected - table_names)}")
     if set(iou_values) - DWELL:
         raise ValueError("IOU 文件含未定义功能名")
-    for table_name in table_names:
-        for fk in inspector.get_foreign_keys(table_name):
-            if fk["referred_table"] in selected:
+    if connection.dialect.name == "mysql":
+        incoming = connection.execute(text(
+            "SELECT TABLE_NAME, REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE "
+            "WHERE REFERENCED_TABLE_SCHEMA=DATABASE()"
+        ))
+        for table_name, referenced in incoming:
+            if referenced in selected:
                 raise ValueError(f"{table_name} 引用待迁移配置表，须先处理外部外键")
+    else:
+        for table_name in table_names:
+            for fk in inspector.get_foreign_keys(table_name):
+                if fk["referred_table"] in selected:
+                    raise ValueError(f"{table_name} 引用待迁移配置表，须先处理外部外键")
     if connection.dialect.name == "sqlite":
         triggers = connection.execute(text("SELECT tbl_name FROM sqlite_master WHERE type='trigger'")).scalars()
     else:
@@ -82,7 +95,7 @@ def preflight(connection, iou_values: dict):
     result = {}
     for name, spec in targets.items():
         target = spec.orm_class.__table__
-        for suffix in ("__cfg_stage", "__cfg_backup"):
+        for suffix in (("__cfg_backup",) if staged else ("__cfg_stage", "__cfg_backup")):
             if target.name + suffix in table_names:
                 raise ValueError(f"{target.name + suffix} 已存在；可能是上次迁移遗留，禁止覆盖")
         actual = Table(target.name, MetaData(), autoload_with=connection)
@@ -91,13 +104,19 @@ def preflight(connection, iou_values: dict):
         if set(actual.columns.keys()) != expected:
             raise ValueError(f"{target.name}: 不是预期的前版本结构或已经迁移，停止")
         rows = []
-        source_rows = connection.execute(select(actual)).mappings().all()
+        # SQLite 的 BOOLEAN 反射会把非法 2 读成 True，必须读取原始数值再校验。
+        source_columns = [cast(c, Integer).label(c.name) if isinstance(c.type, Boolean) else c for c in actual.columns]
+        source_rows = connection.execute(select(*source_columns)).mappings().all()
         configured_ids = set(iou_values.get(name, {}))
         row_ids = {str(row["id"]) for row in source_rows}
         if name in DWELL and configured_ids != row_ids:
             raise ValueError(f"{name}: IOU 文件必须准确覆盖配置行 ID: {sorted(row_ids)}")
+        changes = value_changes.get(name, {})
+        check_row_ids(changes, row_ids)
         for source in source_rows:
-            row = {key: value for key, value in source.items() if key not in REMOVED[name]}
+            allowed = {"env_threshold"} if name == "detect_door" else {"ASPECT_RATIO_RANGE"} if name in {"detect_human", "detect_human_haoda"} else set()
+            assigned = apply_row_changes(source, changes, allowed_fields=allowed)
+            row = {key: value for key, value in assigned.items() if key not in REMOVED[name]}
             if name in DWELL:
                 explicit = iou_values[name][str(row["id"])]
                 if set(explicit) != IOU_FIELDS:
@@ -123,16 +142,26 @@ def preflight(connection, iou_values: dict):
             except ValueError as exc:
                 raise ValueError(f"{name} id={row['id']}: 配置不合法: {exc}") from exc
             rows.append(row)
+        # 外键与唯一约束在创建 staging 前检查，避免复制中途才发现孤立配置。
+        for fk in target.foreign_key_constraints:
+            column, = fk.columns
+            element, = fk.elements
+            valid_ids = set(connection.execute(select(element.column)).scalars())
+            if any(row[column.name] is not None and row[column.name] not in valid_ids for row in rows):
+                raise ValueError(f"{name}.{column.name}: 存在无效外键引用")
+        camera_ids = [row["camera_id"] for row in rows]
+        if len(camera_ids) != len(set(camera_ids)):
+            raise ValueError(f"{name}: camera_id 重复")
         result[name] = rows
     return result
 
 
-def migrate(engine, iou_values: dict, *, apply=False):
+def migrate(engine, iou_values: dict, *, value_changes: dict | None = None, apply=False):
     """检查所有行后复制到最终 ORM 表；保留主键、业务字段及全部告警绑定。"""
     with engine.connect() as connection:
         if connection.dialect.name == "sqlite":
             connection.exec_driver_sql("BEGIN IMMEDIATE" if apply else "BEGIN")
-        rows = preflight(connection, iou_values)
+        rows = preflight(connection, iou_values, value_changes=value_changes)
         counts = {name: len(values) for name, values in rows.items()}
         if not apply:
             connection.rollback()
@@ -155,32 +184,54 @@ def migrate(engine, iou_values: dict, *, apply=False):
         else:
             # MySQL DDL 自动提交；先建立并核验全部 staging 表，再原子交换表名。
             # 失败保留 staging 供排查，原表不变；交换成功保留 backup 供离线回滚。
-            renames = []
+            stages = {}
             for name, spec in targets.items():
                 target = spec.orm_class.__table__
-                next_id = connection.execute(text(
-                    "SELECT AUTO_INCREMENT FROM information_schema.TABLES "
-                    "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:table_name"
-                ), {"table_name": target.name}).scalar_one()
                 metadata = MetaData()
                 for dependency in target.metadata.sorted_tables:
                     dependency.to_metadata(metadata)
                 stage = target.to_metadata(metadata, name=target.name + "__cfg_stage")
+                for constraint in stage.constraints:
+                    if constraint.name:
+                        constraint.name = constraint.name + "__cfg"
                 stage.create(connection)
-                if rows[name]:
-                    connection.execute(stage.insert(), rows[name])
-                connection.commit()
-                if next_id is not None:
-                    connection.exec_driver_sql(f"ALTER TABLE `{stage.name}` AUTO_INCREMENT = {int(next_id)}")
-                assert_table_matches(connection, target, actual_name=stage.name)
-                stored = connection.execute(select(stage)).mappings().all()
-                if len(stored) != len(rows[name]):
-                    raise ValueError(f"{name}: 迁移行数不一致")
-                renames.append(f"`{target.name}` TO `{target.name}__cfg_backup`, `{stage.name}` TO `{target.name}`")
-            connection.exec_driver_sql("RENAME TABLE " + ", ".join(renames))
+                stages[name] = stage
             connection.commit()
+            # 将预检查到交换之间的配置写入排除；只锁本次配置表及其摄像头/喇叭依赖。
+            locks = {stage.name: "WRITE" for stage in stages.values()}
             for spec in targets.values():
-                assert_table_matches(connection, spec.orm_class.__table__)
+                target = spec.orm_class.__table__
+                locks[target.name] = "WRITE"
+                for fk in target.foreign_key_constraints:
+                    locks.setdefault(fk.referred_table.name, "READ")
+            connection.exec_driver_sql("SET SESSION lock_wait_timeout=15")
+            connection.exec_driver_sql("LOCK TABLES " + ", ".join(f"`{name}` {mode}" for name, mode in sorted(locks.items())))
+            try:
+                rows = preflight(connection, iou_values, value_changes=value_changes, staged=True)
+                renames = []
+                for name, spec in targets.items():
+                    target, stage = spec.orm_class.__table__, stages[name]
+                    next_id = connection.execute(text(
+                        "SELECT AUTO_INCREMENT FROM information_schema.TABLES "
+                        "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:table_name"
+                    ), {"table_name": target.name}).scalar_one()
+                    if rows[name]:
+                        connection.execute(stage.insert(), rows[name])
+                    connection.commit()
+                    if next_id is not None:
+                        connection.exec_driver_sql(f"ALTER TABLE `{stage.name}` AUTO_INCREMENT = {int(next_id)}")
+                    assert_table_matches(connection, target, actual_name=stage.name)
+                    stored = [dict(row) for row in connection.execute(select(stage)).mappings()]
+                    if sorted(stored, key=lambda row: row["id"]) != sorted(rows[name], key=lambda row: row["id"]):
+                        raise ValueError(f"{name}: 迁移后保留列的数据不一致")
+                    renames.append(f"`{target.name}` TO `{target.name}__cfg_backup`, `{stage.name}` TO `{target.name}`")
+                connection.exec_driver_sql("RENAME TABLE " + ", ".join(renames))
+                connection.commit()
+                for spec in targets.values():
+                    assert_table_matches(connection, spec.orm_class.__table__)
+                counts = {name: len(values) for name, values in rows.items()}
+            finally:
+                connection.exec_driver_sql("UNLOCK TABLES")
         return counts
 
 
@@ -207,6 +258,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url-env", default="MIGRATION_DATABASE_URL")
     parser.add_argument("--iou-values", type=Path)
+    parser.add_argument("--value-changes", type=Path, help="按功能及行 ID 提供 expected 原值与 values 新值")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--write-schema", type=Path)
     args = parser.parse_args()
@@ -217,9 +269,10 @@ def main():
     if not url:
         parser.error(f"请显式设置 {args.database_url_env}；不读取应用数据库连接配置")
     iou_values = json.loads(args.iou_values.read_text()) if args.iou_values else {}
+    value_changes = json.loads(args.value_changes.read_text()) if args.value_changes else {}
     engine = create_engine(url, hide_parameters=True)
     try:
-        counts = migrate(engine, iou_values, apply=args.apply)
+        counts = migrate(engine, iou_values, value_changes=value_changes, apply=args.apply)
         print(json.dumps({"revision": REVISION, "applied": args.apply, "rows": counts}, ensure_ascii=False))
     finally:
         engine.dispose()

@@ -36,6 +36,8 @@ def legacy(tmp_path):
             iou_values[name] = {"1": {"DETECTION_IOU_THR": .2, "TRACK_IOU_THR": .8}}
     metadata.create_all(engine)
     with engine.begin() as connection:
+        camera = metadata.tables["ai_camera_config"]
+        connection.execute(camera.insert(), dict(id=1, name="camera", shm_name="test-camera", url="test", department="general_electric"))
         for name, spec in targets.items():
             config = spec.config_schema().model_dump()
             row = dict(config["value"], id=1, camera_id=1, enable=False,
@@ -104,6 +106,56 @@ def test_missing_or_invalid_explicit_iou_blocks_migration(legacy):
     with pytest.raises(ValueError):
         migrate(engine, iou_values, apply=True)
     assert "IOU_THR" in {c["name"] for c in inspect(engine).get_columns(tables["detect_face"].name)}
+
+
+def test_explicit_environment_assignment_is_checked_and_saved(legacy):
+    engine, tables, iou_values = legacy
+    with engine.begin() as connection:
+        connection.execute(tables["detect_door"].update().values(env_threshold=10))
+    with pytest.raises(ValueError, match="前置值"):
+        migrate(engine, iou_values, value_changes={"detect_door": {"1": {"expected": {"env_threshold": 2}, "values": {"env_threshold": None}}}}, apply=True)
+    migrate(engine, iou_values, value_changes={"detect_door": {"1": {"expected": {"env_threshold": 10}, "values": {"env_threshold": None}}}}, apply=True)
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT env_threshold FROM ai_camera_config_detect_door")).scalar_one() is None
+
+
+def test_aspect_assignment_requires_original_value_and_disabled_state(legacy):
+    engine, tables, iou_values = legacy
+    changes = {"detect_human": {"1": {"expected": {"ASPECT_RATIO_RANGE": None, "enable": False},
+                                       "values": {"ASPECT_RATIO_RANGE": [0, 10]}}}}
+    with engine.begin() as connection:
+        connection.execute(tables["detect_human"].update().values(ASPECT_RATIO_RANGE=None, enable=True))
+    with pytest.raises(ValueError, match="前置值"):
+        migrate(engine, iou_values, value_changes=changes, apply=True)
+    with engine.begin() as connection:
+        connection.execute(tables["detect_human"].update().values(enable=False))
+    migrate(engine, iou_values, value_changes=changes, apply=True)
+    with engine.connect() as connection:
+        target = specs()["detect_human"].orm_class.__table__
+        assert connection.execute(select(target.c.ASPECT_RATIO_RANGE)).scalar_one() == [0, 10]
+
+
+@pytest.mark.parametrize("assignment", [
+    None,
+    {"expected": {"env_threshold": None}, "values": {"env_threshold": 2}},
+    {"expected": {}, "values": {"env_threshold": None}},
+    {"expected": {"camera_id": 1}, "values": {"camera_id": 2}},
+])
+def test_invalid_explicit_assignment_cannot_bypass_validation(legacy, assignment):
+    engine, tables, iou_values = legacy
+    with pytest.raises(ValueError):
+        migrate(engine, iou_values, value_changes={"detect_door": {"1": assignment}}, apply=True)
+    assert "blur_kernel" in {c["name"] for c in inspect(engine).get_columns(tables["detect_door"].name)}
+
+
+@pytest.mark.parametrize("field,value", [("camera_id", 999), ("horn_id", 999), ("sql_enable", 2)])
+def test_bad_reference_or_boolean_blocks_mutation(legacy, field, value):
+    engine, tables, iou_values = legacy
+    with engine.begin() as connection:
+        connection.execute(text(f"UPDATE ai_camera_config_blocks SET {field}=:value"), {"value": value})
+    with pytest.raises(ValueError):
+        migrate(engine, iou_values, apply=True)
+    assert "blur_kernel" in {c["name"] for c in inspect(engine).get_columns(tables["blocks"].name)}
 
 
 def test_sqlite_ddl_failure_rolls_back_all_tables(legacy, monkeypatch):

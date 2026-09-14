@@ -20,8 +20,8 @@ def mysql_source():
     if not url:
         pytest.skip('需要显式 LOGISTICS_TEST_MYSQL_URL 指向隔离 MySQL 测试实例')
     parsed = make_url(url)
-    if parsed.database or parsed.host not in {'127.0.0.1', 'localhost'}:
-        pytest.fail('测试连接必须指向本机隔离 MySQL 实例，且不得指定已有数据库')
+    if parsed.database or parsed.get_backend_name() != 'mysql':
+        pytest.fail('测试连接必须为 MySQL 且不得指定已有数据库；每例创建独立随机库')
     database = 'test_logistics_' + uuid.uuid4().hex
     admin = create_engine(parsed, hide_parameters=True)
     with admin.begin() as connection:
@@ -81,3 +81,17 @@ def test_mysql_bad_values_abort_before_alter(mysql_source, assignment):
     with pytest.raises(ValueError):
         migration.migrate(engine, apply=True)
     assert migration.REMOVED_COLUMNS <= {column['name'] for column in inspect(engine).get_columns(source.name)}
+
+
+def test_mysql_aspect_assignment_preserves_timestamp(mysql_source):
+    engine, source = mysql_source
+    with engine.begin() as connection:
+        connection.execute(source.update().values(ASPECT_RATIO_RANGE=None, enable=False))
+        before = connection.execute(select(source)).mappings().one()
+    changes = {'1': {'expected': {'ASPECT_RATIO_RANGE': None, 'enable': False},
+                     'values': {'ASPECT_RATIO_RANGE': [0, 10]}}}
+    migration.migrate(engine, value_changes=changes, apply=True)
+    with engine.connect() as connection:
+        row = connection.execute(select(SPEC.orm_class.__table__)).mappings().one()
+        assert row['updated_at'] == before['updated_at']
+        assert row['ASPECT_RATIO_RANGE'] == [0, 10] and row['enable'] is False
