@@ -53,13 +53,15 @@ class RoiConsumer(BaseFunctionConsumer):
 #   - 内部调用：`RoiConsumer`、`SimpleNamespace`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _consumer() -> RoiConsumer:
-    return RoiConsumer(
+    consumer = RoiConsumer(
         spec=SimpleNamespace(name="roi-test"),
         infer_dict={},
         result_queue=None,
         latest_frames={},
         is_camera_active=lambda _name: True,
     )
+    consumer.config_cache[1] = {"roi_pos": []}
+    return consumer
 
 
 # 功能：更新或保存 `_set_roi` 对应的视频帧消费与检测、感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
@@ -75,7 +77,7 @@ def _consumer() -> RoiConsumer:
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _set_roi(consumer: RoiConsumer, camera_id: int, points: list[list[int]]) -> None:
-    consumer.config_cache[camera_id] = {"value": {"roi_pos": points}}
+    consumer.config_cache[camera_id] = {"roi_pos": points}
 
 
 # 功能：验证 `test_roi_outside_camera_frame_is_clipped_before_masking` 对应的视频帧消费与检测、感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
@@ -221,7 +223,7 @@ def test_each_feature_crops_infers_and_draws_in_current_frame_coordinates(featur
     spec = _spec(feature)
     snapshots = []
     runtime = SimpleNamespace(
-        get_camera_confidence_threshold=lambda *_args: 0.3,
+        person_confidence_threshold=lambda *_args: 0.3,
         update_camera_snapshot=lambda *args: snapshots.append(args),
     )
     kwargs = {"logistics_runtime": runtime} if feature == "detect_logistics_single_person" else {}
@@ -231,11 +233,12 @@ def test_each_feature_crops_infers_and_draws_in_current_frame_coordinates(featur
     )
     value = spec.config_schema().value.model_dump()
     value.update(roi_pos=[[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]])
-    value.update(MIN_BOX_AREA=0, ASPECT_RATIO_RANGE=[0, 10], MAX_TIME=100,
-                 REQUIRE_PERSON_ASSOCIATION=False, MIN_CONSECUTIVE_HITS=1, MIN_CONFIRM_SECONDS=0)
+    overrides = dict(MIN_BOX_AREA=0, ASPECT_RATIO_RANGE=[0, 10], MAX_TIME=100,
+                     REQUIRE_PERSON_ASSOCIATION=False, MIN_CONSECUTIVE_HITS=1, MIN_CONFIRM_SECONDS=0)
+    value.update({key: val for key, val in overrides.items() if key in value})
     if feature == "blocks":
         value["line_points"] = [[0, 0.5], [1, 0.5]]
-    consumer.config_cache[1] = {"value": value, "name": "test", "shm_name": "test"}
+    consumer.config_cache[1] = {**value, "name": "test", "shm_name": "test"}
     calls = []
 
     def infer(camera_id, model, roi, **_kwargs):

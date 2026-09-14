@@ -6,11 +6,11 @@ from .schema import FaceConfigSchema
 
 SPEC = FeatureSpec(
     name="detect_face",
-    display_name="人脸检测",
+    display_name="人脸逗留检测",
     consumer_cls=FaceConsumer,
     orm_class=FaceConfigORM,
     config_schema=FaceConfigSchema,
-    required_models=("yolo_face",),
+    required_models=("insightface_detection",),
     violation_type=4,
     departments=("research_institute",),
 )

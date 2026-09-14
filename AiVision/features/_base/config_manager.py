@@ -9,9 +9,10 @@ from AiVision.core.db import session_scope, get_session
 from AiVision.core.events import config_event_bus, ConfigChangeEvent
 from AiVision.core.cache import config_cache
 from AiVision.features._base.spec import FeatureSpec
+from AiVision.features._base.orm import FeatureConfigBase
 from AiVision.platform.alarm_device.binding import validate_horn_binding
 from AiVision.platform.camera.orm import AiCameraConfig, get_camera_by_key
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 
 class FeatureConfigManager:
     """所有功能配置的 CRUD 入口。
@@ -27,7 +28,7 @@ class FeatureConfigManager:
             {
                 "camera": {"id", "name", "shm_name", "enable"},
                 "feature": "blocks",
-                "config": {"enable", "value", "alarm"}
+                "config": {"enable", "value"}，直接告警的功能另含 alarm
             }
         """
         session = get_session()
@@ -42,30 +43,18 @@ class FeatureConfigManager:
                 .filter_by(camera_id=camera.id)
                 .first()
             )
-            # 没有记录时返回默认空配置(前端可以填初始值)
+            # 没有记录时返回后端完整默认配置。
             if cfg is None:
                 return {
                     "camera": self._camera_to_dict(camera),
                     "feature": spec.name,
-                    "config": {
-                        "enable": False,
-                        "value": {},
-                        "alarm": {
-                            "sql": {"enable": False, "parm": {}},
-                            "horn": {"enable": False, "parm": {}},
-                            "wechat": {"enable": False, "parm": {"user": ""}},
-                        },
-                    },
+                    "config": spec.config_schema().model_dump(),
                 }
 
             return {
                 "camera": self._camera_to_dict(camera),
                 "feature": spec.name,
-                "config": {
-                    "enable": cfg.enable,
-                    "value": cfg.to_value_dict(),
-                    "alarm": cfg.to_alarm_dict(),
-                },
+                "config": spec.config_schema.model_validate(cfg.to_config_dict()).model_dump(),
             }
         finally:
             session.close()
@@ -77,15 +66,16 @@ class FeatureConfigManager:
         shm_name: str,
         payload: dict,
     ) -> Optional[dict]:
-        """写入功能配置。已校验过的 payload 来自 API 层。
+        """按 SPEC 校验并保存配置，补齐全部默认值。
         
-        payload 形状:
+        摄像头级告警功能的 payload 形状如下；物流摄像头只含 enable/value:
             {
                 "enable": bool,
                 "value": {功能特有字段},
                 "alarm": {sql, horn, wechat}
             }
         """
+        payload = spec.config_schema.model_validate(payload).model_dump()
         with session_scope() as session:
             camera = self._get_camera_by_key(session, shm_name)
             if camera is None:
@@ -110,14 +100,9 @@ class FeatureConfigManager:
                 cfg = spec.orm_class(camera_id=camera.id)
                 session.add(cfg)
                 session.flush()
-            # 功能开关
-            cfg.enable = new_enable
-            # Feature自己的检测参数
-            cfg.apply_value_dict(payload.get("value") or {})
-            # 告警参数
-            cfg.apply_alarm_dict(payload.get("alarm") or {})
-            # 喇叭配置额外验证
-            validate_horn_binding(session, cfg.horn_enable, cfg.horn_id, cfg.horn_event_id)
+            cfg.apply_config_dict(payload)
+            if isinstance(cfg, FeatureConfigBase):
+                validate_horn_binding(session, cfg.horn_enable, cfg.horn_id, cfg.horn_event_id)
 
             # 提交后刷新缓存 + 发事件
             camera_id = camera.id

@@ -357,9 +357,6 @@ class LogisticsChannelRuntime:
             self._channel_frames[(feature_name, channel_id)] = frame
         return frame.copy()
 
-    def get_composite_frame(self, feature_name: str, channel_id: int) -> np.ndarray | None:
-        return self.get_channel_frame(feature_name, channel_id)
-
     def _snapshot_channel(self, feature_name: str, channel_id: int) -> _ChannelView | None:
         self._ensure_feature_loaded(feature_name)
         with self._lock:
@@ -570,20 +567,20 @@ class LogisticsChannelRuntime:
         raise RuntimeError(f"物流通道配置持续变化，无法加载 feature={feature_name}")
 
     def _read_feature(self, feature_name: str) -> tuple[_ChannelConfig, ...]:
-        response = self._service.list_channels(feature_name) or {}
+        response = self._service.list_channels(feature_name)
         channels = []
-        for summary in response.get("items") or []:
+        for summary in response["items"]:
             detail = self._service.get_channel(feature_name, int(summary["id"]))
             if detail is not None:
                 channels.append(self._parse_channel(detail))
         return tuple(channels)
 
     def _parse_channel(self, detail: dict) -> _ChannelConfig:
-        config = detail.get("config") or {}
+        config = detail["config"]
         cameras = []
         members = sorted(
-            (member for member in detail.get("members") or [] if member.get("enabled", True)),
-            key=lambda member: (member.get("sort_order", 0), member.get("id", 0)),
+            (member for member in detail["members"] if member["enabled"]),
+            key=lambda member: (member["sort_order"], member["id"]),
         )
         for member in members:
             camera_id = int(member["camera_id"])
@@ -600,14 +597,14 @@ class LogisticsChannelRuntime:
             feature_name=str(detail["feature_name"]),
             channel_id=int(detail["id"]),
             name=str(detail["name"]),
-            enabled=bool(detail.get("enabled", True)),
+            enabled=detail["enabled"],
             detection_start=config["detection_start"],
             detection_end=config["detection_end"],
-            confidence_threshold=float(config["confidence_threshold"]),
-            empty_grace_seconds=float(config["empty_grace_seconds"]),
-            multi_grace_seconds=float(config["multi_grace_seconds"]),
-            alarm_interval=float(config["alarm_interval"]),
-            alarm=dict(config.get("alarm") or {}),
+            confidence_threshold=config["confidence_threshold"],
+            empty_grace_seconds=config["empty_grace_seconds"],
+            multi_grace_seconds=config["multi_grace_seconds"],
+            alarm_interval=config["alarm_interval"],
+            alarm=config["alarm"],
             cameras=tuple(cameras),
         )
 
@@ -761,20 +758,20 @@ class LogisticsChannelRuntime:
             "triggered_at": now,
         }
         alarm = channel.alarm
-        horn = alarm.get("horn") or {}
-        wechat = alarm.get("wechat") or {}
+        horn = alarm["horn"]
+        wechat = alarm["wechat"]
         alarm_config = {
-            "sql": {"enable": bool(alarm.get("sql_enable")), "parm": {}},
+            "sql": {"enable": alarm["sql_enable"], "parm": {}},
             "horn": {
-                "enable": bool(horn.get("enabled")),
+                "enable": horn["enabled"],
                 "parm": {
-                    "horn_id": horn.get("horn_id"),
-                    "horn_event_id": horn.get("horn_event_id"),
+                    "horn_id": horn["horn_id"],
+                    "horn_event_id": horn["horn_event_id"],
                 },
             },
             "wechat": {
-                "enable": bool(wechat.get("enabled")),
-                "parm": {"user": wechat.get("user", "")},
+                "enable": wechat["enabled"],
+                "parm": {"user": wechat["user"]},
             },
         }
         evidence = frame

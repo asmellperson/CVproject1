@@ -8,7 +8,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
 
 一、先分清模型名称和模型文件
 
-    逻辑模型：业务使用的固定名称，例如 yolo_human、yolo_phone、yolo_face。
+    逻辑模型：业务使用的固定名称，例如 yolo_human、yolo_phone、insightface_detection。
         名称、Worker 类、输出类型、类别过滤和默认推理参数写在 model_registry.py。
 
     物理权重：当前服务器上实际加载的模型文件，例如 /models/person_phone.pt。
@@ -28,12 +28,15 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
         get_model_spec(name)：按名称取定义，未注册名称会抛出 KeyError。
         不做数据库配置 CRUD，也不保存本机权重路径。
 
-        当前三个模型都使用 workers/yolo_detector.py 中的 YoloDetectorWorker：
+        YOLO 模型使用 workers/yolo_detector.py 中的 YoloDetectorWorker：
             yolo_human：type_label="person"，class_filter=(0,)，conf=0.3。
             yolo_phone：type_label="phone"，class_filter=(1,)，conf=0.3。
-            yolo_face ：type_label="face"，class_filter=None，conf=0.6。
-        当前默认 iou 都是 0.5；class_filter=None 表示不按类别 ID 过滤。
+        YOLO 默认 iou 是 0.5；class_filter=None 表示不按类别 ID 过滤。
         这些类别 ID 要与实际权重的训练类别一致，不能照搬到任意权重上。
+        insightface_detection 使用 FaceDetectorWorker，只加载 det_10g.onnx 做人脸检测。
+        insightface 使用 FaceRecognizerWorker，检测后提取特征并匹配人员索引。
+        两者复用 InsightFaceDetector 代码，但 Worker 进程和检测 Session 各自独立；
+        身份识别还持有 w600k_r50.onnx Session，照片特征任务也独立加载这两个模型。
 
     model_paths.py：本机路径配置，回答“这个模型的权重文件在哪里”。
         默认配置文件是 AiVision/config/model_paths.yaml，示例见同目录
@@ -95,7 +98,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
         FeatureSpec.required_models 声明功能使用的逻辑模型名，all_specs() 汇总功能。
         features/_base/consumer.py 提供投递任务、等待结果等公共能力；具体 Consumer
         负责裁剪 ROI、设置任务参数、解释检测结果和判断告警。
-        platform/logistics_channel/runtime.py 也使用推理队列处理通道业务。
+        features/detect_logistics_single_person/consumer.py 逐路推理；通道 Runtime 只汇总快照。
 
     api/models.py → InferenceRuntimeManager → model_paths.py / Worker：
         GET /api/models：读取固定模型的配置及运行状态。

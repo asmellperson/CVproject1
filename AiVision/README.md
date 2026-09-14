@@ -92,8 +92,10 @@ models:
     path: /path/to/person_phone.pt
   yolo_phone:
     path: /path/to/person_phone.pt
-  yolo_face:
-    path: /path/to/yolov8x-face.pt
+  insightface_detection:
+    path: /srv/models/insightface/buffalo_l/det_10g.onnx
+  insightface:
+    path: /srv/models/insightface/buffalo_l
 ```
 
 固定注册项直接引用 Worker 类，并通过 `class_filter`、`type_label`、`conf`、`iou`

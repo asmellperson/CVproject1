@@ -197,18 +197,15 @@ export type LogisticsCameraRoiPolygon = LogisticsCameraRoiPoint[]
 
 export type LogisticsCameraDetectionValue = {
   roi_pos: LogisticsCameraRoiPolygon
-  CONF_THRESHOLD?: number
-  IOU_THR?: number
-  MIN_BOX_AREA?: number
-  ASPECT_RATIO_RANGE?: [number, number]
-  cap_interval?: number
-  [key: string]: unknown
+  IOU_THR: number
+  MIN_BOX_AREA: number
+  ASPECT_RATIO_RANGE: [number, number]
+  cap_interval: number
 }
 
 export type LogisticsCameraConfigPayload = {
   enable: boolean
   value: LogisticsCameraDetectionValue
-  alarm?: unknown
 }
 
 export type LogisticsCameraConfigResponse = {

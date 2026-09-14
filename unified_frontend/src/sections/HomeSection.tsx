@@ -118,7 +118,7 @@ const moduleEntries = [
   },
   {
     id: 'face-detection',
-    title: '人脸检测入口',
+    title: '人脸逗留检测入口',
   },
   {
     id: 'face-recognition',
@@ -244,7 +244,7 @@ type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource & { 
 const aiVisionFeatureLabels: Record<string, string> = {
   blocks: '区域入侵',
   detect_door: '大门开关',
-  detect_face: '人脸检测',
+  detect_face: '人脸逗留检测',
   recognize_face: '人脸身份识别',
   detect_human: '人员违规逗留检测',
   detect_human_haoda: '人员违规逗留检测（皓达公司）',

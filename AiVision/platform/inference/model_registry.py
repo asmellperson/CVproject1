@@ -4,10 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from AiVision.features._base import defaults
 from AiVision.platform.face_library.constants import DEFAULT_DETECTION_THRESHOLD
 
 from .workers.yolo_detector import YoloDetectorWorker
 from .workers.face_recognizer import FaceRecognizerWorker
+from .workers.face_detector import FaceDetectorWorker
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,8 @@ MODEL_SPECS = MappingProxyType({
     spec.name: spec for spec in (
         ModelSpec("yolo_human", YoloDetectorWorker, "person", (0,)),
         ModelSpec("yolo_phone", YoloDetectorWorker, "phone", (1,)),
-        ModelSpec("yolo_face", YoloDetectorWorker, "face", conf=0.6),
+        ModelSpec("insightface_detection", FaceDetectorWorker, "face", conf=defaults.FACE_SCORE_THR,
+                  iou=defaults.DETECTION_IOU_THR, type="insightface_detection"),
         ModelSpec("insightface", FaceRecognizerWorker, "face_identity", conf=DEFAULT_DETECTION_THRESHOLD, type="insightface"),
     )
 })

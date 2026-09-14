@@ -1,9 +1,10 @@
 """身份识别配置和查询返回模型。"""
 from datetime import datetime
-from typing import Literal
+from typing import Generic, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from AiVision.features._base.alarm_schema import Params, SqlAlarmParams, HornAlarmParams, WechatAlarmParams
 from AiVision.features._base.roi import NormalizedRoi
 from AiVision.platform.face_library.constants import (
     DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
@@ -22,15 +23,20 @@ class FaceRecognitionValue(BaseModel):
     alarm_interval: float = Field(5.0, gt=0)
 
 
-class DisabledAlarmChannel(BaseModel):
+class DisabledAlarmChannel(BaseModel, Generic[Params]):
+    model_config = ConfigDict(extra="forbid", strict=True)
     enable: Literal[False] = False
-    parm: dict = Field(default_factory=dict)
+    parm: Params = Field(default_factory=dict, validate_default=True)
 
 
 class DisabledRecognitionAlarm(BaseModel):
-    sql: DisabledAlarmChannel = Field(default_factory=DisabledAlarmChannel)
-    horn: DisabledAlarmChannel = Field(default_factory=DisabledAlarmChannel)
-    wechat: DisabledAlarmChannel = Field(default_factory=DisabledAlarmChannel)
+    model_config = ConfigDict(extra="forbid", strict=True)
+    sql: DisabledAlarmChannel[SqlAlarmParams] = Field(
+        default_factory=lambda: DisabledAlarmChannel(parm=SqlAlarmParams()))
+    horn: DisabledAlarmChannel[HornAlarmParams] = Field(
+        default_factory=lambda: DisabledAlarmChannel(parm=HornAlarmParams()))
+    wechat: DisabledAlarmChannel[WechatAlarmParams] = Field(
+        default_factory=lambda: DisabledAlarmChannel(parm=WechatAlarmParams()))
 
 
 class FaceRecognitionConfigSchema(BaseModel):

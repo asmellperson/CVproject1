@@ -190,7 +190,7 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "blocks": {"name": "区域入侵"},
     "detect_door": {"name": "大门开关"},
     "detect_phone": {"name": "手机检测"},
-    "detect_face": {"name": "人脸检测"},
+    "detect_face": {"name": "人脸逗留检测"},
     "detect_human": {"name": "人员违规逗留检测"},
     "detect_logistics_single_person": {"name": "物流通道单人检测"},
     "guard_absent": {"name": "保安离岗"},

@@ -1,9 +1,7 @@
-# 文件说明：实现视频帧消费与检测的帧消费、判定与告警衔接逻辑。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 """
 features/blocks/consumer.py
-区域入侵检测消费者 — 人体脚底点位于警戒线入侵侧即告警。
+区域入侵检测，
+先用YOLO检测人，再取人体框接近脚底位置作为代表点，判断这个点位于警戒线哪一侧，如果落再配置入侵侧就报警
 """
 from __future__ import annotations
 import cv2
@@ -16,18 +14,20 @@ class BlocksConsumer(BaseFunctionConsumer):
     """区域入侵检测 — YOLO 人体检测 + 警戒线入侵侧存在告警"""
     def _process(self, roi, camera_id):
         """在唯一 ROI 内检测，恢复原始帧坐标后判断脚底点是否位于入侵侧。"""
-        config = self._value_config(self.config_cache.get(camera_id, {}))
-        conf = float(config.get("threshold", 0.3) or 0.3)
+        config = self.config_cache[camera_id]
+        conf = config["threshold"]
         frame = self.frame_cache.get(camera_id)
+        # 读取警戒线和报警方向
         line_points, alarm_side = self._line_config(config, frame)
-        foot_ratio = self._foot_ratio(config)
-
+        # 默认0.93，作用是确定人体bbox里脚底参考点（x是框的中间，y是框的两个y值相加*0.93）
+        foot_ratio = config["foot_ratio"]
+        # YOLO
         outcome = self.dispatch_inference_sync(
             camera_id,
             "yolo_human",
             roi,
             task_meta={"conf": conf},
-            timeout=1.0,
+            timeout=1.0,             # Base是0.8秒，这里是1秒
         )
         roi_detections = []
         intrusions = []
@@ -38,13 +38,16 @@ class BlocksConsumer(BaseFunctionConsumer):
             if len(bbox) == 4:
                 bbox = [bbox[0] + ox, bbox[1] + oy, bbox[2] + ox, bbox[3] + oy]
                 enriched["bbox"] = bbox
+            # 算脚底点
             foot_point = self._foot_point(bbox, foot_ratio)
+            # 使用二维向量的叉积，判断一个点位于有方向的直线都哪一侧（side>0,一侧，side<0另一侧，side=0在线上）
             side = self._point_side(line_points, foot_point) if line_points and foot_point is not None else 0.0
             intrusion = self._is_alarm_side(side, alarm_side) if line_points and foot_point is not None else False
             enriched.update(foot_point=foot_point, line_side=side, intrusion=intrusion)
             roi_detections.append(enriched)
             if intrusion:
                 intrusions.append(enriched)
+        # roi_detections：所有检测到的人，intrusions：真正处在危险区的人
         return bool(intrusions), {
             "detections": roi_detections, "intrusions": intrusions,
             "line_points": line_points, "alarm_side": alarm_side, "foot_ratio": foot_ratio,
@@ -56,6 +59,7 @@ class BlocksConsumer(BaseFunctionConsumer):
         if frame_copy is None:
             return None
         _alarm, _msg = result
+        # 画警戒线和箭头
         self._draw_line(frame_copy, _msg["line_points"], _msg["alarm_side"])
         for det in (_msg or {}).get("detections", []):
             x1, y1, x2, y2 = [int(v) for v in det.get("bbox", [0, 0, 0, 0])]
@@ -83,24 +87,14 @@ class BlocksConsumer(BaseFunctionConsumer):
         """人体检测需要周期处理静止画面,避免有人站着不动时漏检。"""
         return True
 
-    @staticmethod
-    def _foot_ratio(config: dict) -> float:
-        try:
-            return max(0.0, min(1.0, float(config.get("foot_ratio", 0.93))))
-        except (TypeError, ValueError):
-            return 0.93
-
     @classmethod
     def _line_config(cls, config: dict, frame: np.ndarray | None) -> tuple[list[list[float]], int]:
-        raw_points = config.get("line_points", [])
+        raw_points = config["line_points"]
         points = LINE_ADAPTER.validate_python(raw_points)
         if frame is not None:
             h, w = frame.shape[:2]
             points = [[x * w, y * h] for x, y in points]
-        try:
-            alarm_side = -1 if int(config.get("alarm_side", 1) or 1) < 0 else 1
-        except (TypeError, ValueError):
-            alarm_side = 1
+        alarm_side = config["alarm_side"]
         return points, alarm_side
 
     @staticmethod
@@ -115,16 +109,21 @@ class BlocksConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _point_side(line_points: list[list[float]], point: list[float]) -> float:
+        """叉积，判断脚底点在线的哪一侧"""
         (x1, y1), (x2, y2) = line_points
         px, py = point
         return (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
 
     @staticmethod
     def _is_alarm_side(side: float, alarm_side: int) -> bool:
+        """alarm_side是真正的危险区，所以这里的逻辑是:
+            alarm_side 表示哪一侧是危险区；side 表示当前人体脚底点位于警戒线的哪一侧。两者方向一致时，就判定为入侵。
+        """
         return side >= 0 if alarm_side >= 0 else side <= 0
 
     @staticmethod
     def _draw_line(frame: np.ndarray, line_points: list[list[float]], alarm_side: int):
+        """画警戒线和箭头"""
         if len(line_points) != 2:
             cv2.putText(frame, "line not configured", (16, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
             return
@@ -136,8 +135,11 @@ class BlocksConsumer(BaseFunctionConsumer):
         cv2.line(frame, p1, p2, (0, 0, 255), 3)
 
         direction = b - a
+        # normal是垂直于警戒线的方向
         normal = np.array([-direction[1], direction[0]], dtype=np.float32)
+        # alarm_side < 0
         if alarm_side < 0:
+            # 就把方向翻转
             normal = -normal
         norm = float(np.linalg.norm(normal))
         if norm <= 1e-6:
@@ -146,5 +148,6 @@ class BlocksConsumer(BaseFunctionConsumer):
         mid = (a + b) / 2.0
         arrow_start = tuple(np.round(mid).astype(int).tolist())
         arrow_end = tuple(np.round(mid + normal * 72.0).astype(int).tolist())
+        # 箭头指向当前配置的报警侧
         cv2.arrowedLine(frame, arrow_start, arrow_end, (0, 0, 255), 3, tipLength=0.35)
         cv2.putText(frame, "alarm side", arrow_end, cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)

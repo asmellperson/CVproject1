@@ -262,12 +262,12 @@ def fixed_runtime(tmp_path, monkeypatch):
 
     config = tmp_path / "model_paths.yaml"
     shared = tmp_path / "shared.pt"
-    face = tmp_path / "face.pt"
+    face = tmp_path / "det_10g.onnx"
     shared.write_bytes(b"shared weights")
     face.write_bytes(b"face weights")
     config.write_text(
         f"models:\n  yolo_human:\n    path: {shared}\n"
-        f"  yolo_phone:\n    path: {shared}\n  yolo_face:\n    path: {face}\n"
+        f"  yolo_phone:\n    path: {shared}\n  insightface_detection:\n    path: {face}\n"
     )
     monkeypatch.setattr(model_paths.settings.model_paths, "config_path", str(config))
     model_paths.clear_model_paths_cache()
@@ -288,7 +288,7 @@ def fixed_runtime(tmp_path, monkeypatch):
 def test_fixed_models_share_one_physical_worker_and_report_logical_status(fixed_runtime):
     manager, _, shared, _ = fixed_runtime
     assert len(ManagedWorker.instances) == 2
-    assert set(manager.list_running()) == {"yolo_human", "yolo_phone", "yolo_face"}
+    assert set(manager.list_running()) == {"yolo_human", "yolo_phone", "insightface_detection"}
     assert manager._model_owners["yolo_human"] == manager._model_owners["yolo_phone"]
     shared_worker = manager._workers["yolo_human"]
     assert set(shared_worker.infer_queues) == {"yolo_human", "yolo_phone"}
@@ -302,8 +302,8 @@ def test_reload_splits_and_merges_shared_weights_without_changing_consumer_queue
     manager, _, shared, _ = fixed_runtime
     queues = dict(manager.infer_queues)
     original_shared = manager._workers["yolo_human"]
-    original_face = manager._workers["yolo_face"]
-    manager._worker_states["yolo_face"].restart_attempts = 2
+    original_face = manager._workers["insightface_detection"]
+    manager._worker_states["insightface_detection"].restart_attempts = 2
     phone = tmp_path / "phone.pt"
     phone.write_bytes(b"phone weights")
 
@@ -315,8 +315,8 @@ def test_reload_splits_and_merges_shared_weights_without_changing_consumer_queue
     assert len(manager._workers) == 3
     assert original_shared.stop_calls == 1
     assert original_face.stop_calls == 0
-    assert manager._workers["yolo_face"] is original_face
-    assert manager._worker_states["yolo_face"].restart_attempts == 2
+    assert manager._workers["insightface_detection"] is original_face
+    assert manager._worker_states["insightface_detection"].restart_attempts == 2
     assert manager._workers["yolo_phone"].model_path == str(phone)
     assert manager.infer_queues == queues
     assert manager._reload_results["yolo_phone"]["status"] == "succeeded"
@@ -326,7 +326,7 @@ def test_reload_splits_and_merges_shared_weights_without_changing_consumer_queue
     assert len(manager._workers) == 2
     assert manager._model_owners["yolo_phone"] == "yolo_human"
     assert manager.infer_queues == queues
-    assert manager._workers["yolo_face"] is original_face
+    assert manager._workers["insightface_detection"] is original_face
 
 
 def test_physical_identity_deduplicates_symlinks_and_hardlinks(fixed_runtime, tmp_path):

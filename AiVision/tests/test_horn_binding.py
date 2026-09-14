@@ -13,7 +13,7 @@ from AiVision.features import get_spec
 from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.logistics_channel.service import LogisticsChannelService
+from AiVision.features.detect_logistics_single_person.service import LogisticsChannelService
 from test_horn_backend import backend, payload
 from test_horn_runtime_manager import runtime, config as runtime_config
 from test_logistics_channel_runtime import build_runtime, channel, snapshot, FEATURE
@@ -22,7 +22,7 @@ from test_logistics_channel_runtime import build_runtime, channel, snapshot, FEA
 @pytest.fixture
 def binding_api(backend, monkeypatch):
     import AiVision.features._base.config_manager as feature_module
-    import AiVision.platform.logistics_channel.service as channel_module
+    import AiVision.features.detect_logistics_single_person.service as channel_module
 
     cache = SimpleNamespace(reload=lambda: None)
     bus = SimpleNamespace(publish=lambda event: backend.notifications.append(event))
@@ -56,7 +56,7 @@ def test_camera_feature_independence_disable_retains_and_explicit_unbind(binding
     for feature, camera, task in [('detect_human', 'cam_1', 7), ('detect_human', 'cam_2', 8), ('detect_phone', 'cam_1', 9)]:
         response = save(b.client, feature, camera, alarm(b.horn, task))
         assert response.status_code == 200, response.text
-    response = save(b.client, 'detect_human', 'cam_1', {'horn': {'enable': False}})
+    response = save(b.client, 'detect_human', 'cam_1', alarm(b.horn, 7, False))
     assert response.status_code == 200, response.text
     assert response.json()['config']['alarm']['horn'] == alarm(b.horn, 7, False)['horn']
     for feature, camera, task in [('detect_human', 'cam_2', 8), ('detect_phone', 'cam_1', 9)]:
@@ -88,7 +88,7 @@ def test_disabled_device_can_be_retained_but_not_enabled(binding_api):
     b.service.update_horn(b.horn, {'enable': False})
     response = save(b.client, 'detect_human', 'cam_1', alarm(b.horn))
     assert response.status_code == 400 and '已停用' in response.text
-    response = save(b.client, 'detect_human', 'cam_1', {'horn': {'enable': False}})
+    response = save(b.client, 'detect_human', 'cam_1', alarm(b.horn, 7, False))
     assert response.status_code == 200
     assert response.json()['config']['alarm']['horn']['parm']['horn_id'] == b.horn
 

@@ -17,10 +17,7 @@ import numpy as np
 
 from .constants import MAX_CAMERAS_PER_CHANNEL
 
-try:  
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError:  
-    Image = ImageDraw = ImageFont = None
+from PIL import Image, ImageDraw, ImageFont
 
 
 _MAX_TILE_SIDE = 4096
@@ -126,8 +123,6 @@ def _available_font_paths() -> tuple[str, ...]:
 
 @lru_cache(maxsize=32)
 def _load_font(font_path: str | None, size: int):
-    if ImageFont is None:
-        return None
     candidates = (font_path,) if font_path else _available_font_paths()
     for candidate in candidates:
         try:
@@ -164,19 +159,18 @@ def _draw_text(
 ) -> np.ndarray:
     """尽可能就地绘制 Unicode 文本，并配置安全的 OpenCV 兜底方案。"""
     visible_text = _display_text(text, "-")
-    if Image is not None and ImageDraw is not None:
-        font = _load_font(font_path, max(8, font_size))
-        if font is not None:
-            try:
-                rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                pil_image = Image.fromarray(rgb)
-                draw = ImageDraw.Draw(pil_image)
-                fitted_text = _truncate_for_width(visible_text, draw, font, max_width)
-                draw.text(origin, fitted_text, font=font, fill=tuple(reversed(color)))
-                image[:] = cv2.cvtColor(np.asarray(pil_image), cv2.COLOR_RGB2BGR)
-                return image
-            except (OSError, ValueError, TypeError, UnicodeError, cv2.error) as error:
-                _LOGGER.warning("无法渲染 Unicode 编码的物流叠加文字: %s", error)
+    font = _load_font(font_path, max(8, font_size))
+    if font is not None:
+        try:
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb)
+            draw = ImageDraw.Draw(pil_image)
+            fitted_text = _truncate_for_width(visible_text, draw, font, max_width)
+            draw.text(origin, fitted_text, font=font, fill=tuple(reversed(color)))
+            image[:] = cv2.cvtColor(np.asarray(pil_image), cv2.COLOR_RGB2BGR)
+            return image
+        except (OSError, ValueError, TypeError, UnicodeError, cv2.error) as error:
+            _LOGGER.warning("无法渲染 Unicode 编码的物流叠加文字: %s", error)
 
     fallback = visible_text.encode("ascii", "replace").decode("ascii")
     if not fallback.strip(" ?"):

@@ -49,7 +49,7 @@ export const navGroups: NavGroup[] = [
       { id: 'guard-behavior-electronics-electrician', label: '保安行为规范检测', icon: ShieldCheck, description: '电子电工保安行为规范监控与配置' },
       { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
       { id: 'door-detection', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
-      { id: 'face-detection', label: '人脸检测', icon: ScanFace, description: '人脸检测监控与配置入口' },
+      { id: 'face-detection', label: '人脸逗留检测', icon: ScanFace, description: '人脸逗留检测监控与配置入口' },
       { id: 'face-recognition', label: '人脸身份识别', icon: ScanFace, description: '电子电工人脸身份识别、识别记录与配置' },
       { id: 'human-detection', label: '人员违规逗留检测', icon: Clock3, description: '人员违规逗留检测监控与配置入口' },
       { id: 'haoda-human-detection', label: '人员违规逗留检测', icon: Clock3, description: '皓达公司人员违规逗留检测监控与配置入口' },

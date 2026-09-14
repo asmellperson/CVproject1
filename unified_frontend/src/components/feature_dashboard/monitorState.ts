@@ -21,9 +21,9 @@ export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDash
     statusSubject: '警戒线',
   },
   detect_face: {
-    pageTitle: '人脸检测监控与配置',
-    pageSubtitle: '人脸识别实时监控面板',
-    videoTitle: '人脸检测监控',
+    pageTitle: '人脸逗留检测监控与配置',
+    pageSubtitle: '人脸逗留超时监控面板',
+    videoTitle: '人脸逗留检测监控',
     metricLabel: '人脸置信度阈值',
     eventLabel: '人脸告警',
     statusSubject: '人脸区域',

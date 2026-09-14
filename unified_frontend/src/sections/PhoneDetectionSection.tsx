@@ -41,15 +41,21 @@ type PhoneConfig = {
   enable: boolean
   value: {
     roi_pos: PhoneRoiPos
-    cap_interval?: number
-    alarm_interval?: number
-    CONF_THRESHOLD?: number
-    IOU_THR?: number
-    PERSON_CONF_THRESHOLD?: number
-    MIN_CONFIRM_SECONDS?: number
-    MIN_CONSECUTIVE_HITS?: number
-    REQUIRE_PERSON_ASSOCIATION?: boolean
-    PERSON_EXPAND_RATIO?: number
+    cap_interval: number
+    alarm_interval: number
+    CONF_THRESHOLD: number
+    IOU_THR: number
+    PERSON_CONF_THRESHOLD: number
+    MIN_CONFIRM_SECONDS: number
+    MIN_CONSECUTIVE_HITS: number
+    REQUIRE_PERSON_ASSOCIATION: boolean
+    MAX_MISSED_SECONDS: number
+    TRACK_TTL_SECONDS: number
+    TRACK_IOU_THRESHOLD: number
+    PERSON_IOU_THR: number
+    HAND_REGION_MAX_Y_RATIO: number
+    MIN_PERSON_PHONE_OVERLAP: number
+    PERSON_EXPAND_RATIO: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -64,36 +70,15 @@ type PhoneConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[]',
-  confidenceThreshold: '0.7',
-  personConfidenceThreshold: '0.3',
-  iouThreshold: '0.5',
-  alarmInterval: '5.0',
-  minConfirmSeconds: '1.2',
-  minConsecutiveHits: '3',
+  roiPos: '',
+  confidenceThreshold: '',
+  personConfidenceThreshold: '',
+  iouThreshold: '',
+  alarmInterval: '',
+  minConfirmSeconds: '',
+  minConsecutiveHits: '',
   requirePersonAssociation: true,
-  personExpandRatio: '0.18',
-}
-
-const defaultPhoneConfig: PhoneConfig = {
-  enable: false,
-  value: {
-    roi_pos: [],
-    cap_interval: 0.1,
-    alarm_interval: 5.0,
-    CONF_THRESHOLD: 0.7,
-    PERSON_CONF_THRESHOLD: 0.3,
-    IOU_THR: 0.5,
-    MIN_CONFIRM_SECONDS: 1.2,
-    MIN_CONSECUTIVE_HITS: 3,
-    REQUIRE_PERSON_ASSOCIATION: true,
-    PERSON_EXPAND_RATIO: 0.18,
-  },
-  alarm: {
-    horn: { enable: false, parm: {} },
-    sql: { enable: false, parm: {} },
-    wechat: { enable: false, parm: { user: '' } },
-  },
+  personExpandRatio: '',
 }
 
 function formatJson(value: unknown) {
@@ -104,14 +89,14 @@ function toForm(payload: PhoneConfigResponse) {
   return {
     cameraName: payload.shm_name,
     roiPos: formatJson(payload.detect_phone.value.roi_pos),
-    confidenceThreshold: String(payload.detect_phone.value.CONF_THRESHOLD ?? 0.7),
-    personConfidenceThreshold: String(payload.detect_phone.value.PERSON_CONF_THRESHOLD ?? 0.3),
-    iouThreshold: String(payload.detect_phone.value.IOU_THR ?? 0.5),
-    alarmInterval: String(payload.detect_phone.value.alarm_interval ?? 5.0),
-    minConfirmSeconds: String(payload.detect_phone.value.MIN_CONFIRM_SECONDS ?? 1.2),
-    minConsecutiveHits: String(payload.detect_phone.value.MIN_CONSECUTIVE_HITS ?? 3),
-    requirePersonAssociation: payload.detect_phone.value.REQUIRE_PERSON_ASSOCIATION ?? true,
-    personExpandRatio: String(payload.detect_phone.value.PERSON_EXPAND_RATIO ?? 0.18),
+    confidenceThreshold: String(payload.detect_phone.value.CONF_THRESHOLD),
+    personConfidenceThreshold: String(payload.detect_phone.value.PERSON_CONF_THRESHOLD),
+    iouThreshold: String(payload.detect_phone.value.IOU_THR),
+    alarmInterval: String(payload.detect_phone.value.alarm_interval),
+    minConfirmSeconds: String(payload.detect_phone.value.MIN_CONFIRM_SECONDS),
+    minConsecutiveHits: String(payload.detect_phone.value.MIN_CONSECUTIVE_HITS),
+    requirePersonAssociation: payload.detect_phone.value.REQUIRE_PERSON_ASSOCIATION,
+    personExpandRatio: String(payload.detect_phone.value.PERSON_EXPAND_RATIO),
   }
 }
 
@@ -131,7 +116,7 @@ async function requestPhoneConfig(shmName: string, config?: PhoneConfig) {
 export function PhoneDetectionSection() {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
-  const [phoneConfig, setPhoneConfig] = useState<PhoneConfig>(defaultPhoneConfig)
+  const [phoneConfig, setPhoneConfig] = useState<PhoneConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
@@ -152,7 +137,7 @@ export function PhoneDetectionSection() {
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
-    setPhoneConfig(defaultPhoneConfig)
+    setPhoneConfig(null)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -244,7 +229,7 @@ export function PhoneDetectionSection() {
       if (form.cameraName === cameraName && nextCamera) {
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
-        setPhoneConfig(defaultPhoneConfig)
+        setPhoneConfig(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
       setMessage(`停用成功：${cameraName} 已关闭手机检测。`)
@@ -266,11 +251,15 @@ export function PhoneDetectionSection() {
       return
     }
 
-    if (loading || loadedCameraRef.current !== shmName) {
+    if (!phoneConfig || loading || loadedCameraRef.current !== shmName) {
       setMessage('保存失败：请先成功读取当前摄像头的配置。')
       return
     }
     const requestId = configRequestRef.current
+    if (Object.entries(form).some(([key, value]) => typeof value === 'string' && key !== 'envThreshold' && !value.trim())) {
+      setMessage('保存失败：请填写所有必填参数。')
+      return
+    }
 
     let roiPos: PhoneRoiPos
     try {
@@ -299,7 +288,7 @@ export function PhoneDetectionSection() {
       !Number.isFinite(iouThreshold) ||
       !Number.isFinite(alarmInterval) ||
       !Number.isFinite(minConfirmSeconds) ||
-      !Number.isFinite(minConsecutiveHits) ||
+      !Number.isInteger(minConsecutiveHits) || minConsecutiveHits < 1 ||
       !Number.isFinite(personExpandRatio)
     ) {
       setMessage('保存失败：置信度、IOU、告警间隔和误报控制参数必须是数字。')
@@ -317,11 +306,11 @@ export function PhoneDetectionSection() {
         IOU_THR: iouThreshold,
         alarm_interval: alarmInterval,
         MIN_CONFIRM_SECONDS: minConfirmSeconds,
-        MIN_CONSECUTIVE_HITS: Math.max(1, Math.round(minConsecutiveHits)),
+        MIN_CONSECUTIVE_HITS: minConsecutiveHits,
         REQUIRE_PERSON_ASSOCIATION: form.requirePersonAssociation,
         PERSON_EXPAND_RATIO: personExpandRatio,
       },
-      alarm: phoneConfig.alarm || defaultPhoneConfig.alarm,
+      alarm: phoneConfig.alarm,
     }
 
     setSaving(true)
@@ -425,7 +414,7 @@ export function PhoneDetectionSection() {
                   title="手机使用检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!phoneConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -439,7 +428,7 @@ export function PhoneDetectionSection() {
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的手机检测、人员关联与确认参数。" actions={<Badge variant="outline">AiVision detect_phone</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!phoneConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -498,7 +487,7 @@ export function PhoneDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="phone-interval">告警间隔</Label>
+                    <Label htmlFor="phone-interval">告警间隔（秒）</Label>
                     <Input
                       id="phone-interval"
                       value={form.alarmInterval}
@@ -508,7 +497,7 @@ export function PhoneDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="phone-confirm-seconds">确认持续时间</Label>
+                    <Label htmlFor="phone-confirm-seconds">确认持续时间（秒）</Label>
                     <Input
                       id="phone-confirm-seconds"
                       value={form.minConfirmSeconds}
@@ -521,6 +510,7 @@ export function PhoneDetectionSection() {
                     <Label htmlFor="phone-hit-count">连续命中次数</Label>
                     <Input
                       id="phone-hit-count"
+                      type="number" min="1" step="1"
                       value={form.minConsecutiveHits}
                       onChange={(event) => setForm((prev) => ({ ...prev, minConsecutiveHits: event.target.value }))}
                       placeholder="3"
@@ -572,11 +562,11 @@ export function PhoneDetectionSection() {
 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
-                alarm={phoneConfig.alarm}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                alarm={phoneConfig?.alarm}
+                disabled={!phoneConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                 saving={saving}
                 message={message}
-                onChange={(alarm) => setPhoneConfig((prev) => ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
+                onChange={(alarm) => setPhoneConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
             </TabsContent>

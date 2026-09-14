@@ -43,7 +43,7 @@ def get_department_service():
 
 def get_logistics_channel_service():
     """获取物流通道配置服务"""
-    from AiVision.platform.logistics_channel.service import logistics_channel_service
+    from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
     return logistics_channel_service
 
 

@@ -1,6 +1,6 @@
 """
 features/_base/consumer.py
-功能消费者基类 — 业务逻辑处理框架。
+功能基类 — 业务逻辑处理框架。
 
 继承本类的子类只需实现 3 个方法:
     _process(roi, camera_id) → (is_alarm, msg_dict)
@@ -276,7 +276,7 @@ class BaseFunctionConsumer(ABC):
                         roi = self._get_roi(cam_id, frame)
                         frame_changed = self._frame_changed(cam_id, roi)
                         now = time.time()
-                        cap_interval = float(self._value_config(cfg).get("cap_interval", 0.1) or 0.1)
+                        cap_interval = cfg["cap_interval"]
                         due_by_interval = now - self._last_process_at.get(cam_id, 0.0) >= cap_interval
 
                         # 跳帧：画面无变化 且 不需要处理静止帧（或未到采集间隔）
@@ -503,7 +503,7 @@ class BaseFunctionConsumer(ABC):
                 camera_key=cam_key,
                 department=department,
             ),
-            alarm_interval=cfg.get("alarm_interval", 5.0),
+            alarm_interval=cfg["alarm_interval"],
         )
 
     def _should_alarm(self, camera_id: int, result: tuple, cfg: dict) -> bool:
@@ -515,7 +515,7 @@ class BaseFunctionConsumer(ABC):
         控制在画面无显著变化时是否仍按 cap_interval 周期处理。
 
         默认 False：帧差类功能（blocks、detect_door）依赖画面变化驱动处理。
-        YOLO 逗留/目标追踪类功能应重写为 True，否则静止目标的逗留时间无法持续累积。
+        逗留/目标追踪类功能应重写为 True，否则静止目标的逗留时间无法持续累积。
         """
         return False
 
@@ -523,22 +523,10 @@ class BaseFunctionConsumer(ABC):
         """控制当前摄像头本轮是否进入检测流程，默认不做时间限制。"""
         return True
 
-    @staticmethod
-    def _value_config(cfg: dict) -> dict:
-        """
-        兼容两种配置结构：
-            API 层嵌套格式  — cfg = {"value": {...}, "alarm": {...}}
-            运行时 ORM 扁平格式 — cfg = {"cap_interval": 0.1, "enable": 1, ...}
-
-        优先取 cfg["value"]；不存在或非 dict 时直接使用 cfg 本身。
-        """
-        value = cfg.get("value") if isinstance(cfg, dict) else None
-        return value if isinstance(value, dict) else (cfg or {})
-
     # ROI：一台摄像头只有一个归一化多边形。
     def _get_roi(self, camera_id: int, frame: np.ndarray) -> np.ndarray:
         """按当前实际帧尺寸恢复像素 ROI，返回唯一的 Mask 裁剪图。"""
-        value = self._value_config(self.config_cache.get(camera_id, {}))
+        value = self.config_cache[camera_id]
         points = value.get("roi_pos", [])
         frame_shape = tuple(frame.shape[:2])
         if (
@@ -579,7 +567,7 @@ class BaseFunctionConsumer(ABC):
         if frame is None:
             return None
         annotated = frame.copy()
-        points = self._value_config(self.config_cache.get(camera_id, {})).get("roi_pos", [])
+        points = self.config_cache[camera_id].get("roi_pos", [])
         polygon = roi_to_pixels(points, frame.shape)
         # x=width、y=height 是裁剪边界；描边需要落在最末一个有效像素上。
         polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])

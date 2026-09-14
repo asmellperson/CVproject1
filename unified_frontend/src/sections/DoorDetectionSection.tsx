@@ -38,18 +38,18 @@ type DoorConfig = {
   enable: boolean
   value: {
     roi_pos: number[][]
-    threshold?: number
-    cap_interval?: number
-    alarm_interval?: number
-    blur_kernel?: number
-    diff_threshold?: number
-    diff_threshold_env?: number
-    env_threshold?: number
-    first_alarm?: number
-    stable_confirm_seconds?: number
-    stable_confirm_hits?: number
-    background_update_alpha?: number
-    global_motion_threshold?: number
+    threshold: number
+    cap_interval: number
+    alarm_interval: number
+    diff_threshold: number
+    diff_threshold_env: number
+    env_threshold: number | null
+    min_local_change_ratio: number
+    first_alarm: number
+    stable_confirm_seconds: number
+    stable_confirm_hits: number
+    background_update_alpha: number
+    global_motion_threshold: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -64,38 +64,16 @@ type DoorConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[]',
-  threshold: '0.5',
-  firstAlarm: '60',
-  alarmInterval: '5.0',
-  stableConfirmSeconds: '1.0',
-  stableConfirmHits: '3',
-  globalMotionThreshold: '0.22',
-  backgroundUpdateAlpha: '0.05',
-}
-
-const defaultDoorConfig: DoorConfig = {
-  enable: false,
-  value: {
-    roi_pos: [],
-    threshold: 0.5,
-    cap_interval: 0.1,
-    alarm_interval: 5.0,
-    blur_kernel: 5,
-    diff_threshold: 5,
-    diff_threshold_env: 10,
-    env_threshold: 10,
-    first_alarm: 60,
-    stable_confirm_seconds: 1.0,
-    stable_confirm_hits: 3,
-    background_update_alpha: 0.05,
-    global_motion_threshold: 0.22,
-  },
-  alarm: {
-    horn: { enable: false, parm: {} },
-    sql: { enable: false, parm: {} },
-    wechat: { enable: false, parm: { user: '' } },
-  },
+  roiPos: '',
+  threshold: '',
+  envThreshold: '',
+  minLocalChangeRatio: '',
+  firstAlarm: '',
+  alarmInterval: '',
+  stableConfirmSeconds: '',
+  stableConfirmHits: '',
+  globalMotionThreshold: '',
+  backgroundUpdateAlpha: '',
 }
 
 function formatRoi(roiPos: number[][]) {
@@ -106,13 +84,15 @@ function toForm(payload: DoorConfigResponse) {
   return {
     cameraName: payload.shm_name,
     roiPos: formatRoi(payload.detect_door.value.roi_pos),
-    threshold: String(payload.detect_door.value.threshold ?? 0.5),
-    firstAlarm: String(payload.detect_door.value.first_alarm ?? 60),
-    alarmInterval: String(payload.detect_door.value.alarm_interval ?? 5.0),
-    stableConfirmSeconds: String(payload.detect_door.value.stable_confirm_seconds ?? 1.0),
-    stableConfirmHits: String(payload.detect_door.value.stable_confirm_hits ?? 3),
-    globalMotionThreshold: String(payload.detect_door.value.global_motion_threshold ?? 0.22),
-    backgroundUpdateAlpha: String(payload.detect_door.value.background_update_alpha ?? 0.05),
+    threshold: String(payload.detect_door.value.threshold),
+    envThreshold: payload.detect_door.value.env_threshold === null ? '' : String(payload.detect_door.value.env_threshold),
+    minLocalChangeRatio: String(payload.detect_door.value.min_local_change_ratio),
+    firstAlarm: String(payload.detect_door.value.first_alarm),
+    alarmInterval: String(payload.detect_door.value.alarm_interval),
+    stableConfirmSeconds: String(payload.detect_door.value.stable_confirm_seconds),
+    stableConfirmHits: String(payload.detect_door.value.stable_confirm_hits),
+    globalMotionThreshold: String(payload.detect_door.value.global_motion_threshold),
+    backgroundUpdateAlpha: String(payload.detect_door.value.background_update_alpha),
   }
 }
 
@@ -132,7 +112,7 @@ async function requestDoorConfig(shmName: string, config?: DoorConfig) {
 export function DoorDetectionSection() {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
-  const [doorConfig, setDoorConfig] = useState<DoorConfig>(defaultDoorConfig)
+  const [doorConfig, setDoorConfig] = useState<DoorConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
@@ -153,7 +133,7 @@ export function DoorDetectionSection() {
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
-    setDoorConfig(defaultDoorConfig)
+    setDoorConfig(null)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -244,7 +224,7 @@ export function DoorDetectionSection() {
       if (form.cameraName === cameraName && nextCamera) {
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
-        setDoorConfig(defaultDoorConfig)
+        setDoorConfig(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
       setMessage(`停用成功：${cameraName} 已关闭大门开关检测。`)
@@ -266,11 +246,15 @@ export function DoorDetectionSection() {
       return
     }
 
-    if (loading || loadedCameraRef.current !== shmName) {
+    if (!doorConfig || loading || loadedCameraRef.current !== shmName) {
       setMessage('保存失败：请先成功读取当前摄像头的配置。')
       return
     }
     const requestId = configRequestRef.current
+    if (Object.entries(form).some(([key, value]) => typeof value === 'string' && key !== 'envThreshold' && !value.trim())) {
+      setMessage('保存失败：请填写所有必填参数。')
+      return
+    }
 
     let roiPos: number[][]
     try {
@@ -285,6 +269,8 @@ export function DoorDetectionSection() {
     }
 
     const threshold = Number(form.threshold)
+    const envThreshold = form.envThreshold.trim() === '' ? null : Number(form.envThreshold)
+    const minLocalChangeRatio = Number(form.minLocalChangeRatio)
     const firstAlarm = Number(form.firstAlarm)
     const alarmInterval = Number(form.alarmInterval)
     const stableConfirmSeconds = Number(form.stableConfirmSeconds)
@@ -292,15 +278,16 @@ export function DoorDetectionSection() {
     const globalMotionThreshold = Number(form.globalMotionThreshold)
     const backgroundUpdateAlpha = Number(form.backgroundUpdateAlpha)
     if (
-      !Number.isFinite(threshold) ||
-      !Number.isFinite(firstAlarm) ||
-      !Number.isFinite(alarmInterval) ||
-      !Number.isFinite(stableConfirmSeconds) ||
-      !Number.isFinite(stableConfirmHits) ||
+      ![threshold, globalMotionThreshold, backgroundUpdateAlpha, minLocalChangeRatio].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
+      (envThreshold !== null && (!Number.isFinite(envThreshold) || envThreshold < 0 || envThreshold > 1)) ||
+      !Number.isInteger(firstAlarm) || firstAlarm < 0 ||
+      !Number.isFinite(alarmInterval) || alarmInterval <= 0 ||
+      !Number.isFinite(stableConfirmSeconds) || stableConfirmSeconds < 0 ||
+      !Number.isInteger(stableConfirmHits) || stableConfirmHits < 1 ||
       !Number.isFinite(globalMotionThreshold) ||
       !Number.isFinite(backgroundUpdateAlpha)
     ) {
-      setMessage('保存失败：检测阈值、告警时间、持续确认和背景稳定参数必须是数字。')
+      setMessage('保存失败：比例须为 0～1，环境上限留空表示关闭；时间须合法，连续命中次数须为正整数。')
       return
     }
 
@@ -311,14 +298,16 @@ export function DoorDetectionSection() {
         ...doorConfig.value,
         roi_pos: roiPos,
         threshold,
+        env_threshold: envThreshold,
+        min_local_change_ratio: minLocalChangeRatio,
         first_alarm: firstAlarm,
         alarm_interval: alarmInterval,
         stable_confirm_seconds: stableConfirmSeconds,
-        stable_confirm_hits: Math.max(1, Math.round(stableConfirmHits)),
+        stable_confirm_hits: stableConfirmHits,
         global_motion_threshold: globalMotionThreshold,
         background_update_alpha: backgroundUpdateAlpha,
       },
-      alarm: doorConfig.alarm || defaultDoorConfig.alarm,
+      alarm: doorConfig.alarm,
     }
 
     setSaving(true)
@@ -419,7 +408,7 @@ export function DoorDetectionSection() {
                   title="大门开关异常检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!doorConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -433,7 +422,7 @@ export function DoorDetectionSection() {
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的大门状态、确认与环境参数。" actions={<Badge variant="outline">AiVision detect_door</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!doorConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -464,7 +453,7 @@ export function DoorDetectionSection() {
                   <div className="space-y-2">
                     <Label htmlFor="door-threshold">检测阈值</Label>
                     <Input
-                      id="door-threshold"
+                      id="door-threshold" type="number" min="0" max="1" step="0.01"
                       value={form.threshold}
                       onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
                       placeholder="0.5"
@@ -472,9 +461,19 @@ export function DoorDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="door-first-alarm">首次告警时间</Label>
+                    <Label htmlFor="door-env-threshold">环境变化比例上限（留空关闭，0～1）</Label>
+                    <Input id="door-env-threshold" type="number" min="0" max="1" step="0.01"
+                      value={form.envThreshold} onChange={(event) => setForm((prev) => ({ ...prev, envThreshold: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="door-min-local-ratio">最小局部变化比例（与检测阈值同时满足）</Label>
+                    <Input id="door-min-local-ratio" type="number" min="0" max="1" step="0.01"
+                      value={form.minLocalChangeRatio} onChange={(event) => setForm((prev) => ({ ...prev, minLocalChangeRatio: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="door-first-alarm">首次告警等待时间（秒）</Label>
                     <Input
-                      id="door-first-alarm"
+                      id="door-first-alarm" type="number" min="0" step="1"
                       value={form.firstAlarm}
                       onChange={(event) => setForm((prev) => ({ ...prev, firstAlarm: event.target.value }))}
                       placeholder="60"
@@ -482,7 +481,7 @@ export function DoorDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="door-interval">告警间隔</Label>
+                    <Label htmlFor="door-interval">告警间隔（秒）</Label>
                     <Input
                       id="door-interval"
                       value={form.alarmInterval}
@@ -514,7 +513,7 @@ export function DoorDetectionSection() {
                   <div className="space-y-2">
                     <Label htmlFor="door-global-motion">背景抖动阈值</Label>
                     <Input
-                      id="door-global-motion"
+                      id="door-global-motion" type="number" min="0" max="1" step="0.01"
                       value={form.globalMotionThreshold}
                       onChange={(event) => setForm((prev) => ({ ...prev, globalMotionThreshold: event.target.value }))}
                       placeholder="0.22"
@@ -557,11 +556,11 @@ export function DoorDetectionSection() {
 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
-                alarm={doorConfig.alarm}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                alarm={doorConfig?.alarm}
+                disabled={!doorConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                 saving={saving}
                 message={message}
-                onChange={(alarm) => setDoorConfig((prev) => ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
+                onChange={(alarm) => setDoorConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
             </TabsContent>

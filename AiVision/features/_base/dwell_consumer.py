@@ -2,9 +2,10 @@
 features/_base/dwell_consumer.py
 
 detect_face 和 detect_human 的告警逻辑实质上一样:
-    - 用一个 YOLO 模型检测目标
+    - 通过功能声明的模型检测目标，接收统一检测结果
     - 跟踪每个目标的逗留时间
-    - 超过 MAX_TIME 触发一次性告警
+    - 达到 MAX_TIME 后轨迹保持告警状态，直至轨迹删除
+    - 仅本次匹配到目标（lost == 0）的轨迹参与当前告警；重复通知由 alarm_interval 冷却控制
 
 它们的唯一区别是:
     - 用的模型不同(face 用人脸模型, human 用人体模型)
@@ -18,14 +19,6 @@ import cv2
 
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.features._base.tracking import IouTracker
-
-def _number_or_default(value, default: float) -> float:
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 def build_dwell_monitor_snapshot(
     trackers: dict,                    # camera_id：每台 Camera 有一个独立 Tracker。
@@ -79,28 +72,23 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         super()._on_roi_changed(camera_id)
         self._trackers.pop(camera_id, None)
 
+    def _detection_options(self, cfg: dict) -> tuple:
+        raise NotImplementedError
+
     def _process(self, roi, camera_id):
         """
         拿当前摄像头唯一 ROI 完成人员/人脸检测、跟踪和逗留时间判断，返回本帧是否违规
         """
         # 读取算法参数
-        cfg = self._value_config(self.config_cache.get(camera_id, {}))
-        max_time = _number_or_default(cfg.get("MAX_TIME"), 10.0)
-        iou_thr = _number_or_default(cfg.get("IOU_THR"), 0.3)
-        max_lost = int(_number_or_default(cfg.get("MAX_LOST"), 5))
-        center_dist_thr = _number_or_default(cfg.get("CENTER_DIST_THR"), 0.65)
-        area_ratio_thr = _number_or_default(cfg.get("AREA_RATIO_THR"), 0.55)
-        match_score_thr = _number_or_default(cfg.get("MATCH_SCORE_THR"), 0.35)
-        smooth_alpha = _number_or_default(cfg.get("TRACK_SMOOTH_ALPHA"), 0.7)
-        conf_thr = _number_or_default(cfg.get("CONF_THRESHOLD", cfg.get("FACE_SCORE_THR")), 0.3)
-        min_box_area = _number_or_default(cfg.get("MIN_BOX_AREA"), 0)
-        aspect_range = cfg.get("ASPECT_RATIO_RANGE") or []
-        min_aspect, max_aspect = None, None
-        if isinstance(aspect_range, (list, tuple)) and len(aspect_range) >= 2:
-            min_aspect = _number_or_default(aspect_range[0], 0)
-            max_aspect = _number_or_default(aspect_range[1], 10)
+        cfg = self.config_cache[camera_id]
+        max_time = cfg["MAX_TIME"]
+        detection_iou = cfg["DETECTION_IOU_THR"]
+        track_iou = cfg["TRACK_IOU_THR"]
+        max_lost = cfg["MAX_LOST"]
+        conf_thr, min_box_area, aspect_range, tracking_options = self._detection_options(cfg)
+        min_aspect, max_aspect = aspect_range
 
-        # 调YOLO推理 — 用 spec.required_models[0] 作为目标模型
+        # 统一推理接口；具体模型由功能声明，检测 NMS 与跟踪匹配分别配置。
         if not self.spec.required_models:
             return False, None
         model_name = self.spec.required_models[0]
@@ -108,28 +96,23 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             camera_id,
             model_name,
             roi,
-            task_meta={"conf": conf_thr, "iou": iou_thr},
+            task_meta={"conf": conf_thr, "iou": detection_iou},
         )
 
         # 每台摄像头对应一个 Tracker
         tracker_key = camera_id
         if tracker_key not in self._trackers:
             self._trackers[tracker_key] = IouTracker(
-                iou_thr=iou_thr,
+                iou_thr=track_iou,
                 max_lost=max_lost,
-                center_dist_thr=center_dist_thr,
-                area_ratio_thr=area_ratio_thr,
-                match_score_thr=match_score_thr,
-                smooth_alpha=smooth_alpha,
+                **tracking_options,
             )
-        # 创建后每帧重新获取参数
+        # 热更新保持检测与跟踪参数独立。
         tracker = self._trackers[tracker_key]
-        tracker.iou_thr = iou_thr
+        tracker.iou_thr = track_iou
         tracker.max_lost = max_lost
-        tracker.center_dist_thr = center_dist_thr
-        tracker.area_ratio_thr = area_ratio_thr
-        tracker.match_score_thr = match_score_thr
-        tracker.smooth_alpha = smooth_alpha
+        for key, value in tracking_options.items():
+            setattr(tracker, key, value)
 
         # 提取检测框
         detections = []
@@ -181,14 +164,14 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             画ROI
             画Track框
         """
-        cfg = self._value_config(self.config_cache.get(camera_id, {}))
+        cfg = self.config_cache[camera_id]
         camera_key = str(self.config_cache.get(camera_id, {}).get("shm_name") or "").strip()
         if camera_key:
             # build_dwell_monitor_snapshot只统计当前真正可见Track，track.lost == 0才算
             self.monitor_status[camera_key] = build_dwell_monitor_snapshot(
                 self._trackers,
                 camera_id=camera_id,
-                threshold_seconds=_number_or_default(cfg.get("MAX_TIME"), 10.0),
+                threshold_seconds=cfg["MAX_TIME"],
             )
         frame_copy = self._annotated_frame(camera_id)
         if frame_copy is None:

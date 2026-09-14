@@ -299,7 +299,7 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
 - `SecurityVlmSection.tsx`：安检流程规范检测。
 - `IntrusionDetectionSection.tsx`：区域入侵检测。
 - `DoorDetectionSection.tsx`：大门开关异常检测。
-- `FaceDetectionSection.tsx`：人脸检测。
+- `FaceDetectionSection.tsx`：人脸逗留检测。
 - `HumanDetectionSection.tsx`：人员逗留检测。
 - `PhoneDetectionSection.tsx`：手机使用检测。
 - `AlarmsSection.tsx`：报警记录。
@@ -357,3 +357,5 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
 - `node_modules/`：第三方依赖，重新 `npm install` 会生成。
 - `dist/`：构建产物，重新 `npm run build` 会生成。
 - `package-lock.json`：除非安装或更新依赖，否则不要手动编辑。
+
+物流通道配置使用 `detect_logistics_single_person` 的统一接口。通道“检测参数”和“报警推送”管理时段、人体置信度、宽限时间、告警间隔和通知；“ROI 配置”管理逐路 ROI、模型 IOU、最小面积、宽高比及处理间隔。默认值从后端完整配置读取，摄像头请求只包含 `enable`、`value`，禁止携带告警和通道字段。

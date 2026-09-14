@@ -56,7 +56,7 @@ def test_path_save_and_list_use_local_yaml_and_real_runtime_state(client, tmp_pa
         assert response.json()["configuration_saved"] is True
         assert response.json()["load_status"] == "not_started"
         items = {item["name"]: item for item in http.get("/api/models").json()}
-        assert set(items) == {"yolo_human", "yolo_phone", "yolo_face", "insightface"}
+        assert set(items) == {"yolo_human", "yolo_phone", "insightface_detection", "insightface"}
         assert items["yolo_human"]["path"] == str(weight)
         assert items["yolo_human"]["runtime"]["running"] is False
         assert items["yolo_human"]["runtime"]["status"] == "not_started"
@@ -81,6 +81,33 @@ def test_path_update_returns_saved_separately_from_loading(client):
     assert response.json()["configuration_saved"] is True
     assert response.json()["load_status"] == "loading"
     assert calls == [("yolo_human", "/models/new.pt")]
+
+
+def test_detection_path_save_and_echo_need_no_recognition_models(client, tmp_path, monkeypatch):
+    from AiVision.platform.inference import model_paths
+    from AiVision.platform.inference.runtime_manager import InferenceRuntimeManager
+
+    http, service, _ = client
+    manager = InferenceRuntimeManager()
+    service.list_models = manager.list_models
+    service.update_model_path = manager.update_model_path
+    config = tmp_path / "paths.yaml"
+    detector = tmp_path / "det_10g.onnx"
+    detector.write_bytes(b"mock detector")
+    monkeypatch.setattr(model_paths.settings.model_paths, "config_path", str(config))
+    model_paths.clear_model_paths_cache()
+    try:
+        response = http.patch("/api/models/insightface_detection/path", json={"path": str(detector)})
+        assert response.status_code == 202
+        assert response.json()["load_status"] == "not_started"
+        models = {item["name"]: item for item in http.get("/api/models").json()}
+        assert models["insightface_detection"]["path"] == str(detector)
+        assert models["insightface_detection"]["type"] == "insightface_detection"
+        assert http.patch("/api/models/insightface_detection/path", json={"path": str(tmp_path)}).status_code == 422
+        assert http.patch("/api/models/insightface/path", json={"path": str(tmp_path)}).status_code == 422
+        assert http.patch("/api/models/removed-face-model/path", json={"path": str(detector)}).status_code == 404
+    finally:
+        model_paths.clear_model_paths_cache()
 
 
 @pytest.mark.parametrize("field,value", [

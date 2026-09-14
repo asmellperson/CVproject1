@@ -23,10 +23,13 @@ def local_paths(tmp_path, monkeypatch):
 
 
 def test_fixed_registry_has_explicit_inference_settings():
-    assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "yolo_face", "insightface"}
+    assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "insightface_detection", "insightface"}
     assert get_model_spec("yolo_human").class_filter == (0,)
     assert get_model_spec("yolo_phone").class_filter == (1,)
-    assert get_model_spec("yolo_face").conf == 0.6
+    from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+    assert get_model_spec("insightface_detection").worker_class is FaceDetectorWorker
+    assert get_model_spec("insightface_detection").conf == 0.6
+    assert get_model_spec("insightface_detection").iou == 0.3
     assert all(spec.worker_class is YoloDetectorWorker for spec in MODEL_SPECS.values() if spec.type == "yolo")
     from AiVision.platform.inference.workers.face_recognizer import FaceRecognizerWorker
     assert get_model_spec("insightface").worker_class is FaceRecognizerWorker
@@ -177,7 +180,6 @@ class Boxes(SimpleNamespace):
 @pytest.mark.parametrize("name,expected_classes,label,conf", [
     ("yolo_human", [0], "person", 0.3),
     ("yolo_phone", [1], "phone", 0.3),
-    ("yolo_face", [0, 1], "face", 0.6),
 ])
 def test_shared_yolo_uses_each_logical_models_fixed_parameters(name, expected_classes, label, conf):
     worker = YoloDetectorWorker(

@@ -78,7 +78,7 @@ const EMPTY: AiVisionStatistics = {
 const TYPE_META: TypeBucket[] = [
   { event_type: 'blocks', name: '区域入侵', value: 0, color: '#ef4444' },
   { event_type: 'detect_door', name: '大门开关', value: 0, color: '#f59e0b' },
-  { event_type: 'detect_face', name: '人脸检测', value: 0, color: '#8b5cf6' },
+  { event_type: 'detect_face', name: '人脸逗留检测', value: 0, color: '#8b5cf6' },
   { event_type: 'detect_phone', name: '手机检测', value: 0, color: '#f97316' },
   { event_type: 'detect_human', name: '人员违规逗留检测', value: 0, color: '#2563eb' },
   { event_type: 'detect_logistics_single_person', name: '物流通道单人', value: 0, color: '#0f766e' },

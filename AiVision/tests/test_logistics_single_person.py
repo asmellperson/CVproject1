@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 from AiVision.features import all_specs
-from AiVision.features._base.logistics_single_person_consumer import (
-    LogisticsSinglePersonConsumerBase,
+from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features.detect_logistics_single_person.consumer import (
+    LogisticsSinglePersonConsumer,
     build_monitor_snapshot,
 )
-from AiVision.features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
 from AiVision.features.detect_logistics_single_person import SPEC as LOGISTICS_SPEC
 
 LOGISTICS_CONSUMER_CLASSES = (LogisticsSinglePersonConsumer,)
@@ -132,13 +132,13 @@ def build_consumer(consumer_class, *, runtime=None):
     )
     consumer.config_cache = {7: {
         "name": "Camera 7", "shm_name": "cam-7",
-        "value": {"CONF_THRESHOLD": 0.4, "IOU_THR": 0.3,
-                  "MIN_BOX_AREA": 0, "ASPECT_RATIO_RANGE": [0, 10], "roi_pos": []},
+        "IOU_THR": 0.3,
+                  "MIN_BOX_AREA": 0, "ASPECT_RATIO_RANGE": [0, 10], "roi_pos": [],
     }}
     return consumer
 
 
-# 功能：验证 `test_all_logistics_consumers_share_the_common_implementation` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_logistics_consumer_owns_detection_implementation` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `consumer_class`（未显式标注）：`consumer_class` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -147,13 +147,13 @@ def build_consumer(consumer_class, *, runtime=None):
 #   - 内部调用：`issubclass`、`pytest.mark.parametrize`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.parametrize("consumer_class", LOGISTICS_CONSUMER_CLASSES)
-def test_all_logistics_consumers_share_the_common_implementation(consumer_class):
-    assert issubclass(consumer_class, LogisticsSinglePersonConsumerBase)
-    assert "_process" not in consumer_class.__dict__
-    assert "post_process" not in consumer_class.__dict__
+def test_logistics_consumer_owns_detection_implementation(consumer_class):
+    assert consumer_class.__bases__ == (BaseFunctionConsumer,)
+    assert "_process" in consumer_class.__dict__
+    assert "post_process" in consumer_class.__dict__
 
 
-# 功能：验证 `test_legacy_precious_metal_feature_uses_weida_company_display_name` 对应的`test_logistics_single_person`
+# 功能：验证 `test_logistics_feature_supports_precious_metal_department` 对应的`test_logistics_single_person`
 #    模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -161,7 +161,7 @@ def test_all_logistics_consumers_share_the_common_implementation(consumer_class)
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_legacy_precious_metal_feature_uses_weida_company_display_name():
+def test_logistics_feature_supports_precious_metal_department():
     assert LOGISTICS_SPEC.display_name == "物流通道单人检测"
     assert "precious_metal_recycling" in LOGISTICS_SPEC.departments
 
@@ -179,7 +179,7 @@ def test_legacy_precious_metal_feature_uses_weida_company_display_name():
 def test_all_logistics_consumers_publish_details_without_camera_alarm(consumer_class):
     consumer = build_consumer(consumer_class)
     consumer.dispatch_inference_sync = lambda *_args, **_kwargs: {
-            "roi_id": 0,
+            "status": "ok", "roi_id": 0,
             "detections": [
                 {"type": "person", "bbox": [1, 2, 21, 62], "confidence": 0.9},
                 {"type": "human", "bbox": [30, 2, 50, 62], "confidence": 0.8},
@@ -224,7 +224,7 @@ def test_process_preserves_model_and_camera_filter_configuration():
             task_meta=task_meta,
         )
         return {
-                "roi_id": 0,
+                "status": "ok", "roi_id": 0,
                 "detections": [
                     {"type": "vehicle", "bbox": [0, 0, 50, 50], "confidence": 0.9},
                     {"type": "person", "bbox": [0, 0, 1, 1], "confidence": 0.9},
@@ -232,7 +232,7 @@ def test_process_preserves_model_and_camera_filter_configuration():
                 ],
             }
 
-    consumer.config_cache[7]["value"]["MIN_BOX_AREA"] = 100
+    consumer.config_cache[7]["MIN_BOX_AREA"] = 100
     consumer.dispatch_inference_sync = dispatch
     roi = np.zeros((64, 64, 3), dtype=np.uint8)
 
@@ -272,7 +272,7 @@ def test_process_uses_channel_person_confidence_threshold():
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def dispatch(_camera_id, _model_name, _roi_list, task_meta):
         dispatched.update(task_meta)
-        return {"roi_id": 0, "detections": []}
+        return {"status": "ok", "roi_id": 0, "detections": []}
 
     consumer.dispatch_inference_sync = dispatch
     consumer._process(np.zeros((16, 16, 3), dtype=np.uint8), camera_id=7)
@@ -293,7 +293,7 @@ def test_post_process_restores_crop_offset_and_publishes_snapshot():
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
     original = np.zeros((100, 100, 3), dtype=np.uint8)
     consumer.frame_cache[7] = original
-    consumer.config_cache[7]["value"]["roi_pos"] = [[0.1, 0.1], [0.7, 0.1], [0.7, 1], [0.1, 1]]
+    consumer.config_cache[7]["roi_pos"] = [[0.1, 0.1], [0.7, 0.1], [0.7, 1], [0.1, 1]]
     consumer._get_roi(7, original)
     result = (False, {
         "reason": "normal", "person_count": 1,

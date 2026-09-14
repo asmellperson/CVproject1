@@ -37,16 +37,12 @@ type BlocksConfig = {
   enable: boolean
   value: {
     roi_pos: number[][]
-    line_points?: number[][]
-    alarm_side?: number
-    foot_ratio?: number
-    threshold?: number
-    cap_interval?: number
-    alarm_interval?: number
-    blur_kernel?: number
-    diff_threshold?: number
-    diff_threshold_env?: number
-    env_threshold?: number
+    line_points: number[][]
+    alarm_side: number
+    foot_ratio: number
+    threshold: number
+    cap_interval: number
+    alarm_interval: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -61,36 +57,14 @@ type BlocksConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  linePoints: '[[0.2,0.7],[0.8,0.7]]',
-  alarmSide: '1',
-  footRatio: '0.93',
-  threshold: '0.1',
-  alarmInterval: '5.0',
+  linePoints: '',
+  alarmSide: '',
+  footRatio: '',
+  threshold: '',
+  alarmInterval: '',
 }
 
-const defaultBlocks: BlocksConfig = {
-  enable: false,
-  value: {
-    roi_pos: [],
-    line_points: [[0.2, 0.7], [0.8, 0.7]],
-    alarm_side: 1,
-    foot_ratio: 0.93,
-    threshold: 0.1,
-    cap_interval: 0.1,
-    alarm_interval: 5.0,
-    blur_kernel: 5,
-    diff_threshold: 10,
-    diff_threshold_env: 10,
-    env_threshold: 0.5,
-  },
-  alarm: {
-    horn: { enable: false, parm: {} },
-    sql: { enable: false, parm: {} },
-    wechat: { enable: false, parm: { user: '' } },
-  },
-}
-
-function formatLinePoints(linePoints?: number[][]) {
+function formatLinePoints(linePoints: number[][]) {
   return JSON.stringify(linePoints ?? [])
 }
 
@@ -98,10 +72,10 @@ function toForm(payload: BlocksConfigResponse) {
   return {
     cameraName: payload.shm_name,
     linePoints: formatLinePoints(payload.blocks.value.line_points),
-    alarmSide: String(payload.blocks.value.alarm_side ?? 1),
-    footRatio: String(payload.blocks.value.foot_ratio ?? 0.93),
-    threshold: String(payload.blocks.value.threshold ?? 0.1),
-    alarmInterval: String(payload.blocks.value.alarm_interval ?? 5.0),
+    alarmSide: String(payload.blocks.value.alarm_side),
+    footRatio: String(payload.blocks.value.foot_ratio),
+    threshold: String(payload.blocks.value.threshold),
+    alarmInterval: String(payload.blocks.value.alarm_interval),
   }
 }
 
@@ -121,7 +95,7 @@ async function requestBlocksConfig(shmName: string, config?: BlocksConfig) {
 export function IntrusionDetectionSection() {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
-  const [blocks, setBlocks] = useState<BlocksConfig>(defaultBlocks)
+  const [blocks, setBlocks] = useState<BlocksConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
@@ -142,7 +116,7 @@ export function IntrusionDetectionSection() {
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
-    setBlocks(defaultBlocks)
+    setBlocks(null)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -233,7 +207,7 @@ export function IntrusionDetectionSection() {
       if (form.cameraName === cameraName && nextCamera) {
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
-        setBlocks(defaultBlocks)
+        setBlocks(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
       setMessage(`停用成功：${cameraName} 已关闭区域入侵检测。`)
@@ -255,11 +229,15 @@ export function IntrusionDetectionSection() {
       return
     }
 
-    if (loading || loadedCameraRef.current !== shmName) {
+    if (!blocks || loading || loadedCameraRef.current !== shmName) {
       setMessage('保存失败：请先成功读取当前摄像头的配置。')
       return
     }
     const requestId = configRequestRef.current
+    if (Object.entries(form).some(([key, value]) => typeof value === 'string' && key !== 'envThreshold' && !value.trim())) {
+      setMessage('保存失败：请填写所有必填参数。')
+      return
+    }
 
     let linePoints: number[][]
     try {
@@ -272,7 +250,7 @@ export function IntrusionDetectionSection() {
     const threshold = Number(form.threshold)
     const alarmInterval = Number(form.alarmInterval)
     const footRatio = Number(form.footRatio)
-    if (!Number.isFinite(threshold) || !Number.isFinite(alarmInterval) || !Number.isFinite(footRatio)) {
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1 || !Number.isFinite(alarmInterval) || alarmInterval <= 0 || !Number.isFinite(footRatio)) {
       setMessage('保存失败：检测阈值、告警间隔和脚底比例必须是数字。')
       return
     }
@@ -286,14 +264,14 @@ export function IntrusionDetectionSection() {
       enable: true,
       value: {
         ...blocks.value,
-        roi_pos: blocks.value.roi_pos || [],
+        roi_pos: blocks.value.roi_pos,
         line_points: linePoints,
-        alarm_side: Number(form.alarmSide) < 0 ? -1 : 1,
+        alarm_side: Number(form.alarmSide),
         foot_ratio: footRatio,
         threshold,
         alarm_interval: alarmInterval,
       },
-      alarm: blocks.alarm || defaultBlocks.alarm,
+      alarm: blocks.alarm,
     }
 
     setSaving(true)
@@ -380,7 +358,7 @@ export function IntrusionDetectionSection() {
                   cameraKey={form.cameraName}
                   mode="line"
                   roiJson={form.linePoints}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(linePoints) => setForm((prev) => ({ ...prev, linePoints }))}
@@ -394,7 +372,7 @@ export function IntrusionDetectionSection() {
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的区域入侵检测参数。" actions={<Badge variant="outline">AiVision blocks</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -433,7 +411,7 @@ export function IntrusionDetectionSection() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="intrusion-interval">告警间隔</Label>
+                    <Label htmlFor="intrusion-interval">告警间隔（秒）</Label>
                     <Input
                       id="intrusion-interval"
                       value={form.alarmInterval}
@@ -447,7 +425,7 @@ export function IntrusionDetectionSection() {
                     <Select
                       value={form.alarmSide}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, alarmSide: value }))}
-                      disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                      disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                     >
                       <SelectTrigger id="intrusion-side" className="w-full">
                         <SelectValue />
@@ -482,11 +460,11 @@ export function IntrusionDetectionSection() {
 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
-                alarm={blocks.alarm}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                alarm={blocks?.alarm}
+                disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                 saving={saving}
                 message={message}
-                onChange={(alarm) => setBlocks((prev) => ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
+                onChange={(alarm) => setBlocks((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
             </TabsContent>

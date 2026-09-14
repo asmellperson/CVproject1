@@ -61,7 +61,7 @@ test('detection page titles remain readable on dark surfaces', async () => {
   assert.match(header, /<h1[^>]*dark:text-slate-100/)
   for (const [file, title] of [
     ['IntrusionDetectionSection.tsx', '区域入侵检测'],
-    ['FaceDetectionSection.tsx', '人脸检测'],
+    ['FaceDetectionSection.tsx', '人脸逗留检测'],
     ['PhoneDetectionSection.tsx', '手机识别检测'],
     ['DoorDetectionSection.tsx', '大门开关检测'],
   ]) {

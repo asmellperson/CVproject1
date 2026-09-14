@@ -14,7 +14,7 @@ OTHER_FEATURE = FEATURE
 
 
 def test_default_camera_provider_preserves_numeric_primary_key(monkeypatch):
-    import AiVision.platform.logistics_channel.runtime as runtime_module
+    import AiVision.features.detect_logistics_single_person.runtime as runtime_module
 
     requested = []
     monkeypatch.setattr(
@@ -231,7 +231,7 @@ def build_runtime(
     dispatcher=None,
     channel_service=None,
 ):
-    from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
 
     dispatcher = dispatcher or FakeDispatcher()
     cameras = cameras or {
@@ -274,7 +274,7 @@ def build_runtime(
 #   - 内部调用：`CameraSnapshot`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def snapshot(camera_id, count, *, now=100.0, online=True):
-    from AiVision.platform.logistics_channel.state import CameraSnapshot
+    from AiVision.features.detect_logistics_single_person.state import CameraSnapshot
 
     return CameraSnapshot(
         camera_id=camera_id,
@@ -345,7 +345,7 @@ def test_channel_root_enabled_is_the_only_runtime_switch():
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`channel`、`build_runtime`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_channel_status`、`runtime.get_composite_frame`。
+#   - 内部调用：`channel`、`build_runtime`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_channel_status`、`runtime.get_channel_frame`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_disabled_members_are_excluded_from_aggregation_status_and_composite():
     item = channel(member_ids=(10, 11))
@@ -372,7 +372,7 @@ def test_disabled_members_are_excluded_from_aggregation_status_and_composite():
     status = runtime.get_channel_status(FEATURE, 3)
     assert status["camera_ids"] == [10]
     assert "11" not in status["camera_states"]
-    assert runtime.get_composite_frame(FEATURE, 3).shape == (20, 30, 3)
+    assert runtime.get_channel_frame(FEATURE, 3).shape == (20, 30, 3)
     assert composed == [(10,)]
     assert dispatcher.requests == []
 
@@ -382,7 +382,7 @@ def test_disabled_members_are_excluded_from_aggregation_status_and_composite():
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`channel`、`time`、`np.full`、`build_runtime`、`datetime`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_composite_frame`、`len`
+#   - 内部调用：`channel`、`time`、`np.full`、`build_runtime`、`datetime`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_channel_frame`、`len`
 #          等共 13 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_inactive_detection_window_still_composes_live_preview_frames():
@@ -422,7 +422,7 @@ def test_inactive_detection_window_still_composes_live_preview_frames():
     )
 
     assert runtime.evaluate(FEATURE, 3, now=100.0).reason == "inactive"
-    frame = runtime.get_composite_frame(FEATURE, 3)
+    frame = runtime.get_channel_frame(FEATURE, 3)
 
     assert frame.shape == (8, 24, 3)
     assert len(captured) == 1
@@ -740,7 +740,7 @@ def test_invalid_count_is_unknown_in_decision_and_display(invalid_count):
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`build_runtime`、`channel`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_composite_frame`、`len`。
+#   - 内部调用：`build_runtime`、`channel`、`runtime.update_camera_snapshot`、`snapshot`、`runtime.evaluate`、`runtime.get_channel_frame`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_compositor_runs_only_for_alarm_or_explicit_frame_request():
     calls = []
@@ -765,7 +765,7 @@ def test_compositor_runs_only_for_alarm_or_explicit_frame_request():
 
     assert runtime.evaluate(FEATURE, 3, now=100.0).reason == "normal"
     assert calls == []
-    assert runtime.get_composite_frame(FEATURE, 3).shape == (20, 30, 3)
+    assert runtime.get_channel_frame(FEATURE, 3).shape == (20, 30, 3)
     assert calls == [(10,)]
 
     runtime.update_camera_snapshot(FEATURE, snapshot(10, 2, now=101.0), None)
@@ -783,7 +783,7 @@ def test_compositor_runs_only_for_alarm_or_explicit_frame_request():
 #          等共 12 个调用。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_service_camera_online_compositor_and_dispatcher_run_outside_global_lock():
-    from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
+    from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
 
     holder = {}
     item = channel(member_ids=(10,))

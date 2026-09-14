@@ -6,6 +6,8 @@ from math import isfinite
 from threading import RLock
 from typing import Iterable, Literal
 
+from .constants import PERSON_DEDUP_IOU_THRESHOLD
+
 
 ChannelReason = Literal["normal", "empty", "multiple", "unknown", "unconfigured", "inactive"]
 
@@ -168,7 +170,7 @@ def intersection_over_union(
     return intersection / union
 
 def deduplicate_person_detections(
-    detections: Iterable[PersonDetection], *, iou_threshold: float = 0.5
+    detections: Iterable[PersonDetection], *, iou_threshold: float = PERSON_DEDUP_IOU_THRESHOLD
 ) -> tuple[PersonDetection, ...]:
     """以确定性置信度排序执行轻量 NMS，丢弃无效框。"""
     if not _is_finite_number(iou_threshold) or not 0 <= iou_threshold <= 1:

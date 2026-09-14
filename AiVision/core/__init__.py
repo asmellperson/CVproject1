@@ -62,10 +62,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     session_scope()：提供 with 事务上下文，正常退出 commit，异常 rollback 并重新抛出，
         最后关闭 Session；适合服务层写操作。
     create_all_tables()：按已注册 metadata 创建缺失的表，不自动改变已有表结构。
-    ensure_schema_compatible()：先导入相关 ORM，再创建缺失表、比对已有列，
-        对旧表补缺失列，并用可识别的标量默认值回填新列的历史空值。
-        当前是增加式兼容处理，不删除旧表、不删列、不修改已有列类型，也不完成索引迁移。
-    _scalar_default()：只提取简单常量默认值，不执行函数型或 SQL 表达式默认值。
+    ensure_schema_ready()：创建全新表并核验功能配置列、类型、空值、默认值和约束；
+        已有表不做兼容修补，结构不一致时要求先执行离线迁移。
     _ensure_database_exists()：校验库名、字符集，用临时服务器级连接执行可选建库，
         完成后释放临时 Engine；它和“在已有库中建表”是不同步骤。
     dispose()：释放当前 Engine 的连接池并重置全局工厂引用，供退出与测试清理使用。
@@ -180,7 +178,7 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
 十一、把几个公共模块串起来看
 
     初始化：
-        启动入口 / Orchestrator → settings → db.ensure_schema_compatible()
+        启动入口 / Orchestrator → settings → db.ensure_schema_ready()
             → 摄像头和 Feature 配置准备 → config_cache.init()。
         开始运行时 → 清理匹配的残留进程 → 启动 Camera / Inference / Consumer / 物流
             等运行资源，并按 Orchestrator 的生命周期配置告警依赖。

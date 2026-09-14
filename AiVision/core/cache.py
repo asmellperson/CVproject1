@@ -143,7 +143,7 @@ class ConfigCache:
                     key = (cfg.camera_id, spec.name)
                     # 每条配置经 _enrich_function_config() 注入摄像头基础字段后存入缓存。
                     self._function_cache[key] = self._enrich_function_config(
-                        self._orm_to_dict(cfg)
+                        self._validated_function_dict(cfg, spec)
                     )
         finally:
             session.close()
@@ -184,7 +184,7 @@ class ConfigCache:
                     logger.info(f"[ConfigCache] 删除功能配置: {key}")
                 else:
                     # 覆盖内存
-                    self._function_cache[key] = self._enrich_function_config(self._orm_to_dict(cfg))
+                    self._function_cache[key] = self._enrich_function_config(self._validated_function_dict(cfg, spec))
                     logger.info(f"[ConfigCache] 刷新功能配置: {key}")
         finally:
             session.close()
@@ -192,6 +192,14 @@ class ConfigCache:
     # ------------------------------------------------------------------ #
     #  工具方法                                                             #
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _validated_function_dict(cfg, spec) -> dict:
+        """配置入口校验完整数据库记录；运行时只使用平铺字段，不接受另一种格式。"""
+        validated = spec.config_schema.model_validate(cfg.to_config_dict()).model_dump()
+        result = ConfigCache._orm_to_dict(cfg)
+        result.update(validated["value"])
+        return result
+
     @staticmethod
     def _orm_to_dict(obj) -> dict:
         """将 SQLAlchemy ORM 实例转为普通字典，仅包含表列字段。"""

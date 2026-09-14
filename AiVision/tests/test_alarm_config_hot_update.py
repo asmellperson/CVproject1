@@ -416,7 +416,7 @@ def test_camera_department_reaches_alarm_without_changing_feature_scope(monkeypa
     camera = AiCameraConfig(id=7, name="camera", shm_name="camera_7", enable=True, department="research_institute")
     cache._camera_cache[7] = cache._orm_to_dict(camera)
     cfg = cache._enrich_function_config({
-        "camera_id": 7, "enable": True, "departments": ["research", "general"],
+        "camera_id": 7, "enable": True, "departments": ["research", "general"], "alarm_interval": 5.0,
         "sql_enable": True,
     })
     assert cfg["departments"] == ["research", "general"]

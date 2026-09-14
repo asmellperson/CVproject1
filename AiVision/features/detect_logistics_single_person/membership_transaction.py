@@ -46,7 +46,7 @@ class _MembershipDiscovery:
     def member_channel_ids(self) -> tuple[int, ...]:
         return tuple(member.channel_id for member in self.members)
 
-    @property 
+    @property
     def member_camera_ids(self) -> tuple[int, ...]:
         return tuple(member.camera_id for member in self.members)
 

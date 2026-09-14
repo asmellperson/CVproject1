@@ -20,16 +20,15 @@ from AiVision.platform.alarm_device.orm import AiHornConfig
 from AiVision.platform.camera.orm import AiCameraConfig
 from AiVision.platform.camera.config_manager import CameraConfigManager
 from AiVision.features._base.config_manager import FeatureConfigManager
-from AiVision.platform.logistics_channel.constants import (
-    DEFAULT_STATUS_STALE_SECONDS,
+from AiVision.features.detect_logistics_single_person.constants import (
     LOGISTICS_FEATURES,
     MAX_CAMERAS_PER_CHANNEL,
     require_logistics_feature,
 )
-from AiVision.platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-from AiVision.platform.logistics_channel.service import LogisticsChannelService
-import AiVision.platform.logistics_channel.membership_transaction as transaction_module
-from AiVision.platform.logistics_channel.schema import (
+from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.detect_logistics_single_person.service import LogisticsChannelService
+import AiVision.features.detect_logistics_single_person.membership_transaction as transaction_module
+from AiVision.features.detect_logistics_single_person.schema import (
     LogisticsChannelAlarm,
     LogisticsChannelConfigUpdate,
     LogisticsChannelDetailResponse,
@@ -48,22 +47,16 @@ from AiVision.platform.logistics_channel.schema import (
 #   - 内部调用：`importlib.util.find_spec`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_channel_service_module_exists():
-    assert importlib.util.find_spec("AiVision.platform.logistics_channel.service") is not None
+    assert importlib.util.find_spec("AiVision.features.detect_logistics_single_person.service") is not None
 
 
-# 功能：验证 `test_logistics_channel_package_exports_service_without_hiding_state_exports` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`isinstance`、`callable`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_logistics_channel_package_exports_service_without_hiding_state_exports():
-    import AiVision.platform.logistics_channel as package
+def test_logistics_package_only_registers_feature():
+    import AiVision.features.detect_logistics_single_person as package
 
-    assert package.LogisticsChannelService is LogisticsChannelService
-    assert isinstance(package.logistics_channel_service, LogisticsChannelService)
-    assert callable(package.classify_channel)
+    assert package.SPEC.orm_class is all_specs()[BASE_FEATURE].orm_class
+    assert "LogisticsChannelService" not in vars(package)
+    assert "logistics_channel_service" not in vars(package)
+    assert "__getattr__" not in vars(package)
 
 
 # 功能：实现 `service_db` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -78,7 +71,7 @@ def test_logistics_channel_package_exports_service_without_hiding_state_exports(
 @pytest.fixture
 def service_db(monkeypatch):
     import AiVision.platform.camera.config_manager as camera_config_manager_module
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     engine = create_engine(
         "sqlite+pysqlite://",
@@ -788,7 +781,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
     service_db,
     monkeypatch,
 ):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     service = service_db.service
     camera_id = _seed_camera(service_db, "discover-before-write")
@@ -887,7 +880,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
         #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
         # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
         # 调用关系：
-        #   - 调用方：`AiVision/platform/logistics_channel/membership_transaction.py` 的成员关系事务锁查询。
+        #   - 调用方：`AiVision/features/detect_logistics_single_person/membership_transaction.py` 的成员关系事务锁查询。
         #   - 内部调用：`self.wrapped.with_for_update`。
         # 副作用/注意事项：会更新当前实例的运行状态。
         def with_for_update(self, *args, **kwargs):
@@ -1009,7 +1002,7 @@ def test_discovery_session_closes_before_formal_write_and_no_plain_read_occurs_i
 #   - 内部调用：`service.create_channel`、`transaction_module._MembershipDiscovery`、`transaction_module._DiscoveredMembership`、`monkeypatch.setattr`、`service._run_membership_transaction`、`sorted`、`tuple`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_membership_change_retries_with_new_discovery_and_channel_lock_set(service_db, monkeypatch):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     service = service_db.service
     source_one = service.create_channel(BASE_FEATURE, "重试锁集合一", department="general_electric")
@@ -1061,8 +1054,8 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
     # 调用关系：
     #   - 调用方：`unified_frontend/src/components/security-vlm/SecurityCameraDialog.tsx` 的 `SecurityCameraDialog`
     #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_run_write_transaction`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_write_transaction`
-    #         调用本符号；`AiVision/platform/logistics_channel/service.py` 的 `LogisticsChannelService::_run_membership_transaction` 调用本符号
+    #         调用本符号；`AiVision/features/detect_logistics_single_person/service.py` 的 `LogisticsChannelService::_run_write_transaction`
+    #         调用本符号；`AiVision/features/detect_logistics_single_person/service.py` 的 `LogisticsChannelService::_run_membership_transaction` 调用本符号
     #   - 内部调用：`write_sessions.append`、`sorted`、`service._lock_channels`、`locked_channel_sets.append`、`tuple`、`len`、`transaction_module._MembershipLockSetChanged`、`list`。
     # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def operation(session, discovery):
@@ -1095,7 +1088,7 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service._run_membership_transaction`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_membership_change_retry_has_total_limit(service_db, monkeypatch):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     attempts = []
 
@@ -1228,7 +1221,7 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
             .one()
         )
         retained_cfg.roi_pos = [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
-        retained_cfg.CONF_THRESHOLD = 0.66
+        retained_cfg.IOU_THR = 0.66
     for camera_id in camera_ids:
         service.add_existing_camera(BASE_FEATURE, source["id"], camera_id)
 
@@ -1256,7 +1249,7 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
         cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[1]).one()
         assert cfg.enable is False
         assert cfg.roi_pos == [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
-        assert cfg.CONF_THRESHOLD == 0.66
+        assert cfg.IOU_THR == 0.66
 
 
 # 功能：验证 `test_move_to_full_channel_fails_without_losing_original_binding` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -1750,7 +1743,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
     monkeypatch,
     error_code,
 ):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     original_scope = transaction_module.session_scope
     attempts = []
@@ -1792,7 +1785,7 @@ def test_write_transaction_retries_mysql_lock_errors_with_fresh_sessions(
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_channel`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     original_scope = transaction_module.session_scope
     attempts = []
@@ -1829,7 +1822,7 @@ def test_write_transaction_stops_after_retry_limit(service_db, monkeypatch):
 #   - 内部调用：`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_channel`、`len`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_write_transaction_does_not_retry_other_operational_errors(service_db, monkeypatch):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     original_scope = transaction_module.session_scope
     attempts = []
@@ -1958,7 +1951,7 @@ def test_camera_config_manager_translates_commit_integrity_errors(
 #   - 内部调用：`service_db.service.create_channel`、`monkeypatch.setattr`、`pytest.raises`、`service_db.service.create_camera_and_bind`、`isinstance`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_create_camera_and_bind_translates_camera_integrity_error(service_db, monkeypatch):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     channel = service_db.service.create_channel(BASE_FEATURE, "并发绑定", department="general_electric")
     original_scope = transaction_module.session_scope
@@ -2037,7 +2030,7 @@ def test_updates_reject_explicit_none_for_not_null_fields(
 #   - 内部调用：`monkeypatch.setattr`、`FailingEventBus`、`service_db.service.create_channel`、`service_db.service.get_channel`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_notification_failure_is_logged_without_undoing_committed_channel(service_db, monkeypatch, caplog):
-    import AiVision.platform.logistics_channel.service as channel_service_module
+    import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     # 功能：定义 `FailingEventBus` 类，封装业务服务相关的状态、约束与操作
     # 参数：无。
@@ -2116,7 +2109,8 @@ def test_logistics_feature_literal_matches_feature_whitelist():
 #   - 内部调用：`set`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_status_constants_and_reasons_are_stable():
-    assert DEFAULT_STATUS_STALE_SECONDS == 5.0
+    from AiVision.core.settings import RuntimeSettings
+    assert RuntimeSettings().logistics_status_stale_seconds == 5.0
     assert set(LogisticsChannelStatusResponse.model_fields["reason"].annotation.__args__) == {
         "normal", "empty", "multiple", "unknown", "unconfigured", "inactive",
     }

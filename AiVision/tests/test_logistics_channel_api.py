@@ -1,3 +1,4 @@
+from AiVision.features.detect_logistics_single_person.schema import LogisticsChannelConfigUpdate
 # 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -16,7 +17,7 @@ from fastapi.routing import serialize_response
 api = importlib.import_module("AiVision.api.logistics_channels")
 
 FEATURES = tuple(sorted(importlib.import_module(
-    "AiVision.platform.logistics_channel.constants"
+    "AiVision.features.detect_logistics_single_person.constants"
 ).LOGISTICS_FEATURES))
 ADMIN = {"role": "admin", "departments": ["all"]}
 
@@ -1100,7 +1101,7 @@ def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeyp
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`FakeService`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.LogisticsChannelPatchRequest`、`api.update_channel`、`api.get_channel`、`api.delete_channel`、`pytest.raises`、`api.LogisticsChannelConfigUpdate`。
+#   - 内部调用：`FakeService`、`api.create_channel`、`api.LogisticsChannelCreate`、`api.LogisticsChannelPatchRequest`、`api.update_channel`、`api.get_channel`、`api.delete_channel`、`pytest.raises`、`LogisticsChannelConfigUpdate`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_crud_config_and_validation_models():
     service = FakeService()
@@ -1124,15 +1125,15 @@ def test_crud_config_and_validation_models():
     assert caught.value.status_code == 404
 
     with pytest.raises(ValueError):
-        api.LogisticsChannelConfigUpdate(
+        LogisticsChannelConfigUpdate(
             detection_start="20:00:00", detection_end="08:00:00"
         )
     with pytest.raises(ValueError):
-        api.LogisticsChannelConfigUpdate(roi_pos=[[0, 0], [1, 1]])
+        LogisticsChannelConfigUpdate(roi_pos=[[0, 0], [1, 1]])
     with pytest.raises(ValueError):
-        api.LogisticsChannelConfigUpdate(confidence_threshold=1.01)
+        LogisticsChannelConfigUpdate(confidence_threshold=1.01)
     with pytest.raises(ValueError):
-        api.LogisticsChannelConfigUpdate(
+        LogisticsChannelConfigUpdate(
             alarm={"wechat": {"enabled": True, "user": "operator", "corp_secret": "secret"}}
         )
 

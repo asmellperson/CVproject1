@@ -20,7 +20,7 @@ VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     1: {"event_type": "blocks", "label": "区域入侵"},
     2: {"event_type": "detect_door", "label": "大门开关"},
     3: {"event_type": "detect_phone", "label": "手机检测"},
-    4: {"event_type": "detect_face", "label": "人脸检测"},
+    4: {"event_type": "detect_face", "label": "人脸逗留检测"},
     5: {"event_type": "detect_human", "label": "人员违规逗留检测"},
     6: {"event_type": "detect_logistics_single_person", "label": "物流通道单人检测"},
 }

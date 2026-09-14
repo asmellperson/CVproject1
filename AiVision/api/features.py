@@ -12,7 +12,7 @@ api/features.py
 from __future__ import annotations
 from typing import Annotated                                # 给一个普通Python类型额外附加FastAPI参数说明
 from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL路径参数
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from auth.auth import get_current_user, require_admin
 from AiVision.api.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
@@ -29,6 +29,7 @@ class FeatureMetaResponse(BaseModel):
     display_name: str
     required_models: list[str]
     violation_type: int                     # 违规数量
+    default_config: dict
     config_schema: dict                     # 这个功能有哪些可配置参数
     departments: list[str] = []             # 部门
 
@@ -99,6 +100,7 @@ def create_features_router(
             required_models=list(spec.required_models),
             violation_type=spec.violation_type,
             config_schema=spec.config_schema.model_json_schema(),
+            default_config=spec.config_schema().model_dump(),
             departments=departments,
         )
 
@@ -149,7 +151,7 @@ def create_features_router(
         spec = _require_spec(feature)
         # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
         # 端点，后者同时校验 feature 部门和成员归属；这里禁止绕过归属校验。
-        from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+        from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
         if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
             raise HTTPException(
                 status_code=403,
@@ -185,7 +187,7 @@ def create_features_router(
         try:
             # 用各功能自定义的 Pydantic schema 校验入参，类型错误或缺字段时抛异常
             validated = spec.config_schema.model_validate(payload).model_dump()
-        except Exception as e:
+        except ValidationError as e:
             raise HTTPException(status_code=400, detail=f"validation error: {e}")
 
         try:

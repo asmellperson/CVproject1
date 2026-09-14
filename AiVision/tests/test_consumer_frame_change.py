@@ -192,9 +192,9 @@ def test_visibly_changed_frame_refreshes_full_resolution_blur():
 def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
     from AiVision.features.detect_door.consumer import DoorConsumer
     from AiVision.features.detect_human.consumer import HumanConsumer
-    from AiVision.features._base.logistics_single_person_consumer import LogisticsSinglePersonConsumerBase
+    from AiVision.features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
 
-    classes = {"base": FrameChangeConsumer, "door": DoorConsumer, "dwell": HumanConsumer, "logistics": LogisticsSinglePersonConsumerBase}
+    classes = {"base": FrameChangeConsumer, "door": DoorConsumer, "dwell": HumanConsumer, "logistics": LogisticsSinglePersonConsumer}
     kwargs = {"logistics_runtime": SimpleNamespace()} if kind == "logistics" else {}
     consumer = classes[kind](
         spec=SimpleNamespace(name="delete-test"), infer_dict={}, result_queue=None,
@@ -231,7 +231,7 @@ def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
 
 def test_camera_removal_waits_for_inflight_processing_and_removes_its_result(monkeypatch):
     consumer = _consumer()
-    consumer.config_cache = {7: {"shm_name": "deleted", "enable": True}}
+    consumer.config_cache = {7: {"shm_name": "deleted", "enable": True, "cap_interval": 0.1}}
     consumer.latest_frames["deleted"] = np.zeros((8, 8, 3), np.uint8)
     processing = threading.Event()
     finish = threading.Event()
@@ -278,6 +278,7 @@ def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
         spec=SimpleNamespace(name="door"), infer_dict={}, result_queue=None,
         latest_frames={"door": original}, is_camera_active=lambda _name: True,
     )
+    consumer.config_cache[7] = {"roi_pos": []}
     consumer.frame_cache[7] = original
     consumer._get_roi(7, original)
     annotated = consumer.post_process(7, (True, "open"))

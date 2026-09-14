@@ -143,6 +143,9 @@ export function AiVisionModelConfig({ requiredModels }: AiVisionModelConfigProps
                   <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                     <div className="space-y-2">
                       <Label htmlFor={`model-path-${model.name}`}>本机模型路径</Label>
+                      {model.type === 'insightface_detection' ? (
+                        <p className="text-xs text-slate-500">填写 det_10g.onnx 文件的绝对路径，仅加载人脸检测权重。</p>
+                      ) : null}
                       <Input
                         id={`model-path-${model.name}`}
                         value={paths[model.name] ?? ''}

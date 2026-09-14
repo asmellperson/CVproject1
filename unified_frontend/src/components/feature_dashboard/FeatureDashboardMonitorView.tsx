@@ -115,7 +115,7 @@ function ruleRows(feature: FeatureDashboardKey, value: Record<string, unknown> |
     return [
       ['监测区域', '青色区域（face_roi）'],
       ['置信阈值', formatValue(value?.FACE_SCORE_THR)],
-      ['角度阈值', formatValue(value?.YAW_THRESHOLD)],
+      ['逗留时间（秒）', formatValue(value?.MAX_TIME)],
     ]
   }
   if (feature === 'detect_phone') {

@@ -5,6 +5,7 @@ import type {
 import type {
   LogisticsCameraConfigPayload,
   LogisticsCameraConfigResponse,
+  LogisticsCameraDetectionValue,
   LogisticsFeatureName,
 } from './types'
 
@@ -17,6 +18,9 @@ type Equal<Left, Right> =
 type AssertTrue<Value extends true> = Value
 
 export type LogisticsCameraConfigApiAssertions = [
+  AssertTrue<Equal<keyof LogisticsCameraConfigPayload, 'enable' | 'value'>>,
+  AssertTrue<Equal<keyof LogisticsCameraDetectionValue,
+    'roi_pos' | 'IOU_THR' | 'MIN_BOX_AREA' | 'ASPECT_RATIO_RANGE' | 'cap_interval'>>,
   AssertTrue<Equal<
     Parameters<typeof getLogisticsCameraConfig>,
     [feature: LogisticsFeatureName, channelId: number, cameraId: number, init?: RequestInit]

@@ -599,7 +599,7 @@ def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(lib
 
     frame = np.zeros((120, 200, 3), dtype=np.uint8)
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {"camera_7": frame}, lambda _: True)
-    consumer.config_cache[7] = {"shm_name": "camera_7", "record_enabled": False, "roi_pos": []}
+    consumer.config_cache[7] = {**SPEC.config_schema().value.model_dump(), "shm_name": "camera_7", "record_enabled": False}
     consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": [
         {"bbox": [20, 20, 50, 60], "matched": False, "person_id": None,
          "person_name": "未知人员", "similarity": .1},
@@ -821,11 +821,11 @@ def test_insightface_directory_validation_preserves_yolo_rules(model_directory, 
     with pytest.raises(ValueError):
         model_paths.validate_model_path(str(model_directory), model_type="yolo")
     config = tmp_path / "model_paths.yaml"
-    config.write_text("models:\n  yolo_face:\n    path: /models/face.pt\n")
+    config.write_text("models:\n  yolo_human:\n    path: /models/person.pt\n")
     monkeypatch.setattr(settings.model_paths, "config_path", str(config))
     try:
         model_paths.save_model_path("insightface", str(model_directory))
-        assert model_paths.load_model_paths()["yolo_face"] == "/models/face.pt"
+        assert model_paths.load_model_paths()["yolo_human"] == "/models/person.pt"
         assert model_paths.load_model_paths()["insightface"] == str(model_directory)
     finally:
         model_paths.clear_model_paths_cache()
@@ -890,7 +890,7 @@ def test_recognizer_loads_local_onnx_without_download_and_detects_all_faces(
         assert str(model_directory) in call.args[0]
     # 显式检测尺寸防止上游默认的多尺寸检测改变当前项目的推理配置。
     detector.prepare.assert_called_once_with(
-        ctx_id=0, input_size=(640, 640), det_thresh=0.5,
+        ctx_id=0, input_size=(640, 640),
     )
     recognizer.prepare.assert_called_once_with(ctx_id=0)
     detector.session.disable_fallback.assert_called_once()
@@ -930,7 +930,8 @@ def test_recognizer_rejects_cpu_when_cuda_is_unavailable_or_fails(model_director
     if failure == "unavailable":
         get_model.assert_not_called()
     for model in models:
-        model.prepare.assert_not_called()
+        if model.taskname != "detection" or failure != "recognition":
+            model.prepare.assert_not_called()
         model.session.set_providers.assert_not_called()
 
 
@@ -940,3 +941,30 @@ def test_missing_models_fail_before_loading_or_downloading(tmp_path, monkeypatch
     with pytest.raises(ValueError):
         face_recognizer.InsightFaceRecognizer(str(tmp_path))
     get_model.assert_not_called()
+
+
+def test_detection_and_recognition_reuse_code_with_independent_model_instances(model_directory, monkeypatch):
+    from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+
+    models = [Mock(taskname=task) for task in ("detection", "detection", "recognition")]
+    for model in models:
+        model.session.get_providers.return_value = ["CUDAExecutionProvider"]
+        model.detect.return_value = (np.empty((0, 5)), None)
+    get_model = Mock(side_effect=models)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(
+        get_available_providers=lambda: ["CUDAExecutionProvider"],
+    ))
+    monkeypatch.setitem(sys.modules, "insightface.model_zoo", SimpleNamespace(get_model=get_model))
+    monkeypatch.setitem(sys.modules, "insightface.app.common", SimpleNamespace(Face=SimpleNamespace))
+    detector = FaceDetectorWorker({}, {}, "insightface_detection", str(model_directory / "det_10g.onnx")).load_model()
+    recognizer = face_recognizer.InsightFaceRecognizer(str(model_directory))
+    assert [Path(call.args[0]).name for call in get_model.call_args_list] == [
+        "det_10g.onnx", "det_10g.onnx", "w600k_r50.onnx",
+    ]
+    assert detector.model is not recognizer.detector.model
+    image = np.zeros((120, 240, 3), np.uint8)
+    detector.detect(image, confidence=.1, nms_threshold=.9)
+    recognizer.get_faces(image, detection_threshold=.8)
+    assert (models[0].det_thresh, models[0].nms_thresh) == (.1, .9)
+    assert (models[1].det_thresh, models[1].nms_thresh) == (.8, .4)

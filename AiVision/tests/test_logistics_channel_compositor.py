@@ -6,8 +6,8 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
 
-import AiVision.platform.logistics_channel.compositor as compositor
-from AiVision.platform.logistics_channel.compositor import (
+import AiVision.features.detect_logistics_single_person.compositor as compositor
+from AiVision.features.detect_logistics_single_person.compositor import (
     CameraTile,
     compose_channel_frame,
     layout_for_count,

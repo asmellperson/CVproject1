@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from AiVision.platform.logistics_channel.state import (
+from AiVision.features.detect_logistics_single_person.state import (
     CameraSnapshot,
     CameraSnapshotStore,
     ChannelPresenceState,

@@ -135,7 +135,7 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
         Consumer 从 latest_frames 取图、裁 ROI，再经推理队列交给模型 Worker。
         摄像头可采集与模型可推理是两种状态，检测功能还需要自己的模型等依赖可用。
 
-    platform/logistics_channel/：
+    features/detect_logistics_single_person/：
         复用摄像头采集和最新帧，管理通道成员及通道检测；成员的新增、绑定、移除
         使用通道服务，不能用普通功能新增接口代替通道的建档和绑定事务。
 

@@ -5,7 +5,7 @@ import datetime as dt
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import ConfigDict
+from pydantic import ValidationError
 
 from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import (
@@ -17,14 +17,13 @@ from AiVision.api.features import FeatureConfigResponse
 from AiVision.api.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
 from AiVision.features import all_specs
-from AiVision.platform.logistics_channel.constants import (
+from AiVision.features.detect_logistics_single_person.constants import (
     LOGISTICS_FEATURE_NAME,
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
-from AiVision.platform.logistics_channel.schema import (
+from AiVision.features.detect_logistics_single_person.schema import (
     LogisticsChannelAlarmListResponse,                  # 物流通道报警数据模型
     LogisticsCameraInventoryResponse,                   # 用户有权看到的物流摄像头汇总
-    LogisticsChannelConfigUpdate,                       # 物流通道检测配置数据模型
     LogisticsChannelCreate,                             # 创建通道的数据模型
     LogisticsChannelDetailResponse,                     # 通道的详情信息的数据模型
     LogisticsChannelListResponse,                       # 一组通道的数据模型
@@ -34,18 +33,12 @@ from AiVision.platform.logistics_channel.schema import (
     LogisticsChannelOkResponse,                         # 
     LogisticsChannelRuntimeStatusResponse,              # 通道当前运行状态的数据模型
     LogisticsChannelStatisticsResponse,                 # 通道告警统计的数据模型
-    LogisticsChannelUpdate,                             # 修改通道时
+    LogisticsChannelPatchRequest,                       # 修改通道时
 )
 from AiVision.platform.violation.orm import AiAlarmEvent
 
 
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])
-
-class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
-    """物流通道局部更新请求。"""
-
-    model_config = ConfigDict(extra="forbid")
-    config: LogisticsChannelConfigUpdate | None = None
 
 def _accessible_departments(user: dict) -> tuple[str, ...] | None:
     """None 表示管理员/全部事业部；空元组表示没有可访问事业部。"""
@@ -397,7 +390,7 @@ def update_member_camera_config(
     spec = all_specs()[feature]
     try:
         validated = spec.config_schema.model_validate(payload).model_dump()
-    except Exception as exc:
+    except ValidationError as exc:
         raise HTTPException(status_code=400, detail=f"validation error: {exc}") from exc
     result = feature_config_manager.save_config(spec, str(camera_id), validated)
     if result is None:

@@ -43,61 +43,39 @@ function LazyConfigFallback({ label }: { label: string }) {
 
 type HumanConfig = AiVisionFeatureConfig & {
   value: {
-    cap_interval?: number
-    alarm_interval?: number
-    CONF_THRESHOLD?: number
-    IOU_THR?: number
-    MAX_LOST?: number
-    MAX_TIME?: number
+    cap_interval: number
+    alarm_interval: number
+    CONF_THRESHOLD: number
+    TRACK_IOU_THR: number
+    DETECTION_IOU_THR: number
+    MAX_LOST: number
+    MAX_TIME: number
     roi_pos: number[][]
-    MIN_BOX_AREA?: number
-    ASPECT_RATIO_RANGE?: number[]
-    CENTER_DIST_THR?: number
-    AREA_RATIO_THR?: number
-    MATCH_SCORE_THR?: number
-    TRACK_SMOOTH_ALPHA?: number
+    MIN_BOX_AREA: number
+    ASPECT_RATIO_RANGE: number[]
+    CENTER_DIST_THR: number
+    AREA_RATIO_THR: number
+    MATCH_SCORE_THR: number
+    TRACK_SMOOTH_ALPHA: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[]',
-  confidenceThreshold: '0.3',
-  iouThreshold: '0.3',
-  maxTime: '10',
-  maxLost: '5',
-  minBoxArea: '0',
-  aspectRatioRange: '[0,10]',
-  centerDistThreshold: '0.65',
-  areaRatioThreshold: '0.55',
-  matchScoreThreshold: '0.35',
-  trackSmoothAlpha: '0.7',
-  alarmInterval: '5.0',
-}
-
-const defaultHumanConfig: HumanConfig = {
-  enable: false,
-  value: {
-    cap_interval: 0.1,
-    alarm_interval: 5.0,
-    CONF_THRESHOLD: 0.3,
-    IOU_THR: 0.3,
-    MAX_LOST: 5,
-    MAX_TIME: 10,
-    roi_pos: [],
-    MIN_BOX_AREA: 0,
-    ASPECT_RATIO_RANGE: [0, 10],
-    CENTER_DIST_THR: 0.65,
-    AREA_RATIO_THR: 0.55,
-    MATCH_SCORE_THR: 0.35,
-    TRACK_SMOOTH_ALPHA: 0.7,
-  },
-  alarm: {
-    horn: { enable: false, parm: {} },
-    sql: { enable: false, parm: {} },
-    wechat: { enable: false, parm: { user: '' } },
-  },
+  roiPos: '',
+  confidenceThreshold: '',
+  detectionIouThreshold: '',
+  trackIouThreshold: '',
+  maxTime: '',
+  maxLost: '',
+  minBoxArea: '',
+  aspectRatioRange: '',
+  centerDistThreshold: '',
+  areaRatioThreshold: '',
+  matchScoreThreshold: '',
+  trackSmoothAlpha: '',
+  alarmInterval: '',
 }
 
 function formatJson(value: unknown) {
@@ -109,17 +87,18 @@ function toForm(shmName: string, config: HumanConfig) {
   return {
     cameraName: shmName,
     roiPos: formatJson(value.roi_pos),
-    confidenceThreshold: String(value.CONF_THRESHOLD ?? 0.3),
-    iouThreshold: String(value.IOU_THR ?? 0.3),
-    maxTime: String(value.MAX_TIME ?? 10),
-    maxLost: String(value.MAX_LOST ?? 5),
-    minBoxArea: String(value.MIN_BOX_AREA ?? 0),
-    aspectRatioRange: formatJson(value.ASPECT_RATIO_RANGE ?? [0, 10]),
-    centerDistThreshold: String(value.CENTER_DIST_THR ?? 0.65),
-    areaRatioThreshold: String(value.AREA_RATIO_THR ?? 0.55),
-    matchScoreThreshold: String(value.MATCH_SCORE_THR ?? 0.35),
-    trackSmoothAlpha: String(value.TRACK_SMOOTH_ALPHA ?? 0.7),
-    alarmInterval: String(value.alarm_interval ?? 5.0),
+    confidenceThreshold: String(value.CONF_THRESHOLD),
+    detectionIouThreshold: String(value.DETECTION_IOU_THR),
+    trackIouThreshold: String(value.TRACK_IOU_THR),
+    maxTime: String(value.MAX_TIME),
+    maxLost: String(value.MAX_LOST),
+    minBoxArea: String(value.MIN_BOX_AREA),
+    aspectRatioRange: formatJson(value.ASPECT_RATIO_RANGE),
+    centerDistThreshold: String(value.CENTER_DIST_THR),
+    areaRatioThreshold: String(value.AREA_RATIO_THR),
+    matchScoreThreshold: String(value.MATCH_SCORE_THR),
+    trackSmoothAlpha: String(value.TRACK_SMOOTH_ALPHA),
+    alarmInterval: String(value.alarm_interval),
   }
 }
 
@@ -140,7 +119,7 @@ export function HumanDetectionSection({
 }: HumanDetectionSectionProps = {}) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
-  const [humanConfig, setHumanConfig] = useState<HumanConfig>(defaultHumanConfig)
+  const [humanConfig, setHumanConfig] = useState<HumanConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
@@ -161,7 +140,7 @@ export function HumanDetectionSection({
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
-    setHumanConfig(defaultHumanConfig)
+    setHumanConfig(null)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -262,7 +241,7 @@ export function HumanDetectionSection({
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
         selectedCameraRef.current = ''
-        setHumanConfig(defaultHumanConfig)
+        setHumanConfig(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
       setMessage(`停用成功：${cameraName} 已关闭人员违规逗留检测。`)
@@ -284,11 +263,15 @@ export function HumanDetectionSection({
       return
     }
 
-    if (loading || loadedCameraRef.current !== shmName) {
+    if (!humanConfig || loading || loadedCameraRef.current !== shmName) {
       setMessage('保存失败：请先成功读取当前摄像头的配置。')
       return
     }
     const requestId = configRequestRef.current
+    if (Object.entries(form).some(([key, value]) => typeof value === 'string' && key !== 'envThreshold' && !value.trim())) {
+      setMessage('保存失败：请填写所有必填参数。')
+      return
+    }
 
     let roiPos: number[][]
     let aspectRatioRange: number[]
@@ -306,7 +289,8 @@ export function HumanDetectionSection({
     }
 
     const confidenceThreshold = Number(form.confidenceThreshold)
-    const iouThreshold = Number(form.iouThreshold)
+    const detectionIouThreshold = Number(form.detectionIouThreshold)
+    const trackIouThreshold = Number(form.trackIouThreshold)
     const maxTime = Number(form.maxTime)
     const maxLost = Number(form.maxLost)
     const minBoxArea = Number(form.minBoxArea)
@@ -317,15 +301,17 @@ export function HumanDetectionSection({
     const alarmInterval = Number(form.alarmInterval)
     if (
       !Number.isFinite(confidenceThreshold) ||
-      !Number.isFinite(iouThreshold) ||
-      !Number.isFinite(maxTime) ||
-      !Number.isFinite(maxLost) ||
-      !Number.isFinite(minBoxArea) ||
-      !Number.isFinite(centerDistThreshold) ||
+      !Number.isFinite(detectionIouThreshold) || detectionIouThreshold < 0 || detectionIouThreshold > 1 ||
+      !Number.isFinite(trackIouThreshold) || trackIouThreshold < 0 || trackIouThreshold > 1 ||
+      !Number.isFinite(maxTime) || maxTime < 0 ||
+      !Number.isInteger(maxLost) || maxLost < 0 ||
+      !Number.isInteger(minBoxArea) || minBoxArea < 0 ||
+      !Number.isFinite(centerDistThreshold) || centerDistThreshold < 0 ||
       !Number.isFinite(areaRatioThreshold) ||
       !Number.isFinite(matchScoreThreshold) ||
       !Number.isFinite(trackSmoothAlpha) ||
-      !Number.isFinite(alarmInterval)
+      !Number.isFinite(alarmInterval) || alarmInterval <= 0 ||
+      ![confidenceThreshold, areaRatioThreshold, matchScoreThreshold, trackSmoothAlpha].every((v) => v >= 0 && v <= 1)
     ) {
       setMessage('保存失败：置信度、IoU、逗留时间、跟踪增强参数和告警间隔必须是数字。')
       return
@@ -338,7 +324,8 @@ export function HumanDetectionSection({
         ...humanConfig.value,
         roi_pos: roiPos,
         CONF_THRESHOLD: confidenceThreshold,
-        IOU_THR: iouThreshold,
+        DETECTION_IOU_THR: detectionIouThreshold,
+        TRACK_IOU_THR: trackIouThreshold,
         MAX_TIME: maxTime,
         MAX_LOST: maxLost,
         MIN_BOX_AREA: minBoxArea,
@@ -349,7 +336,7 @@ export function HumanDetectionSection({
         TRACK_SMOOTH_ALPHA: trackSmoothAlpha,
         alarm_interval: alarmInterval,
       },
-      alarm: humanConfig.alarm || defaultHumanConfig.alarm,
+      alarm: humanConfig.alarm,
     }
 
     setSaving(true)
@@ -376,7 +363,7 @@ export function HumanDetectionSection({
     setForm((prev) => ({
       ...prev,
       confidenceThreshold: '0.3',
-      iouThreshold: '0.3',
+      detectionIouThreshold: '0.3',
       maxLost: '5',
       minBoxArea: '0',
       centerDistThreshold: '0.65',
@@ -392,7 +379,7 @@ export function HumanDetectionSection({
     setForm((prev) => ({
       ...prev,
       confidenceThreshold: '0.25',
-      iouThreshold: '0.28',
+      detectionIouThreshold: '0.28',
       maxLost: '8',
       minBoxArea: '0',
       centerDistThreshold: '0.8',
@@ -458,7 +445,7 @@ export function HumanDetectionSection({
                   title="人员违规逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!humanConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -472,7 +459,7 @@ export function HumanDetectionSection({
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪、区域与过滤参数。" actions={<Badge variant="outline">AiVision {feature}</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!humanConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -512,19 +499,28 @@ export function HumanDetectionSection({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="human-iou">跟踪 IoU 阈值</Label>
+                    <Label htmlFor="human-iou">模型推理 IoU（0～1）</Label>
                     <Input
-                      id="human-iou"
-                      value={form.iouThreshold}
-                      onChange={(event) => setForm((prev) => ({ ...prev, iouThreshold: event.target.value }))}
+                      id="human-iou" type="number" min="0" max="1" step="0.01"
+                      value={form.detectionIouThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, detectionIouThreshold: event.target.value }))}
+                      placeholder="0.3"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="human-track-iou">跨帧跟踪 IoU（0～1）</Label>
+                    <Input
+                      id="human-track-iou" type="number" min="0" max="1" step="0.01"
+                      value={form.trackIouThreshold}
+                      onChange={(event) => setForm((prev) => ({ ...prev, trackIouThreshold: event.target.value }))}
                       placeholder="0.3"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="human-max-time">逗留时间阈值</Label>
+                    <Label htmlFor="human-max-time">逗留时间阈值（秒，≥0）</Label>
                     <Input
-                      id="human-max-time"
+                      id="human-max-time" type="number" min="0" step="0.1"
                       value={form.maxTime}
                       onChange={(event) => setForm((prev) => ({ ...prev, maxTime: event.target.value }))}
                       placeholder="10"
@@ -532,9 +528,9 @@ export function HumanDetectionSection({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="human-max-lost">最大丢失帧数</Label>
+                    <Label htmlFor="human-max-lost">允许连续丢失次数（跟踪更新次数）</Label>
                     <Input
-                      id="human-max-lost"
+                      id="human-max-lost" type="number" min="0" step="1"
                       value={form.maxLost}
                       onChange={(event) => setForm((prev) => ({ ...prev, maxLost: event.target.value }))}
                       placeholder="5"
@@ -592,7 +588,7 @@ export function HumanDetectionSection({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="human-interval">告警间隔</Label>
+                    <Label htmlFor="human-interval">告警间隔（秒）</Label>
                     <Input
                       id="human-interval"
                       value={form.alarmInterval}
@@ -637,11 +633,11 @@ export function HumanDetectionSection({
 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
-                alarm={humanConfig.alarm}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                alarm={humanConfig?.alarm}
+                disabled={!humanConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                 saving={saving}
                 message={message}
-                onChange={(alarm) => setHumanConfig((prev) => ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
+                onChange={(alarm) => setHumanConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
             </TabsContent>

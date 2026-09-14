@@ -248,7 +248,7 @@ export function LogisticsChannelConfigView({
       .then((result) => {
         if (!active) return
         setCameraConfig(result)
-        setRoiJson(JSON.stringify(result.config.value.roi_pos ?? []))
+        setRoiJson(JSON.stringify(result.config.value.roi_pos))
       })
       .catch((reason) => active && setMessage(`逐路 ROI 读取失败：${messageOf(reason)}`))
     return () => { active = false }
@@ -301,14 +301,20 @@ export function LogisticsChannelConfigView({
     if (!selectedChannelDetail || !config) return
     const hornError = validateHornBinding(toFeatureAlarm(config.alarm).horn)
     if (hornError) { setMessage(hornError); return }
-    void run(() => updateLogisticsChannel(feature, selectedChannelDetail.id, {
+    void run(async () => {
+      const saved = await updateLogisticsChannel(feature, selectedChannelDetail.id, {
       name: channelName.trim(),
       config: {
         ...config,
         detection_start: timeForApi(config.detection_start),
         detection_end: timeForApi(config.detection_end),
       },
-    }), '通道配置已保存。')
+      })
+      if (hydratedChannelId.current === saved.id) {
+        setConfig(saved.config)
+        setChannelName(saved.name)
+      }
+    }, '通道配置已保存。')
   }
 
   const setChannelEnabled = (channel: LogisticsChannel, enabled: boolean) => {
@@ -399,17 +405,30 @@ export function LogisticsChannelConfigView({
     )
   }
 
-  const saveRoi = () => {
+  const cameraSelection = useRef('')
+  cameraSelection.current = `${feature}:${selectedChannelDetailId}:${selectedCameraId}`
+
+  const saveCameraConfig = () => {
     if (!selectedChannelDetail || !selectedCamera || !cameraConfig) return
-    void run(() => updateLogisticsCameraConfig(
-      feature,
-      selectedChannelDetail.id,
-      selectedCamera.camera_id,
-      {
-      ...cameraConfig.config,
-      value: { ...cameraConfig.config.value, roi_pos: parseNormalizedRoi(roiJson) },
-      },
-    ), '当前摄像头 ROI 已保存。')
+    const selection = cameraSelection.current
+    void run(async () => {
+      const value = cameraConfig.config.value
+      const [minAspect, maxAspect] = value.ASPECT_RATIO_RANGE
+      if (!Number.isFinite(value.IOU_THR) || value.IOU_THR < 0 || value.IOU_THR > 1
+        || !Number.isInteger(value.MIN_BOX_AREA) || value.MIN_BOX_AREA < 0
+        || !Number.isFinite(value.cap_interval) || value.cap_interval <= 0
+        || !Number.isFinite(minAspect) || !Number.isFinite(maxAspect) || minAspect < 0 || maxAspect < minAspect) {
+        throw new Error('请检查模型 IOU（0～1）、最小面积（非负整数）、宽高比范围及处理间隔（大于 0 秒）。')
+      }
+      const saved = await updateLogisticsCameraConfig(feature, selectedChannelDetail.id, selectedCamera.camera_id, {
+        enable: cameraConfig.config.enable,
+        value: { ...value, roi_pos: parseNormalizedRoi(roiJson) },
+      })
+      if (cameraSelection.current === selection) {
+        setCameraConfig(saved)
+        setRoiJson(JSON.stringify(saved.config.value.roi_pos))
+      }
+    }, '当前摄像头检测参数和 ROI 已保存。')
   }
 
   return (
@@ -551,7 +570,18 @@ export function LogisticsChannelConfigView({
                 <DetectionConfigCardHeader icon={Camera} tone="blue" title="逐路 ROI 摄像头" description="选择通道摄像头后，直接在下方现有画布中绘制 ROI。" />
                 <DetectionConfigCardContent className="space-y-2"><Label htmlFor="logistics-roi-camera">通道摄像头</Label><Select value={selectedCameraId === null ? '' : String(selectedCameraId)} onValueChange={(value) => setSelectedCameraId(Number(value))}><SelectTrigger id="logistics-roi-camera"><SelectValue placeholder="选择通道摄像头" /></SelectTrigger><SelectContent>{members.map((member) => <SelectItem key={member.camera_id} value={String(member.camera_id)}>{cameraById.get(member.camera_id)?.name ?? `摄像头 #${member.camera_id}`}</SelectItem>)}</SelectContent></Select></DetectionConfigCardContent>
               </Card>
-              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveRoi} />
+              {cameraConfig ? <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="当前摄像头检测参数" description="几何过滤和画面处理频率按摄像头保存；人体置信度和告警由通道统一管理。" />
+                <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
+                  <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-camera-iou" value={String(cameraConfig.config.value.IOU_THR)} min={0} max={1} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setCameraConfig({ ...cameraConfig, config: { ...cameraConfig.config, value: { ...cameraConfig.config.value, IOU_THR: Number(value) } } })} />
+                  <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-camera-area" value={String(cameraConfig.config.value.MIN_BOX_AREA)} min={0} step={1} disabled={!isAdmin || busy} onChange={(value) => setCameraConfig({ ...cameraConfig, config: { ...cameraConfig.config, value: { ...cameraConfig.config.value, MIN_BOX_AREA: Number(value) } } })} />
+                  <ConfigNumber label="最小宽高比（宽/高）" id="logistics-camera-min-aspect" value={String(cameraConfig.config.value.ASPECT_RATIO_RANGE[0])} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setCameraConfig({ ...cameraConfig, config: { ...cameraConfig.config, value: { ...cameraConfig.config.value, ASPECT_RATIO_RANGE: [Number(value), cameraConfig.config.value.ASPECT_RATIO_RANGE[1]] } } })} />
+                  <ConfigNumber label="最大宽高比（宽/高）" id="logistics-camera-max-aspect" value={String(cameraConfig.config.value.ASPECT_RATIO_RANGE[1])} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setCameraConfig({ ...cameraConfig, config: { ...cameraConfig.config, value: { ...cameraConfig.config.value, ASPECT_RATIO_RANGE: [cameraConfig.config.value.ASPECT_RATIO_RANGE[0], Number(value)] } } })} />
+                  <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-camera-interval" value={String(cameraConfig.config.value.cap_interval)} min={0} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setCameraConfig({ ...cameraConfig, config: { ...cameraConfig.config, value: { ...cameraConfig.config.value, cap_interval: Number(value) } } })} />
+                </DetectionConfigCardContent>
+                <DetectionSaveBar disabled={!isAdmin || busy} saving={busy} onSave={saveCameraConfig} message={message} saveLabel="保存摄像头配置" />
+              </Card> : null}
+              <AiVisionRoiEditor title="物流通道逐路 ROI 绘制" cameraKey={selectedCamera?.shm_name ?? ''} roiJson={roiJson} disabled={!isAdmin || busy || !cameraConfig} saving={busy} message={message} onChange={setRoiJson} onSave={saveCameraConfig} />
             </TabsContent>
 
             <TabsContent value="params" className="mt-0 space-y-5">
@@ -564,7 +594,7 @@ export function LogisticsChannelConfigView({
                   <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(config.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setConfig({ ...config, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(config.empty_grace_seconds)} onChange={(value) => setConfig({ ...config, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(config.multi_grace_seconds)} onChange={(value) => setConfig({ ...config, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="告警间隔（秒）" id="logistics-alarm-interval" value={String(config.alarm_interval)} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="告警间隔（秒，大于 0）" id="logistics-alarm-interval" value={String(config.alarm_interval)} min={0} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
                 </DetectionConfigCardContent>
               </Card>
               <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveChannel} saveLabel="保存通道配置" />

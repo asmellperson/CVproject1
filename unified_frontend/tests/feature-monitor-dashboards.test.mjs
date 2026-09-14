@@ -24,7 +24,7 @@ test('defines the four approved feature profiles', () => {
     'detect_phone',
     'detect_door',
     '区域入侵检测监控与配置',
-    '人脸检测监控与配置',
+    '人脸逗留检测监控与配置',
     '手机识别检测监控与配置',
     '大门开关检测监控与配置',
   ]) assert.match(stateSource, new RegExp(token))
@@ -118,7 +118,7 @@ test('shared detection header stays inside the existing platform shell', async (
 test('opts the four pages into the approved shell while preserving configuration bindings', async () => {
   const expected = [
     ['IntrusionDetectionSection.tsx', '区域入侵检测', '警戒区域实时监控面板'],
-    ['FaceDetectionSection.tsx', '人脸检测', '人脸识别实时监控面板'],
+    ['FaceDetectionSection.tsx', '人脸逗留检测', '当前可见目标逗留超时后保持告警状态，通知按告警间隔冷却'],
     ['PhoneDetectionSection.tsx', '手机识别检测', '手机使用识别监控面板'],
     ['DoorDetectionSection.tsx', '大门开关检测', '大门状态异常监控面板'],
   ]

@@ -72,7 +72,7 @@ def test_regular_features_emit_explicit_identity_for_camera_without_department(m
     captured = []
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
-        config_cache={1: {"department": None, "name": "camera-1"}}, _should_alarm=lambda *_: True)
+        config_cache={1: {**spec.config_schema().value.model_dump(), "department": None, "name": "camera-1"}}, _should_alarm=lambda *_: True)
     BaseFunctionConsumer._handle_alarm(consumer, 1, [], np.zeros((4, 4, 3), np.uint8))
     assert len(captured) == 1
     req = captured[0]
@@ -98,7 +98,7 @@ def test_multi_department_feature_uses_camera_explicit_choice(monkeypatch, depar
     captured = []
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
-        config_cache={1: {"department": department}}, _should_alarm=lambda *_: True)
+        config_cache={1: {**spec.config_schema().value.model_dump(), "department": department}}, _should_alarm=lambda *_: True)
     BaseFunctionConsumer._handle_alarm(consumer, 1, [], np.zeros((4, 4, 3), np.uint8))
     assert len(captured) == 1
     assert captured[0].department == department

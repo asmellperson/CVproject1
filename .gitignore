@@ -280,6 +280,7 @@ node_modules/
 db_backups/
 **/db_backups/
 *.sql
+!AiVision/migrations/schema_mysql.sql
 
 # ======================
 # Real local config / users / secrets

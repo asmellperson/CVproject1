@@ -35,7 +35,7 @@ from AiVision.core.cache import config_cache         # 摄像头配置改完后�
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
 from AiVision.platform.department.department_registry import require_department
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURE_NAME
+from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURE_NAME
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
 # 数据库写入时碰到1205/1213要稍微等一下会进行重启并且重试3次，1205：Lock wait timeout等数据库锁超时。1213：Deadlock数据库死锁。
@@ -194,7 +194,7 @@ class CameraConfigManager:
     
     def create_camera_for_feature(self, feature_name: str, payload: dict) -> dict:
         """在具体功能页面里新增摄像头，新增后直接启用这个功能。"""
-        from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+        from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
         # 物流通道不走这里
         if feature_name in LOGISTICS_FEATURES:
             raise ValueError("物流通道摄像头必须通过通道接口新建并绑定")
@@ -311,7 +311,10 @@ class CameraConfigManager:
             cam.shm_name = stable_shm
         # 创建所有功能默认配置
         for spec in all_specs().values():
-            session.add(spec.orm_class(camera_id=cam.id, enable=False))
+            defaults = spec.config_schema().model_dump()
+            cfg = spec.orm_class(camera_id=cam.id, enable=defaults["enable"])
+            cfg.apply_config_dict(defaults)
+            session.add(cfg)
         session.flush()
         return cam
 
@@ -432,7 +435,10 @@ class CameraConfigManager:
                 for spec in specs:
                     cfg = session.query(spec.orm_class).filter_by(camera_id=cam.id).first()
                     if cfg is None:
-                        session.add(spec.orm_class(camera_id=cam.id, enable=False))
+                        defaults = spec.config_schema().model_dump()
+                        cfg = spec.orm_class(camera_id=cam.id, enable=defaults["enable"])
+                        cfg.apply_config_dict(defaults)
+                        session.add(cfg)
                         changed += 1
         if changed:
             logger.info(f"[CameraConfigManager] 已补齐/启用 {changed} 条功能配置")

@@ -14,7 +14,7 @@ from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.platform.camera.config_manager import CameraConfigManager
 from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from test_horn_backend import backend
 
 

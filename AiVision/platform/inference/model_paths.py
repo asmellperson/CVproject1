@@ -110,6 +110,10 @@ def validate_model_path(value: str, *, model_type: str = "yolo") -> str:
             if not path.is_dir():
                 raise ValueError("InsightFace 模型路径必须是 buffalo_l 模型目录")
             files = [path / filename for filename in MODEL_FILES]
+        elif model_type == "insightface_detection":
+            if path.suffix != ".onnx":
+                raise ValueError("InsightFace 纯检测模型路径必须是本地 .onnx 文件")
+            files = [path]
         elif model_type == "yolo":
             files = [path]
         else:

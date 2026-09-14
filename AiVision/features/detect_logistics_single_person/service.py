@@ -34,7 +34,11 @@ from .constants import (
 )
 from .membership_transaction import MembershipTransaction
 from .orm import LogisticsChannel, LogisticsChannelCamera
-from .schema import LogisticsChannelDetailResponse, LogisticsChannelListResponse
+from .schema import (
+    LogisticsChannelDetailResponse, LogisticsChannelListResponse,
+    LogisticsChannelUpdate, LogisticsChannelConfigUpdate, LogisticsChannelMemberCreate,
+    LogisticsChannelConfigResponse,
+)
 
 @dataclass(frozen=True)
 class _CameraRef:
@@ -247,20 +251,13 @@ class LogisticsChannelService(MembershipTransaction):
     ) -> dict | None:
         """在单事务内更新通道元数据和检测配置，并只发布一次刷新事件。"""
         feature_name = require_logistics_feature(feature_name)
-        channel_values = self._payload_dict(channel_payload)
-        if "department" in channel_values:
-            raise ValueError("通道 department 创建后不可修改")
-        config_values = self._payload_dict(config_payload)
+        channel_values = LogisticsChannelUpdate.model_validate(channel_payload).model_dump(exclude_unset=True)
+        config_values = (
+            LogisticsChannelConfigUpdate.model_validate(config_payload).model_dump(exclude_unset=True)
+            if config_payload is not None else {}
+        )
         # 如果调用方明确传了这些字段，就不能传None
         self._reject_none(channel_values, ("enabled", "sort_order"))
-        self._reject_none(config_values, (
-            "detection_start",
-            "detection_end",
-            "confidence_threshold",
-            "empty_grace_seconds",
-            "multi_grace_seconds",
-            "alarm_interval",
-        ))
 
         def update(session):
             # 对目标通道做数据库锁
@@ -277,6 +274,8 @@ class LogisticsChannelService(MembershipTransaction):
             )
             self._apply_config_values(channel, config_values)
             if config_values:
+                # 局部更新必须与数据库中保留的字段一起校验，失败时回滚整个事务。
+                LogisticsChannelConfigResponse.model_validate(channel)
                 validate_horn_binding(session, channel.horn_enable, channel.horn_id, channel.horn_event_id)
             # 把ORM改动发送到数据库
             session.flush()
@@ -357,9 +356,7 @@ class LogisticsChannelService(MembershipTransaction):
     ) -> dict:
         """新建摄像头，同时加入通道"""
         feature_name = require_logistics_feature(feature_name)
-        values = self._payload_dict(payload)
-        if "department" in values:
-            raise ValueError("新摄像头 department 由目标通道继承，不得单独指定")
+        values = LogisticsChannelMemberCreate.model_validate(payload).model_dump(exclude_unset=True)
 
         def discover():
             return self._discover_memberships(channel_ids=(channel_id,))
@@ -610,18 +607,6 @@ class LogisticsChannelService(MembershipTransaction):
 
 
     # ---------------  helper -----------------
-    @staticmethod
-    def _payload_dict(payload: Any) -> dict:
-        """把不同形式的输入统一变成dict"""
-        if payload is None:
-            return {}
-        if isinstance(payload, dict):
-            return dict(payload)
-        if hasattr(payload, "model_dump"):
-            # exclude_unset=True用户没传的字段不修改
-            return payload.model_dump(exclude_unset=True)
-        raise TypeError("payload 必须是 dict 或 Pydantic model")
-
     def _apply_channel_values(
         self,
         session,
@@ -655,6 +640,7 @@ class LogisticsChannelService(MembershipTransaction):
                 setattr(channel, field, values[field])
 
     def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
+        """仅写入已校验且明确提交的通道字段。"""
         for field in (
             "detection_start",
             "detection_end",
@@ -663,18 +649,16 @@ class LogisticsChannelService(MembershipTransaction):
             "multi_grace_seconds",
             "alarm_interval",
         ):
-            """通道的检测参数和告警参数"""
             if field in values:
                 setattr(channel, field, values[field])
         alarm = values.get("alarm")
         if alarm is None:
             return
-        alarm = self._payload_dict(alarm)
         # 是否保留告警记录
         if "sql_enable" in alarm:
             channel.sql_enable = bool(alarm["sql_enable"])
         # 把前端配置映射到通道ORM
-        horn = self._payload_dict(alarm.get("horn") or {})
+        horn = alarm.get("horn", {})
         if horn:
             channel.horn_enable = bool(horn.get("enabled", False))
             if "horn_id" in horn:
@@ -682,7 +666,7 @@ class LogisticsChannelService(MembershipTransaction):
             if "horn_event_id" in horn:
                 channel.horn_event_id = horn["horn_event_id"]
         # 微信的配置
-        wechat = self._payload_dict(alarm.get("wechat") or {})
+        wechat = alarm.get("wechat", {})
         if wechat:
             channel.wechat_enable = bool(wechat.get("enabled", False))
             channel.wechat_user = wechat.get("user", "")

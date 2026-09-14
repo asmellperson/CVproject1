@@ -34,6 +34,7 @@ export type AiVisionFeatureMeta = {
   display_name: string
   required_models: string[]
   violation_type: number
+  default_config: AiVisionFeatureConfig
   config_schema: Record<string, unknown>
   departments: string[]
 }

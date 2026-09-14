@@ -107,10 +107,14 @@ class HornService:
             if h is None:
                 return False
             from AiVision.features import all_specs
-            from AiVision.platform.logistics_channel.orm import LogisticsChannel
+            from AiVision.features._base.orm import FeatureConfigBase
+            from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel
 
             # 包括停用的功能/通道配置；存在引用时不依赖外键 SET NULL 隐式解绑。
-            models = [spec.orm_class for spec in all_specs().values()]
+            models = [
+                spec.orm_class for spec in all_specs().values()
+                if issubclass(spec.orm_class, FeatureConfigBase)
+            ]
             models.append(LogisticsChannel)
             for model in models:
                 if session.query(model).filter(model.horn_id == horn_id).with_for_update().first() is not None:

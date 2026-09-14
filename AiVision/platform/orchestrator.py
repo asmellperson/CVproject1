@@ -4,7 +4,7 @@ AIVision运行资源：
       Cameramanager：摄像头采集进程，负责rtsp采集和写共享内存
       InferenceRuntimeManager：模型推理进程，负责加载模型和推理任务队列
       Consumers：各检测功能的处理线程，负责从摄像头获取最新帧，调用模型推理，处理结果，写违规记录
-      LogisticsChannelRuntime：物流通道实时检测模块，负责从摄像头获取最新帧，调用模型推理，处理结果，写违规记录
+      LogisticsChannelRuntime：汇总各摄像头快照，控制通道时段、异常事件并组织告警
       FrameReeaderRegistry：帧读取模块，负责从共享内存中读取最新帧，给Consumers和LogisticsChannelRuntime使用
       AlarmDispatcher：统一告警模块，负责喇叭、企业微信、违规记录、告警视频等告警相关的处理
       ViolationWriter：违规记录写入模块，负责违规截图，违规数据库记录，视频路径，状态
@@ -24,7 +24,7 @@ from typing import Optional
 
 from AiVision.core.logger import logger
 from AiVision.core.cache import config_cache
-from AiVision.core.db import ensure_schema_compatible                        # 数据库检查
+from AiVision.core.db import ensure_schema_ready                        # 数据库检查
 from AiVision.core.events import config_event_bus, ConfigChangeEvent         # 配置变化的时候，通知正在运行的模块更新
 from AiVision.core.alarm.dispatcher import alarm_dispatcher                  # 统一告警处理
 from AiVision.core.alarm.wechat import WeChatNotifier                        # 企业微信通知
@@ -41,9 +41,9 @@ from AiVision.platform.camera.frame_reader import frame_reader_registry     # �
 from AiVision.platform.camera.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
 from AiVision.platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
 from AiVision.platform.inference.model_registry import MODEL_SPECS
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
-from AiVision.platform.logistics_channel.runtime import LogisticsChannelRuntime
-from AiVision.platform.logistics_channel.service import logistics_channel_service
+from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
+from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
+from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
 from AiVision.platform.alarm_device.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.platform.violation.service import violation_writer                  # 写入违规记录
 from AiVision.platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
@@ -114,7 +114,7 @@ class Orchestrator:
         logger.info("=" * 20 + " Orchestrator 启动 " + "=" * 20)
 
         # 1) 数据库 schema 修补，在启动摄像头和模型之前，把配置整理干净
-        ensure_schema_compatible()                             # 检查/修补数据库表结构
+        ensure_schema_ready()                             # 创建新表并核验数据库结构
         camera_config_manager.normalize_shm_names()                   # 整理摄像头共享内存名称
         camera_config_manager.ensure_feature_configs() # 确保每台摄像头需要的功能配置存在
         config_cache.init()                                     # 把配置从数据库加载到运行时缓存

@@ -10,7 +10,7 @@ from AiVision.core import db
 import AiVision.features as features
 from AiVision.platform.department.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.platform.department.service import DepartmentService
-from AiVision.platform.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from auth.user_store import ALLOWED_VIEWER_DEPARTMENTS, UserStore, UserValidationError
 
 
@@ -78,7 +78,7 @@ def test_discovery_rejects_unknown_department(monkeypatch):
         features._discover()
 
 
-def test_schema_compatibility_leaves_historical_department_tables_untouched(monkeypatch):
+def test_schema_verification_leaves_historical_department_tables_untouched(monkeypatch):
     engine = create_engine("sqlite://")
     monkeypatch.setattr(db, "get_engine", lambda: engine)
     with engine.begin() as connection:
@@ -87,7 +87,7 @@ def test_schema_compatibility_leaves_historical_department_tables_untouched(monk
         connection.execute(text("INSERT INTO ai_department VALUES ('legacy', '旧部门')"))
         connection.execute(text("INSERT INTO ai_feature_department VALUES ('detect_phone', 'legacy')"))
     try:
-        db.ensure_schema_compatible()
+        db.ensure_schema_ready()
         assert "ai_department" not in db.Base.metadata.tables
         assert "ai_feature_department" not in db.Base.metadata.tables
         assert {"ai_department", "ai_feature_department"} <= set(inspect(engine).get_table_names())

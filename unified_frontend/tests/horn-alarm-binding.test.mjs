@@ -165,8 +165,18 @@ test('catalog uses the existing serial polling and ignores responses after permi
 })
 
 const settle = () => new Promise((resolve) => setImmediate(resolve))
-for (const [name, configKey, defaults] of [['Face', 'detect_face', 'defaultFaceConfig'], ['Human', 'detect_human', 'defaultHumanConfig'],
-  ['Phone', 'detect_phone', 'defaultPhoneConfig'], ['Door', 'detect_door', 'defaultDoorConfig'], ['Intrusion', 'blocks', 'defaultBlocks']]) {
+const backendValues = {
+  Face: { roi_pos: [], cap_interval: .1, alarm_interval: 5, FACE_SCORE_THR: .6, MAX_TIME: 10, MAX_LOST: 5, DETECTION_IOU_THR: .3, TRACK_IOU_THR: .3 },
+  Human: { roi_pos: [], alarm_interval: 5, CONF_THRESHOLD: .3, MAX_TIME: 10, MAX_LOST: 5, DETECTION_IOU_THR: .3, TRACK_IOU_THR: .3,
+    MIN_BOX_AREA: 0, ASPECT_RATIO_RANGE: [0, 10], CENTER_DIST_THR: .65, AREA_RATIO_THR: .55, MATCH_SCORE_THR: .35, TRACK_SMOOTH_ALPHA: .7 },
+  Phone: { roi_pos: [], alarm_interval: 5, CONF_THRESHOLD: .7, IOU_THR: .5, PERSON_CONF_THRESHOLD: .3, MIN_CONFIRM_SECONDS: 1.2,
+    MIN_CONSECUTIVE_HITS: 3, REQUIRE_PERSON_ASSOCIATION: true, PERSON_EXPAND_RATIO: .18 },
+  Door: { roi_pos: [], alarm_interval: 5, threshold: .5, first_alarm: 60, env_threshold: null, min_local_change_ratio: .01,
+    stable_confirm_seconds: 1, stable_confirm_hits: 3, global_motion_threshold: .22, background_update_alpha: .05 },
+  Intrusion: { roi_pos: [], alarm_interval: 5, line_points: [], alarm_side: 1, foot_ratio: .93, threshold: .1 },
+}
+for (const [name, configKey] of [['Face', 'detect_face'], ['Human', 'detect_human'],
+  ['Phone', 'detect_phone'], ['Door', 'detect_door'], ['Intrusion', 'blocks']]) {
   test(`${name}: independent camera load/save, late responses ignored, failed load cannot save old binding`, async () => {
     const state = hooks(); const pending = new Map(); const writes = []; let defer = false
     const api = {
@@ -181,10 +191,10 @@ for (const [name, configKey, defaults] of [['Face', 'detect_face', 'defaultFaceC
       react: state.react, '@/auth/useAuth': { useAuth: () => ({ isAdmin: true }) },
       '@/lib/aivision': api, '@/lib/alarm-config': alarmModule,
       '@/components/AiVisionRoiEditor.geometry': moduleOf('components/AiVisionRoiEditor.geometry.ts'),
-    }, `\nexport const testDefaults = ${defaults}`)
+    })
     function response(key, config) {
       return { camera: { id: key === 'a' ? 1 : 2, shm_name: key, name: key, enable: true }, feature: configKey,
-        config: config || { ...plain(view.testDefaults), enable: true, alarm: { ...plain(view.testDefaults.alarm), horn: binding(key === 'a' ? 1 : 2, key === 'a' ? 7 : 9) } } }
+        config: config || { value: backendValues[name], enable: true, alarm: { sql: { enable: false, parm: {} }, wechat: { enable: false, parm: { user: '' } }, horn: binding(key === 'a' ? 1 : 2, key === 'a' ? 7 : 9) } } }
     }
     const render = () => state.render(() => view[`${name}DetectionSection`]())
     const select = (key) => component(render(), 'FeatureCameraManager').props.onSelectCamera(key)

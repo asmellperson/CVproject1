@@ -16,5 +16,4 @@
 4、consumer.py : 所有检测功能真正运行的公共主流程
 5、tracking.py : 跟踪相关公关能力
 6、dwell_consumer.py : 人员逗留检测的公共业务层
-7、logistics_single_person_consumer.py : 物流通道单人检测公共能力
 """

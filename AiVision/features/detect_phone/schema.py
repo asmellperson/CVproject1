@@ -1,18 +1,20 @@
 """features/detect_phone/schema.py"""
 from pydantic import BaseModel, ConfigDict, Field
 
+from AiVision.features._base.alarm_schema import AlarmConfigSchema
+from AiVision.features._base import defaults
 from AiVision.features._base.roi import NormalizedRoi
 
 class PhoneValueSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
     CONF_THRESHOLD: float = Field(0.7, ge=0, le=1)
     IOU_THR: float = Field(0.5, ge=0, le=1)
-    cap_interval: float = Field(0.1, gt=0)
-    alarm_interval: float = Field(5.0, gt=0)
+    cap_interval: float = Field(defaults.CAP_INTERVAL, gt=0)
+    alarm_interval: float = Field(defaults.ALARM_INTERVAL, gt=0)
     MIN_CONFIRM_SECONDS: float = Field(1.2, ge=0)
-    MIN_CONSECUTIVE_HITS: int = Field(3, ge=1)
+    MIN_CONSECUTIVE_HITS: int = Field(defaults.MIN_CONSECUTIVE_HITS, ge=1)
     MAX_MISSED_SECONDS: float = Field(0.6, ge=0)
     TRACK_TTL_SECONDS: float = Field(2.0, gt=0)
     TRACK_IOU_THRESHOLD: float = Field(0.2, ge=0, le=1)
@@ -24,21 +26,8 @@ class PhoneValueSchema(BaseModel):
     MIN_PERSON_PHONE_OVERLAP: float = Field(0.08, ge=0, le=1)
 
 
-class _AlarmChannel(BaseModel):
-    enable: bool = False
-    parm: dict = Field(default_factory=dict)
-
-
-class _WechatChannel(BaseModel):
-    enable: bool = False
-    parm: dict = Field(default_factory=lambda: {"user": ""})
-
-class PhoneAlarmSchema(BaseModel):
-    sql: _AlarmChannel = Field(default_factory=_AlarmChannel)
-    horn: _AlarmChannel = Field(default_factory=_AlarmChannel)
-    wechat: _WechatChannel = Field(default_factory=_WechatChannel)
-
 class PhoneConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: PhoneValueSchema = Field(default_factory=PhoneValueSchema)
-    alarm: PhoneAlarmSchema = Field(default_factory=PhoneAlarmSchema)
+    alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)

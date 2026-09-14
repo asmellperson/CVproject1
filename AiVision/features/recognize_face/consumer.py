@@ -38,14 +38,14 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             self.monitor_status.pop(shm_name, None)
 
     def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
-        interval = float(self._value_config(cfg).get("cap_interval", DEFAULT_CAPTURE_INTERVAL))
+        interval = float(cfg.get("cap_interval", DEFAULT_CAPTURE_INTERVAL))
         return time.time() - self._last_process_at.get(camera_id, 0.0) >= interval
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         return True
 
     def _process(self, roi, camera_id):
-        value = self._value_config(self.config_cache[camera_id])
+        value = self.config_cache[camera_id]
         response = self.dispatch_inference_sync(
             camera_id, "insightface", roi,
             task_meta={
@@ -77,7 +77,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             "alarm": False, "reason": "normal" if response["status"] == "ok" else "unknown",
             "updated_at_s": time.time(),
         }
-        value = self._value_config(config)
+        value = config
         if value.get("record_enabled", True):
             self.recorder.record(
                 camera_id, detections, float(value.get("record_cooldown_seconds", DEFAULT_RECORD_COOLDOWN_SECONDS)),

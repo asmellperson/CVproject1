@@ -17,7 +17,7 @@ from AiVision.platform.alarm_device.orm import AiHornConfig
 from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
 from AiVision.platform.alarm_device.service import HornService, HornInUseError
 from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ def test_commit_failure_never_changes_runtime(backend, monkeypatch, operation, c
         assert session.query(AiHornConfig).count() == 1
 
 
-@pytest.mark.parametrize("feature_name", list(all_specs()))
+@pytest.mark.parametrize("feature_name", [name for name, spec in all_specs().items() if "alarm" in spec.config_schema.model_fields])
 def test_delete_protects_every_feature_even_disabled(backend, feature_name):
     horn = backend.service.create_horn(payload())
     model = all_specs()[feature_name].orm_class

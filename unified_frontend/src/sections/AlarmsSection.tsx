@@ -193,7 +193,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
       [
         { eventType: 'blocks', label: '区域入侵', icon: <Radar className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
         { eventType: 'detect_door', label: '大门开关', icon: <DoorOpen className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
-        { eventType: 'detect_face', label: '人脸检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
+        { eventType: 'detect_face', label: '人脸逗留检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
         { eventType: 'detect_phone', label: '手机检测', icon: <Smartphone className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
         { eventType: 'detect_human', label: '人员违规逗留检测', icon: <UserRound className="w-6 h-6 text-blue-600" />, valueClassName: 'text-blue-600' },
         { eventType: 'detect_logistics_single_person', label: '物流通道单人', icon: <UsersRound className="w-6 h-6 text-teal-700" />, valueClassName: 'text-teal-700' },
@@ -215,7 +215,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
       case 'detect_phone':
         return <Badge className="bg-orange-500">手机检测</Badge>
       case 'detect_face':
-        return <Badge className="bg-violet-600">人脸检测</Badge>
+        return <Badge className="bg-violet-600">人脸逗留检测</Badge>
       case 'detect_human':
         return <Badge className="bg-blue-600">人员违规逗留检测</Badge>
       case 'detect_logistics_single_person':

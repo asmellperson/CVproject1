@@ -51,7 +51,7 @@ function model(overrides = {}) {
   }
 }
 
-function harness({ isAdmin = true } = {}) {
+function harness({ isAdmin = true, requiredModels = ['yolo_human'] } = {}) {
   const states = []
   let cursor = 0
   let poll
@@ -93,7 +93,7 @@ function harness({ isAdmin = true } = {}) {
     poll: () => poll(),
     render() {
       cursor = 0
-      return context.exports.AiVisionModelConfig({ requiredModels: ['yolo_human'] })
+      return context.exports.AiVisionModelConfig({ requiredModels })
     },
   }
 }
@@ -107,6 +107,19 @@ function nodes(tree) {
 
 const textOf = (tree) => nodes(tree).filter((node) => typeof node === 'string').join(' ')
 const find = (tree, type) => nodes(tree).find((node) => node?.type === type)
+
+test('pure face detector shows its ONNX path and saves under the independent logical model', async () => {
+  const page = harness({ requiredModels: ['insightface_detection'] })
+  page.setItems([model({ name: 'insightface_detection', type: 'insightface_detection', path: '/models/det_10g.onnx' })])
+  page.render(); await page.poll()
+  let tree = page.render()
+  assert.match(textOf(tree), /det_10g.onnx/)
+  assert.equal(find(tree, 'Input').props.value, '/models/det_10g.onnx')
+  find(tree, 'Input').props.onChange({ target: { value: '/new/det_10g.onnx' } })
+  tree = page.render()
+  await nodes(tree).find((node) => node?.type === 'Button' && textOf(node).includes('保存路径')).props.onClick()
+  assert.deepEqual(page.saves, [{ name: 'insightface_detection', path: '/new/det_10g.onnx' }])
+})
 
 test('model page shows runtime failure, has no create or enable controls, and protects viewers', async () => {
   const page = harness({ isAdmin: false })

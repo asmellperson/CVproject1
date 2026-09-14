@@ -24,10 +24,10 @@ class PhoneConsumer(BaseFunctionConsumer):
     def _process(self, roi, camera_id):
         if not self.spec.required_models:
             return False, None
-        cfg = self._value_config(self.config_cache.get(camera_id, {}))
-        conf_thr = float(cfg.get("CONF_THRESHOLD", 0.7))
-        iou_thr = float(cfg.get("IOU_THR", 0.5))
-        require_person = bool(cfg.get("REQUIRE_PERSON_ASSOCIATION", True))
+        cfg = self.config_cache[camera_id]
+        conf_thr = cfg["CONF_THRESHOLD"]
+        iou_thr = cfg["IOU_THR"]
+        require_person = cfg["REQUIRE_PERSON_ASSOCIATION"]
         person_available = self.PERSON_MODEL_NAME in self.infer_dict
         model_name = self.spec.required_models[0]
         phone_result = self.dispatch_inference_sync(
@@ -43,8 +43,8 @@ class PhoneConsumer(BaseFunctionConsumer):
                 self.PERSON_MODEL_NAME,
                 roi,
                 task_meta={
-                    "conf": float(cfg.get("PERSON_CONF_THRESHOLD", 0.3)),
-                    "iou": float(cfg.get("PERSON_IOU_THR", 0.3)),
+                    "conf": cfg["PERSON_CONF_THRESHOLD"],
+                    "iou": cfg["PERSON_IOU_THR"],
                 },
                 timeout=0.6,
             )
@@ -62,7 +62,7 @@ class PhoneConsumer(BaseFunctionConsumer):
             now=now,
             enforce_person=require_person and person_available,
         )
-        self._prune_tracks(camera_id, now, float(cfg.get("TRACK_TTL_SECONDS", 2.0)))
+        self._prune_tracks(camera_id, now, cfg["TRACK_TTL_SECONDS"])
         return any(item.get("confirmed") for item in candidates), candidates
 
     def post_process(self, camera_id, result):
@@ -125,8 +125,8 @@ class PhoneConsumer(BaseFunctionConsumer):
             track = self._update_track(camera_id, global_bbox, now, cfg)
             duration = now - float(track["first_seen"])
             confirmed = (
-                int(track["hits"]) >= int(cfg.get("MIN_CONSECUTIVE_HITS", 3))
-                and duration >= float(cfg.get("MIN_CONFIRM_SECONDS", 1.2))
+                int(track["hits"]) >= cfg["MIN_CONSECUTIVE_HITS"]
+                and duration >= cfg["MIN_CONFIRM_SECONDS"]
             )
             out.append({
                 **det,
@@ -149,8 +149,8 @@ class PhoneConsumer(BaseFunctionConsumer):
         )
 
     def _is_near_person_hand_region(self, phone_bbox, persons: list[dict], offset: tuple[int, int], cfg: dict) -> bool:
-        expand = float(cfg.get("PERSON_EXPAND_RATIO", 0.18))
-        max_y_ratio = float(cfg.get("HAND_REGION_MAX_Y_RATIO", 0.85))
+        expand = cfg["PERSON_EXPAND_RATIO"]
+        max_y_ratio = cfg["HAND_REGION_MAX_Y_RATIO"]
         pcx = (phone_bbox[0] + phone_bbox[2]) / 2.0
         pcy = (phone_bbox[1] + phone_bbox[3]) / 2.0
 
@@ -167,14 +167,14 @@ class PhoneConsumer(BaseFunctionConsumer):
             ey2 = y1 + height * max_y_ratio
             if ex1 <= pcx <= ex2 and ey1 <= pcy <= ey2:
                 return True
-            if self._intersection_ratio(phone_bbox, (ex1, ey1, ex2, ey2)) >= float(cfg.get("MIN_PERSON_PHONE_OVERLAP", 0.08)):
+            if self._intersection_ratio(phone_bbox, (ex1, ey1, ex2, ey2)) >= cfg["MIN_PERSON_PHONE_OVERLAP"]:
                 return True
         return False
 
     def _update_track(self, camera_id: int, bbox, now: float, cfg: dict) -> dict:
         tracks = self._tracks.setdefault(camera_id, {})
         match = None
-        min_iou = float(cfg.get("TRACK_IOU_THRESHOLD", 0.2))
+        min_iou = cfg["TRACK_IOU_THRESHOLD"]
         for track in tracks.values():
             if self._iou(bbox, track["bbox"]) >= min_iou or self._center_distance_ratio(bbox, track["bbox"]) <= 0.6:
                 match = track
@@ -185,7 +185,7 @@ class PhoneConsumer(BaseFunctionConsumer):
             self._next_track_id[camera_id] = track_id + 1
             match = {"id": track_id, "bbox": bbox, "first_seen": now, "last_seen": now, "hits": 0}
             tracks[track_id] = match
-        elif now - float(match.get("last_seen", 0.0)) > float(cfg.get("MAX_MISSED_SECONDS", 0.6)):
+        elif now - float(match.get("last_seen", 0.0)) > cfg["MAX_MISSED_SECONDS"]:
             match["first_seen"] = now
             match["hits"] = 0
 

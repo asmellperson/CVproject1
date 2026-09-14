@@ -38,10 +38,13 @@ type FaceConfig = {
   enable: boolean
   value: {
     roi_pos: number[][]
-    cap_interval?: number
-    alarm_interval?: number
-    FACE_SCORE_THR?: number
-    YAW_THRESHOLD?: number[]
+    cap_interval: number
+    alarm_interval: number
+    MAX_TIME: number
+    MAX_LOST: number
+    DETECTION_IOU_THR: number
+    TRACK_IOU_THR: number
+    FACE_SCORE_THR: number
   }
   alarm: NormalizedFeatureAlarmConfig
 }
@@ -56,26 +59,14 @@ type FaceConfigResponse = {
 
 const defaultForm = {
   cameraName: '',
-  roiPos: '[]',
-  faceScoreThreshold: '0.6',
-  yawThreshold: '[0,0.3]',
-  alarmInterval: '5.0',
-}
-
-const defaultFaceConfig: FaceConfig = {
-  enable: false,
-  value: {
-    roi_pos: [],
-    cap_interval: 0.1,
-    alarm_interval: 5.0,
-    FACE_SCORE_THR: 0.6,
-    YAW_THRESHOLD: [0, 0.3],
-  },
-  alarm: {
-    horn: { enable: false, parm: {} },
-    sql: { enable: false, parm: {} },
-    wechat: { enable: false, parm: { user: '' } },
-  },
+  roiPos: '',
+  faceScoreThreshold: '',
+  maxTime: '',
+  maxLost: '',
+  detectionIouThreshold: '',
+  trackIouThreshold: '',
+  capInterval: '',
+  alarmInterval: '',
 }
 
 function formatJson(value: unknown) {
@@ -86,9 +77,13 @@ function toForm(payload: FaceConfigResponse) {
   return {
     cameraName: payload.shm_name,
     roiPos: formatJson(payload.detect_face.value.roi_pos),
-    faceScoreThreshold: String(payload.detect_face.value.FACE_SCORE_THR ?? 0.6),
-    yawThreshold: formatJson(payload.detect_face.value.YAW_THRESHOLD ?? [0, 0.3]),
-    alarmInterval: String(payload.detect_face.value.alarm_interval ?? 5.0),
+    faceScoreThreshold: String(payload.detect_face.value.FACE_SCORE_THR),
+    maxTime: String(payload.detect_face.value.MAX_TIME),
+    maxLost: String(payload.detect_face.value.MAX_LOST),
+    detectionIouThreshold: String(payload.detect_face.value.DETECTION_IOU_THR),
+    trackIouThreshold: String(payload.detect_face.value.TRACK_IOU_THR),
+    capInterval: String(payload.detect_face.value.cap_interval),
+    alarmInterval: String(payload.detect_face.value.alarm_interval),
   }
 }
 
@@ -108,7 +103,7 @@ async function requestFaceConfig(shmName: string, config?: FaceConfig) {
 export function FaceDetectionSection() {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
-  const [faceConfig, setFaceConfig] = useState<FaceConfig>(defaultFaceConfig)
+  const [faceConfig, setFaceConfig] = useState<FaceConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
@@ -129,7 +124,7 @@ export function FaceDetectionSection() {
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
-    setFaceConfig(defaultFaceConfig)
+    setFaceConfig(null)
     if (!shmName) {
       setMessage('读取失败：请先选择摄像头。')
       return
@@ -143,7 +138,7 @@ export function FaceDetectionSection() {
       loadedCameraRef.current = shmName
       setFaceConfig(payload.detect_face)
       setForm(toForm(payload))
-      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人脸检测配置。`)
+      setMessage(`读取成功：已加载 ${getCameraDisplayName(payload.shm_name, payload.name, source)} 的人脸逗留检测配置。`)
     } catch (error) {
       if (requestId !== configRequestRef.current) return
       setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`)
@@ -166,7 +161,7 @@ export function FaceDetectionSection() {
       }
       if (!nextCamera) {
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前人脸检测未添加摄像头，请先添加摄像头。')
+        setMessage('当前人脸逗留检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
@@ -195,13 +190,13 @@ export function FaceDetectionSection() {
 
   const addCameraToFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在添加摄像头并启用人脸检测...')
+    setMessage('正在添加摄像头并启用人脸逗留检测...')
     try {
       const payload = await requestFaceConfig(cameraName)
       await requestFaceConfig(cameraName, { ...payload.detect_face, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用人脸检测。`)
+      setMessage(`添加成功：${cameraName} 已启用人脸逗留检测。`)
     } catch (error) {
       setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -211,7 +206,7 @@ export function FaceDetectionSection() {
 
   const removeCameraFromFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在停用该摄像头的人脸检测...')
+    setMessage('正在停用该摄像头的人脸逗留检测...')
     try {
       const payload = await requestFaceConfig(cameraName)
       await requestFaceConfig(cameraName, { ...payload.detect_face, enable: false })
@@ -220,10 +215,10 @@ export function FaceDetectionSection() {
       if (form.cameraName === cameraName && nextCamera) {
         await loadConfig(nextCamera)
       } else if (form.cameraName === cameraName) {
-        setFaceConfig(defaultFaceConfig)
+        setFaceConfig(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
-      setMessage(`停用成功：${cameraName} 已关闭人脸检测。`)
+      setMessage(`停用成功：${cameraName} 已关闭人脸逗留检测。`)
     } catch (error) {
       setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -242,31 +237,40 @@ export function FaceDetectionSection() {
       return
     }
 
-    if (loading || loadedCameraRef.current !== shmName) {
+    if (!faceConfig || loading || loadedCameraRef.current !== shmName) {
       setMessage('保存失败：请先成功读取当前摄像头的配置。')
       return
     }
     const requestId = configRequestRef.current
-
-    let roiPos: number[][]
-    let yawThreshold: number[]
-    try {
-      const parsedRoi = parseNormalizedRoi(form.roiPos)
-      const parsedYaw = JSON.parse(form.yawThreshold)
-      if (!Array.isArray(parsedRoi) || !Array.isArray(parsedYaw)) {
-        throw new Error('ROI 和偏航角阈值必须是数组')
-      }
-      roiPos = parsedRoi
-      yawThreshold = parsedYaw
-    } catch (error) {
-      setMessage(`保存失败：ROI 或偏航角阈值不是合法 JSON。${error instanceof Error ? error.message : ''}`)
+    if (Object.values(form).some((value) => !value.trim())) {
+      setMessage('保存失败：请填写所有必填参数。')
       return
     }
 
+    let roiPos: number[][]
+    try {
+      const parsedRoi = parseNormalizedRoi(form.roiPos)
+      if (!Array.isArray(parsedRoi)) {
+        throw new Error('ROI 必须是数组')
+      }
+      roiPos = parsedRoi
+    } catch (error) {
+      setMessage(`保存失败：ROI 不是合法 JSON。${error instanceof Error ? error.message : ''}`)
+      return
+    }
+
+    const maxTime = Number(form.maxTime)
+    const maxLost = Number(form.maxLost)
+    const detectionIouThreshold = Number(form.detectionIouThreshold)
+    const trackIouThreshold = Number(form.trackIouThreshold)
     const faceScoreThreshold = Number(form.faceScoreThreshold)
+    const capInterval = Number(form.capInterval)
     const alarmInterval = Number(form.alarmInterval)
-    if (!Number.isFinite(faceScoreThreshold) || !Number.isFinite(alarmInterval)) {
-      setMessage('保存失败：人脸置信度阈值和告警间隔必须是数字。')
+    if ([form.maxTime, form.maxLost, form.faceScoreThreshold, form.detectionIouThreshold, form.trackIouThreshold, form.capInterval, form.alarmInterval].some((v) => !v.trim()) ||
+      !Number.isFinite(maxTime) || maxTime < 0 || !Number.isInteger(maxLost) || maxLost < 0 ||
+      ![faceScoreThreshold, detectionIouThreshold, trackIouThreshold].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
+      !Number.isFinite(capInterval) || capInterval <= 0 || !Number.isFinite(alarmInterval) || alarmInterval <= 0) {
+      setMessage('保存失败：比例须为 0～1，逗留秒数须 ≥0，丢失次数须为非负整数，处理与告警间隔须 >0。')
       return
     }
 
@@ -277,10 +281,14 @@ export function FaceDetectionSection() {
         ...faceConfig.value,
         roi_pos: roiPos,
         FACE_SCORE_THR: faceScoreThreshold,
-        YAW_THRESHOLD: yawThreshold,
+        MAX_TIME: maxTime,
+        MAX_LOST: maxLost,
+        DETECTION_IOU_THR: detectionIouThreshold,
+        TRACK_IOU_THR: trackIouThreshold,
+        cap_interval: capInterval,
         alarm_interval: alarmInterval,
       },
-      alarm: faceConfig.alarm || defaultFaceConfig.alarm,
+      alarm: faceConfig.alarm,
     }
 
     setSaving(true)
@@ -292,7 +300,7 @@ export function FaceDetectionSection() {
       setForm(toForm(payload))
       const items = await refreshCameraList()
       if (requestId !== configRequestRef.current) return
-      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的人脸检测配置已更新。`)
+      setMessage(`保存成功：${getCameraDisplayName(payload.shm_name, payload.name, items)} 的人脸逗留检测配置已更新。`)
     } catch (error) {
       if (requestId !== configRequestRef.current) return
       setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
@@ -305,7 +313,6 @@ export function FaceDetectionSection() {
     setForm((prev) => ({
       ...prev,
       faceScoreThreshold: '0.6',
-      yawThreshold: '[0,0.3]',
       alarmInterval: '5.0',
     }))
     setMessage('已应用白天参数预设，确认后请保存配置。')
@@ -315,7 +322,6 @@ export function FaceDetectionSection() {
     setForm((prev) => ({
       ...prev,
       faceScoreThreshold: '0.5',
-      yawThreshold: '[0,0.35]',
       alarmInterval: '5.0',
     }))
     setMessage('已应用夜间参数预设，确认后请保存配置。')
@@ -327,13 +333,13 @@ export function FaceDetectionSection() {
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
-          title="人脸检测"
-          subtitle="人脸识别实时监控面板"
+          title="人脸逗留检测"
+          subtitle="当前可见目标逗留超时后保持告警状态，通知按告警间隔冷却"
           departmentLabel="福达新材院"
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="人脸检测监控" feature="detect_face" presentation="feature-dashboard" />
+          <AiVisionMonitor title="人脸逗留检测监控" feature="detect_face" presentation="feature-dashboard" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
@@ -370,10 +376,10 @@ export function FaceDetectionSection() {
             <TabsContent value="roi" className="space-y-6">
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
-                  title="人脸检测 ROI 绘制"
+                  title="人脸逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -384,10 +390,10 @@ export function FaceDetectionSection() {
 
             <TabsContent value="params" className="space-y-6">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的人脸识别阈值与区域参数。" actions={<Badge variant="outline">AiVision detect_face</Badge>} />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="InsightFace 检测人脸框，按轨迹计算逗留时间。" actions={<Badge variant="outline">AiVision detect_face</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -419,24 +425,43 @@ export function FaceDetectionSection() {
                     <Label htmlFor="face-score">人脸置信度阈值</Label>
                     <Input
                       id="face-score"
+                      type="number" min="0" max="1" step="0.01"
                       value={form.faceScoreThreshold}
                       onChange={(event) => setForm((prev) => ({ ...prev, faceScoreThreshold: event.target.value }))}
                       placeholder="0.6"
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="face-yaw">偏航角阈值</Label>
-                    <Input
-                      id="face-yaw"
-                      value={form.yawThreshold}
-                      onChange={(event) => setForm((prev) => ({ ...prev, yawThreshold: event.target.value }))}
-                      placeholder="[0,0.3]"
-                    />
-                  </div>
+
 
                   <div className="space-y-2">
-                    <Label htmlFor="face-interval">告警间隔</Label>
+                    <Label htmlFor="face-max-time">逗留时间阈值（秒，≥0）</Label>
+                    <Input id="face-max-time" type="number" min="0"  step="0.1"
+                      value={form.maxTime} onChange={(event) => setForm((prev) => ({ ...prev, maxTime: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-max-lost">允许连续丢失次数（跟踪更新次数）</Label>
+                    <Input id="face-max-lost" type="number" min="0"  step="1"
+                      value={form.maxLost} onChange={(event) => setForm((prev) => ({ ...prev, maxLost: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-detection-iou">检测框 NMS IoU（0～1）</Label>
+                    <Input id="face-detection-iou" type="number" min="0" max="1" step="0.01"
+                      value={form.detectionIouThreshold} onChange={(event) => setForm((prev) => ({ ...prev, detectionIouThreshold: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-track-iou">跨帧跟踪 IoU（0～1）</Label>
+                    <Input id="face-track-iou" type="number" min="0" max="1" step="0.01"
+                      value={form.trackIouThreshold} onChange={(event) => setForm((prev) => ({ ...prev, trackIouThreshold: event.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-cap-interval">静止画面处理间隔（秒，&gt;0）</Label>
+                    <Input id="face-cap-interval" type="number" min="0" step="0.01"
+                      value={form.capInterval} onChange={(event) => setForm((prev) => ({ ...prev, capInterval: event.target.value }))} />
+                    <p className="text-xs text-slate-500">画面变化时也会触发检测；实际频率受推理耗时影响。丢失次数按跟踪更新累计。</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-interval">告警间隔（秒）</Label>
                     <Input
                       id="face-interval"
                       value={form.alarmInterval}
@@ -465,17 +490,17 @@ export function FaceDetectionSection() {
 
             <TabsContent value="model" className="space-y-6">
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
-                <AiVisionModelConfig requiredModels={['yolo_face']} />
+                <AiVisionModelConfig requiredModels={['insightface_detection']} />
               </Suspense>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
-                alarm={faceConfig.alarm}
-                disabled={!isAdmin || loading || saving || cameraAction || !form.cameraName}
+                alarm={faceConfig?.alarm}
+                disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
                 saving={saving}
                 message={message}
-                onChange={(alarm) => setFaceConfig((prev) => ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
+                onChange={(alarm) => setFaceConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
             </TabsContent>

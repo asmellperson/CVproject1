@@ -8,8 +8,9 @@ models:
     path: /path/to/person_phone.pt
   yolo_phone:
     path: /path/to/person_phone.pt
-  yolo_face:
-    path: /path/to/yolov8x-face.pt
+  # 人脸逗留纯检测只需要此文件，不加载身份识别和人员特征库。
+  insightface_detection:
+    path: /srv/models/insightface/buffalo_l/det_10g.onnx
   # buffalo_l 解压目录，包含完整的五个 ONNX 文件；应用不会联网下载。
   insightface:
     path: /srv/models/insightface/buffalo_l

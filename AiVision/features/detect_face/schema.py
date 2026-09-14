@@ -1,36 +1,25 @@
 """features/detect_face/schema.py"""
-from typing import List
 from pydantic import BaseModel, ConfigDict, Field
 
+from AiVision.features._base.alarm_schema import AlarmConfigSchema
+from AiVision.features._base import defaults
 from AiVision.features._base.roi import NormalizedRoi
 
 class FaceValueSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
-    FACE_SCORE_THR: float = Field(0.6, ge=0, le=1)
-    YAW_THRESHOLD: List[float] = Field(default_factory=lambda: [0.0, 0.3])
-    MAX_TIME: float = Field(10.0, ge=0)
-    IOU_THR: float = Field(0.3, ge=0, le=1)
-    MAX_LOST: int = Field(5, ge=0)
-    cap_interval: float = Field(0.1, gt=0)
-    alarm_interval: float = Field(5.0, gt=0)
+    FACE_SCORE_THR: float = Field(defaults.FACE_SCORE_THR, ge=0, le=1)  # InsightFace 检测置信度
+    MAX_TIME: float = Field(defaults.MAX_TIME, ge=0)                                    # 同一条人脸跟踪轨迹达到这个逗留时间，并且本次仍匹配到了目标时，进入报警状态
+    DETECTION_IOU_THR: float = Field(defaults.DETECTION_IOU_THR, ge=0, le=1)  # 检测框 NMS 去重 IoU
+    TRACK_IOU_THR: float = Field(defaults.TRACK_IOU_THR, ge=0, le=1)  # 跨帧跟踪 IoU
+    MAX_LOST: int = Field(defaults.MAX_LOST, ge=0)                                         # 默认第六次仍未匹配时删除轨迹
+    cap_interval: float = Field(defaults.CAP_INTERVAL, gt=0)
+    alarm_interval: float = Field(defaults.ALARM_INTERVAL, gt=0)
 
-
-class _AlarmChannel(BaseModel):
-    enable: bool = False
-    parm: dict = Field(default_factory=dict)
-
-class _WechatChannel(BaseModel):
-    enable: bool = False
-    parm: dict = Field(default_factory=lambda: {"user": ""})
-
-class FaceAlarmSchema(BaseModel):
-    sql: _AlarmChannel = Field(default_factory=_AlarmChannel)
-    horn: _AlarmChannel = Field(default_factory=_AlarmChannel)
-    wechat: _WechatChannel = Field(default_factory=_WechatChannel)
 
 class FaceConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: FaceValueSchema = Field(default_factory=FaceValueSchema)
-    alarm: FaceAlarmSchema = Field(default_factory=FaceAlarmSchema)
+    alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)

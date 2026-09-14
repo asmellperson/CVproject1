@@ -22,7 +22,7 @@ https://aicv.fudar.com/
 | --- | --- | --- |
 | 安检流程规范检测 | `AiVision/integrations/security_vlm` | 通过 YOLO + ByteTrack 跟踪安检工位人员交互过程，再把关键帧交给 Qwen-VL 判断流程是否合规。 |
 | 保安行为规范检测 | `AiVision/integrations/guard_room` | 多路摄像头实时检测保安离岗、玩手机、趴睡，并保存报警截图/视频、推送企业微信。 |
-| 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸检测、人员逗留、手机使用检测等能力。 |
+| 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸逗留检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
 整体上，这是“一个 Vite 前端 + 一个统一后端 + 一个视觉业务后端”的三层项目。Guard Room 和
@@ -273,13 +273,10 @@ AiVision/integrations/guard_room/config/config.example.yaml
 | --- | --- | --- | --- |
 | `blocks` | 区域入侵检测 | ROI 区域变化/入侵检测 | 否 |
 | `detect_door` | 大门开关异常检测 | 门禁状态检测 | 否 |
-| `detect_face` | 人脸检测 | 人脸逗留检测 | `yolo_face` |
+| `detect_face` | 人脸逗留检测 | 人脸框检测、跟踪与逗留计时 | `insightface_detection` |
 | `detect_human` | 人员逗留检测 | 人体逗留检测 | `yolo_human` |
 | `detect_phone` | 手机使用检测 | 手机检测 | `yolo_phone` |
-| `detect_logistics_single_person` | 通用电气物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
-| `detect_logistics_single_person_electronics_electrician` | 电子电工物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
-| `detect_logistics_single_person_electrical_components` | 电气部件物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
-| `detect_logistics_single_person_precious_metal_recycling` | 伟达公司物流通道单人检测 | 多摄像头联合人数判定 | `yolo_human` |
+| `detect_logistics_single_person` | 物流通道单人检测（四个事业部） | 多摄像头联合人数判定 | `yolo_human` |
 
 #### 手机使用检测全链路
 
@@ -324,7 +321,7 @@ init_orchestrator()
   v
 Orchestrator.start()
   |
-  +-- ensure_schema_compatible()
+  +-- ensure_schema_ready()
   +-- camera_config_manager 加载摄像头与功能配置
   +-- CameraRuntimeManager 启动摄像头进程
   +-- frame_reader_registry 读取最新帧
@@ -385,7 +382,7 @@ AiVision/
 
 ### 7.6 物流通道多摄像头单人检测
 
-四个物流单人检测模块共用同一套“物流通道”管理能力。管理员在对应模块的配置页新建具名通道，然后新建或绑定摄像头；每个通道支持 1–9 路摄像头，每路摄像头单独保存 ROI。监控页按成员顺序自动拼接：1 路单画面、2 路左右、3–4 路 2×2、5–9 路 3×3。
+统一的 `detect_logistics_single_person` feature 面向通用电气、电子电工、电气部件和伟达公司四个事业部，通道及成员按事业部隔离。管理员在对应模块的配置页新建具名通道，然后新建或绑定摄像头；每个通道支持 1–9 路摄像头，每路摄像头单独保存 ROI。监控页按成员顺序自动拼接：1 路单画面、2 路左右、3–4 路 2×2、5–9 路 3×3。
 
 通道按所有已启用成员的最新结果联合判定：
 
@@ -396,15 +393,17 @@ AiVision/
 | 没有多人，至少一路为 1（包括多路各 1 人） | 正常 | 不报警 |
 | 存在离线、过期或未出结果的摄像头，其余均为 0 | 未知 | 不报警，未知不能当作无人 |
 
-检测开始/结束时间、无人和多人持续时间、报警间隔及通知开关均在前端按通道独立配置。成员 ROI 和推理过滤参数仍按摄像头独立配置。状态结果默认超过 5 秒即视为过期，可在启动 AiVision 前调整：
+人体检测置信度、检测开始/结束时间、无人和多人宽限时间、报警间隔及 SQL/喇叭/微信配置均按通道保存。摄像头只保存 ROI、模型 IOU（0～1）、最小检测框面积（像素平方，非负整数）、宽高比范围（宽/高）和画面处理间隔（秒，大于 0），不包含告警配置。接口拒绝未定义字段。状态结果默认超过 5 秒即视为过期，可在启动 AiVision 前调整：
 
 ```bash
 export LOGISTICS_STATUS_STALE_SECONDS=5
 ```
 
-AiVision 启动时会先由 `ensure_schema_compatible()` 自动创建 `ai_logistics_channel`、`ai_logistics_channel_camera` 等缺失表，再运行旧配置迁移。迁移会为四个物流 feature 中每个已启用且尚未归属通道的摄像头创建同名通道；同一 feature 名称冲突时稳定追加摄像头 ID，并保留原 ROI、检测参数和启用状态。迁移可重复执行，已迁移成员会跳过，不会重复建通道。
+业务实现集中在 `AiVision/features/detect_logistics_single_person/`：消费者逐路推理并发布快照，`state.py` 判断人数状态与连续异常时间，`runtime.py` 控制时段、汇总和告警事件，`service.py` 与 `membership_transaction.py` 管理配置和成员事务，`compositor.py` 拼接画面。`__init__.py` 仅注册 SPEC，不预加载服务或运行时。
 
-上线前应备份 AiVision 数据库。回滚旧版本代码前也应先备份；新增物流表可以保留，不影响旧代码，不要在未经独立数据清理评审时删除旧摄像头级配置字段或物流表。迁移失败会记录 feature、camera ID 和原因，其他摄像头仍继续迁移；启动日志出现“物流通道迁移存在失败”时，应先处理冲突再重启验证。
+无人和多人分别连续计时，恢复正常、未知或停用会中断当前异常。每次持续异常成功分发后不重复创建告警事件；冷却期间未分发的事件会继续等待，恢复正常后再次异常仍受通道告警间隔限制。各路人数不相加；明确多人优先，其次至少一路正常、未知，最后才是全部无人。
+
+现有表名保持不变。应用启动不迁移旧配置、不补造通道或转换字段。
 
 纯逻辑回归可在项目根目录执行：
 
