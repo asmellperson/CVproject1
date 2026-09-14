@@ -5,6 +5,7 @@ import json
 import os
 from queue import Queue
 import threading
+from unittest.mock import Mock
 
 import cv2
 import numpy as np
@@ -204,3 +205,31 @@ def test_snapshot_failure_does_not_block_drain(writer_db, monkeypatch):
     assert writer._queue.unfinished_tasks == 0
     with factory() as session:
         assert session.query(AiAlarmEvent).count() == 0
+
+
+def test_shared_media_cleanup_reuses_one_immediate_scheduler_job(writer_db, monkeypatch):
+    from AiVision.features.recognize_face.records import RecognitionMediaReferences
+
+    writer, _, scope = writer_db
+    references = RecognitionMediaReferences(scope)
+    writer.configure_media_cleanup(references)
+    writer.configure_media_cleanup(references)
+    assert writer._media_cleaner._references == (writer._media_cleaner, references)
+    scheduler = Mock()
+    scheduler_factory = Mock(return_value=scheduler)
+    monkeypatch.setattr(service, "BackgroundScheduler", scheduler_factory)
+    cleanup = Mock()
+    monkeypatch.setattr(writer._media_cleaner, "cleanup", cleanup)
+    writer.start()
+    writer.start()
+    scheduler_factory.assert_called_once()
+    scheduler.add_job.assert_called_once()
+    args, kwargs = scheduler.add_job.call_args
+    assert args == (writer._delete_old, "interval")
+    assert kwargs["next_run_time"] is not None
+    assert kwargs["minutes"] == writer._cleanup_interval_minutes
+    assert kwargs["max_instances"] == 1 and kwargs["coalesce"] is True
+    args[0]()
+    cleanup.assert_called_once_with(now=None)
+    writer.stop()
+    scheduler.shutdown.assert_called_once_with(wait=True)

@@ -16,6 +16,7 @@ os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
 from AiVision.platform.violation import cleanup as violation_cleanup
+from AiVision.core.media_cleanup import MediaCleanupStats
 from AiVision.platform.violation.orm import AiAlarmEvent
 
 
@@ -228,7 +229,8 @@ def test_cleanup_never_scans_other_business_media_or_empty_directories(tmp_path,
     factory, scope = _database()
     now = datetime.datetime.now()
     root = tmp_path / "data"
-    unrelated = [root / "face_library" / "portrait.png", root / "uploads" / "video.mp4", root / "snapshot.jpg"]
+    unrelated = [root / "face_library" / "portrait.png", root / "uploads" / "video.mp4", root / "snapshot.jpg",
+                 root / "recognize_face" / "recognition.png"]
     old_alarm = root / "9" / "old.png"
     for path in [*unrelated, old_alarm]:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +268,7 @@ def test_cleanup_rejects_symlinks_and_traversal_even_inside_data_path(tmp_path):
     (root / "alarm_clips").symlink_to(other, target_is_directory=True)
     cleaner = violation_cleanup.ViolationMediaCleaner(root, retention_days=7, max_bytes=1, session_scope_factory=scope)
     assert cleaner._media_files() == []
-    stats = violation_cleanup.MediaCleanupStats()
+    stats = MediaCleanupStats()
     for path in [linked_file, linked_dir / image.name, root / "alarm_clips" / image.name, media / ".." / "uploads" / image.name, media / "notes.json"]:
         assert cleaner._remove_managed_file(path, stats) == (False, 0)
     assert stats.skipped_unsafe_paths == 5

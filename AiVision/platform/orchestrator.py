@@ -34,6 +34,7 @@ from AiVision.core.system_config import system_config_service
 
 from AiVision.features import all_specs                                     # 系统有那些检测功能
 from AiVision.features._base.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
+from AiVision.features.recognize_face.records import RecognitionMediaReferences
 
 from AiVision.platform.camera.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
 from AiVision.platform.camera.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
@@ -158,7 +159,8 @@ class Orchestrator:
         alarm_evidence_recorder.start(lambda: frame_reader_registry.latest_frames)         # 告警视频录制模块，需要持续访问最新帧，所以把最新帧获取方式交给它
 
         # 4) 违规图片写入
-        violation_writer.start()          # 启动违规记录写入模块，负责违规截图，违规数据库记录，视频路径，状态
+        violation_writer.configure_media_cleanup(RecognitionMediaReferences())
+        violation_writer.start()          # 共用其媒体清理调度；识别记录仍由自己的 Consumer 异步写入
 
         # 5) 告警通道
         self.horn_runtime_manager.start()      #创建真正运行中的喇叭对象
@@ -230,8 +232,8 @@ class Orchestrator:
         # 5、停止告警记录写入模块
         try:
             violation_writer.stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error(f"[Orchestrator] 停止告警写入和平台媒体清理失败: {exc}")
         # 6、停止帧读取
         try:
             frame_reader_registry.stop_all()

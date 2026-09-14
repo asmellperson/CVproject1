@@ -20,7 +20,7 @@ const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig'
 
 export function RecognitionConfigView() {
   const state = useRecognitionConfig()
-  const featureCameras = state.cameras.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
+  const featureCameras = state.cameras.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE) || camera.shm_name === state.cameraKey)
   return (
     <Tabs defaultValue="camera" className="space-y-6">
       <DetectionConfigTabsList className="lg:grid-cols-4">
@@ -33,6 +33,10 @@ export function RecognitionConfigView() {
         <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={FACE_DEPARTMENT}
           currentCameraName={state.cameraKey} disabled={state.disabled} onSelectCamera={state.selectCamera}
           onAddCamera={(key) => state.setCameraEnabled(key, true)} onRemoveCamera={(key) => state.setCameraEnabled(key, false)}
+          onConfigCopied={(key) => {
+            state.selectCamera(key)
+            return state.loadConfig(key)
+          }}
           />
         <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{state.message}</p>
       </TabsContent>

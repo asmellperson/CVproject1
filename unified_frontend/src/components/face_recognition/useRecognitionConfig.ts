@@ -23,11 +23,16 @@ export function useRecognitionConfig() {
   const [message, setMessage] = useState('正在读取摄像头…')
   const [loadedKey, setLoadedKey] = useState('')
   const selectedRef = useRef('')
+  const camerasRef = useRef<AiVisionCamera[]>([])
+  const selectedInactiveRef = useRef('')
+  const configLoadRef = useRef<{ key: string; revision: number } | null>(null)
   const requestRef = useRef(0)
   const cameraRequestRef = useRef(0)
   const mountedRef = useRef(true)
 
   const selectCamera = useCallback((key: string) => {
+    // 复制后允许查看目标的停用配置；后续主动移除已启用摄像头仍自动换路。
+    selectedInactiveRef.current = camerasRef.current.some((camera) => camera.shm_name === key && !isAiVisionFeatureEnabled(camera, FACE_FEATURE)) ? key : ''
     if (selectedRef.current === key) return
     selectedRef.current = key
     requestRef.current += 1
@@ -37,6 +42,7 @@ export function useRecognitionConfig() {
 
   const loadConfig = useCallback(async (key: string) => {
     const request = ++requestRef.current
+    configLoadRef.current = { key, revision: cameraRequestRef.current }
     setLoadedKey('')
     setConfig(EMPTY_CONFIG)
     setForm(EMPTY_FORM)
@@ -74,10 +80,13 @@ export function useRecognitionConfig() {
       const items = await getAiVisionCameras()
       if (!mountedRef.current || request !== cameraRequestRef.current) return
       setCameras(items)
+      camerasRef.current = items
       const enabled = items.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
-      if (!enabled.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(enabled[0]?.shm_name || '')
+      if (enabled.some((camera) => camera.shm_name === selectedRef.current)) selectedInactiveRef.current = ''
+      const viewingInactive = selectedInactiveRef.current === selectedRef.current && items.some((camera) => camera.shm_name === selectedRef.current)
+      if (!viewingInactive && !enabled.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(enabled[0]?.shm_name || '')
       setConfigRevision((value) => value + 1)
-      if (!enabled.length) setMessage('当前功能未添加摄像头，请先添加摄像头。')
+      if (!selectedRef.current) setMessage('当前功能未添加摄像头，请先添加摄像头。')
     } catch (error) {
       if (mountedRef.current && request === cameraRequestRef.current) setMessage(`摄像头读取失败：${String(error)}`)
     } finally {
@@ -99,7 +108,9 @@ export function useRecognitionConfig() {
   }, [refreshCameras])
 
   useEffect(() => {
-    if (!cameraLoading) void loadConfig(cameraKey)
+    // onConfigCopied 已主动读取本轮最终配置时，列表刷新不再重复请求或覆盖目标。
+    const loaded = configLoadRef.current
+    if (!cameraLoading && (loaded?.key !== cameraKey || loaded.revision !== cameraRequestRef.current)) void loadConfig(cameraKey)
   }, [cameraKey, cameraLoading, configRevision, loadConfig])
 
   const setCameraEnabled = async (key: string, enable: boolean) => {

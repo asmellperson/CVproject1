@@ -19,6 +19,18 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         self.monitor_status: dict[str, dict] = {}
         self.recorder = RecognitionRecorder()
 
+    def start(self):
+        self.recorder.start()
+        try:
+            super().start()
+        except Exception:
+            self.recorder.stop()
+            raise
+
+    def stop(self):
+        super().stop()
+        self.recorder.stop()
+
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         super()._clear_camera_state(camera_id, shm_name)
         self.recorder.clear_camera(camera_id)

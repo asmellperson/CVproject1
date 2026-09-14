@@ -320,10 +320,72 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
   assert.equal(removed, 1)
 })
 
+test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新均保留停用目标且不重复读取', async () => {
+  for (const targetEnabled of [false, true]) {
+    for (const slowList of [false, true]) {
+      const harness = hookHarness()
+      const previousWindow = globalThis.window
+      const events = new EventTarget()
+      globalThis.window = events
+      const pool = [camera(1), camera(2, true, targetEnabled)]
+      const original = { roi_pos: [], detection_threshold: .35, similarity_threshold: .8, cap_interval: .5, record_cooldown_seconds: 30, record_enabled: true }
+      const copied = { ...original, roi_pos: [[0, 0], [1, 0], [1, 1]], detection_threshold: .62, similarity_threshold: .77 }
+      let deferList = false, releaseList, releaseConfig
+      const reads = []
+      try {
+        const { useRecognitionConfig } = await compile('src/components/face_recognition/useRecognitionConfig.ts', {
+          react: harness.hooks, '@/auth/useAuth': { useAuth: () => ({ isAdmin: true }) }, './api': faceApi,
+          '@/components/AiVisionRoiEditor.geometry': { parseNormalizedRoi: JSON.parse },
+          '@/lib/aivision': { ...cameraApi,
+            getAiVisionCameras: async () => {
+              if (deferList) await new Promise((resolve) => { releaseList = resolve })
+              return structuredClone(pool)
+            },
+            getAiVisionFeatureConfig: async (_feature, key) => {
+              reads.push(key)
+              if (key === 'camera_2') await new Promise((resolve) => { releaseConfig = resolve })
+              return { config: { enable: key === 'camera_1' || targetEnabled, value: key === 'camera_1' ? original : copied } }
+            },
+          },
+        })
+        let state = await harness.mount(useRecognitionConfig)
+        const { RecognitionConfigView } = await compile('src/components/face_recognition/RecognitionConfigView.tsx', {
+          ...sharedUi, '@/components/detection/DetectionConfigUi': ui, '@/components/ui/input': ui,
+          '@/components/ui/switch': ui, '@/components/ui/tabs': ui, '@/components/FeatureCameraManager': ui, './api': faceApi,
+          './useRecognitionConfig': { useRecognitionConfig: () => state },
+        })
+        // saveAiVisionFeatureConfig 先发出事件，再由普通管理器调用 onConfigCopied。
+        deferList = slowList
+        events.dispatchEvent(new Event('aivision:cameras-changed'))
+        if (!slowList) state = await harness.flush()
+        const callback = elements(RecognitionConfigView(), (node) => Boolean(node.props?.onConfigCopied))[0].props.onConfigCopied
+        const pending = callback('camera_2')
+        state = await harness.flush()
+        assert.equal(state.cameraKey, 'camera_2')
+        assert.equal(state.canSave, false)
+        releaseConfig()
+        await pending
+        state = await harness.flush()
+        assert.equal(state.form.threshold, '0.77')
+        if (slowList) { releaseList(); state = await harness.flush() }
+        assert.equal(state.cameraKey, 'camera_2')
+        assert.equal(state.canSave, true)
+        assert.equal(state.form.detectionThreshold, '0.62')
+        assert.equal(state.form.roi, JSON.stringify(copied.roi_pos))
+        assert.equal(reads.filter((key) => key === 'camera_2').length, 1)
+        assert.equal(pool[1].functions.recognize_face, targetEnabled)
+        assert.equal(elements(RecognitionConfigView(), (node) => node.props?.value === 'camera_2').length > 0, true)
+      } finally {
+        harness.dispose(); globalThis.window = previousWindow
+      }
+    }
+  }
+})
+
 test('摄像头管理显示停用状态、禁止加入，并在复制时保留目标 Feature 开关', async () => {
   for (const targetEnabled of [false, true]) {
     const harness = hookHarness()
-    const saves = [], reads = [], adds = []
+    const saves = [], reads = [], adds = [], copied = []
     const pool = [camera(1), camera(2, true, targetEnabled), camera(3, false, false), camera(4, false, true)]
     const { FeatureCameraManager } = await compile('src/components/FeatureCameraManager.tsx', {
       ...sharedUi, react: harness.hooks,
@@ -341,7 +403,8 @@ test('摄像头管理显示停用状态、禁止加入，并在复制时保留�
     })
     try {
       let tree = await harness.mount(() => FeatureCameraManager({ cameras: pool, feature: 'recognize_face', department: 'electronics_electrician',
-        currentCameraName: 'camera_1', disabled: false, onSelectCamera() {}, onAddCamera: async (key) => adds.push(key), onRemoveCamera: async () => {} }))
+        currentCameraName: 'camera_1', disabled: false, onSelectCamera() {}, onAddCamera: async (key) => adds.push(key), onRemoveCamera: async () => {},
+        onConfigCopied: async (key) => copied.push(key) }))
       let selects = elements(tree, (node) => Boolean(node.props?.onValueChange))
       selects[0].props.onValueChange('camera_3'); tree = await harness.flush()
       const join = elements(tree, (node) => node.props?.onClick && elements(node.props.children, () => false).length === 0
@@ -360,6 +423,7 @@ test('摄像头管理显示停用状态、禁止加入，并在复制时保留�
       assert.deepEqual(reads, ['camera_1', 'camera_2'])
       assert.equal(saves[0][2].enable, targetEnabled)
       assert.equal(saves[0][2].value.detection_threshold, .38)
+      assert.deepEqual(copied, ['camera_2'])
     } finally { harness.dispose() }
   }
 })

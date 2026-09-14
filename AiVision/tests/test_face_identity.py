@@ -1,10 +1,12 @@
 """以虚构人员、内存照片、SQLite 和 Mock 验证整条身份识别链路。"""
-from datetime import datetime
+from datetime import datetime, timedelta
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import queue
 import sys
 import time
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -19,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from AiVision.core import db
+from AiVision.core.media_cleanup import MediaCleaner
 from AiVision.core.settings import settings
 from AiVision.features.recognize_face import SPEC, records
 from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
@@ -64,6 +67,13 @@ def library(monkeypatch, tmp_path):
 
     yield SimpleNamespace(service=service.FaceLibraryService(), factory=factory, statements=statements)
     engine.dispose()
+
+
+@pytest.fixture
+def recorder(library):
+    instance = records.RecognitionRecorder()
+    yield instance
+    instance.stop()
 
 
 def add_person(library, person_id=1, source="one", active=True, pic_uri="/pic?token=fake", server="image-server"):
@@ -280,9 +290,8 @@ def test_index_refresh_failure_is_not_retried_every_frame(monkeypatch):
     worker.index.refresh.assert_called_once()
 
 
-def test_recorder_cools_known_people_and_preserves_every_unknown_in_one_frame(library, monkeypatch):
+def test_recorder_cools_known_people_and_preserves_every_unknown_in_one_frame(library, monkeypatch, recorder):
     add_person(library)
-    recorder = records.RecognitionRecorder()
     clock = [100.0]
     monkeypatch.setattr(records.time, "monotonic", lambda: clock[0])
     frame = np.zeros((120, 200, 3), dtype=np.uint8)
@@ -296,6 +305,7 @@ def test_recorder_cools_known_people_and_preserves_every_unknown_in_one_frame(li
     assert recorder.record(2, [known], 30, frame=frame) == 1
     clock[0] = 130
     assert recorder.record(1, [known, unknown], 30, frame=frame) == 2
+    recorder.stop()
     with library.factory() as session:
         assert session.query(FaceRecognitionRecord).count() == 6
         first_frame = session.query(FaceRecognitionRecord).order_by(FaceRecognitionRecord.id).limit(3).all()
@@ -309,17 +319,142 @@ def test_recorder_cools_known_people_and_preserves_every_unknown_in_one_frame(li
     assert all(key[0] != 1 for key in recorder._recorded_at)
 
 
-def test_record_failure_is_bounded_and_can_retry(library, monkeypatch):
-    recorder = records.RecognitionRecorder()
+def test_record_failure_is_bounded_and_can_retry(library, monkeypatch, recorder):
     scope = Mock(side_effect=RuntimeError("offline"))
     monkeypatch.setattr(records, "session_scope", scope)
+    clock = [100.0]
+    monkeypatch.setattr(records.time, "monotonic", lambda: clock[0])
+    detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
+    frame = np.zeros((20, 20, 3), dtype=np.uint8)
+    assert recorder.record(1, [detection], 30, frame=frame) == 1
+    recorder.start()
+    recorder._queue.join()
     for _ in range(5):
-        assert recorder.record(1, [{"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}], 30,
-                               frame=np.zeros((20, 20, 3), dtype=np.uint8)) == 0
+        assert recorder.record(1, [detection], 30, frame=frame) == 0
     scope.assert_called_once()
     assert recorder._recorded_at == {}
     assert recorder._unknown_recorded_at == {}
     assert list(Path(settings.storage.data_path).rglob("*.png")) == []
+    monkeypatch.setattr(records, "session_scope", db.session_scope)
+    clock[0] += records.RECORD_RETRY_SECONDS
+    assert recorder.record(1, [detection], 30, frame=frame) == 1
+    recorder.stop()
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 1
+
+
+def test_record_only_enqueues_frozen_frame_and_metadata(library, monkeypatch, recorder):
+    caller = threading.get_ident()
+    writer_threads = []
+    original_write = cv2.imwrite
+
+    def write(path, frame):
+        writer_threads.append(threading.get_ident())
+        return original_write(path, frame)
+
+    imwrite = Mock(side_effect=write)
+    scope = Mock(wraps=db.session_scope)
+    monkeypatch.setattr(records.cv2, "imwrite", imwrite)
+    monkeypatch.setattr(records, "session_scope", scope)
+    frame = np.full((12, 16, 3), 42, np.uint8)
+    detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
+    assert recorder.record(1, [detection, detection], 30, frame=frame) == 2
+    imwrite.assert_not_called()
+    scope.assert_not_called()
+    assert library.statements == []
+    frame[:] = 255
+    detection["person_name"] = "已修改"
+    recorder.stop()
+    imwrite.assert_called_once()
+    scope.assert_called_once()
+    assert writer_threads[0] != caller
+    with library.factory() as session:
+        rows = session.query(FaceRecognitionRecord).all()
+        assert len(rows) == 2 and len({row.image_path for row in rows}) == 1
+        assert all(row.person_name == "未知人员" for row in rows)
+        assert np.all(cv2.imread(rows[0].image_path) == 42)
+
+
+def test_slow_writer_and_full_queue_never_block_consumer_and_stop_drains(library, monkeypatch, recorder):
+    recorder._queue = queue.Queue(maxsize=1)
+    entered, release = threading.Event(), threading.Event()
+    original_write = cv2.imwrite
+    warnings = []
+
+    def slow_write(path, frame):
+        entered.set()
+        assert release.wait(3)
+        return original_write(path, frame)
+
+    monkeypatch.setattr(records.cv2, "imwrite", slow_write)
+    monkeypatch.setattr(records.logger, "warning", warnings.append)
+    detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
+    frame = np.zeros((10, 10, 3), np.uint8)
+    stopper = threading.Thread(target=recorder.stop)
+    recorder.start()
+    worker = recorder._thread
+    recorder.start()
+    assert recorder._thread is worker
+    try:
+        assert recorder.record(1, [detection], 30, frame=frame) == 1
+        assert entered.wait(3)
+        assert recorder.record(2, [detection], 30, frame=frame) == 1
+        assert recorder.record(3, [detection], 30, frame=frame) == 0
+        assert 3 not in recorder._unknown_recorded_at
+        assert any("队列已满" in message for message in warnings)
+        assert not release.is_set()
+        stopper.start()
+        stopper.join(.05)
+        assert stopper.is_alive()
+        assert recorder.record(4, [detection], 30, frame=frame) == 0
+    finally:
+        release.set()
+        if stopper.ident is not None:
+            stopper.join(3)
+    assert not stopper.is_alive() and not worker.is_alive()
+    assert recorder._thread is None and recorder._queue.unfinished_tasks == 0
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 2
+
+
+def test_failed_commit_rolls_back_and_removes_snapshot(library, monkeypatch, recorder):
+    session = library.factory()
+    rollback = Mock(wraps=session.rollback)
+    monkeypatch.setattr(session, "rollback", rollback)
+
+    def fail_commit():
+        session.flush()
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(session, "commit", fail_commit)
+    monkeypatch.setattr(db, "get_session", lambda: session)
+    detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
+    assert recorder.record(1, [detection, detection], 30, frame=np.zeros((10, 10, 3), np.uint8)) == 2
+    recorder.stop()
+    rollback.assert_called_once()
+    assert not list(Path(settings.storage.data_path).rglob("*.png"))
+    assert recorder._queue.unfinished_tasks == 0
+    with library.factory() as check:
+        assert check.query(FaceRecognitionRecord).count() == 0
+
+
+def test_consumer_owns_record_worker_lifecycle(library, monkeypatch):
+    from AiVision.features._base.consumer import BaseFunctionConsumer
+
+    consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
+    calls = []
+    consumer.recorder = Mock()
+    consumer.recorder.start.side_effect = lambda: calls.append("writer start")
+    consumer.recorder.stop.side_effect = lambda: calls.append("writer stop")
+    monkeypatch.setattr(BaseFunctionConsumer, "start", lambda _self: calls.append("consumer start"))
+    monkeypatch.setattr(BaseFunctionConsumer, "stop", lambda _self: calls.append("consumer stop"))
+    consumer.start()
+    consumer.stop()
+    assert calls == ["writer start", "consumer start", "consumer stop", "writer stop"]
+    monkeypatch.setattr(BaseFunctionConsumer, "start", Mock(side_effect=RuntimeError("config unavailable")))
+    with pytest.raises(RuntimeError):
+        consumer.start()
+    assert calls[-2:] == ["writer start", "writer stop"]
 
 
 def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment):
@@ -338,6 +473,7 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"conf": .35, "similarity_threshold": .7}
     assert "timeout" not in consumer.dispatch_inference_sync.call_args.kwargs
     annotated = consumer.post_process(7, result)
+    consumer.stop()
     assert annotated.shape == (120, 200, 3)
     assert np.any(annotated != consumer.frame_cache[7])
     with library.factory() as session:
@@ -486,13 +622,189 @@ def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(lib
     assert decoded.shape == frame.shape and np.any(decoded != frame)
 
 
-def test_screenshot_failure_never_creates_text_only_records(library, monkeypatch):
-    recorder = records.RecognitionRecorder()
+def test_screenshot_failure_never_creates_text_only_records(library, monkeypatch, recorder):
     monkeypatch.setattr(records.cv2, "imwrite", Mock(return_value=False))
     detection = {"matched": False, "person_id": None, "person_name": "未知人员", "similarity": .1}
-    assert recorder.record(1, [detection], 30, frame=np.zeros((10, 10, 3), np.uint8)) == 0
+    assert recorder.record(1, [detection], 30, frame=np.zeros((10, 10, 3), np.uint8)) == 1
+    recorder.stop()
     assert library.statements == []
     assert recorder._unknown_recorded_at == {}
+
+
+def _recognition_media(library, name, timestamp, *, people=1, write=True):
+    path = Path(settings.storage.data_path) / "recognize_face" / name
+    if write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"snapshot")
+        os.utime(path, (timestamp.timestamp(), timestamp.timestamp()))
+    with library.factory.begin() as session:
+        session.add_all([FaceRecognitionRecord(camera_id=1, person_name="未知人员", similarity=.1,
+                        image_path=str(path), recognized_at=timestamp) for _ in range(people)])
+    return path
+
+
+def _recognition_cleaner(*, retention_days=7, max_bytes=0):
+    return MediaCleaner(settings.storage.data_path, retention_days=retention_days, max_bytes=max_bytes,
+                        references=(records.RecognitionMediaReferences(),))
+
+
+def test_recognition_media_retention_removes_shared_missing_and_orphan_images(library):
+    now = datetime.now()
+    old = now - timedelta(days=8)
+    expired = _recognition_media(library, "expired/frame.png", old, people=2)
+    recent = _recognition_media(library, "recent.png", now - timedelta(days=1))
+    _recognition_media(library, "missing.png", old, write=False)
+    orphan = expired.parent / "orphan.png"
+    orphan.write_bytes(b"orphan")
+    os.utime(orphan, (old.timestamp(), old.timestamp()))
+    fresh_orphan = recent.parent / "fresh-orphan.png"
+    fresh_orphan.write_bytes(b"fresh")
+    stats = _recognition_cleaner().cleanup(now)
+    assert not expired.exists() and not orphan.exists() and not expired.parent.exists()
+    assert recent.exists() and fresh_orphan.exists()
+    assert (stats.removed_records, stats.removed_files) == (3, 2)
+    with library.factory() as session:
+        rows = session.query(FaceRecognitionRecord).all()
+        assert len(rows) == 1 and rows[0].image_path == str(recent)
+
+
+@pytest.mark.parametrize("kind", ["outside", "file_symlink", "directory_symlink", "root_symlink", "other_business"])
+def test_recognition_media_rejects_unsafe_paths_and_keeps_records(library, kind):
+    root = Path(settings.storage.data_path)
+    outside = root.parent / f"{root.name}-outside"
+    outside.mkdir()
+    image = outside / "evidence.png"
+    image.write_bytes(b"untouched")
+    directory = root / "recognize_face"
+    if kind == "root_symlink":
+        directory.symlink_to(outside, target_is_directory=True)
+        path = directory / image.name
+    else:
+        directory.mkdir()
+        if kind == "file_symlink":
+            path = directory / "link.png"
+            path.symlink_to(image)
+        elif kind == "directory_symlink":
+            link = directory / "linked"
+            link.symlink_to(outside, target_is_directory=True)
+            path = link / image.name
+        elif kind == "other_business":
+            path = root / "6" / image.name
+            path.parent.mkdir()
+            path.write_bytes(b"alarm media")
+        else:
+            path = image
+    with library.factory.begin() as session:
+        session.add(FaceRecognitionRecord(camera_id=1, person_name="未知人员", similarity=.1,
+                    image_path=str(path), recognized_at=datetime.now() - timedelta(days=8)))
+    stats = _recognition_cleaner(max_bytes=1).cleanup()
+    assert path.exists() and image.read_bytes() == b"untouched"
+    assert stats.skipped_unsafe_paths >= 1
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 1
+
+
+def test_recognition_media_quota_orders_images_and_protects_recent_frames(library):
+    now = datetime.now()
+    old = _recognition_media(library, "old.png", now - timedelta(days=2), people=3)
+    recent = _recognition_media(library, "recent.png", now - timedelta(seconds=30), people=2)
+    orphan = old.parent / "orphan.png"
+    orphan.write_bytes(b"orphan")
+    stamp = (now - timedelta(days=3)).timestamp()
+    os.utime(orphan, (stamp, stamp))
+    fresh_orphan = old.parent / "fresh.png"
+    fresh_orphan.write_bytes(b"fresh")
+    cleaner = _recognition_cleaner(max_bytes=1)
+    stats = cleaner.cleanup(now)
+    assert not old.exists() and not orphan.exists()
+    assert recent.exists() and fresh_orphan.exists()
+    assert stats.removed_records == 3 and stats.removed_files == 2
+    with library.factory() as session:
+        rows = session.query(FaceRecognitionRecord).all()
+        assert len(rows) == 2 and all(Path(row.image_path).exists() for row in rows)
+
+
+def test_recognition_shared_image_uses_newest_reference_for_retention_and_grace(library):
+    now = datetime.now()
+    image = _recognition_media(library, "shared.png", now - timedelta(days=8))
+    _recognition_media(library, "shared.png", now - timedelta(seconds=30), write=False)
+    stats = _recognition_cleaner(max_bytes=1).cleanup(now)
+    assert stats.removed_records == 0 and image.exists()
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 2
+
+
+@pytest.mark.parametrize("oldest", ["face", "alarm"])
+def test_alarm_and_recognition_media_share_one_capacity_and_database_ownership(library, oldest):
+    from AiVision.platform.violation.cleanup import ViolationMediaCleaner
+    from AiVision.platform.violation.orm import AiAlarmEvent
+
+    AiAlarmEvent.__table__.create(library.factory.kw["bind"])
+    now = datetime.now()
+    face_image = _recognition_media(library, "older.png", now - timedelta(days=2 if oldest == "face" else 1), people=2)
+    alarm_image = Path(settings.storage.data_path) / "6" / "alarm.png"
+    alarm_image.parent.mkdir()
+    alarm_image.write_bytes(b"snapshot")
+    with library.factory.begin() as session:
+        session.add(AiAlarmEvent(id=1, image_path=str(alarm_image), create_time=now - timedelta(days=1 if oldest == "face" else 2),
+                    violation_type=6, feature_name="detect_logistics_single_person", department="general_electric",
+                    camera_no="camera_1", subject_type="camera", subject_id="1", subject_name="测试摄像头"))
+    cleaner = ViolationMediaCleaner(settings.storage.data_path, retention_days=7, max_bytes=10,
+                                    session_scope_factory=db.session_scope)
+    cleaner.set_additional_references((records.RecognitionMediaReferences(),))
+    stats = cleaner.cleanup(now)
+    assert face_image.exists() == (oldest == "alarm")
+    assert alarm_image.exists() == (oldest == "face")
+    assert stats.removed_files == 1 and stats.removed_records == (2 if oldest == "face" else 1)
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == (0 if oldest == "face" else 2)
+        assert session.query(AiAlarmEvent).count() == (1 if oldest == "face" else 0)
+
+
+def test_media_cleanup_lock_and_file_failure_preserve_references(library, monkeypatch):
+    now = datetime.now()
+    image = _recognition_media(library, "old.png", now - timedelta(days=8))
+    cleaner = _recognition_cleaner()
+    with cleaner._lock:
+        assert cleaner.cleanup(now).removed_records == 0
+    original_unlink = Path.unlink
+
+    def fail_image(path, *args, **kwargs):
+        if path == image:
+            raise PermissionError("file busy")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_image)
+    stats = cleaner.cleanup(now)
+    assert stats.failed_files == 1 and image.exists()
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 1
+
+
+def test_recognition_cleanup_failed_transaction_retries_missing_file_reference(library):
+    now = datetime.now()
+    image = _recognition_media(library, "old.png", now - timedelta(days=8), people=2)
+    fail = [True]
+
+    @contextmanager
+    def scope():
+        previous = len(library.statements)
+        with db.session_scope() as session:
+            yield session
+            if fail[0] and any(statement.startswith("DELETE") for statement in library.statements[previous:]):
+                fail[0] = False
+                raise RuntimeError("commit failed")
+
+    cleaner = MediaCleaner(settings.storage.data_path, retention_days=7, max_bytes=0,
+                           references=(records.RecognitionMediaReferences(scope),))
+    stats = cleaner.cleanup(now)
+    assert not image.exists() and stats.removed_records == 0
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 2
+    stats = cleaner.cleanup(now)
+    assert stats.removed_records == 2
+    with library.factory() as session:
+        assert session.query(FaceRecognitionRecord).count() == 0
 
 
 @pytest.fixture

@@ -24,8 +24,9 @@ import pytz
 
 from AiVision.core.db import session_scope
 from AiVision.core.logger import logger
+from AiVision.core.media_cleanup import GIB, MediaCleanupStats, MediaReferences
 from AiVision.core.settings import settings
-from .cleanup import GIB, MediaCleanupStats, ViolationMediaCleaner
+from .cleanup import ViolationMediaCleaner
 from .orm import AiAlarmEvent
 from .validation import validate_alarm_identity
 
@@ -68,6 +69,10 @@ class AsyncViolationWriter:
         )
 
     # ---------- 公开接口 ----------
+    def configure_media_cleanup(self, *references: MediaReferences) -> None:
+        """在平台启动时接入业务引用，共用现有 scheduler、保留策略和总容量。"""
+        self._media_cleaner.set_additional_references(references)
+
     def enqueue(
         self,
         frame: np.ndarray,
@@ -245,7 +250,7 @@ class AsyncViolationWriter:
         # scheduler开始工作
         self._scheduler.start()
         logger.info(
-            "[ViolationWriter] 已启动 + 报警图片清理任务已注册 "
+            "[ViolationWriter] 已启动 + 平台媒体清理任务已注册 "
             f"retention_days={self._retention_days} "
             f"max_gb={self._max_media_bytes / GIB:.2f} "
             f"interval_minutes={self._cleanup_interval_minutes}"
@@ -391,7 +396,7 @@ class AsyncViolationWriter:
             )
 
     def _delete_old(self, now: datetime.datetime | None = None) -> MediaCleanupStats:
-        """清理过期图片和超出容量上限的最旧图片，并同步删除数据库记录。"""
+        """统一清理报警媒体与已接入的业务媒体，数据库引用仍由各业务处理。"""
         return self._media_cleaner.cleanup(now=now)
 
 
