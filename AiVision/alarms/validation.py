@@ -1,5 +1,5 @@
 """新告警正式字段的写入校验；只校验调用方给出的值，不推导缺失字段。"""
-from AiVision.platform.department.department_registry import require_department
+from AiVision.departments.department_registry import require_department
 from .types import VIOLATION_TYPE_META
 
 

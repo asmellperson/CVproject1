@@ -38,7 +38,7 @@ def get_inference_runtime_manager():
 
 def get_department_service():
     """获取部门管理服务"""
-    from AiVision.platform.department.service import department_service
+    from AiVision.departments.service import department_service
     return department_service
 
 def get_logistics_channel_service():

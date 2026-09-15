@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 
 from auth.auth import get_current_user
 from AiVision.api.deps import get_department_service
-from AiVision.platform.department.service import DepartmentService
+from AiVision.departments.service import DepartmentService
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 

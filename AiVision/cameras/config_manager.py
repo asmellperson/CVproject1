@@ -34,7 +34,7 @@ from AiVision.core.events import config_event_bus, ConfigChangeEvent      # conf
 from AiVision.core.cache import config_cache         # 摄像头配置改完后刷新内存缓存
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
-from AiVision.platform.department.department_registry import require_department
+from AiVision.departments.department_registry import require_department
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURE_NAME
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 

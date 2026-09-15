@@ -355,6 +355,7 @@ AiVision/
 ├── platform/orchestrator.py     # 总编排器
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
 ├── inference/                   # 模型 worker、队列、推理管理
+├── departments/                 # 固定事业部定义、只读查询及相关业务约束
 ├── alarms/                      # 告警相关能力的归属目录
 │   ├── dispatcher.py           # 告警分发、冷却及通道协调
 │   ├── devices/                # 设备配置、绑定、运行管理及通信
@@ -365,6 +366,39 @@ AiVision/
 │   └── validation.py           # 类型、功能与事业部一致性校验
 └── features/                    # 所有检测功能模块
 ```
+
+事业部模块统一从 `AiVision.departments` 导入，原目录的三个源码文件完整迁移，公开对象和接口保持不变：
+
+```text
+AiVision/departments/
+├── __init__.py                  # 职责说明及原有三个注册表对象导出
+├── department_registry.py       # DepartmentSpec、固定注册表及 require_department
+└── service.py                   # DepartmentService、department_service，只读查询
+```
+
+[事业部包说明](AiVision/departments/__init__.py) 明确区分固定定义与功能归属：六个事业部的标识、名称和顺序仍由唯一的 `DEPARTMENT_SPECS` 定义，功能支持范围仍由各自的 `FeatureSpec.departments` 声明。包入口保留 `DEPARTMENT_SPECS`、`DepartmentSpec`、`require_department` 的既有公开导出，不增加查询服务或 Feature 的集中导入，也不创建数据库连接、发送请求或启动任务。
+
+事业部 API、延迟依赖注入、摄像头配置、Feature 注册、告警身份校验、认证用户存储、现有人员逗留离线脚本和测试引用均已更新。`get_department_service()` 仍在调用时导入服务；告警身份校验仍在执行校验时导入 Feature 注册表。查询服务与各调用方共享同一份事业部定义，没有复制注册表。人员逗留继续支持通用电气和皓达，物流成员约束、登录用户的事业部授权、管理权限及告警证据访问规则保持原状。
+
+本模块没有依赖 `__file__`、目录深度或包资源的路径计算，无需调整资源位置，不涉及配置或数据库迁移。旧事业部目录及生成的字节码已清理，`platform/` 中其他模块保留；没有兼容转发、旧路径别名或双路径支持。`guard_room` 和 `security_vlm` 文件本轮未改动，工作区原有修改已保留。
+
+事业部迁移的专项与独立导入验证命令如下，在下方 29 文件回归相同的隔离环境变量下执行：
+
+```bash
+python -m pytest -q -ra \
+  AiVision/tests/test_{department_registry,department_api,feature_department_enable,human_departments}.py \
+  AiVision/tests/test_{logistics_channel_departments,logistics_channel_service,alarm_api,alarm_access_batch,alarm_identity}.py \
+  unified_backend/tests/test_{user_store,admin_users_api,human_alarm_permissions,logistics_channel_alarms}.py
+python -m pytest -q -ra AiVision/tests/test_department_package.py
+python -m pytest -q -ra \
+  AiVision/tests/test_{camera_package,inference_package,alarm_package,alarm_device_package,alarm_records_package,alarm_record_evidence}.py
+```
+
+迁移前后同组 13 文件专项均为 **305 项通过、0 失败、0 跳过**。新增 **14 项独立导入测试通过**，从事业部、认证、Feature、摄像头、告警、API 和调度器入口检查共享定义、延迟导入、功能归属及无外部调用。六个事业部的完整定义与顺序、七个功能的归属、用户角色与可选事业部、查询服务结果、相关 OpenAPI 和 16 张已注册表的结构快照在迁移前后相同。源码 AST 排除导入路径与说明后不变，注册表文件逐字不变。
+
+事业部迁移后，既有六文件包迁移验证为 **54 项通过、0 失败、0 跳过**，包括摄像头与推理的隔离 spawn，以及告警记录与录像状态回写；下方原有 29 文件回归为 **767 项通过、0 失败、10 项跳过**。回归用例及跳过原因与上一轮一致：检测配置 4 项、人员逗留迁移 1 项、物流迁移 5 项均缺少隔离 MySQL，没有新增 skip/xfail。
+
+这些测试直接验证最终工作目录，保留原有工作区修改，没有使用隔离源码副本。仅使用临时 SQLite、临时媒体和模拟外部服务；实际执行时复用 `/tmp/alarm_records_test_guard.py` 的 pytest 网络拦截，禁止 TCP 外连，保留隔离多进程所需的本机 Unix socket。真实 MySQL、现场摄像头/设备、GPU 模型推理、企业微信发送及生产权限数据未验证；本次不操作生产数据或重启服务。
 
 摄像头模块统一从 `AiVision.cameras` 导入，文件职责见 [cameras 包说明](AiVision/cameras/__init__.py)。目录包含 `config_manager.py`、`orm.py`、`probe.py`、`runtime.py`、`runtime_manager.py`、`frame_reader.py` 和 `__init__.py`；类名、方法、数据库表和摄像头 API 保持不变，没有旧包转发或双路径支持。
 

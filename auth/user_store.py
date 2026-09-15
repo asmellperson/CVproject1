@@ -12,7 +12,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from AiVision.platform.department.department_registry import DEPARTMENT_SPECS
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 # 两级角色权限
 ALLOWED_ROLES = {"admin", "viewer"}

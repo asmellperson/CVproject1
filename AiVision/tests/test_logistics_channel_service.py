@@ -2435,7 +2435,7 @@ def test_camera_api_rejects_unregistered_department_without_writes(service_db, d
 
 
 def test_camera_create_and_update_can_select_every_registered_department(service_db):
-    from AiVision.platform.department.department_registry import DEPARTMENT_SPECS
+    from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
     manager = service_db.camera_config_manager
     for index, department in enumerate(DEPARTMENT_SPECS):

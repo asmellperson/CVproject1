@@ -275,7 +275,7 @@ def preflight(connection):
 
 def check_auth_database(path: Path | None):
     """现有认证库只读预检；不初始化、不猜测旧权限列、不修改账号。"""
-    from AiVision.platform.department.department_registry import DEPARTMENT_SPECS
+    from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
     if path is None or not Path(path).is_absolute() or not Path(path).is_file():
         raise ValueError("必须显式提供已确认的现有认证 SQLite 数据库绝对路径")

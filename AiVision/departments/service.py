@@ -1,4 +1,4 @@
-"""platform/department/service.py
+"""departments/service.py
 部门管理服务。
 
 函数：

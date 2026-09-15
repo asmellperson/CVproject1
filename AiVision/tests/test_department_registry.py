@@ -8,8 +8,8 @@ from sqlalchemy import create_engine, inspect, text
 
 from AiVision.core import db
 import AiVision.features as features
-from AiVision.platform.department.department_registry import DEPARTMENT_SPECS, require_department
-from AiVision.platform.department.service import DepartmentService
+from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from AiVision.departments.service import DepartmentService
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from auth.user_store import ALLOWED_VIEWER_DEPARTMENTS, UserStore, UserValidationError
 
@@ -33,7 +33,7 @@ def test_registry_can_be_imported_without_loading_features_or_database():
     environment = {key: value for key, value in os.environ.items() if not key.startswith("MYSQL_")}
     subprocess.run([
         sys.executable, "-B", "-c",
-        "import sys; from AiVision.platform.department import DEPARTMENT_SPECS; "
+        "import sys; from AiVision.departments import DEPARTMENT_SPECS; "
         "assert DEPARTMENT_SPECS; assert 'AiVision.features' not in sys.modules; "
         "assert 'AiVision.core.db' not in sys.modules",
     ], env=environment, check=True)

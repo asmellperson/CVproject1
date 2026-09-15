@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from AiVision.features._base.spec import FeatureSpec
-from AiVision.platform.department.department_registry import require_department
+from AiVision.departments.department_registry import require_department
 
 _REGISTRY: dict[str, FeatureSpec] = {}
 

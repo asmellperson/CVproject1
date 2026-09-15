@@ -3,7 +3,7 @@ AiVision runtime platform package.
 
 本项目历史上使用了顶层包名 ``platform``，与 Python 标准库同名。为避免第三方库
 ``import platform`` 被误伤，这里代理标准库 platform.py 的公开属性，同时作为本项目
-``platform.department``、``platform.face_library`` 等子包的承载包。
+``platform.face_library`` 等子包的承载包。
 """
 from __future__ import annotations
 
