@@ -22,11 +22,11 @@ from AiVision.core.events import ConfigChangeEvent, config_event_bus
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
 from AiVision.platform.alarm_device.binding import validate_horn_binding
-from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.camera.config_manager import (
+from AiVision.cameras.orm import AiCameraConfig
+from AiVision.cameras.config_manager import (
     _camera_integrity_value_error,
     camera_config_manager,
-)                                                     # 摄像头仍然属于platform/camera/
+)                                                     # 摄像头配置与采集由 cameras/ 管理
 
 from .constants import (
     MAX_CAMERAS_PER_CHANNEL,

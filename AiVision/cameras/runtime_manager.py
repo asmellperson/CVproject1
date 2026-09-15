@@ -1,5 +1,5 @@
 """
-platform/camera/runtime_manager.py
+cameras/runtime_manager.py
 多台摄像头怎么统一管理
 
 职责:

@@ -410,7 +410,7 @@ def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_defaul
 
 def test_camera_department_reaches_alarm_without_changing_feature_scope(monkeypatch):
     from AiVision.core.cache import ConfigCache
-    from AiVision.platform.camera.orm import AiCameraConfig
+    from AiVision.cameras.orm import AiCameraConfig
 
     cache = ConfigCache()
     camera = AiCameraConfig(id=7, name="camera", shm_name="camera_7", enable=True, department="research_institute")

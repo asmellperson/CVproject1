@@ -1,5 +1,5 @@
 """
-platform/camera/runtime.py
+cameras/runtime.py
 一台摄像头怎么真正的拉流
 职责：
     __init__:ffprobe获取H/W

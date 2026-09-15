@@ -24,7 +24,7 @@ from AiVision.features.detect_logistics_single_person.schema import (
     LogisticsChannelConfigResponse, LogisticsChannelCreate,
 )
 from AiVision.platform.alarm_device.orm import AiHornConfig
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 
 
 REVISION = "logistics_feature_20260914"

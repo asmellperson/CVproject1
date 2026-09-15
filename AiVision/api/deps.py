@@ -23,7 +23,7 @@ def get_current_orchestrator():
 # ---------------获取各种配置服务------------------------------
 def get_camera_config_manager():
     """获取摄像头配置服务"""
-    from AiVision.platform.camera.config_manager import camera_config_manager
+    from AiVision.cameras.config_manager import camera_config_manager
     return camera_config_manager
 
 def get_feature_config_manager():

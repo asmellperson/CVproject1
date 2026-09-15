@@ -23,7 +23,7 @@ from AiVision.tests.test_logistics_single_person import build_consumer, RuntimeS
 @pytest.mark.parametrize('entry', [
     'AiVision.features', 'AiVision.features.detect_logistics_single_person.service',
     'AiVision.features.detect_logistics_single_person.runtime',
-    'AiVision.platform.camera.config_manager', 'AiVision.platform.orchestrator',
+    'AiVision.cameras.config_manager', 'AiVision.platform.orchestrator',
 ])
 def test_fresh_process_imports_register_all_features_once(entry):
     script = f'''import importlib, sys

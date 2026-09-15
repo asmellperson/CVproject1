@@ -33,9 +33,9 @@ import pytest
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _probe_module():
     try:
-        return importlib.import_module("AiVision.platform.camera.probe")
+        return importlib.import_module("AiVision.cameras.probe")
     except ModuleNotFoundError:
-        pytest.fail("AiVision.platform.camera.probe API is missing")
+        pytest.fail("AiVision.cameras.probe API is missing")
 
 
 # 功能：验证 `test_probe_video_shape_returns_bgr_shape` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -238,7 +238,7 @@ def test_probe_video_shape_rejects_invalid_output(monkeypatch, stdout):
 #   - 内部调用：`importlib.import_module`、`_probe_module`、`monkeypatch.setattr`、`runtime_module.CameraRuntime`、`SimpleNamespace`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
-    runtime_module = importlib.import_module("AiVision.platform.camera.runtime")
+    runtime_module = importlib.import_module("AiVision.cameras.runtime")
     probe = _probe_module()
 
     # 功能：实现 `fail_probe` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -303,7 +303,7 @@ def test_camera_runtime_probe_failure_does_not_call_opencv(monkeypatch):
 #   - 内部调用：`importlib.import_module`、`object.__new__`、`threading.Lock`、`SimpleNamespace`、`monkeypatch.setattr`、`start_calls.append`、`alert_calls.append`、`manager._retry_missing_enabled`、`len`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_camera_retry_logs_without_sending_a_separate_alert(monkeypatch):
-    manager_module = importlib.import_module("AiVision.platform.camera.runtime_manager")
+    manager_module = importlib.import_module("AiVision.cameras.runtime_manager")
     manager = object.__new__(manager_module.CameraRuntimeManager)
     manager._lock = threading.Lock()
     manager._shared_configs = {
@@ -338,7 +338,7 @@ def test_camera_retry_logs_without_sending_a_separate_alert(monkeypatch):
 
 @pytest.fixture
 def camera_runtime_factory(monkeypatch):
-    module = importlib.import_module("AiVision.platform.camera.runtime")
+    module = importlib.import_module("AiVision.cameras.runtime")
     monkeypatch.setattr(module, "probe_video_shape", lambda url: (8, 8, 3))
     monkeypatch.setitem(sys.modules, "setproctitle", SimpleNamespace(setproctitle=lambda title: None))
 
@@ -631,7 +631,7 @@ def test_runtime_event_delivery_failures_are_logged_nonblocking(camera_runtime_f
 
 @pytest.fixture
 def frame_registry(monkeypatch):
-    module = importlib.import_module("AiVision.platform.camera.frame_reader")
+    module = importlib.import_module("AiVision.cameras.frame_reader")
     attachments = []
 
     def attach(name):
@@ -735,7 +735,7 @@ def test_frame_register_reports_thread_start_failure(frame_registry, monkeypatch
 
 @pytest.fixture
 def runtime_manager(monkeypatch):
-    module = importlib.import_module("AiVision.platform.camera.runtime_manager")
+    module = importlib.import_module("AiVision.cameras.runtime_manager")
     mp_manager = SimpleNamespace(dict=dict, Value=lambda kind, value: SimpleNamespace(value=value), Queue=queue.Queue)
     manager = module.CameraRuntimeManager(mp_manager)
     manager.initialize_configs([dict(name="camera", shm_name="camera", url="rtsp://camera", enable=True, fps=5)])

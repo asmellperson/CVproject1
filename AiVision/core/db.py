@@ -122,7 +122,7 @@ def ensure_schema_ready():
     from AiVision.features import all_specs
     from AiVision.core import system_config as _system_config_orm  # noqa: F401
     from AiVision.platform.alarm_device import orm as _alarm_device_orm  # noqa: F401
-    from AiVision.platform.camera import orm as _camera_orm  # noqa: F401
+    from AiVision.cameras import orm as _camera_orm  # noqa: F401
     from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
     from AiVision.platform.violation import orm as _violation_orm  # noqa: F401
     from AiVision.core.schema import assert_table_matches

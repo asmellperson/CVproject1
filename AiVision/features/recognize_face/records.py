@@ -207,7 +207,7 @@ class RecognitionMediaReferences:
 
 
 def get_recognition_image(record_id: int) -> Path | None:
-    from AiVision.platform.camera.orm import AiCameraConfig
+    from AiVision.cameras.orm import AiCameraConfig
 
     with get_session() as session:
         image_path = session.scalar(select(FaceRecognitionRecord.image_path).join(
@@ -224,7 +224,7 @@ def get_recognition_image(record_id: int) -> Path | None:
 
 
 def list_recognition_records(camera_id: int | None, page: int, page_size: int) -> RecognitionRecordPage:
-    from AiVision.platform.camera.orm import AiCameraConfig
+    from AiVision.cameras.orm import AiCameraConfig
 
     filters = [AiCameraConfig.department == "electronics_electrician"]
     if camera_id is not None:

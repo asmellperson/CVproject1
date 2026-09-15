@@ -21,7 +21,7 @@ from AiVision.api.deps import get_camera_config_manager, get_current_orchestrato
 from AiVision.features import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.config_manager import feature_config_manager    # 普通检测功能配置管理函数
-from AiVision.platform.camera.config_manager import camera_config_manager           # 摄像头配置服务
+from AiVision.cameras.config_manager import camera_config_manager           # 摄像头配置服务
 
 class FeatureMetaResponse(BaseModel):
     """单个检测功能和前端交互的字段"""
@@ -80,7 +80,7 @@ def create_features_router(
     """一次性创建整套/api/features API,并把所有检测功能都挂在这一套路由下面"""
     # 没有传camera_config_manager,就使用系统默认的全局实例
     if camera_config_manager is None:
-        from AiVision.platform.camera.config_manager import camera_config_manager as default_camera_config_manager
+        from AiVision.cameras.config_manager import camera_config_manager as default_camera_config_manager
         camera_config_manager = default_camera_config_manager
 
     router = APIRouter(prefix="/api/features", tags=["features"])

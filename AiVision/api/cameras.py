@@ -16,7 +16,7 @@ from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-from AiVision.platform.camera.config_manager import camera_access_departments
+from AiVision.cameras.config_manager import camera_access_departments
 
 # 摄像头API路由基础定义
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])

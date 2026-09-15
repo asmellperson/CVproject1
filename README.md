@@ -354,12 +354,24 @@ AiVision/
 ├── core/events.py               # 配置变更事件总线
 ├── core/alarm/                  # 告警分发、喇叭、企业微信
 ├── platform/orchestrator.py     # 总编排器
-├── platform/camera/             # 摄像头进程、帧读取、摄像头配置服务
+├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
 ├── platform/inference/          # 模型 worker、队列、推理管理
 ├── platform/violation/          # 违规图片与事件写入
 ├── platform/alarm_device/       # 声光报警设备
 └── features/                    # 所有检测功能模块
 ```
+
+摄像头模块统一从 `AiVision.cameras` 导入，文件职责见 [cameras 包说明](AiVision/cameras/__init__.py)。目录包含 `config_manager.py`、`orm.py`、`probe.py`、`runtime.py`、`runtime_manager.py`、`frame_reader.py` 和 `__init__.py`；类名、方法、数据库表和摄像头 API 保持不变，没有旧包转发或双路径支持。
+
+摄像头包不按自身目录计算配置、模型或运行数据路径；这些位置仍由原有 `AiVision.core.settings`、模型配置及环境变量决定。目录调整不需要数据迁移，也不改变启动命令。可运行 `python -m pytest AiVision/tests/test_camera_package.py -q` 检查独立导入和 spawn：测试在临时目录使用模拟 ffprobe/ffmpeg，实际启动新包的摄像头采集入口，验证共享内存帧发布、读取及退出清理，不连接真实摄像头。
+
+本次目录迁移的相关回归结果为 742 项通过、10 项跳过、21 项失败；新增的 5 项包导入和 spawn 测试全部通过。21 项失败均在迁移前源码的独立临时副本中复现，本次只更新其必要导入，不修改这些既有预期：
+
+- [喇叭绑定测试](AiVision/tests/test_horn_binding.py)：14 项在未明确摄像头事业部时启用人员检测，触发现行权限前置校验，尚未进入预期的喇叭绑定断言。
+- [物流摄像头服务测试](AiVision/tests/test_logistics_channel_service.py)：2 项仍预期人员检测可推断事业部，或创建并启用摄像头时可省略事业部，与现行规则不一致。
+- [功能注册测试](AiVision/tests/test_logistics_config_contract.py)：5 项固定预期 8 个功能，迁移前后均实际注册 7 个。独立导入核验确认迁移前后的功能、16 张 ORM 表及摄像头字段定义一致。
+
+真实 RTSP 摄像头、网络断流重连、现场长时间运行及 MySQL 实测未验证；隔离 spawn 测试不能替代实机验证。
 
 ### 7.5 API 概览
 

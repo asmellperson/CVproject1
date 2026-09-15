@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError
 
 from AiVision.core.schema import assert_table_matches
 from AiVision.migrations import config_20260914 as migration
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.platform.alarm_device.orm import AiHornConfig
 
 

@@ -17,8 +17,8 @@ from sqlalchemy.pool import StaticPool
 from AiVision.core.db import Base
 from AiVision.features import all_specs
 from AiVision.platform.alarm_device.orm import AiHornConfig
-from AiVision.platform.camera.orm import AiCameraConfig
-from AiVision.platform.camera.config_manager import CameraConfigManager
+from AiVision.cameras.orm import AiCameraConfig
+from AiVision.cameras.config_manager import CameraConfigManager
 from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features.detect_logistics_single_person.constants import (
     LOGISTICS_FEATURES,
@@ -70,7 +70,7 @@ def test_logistics_package_only_registers_feature():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.fixture
 def service_db(monkeypatch):
-    import AiVision.platform.camera.config_manager as camera_config_manager_module
+    import AiVision.cameras.config_manager as camera_config_manager_module
     import AiVision.features.detect_logistics_single_person.service as channel_service_module
 
     engine = create_engine(
@@ -1053,7 +1053,7 @@ def test_membership_change_retries_with_new_discovery_and_channel_lock_set(servi
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`unified_frontend/src/components/security-vlm/SecurityCameraDialog.tsx` 的 `SecurityCameraDialog`
-    #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_run_write_transaction`
+    #         调用本符号；`AiVision/cameras/config_manager.py` 的 `CameraConfigManager::_run_write_transaction`
     #         调用本符号；`AiVision/features/detect_logistics_single_person/service.py` 的 `LogisticsChannelService::_run_write_transaction`
     #         调用本符号；`AiVision/features/detect_logistics_single_person/service.py` 的 `LogisticsChannelService::_run_membership_transaction` 调用本符号
     #   - 内部调用：`write_sessions.append`、`sorted`、`service._lock_channels`、`locked_channel_sets.append`、`tuple`、`len`、`transaction_module._MembershipLockSetChanged`、`list`。
@@ -1536,7 +1536,7 @@ def test_camera_create_inserts_default_features_without_selecting_them(service_d
 
 
 def test_camera_create_feature_unique_conflict_rolls_back_camera(service_db, monkeypatch):
-    import AiVision.platform.camera.config_manager as module
+    import AiVision.cameras.config_manager as module
 
     spec = next(iter(all_specs().values()))
     monkeypatch.setattr(module, "all_specs", lambda: {"first": spec, "duplicate": spec})
@@ -1602,7 +1602,7 @@ def test_camera_and_feature_key_precedence_agree(service_db, key, expected_id):
 
 
 def test_camera_delete_cleans_legacy_feature_rows_before_event(service_db, monkeypatch):
-    import AiVision.platform.camera.config_manager as camera_module
+    import AiVision.cameras.config_manager as camera_module
     from AiVision.core.cache import ConfigCache
     import AiVision.core.cache as cache_module
 
@@ -1858,7 +1858,7 @@ def test_write_transaction_does_not_retry_other_operational_errors(service_db, m
 #   - 内部调用：`monkeypatch.setattr`、`service_db.camera_config_manager.create_camera`、`len`、`id`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_create_retries_mysql_deadlock_with_new_session(service_db, monkeypatch):
-    import AiVision.platform.camera.config_manager as camera_config_manager_module
+    import AiVision.cameras.config_manager as camera_config_manager_module
 
     original_scope = camera_config_manager_module.session_scope
     sessions = []
@@ -1915,7 +1915,7 @@ def test_camera_config_manager_translates_commit_integrity_errors(
     message,
     expected,
 ):
-    import AiVision.platform.camera.config_manager as camera_config_manager_module
+    import AiVision.cameras.config_manager as camera_config_manager_module
 
     original_scope = camera_config_manager_module.session_scope
 
@@ -2415,7 +2415,7 @@ def test_camera_create_and_update_can_select_every_registered_department(service
 
 
 def test_camera_without_explicit_department_keeps_legacy_feature_fallback(service_db):
-    from AiVision.platform.camera.config_manager import camera_access_departments
+    from AiVision.cameras.config_manager import camera_access_departments
 
     manager = service_db.camera_config_manager
     camera = manager.create_camera_for_feature("detect_phone", {

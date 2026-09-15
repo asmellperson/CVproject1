@@ -16,7 +16,7 @@ from AiVision.features import all_specs
 from AiVision.platform.alarm_device.orm import AiHornConfig
 from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
 from AiVision.platform.alarm_device.service import HornService, HornInUseError
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
 
 

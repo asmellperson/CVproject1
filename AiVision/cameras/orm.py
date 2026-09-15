@@ -1,5 +1,5 @@
 """
-platform/camera/orm.py
+cameras/orm.py
 摄像头配置的增删改查
 
 字段与旧表 ai_camera_config 一致 — 不改表结构。

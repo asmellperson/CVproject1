@@ -91,7 +91,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
         物流通道和告警模块；把推理队列交给业务模块，并接收运行异常通知。
         RuntimeManager 负责建队列和管进程；每张图片通过队列直接送入 Worker。
 
-    platform/camera/：CameraRuntime 读取 RTSP 并写共享内存；FrameReader 读取最新帧。
+    cameras/：CameraRuntime 读取 RTSP 并写共享内存；FrameReader 读取最新帧。
         模型 Worker 不负责连接 RTSP，收到的是业务模块准备好的 frame。
 
     features/_base/spec.py 与 features/<功能>/__init__.py：

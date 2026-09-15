@@ -9,8 +9,8 @@ from sqlalchemy.exc import OperationalError
 
 from AiVision.core.db import get_session, session_scope
 from AiVision.core.logger import logger
-from AiVision.platform.camera.config_manager import _database_error_code
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.config_manager import _database_error_code
+from AiVision.cameras.orm import AiCameraConfig
 from .orm import LogisticsChannel, LogisticsChannelCamera
 
 # 数据库重试参数，1205：数据库等太久，1213：死锁

@@ -12,8 +12,8 @@ from AiVision.core.cache import ConfigCache
 from AiVision.features import all_specs, get_spec
 from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features._base.consumer import BaseFunctionConsumer
-from AiVision.platform.camera.config_manager import CameraConfigManager
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.config_manager import CameraConfigManager
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from test_horn_backend import backend
 
@@ -26,7 +26,7 @@ SINGLE_DEPARTMENT_FEATURES = [spec for spec in ORDINARY_FEATURES if len(spec.dep
 def department_api(backend, monkeypatch):
     import AiVision.core.cache as cache_module
     import AiVision.features._base.config_manager as feature_module
-    import AiVision.platform.camera.config_manager as camera_module
+    import AiVision.cameras.config_manager as camera_module
 
     cache = ConfigCache()
     observations = []

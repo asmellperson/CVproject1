@@ -16,7 +16,7 @@ from AiVision.core.cache import ConfigCache
 from AiVision.features import all_specs, get_spec
 from AiVision.features._base import config_manager
 from AiVision.features._base.alarm_schema import AlarmConfigSchema
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 
 
 @pytest.fixture

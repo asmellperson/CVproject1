@@ -1,5 +1,5 @@
 """
-platform/camera/frame_reader.py
+cameras/frame_reader.py
 其他模块如何拿到画面
 
 CameraRuntime负责把最新帧写入共享内存

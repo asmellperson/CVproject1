@@ -9,7 +9,7 @@ from sqlalchemy.orm import relationship
 
 from AiVision.core.db import Base
 from AiVision.features._base.orm import CameraFeatureConfigBase
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features._base import defaults
 from .constants import (
     DEFAULT_DETECTION_END, DEFAULT_DETECTION_START,

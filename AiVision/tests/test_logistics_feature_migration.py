@@ -6,7 +6,7 @@ from AiVision.core.schema import assert_table_matches
 from AiVision.features.detect_logistics_single_person import SPEC
 from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
 from AiVision.migrations import logistics_feature_20260914 as migration
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.platform.alarm_device.orm import AiHornConfig
 
 

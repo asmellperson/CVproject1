@@ -1,5 +1,5 @@
 """
-platform/camera/config_manager.py
+cameras/config_manager.py
 CameraConfigManager管理摄像头的配置数据，并在数据发生变化以后把变化传播到Cache和Runtime
 查询：
     list_cameras()

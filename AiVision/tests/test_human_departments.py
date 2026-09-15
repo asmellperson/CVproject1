@@ -12,7 +12,7 @@ from AiVision.features import all_specs
 from AiVision.features.detect_human import SPEC
 from AiVision.features.detect_human.consumer import HumanConsumer
 from AiVision.features.detect_human.schema import HumanConfigSchema
-from AiVision.platform.camera.config_manager import camera_access_departments
+from AiVision.cameras.config_manager import camera_access_departments
 from AiVision.platform.violation.orm import AiAlarmEvent
 from test_feature_department_enable import department_api, create_camera, save
 from test_horn_backend import backend

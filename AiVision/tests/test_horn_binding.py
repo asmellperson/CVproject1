@@ -12,7 +12,7 @@ from AiVision.core.alarm.dispatcher import AlarmDispatcher
 from AiVision.features import get_spec
 from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features._base.consumer import BaseFunctionConsumer
-from AiVision.platform.camera.orm import AiCameraConfig
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.detect_logistics_single_person.service import LogisticsChannelService
 from test_horn_backend import backend, payload
 from test_horn_runtime_manager import runtime, config as runtime_config

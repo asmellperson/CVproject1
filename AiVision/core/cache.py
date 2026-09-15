@@ -84,7 +84,7 @@ class ConfigCache:
 
     def _load_cameras(self):
         """从数据库全量加载摄像头基础配置到 _camera_cache。"""
-        from AiVision.platform.camera.orm import AiCameraConfig
+        from AiVision.cameras.orm import AiCameraConfig
         session = get_session()
         try:
             for cam in session.query(AiCameraConfig).all():
@@ -105,7 +105,7 @@ class ConfigCache:
         已缓存的关联功能配置会自动同步 name/shm_name/department 等注入字段；
         新增或修改功能自身配置时，仍需调用 refresh_function() 加载。
         """
-        from AiVision.platform.camera.orm import AiCameraConfig
+        from AiVision.cameras.orm import AiCameraConfig
         session = get_session()
         try:
             cam = session.get(AiCameraConfig, camera_id)

@@ -11,7 +11,7 @@ from AiVision.core.cache import config_cache
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.orm import FeatureConfigBase
 from AiVision.platform.alarm_device.binding import validate_horn_binding
-from AiVision.platform.camera.orm import AiCameraConfig, get_camera_by_key
+from AiVision.cameras.orm import AiCameraConfig, get_camera_by_key
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 
 class FeatureConfigManager:
