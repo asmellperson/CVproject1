@@ -1,5 +1,5 @@
 """
-api/runtime.py
+api/routes/runtime.py
 运行状态、健康检查接口。
 """
 from __future__ import annotations
@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends                        # APIRouter：API路由分组器,Depends:FastAPI的依赖注入机制
 from collections import Counter
 from auth.auth import get_current_user
-from AiVision.api.cameras import camera_list_response_for_user
+from AiVision.api.routes.cameras import camera_list_response_for_user
 from AiVision.api.deps import get_camera_config_manager
 
 from AiVision.api.deps import get_current_orchestrator                 # 获取当前的Orchestrator实例，这是API层获取当前AiVision总调度器的统一入口

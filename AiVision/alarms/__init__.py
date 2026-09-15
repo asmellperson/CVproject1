@@ -81,7 +81,7 @@
         持久化：alarms/records/service.py → 告警记录、截图及相关元数据。
         证据：alarms/evidence/evidence_recorder.py → 告警前后录像任务。
         微信：_wechat_queue → _wechat_loop() → WeChatNotifier → 企业微信图文卡片。
-        查询：api/alarms.py 与前端告警页使用已保存的记录和媒体，不依赖喇叭是否发声。
+        查询：api/routes/alarms.py 与前端告警页使用已保存的记录和媒体，不依赖喇叭是否发声。
 
     Guard Behavior、Security VLM 使用各自的业务告警实现，目前没有进入本包这条
     AlarmDispatcher → HornRuntimeManager 播放链，不能只加界面绑定就宣称支持喇叭。

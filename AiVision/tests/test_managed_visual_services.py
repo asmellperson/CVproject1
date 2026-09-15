@@ -4,7 +4,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from AiVision.platform.visual_services import ManagedVisualServices
+from AiVision.api.mounted_apps import ManagedVisualServices
 
 import httpx
 from fastapi import FastAPI, Request

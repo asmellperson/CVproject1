@@ -1,4 +1,4 @@
-"""api/departments.py
+"""api/routes/departments.py
 部门管理 API。
 """
 from __future__ import annotations

@@ -4,8 +4,8 @@
 import importlib
 
 
-features_module = importlib.import_module("AiVision.api.features")
-orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
+features_module = importlib.import_module("AiVision.api.routes.features")
+orchestrator_module = importlib.import_module("AiVision.runtime.orchestrator")
 
 
 # 功能：定义 `FakeCameraRuntimeManager` 类，封装监控展示、接口访问相关的状态、约束与操作

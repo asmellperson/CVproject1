@@ -1,5 +1,5 @@
 """
-api/features.py
+api/routes/features.py
 通用功能配置 API
 
 1 个路由处理所有功能。前端访问:
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL�
 from pydantic import BaseModel, Field, ValidationError
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
+from AiVision.api.routes.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 
 from AiVision.features import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能

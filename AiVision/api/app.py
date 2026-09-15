@@ -14,7 +14,7 @@ from __future__ import annotations
 import threading
 import time                                                        # 获取当前时间戳，用来判断异常报警是否还在冷却期
 from contextlib import asynccontextmanager                         # 管理FastAPI的启动和关闭生命周期
-from AiVision.platform.visual_services import ManagedVisualServices # 复杂管理复杂视觉任务
+from AiVision.api.mounted_apps import ManagedVisualServices # 复杂管理复杂视觉任务
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware                 # 跨域访问控制
@@ -23,17 +23,17 @@ from fastapi.responses import JSONResponse                         # 手工构�
 from auth.auth import AuthError, get_current_user_from_request     # 认证模块
 
 # 拿取每个API文件里的路由，最后统一注册到FastAPI
-from AiVision.api.alarms import public_router as public_alarms_router 
-from AiVision.api.alarms import router as alarms_router              # 正常需要认证的报警
-from AiVision.api.cameras import router as cameras_router            # 对外公开、不要求普通认证的报警资源
-from AiVision.api.departments import router as departments_router
-from AiVision.api.exception_alerts import router as exception_alerts_router
-from AiVision.api.features import router as features_router
-from AiVision.api.face_recognition import router as face_recognition_router
-from AiVision.api.logistics_channels import router as logistics_channels_router
-from AiVision.api.models import router as models_router
-from AiVision.api.horns import router as horns_router
-from AiVision.api.runtime import router as runtime_router
+from AiVision.api.routes.alarms import public_router as public_alarms_router
+from AiVision.api.routes.alarms import router as alarms_router              # 正常需要认证的报警
+from AiVision.api.routes.cameras import router as cameras_router            # 对外公开、不要求普通认证的报警资源
+from AiVision.api.routes.departments import router as departments_router
+from AiVision.api.routes.exception_alerts import router as exception_alerts_router
+from AiVision.api.routes.features import router as features_router
+from AiVision.api.routes.face_recognition import router as face_recognition_router
+from AiVision.api.routes.logistics_channels import router as logistics_channels_router
+from AiVision.api.routes.models import router as models_router
+from AiVision.api.routes.horns import router as horns_router
+from AiVision.api.routes.runtime import router as runtime_router
 
 from AiVision.alarms.notifications.wechat import WeChatNotifier               # 调用企业微信发送报警信息
 from AiVision.core.logger import logger                             # 项目统一日志对象

@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from AiVision.api import logistics_channels as api
+from AiVision.api.routes import logistics_channels as api
 from AiVision.features import all_specs
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURE_NAME as FEATURE

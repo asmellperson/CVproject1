@@ -9,7 +9,7 @@ import pytest
 
 from AiVision.core.events import ConfigChangeEvent
 
-Orchestrator = importlib.import_module("AiVision.platform.orchestrator").Orchestrator
+Orchestrator = importlib.import_module("AiVision.runtime.orchestrator").Orchestrator
 
 
 # 功能：初始化或配置 `_orchestrator_without_init` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
@@ -59,7 +59,7 @@ def test_runtime_status_exposes_worker_and_consumer_inference_state(monkeypatch)
         "watchdog_running": True,
         "models": [{"model_name": "yolo_human", "status": "running"}],
     }
-    orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
+    orchestrator_module = importlib.import_module("AiVision.runtime.orchestrator")
     monkeypatch.setattr(
         orchestrator_module.inference_runtime_manager,
         "list_running",
@@ -94,7 +94,7 @@ def test_runtime_status_does_not_alert_for_stopped_consumer(monkeypatch):
     }
     alerts = []
     orchestrator._send_system_exception_alert = lambda **payload: alerts.append(payload)
-    orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
+    orchestrator_module = importlib.import_module("AiVision.runtime.orchestrator")
     monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "list_running", lambda: [])
     monkeypatch.setattr(orchestrator_module.inference_runtime_manager, "runtime_status", lambda: {})
 
@@ -142,7 +142,7 @@ def test_camera_runtime_alert_types_share_one_repeat_interval(monkeypatch):
     orchestrator._system_exception_alert_lock = threading.Lock()
 
     clock = SimpleNamespace(now=10_000.0)
-    orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
+    orchestrator_module = importlib.import_module("AiVision.runtime.orchestrator")
     monkeypatch.setattr(orchestrator_module.time, "time", lambda: clock.now)
     monkeypatch.setattr(
         orchestrator_module.system_config_service,
@@ -267,7 +267,7 @@ def test_camera_runtime_update_restarts_runtime(monkeypatch):
 
 
 def _dispatch_feature_binding_change(monkeypatch, *, action, functions, running):
-    import AiVision.platform.orchestrator as orchestrator_module
+    import AiVision.runtime.orchestrator as orchestrator_module
 
     consumer_calls = []
     camera_calls = []
@@ -571,7 +571,7 @@ def test_logistics_camera_config_event_clears_channel_runtime_state(monkeypatch)
 #   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`object`、`monkeypatch.setattr`、`orchestrator._start_consumers`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatch):
-    import AiVision.platform.orchestrator as orchestrator_module
+    import AiVision.runtime.orchestrator as orchestrator_module
 
     created = {}
 
@@ -647,7 +647,7 @@ def test_start_consumers_injects_runtime_only_into_logistics_features(monkeypatc
 #   - 内部调用：`SimpleNamespace`、`_orchestrator_without_init`、`monkeypatch.setattr`、`orchestrator._start_consumers`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_start_consumers_starts_registered_ordinary_feature(monkeypatch):
-    import AiVision.platform.orchestrator as orchestrator_module
+    import AiVision.runtime.orchestrator as orchestrator_module
 
     started = []
 
@@ -716,7 +716,7 @@ def test_camera_runtime_requires_enabled_camera_and_feature_binding(
     functions,
     expected,
 ):
-    import AiVision.platform.orchestrator as orchestrator_module
+    import AiVision.runtime.orchestrator as orchestrator_module
 
     monkeypatch.setattr(
         orchestrator_module.camera_config_manager,
@@ -749,7 +749,7 @@ def test_camera_runtime_requires_enabled_camera_and_feature_binding(
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch, caplog):
     import AiVision.core.db as db_module
-    import AiVision.platform.orchestrator as orchestrator_module
+    import AiVision.runtime.orchestrator as orchestrator_module
 
     calls = []
     orchestrator = _orchestrator_without_init()

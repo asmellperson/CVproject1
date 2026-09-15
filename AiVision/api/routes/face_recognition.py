@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from auth.auth import get_current_user
-from AiVision.api.cameras import camera_read_department
+from AiVision.api.routes.cameras import camera_read_department
 from AiVision.features.recognize_face.records import get_recognition_image, list_recognition_records
 from AiVision.features.recognize_face.schema import RecognitionRecordPage
 

@@ -13,7 +13,7 @@ from AiVision.features import get_spec
 from AiVision.features._base import consumer as base_consumer
 from AiVision.features._base import dwell_consumer
 from AiVision.inference.contracts import INFERENCE_FAILURE_STATUSES
-from AiVision.platform.orchestrator import Orchestrator
+from AiVision.runtime.orchestrator import Orchestrator
 
 
 @pytest.fixture(params=["detect_face", "detect_human"])

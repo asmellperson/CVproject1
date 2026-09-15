@@ -7,7 +7,7 @@ import pytest
 
 from auth.auth import get_current_user
 from AiVision.api.deps import get_current_orchestrator
-from AiVision.api import alarms, runtime
+from AiVision.api.routes import alarms, runtime
 from AiVision.features import all_specs
 from AiVision.features.detect_human import SPEC
 from AiVision.features.detect_human.consumer import HumanConsumer

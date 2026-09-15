@@ -54,7 +54,7 @@ alarms/devices/：喇叭设备配置、检测绑定校验、运行管理与设�
             URL、用户名或密码变化会在提交后重建运行实例；名称和备注变化可复用实例。
         delete_horn()：先检查所有已注册 Feature 的配置表及 LogisticsChannel.horn_id。
             即使引用方的 horn_enable=False，只要 horn_id 仍指向该设备，也禁止删除。
-            HornInUseError 表示设备仍被引用，api/horns.py 将其转换为 HTTP 409。
+            HornInUseError 表示设备仍被引用，api/routes/horns.py 将其转换为 HTTP 409。
         runtime_configs()：仅供运行管理器和连接测试读取真实连接凭据，不能直接回给前端。
         _sync_after_commit()：事务成功退出后调用 runtime.sync(id)。flush 不等于 commit；
             提交失败时不能提前把新配置放进运行态。
@@ -99,7 +99,7 @@ alarms/devices/：喇叭设备配置、检测绑定校验、运行管理与设�
 三、和 API、前端、检测模块怎样连接
 
     管理设备：
-        HornDeviceManager → unified_frontend/src/lib/horns.ts → api/horns.py
+        HornDeviceManager → unified_frontend/src/lib/horns.ts → api/routes/horns.py
             → HornService → 数据库 commit → HornRuntimeManager.sync()。
         当前 /api/horns 下的查询、写入、状态、测试连接接口都要求管理员权限。
         GET /api/horns、GET /api/horns/{id}：配置及运行状态。

@@ -12,7 +12,7 @@ from fastapi import HTTPException, status
 def get_current_orchestrator():
     """获取全局Orchestrator"""
     try:
-        from AiVision.platform.orchestrator import get_orchestrator
+        from AiVision.runtime.orchestrator import get_orchestrator
         return get_orchestrator()
     except RuntimeError as exc:
         raise HTTPException(

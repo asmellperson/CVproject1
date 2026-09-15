@@ -14,7 +14,7 @@ os.environ.setdefault("MYSQL_DB_NAME", "test")
 
 from AiVision.core import cache as cache_module
 from AiVision.core import db as db_module
-from AiVision.core import process_cleanup
+from AiVision.runtime import process_cleanup
 from AiVision.core import video_encoding
 from AiVision.core.cache import ConfigCache
 from AiVision.core.events import ConfigChangeEvent, ConfigEventBus

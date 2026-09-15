@@ -111,18 +111,18 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
 
 四、和其他模块怎么联系
 
-    api/cameras.py → CameraConfigManager → 数据库 / Cache / Event：
+    api/routes/cameras.py → CameraConfigManager → 数据库 / Cache / Event：
         GET /api/cameras、GET /api/cameras/{key}：查询列表和单台配置。
         POST /api/cameras、PATCH /api/cameras/{key}、DELETE /api/cameras/{key}：
             管理员新增、修改和删除摄像头；普通用户读取时按部门权限过滤并隐藏视频源。
         当前帧接口经 Orchestrator 取得新鲜的原始帧或指定功能的标注帧，再编码为 JPEG。
 
-    api/features.py、features/_base/config_manager.py：
+    api/routes/features.py、features/_base/config_manager.py：
         管理摄像头与普通检测功能的绑定、ROI、阈值和告警配置。
         FeatureSpec 描述有哪些功能及其 ORM，CameraConfigManager 按 all_specs() 建默认行。
         “停用这台摄像头的某个功能”修改功能配置，不等于删除摄像头主记录。
 
-    core/events.py、core/cache.py、platform/orchestrator.py：
+    core/events.py、core/cache.py、runtime/orchestrator.py：
         配置提交 → 刷新缓存 → camera_added / camera_updated / camera_removed 事件
             → Orchestrator 接收 → 更新 Consumer 和 CameraRuntimeManager。
         新增：按最新配置决定是否启动采集。

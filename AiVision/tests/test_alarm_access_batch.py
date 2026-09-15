@@ -14,7 +14,7 @@ from auth.auth import create_token
 from auth.user_store import UserStore
 from AiVision.alarms.records.orm import AiAlarmEvent
 
-alarms = importlib.import_module("AiVision.api.alarms")
+alarms = importlib.import_module("AiVision.api.routes.alarms")
 
 
 @pytest.fixture

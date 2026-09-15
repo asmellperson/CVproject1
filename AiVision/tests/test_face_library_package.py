@@ -60,7 +60,7 @@ def run_isolated(program, tmp_path, *args, env=None, cwd=None):
     LIBRARY, *(f"{LIBRARY}.{name}" for name in ("constants", "orm", "index", "service", "sync", "embedding")),
     "AiVision.inference.model_registry", "AiVision.inference.workers.face_recognizer",
     "AiVision.inference.model_paths", "AiVision.features", "AiVision.features.recognize_face",
-    "AiVision.api.face_recognition", "AiVision.api.models", "AiVision.platform.orchestrator",
+    "AiVision.api.routes.face_recognition", "AiVision.api.routes.models", "AiVision.runtime.orchestrator",
 ])
 def test_import_orders_share_features_models_and_library_classes_without_running_business(entry, tmp_path):
     program = NO_EXTERNAL + """
@@ -108,7 +108,7 @@ for cls in (orm.FacePerson, orm.FaceEmbedding, index.FaceIndex, index.IndexedPer
 assert not any(isinstance(item, index.FaceIndex) for item in gc.get_objects())
 assert db._engine is None and db._session_factory is None
 assert model_paths._PROJECT_ROOT == Path(sys.argv[2]) / 'AiVision'
-old = 'AiVision.platform.face_library'
+old = "AiVision.platform"
 assert importlib.util.find_spec(old) is None
 assert not any(name == old or name.startswith(old + '.') for name in sys.modules)
 assert attempts == [], attempts

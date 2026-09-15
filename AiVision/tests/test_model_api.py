@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from AiVision.api import models as models_api
+from AiVision.api.routes import models as models_api
 from AiVision.api.deps import get_inference_runtime_manager
 from auth.auth import require_admin
 

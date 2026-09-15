@@ -15,8 +15,8 @@ ENTRIES = [
     "AiVision.alarms.types", "AiVision.alarms.validation", "AiVision.alarms.records.orm",
     "AiVision.alarms.records.cleanup", "AiVision.alarms.records.service",
     "AiVision.alarms.evidence.evidence_recorder", "AiVision.features", "AiVision.core.db",
-    "AiVision.alarms.dispatcher", "AiVision.api.alarms", "AiVision.api.logistics_channels",
-    "AiVision.platform.orchestrator",
+    "AiVision.alarms.dispatcher", "AiVision.api.routes.alarms", "AiVision.api.routes.logistics_channels",
+    "AiVision.runtime.orchestrator",
 ]
 
 
@@ -65,10 +65,10 @@ def test_record_imports_share_registration_without_running_workers_or_cleanup(en
             from AiVision.alarms import dispatcher, types, validation
             from AiVision.alarms.records import cleanup, orm, service
             from AiVision.alarms.evidence import evidence_recorder
-            from AiVision.api import alarms, logistics_channels
+            from AiVision.api.routes import alarms, logistics_channels
             from AiVision.core import db, media_cleanup, system_config, video_encoding
             from AiVision.features import all_specs
-            from AiVision.platform import orchestrator
+            from AiVision.runtime import orchestrator
 
             root = Path(sys.argv[2]) / "AiVision/alarms"
             for module, relative in (
@@ -117,7 +117,7 @@ def test_record_imports_share_registration_without_running_workers_or_cleanup(en
             explicit = evidence_recorder.AlarmEvidenceRecorder("explicit-output")
             assert explicit.output_dir == Path.cwd() / "explicit-output/alarm_clips"
             assert not explicit.output_dir.exists()
-            old_package = "AiVision.platform.violation"
+            old_package = "AiVision.platform"
             assert importlib.util.find_spec(old_package) is None
             assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
             assert attempts == [], attempts

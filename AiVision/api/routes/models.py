@@ -1,5 +1,5 @@
 """
-api/models.py
+api/routes/models.py
 固定模型状态与本机路径配置。
 """
 from __future__ import annotations

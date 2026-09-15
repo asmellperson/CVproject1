@@ -10,7 +10,7 @@ import pytest
 from AiVision.alarms.records.orm import AiAlarmEvent
 
 
-alarms = importlib.import_module("AiVision.api.alarms")
+alarms = importlib.import_module("AiVision.api.routes.alarms")
 
 
 # 功能：实现 `_channel_row` 对应的告警、接口访问逻辑；输入由参数提供，处理结果见返回值说明

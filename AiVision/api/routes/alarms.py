@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse                         # FileRespons
 from pydantic import BaseModel, ConfigDict, Field                  # ConfigDict：API数据库严格模式，Field:字段默认值
 from auth.auth import get_current_user, token_from_request
 from auth.alarm_permissions import allowed_alarm_event_types
-from AiVision.api.cameras import _camera_departments_for_user, camera_read_department
+from AiVision.api.routes.cameras import _camera_departments_for_user, camera_read_department
 from AiVision.alarms.notifications.notification_image import thumbnail_response, verify_thumbnail_token
 
 from AiVision.core.db import get_session                           # 获取数据库操作会话

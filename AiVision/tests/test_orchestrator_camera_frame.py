@@ -5,7 +5,7 @@ import importlib
 from types import SimpleNamespace
 
 
-orchestrator_module = importlib.import_module("AiVision.platform.orchestrator")
+orchestrator_module = importlib.import_module("AiVision.runtime.orchestrator")
 Orchestrator = orchestrator_module.Orchestrator
 
 

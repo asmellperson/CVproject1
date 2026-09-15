@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
     "AiVision.alarms", "AiVision.alarms.devices", "AiVision.alarms.notifications",
     "AiVision.alarms.dispatcher", "AiVision.alarms.devices.horn",
     "AiVision.alarms.notifications.wechat", "AiVision.alarms.notifications.notification_image",
-    "AiVision.api.alarms", "AiVision.api.app", "AiVision.platform.orchestrator",
+    "AiVision.api.routes.alarms", "AiVision.api.app", "AiVision.runtime.orchestrator",
     "AiVision.features._base.consumer", "AiVision.features.detect_logistics_single_person.runtime",
     "AiVision.alarms.records.service",
 ])
@@ -55,11 +55,12 @@ def test_fresh_alarm_imports_share_implementations_without_external_actions(entr
             from AiVision.alarms import dispatcher
             from AiVision.alarms.devices import horn, runtime_manager
             from AiVision.alarms.notifications import notification_image, wechat
-            from AiVision.api import alarms, app
+            from AiVision.api.routes import alarms
+            from AiVision.api import app
             from AiVision.core import db
             from AiVision.features._base import consumer
             from AiVision.features.detect_logistics_single_person import runtime
-            from AiVision.platform import orchestrator
+            from AiVision.runtime import orchestrator
             from AiVision.alarms.records import service
 
             root = Path(sys.argv[2]) / "AiVision/alarms"

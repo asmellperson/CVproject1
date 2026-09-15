@@ -27,7 +27,7 @@ def isolated_environment(tmp_path):
 
 @pytest.mark.parametrize("entry", [
     "AiVision.cameras.orm", "AiVision.cameras.config_manager",
-    "AiVision.features", "AiVision.platform.orchestrator",
+    "AiVision.features", "AiVision.runtime.orchestrator",
 ])
 def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
     program = textwrap.dedent("""
@@ -66,7 +66,7 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
             assert any(fk.column.table is AiCameraConfig.__table__ for fk in spec.orm_class.__table__.foreign_keys)
         # 强制解析全部外键；不用创建或查询任何表。
         assert len(Base.metadata.sorted_tables) == len(Base.metadata.tables)
-        old_package = "AiVision.platform." + "camera"
+        old_package = "AiVision.platform"
         assert importlib.util.find_spec(old_package) is None
         assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
         print(json.dumps({"features": sorted(specs), "tables": sorted(Base.metadata.tables)}))

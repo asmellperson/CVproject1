@@ -31,7 +31,7 @@ def isolated_environment(tmp_path):
 @pytest.mark.parametrize("entry", [
     "AiVision.inference.model_registry", "AiVision.inference.runtime_manager",
     "AiVision.inference.workers.face_recognizer", "AiVision.features",
-    "AiVision.platform.orchestrator", "AiVision.features.recognize_face.library.embedding",
+    "AiVision.runtime.orchestrator", "AiVision.features.recognize_face.library.embedding",
 ])
 def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_path):
     program = textwrap.dedent("""
@@ -72,7 +72,7 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
             "blocks", "detect_door", "detect_face", "detect_human",
             "detect_logistics_single_person", "detect_phone", "recognize_face",
         }
-        old_package = "AiVision.platform.inference"
+        old_package = "AiVision.platform"
         assert importlib.util.find_spec(old_package) is None
         assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
         print("registered")

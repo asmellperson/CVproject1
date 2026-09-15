@@ -7,7 +7,7 @@ import pytest
 from AiVision.alarms.notifications.wechat import WeChatNotifier
 from AiVision.alarms.notifications import wechat
 from AiVision.api import app as api_app
-from AiVision.platform import orchestrator
+from AiVision.runtime import orchestrator
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import ResponseValidationError
 from fastapi.routing import serialize_response
 
-api = importlib.import_module("AiVision.api.logistics_channels")
+api = importlib.import_module("AiVision.api.routes.logistics_channels")
 
 FEATURES = tuple(sorted(importlib.import_module(
     "AiVision.features.detect_logistics_single_person.constants"
@@ -474,7 +474,7 @@ class EmptyAlarmQuery:
     # 调用关系：
     #   - 调用方：`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
     #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
-    #         调用本符号；`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号
+    #         调用本符号；`AiVision/api/routes/alarms.py` 的 `list_alarms` 调用本符号
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def limit(self, _limit):
@@ -937,7 +937,7 @@ def test_viewer_department_access_and_admin_dependency_contract():
 #   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(monkeypatch):
-    feature_api = importlib.import_module("AiVision.api.features")
+    feature_api = importlib.import_module("AiVision.api.routes.features")
     feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
     app.include_router(feature_api.create_features_router(feature_config_manager))
@@ -993,7 +993,7 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
 #   - 内部调用：`importlib.import_module`、`FakeFeatureConfigManager`、`FakeCameraConfigManager`、`FastAPI`、`app.include_router`、`feature_api.create_features_router`、`monkeypatch.setattr`、`asyncio.run`、`scenario`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_generic_feature_camera_create_uses_atomic_camera_config_manager(monkeypatch):
-    feature_api = importlib.import_module("AiVision.api.features")
+    feature_api = importlib.import_module("AiVision.api.routes.features")
     feature_config_manager = FakeFeatureConfigManager()
 
     # 功能：定义 `FakeCameraConfigManager` 类，封装接口访问相关的状态、约束与操作

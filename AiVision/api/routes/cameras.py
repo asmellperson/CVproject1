@@ -1,5 +1,5 @@
 """
-api/cameras.py
+api/routes/cameras.py
 摄像头 CRUD + 当前帧 JPEG 输出。
 """
 from __future__ import annotations

@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from AiVision.api.cameras import router as camera_router
+from AiVision.api.routes.cameras import router as camera_router
 from AiVision.api.deps import get_camera_config_manager
-from AiVision.api.features import create_features_router
+from AiVision.api.routes.features import create_features_router
 from AiVision.core.cache import ConfigCache
 from AiVision.features import all_specs, get_spec
 from AiVision.features._base.config_manager import FeatureConfigManager

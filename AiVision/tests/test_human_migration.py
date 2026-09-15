@@ -13,7 +13,7 @@ from sqlalchemy.engine import make_url
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from auth.auth import get_current_user
-from AiVision.api.features import create_features_router
+from AiVision.api.routes.features import create_features_router
 from AiVision.api.deps import get_current_orchestrator
 
 from AiVision.migrations import human_20260915 as migration

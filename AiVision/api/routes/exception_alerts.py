@@ -1,5 +1,5 @@
 """
-api/exception_alerts.py
+api/routes/exception_alerts.py
 系统异常告警配置接口。
 """
 from __future__ import annotations

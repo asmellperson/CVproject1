@@ -1,5 +1,5 @@
 """
-core/process_cleanup.py
+runtime/process_cleanup.py
 Aivision启动时，扫描Linux上一轮异常遗留下来的Camera、ModelWorker和ffmpeg进程，把他们清掉，避免新一轮启动发生资源冲突
 调用链：Orchestrator.start() -> 收集当前配置中的camera shm_name\camera RTSP URL\model name
         ->clean_aivision_residual_processes -> 扫描 /proc -> 读取每个PID cmdline -> _match_process()【Camera[shm]\ModelWorker[model]\ffmpeg + URL + rawvideo】

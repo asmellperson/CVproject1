@@ -66,7 +66,7 @@ def main() -> None:
 
     from AiVision.api.app import create_app      # 创建AiVision HTTP API服务
     from AiVision.core.logger import logger      # 项目统一日志工具
-    from AiVision.platform.orchestrator import init_orchestrator
+    from AiVision.runtime.orchestrator import init_orchestrator
 
     logger.info(
         f"[main] OpenCV 线程限制 配置需求={settings.runtime.opencv_threads} "

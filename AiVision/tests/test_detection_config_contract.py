@@ -22,7 +22,7 @@ from AiVision.cameras.orm import AiCameraConfig
 @pytest.fixture
 def api(monkeypatch):
     from auth.auth import get_current_user, require_admin
-    from AiVision.api.features import create_features_router
+    from AiVision.api.routes.features import create_features_router
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)

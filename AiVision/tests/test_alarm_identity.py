@@ -8,7 +8,7 @@ from AiVision.alarms.dispatcher import AlarmRequest
 from AiVision.features import all_specs
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.alarms.records.orm import AiAlarmEvent
-from AiVision.api.logistics_channels import _channel_alarm_query, _alarm_dict
+from AiVision.api.routes.logistics_channels import _channel_alarm_query, _alarm_dict
 from AiVision.tests.test_violation_writer import writer_db
 
 

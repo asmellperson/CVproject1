@@ -337,7 +337,7 @@ AiVision/features/recognize_face/
     └── hikvision-face-library-sync.timer
 ```
 
-模型加载、检测和特征提取仍在 `inference/`，海康协议及客户端仍在 `connectors/hikvision/`。本轮没有移动或复制这些实现，也没有改变人员唯一性、单脸注册要求、模型维度、归一化、索引刷新、相似度阈值、识别冷却或权限。旧人员库目录已删除，无旧路径兼容层；`platform/` 中其他模块保留。
+模型加载、检测和特征提取仍在 `inference/`，海康协议及客户端仍在 `connectors/hikvision/`。本轮没有移动或复制这些实现，也没有改变人员唯一性、单脸注册要求、模型维度、归一化、索引刷新、相似度阈值、识别冷却或权限。旧人员库目录已删除，无旧路径兼容层；剩余运行与应用装配模块现已归入 `runtime/` 和 `api/`。
 
 初始化调整限于两个包入口。新 CLI 路径会先导入 `features` 和 `recognize_face`；若仍在导入时加载所有功能，会在 CLI 读取 `.env` 前初始化必填配置，导致配置错误并漏注册功能。因此保留原 `_discover()` 实现，在首次查询时执行；`recognize_face` 的 SPEC 和公开类按首次访问初始化并缓存，保持同一 SPEC 和类身份。没有改写功能发现规则、跳过注册或复制注册表。纯人脸检测仍不导入身份识别和人员库。
 
@@ -402,13 +402,19 @@ AiVision/
 ├── main.py                      # 后端入口，设置 multiprocessing spawn，启动 Uvicorn
 ├── pyproject.toml               # AiVision Conda 环境内安装的 Python 依赖
 ├── .env.example                 # 环境变量模板
-├── api/app.py                   # FastAPI app、中间件、路由注册
-├── api/                         # 正式路由：runtime/cameras/features/models/alarms/departments
+├── api/                         # FastAPI 应用装配、依赖注入与 HTTP 路由
+│   ├── app.py                  # FastAPI app、中间件、路由注册及 ASGI mount
+│   ├── deps.py                 # 共享依赖注入
+│   ├── mounted_apps.py         # 视觉子应用挂载槽、创建及生命周期适配
+│   └── routes/                 # alarms/cameras/departments/exception_alerts/face_recognition/
+│                               # features/horns/logistics_channels/models/runtime
 ├── core/settings.py             # 统一环境变量配置入口
 ├── core/db.py                   # 数据库连接与 schema 初始化
 ├── core/cache.py                # 配置缓存
 ├── core/events.py               # 配置变更事件总线
-├── platform/orchestrator.py     # 总编排器
+├── runtime/                     # 运行编排与生命周期协调
+│   ├── orchestrator.py         # 总编排器及全局实例
+│   └── process_cleanup.py      # 启动前残留进程清理
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
 ├── inference/                   # 模型 worker、队列、推理管理
 ├── departments/                 # 固定事业部定义、只读查询及相关业务约束
@@ -423,6 +429,12 @@ AiVision/
 └── features/                    # 所有检测功能模块
 ```
 
+正式导入使用 `AiVision.runtime.orchestrator`、`AiVision.runtime.process_cleanup`、
+`AiVision.api.mounted_apps` 和 `AiVision.api.routes.*`。原平台目录已删除，没有兼容转发。
+启动入口仍为 `python -m AiVision.main`；Orchestrator 的实例、启停顺序和运行流程，
+视觉子应用生命周期与 ASGI mount，以及 HTTP URL、router prefix 和认证规则均保持不变。
+本轮只迁移文件、更新引用和说明，未运行测试、启动服务、连接数据库或加载模型。
+
 事业部模块统一从 `AiVision.departments` 导入，原目录的三个源码文件完整迁移，公开对象和接口保持不变：
 
 ```text
@@ -436,7 +448,7 @@ AiVision/departments/
 
 事业部 API、延迟依赖注入、摄像头配置、Feature 注册、告警身份校验、认证用户存储、现有人员逗留离线脚本和测试引用均已更新。`get_department_service()` 仍在调用时导入服务；告警身份校验仍在执行校验时导入 Feature 注册表。查询服务与各调用方共享同一份事业部定义，没有复制注册表。人员逗留继续支持通用电气和皓达，物流成员约束、登录用户的事业部授权、管理权限及告警证据访问规则保持原状。
 
-本模块没有依赖 `__file__`、目录深度或包资源的路径计算，无需调整资源位置，不涉及配置或数据库迁移。旧事业部目录及生成的字节码已清理，`platform/` 中其他模块保留；没有兼容转发、旧路径别名或双路径支持。`guard_room` 和 `security_vlm` 文件本轮未改动，工作区原有修改已保留。
+本模块没有依赖 `__file__`、目录深度或包资源的路径计算，无需调整资源位置，不涉及配置或数据库迁移。旧事业部目录及生成的字节码已清理，剩余运行与应用装配模块现已归入 `runtime/` 和 `api/`；没有兼容转发、旧路径别名或双路径支持。`guard_room` 和 `security_vlm` 文件本轮未改动，工作区原有修改已保留。
 
 事业部迁移的专项与独立导入验证命令如下，在下方 29 文件回归相同的隔离环境变量下执行：
 
@@ -478,7 +490,7 @@ AiVision/inference/
     └── yolo_detector.py
 ```
 
-`model_paths.py` 的 `_PROJECT_ROOT` 按新目录深度取 `Path(__file__).resolve().parents[1]`，仍指向原来的 `AiVision/`。因此默认配置仍为 `AiVision/config/model_paths.yaml`；自定义相对 `MODEL_PATHS_CONFIG`、绝对配置路径和 YAML 中的模型权重路径语义不变。没有旧推理包转发、导入别名或双路径支持，`platform/` 中其他模块保留。
+`model_paths.py` 的 `_PROJECT_ROOT` 按新目录深度取 `Path(__file__).resolve().parents[1]`，仍指向原来的 `AiVision/`。因此默认配置仍为 `AiVision/config/model_paths.yaml`；自定义相对 `MODEL_PATHS_CONFIG`、绝对配置路径和 YAML 中的模型权重路径语义不变。没有旧推理包转发、导入别名或双路径支持，剩余运行与应用装配模块现已归入 `runtime/` 和 `api/`。
 
 新增验证可执行 `python -m pytest -q AiVision/tests/test_inference_package.py`：六种独立导入顺序验证模型和功能注册，两项从其他工作目录读写临时 YAML 的测试验证相对及绝对配置路径，一项通过真实 `YoloDetectorWorker.start()` 和 `BaseModelWorker._run()` 完成 spawn、共享模型队列、结果路由、错误返回与退出清理。该进程测试只替换外部 `ultralytics` 为模型替身，不是 GPU 或真实模型精度验证。
 
@@ -539,7 +551,7 @@ AiVision/alarms/
 | `validation.py` | `AiVision/alarms/validation.py` |
 | `evidence_recorder.py` | `AiVision/alarms/evidence/evidence_recorder.py` |
 
-分发器、记录 ORM 和写入器引用同一个 `alarms.validation`；记录包内部的校验相对导入改为 `..validation`，校验函数仍在调用时才导入 Feature 注册表。调度器继续使用同一个 `violation_writer` 和 `alarm_evidence_recorder`，启动顺序、视频状态回写及退出流程不变。告警与物流 API、批量权限查询、数据库初始化、现有离线脚本和测试中的引用均已更新，离线脚本本轮未执行。旧记录目录已删除，`platform/` 保留其他模块。`.gitignore` 仅为记录包的四个 Python 源文件开放例外，其余 `records/` 数据目录仍被忽略。
+分发器、记录 ORM 和写入器引用同一个 `alarms.validation`；记录包内部的校验相对导入改为 `..validation`，校验函数仍在调用时才导入 Feature 注册表。调度器继续使用同一个 `violation_writer` 和 `alarm_evidence_recorder`，启动顺序、视频状态回写及退出流程不变。告警与物流 API、批量权限查询、数据库初始化、现有离线脚本和测试中的引用均已更新，离线脚本本轮未执行。旧记录目录已删除，剩余运行与应用装配模块现已归入 `runtime/` 和 `api/`。`.gitignore` 仅为记录包的四个 Python 源文件开放例外，其余 `records/` 数据目录仍被忽略。
 
 六个迁移文件没有依赖 `__file__` 或目录深度的资源定位计算，无需修改路径。截图仍保存到 `DATA_PATH/<告警类型>/`，视频仍位于 `DATA_PATH/alarm_clips/`，失败批次仍位于 `DATA_PATH/alarm_failed_batches/`；相对路径仍以进程工作目录为基准。通用媒体清理和视频编码工具保持原位置。写入器实现导入时会沿用原行为创建 `DATA_PATH` 目录，但不会因此连接数据库、读写媒体、清理文件或启动后台任务；新包初始化文件仅含职责说明。表名、字段、索引、外键、API、权限、缩略图签名和录制参数均未改变，本次目录迁移不需要数据迁移。
 

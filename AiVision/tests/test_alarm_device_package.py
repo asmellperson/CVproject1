@@ -29,7 +29,7 @@ def isolated_environment(tmp_path):
 @pytest.mark.parametrize("entry", [
     "AiVision.alarms", "AiVision.alarms.devices", "AiVision.alarms.devices.orm",
     "AiVision.alarms.devices.service", "AiVision.alarms.devices.runtime_manager",
-    "AiVision.api.horns", "AiVision.features", "AiVision.core.db", "AiVision.platform.orchestrator",
+    "AiVision.api.routes.horns", "AiVision.features", "AiVision.core.db", "AiVision.runtime.orchestrator",
 ])
 def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
     program = textwrap.dedent("""
@@ -69,10 +69,11 @@ def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
             import AiVision.alarms as alarms
             import AiVision.alarms.devices as devices
             from AiVision.alarms.devices import binding, orm, runtime_manager, schema, service
-            from AiVision.api import deps, horns
+            from AiVision.api import deps
+            from AiVision.api.routes import horns
             from AiVision.core import db, system_config
             from AiVision.features import all_specs
-            from AiVision.platform import orchestrator
+            from AiVision.runtime import orchestrator
             from AiVision.alarms.records import orm as violation_orm
             from sqlalchemy.orm import configure_mappers
 
@@ -107,7 +108,7 @@ def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
             assert horns.HornInUseError is service.HornInUseError
             assert not runtime._active and runtime._threads == [] and runtime._entries == {}
             assert db._engine is None and db._session_factory is None
-            old_package = "AiVision.platform.alarm_device"
+            old_package = "AiVision.platform"
             assert importlib.util.find_spec(old_package) is None
             assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
             # 即使导入代码捕获了异常，也不能掩盖尝试过外部访问或启动任务。

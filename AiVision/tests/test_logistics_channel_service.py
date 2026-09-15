@@ -2410,7 +2410,7 @@ def test_detail_response_adapts_orm_flat_fields_and_camera_relationship():
 @pytest.mark.parametrize("department", ["unknown", "all", " general_electric"])
 def test_camera_api_rejects_unregistered_department_without_writes(service_db, department):
     from fastapi import HTTPException
-    from AiVision.api.cameras import CameraCreateRequest, CameraUpdateRequest, create_camera, patch_camera
+    from AiVision.api.routes.cameras import CameraCreateRequest, CameraUpdateRequest, create_camera, patch_camera
 
     manager = service_db.camera_config_manager
     with pytest.raises(HTTPException) as error:

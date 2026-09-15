@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 
 
-cameras_module = importlib.import_module("AiVision.api.cameras")
+cameras_module = importlib.import_module("AiVision.api.routes.cameras")
 get_camera_frame_jpg = cameras_module.get_camera_frame_jpg
 
 

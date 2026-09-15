@@ -73,7 +73,7 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
     api_app_module.create_app = Mock(return_value=object())
     logger_module = ModuleType("AiVision.core.logger")
     logger_module.logger = logger
-    orchestrator_module = ModuleType("AiVision.platform.orchestrator")
+    orchestrator_module = ModuleType("AiVision.runtime.orchestrator")
     orchestrator_module.init_orchestrator = Mock(return_value=orchestrator)
     uvicorn_module = ModuleType("uvicorn")
 
@@ -98,7 +98,7 @@ def _install_main_runtime_fakes(monkeypatch, exit_mode, signum=None):
     monkeypatch.setitem(sys.modules, "AiVision.core.settings", settings_module)
     monkeypatch.setitem(sys.modules, "AiVision.api.app", api_app_module)
     monkeypatch.setitem(sys.modules, "AiVision.core.logger", logger_module)
-    monkeypatch.setitem(sys.modules, "AiVision.platform.orchestrator", orchestrator_module)
+    monkeypatch.setitem(sys.modules, "AiVision.runtime.orchestrator", orchestrator_module)
     monkeypatch.setitem(sys.modules, "uvicorn", uvicorn_module)
 
     return manager, orchestrator

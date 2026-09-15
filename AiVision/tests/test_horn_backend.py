@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from auth.auth import get_current_user
 from AiVision.api.deps import get_horn_service, get_horn_runtime_manager
-from AiVision.api.horns import router
+from AiVision.api.routes.horns import router
 from AiVision.core.db import Base
 from AiVision.features import all_specs
 from AiVision.alarms.devices.orm import AiHornConfig

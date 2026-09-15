@@ -132,12 +132,12 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
         默认 60 分钟；这不是摄像头 Feature 的 alarm_interval。
     _get_value() / _set_value()：封装查询及“存在则更新、缺失则新增”的事务写入。
 
-    api/exception_alerts.py 提供读写入口；Orchestrator 处理运行异常时读取它，
+    api/routes/exception_alerts.py 提供读写入口；Orchestrator 处理运行异常时读取它，
     api/app.py 处理 API 异常通知时也会读取它，再使用 WeChatNotifier.send_text()。
     凭据仍来自 settings，接收策略来自本表，实际重复告警时间记录由调用方维护。
     服务保存本表不会刷新摄像头缓存，也不会自行发布 ConfigChangeEvent。
 
-八、process_cleanup.py：启动前的 Linux 残留进程清理
+八、runtime/process_cleanup.py（运行时目录）：启动前的 Linux 残留进程清理
 
     cleanup_aivision_residual_processes()：由 Orchestrator 在启动采集/推理前调用，
         输入当前配置的摄像头共享内存名、视频源地址和逻辑模型名。
@@ -162,7 +162,7 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
         该转码分支去除音轨，成功且输出非空后用 os.replace() 替换原文件，最后清理临时文件。
     _TRANSCODE_LOCK：同一进程内串行处理转码，并非整个部署的跨进程文件锁。
 
-    调用方包括 alarms/evidence/evidence_recorder.py、api/alarms.py 的视频访问，
+    调用方包括 alarms/evidence/evidence_recorder.py、api/routes/alarms.py 的视频访问，
     以及集成 Guard Room 的视频接口。它只处理已有视频，不负责采集原始摄像头画面，
     也不负责判断录像开始/结束时机，更不会把 Horn 的语音任务录成证据音轨。
 

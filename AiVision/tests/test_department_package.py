@@ -16,8 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
     "AiVision.departments", "AiVision.departments.department_registry", "AiVision.departments.service",
     "auth.user_store", "auth.auth", "AiVision.features", "AiVision.cameras.config_manager",
     "AiVision.alarms.validation", "AiVision.alarms.records.orm", "AiVision.api.deps",
-    "AiVision.api.departments", "AiVision.api.alarms", "AiVision.api.logistics_channels",
-    "AiVision.platform.orchestrator",
+    "AiVision.api.routes.departments", "AiVision.api.routes.alarms", "AiVision.api.routes.logistics_channels",
+    "AiVision.runtime.orchestrator",
 ])
 def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependencies(entry, tmp_path):
     program = textwrap.dedent("""
@@ -59,9 +59,10 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
             from AiVision.departments import department_registry as registry, service
             from AiVision.cameras import config_manager
             from AiVision.alarms import validation
-            from AiVision.api import departments as departments_api, deps
+            from AiVision.api.routes import departments as departments_api
+            from AiVision.api import deps
             from AiVision.core import db
-            from AiVision.platform import orchestrator
+            from AiVision.runtime import orchestrator
 
             root = Path(sys.argv[2]) / "AiVision/departments"
             for module, filename in (
@@ -111,7 +112,7 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
             assert orchestrator.violation_writer._thread is orchestrator.violation_writer._scheduler is None
             assert orchestrator.alarm_evidence_recorder._writer_threads == []
             assert orchestrator.alarm_evidence_recorder._sampler_thread is None
-            old_package = "AiVision.platform.department"
+            old_package = "AiVision.platform"
             assert importlib.util.find_spec(old_package) is None
             assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
             assert attempts == [], attempts

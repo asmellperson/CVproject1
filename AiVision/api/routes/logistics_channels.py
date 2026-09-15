@@ -13,8 +13,8 @@ from AiVision.api.deps import (
     get_feature_config_manager,
     get_logistics_channel_service,      # 物流通道配置和成员关系管理器
 )
-from AiVision.api.features import FeatureConfigResponse
-from AiVision.api.cameras import encode_frame_to_jpeg, frame_size_headers
+from AiVision.api.routes.features import FeatureConfigResponse
+from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
 from AiVision.features import all_specs
 from AiVision.features.detect_logistics_single_person.constants import (

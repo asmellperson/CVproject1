@@ -503,7 +503,7 @@ def test_electronics_feature_config_and_alarm_rejection():
 
 
 def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatch):
-    from AiVision.platform.orchestrator import Orchestrator
+    from AiVision.runtime.orchestrator import Orchestrator
 
     orchestrator = object.__new__(Orchestrator)
     orchestrator.camera_runtime_manager = Mock(list_running=Mock(return_value=["camera_7"]))
@@ -520,7 +520,7 @@ def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatc
 
 def test_record_api_has_department_scope_pagination_and_auth(library):
     from auth.auth import get_current_user
-    from AiVision.api.face_recognition import router
+    from AiVision.api.routes.face_recognition import router
 
     directory = Path(settings.storage.data_path) / "recognize_face"
     directory.mkdir()
@@ -559,7 +559,7 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
 @pytest.mark.parametrize("threshold", [0.0, .37, 1.0])
 def test_recognition_config_api_preserves_threshold_and_feature_switch(library, monkeypatch, threshold):
     from auth.auth import get_current_user, require_admin
-    from AiVision.api.features import create_features_router
+    from AiVision.api.routes.features import create_features_router
     from AiVision.features._base import config_manager
 
     monkeypatch.setattr(config_manager, "get_session", library.factory)
@@ -593,9 +593,9 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
 
 
 def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(library, monkeypatch):
-    from AiVision.api.cameras import build_camera_frame_response
+    from AiVision.api.routes.cameras import build_camera_frame_response
     from AiVision.features._base import consumer as consumer_module
-    from AiVision.platform.orchestrator import Orchestrator
+    from AiVision.runtime.orchestrator import Orchestrator
 
     frame = np.zeros((120, 200, 3), dtype=np.uint8)
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {"camera_7": frame}, lambda _: True)

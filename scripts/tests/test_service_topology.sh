@@ -25,7 +25,7 @@ status_script="$(<"$PROJECT_ROOT/scripts/status.sh")"
 stop_script="$(<"$PROJECT_ROOT/scripts/stop.sh")"
 vite_config="$(<"$PROJECT_ROOT/unified_frontend/vite.config.ts")"
 aivision_app="$(<"$PROJECT_ROOT/AiVision/api/app.py")"
-managed_visual_services="$(<"$PROJECT_ROOT/AiVision/platform/visual_services/managed.py")"
+managed_visual_services="$(<"$PROJECT_ROOT/AiVision/api/mounted_apps.py")"
 security_vlm_main="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/src/main.py")"
 security_vlm_config="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/configs/config.example.yaml")"
 

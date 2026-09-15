@@ -10,7 +10,7 @@ from AiVision.features import all_specs
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 
-departments_api = importlib.import_module("AiVision.api.departments")
+departments_api = importlib.import_module("AiVision.api.routes.departments")
 DepartmentService = importlib.import_module(
     "AiVision.departments.service"
 ).DepartmentService
@@ -51,7 +51,7 @@ def client_without_database(monkeypatch):
         monkeypatch.setattr(db, name, no_database)
     app = FastAPI()
     app.include_router(departments_api.router)
-    app.include_router(importlib.import_module("AiVision.api.features").router)
+    app.include_router(importlib.import_module("AiVision.api.routes.features").router)
     app.dependency_overrides[get_current_user] = lambda: {
         "role": "viewer", "departments": ["research_institute"],
     }

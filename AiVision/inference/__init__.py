@@ -87,7 +87,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
 
 三、和其他模块怎么联系
 
-    platform/orchestrator.py：负责整体启停，组织摄像头、推理 Worker、Consumer、
+    runtime/orchestrator.py：负责整体启停，组织摄像头、推理 Worker、Consumer、
         物流通道和告警模块；把推理队列交给业务模块，并接收运行异常通知。
         RuntimeManager 负责建队列和管进程；每张图片通过队列直接送入 Worker。
 
@@ -100,7 +100,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
         负责裁剪 ROI、设置任务参数、解释检测结果和判断告警。
         features/detect_logistics_single_person/consumer.py 逐路推理；通道 Runtime 只汇总快照。
 
-    api/models.py → InferenceRuntimeManager → model_paths.py / Worker：
+    api/routes/models.py → InferenceRuntimeManager → model_paths.py / Worker：
         GET /api/models：读取固定模型的配置及运行状态。
         PATCH /api/models/{model_name}/path：管理员保存本机路径，并按运行状态触发重载。
         当前 API 没有动态创建模型、删除模型或启用/禁用单个模型的接口。

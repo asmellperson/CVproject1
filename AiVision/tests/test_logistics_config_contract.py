@@ -23,7 +23,7 @@ from AiVision.tests.test_logistics_single_person import build_consumer, RuntimeS
 @pytest.mark.parametrize('entry', [
     'AiVision.features', 'AiVision.features.detect_logistics_single_person.service',
     'AiVision.features.detect_logistics_single_person.runtime',
-    'AiVision.cameras.config_manager', 'AiVision.platform.orchestrator',
+    'AiVision.cameras.config_manager', 'AiVision.runtime.orchestrator',
 ])
 def test_fresh_process_imports_register_all_features_once(entry):
     script = f'''import importlib
@@ -58,7 +58,7 @@ assert SPEC.orm_class.__tablename__ in Base.metadata.tables
 
 @pytest.fixture
 def member_api(service_db, monkeypatch):
-    from AiVision.api import logistics_channels as api
+    from AiVision.api.routes import logistics_channels as api
     monkeypatch.setattr(db, 'get_session', service_db.factory)
     monkeypatch.setattr(config_manager, 'get_session', service_db.factory)
     monkeypatch.setattr(config_manager, 'config_cache', Mock())

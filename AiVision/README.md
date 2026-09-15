@@ -5,16 +5,24 @@ AiVision 后端重构版采用 **features-first** 架构：每个检测能力都
 ## 目录结构
 
 ```text
-core/                 共享配置、DB、缓存、事件、告警
+core/                 共享配置、DB、缓存、事件及通用媒体工具
 features/             检测功能模块
 features/_base/       功能通用基类、配置管理与 Consumer
-platform/             摄像头、推理、喇叭、违规图片、总编排
+runtime/              总编排、生命周期协调及残留进程清理
+cameras/              摄像头采集、帧读取及配置管理
+inference/            模型加载、推理 Worker 及运行管理
+alarms/               告警分发、设备、通知、记录及证据
+departments/          事业部定义、查询及约束
 integrations/         Guard Room 与 Security VLM 内置业务模块
-api/                  FastAPI 正式路由
+api/                  FastAPI app、依赖注入及视觉子应用挂载适配
+api/routes/           正式 HTTP 路由
 main.py               后端入口
 ```
 
 认证与管理员鉴权直接复用根目录 `auth/auth.py`。
+总编排与进程清理从 `AiVision.runtime` 导入，视觉子应用挂载适配使用
+`AiVision.api.mounted_apps`，HTTP 路由使用 `AiVision.api.routes`。
+旧平台目录已删除，不保留转发包；启动入口、API URL、认证与生命周期顺序保持不变。
 
 ## 启动
 
