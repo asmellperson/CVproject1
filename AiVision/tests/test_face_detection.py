@@ -47,7 +47,7 @@ import importlib.abc, sys
 from unittest.mock import Mock
 class NoIdentity(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith(('AiVision.platform.face_library',
+        if fullname.startswith(('AiVision.features.recognize_face.library',
                                 'AiVision.features.recognize_face', 'ultralytics')):
             raise AssertionError('unexpected import: ' + fullname)
 sys.meta_path.insert(0, NoIdentity())

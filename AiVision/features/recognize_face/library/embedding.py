@@ -1,4 +1,4 @@
-"""增量生成注册人员特征：python -m AiVision.platform.face_library.embedding。"""
+"""增量生成注册人员特征：python -m AiVision.features.recognize_face.library.embedding。"""
 from __future__ import annotations
 
 from contextlib import ExitStack
@@ -70,7 +70,7 @@ def generate_embeddings(
 
 
 def main() -> int:
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
     try:
         from AiVision.core.db import Base, get_engine
         from AiVision.core.settings import settings

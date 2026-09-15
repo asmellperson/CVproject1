@@ -277,6 +277,7 @@ AiVision/integrations/guard_room/config/config.example.yaml
 | `detect_human` | 人员违规逗留检测（通用电气、皓达公司） | 共用算法和 Schema，按摄像头独立配置与计时 | `yolo_human` |
 | `detect_phone` | 手机使用检测 | 手机检测 | `yolo_phone` |
 | `detect_logistics_single_person` | 物流通道单人检测（四个事业部） | 多摄像头联合人数判定 | `yolo_human` |
+| `recognize_face` | 人脸身份识别（电子电工） | 人员特征比对及识别记录 | `insightface` |
 
 人员逗留统一使用 `HumanConsumer`、`HumanConfigSchema` 和 `ai_camera_config_detect_human`。
 摄像头必须明确归属 `general_electric` 或 `haoda_company`，页面入口分别限定事业部；后端按摄像头归属及报警归属快照校验权限。
@@ -313,7 +314,62 @@ required_models # 依赖哪些推理模型
 violation_type  # 违规类型枚举
 ```
 
-`AiVision/features/__init__.py` 会自动扫描所有 feature 子目录，因此新增 feature 时一般不需要改注册表。
+`AiVision/features/__init__.py` 在首次调用 `all_specs()`、`get_spec()` 或 `list_orm_classes()` 时自动扫描所有 feature 子目录，因此新增 feature 时一般不需要改注册表。发现过程串行完成并复用同一注册表，单纯导入包不会提前加载全部功能。
+
+人脸库统一归属 `features/recognize_face/library/`，配置、Consumer 和识别记录实现保留原位置：
+
+```text
+AiVision/features/recognize_face/
+├── __init__.py                         # 延迟导出原有 SPEC、Consumer、ORM 和 Schema
+├── consumer.py
+├── orm.py
+├── schema.py
+├── records.py
+└── library/
+    ├── __init__.py                     # 海康来源标识与同步异常，不启动业务
+    ├── constants.py                    # 模型及索引常量，复用推理模块的检测模型常量
+    ├── orm.py                          # FacePerson、FaceEmbedding
+    ├── service.py                      # 人员查询、整来源快照写入及特征保存
+    ├── index.py                        # 特征字节格式、内存索引及比对
+    ├── sync.py                         # one、two 人员完整同步入口
+    ├── embedding.py                    # 注册照片下载及增量特征生成入口
+    ├── hikvision-face-library-sync.service
+    └── hikvision-face-library-sync.timer
+```
+
+模型加载、检测和特征提取仍在 `inference/`，海康协议及客户端仍在 `connectors/hikvision/`。本轮没有移动或复制这些实现，也没有改变人员唯一性、单脸注册要求、模型维度、归一化、索引刷新、相似度阈值、识别冷却或权限。旧人员库目录已删除，无旧路径兼容层；`platform/` 中其他模块保留。
+
+初始化调整限于两个包入口。新 CLI 路径会先导入 `features` 和 `recognize_face`；若仍在导入时加载所有功能，会在 CLI 读取 `.env` 前初始化必填配置，导致配置错误并漏注册功能。因此保留原 `_discover()` 实现，在首次查询时执行；`recognize_face` 的 SPEC 和公开类按首次访问初始化并缓存，保持同一 SPEC 和类身份。没有改写功能发现规则、跳过注册或复制注册表。纯人脸检测仍不导入身份识别和人员库。
+
+同步与特征生成命令（用于部署后显式执行，本轮未执行真实任务）：
+
+```bash
+python -m AiVision.features.recognize_face.library.sync
+python -m AiVision.features.recognize_face.library.embedding
+```
+
+两个入口的 `.env` 定位均由 `Path(__file__).resolve().parents[2]` 改为 `parents[3]`，仍指向源码所在项目的 `AiVision/.env`，不依赖工作目录；系统环境变量仍优先（`override=False`）。没有复制 `.env` 或凭据。模型配置仍使用原 `MODEL_PATHS_CONFIG` 和 `AiVision/config/model_paths.yaml`，权重路径语义、`DATA_PATH`、识别截图及媒体清理位置不变。表名、字段、外键和索引未变，不需要数据库迁移。
+
+仓库 unit 位于 [同步 service](AiVision/features/recognize_face/library/hikvision-face-library-sync.service) 和 [同步 timer](AiVision/features/recognize_face/library/hikvision-face-library-sync.timer)。service 仅更新 `ExecStart` 的 Python 模块名；timer 仍关联 `hikvision-face-library-sync.service`，保留开机 2 分钟、每次启动间隔 10 分钟、1 秒精度，以及 service 的 8 分钟启动超时、30 秒停止超时和 `root` 用户。
+
+部署前需核实 unit 中的 `WorkingDirectory=/srv/Fuda_CVPreject`、相应项目下的 `AiVision/.env`，以及 `/root/miniconda3/envs/aivision/bin/python`。本轮只读检查发现 `/srv/Fuda_CVPreject` 不存在，指定 Python 文件存在；当前源码实际位于 `/usr/zyy/Fuda_CVPreject_V3`，不能直接把仓库模板当作当前部署配置。标准系统 unit 目录未发现同名 service/timer。本轮未改写这些部署路径、安装或启动 unit，也未执行 daemon-reload；unit 指定 Python 环境的运行依赖未验证。
+
+人脸库迁移验证使用最终工作目录及临时数据。在下方 29 文件回归同样的隔离环境变量下复跑：
+
+```bash
+python -m pytest -q -ra \
+  AiVision/tests/test_{face_library,face_identity,face_detection,model_registry,model_api}.py \
+  AiVision/tests/test_{inference_outcomes,inference_runtime_manager_watchdog,violation_media_cleanup}.py \
+  AiVision/tests/test_{alarm_identity,alarm_api,alarm_access_batch,human_departments}.py
+python -m pytest -q -ra AiVision/tests/test_face_library_package.py
+python -m pytest -q -ra AiVision/tests/test_department_registry.py AiVision/tests/test_hikvision_connector.py
+python -m pytest -q -ra \
+  AiVision/tests/test_{camera_package,inference_package,alarm_package,alarm_device_package,alarm_records_package,alarm_record_evidence,department_package}.py
+```
+
+12 文件专项在迁移前后均为 **280 项通过、0 失败、3 项因当前测试环境缺少 InsightFace 而跳过**；新增 **28 项通过**，覆盖各入口独立导入、七项功能完整注册、单一 ORM/类/索引身份、首次并发查询、四种 CLI 与工作目录组合及 unit 契约。CLI 定位测试拦截原 `.env` 路径并读取临时配置，以 `SQL_ENABLE=false` 验证真实模块入口在配置加载后安全退出，不访问实际凭据或执行同步/生成。
+
+补充的事业部注册与海康协议测试 **42 项通过**，既有七文件包迁移验证 **68 项通过**；下方原 29 文件回归仍为 **767 项通过、0 失败、10 项缺少隔离 MySQL 而跳过**，用例及跳过原因与上一轮一致。测试使用 `/root/miniconda3/bin/python`、临时 SQLite 和媒体、模拟海康与模型，并额外拦截 TCP 外连。没有使用源码副本，原有工作区修改保留；真实 MySQL、海康同步、GPU/InsightFace 推理、现场媒体及 unit 部署未验证。
 
 ### 7.3 核心数据流
 

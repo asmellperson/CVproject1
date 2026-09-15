@@ -3,11 +3,11 @@ from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, JSON, String
 
 from AiVision.core.db import Base
 from AiVision.features._base.orm import FeatureConfigBase
-from AiVision.platform.face_library.constants import (
+from AiVision.features.recognize_face.library.constants import (
     DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
 )
-from AiVision.platform.face_library.orm import FaceEmbedding, FacePerson  # noqa: F401
+from AiVision.features.recognize_face.library.orm import FaceEmbedding, FacePerson  # noqa: F401
 
 
 class FaceRecognitionConfig(FeatureConfigBase):

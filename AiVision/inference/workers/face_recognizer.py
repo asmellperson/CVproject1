@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 
 from AiVision.core.logger import logger
-from AiVision.platform.face_library.constants import (
+from AiVision.features.recognize_face.library.constants import (
     DEFAULT_DETECTION_THRESHOLD, DEFAULT_SIMILARITY_THRESHOLD, DEFAULT_NMS_THRESHOLD,
     INDEX_REFRESH_SECONDS, RECOGNITION_MODEL_FILE,
 )
-from AiVision.platform.face_library.index import FaceIndex
+from AiVision.features.recognize_face.library.index import FaceIndex
 from AiVision.inference.base_worker import BaseModelWorker
 from AiVision.inference.insightface_detector import (
     DETECTION_MODEL_FILE, InsightFaceDetector, load_insightface_model,

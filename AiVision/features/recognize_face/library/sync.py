@@ -1,4 +1,4 @@
-"""手动完整同步 one、two：python -m AiVision.platform.face_library.sync。"""
+"""手动完整同步 one、two：python -m AiVision.features.recognize_face.library.sync。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,7 +18,7 @@ from . import HIKVISION_SOURCES, PersonSyncError
 if TYPE_CHECKING:
     from .service import FaceLibraryService, SyncCounts
 
-_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class HikvisionSyncSettings(BaseSettings):

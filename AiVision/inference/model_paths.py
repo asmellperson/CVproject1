@@ -105,7 +105,7 @@ def validate_model_path(value: str, *, model_type: str = "yolo") -> str:
     try:
         path = path.resolve(strict=True)
         if model_type == "insightface":
-            from AiVision.platform.face_library.constants import MODEL_FILES
+            from AiVision.features.recognize_face.library.constants import MODEL_FILES
 
             if not path.is_dir():
                 raise ValueError("InsightFace 模型路径必须是 buffalo_l 模型目录")

@@ -31,7 +31,7 @@ def isolated_environment(tmp_path):
 @pytest.mark.parametrize("entry", [
     "AiVision.inference.model_registry", "AiVision.inference.runtime_manager",
     "AiVision.inference.workers.face_recognizer", "AiVision.features",
-    "AiVision.platform.orchestrator", "AiVision.platform.face_library.embedding",
+    "AiVision.platform.orchestrator", "AiVision.features.recognize_face.library.embedding",
 ])
 def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_path):
     program = textwrap.dedent("""

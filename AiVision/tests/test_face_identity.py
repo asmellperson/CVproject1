@@ -29,11 +29,11 @@ from AiVision.features.recognize_face.orm import FaceRecognitionConfig, FaceReco
 from AiVision.features.recognize_face.schema import FaceRecognitionConfigSchema
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig
-from AiVision.platform.face_library import PersonSyncError, service
-from AiVision.platform.face_library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
-from AiVision.platform.face_library.embedding import generate_embeddings
-from AiVision.platform.face_library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
-from AiVision.platform.face_library.orm import FaceEmbedding, FacePerson
+from AiVision.features.recognize_face.library import PersonSyncError, service
+from AiVision.features.recognize_face.library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
+from AiVision.features.recognize_face.library.embedding import generate_embeddings
+from AiVision.features.recognize_face.library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
+from AiVision.features.recognize_face.library.orm import FaceEmbedding, FacePerson
 from AiVision.inference import model_paths
 from AiVision.inference.workers import face_recognizer
 

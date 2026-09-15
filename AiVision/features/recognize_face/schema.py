@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from AiVision.features._base.alarm_schema import Params, SqlAlarmParams, HornAlarmParams, WechatAlarmParams
 from AiVision.features._base.roi import NormalizedRoi
-from AiVision.platform.face_library.constants import (
+from AiVision.features.recognize_face.library.constants import (
     DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
 )

@@ -1,6 +1,6 @@
 """
 features/__init__.py
-自动发现所有 feature 子目录并注册到 _REGISTRY。
+首次查询注册表时自动发现所有 feature 子目录并注册到 _REGISTRY。
 
 加新功能 = 新建 features/{name}/ 目录 + 写一个 SPEC = FeatureSpec(...)
 不需要修改本文件,启动时自动扫描。
@@ -8,10 +8,13 @@ features/__init__.py
 from __future__ import annotations
 import importlib
 import pkgutil
+from threading import RLock
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.departments.department_registry import require_department
 
 _REGISTRY: dict[str, FeatureSpec] = {}
+_DISCOVERY_LOCK = RLock()
+_discovered = False
 
 def _discover():
     """扫描 features/ 下所有非下划线开头的子目录"""
@@ -35,16 +38,26 @@ def _discover():
             logger.warning(f"[features] features.{name} 没有导出 SPEC,跳过")
 
 
-_discover()
+def _ensure_discovered() -> None:
+    # 人员库 CLI 位于 feature 子包内，必须能在加载配置前导入其入口。
+    # 保留原发现逻辑，只延迟首次执行；并发查询不能看到未完成的注册表。
+    global _discovered
+    with _DISCOVERY_LOCK:
+        if not _discovered:
+            _discover()
+            _discovered = True
 
 def all_specs() -> dict[str, FeatureSpec]:
     """返回所有已注册的 feature(只读副本)"""
+    _ensure_discovered()
     return dict(_REGISTRY)
 
 def get_spec(name: str) -> FeatureSpec | None:
+    _ensure_discovered()
     return _REGISTRY.get(name)
 
 
 def list_orm_classes() -> list[type]:
     """返回所有 feature 的 ORM 类 — 启动时 Base.metadata.create_all 需要"""
+    _ensure_discovered()
     return [s.orm_class for s in _REGISTRY.values()]

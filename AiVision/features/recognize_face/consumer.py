@@ -6,7 +6,7 @@ import time
 import cv2
 
 from AiVision.features._base.consumer import BaseFunctionConsumer
-from AiVision.platform.face_library.constants import (
+from AiVision.features.recognize_face.library.constants import (
     DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
 )
