@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from auth.auth import (
     AuthError,
@@ -51,7 +52,11 @@ from auth.auth import (
     update_auth_user,
     verify_login,
 )
-from unified_backend.alarm_dispositions import AlarmDispositionStore
+from auth.alarm_permissions import DEPARTMENT_EVENT_TYPES, allowed_alarm_event_types
+from unified_backend.alarm_dispositions import AlarmDispositionStore, DispositionStoreBusy
+from unified_backend.disposition_queries import (
+    DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DispositionPage, DispositionQueries,
+)
 from unified_backend.access_audit import (
     DEFAULT_ACCESS_AUDIT_LIMIT,
     MAX_ACCESS_AUDIT_LIMIT,
@@ -209,43 +214,6 @@ GUARD_EVENT_META: dict[str, dict[str, str]] = {
     "prone_sleep": {"event_type": "guard_prone_sleep", "event_label": "保安趴睡"},
 }
 
-DEPARTMENT_EVENT_TYPES: dict[str, set[str]] = {
-    "general_electric": {
-        "security_vlm_non_compliant",
-        "security_vlm_error",
-        "guard_absent",
-        "guard_phone_use",
-        "guard_prone_sleep",
-        "detect_human",
-        "detect_logistics_single_person",
-    },
-    "research_institute": {
-        "blocks",
-        "detect_face",
-        "detect_phone",
-    },
-    "electronics_electrician": {
-        "security_vlm_non_compliant",
-        "security_vlm_error",
-        "guard_absent",
-        "guard_phone_use",
-        "guard_prone_sleep",
-        "detect_logistics_single_person",
-    },
-    "electrical_components": {
-        "security_vlm_non_compliant",
-        "security_vlm_error",
-        "detect_logistics_single_person",
-    },
-    "precious_metal_recycling": {
-        "security_vlm_non_compliant",
-        "security_vlm_error",
-        "detect_logistics_single_person",
-    },
-    "haoda_company": {
-        "detect_human",
-    },
-}
 
 SECURITY_VLM_DEPARTMENTS = (
     "general_electric",
@@ -794,19 +762,7 @@ def _normalize_security_vlm_alarm(
 #          '').strip`、`str`、`user.get`、`set`、`_departments_for_user`、`DEPARTMENT_EVENT_TYPES.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
-    role = str(user.get("role") or "").strip().lower()
-    if role == "admin":
-        return None
-    if role != "viewer":
-        return set()
-    departments = _departments_for_user(user)
-    if "all" in departments:
-        return None
-    return {
-        event_type
-        for department in departments
-        for event_type in DEPARTMENT_EVENT_TYPES.get(department, set())
-    }
+    return allowed_alarm_event_types(user, _departments_for_user(user))
 
 
 # 功能：实现 `_guard_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1084,14 +1040,13 @@ def _collect_alarms(
                 if alarm:
                     alarms.append(alarm)
 
-    disposition_map = {
-        str(item.get("alarm_id")): item
-        for item in disposition_store.list_items()
-        if isinstance(item, dict) and item.get("alarm_id")
-    }
-    merged = [_with_disposition(alarm, disposition_map) for alarm in alarms]
-    scoped = _filter_alarms(merged, user=user, event_types=event_types)
-    return sorted(scoped, key=_alarm_sort_key, reverse=True)[:limit]
+    scoped = _filter_alarms(alarms, user=user, event_types=event_types)
+    selected = sorted(scoped, key=_alarm_sort_key, reverse=True)[:limit]
+    try:
+        disposition_map = disposition_store.get_many(str(alarm["id"]) for alarm in selected)
+    except DispositionStoreBusy as exc:
+        raise HTTPException(status_code=503, detail="disposition store busy; retry") from exc
+    return [_with_disposition(alarm, disposition_map) for alarm in selected]
 
 
 # 功能：创建或构建 `_build_alarm_statistics` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1517,7 +1472,12 @@ def create_app() -> FastAPI:
         proxy_client = AsyncProxyClient(ProxySettings.from_env())
         app.state.proxy_client = proxy_client
         try:
-            yield
+            disposition_queries = DispositionQueries(aivision_url)
+            app.state.disposition_queries = disposition_queries
+            try:
+                yield
+            finally:
+                await disposition_queries.close()
         finally:
             await proxy_client.close()
 
@@ -2017,48 +1977,35 @@ def create_app() -> FastAPI:
         except UserStoreError as exc:
             _raise_user_management_http_error(exc)
 
-    # 功能：读取或查询 `get_alarm_dispositions` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/alarm-dispositions')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`disposition_store.list_items`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def aivision_disposition_visible(alarm_id: str, request: Request, user: dict) -> bool:
-        if user.get("role") == "admin" or not alarm_id.startswith("aivision:"):
-            return True
-        source_id = alarm_id.removeprefix("aivision:")
-        if not source_id.isascii() or not source_id.isdecimal():
-            return False
-        alarm = _get_upstream_json(aivision_url, f"/api/alarms/{source_id}", request)
-        return isinstance(alarm, dict) and bool(_filter_alarms([_normalize_aivision_alarm(alarm)], user=user))
+    @app.get("/api/alarm-dispositions", response_model=DispositionPage)
+    async def get_alarm_dispositions(
+        request: Request,
+        limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+        cursor: str | None = Query(None, min_length=1, max_length=128),
+        user: dict = Depends(get_current_user),
+    ):
+        return await app.state.disposition_queries.page(
+            disposition_store, request, user, limit=limit, cursor=cursor,
+        )
 
-    @app.get("/api/alarm-dispositions")
-    def get_alarm_dispositions(request: Request, user: dict = Depends(get_current_user)):
-        items = disposition_store.list_items()
-        checks = [(item, _PLATFORM_STATUS_EXECUTOR.submit(aivision_disposition_visible, item["alarm_id"], request, user))
-                  for item in items]
-        return {"items": [item for item, future in checks if future.result()]}
-
-    # 功能：更新或保存 `update_alarm_disposition` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `payload`（AlarmDispositionUpdateRequest）：接口或事件携带的业务数据
-    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/alarm-dispositions')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`disposition_store.update`、`HTTPException`、`str`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/alarm-dispositions")
-    def update_alarm_disposition(payload: AlarmDispositionUpdateRequest, request: Request, user: dict = Depends(get_current_user)):
-        if not aivision_disposition_visible(payload.alarm_id.strip(), request, user):
-            raise HTTPException(status_code=403, detail="alarm department permission required")
+    @app.get("/api/alarm-dispositions/{alarm_id}")
+    async def get_alarm_disposition(alarm_id: str, request: Request, user: dict = Depends(get_current_user)):
+        await app.state.disposition_queries.require_access(alarm_id, request, user)
         try:
-            item = disposition_store.update(
-                alarm_id=payload.alarm_id,
-                status=payload.status,
-                note=payload.note,
-                user=user,
+            item = disposition_store.get_many([alarm_id]).get(alarm_id)
+        except DispositionStoreBusy as exc:
+            raise HTTPException(status_code=503, detail="disposition store busy; retry") from exc
+        if item is None:
+            raise HTTPException(status_code=404, detail="disposition not found")
+        return {"item": item}
+
+    @app.post("/api/alarm-dispositions")
+    async def update_alarm_disposition(payload: AlarmDispositionUpdateRequest, request: Request, user: dict = Depends(get_current_user)):
+        await app.state.disposition_queries.require_access(payload.alarm_id.strip(), request, user)
+        try:
+            item = await run_in_threadpool(
+                disposition_store.update,
+                alarm_id=payload.alarm_id, status=payload.status, note=payload.note, user=user,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

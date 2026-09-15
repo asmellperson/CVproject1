@@ -385,6 +385,8 @@ AiVision/
 /api/logistics-channels/{feature}/{channel_id}/frame.jpg
 ```
 
+统一后端处置接口 `/api/alarm-dispositions` 使用有界游标分页，默认 50 条、最多 100 条；分页、权限、错误处理及性能边界见[报警处置接口说明](unified_backend/alarm_dispositions.md)。
+
 ### 7.6 物流通道多摄像头单人检测
 
 统一的 `detect_logistics_single_person` feature 面向通用电气、电子电工、电气部件和伟达公司四个事业部，通道及成员按事业部隔离。管理员在对应模块的配置页新建具名通道，然后新建或绑定摄像头；每个通道支持 1–9 路摄像头，每路摄像头单独保存 ROI。监控页按成员顺序自动拼接：1 路单画面、2 路左右、3–4 路 2×2、5–9 路 3×3。

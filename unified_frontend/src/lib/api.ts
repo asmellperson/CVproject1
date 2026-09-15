@@ -255,14 +255,18 @@ export type AlarmDisposition = {
   updated_by?: AlarmDispositionActor | null
 }
 
-type AlarmDispositionsResponse = {
-  items?: AlarmDisposition[]
+export type AlarmDispositionsPage = {
+  items: AlarmDisposition[]
+  next_cursor: string | null
+  stop_reason: 'page_full' | 'scan_limit' | 'end'
 }
 
-export const getAlarmDispositions = async (): Promise<AlarmDisposition[]> => {
-  const data = await apiGet<AlarmDispositionsResponse>('/alarm-dispositions')
-  return data.items || []
-}
+// scan_limit 可能返回空页；只有 next_cursor === null 才表示结束。
+export const getAlarmDispositions = (
+  options: { limit?: number; cursor?: string | null } = {},
+  signal?: AbortSignal,
+): Promise<AlarmDispositionsPage> =>
+  apiGet<AlarmDispositionsPage>(withQuery('/alarm-dispositions', options), { signal })
 
 export const updateAlarmDisposition = async (
   alarmId: string,

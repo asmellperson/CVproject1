@@ -4,12 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import os
 from collections import Counter, defaultdict                        # 自动计数字典，主要用于告警类型统计、摄像头告警排行、小时告警统计
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse                         # FileResponse：直接把磁盘上的文件作为HTTP响应返回
 from pydantic import BaseModel, ConfigDict, Field                  # ConfigDict：API数据库严格模式，Field:字段默认值
 from auth.auth import get_current_user, token_from_request
+from auth.alarm_permissions import allowed_alarm_event_types
 from AiVision.api.cameras import _camera_departments_for_user, camera_read_department
 from AiVision.core.alarm.notification_image import thumbnail_response, verify_thumbnail_token
 
@@ -246,6 +247,32 @@ def _scoped_query(session, user: dict, department: str | None = None, feature: s
 def _require_alarm_access(row, user: dict) -> None:
     if user.get("role") != "admin" and row.department not in _camera_departments_for_user(user):
         raise HTTPException(status_code=403, detail="alarm department permission required")
+
+
+class AlarmAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    alarm_ids: list[Annotated[int, Field(strict=True, gt=0, le=2**64 - 1)]] = Field(min_length=1, max_length=100)
+
+
+class AlarmAccessResponse(BaseModel):
+    allowed_ids: list[int]
+
+
+@router.post("/access-check", response_model=AlarmAccessResponse)
+def check_alarm_access(payload: AlarmAccessRequest, user: dict = Depends(get_current_user)):
+    """按完整历史 ID 批量授权，只返回当前登录用户可见的 ID。"""
+    session = get_session()
+    try:
+        query = _scoped_query(session, user).with_entities(AiAlarmEvent.id)
+        allowed_types = allowed_alarm_event_types(user, _camera_departments_for_user(user))
+        if allowed_types is not None:
+            query = query.filter(AiAlarmEvent.violation_type.in_(
+                [number for number, meta in _TYPE_META.items() if meta["event_type"] in allowed_types]
+            ))
+        rows = query.filter(AiAlarmEvent.id.in_(payload.alarm_ids)).order_by(AiAlarmEvent.id).all()
+        return {"allowed_ids": [row[0] for row in rows]}
+    finally:
+        session.close()
 
 
 @router.get("", response_model=AlarmListResponse)
