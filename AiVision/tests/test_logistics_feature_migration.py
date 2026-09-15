@@ -3,8 +3,8 @@ import pytest
 from sqlalchemy import create_engine, event, inspect, select, text
 
 from AiVision.core.schema import assert_table_matches
-from AiVision.features.detect_logistics_single_person import SPEC
-from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.logistics_channel.spec import SPEC
+from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
 from AiVision.migrations import logistics_feature_20260914 as migration
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig

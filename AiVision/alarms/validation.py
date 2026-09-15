@@ -12,7 +12,7 @@ def validate_alarm_identity(violation_type: int, feature_name: str, department: 
         raise ValueError("新告警必须明确提供 department")
     require_department(department)
     # Feature 发现过程中会导入告警模块；实际创建告警时注册表已就绪。
-    from AiVision.features import get_spec
+    from AiVision.features.registry import get_spec
 
     spec = get_spec(feature_name)
     if spec is None:

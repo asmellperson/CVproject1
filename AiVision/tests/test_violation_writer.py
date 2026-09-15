@@ -208,7 +208,7 @@ def test_snapshot_failure_does_not_block_drain(writer_db, monkeypatch):
 
 
 def test_shared_media_cleanup_reuses_one_immediate_scheduler_job(writer_db, monkeypatch):
-    from AiVision.features.recognize_face.records import RecognitionMediaReferences
+    from AiVision.features.face_recognition.records import RecognitionMediaReferences
 
     writer, _, scope = writer_db
     references = RecognitionMediaReferences(scope)

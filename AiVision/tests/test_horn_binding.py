@@ -10,11 +10,11 @@ from AiVision.api.deps import get_logistics_channel_service
 from AiVision.api.routes.features import create_features_router
 from AiVision.api.routes.logistics_channels import router as logistics_router
 from AiVision.alarms.dispatcher import AlarmDispatcher
-from AiVision.features import get_spec
-from AiVision.features._base.config_manager import FeatureConfigManager
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features.registry import get_spec
+from AiVision.features._shared.config_manager import FeatureConfigManager
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.features.detect_logistics_single_person.service import LogisticsChannelService
+from AiVision.features.logistics_channel.service import LogisticsChannelService
 from test_horn_backend import backend, payload
 from test_horn_runtime_manager import runtime, config as runtime_config
 from test_logistics_channel_runtime import build_runtime, channel, snapshot, FEATURE
@@ -22,8 +22,8 @@ from test_logistics_channel_runtime import build_runtime, channel, snapshot, FEA
 
 @pytest.fixture
 def binding_api(backend, monkeypatch):
-    import AiVision.features._base.config_manager as feature_module
-    import AiVision.features.detect_logistics_single_person.service as channel_module
+    import AiVision.features._shared.config_manager as feature_module
+    import AiVision.features.logistics_channel.service as channel_module
 
     cache = SimpleNamespace(reload=lambda: None)
     bus = SimpleNamespace(publish=lambda event: backend.notifications.append(event))
@@ -127,7 +127,7 @@ def test_logistics_native_round_trip_disable_and_device_validation(binding_api):
 
 
 def trigger_feature(dispatcher, monkeypatch, *, horn_id=1, task=7, enabled=True, feature='detect_human', camera_id=1):
-    import AiVision.features._base.consumer as consumer_module
+    import AiVision.features._shared.consumer as consumer_module
     monkeypatch.setattr(consumer_module, 'alarm_dispatcher', dispatcher)
     consumer = SimpleNamespace(config_cache={camera_id: {'horn_enable': enabled, 'horn_id': horn_id,
         'horn_event_id': task, 'sql_enable': True, 'wechat_enable': True, 'wechat_user': 'test-user',

@@ -135,7 +135,7 @@ class ConfigCache:
         每条配置经 _enrich_function_config() 注入摄像头基础字段后存入缓存。
         新增功能只需在 features 注册表中注册，此处自动覆盖，无需修改本文件。
         """
-        from AiVision.features import all_specs
+        from AiVision.features.registry import all_specs
         session = get_session()
         try:
             for spec in all_specs().values():
@@ -169,7 +169,7 @@ class ConfigCache:
         数据库中该配置已删除时，从缓存中移除对应条目；
         存在时重新读取并重新注入摄像头基础字段后覆盖。
         """
-        from AiVision.features import get_spec
+        from AiVision.features.registry import get_spec
         spec = get_spec(feature_name)
         if spec is None:
             return  # 未注册的功能，无法定位 ORM 表，跳过

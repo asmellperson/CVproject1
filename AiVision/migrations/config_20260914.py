@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Integer, MetaData, Table, cast, create_engine, i
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from AiVision.core.schema import assert_table_matches
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from AiVision.migrations.value_changes import apply_row_changes, check_row_ids
 
 
@@ -43,7 +43,7 @@ def specs():
     # 冻结旧版离线迁移契约；正式 Feature 注册表不注册历史功能。
     from dataclasses import replace
     from AiVision.core.db import Base
-    from AiVision.features._base.orm import FeatureConfigBase
+    from AiVision.features._shared.orm import FeatureConfigBase
     legacy_name = "detect_human_haoda"
     legacy_table = "ai_camera_config_" + legacy_name
     if legacy_table not in Base.metadata.tables:

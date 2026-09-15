@@ -1,4 +1,4 @@
-from AiVision.features.detect_logistics_single_person.schema import LogisticsChannelConfigUpdate
+from AiVision.features.logistics_channel.schema import LogisticsChannelConfigUpdate
 # 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -17,7 +17,7 @@ from fastapi.routing import serialize_response
 api = importlib.import_module("AiVision.api.routes.logistics_channels")
 
 FEATURES = tuple(sorted(importlib.import_module(
-    "AiVision.features.detect_logistics_single_person.constants"
+    "AiVision.features.logistics_channel.constants"
 ).LOGISTICS_FEATURES))
 ADMIN = {"role": "admin", "departments": ["all"]}
 

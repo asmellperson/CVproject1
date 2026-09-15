@@ -94,11 +94,11 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
     cameras/：CameraRuntime 读取 RTSP 并写共享内存；FrameReader 读取最新帧。
         模型 Worker 不负责连接 RTSP，收到的是业务模块准备好的 frame。
 
-    features/_base/spec.py 与 features/<功能>/__init__.py：
+    features/_shared/spec.py 与 features/<功能>/__init__.py：
         FeatureSpec.required_models 声明功能使用的逻辑模型名，all_specs() 汇总功能。
-        features/_base/consumer.py 提供投递任务、等待结果等公共能力；具体 Consumer
+        features/_shared/consumer.py 提供投递任务、等待结果等公共能力；具体 Consumer
         负责裁剪 ROI、设置任务参数、解释检测结果和判断告警。
-        features/detect_logistics_single_person/consumer.py 逐路推理；通道 Runtime 只汇总快照。
+        features/logistics_channel/consumer.py 逐路推理；通道 Runtime 只汇总快照。
 
     api/routes/models.py → InferenceRuntimeManager → model_paths.py / Worker：
         GET /api/models：读取固定模型的配置及运行状态。

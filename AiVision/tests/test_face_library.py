@@ -10,9 +10,9 @@ from sqlalchemy.orm import sessionmaker
 
 from AiVision.connectors.hikvision import HikvisionError, HikvisionPerson, HikvisionPersons, PersonPage
 from AiVision.core import db
-from AiVision.features.recognize_face.library import service, sync
-from AiVision.features.recognize_face.library.orm import FacePerson
-from AiVision.features.recognize_face.library.service import FaceLibraryService, SyncCounts
+from AiVision.features.face_recognition.library import service, sync
+from AiVision.features.face_recognition.library.orm import FacePerson
+from AiVision.features.face_recognition.library.service import FaceLibraryService, SyncCounts
 
 
 def person(person_id="person-a", **values):

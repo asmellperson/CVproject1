@@ -20,7 +20,7 @@ from typing import Callable
 
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from .model_registry import MODEL_SPECS, get_model_spec
 from .model_paths import load_model_paths, save_model_path, validate_model_path
 

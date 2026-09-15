@@ -13,9 +13,9 @@ from sqlalchemy.pool import StaticPool
 
 from AiVision.core import db
 from AiVision.core.cache import ConfigCache
-from AiVision.features import all_specs, get_spec
-from AiVision.features._base import config_manager
-from AiVision.features._base.alarm_schema import AlarmConfigSchema
+from AiVision.features.registry import all_specs, get_spec
+from AiVision.features._shared import config_manager
+from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 from AiVision.cameras.orm import AiCameraConfig
 
 

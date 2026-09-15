@@ -8,10 +8,10 @@ import pytest
 from auth.auth import get_current_user
 from AiVision.api.deps import get_current_orchestrator
 from AiVision.api.routes import alarms, runtime
-from AiVision.features import all_specs
-from AiVision.features.detect_human import SPEC
-from AiVision.features.detect_human.consumer import HumanConsumer
-from AiVision.features.detect_human.schema import HumanConfigSchema
+from AiVision.features.registry import all_specs
+from AiVision.features.person_dwell.spec import SPEC
+from AiVision.features.person_dwell.consumer import HumanConsumer
+from AiVision.features.person_dwell.schema import HumanConfigSchema
 from AiVision.cameras.config_manager import camera_access_departments
 from AiVision.alarms.records.orm import AiAlarmEvent
 from test_feature_department_enable import department_api, create_camera, save

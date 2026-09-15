@@ -11,7 +11,7 @@ from test_alarm_device_package import isolated_environment
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = "AiVision.features.recognize_face.library"
+LIBRARY = "AiVision.features.face_recognition.library"
 NO_EXTERNAL = """
 from contextlib import ExitStack
 import importlib
@@ -59,7 +59,7 @@ def run_isolated(program, tmp_path, *args, env=None, cwd=None):
 @pytest.mark.parametrize("entry", [
     LIBRARY, *(f"{LIBRARY}.{name}" for name in ("constants", "orm", "index", "service", "sync", "embedding")),
     "AiVision.inference.model_registry", "AiVision.inference.workers.face_recognizer",
-    "AiVision.inference.model_paths", "AiVision.features", "AiVision.features.recognize_face",
+    "AiVision.inference.model_paths", "AiVision.features", "AiVision.features.face_recognition",
     "AiVision.api.routes.face_recognition", "AiVision.api.routes.models", "AiVision.runtime.orchestrator",
 ])
 def test_import_orders_share_features_models_and_library_classes_without_running_business(entry, tmp_path):
@@ -67,13 +67,13 @@ def test_import_orders_share_features_models_and_library_classes_without_running
 stack.enter_context(patch('threading.Thread.start', side_effect=forbid('thread start')))
 stack.enter_context(patch('dotenv.load_dotenv', side_effect=forbid('dotenv load')))
 importlib.import_module(sys.argv[1])
-from AiVision import features
+import AiVision.features.registry as features
 specs = features.all_specs()
 assert set(specs) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face'}
-from AiVision.features import recognize_face
-from AiVision.features.recognize_face import consumer, orm as recognition_orm, records, schema
-from AiVision.features.recognize_face import library
-from AiVision.features.recognize_face.library import constants, orm, index, service, sync, embedding
+import AiVision.features.face_recognition.spec as face_spec
+from AiVision.features.face_recognition import consumer, orm as recognition_orm, records, schema
+from AiVision.features.face_recognition import library
+from AiVision.features.face_recognition.library import constants, orm, index, service, sync, embedding
 from AiVision.inference import model_registry, model_paths, insightface_detector
 from AiVision.inference.workers import face_recognizer
 from AiVision.core import db, system_config
@@ -81,7 +81,7 @@ from sqlalchemy.orm import configure_mappers
 import gc
 import pickle
 
-root = Path(sys.argv[2]) / 'AiVision/features/recognize_face/library'
+root = Path(sys.argv[2]) / 'AiVision/features/face_recognition/library'
 for module in (library, constants, orm, index, service, sync, embedding):
     assert Path(module.__file__).parent == root
     assert sum(getattr(item, '__file__', None) == module.__file__ for item in list(sys.modules.values())) == 1
@@ -94,10 +94,10 @@ assert face_recognizer.FaceIndex is index.FaceIndex
 assert embedding.photo_signature is service.photo_signature is index.photo_signature
 assert model_registry.MODEL_SPECS['insightface'].worker_class is face_recognizer.FaceRecognizerWorker
 assert constants.DETECTION_MODEL_FILE is insightface_detector.DETECTION_MODEL_FILE
-assert specs['recognize_face'] is recognize_face.SPEC is features.get_spec('recognize_face')
-assert recognize_face.FaceRecognitionConsumer is consumer.FaceRecognitionConsumer is specs['recognize_face'].consumer_cls
-assert recognize_face.FaceRecognitionConfig is recognition_orm.FaceRecognitionConfig is specs['recognize_face'].orm_class
-assert recognize_face.FaceRecognitionConfigSchema is schema.FaceRecognitionConfigSchema is specs['recognize_face'].config_schema
+assert specs['recognize_face'] is face_spec.SPEC is features.get_spec('recognize_face')
+assert face_spec.FaceRecognitionConsumer is consumer.FaceRecognitionConsumer is specs['recognize_face'].consumer_cls
+assert face_spec.FaceRecognitionConfig is recognition_orm.FaceRecognitionConfig is specs['recognize_face'].orm_class
+assert face_spec.FaceRecognitionConfigSchema is schema.FaceRecognitionConfigSchema is specs['recognize_face'].config_schema
 assert records.FaceRecognitionRecord is recognition_orm.FaceRecognitionRecord
 configure_mappers()
 for cls in (orm.FacePerson, orm.FaceEmbedding):
@@ -117,10 +117,10 @@ assert attempts == [], attempts
 
 
 @pytest.mark.parametrize("entry", [
-    "AiVision.features", "AiVision.features.recognize_face", LIBRARY,
+    "AiVision.features", "AiVision.features.face_recognition", LIBRARY,
     *(f"{LIBRARY}.{name}" for name in ("constants", "index", "sync", "embedding")),
 ])
-def test_library_entry_import_does_not_require_settings_or_discover_features(entry, tmp_path):
+def test_library_entry_import_does_not_require_settings_or_load_registry(entry, tmp_path):
     env = isolated_environment(tmp_path)
     for key in list(env):
         if key.startswith(("MYSQL_", "HIKVISION_")) or key == "DATA_PATH":
@@ -130,10 +130,11 @@ stack.enter_context(patch('threading.Thread.start', side_effect=forbid('thread s
 stack.enter_context(patch('dotenv.load_dotenv', side_effect=forbid('dotenv load')))
 importlib.import_module(sys.argv[1])
 from AiVision import features
-assert features._REGISTRY == {} and not features._discovered
+assert 'AiVision.features.registry' not in sys.modules
+assert not any(name in vars(features) for name in ('all_specs', 'get_spec', 'list_orm_classes', '_REGISTRY'))
 assert 'AiVision.core.settings' not in sys.modules
 assert 'AiVision.core.db' not in sys.modules
-assert 'AiVision.features.recognize_face.consumer' not in sys.modules
+assert 'AiVision.features.face_recognition.consumer' not in sys.modules
 assert attempts == [], attempts
 """
     run_isolated(program, tmp_path, entry, env=env)
@@ -179,22 +180,24 @@ from AiVision.core.settings import settings
 assert settings.db.name == 'process-priority' and settings.db.user == 'test-only'
 assert settings.db.enable is False
 assert Path(settings.storage.data_path) == Path(sys.argv[3]).parent / 'media'
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 assert set(all_specs()) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face'}
 assert attempts == [], attempts
 """
     run_isolated(program, tmp_path, entry, REPO_ROOT, config, env=env, cwd=cwd)
 
 
-def test_concurrent_first_queries_and_public_exports_share_one_registration(tmp_path):
+def test_concurrent_registry_and_spec_imports_share_one_registration(tmp_path):
     program = NO_EXTERNAL + """
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
-from AiVision import features
-from AiVision.features import recognize_face
 barrier = Barrier(8)
 def query(i):
     barrier.wait(timeout=10)
+    if i % 4 == 3:
+        from AiVision.features.face_recognition.spec import SPEC
+        return SPEC
+    import AiVision.features.registry as features
     if i % 4 == 0:
         return features.all_specs()['recognize_face']
     if i % 4 == 1:
@@ -202,10 +205,11 @@ def query(i):
     if i % 4 == 2:
         assert len(features.list_orm_classes()) == 7
         return features.get_spec('recognize_face')
-    return recognize_face.SPEC
 with ThreadPoolExecutor(max_workers=8) as executor:
     results = list(executor.map(query, range(8)))
-assert all(item is recognize_face.SPEC for item in results)
+import AiVision.features.registry as features
+import AiVision.features.face_recognition.spec as face_spec
+assert all(item is face_spec.SPEC for item in results)
 assert len(features.all_specs()) == 7
 assert attempts == [], attempts
 """
@@ -213,11 +217,11 @@ assert attempts == [], attempts
 
 
 def test_units_preserve_deployment_paths_schedule_and_service_link():
-    root = REPO_ROOT / "AiVision/features/recognize_face/library"
+    root = REPO_ROOT / "AiVision/features/face_recognition/library"
     unit = configparser.ConfigParser(interpolation=None)
     unit.read(root / "hikvision-face-library-sync.service")
     assert unit["Service"]["ExecStart"] == (
-        "/root/miniconda3/envs/aivision/bin/python -m AiVision.features.recognize_face.library.sync"
+        "/root/miniconda3/envs/aivision/bin/python -m AiVision.features.face_recognition.library.sync"
     )
     assert dict(unit["Service"]) == {
         "type": "oneshot", "user": "root", "workingdirectory": "/srv/Fuda_CVPreject",

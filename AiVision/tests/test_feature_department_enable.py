@@ -9,12 +9,12 @@ from AiVision.api.routes.cameras import router as camera_router
 from AiVision.api.deps import get_camera_config_manager
 from AiVision.api.routes.features import create_features_router
 from AiVision.core.cache import ConfigCache
-from AiVision.features import all_specs, get_spec
-from AiVision.features._base.config_manager import FeatureConfigManager
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features.registry import all_specs, get_spec
+from AiVision.features._shared.config_manager import FeatureConfigManager
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.cameras.config_manager import CameraConfigManager
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from test_horn_backend import backend
 
 
@@ -25,7 +25,7 @@ SINGLE_DEPARTMENT_FEATURES = [spec for spec in ORDINARY_FEATURES if len(spec.dep
 @pytest.fixture
 def department_api(backend, monkeypatch):
     import AiVision.core.cache as cache_module
-    import AiVision.features._base.config_manager as feature_module
+    import AiVision.features._shared.config_manager as feature_module
     import AiVision.cameras.config_manager as camera_module
 
     cache = ConfigCache()
@@ -144,7 +144,7 @@ def test_single_department_enable_commits_autofill_before_cache_and_events(
         assert cfg["sql_enable"] is False
         return
 
-    import AiVision.features._base.consumer as consumer_module
+    import AiVision.features._shared.consumer as consumer_module
     requests = []
     monkeypatch.setattr(consumer_module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: requests.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},

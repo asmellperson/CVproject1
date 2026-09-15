@@ -23,17 +23,18 @@ from sqlalchemy.pool import StaticPool
 from AiVision.core import db
 from AiVision.core.media_cleanup import MediaCleaner
 from AiVision.core.settings import settings
-from AiVision.features.recognize_face import SPEC, records
-from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
-from AiVision.features.recognize_face.orm import FaceRecognitionConfig, FaceRecognitionRecord
-from AiVision.features.recognize_face.schema import FaceRecognitionConfigSchema
+from AiVision.features.face_recognition.spec import SPEC
+from AiVision.features.face_recognition import records
+from AiVision.features.face_recognition.consumer import FaceRecognitionConsumer
+from AiVision.features.face_recognition.orm import FaceRecognitionConfig, FaceRecognitionRecord
+from AiVision.features.face_recognition.schema import FaceRecognitionConfigSchema
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig
-from AiVision.features.recognize_face.library import PersonSyncError, service
-from AiVision.features.recognize_face.library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
-from AiVision.features.recognize_face.library.embedding import generate_embeddings
-from AiVision.features.recognize_face.library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
-from AiVision.features.recognize_face.library.orm import FaceEmbedding, FacePerson
+from AiVision.features.face_recognition.library import PersonSyncError, service
+from AiVision.features.face_recognition.library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
+from AiVision.features.face_recognition.library.embedding import generate_embeddings
+from AiVision.features.face_recognition.library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
+from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson
 from AiVision.inference import model_paths
 from AiVision.inference.workers import face_recognizer
 
@@ -439,7 +440,7 @@ def test_failed_commit_rolls_back_and_removes_snapshot(library, monkeypatch, rec
 
 
 def test_consumer_owns_record_worker_lifecycle(library, monkeypatch):
-    from AiVision.features._base.consumer import BaseFunctionConsumer
+    from AiVision.features._shared.consumer import BaseFunctionConsumer
 
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
     calls = []
@@ -560,7 +561,7 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
 def test_recognition_config_api_preserves_threshold_and_feature_switch(library, monkeypatch, threshold):
     from auth.auth import get_current_user, require_admin
     from AiVision.api.routes.features import create_features_router
-    from AiVision.features._base import config_manager
+    from AiVision.features._shared import config_manager
 
     monkeypatch.setattr(config_manager, "get_session", library.factory)
     monkeypatch.setattr(config_manager, "config_cache", Mock())
@@ -594,7 +595,7 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
 
 def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(library, monkeypatch):
     from AiVision.api.routes.cameras import build_camera_frame_response
-    from AiVision.features._base import consumer as consumer_module
+    from AiVision.features._shared import consumer as consumer_module
     from AiVision.runtime.orchestrator import Orchestrator
 
     frame = np.zeros((120, 200, 3), dtype=np.uint8)

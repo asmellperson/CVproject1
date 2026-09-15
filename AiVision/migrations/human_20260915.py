@@ -18,7 +18,7 @@ import struct
 from sqlalchemy import Boolean, Integer, JSON, MetaData, String, Table, cast, create_engine, inspect, select, text
 
 from AiVision.core.schema import assert_table_matches
-from AiVision.features.detect_human import SPEC
+from AiVision.features.person_dwell.spec import SPEC
 
 
 REVISION = "human_20260915"

@@ -15,12 +15,12 @@ from sqlalchemy.schema import CreateColumn
 
 from AiVision.core.schema import assert_table_matches
 from AiVision.migrations.value_changes import apply_row_changes, check_row_ids
-from AiVision.features.detect_logistics_single_person import SPEC
-from AiVision.features.detect_logistics_single_person.constants import MAX_CAMERAS_PER_CHANNEL
-from AiVision.features.detect_logistics_single_person.orm import (
+from AiVision.features.logistics_channel.spec import SPEC
+from AiVision.features.logistics_channel.constants import MAX_CAMERAS_PER_CHANNEL
+from AiVision.features.logistics_channel.orm import (
     LogisticsChannel, LogisticsChannelCamera, LogisticsSinglePersonConfigORM,
 )
-from AiVision.features.detect_logistics_single_person.schema import (
+from AiVision.features.logistics_channel.schema import (
     LogisticsChannelConfigResponse, LogisticsChannelCreate,
 )
 from AiVision.alarms.devices.orm import AiHornConfig

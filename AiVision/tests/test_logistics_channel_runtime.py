@@ -14,7 +14,7 @@ OTHER_FEATURE = FEATURE
 
 
 def test_default_camera_provider_preserves_numeric_primary_key(monkeypatch):
-    import AiVision.features.detect_logistics_single_person.runtime as runtime_module
+    import AiVision.features.logistics_channel.runtime as runtime_module
 
     requested = []
     monkeypatch.setattr(
@@ -231,7 +231,7 @@ def build_runtime(
     dispatcher=None,
     channel_service=None,
 ):
-    from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
+    from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
 
     dispatcher = dispatcher or FakeDispatcher()
     cameras = cameras or {
@@ -274,7 +274,7 @@ def build_runtime(
 #   - 内部调用：`CameraSnapshot`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def snapshot(camera_id, count, *, now=100.0, online=True):
-    from AiVision.features.detect_logistics_single_person.state import CameraSnapshot
+    from AiVision.features.logistics_channel.state import CameraSnapshot
 
     return CameraSnapshot(
         camera_id=camera_id,
@@ -783,7 +783,7 @@ def test_compositor_runs_only_for_alarm_or_explicit_frame_request():
 #          等共 12 个调用。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_service_camera_online_compositor_and_dispatcher_run_outside_global_lock():
-    from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
+    from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
 
     holder = {}
     item = channel(member_ids=(10,))

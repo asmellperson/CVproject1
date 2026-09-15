@@ -17,14 +17,14 @@ from AiVision.api.routes.features import create_features_router
 from AiVision.api.deps import get_current_orchestrator
 
 from AiVision.migrations import human_20260915 as migration
-from AiVision.features.detect_human import SPEC
+from AiVision.features.person_dwell.spec import SPEC
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 def test_retired_feature_has_no_registration_or_http_alias():
-    from AiVision.features import get_spec
+    from AiVision.features.registry import get_spec
     assert get_spec(migration.OLD) is None
     app = FastAPI()
     app.include_router(create_features_router(None))

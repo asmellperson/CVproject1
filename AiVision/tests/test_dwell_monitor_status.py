@@ -1,8 +1,8 @@
 # 文件说明：包含监控展示的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-from AiVision.features._base.dwell_consumer import build_dwell_monitor_snapshot
-from AiVision.features._base.tracking import Track
+from AiVision.features._shared.dwell_consumer import build_dwell_monitor_snapshot
+from AiVision.features._shared.tracking import Track
 
 
 # 功能：定义 `FakeTracker` 类，封装监控展示相关的状态、约束与操作

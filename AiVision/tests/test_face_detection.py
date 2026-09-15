@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from AiVision.features.detect_face import SPEC
+from AiVision.features.face_dwell.spec import SPEC
 from AiVision.inference import model_paths
 from AiVision.inference.insightface_detector import InsightFaceDetector
 from AiVision.inference.workers.face_detector import FaceDetectorWorker
@@ -47,8 +47,8 @@ import importlib.abc, sys
 from unittest.mock import Mock
 class NoIdentity(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith(('AiVision.features.recognize_face.library',
-                                'AiVision.features.recognize_face', 'ultralytics')):
+        if fullname.startswith(('AiVision.features.face_recognition.library',
+                                'AiVision.features.face_recognition', 'ultralytics')):
             raise AssertionError('unexpected import: ' + fullname)
 sys.meta_path.insert(0, NoIdentity())
 from AiVision.inference.workers.face_detector import FaceDetectorWorker
@@ -197,7 +197,7 @@ def test_worker_loads_once_and_routes_each_queued_camera_request(detector_backen
 
 
 def test_face_roi_detector_and_tracker_have_independent_parameters(detector_backend, monkeypatch):
-    from AiVision.features._base import dwell_consumer
+    from AiVision.features._shared import dwell_consumer
 
     worker = make_worker(detector_backend.path)
     model = worker.load_model()
@@ -232,8 +232,8 @@ def test_face_roi_detector_and_tracker_have_independent_parameters(detector_back
 @pytest.mark.parametrize("period", [.1, .5, 1.0])
 def test_dwell_time_loss_updates_and_alarm_cooldown_at_different_rates(monkeypatch, period):
     from AiVision.alarms.dispatcher import AlarmDispatcher
-    from AiVision.features._base import consumer as base_consumer
-    from AiVision.features._base import dwell_consumer
+    from AiVision.features._shared import consumer as base_consumer
+    from AiVision.features._shared import dwell_consumer
 
     now = [100.0]
     monkeypatch.setattr(dwell_consumer.time, "time", lambda: now[0])

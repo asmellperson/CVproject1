@@ -31,7 +31,7 @@ def isolated_environment(tmp_path):
 @pytest.mark.parametrize("entry", [
     "AiVision.inference.model_registry", "AiVision.inference.runtime_manager",
     "AiVision.inference.workers.face_recognizer", "AiVision.features",
-    "AiVision.runtime.orchestrator", "AiVision.features.recognize_face.library.embedding",
+    "AiVision.runtime.orchestrator", "AiVision.features.face_recognition.library.embedding",
 ])
 def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_path):
     program = textwrap.dedent("""
@@ -54,7 +54,7 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
         from AiVision.inference.workers.yolo_detector import YoloDetectorWorker
         from AiVision.inference.workers.face_detector import FaceDetectorWorker
         from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
-        from AiVision.features import all_specs
+        from AiVision.features.registry import all_specs
 
         root = Path(sys.argv[2]) / "AiVision"
         assert Path(inference.__file__).parent == root / "inference"

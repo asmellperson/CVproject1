@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from auth.auth import get_current_user
 from AiVision.core import db
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 

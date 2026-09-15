@@ -28,7 +28,7 @@ def get_camera_config_manager():
 
 def get_feature_config_manager():
     """获取普通检测能力功能配置服务"""
-    from AiVision.features._base.config_manager import feature_config_manager
+    from AiVision.features._shared.config_manager import feature_config_manager
     return feature_config_manager
 
 def get_inference_runtime_manager():
@@ -43,7 +43,7 @@ def get_department_service():
 
 def get_logistics_channel_service():
     """获取物流通道配置服务"""
-    from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
+    from AiVision.features.logistics_channel.service import logistics_channel_service
     return logistics_channel_service
 
 

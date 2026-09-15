@@ -18,9 +18,9 @@ from auth.auth import get_current_user, require_admin
 from AiVision.api.routes.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 
-from AiVision.features import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
-from AiVision.features._base.spec import FeatureSpec
-from AiVision.features._base.config_manager import feature_config_manager    # 普通检测功能配置管理函数
+from AiVision.features.registry import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
+from AiVision.features._shared.spec import FeatureSpec
+from AiVision.features._shared.config_manager import feature_config_manager    # 普通检测功能配置管理函数
 from AiVision.cameras.config_manager import camera_config_manager           # 摄像头配置服务
 
 class FeatureMetaResponse(BaseModel):
@@ -152,7 +152,7 @@ def create_features_router(
         spec = _require_spec(feature)
         # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
         # 端点，后者同时校验 feature 部门和成员归属；这里禁止绕过归属校验。
-        from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
+        from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
         if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
             raise HTTPException(
                 status_code=403,

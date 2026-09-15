@@ -33,9 +33,9 @@ from AiVision.core.db import session_scope, get_session     # 查数据库，写
 from AiVision.core.events import config_event_bus, ConfigChangeEvent      # configChangeEvent：告诉Orchestrator配置变了
 from AiVision.core.cache import config_cache         # 摄像头配置改完后刷新内存缓存
 from AiVision.core.logger import logger
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from AiVision.departments.department_registry import require_department
-from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURE_NAME
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURE_NAME
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
 # 数据库写入时碰到1205/1213要稍微等一下会进行重启并且重试3次，1205：Lock wait timeout等数据库锁超时。1213：Deadlock数据库死锁。
@@ -194,7 +194,7 @@ class CameraConfigManager:
     
     def create_camera_for_feature(self, feature_name: str, payload: dict) -> dict:
         """在具体功能页面里新增摄像头，新增后直接启用这个功能。"""
-        from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
+        from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
         # 物流通道不走这里
         if feature_name in LOGISTICS_FEATURES:
             raise ValueError("物流通道摄像头必须通过通道接口新建并绑定")

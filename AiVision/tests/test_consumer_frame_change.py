@@ -9,7 +9,7 @@ import pytest
 import cv2
 import numpy as np
 
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 
 # 功能：定义 `FrameChangeConsumer` 类，封装视频帧消费与检测、视频帧相关的状态、约束与操作
@@ -66,7 +66,7 @@ def _consumer() -> FrameChangeConsumer:
 
 @pytest.mark.parametrize("operation", ["update_config", "update_status"])
 def test_camera_delete_waits_for_inflight_config_update(monkeypatch, operation):
-    from AiVision.features._base import consumer as consumer_module
+    from AiVision.features._shared import consumer as consumer_module
 
     consumer = _consumer()
     entered = threading.Event()
@@ -190,9 +190,9 @@ def test_visibly_changed_frame_refreshes_full_resolution_blur():
 
 @pytest.mark.parametrize("kind", ["base", "door", "dwell", "logistics"])
 def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
-    from AiVision.features.detect_door.consumer import DoorConsumer
-    from AiVision.features.detect_human.consumer import HumanConsumer
-    from AiVision.features.detect_logistics_single_person.consumer import LogisticsSinglePersonConsumer
+    from AiVision.features.door_state.consumer import DoorConsumer
+    from AiVision.features.person_dwell.consumer import HumanConsumer
+    from AiVision.features.logistics_channel.consumer import LogisticsSinglePersonConsumer
 
     classes = {"base": FrameChangeConsumer, "door": DoorConsumer, "dwell": HumanConsumer, "logistics": LogisticsSinglePersonConsumer}
     kwargs = {"logistics_runtime": SimpleNamespace()} if kind == "logistics" else {}
@@ -270,7 +270,7 @@ def test_camera_removal_waits_for_inflight_processing_and_removes_its_result(mon
 
 
 def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
-    from AiVision.features.detect_door.consumer import DoorConsumer
+    from AiVision.features.door_state.consumer import DoorConsumer
 
     original = np.zeros((16, 16, 3), np.uint8)
     original.setflags(write=False)

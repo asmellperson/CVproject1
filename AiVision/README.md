@@ -1,13 +1,14 @@
 # AiVision Backend
 
-AiVision 后端重构版采用 **features-first** 架构：每个检测能力都是 `features/{name}` 下的自包含模块，通过 `FeatureSpec` 自动注册；API、缓存、Consumer 启动都通过注册表反射完成。
+AiVision 后端采用 **features-first** 架构：每个检测能力都是 `features/{package}` 下的模块，在 `spec.py` 声明唯一 `FeatureSpec`，由 `features/registry.py` 显式注册；API、缓存、Consumer 启动都通过注册表查询完成。Python 包名与业务标识分离，数据库、API 和前端功能键保持原值。
 
 ## 目录结构
 
 ```text
 core/                 共享配置、DB、缓存、事件及通用媒体工具
 features/             检测功能模块
-features/_base/       功能通用基类、配置管理与 Consumer
+features/_shared/       功能通用基类、配置管理与 Consumer
+features/registry.py   七项内置功能的唯一注册入口
 runtime/              总编排、生命周期协调及残留进程清理
 cameras/              摄像头采集、帧读取及配置管理
 inference/            模型加载、推理 Worker 及运行管理
@@ -20,6 +21,10 @@ main.py               后端入口
 ```
 
 认证与管理员鉴权直接复用根目录 `auth/auth.py`。
+内置功能包为 `intrusion`、`door_state`、`face_dwell`、`person_dwell`、`phone_detection`、
+`face_recognition`、`logistics_channel`；对应业务标识仍为 `blocks`、`detect_door`、
+`detect_face`、`detect_human`、`detect_phone`、`recognize_face`、`detect_logistics_single_person`。
+各功能包不重新导出 SPEC；查询从 `AiVision.features.registry` 导入。
 总编排与进程清理从 `AiVision.runtime` 导入，视觉子应用挂载适配使用
 `AiVision.api.mounted_apps`，HTTP 路由使用 `AiVision.api.routes`。
 旧平台目录已删除，不保留转发包；启动入口、API URL、认证与生命周期顺序保持不变。

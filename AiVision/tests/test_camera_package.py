@@ -44,7 +44,7 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
         sqlalchemy.create_engine = forbid_database
         importlib.import_module(sys.argv[1])
         import AiVision.cameras as cameras
-        import AiVision.features as features
+        import AiVision.features.registry as features
         from AiVision.core.db import Base
         from AiVision.cameras.orm import AiCameraConfig
         from sqlalchemy.orm import configure_mappers
@@ -56,8 +56,8 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
             importlib.import_module(module)
         configure_mappers()
         specs = features.all_specs()
-        expected = {path.name for path in Path(features.__file__).parent.iterdir()
-                    if not path.name.startswith("_") and (path / "__init__.py").is_file()}
+        expected = {"blocks", "detect_door", "detect_face", "detect_human",
+                    "detect_logistics_single_person", "detect_phone", "recognize_face"}
         assert set(specs) == expected
         assert Base.metadata.tables["ai_camera_config"] is AiCameraConfig.__table__
         assert AiCameraConfig.__module__ == "AiVision.cameras.orm"

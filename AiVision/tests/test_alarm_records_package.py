@@ -67,7 +67,7 @@ def test_record_imports_share_registration_without_running_workers_or_cleanup(en
             from AiVision.alarms.evidence import evidence_recorder
             from AiVision.api.routes import alarms, logistics_channels
             from AiVision.core import db, media_cleanup, system_config, video_encoding
-            from AiVision.features import all_specs
+            from AiVision.features.registry import all_specs
             from AiVision.runtime import orchestrator
 
             root = Path(sys.argv[2]) / "AiVision/alarms"

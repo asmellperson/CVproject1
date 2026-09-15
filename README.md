@@ -295,8 +295,9 @@ AiVision/integrations/guard_room/config/config.example.yaml
 AiVision 的核心设计是 features-first：
 
 ```text
-features/{feature_name}/
-├── __init__.py   # 导出 SPEC = FeatureSpec(...)
+features/{package_name}/
+├── __init__.py   # 简单包声明，不注册功能或转发 SPEC
+├── spec.py       # 唯一 SPEC = FeatureSpec(...)
 ├── consumer.py   # 该功能的运行时处理逻辑
 ├── orm.py        # 该功能的数据库配置表
 └── schema.py     # 该功能的配置校验模型
@@ -314,13 +315,28 @@ required_models # 依赖哪些推理模型
 violation_type  # 违规类型枚举
 ```
 
-`AiVision/features/__init__.py` 在首次调用 `all_specs()`、`get_spec()` 或 `list_orm_classes()` 时自动扫描所有 feature 子目录，因此新增 feature 时一般不需要改注册表。发现过程串行完成并复用同一注册表，单纯导入包不会提前加载全部功能。
+`AiVision/features/registry.py` 是唯一功能注册入口，显式导入七个 `spec.py`，不扫描目录或吞掉导入异常。注册时拒绝重复 `FeatureSpec.name` 并继续核验事业部；查询统一使用 `from AiVision.features.registry import all_specs, get_spec, list_orm_classes`。`features/__init__.py` 和各功能 `__init__.py` 只有包说明，不转发这些查询函数、SPEC 或 Consumer。
 
-人脸库统一归属 `features/recognize_face/library/`，配置、Consumer 和识别记录实现保留原位置：
+包目录名与业务标识严格分离，注册表保持原有遍历顺序：
+
+| Python 包目录 | `FeatureSpec.name`（数据库、API、前端继续使用） |
+|---|---|
+| `intrusion/` | `blocks` |
+| `door_state/` | `detect_door` |
+| `face_dwell/` | `detect_face` |
+| `person_dwell/` | `detect_human` |
+| `logistics_channel/` | `detect_logistics_single_person` |
+| `phone_detection/` | `detect_phone` |
+| `face_recognition/` | `recognize_face` |
+
+共享配置基类、Consumer、跟踪与逗留计时位于 `_shared/`。`person_dwell/spec.py` 仍只有一个人员逗留 SPEC，同时支持 `general_electric` 和 `haoda_company`。目录迁移没有改变 ORM 表结构、配置字段、算法、报警条件或推理失败时的跟踪状态保留与暂停计时语义。本批只做静态检查，未运行测试，也未执行业务导入、启动服务、连接数据库、加载模型或迁移数据。
+
+人脸库统一归属 `features/face_recognition/library/`，配置、Consumer 和识别记录实现保留原位置：
 
 ```text
-AiVision/features/recognize_face/
-├── __init__.py                         # 延迟导出原有 SPEC、Consumer、ORM 和 Schema
+AiVision/features/face_recognition/
+├── __init__.py                         # 简单包声明
+├── spec.py                             # 唯一人脸识别 SPEC，业务标识 recognize_face
 ├── consumer.py
 ├── orm.py
 ├── schema.py
@@ -339,22 +355,22 @@ AiVision/features/recognize_face/
 
 模型加载、检测和特征提取仍在 `inference/`，海康协议及客户端仍在 `connectors/hikvision/`。本轮没有移动或复制这些实现，也没有改变人员唯一性、单脸注册要求、模型维度、归一化、索引刷新、相似度阈值、识别冷却或权限。旧人员库目录已删除，无旧路径兼容层；剩余运行与应用装配模块现已归入 `runtime/` 和 `api/`。
 
-初始化调整限于两个包入口。新 CLI 路径会先导入 `features` 和 `recognize_face`；若仍在导入时加载所有功能，会在 CLI 读取 `.env` 前初始化必填配置，导致配置错误并漏注册功能。因此保留原 `_discover()` 实现，在首次查询时执行；`recognize_face` 的 SPEC 和公开类按首次访问初始化并缓存，保持同一 SPEC 和类身份。没有改写功能发现规则、跳过注册或复制注册表。纯人脸检测仍不导入身份识别和人员库。
+CLI 导入时经过的 `features` 和 `face_recognition` 父包均只有说明，人员库入口不会隐式加载 registry 或全部 Consumer。只有正式导入 `features.registry` 才加载固定的七项功能；功能导入异常直接传播。SPEC 与公开类使用其正式定义模块，不再依赖包级延迟导出。纯人脸检测仍不导入身份识别和人员库。
 
 同步与特征生成命令（用于部署后显式执行，本轮未执行真实任务）：
 
 ```bash
-python -m AiVision.features.recognize_face.library.sync
-python -m AiVision.features.recognize_face.library.embedding
+python -m AiVision.features.face_recognition.library.sync
+python -m AiVision.features.face_recognition.library.embedding
 ```
 
-两个入口的 `.env` 定位均由 `Path(__file__).resolve().parents[2]` 改为 `parents[3]`，仍指向源码所在项目的 `AiVision/.env`，不依赖工作目录；系统环境变量仍优先（`override=False`）。没有复制 `.env` 或凭据。模型配置仍使用原 `MODEL_PATHS_CONFIG` 和 `AiVision/config/model_paths.yaml`，权重路径语义、`DATA_PATH`、识别截图及媒体清理位置不变。表名、字段、外键和索引未变，不需要数据库迁移。
+两个入口继续使用 `Path(__file__).resolve().parents[3]` 定位源码所在项目的 `AiVision/.env`；本批目录改名没有改变深度，不依赖工作目录，系统环境变量仍优先（`override=False`）。没有复制 `.env` 或凭据。模型配置仍使用原 `MODEL_PATHS_CONFIG` 和 `AiVision/config/model_paths.yaml`，权重路径语义、`DATA_PATH`、识别截图及媒体清理位置不变；识别媒体子目录仍使用业务标识 `recognize_face`。表名、字段、外键和索引未变，不需要数据库迁移。
 
-仓库 unit 位于 [同步 service](AiVision/features/recognize_face/library/hikvision-face-library-sync.service) 和 [同步 timer](AiVision/features/recognize_face/library/hikvision-face-library-sync.timer)。service 仅更新 `ExecStart` 的 Python 模块名；timer 仍关联 `hikvision-face-library-sync.service`，保留开机 2 分钟、每次启动间隔 10 分钟、1 秒精度，以及 service 的 8 分钟启动超时、30 秒停止超时和 `root` 用户。
+仓库 unit 位于 [同步 service](AiVision/features/face_recognition/library/hikvision-face-library-sync.service) 和 [同步 timer](AiVision/features/face_recognition/library/hikvision-face-library-sync.timer)。service 仅更新 `ExecStart` 的 Python 模块名；timer 仍关联 `hikvision-face-library-sync.service`，保留开机 2 分钟、每次启动间隔 10 分钟、1 秒精度，以及 service 的 8 分钟启动超时、30 秒停止超时和 `root` 用户。
 
 部署前需核实 unit 中的 `WorkingDirectory=/srv/Fuda_CVPreject`、相应项目下的 `AiVision/.env`，以及 `/root/miniconda3/envs/aivision/bin/python`。本轮只读检查发现 `/srv/Fuda_CVPreject` 不存在，指定 Python 文件存在；当前源码实际位于 `/usr/zyy/Fuda_CVPreject_V3`，不能直接把仓库模板当作当前部署配置。标准系统 unit 目录未发现同名 service/timer。本轮未改写这些部署路径、安装或启动 unit，也未执行 daemon-reload；unit 指定 Python 环境的运行依赖未验证。
 
-人脸库迁移验证使用最终工作目录及临时数据。在下方 29 文件回归同样的隔离环境变量下复跑：
+以下为前一轮人脸库迁移的验证记录与后续可复跑命令，结果不代表本批已执行测试。本批仅更新测试引用及注册契约，没有执行下列命令。复跑时需使用下方 29 文件回归同样的隔离环境变量：
 
 ```bash
 python -m pytest -q -ra \
@@ -683,7 +699,7 @@ env -u CONFIG_TEST_MYSQL_URL -u LOGISTICS_TEST_MYSQL_URL -u HUMAN_TEST_MYSQL_URL
 export LOGISTICS_STATUS_STALE_SECONDS=5
 ```
 
-业务实现集中在 `AiVision/features/detect_logistics_single_person/`：消费者逐路推理并发布快照，`state.py` 判断人数状态与连续异常时间，`runtime.py` 控制时段、汇总和告警事件，`service.py` 与 `membership_transaction.py` 管理配置和成员事务，`compositor.py` 拼接画面。`__init__.py` 仅注册 SPEC，不预加载服务或运行时。
+业务实现集中在 `AiVision/features/logistics_channel/`：消费者逐路推理并发布快照，`state.py` 判断人数状态与连续异常时间，`runtime.py` 控制时段、汇总和告警事件，`service.py` 与 `membership_transaction.py` 管理配置和成员事务，`compositor.py` 拼接画面。`__init__.py` 仅作包声明，唯一 SPEC 位于 `spec.py`，不预加载服务或运行时。
 
 无人和多人分别连续计时，恢复正常、未知或停用会中断当前异常。每次持续异常成功分发后不重复创建告警事件；冷却期间未分发的事件会继续等待，恢复正常后再次异常仍受通道告警间隔限制。各路人数不相加；明确多人优先，其次至少一路正常、未知，最后才是全部无人。
 
@@ -706,8 +722,8 @@ npm run build
 新增一个 feature 时，优先照着现有目录复制结构：
 
 ```text
-AiVision/features/detect_phone/
-AiVision/features/detect_human/
+AiVision/features/phone_detection/
+AiVision/features/person_dwell/
 ```
 
 通常要做：
@@ -716,7 +732,7 @@ AiVision/features/detect_human/
 2. 实现 `consumer.py`，继承 `BaseFunctionConsumer`。
 3. 实现 `orm.py`，定义该功能配置表。
 4. 实现 `schema.py`，定义配置校验。
-5. 在 `__init__.py` 导出 `SPEC = FeatureSpec(...)`。
+5. 在 `spec.py` 定义唯一 `SPEC = FeatureSpec(...)`，在 `features/registry.py` 的显式清单中登记；`__init__.py` 只保留包说明。
 6. 如果依赖新模型，确保数据库 `ai_model` 中有对应 `name` 和 `import_path`。
 7. 前端增加 section、导航和 API 封装。
 
@@ -961,6 +977,8 @@ unified_frontend/src/lib/<new-api>.ts
 
 ```text
 AiVision/features/{new_feature}/__init__.py
+AiVision/features/{new_feature}/spec.py
+AiVision/features/registry.py
 AiVision/features/{new_feature}/consumer.py
 AiVision/features/{new_feature}/orm.py
 AiVision/features/{new_feature}/schema.py

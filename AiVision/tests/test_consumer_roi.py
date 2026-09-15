@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 
 # 功能：定义 `RoiConsumer` 类，封装视频帧消费与检测、感兴趣区域相关的状态、约束与操作
@@ -181,8 +181,10 @@ ORDINARY_FEATURES = (
 
 
 def _spec(feature):
-    from importlib import import_module
-    return import_module(f"AiVision.features.{feature}").SPEC
+    from AiVision.features.registry import get_spec
+    spec = get_spec(feature)
+    assert spec is not None
+    return spec
 
 
 @pytest.mark.parametrize("feature", ORDINARY_FEATURES)

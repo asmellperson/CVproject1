@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from AiVision.features._base import defaults
-from AiVision.features.recognize_face.library.constants import DEFAULT_DETECTION_THRESHOLD
+from AiVision.features._shared import defaults
+from AiVision.features.face_recognition.library.constants import DEFAULT_DETECTION_THRESHOLD
 
 from .workers.yolo_detector import YoloDetectorWorker
 from .workers.face_recognizer import FaceRecognizerWorker

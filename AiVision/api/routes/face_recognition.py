@@ -4,8 +4,8 @@ from fastapi.responses import FileResponse
 
 from auth.auth import get_current_user
 from AiVision.api.routes.cameras import camera_read_department
-from AiVision.features.recognize_face.records import get_recognition_image, list_recognition_records
-from AiVision.features.recognize_face.schema import RecognitionRecordPage
+from AiVision.features.face_recognition.records import get_recognition_image, list_recognition_records
+from AiVision.features.face_recognition.schema import RecognitionRecordPage
 
 router = APIRouter(prefix="/api/face-recognition", tags=["face-recognition"])
 

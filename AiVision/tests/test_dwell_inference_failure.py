@@ -9,9 +9,9 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from AiVision.features import get_spec
-from AiVision.features._base import consumer as base_consumer
-from AiVision.features._base import dwell_consumer
+from AiVision.features.registry import get_spec
+from AiVision.features._shared import consumer as base_consumer
+from AiVision.features._shared import dwell_consumer
 from AiVision.inference.contracts import INFERENCE_FAILURE_STATUSES
 from AiVision.runtime.orchestrator import Orchestrator
 

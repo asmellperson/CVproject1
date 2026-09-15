@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from AiVision.features import all_specs, get_spec
+from AiVision.features.registry import all_specs, get_spec
 from .department_registry import DEPARTMENT_SPECS, DepartmentSpec
 
 

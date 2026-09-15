@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import AiVision.features._base.consumer as consumer_module
+import AiVision.features._shared.consumer as consumer_module
 from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 
 # 功能：定义 `DummyConsumer` 类，封装告警、配置相关的状态、约束与操作

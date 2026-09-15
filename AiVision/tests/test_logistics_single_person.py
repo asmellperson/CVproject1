@@ -6,13 +6,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from AiVision.features import all_specs
-from AiVision.features._base.consumer import BaseFunctionConsumer
-from AiVision.features.detect_logistics_single_person.consumer import (
+from AiVision.features.registry import all_specs
+from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features.logistics_channel.consumer import (
     LogisticsSinglePersonConsumer,
     build_monitor_snapshot,
 )
-from AiVision.features.detect_logistics_single_person import SPEC as LOGISTICS_SPEC
+from AiVision.features.logistics_channel.spec import SPEC as LOGISTICS_SPEC
 
 LOGISTICS_CONSUMER_CLASSES = (LogisticsSinglePersonConsumer,)
 LOGISTICS_FEATURE_NAMES = ("detect_logistics_single_person",)

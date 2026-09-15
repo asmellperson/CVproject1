@@ -461,7 +461,7 @@ def test_prefixed_logistics_feature_event_reaches_exact_consumer(monkeypatch):
 #   - 内部调用：`_orchestrator_without_init`、`SimpleNamespace`、`status_calls.append`、`monkeypatch.setattr`、`sync_calls.append`、`service_module.LogisticsChannelService._notify_channel_changed`、`service_module._CameraRef`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_service_feature_event_syncs_camera_runtime_with_shm(monkeypatch):
-    import AiVision.features.detect_logistics_single_person.service as service_module
+    import AiVision.features.logistics_channel.service as service_module
 
     feature_name = "detect_logistics_single_person"
     orchestrator = _orchestrator_without_init()

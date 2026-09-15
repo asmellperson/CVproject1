@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from AiVision.core import db
-import AiVision.features as features
+import AiVision.features.registry as features
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.departments.service import DepartmentService
-from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from auth.user_store import ALLOWED_VIEWER_DEPARTMENTS, UserStore, UserValidationError
 
 
@@ -69,13 +69,18 @@ def test_all_feature_departments_are_registered_and_logistics_uses_specs(monkeyp
     )
 
 
-def test_discovery_rejects_unknown_department(monkeypatch):
+def test_feature_registry_rejects_unknown_department():
     spec = replace(features.get_spec("detect_phone"), departments=("unknown",))
-    from types import SimpleNamespace
-    monkeypatch.setattr(features.pkgutil, "iter_modules", lambda paths: [(None, "bad_feature", True)])
-    monkeypatch.setattr(features.importlib, "import_module", lambda name: SimpleNamespace(SPEC=spec))
     with pytest.raises(ValueError, match="unknown department"):
-        features._discover()
+        features._build_registry((spec,))
+
+
+def test_feature_registry_rejects_duplicate_names_without_changing_registered_specs():
+    before = features.all_specs()
+    spec = before["detect_phone"]
+    with pytest.raises(ValueError, match="重复的 FeatureSpec.name"):
+        features._build_registry((spec, replace(spec, display_name="duplicate")))
+    assert features.all_specs() == before
 
 
 def test_schema_verification_leaves_historical_department_tables_untouched(monkeypatch):

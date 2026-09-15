@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from AiVision.alarms.dispatcher import AlarmRequest
-from AiVision.features import all_specs
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features.registry import all_specs
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.alarms.records.orm import AiAlarmEvent
 from AiVision.api.routes.logistics_channels import _channel_alarm_query, _alarm_dict
 from AiVision.tests.test_violation_writer import writer_db
@@ -68,7 +68,7 @@ def test_orm_revalidates_identity_before_insert(writer_db):
 
 @pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if spec.violation_type > 0 and not spec.name.startswith("detect_logistics") and len(spec.departments) == 1], ids=lambda spec: spec.name)
 def test_regular_features_emit_explicit_identity_for_camera_without_department(monkeypatch, spec):
-    import AiVision.features._base.consumer as module
+    import AiVision.features._shared.consumer as module
     captured = []
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
@@ -80,7 +80,7 @@ def test_regular_features_emit_explicit_identity_for_camera_without_department(m
 
 
 def test_ambiguous_camera_department_is_not_guessed(monkeypatch):
-    import AiVision.features._base.consumer as module
+    import AiVision.features._shared.consumer as module
     captured, errors = [], []
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
     monkeypatch.setattr(module.logger, "error", errors.append)
@@ -93,7 +93,7 @@ def test_ambiguous_camera_department_is_not_guessed(monkeypatch):
 
 @pytest.mark.parametrize("department", ["general_electric", "research_institute"])
 def test_multi_department_feature_uses_camera_explicit_choice(monkeypatch, department):
-    import AiVision.features._base.consumer as module
+    import AiVision.features._shared.consumer as module
     spec = all_specs()["detect_phone"]
     captured = []
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))

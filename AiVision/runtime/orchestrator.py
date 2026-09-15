@@ -32,18 +32,18 @@ from AiVision.runtime.process_cleanup import cleanup_aivision_residual_processes
 from AiVision.core.settings import settings
 from AiVision.core.system_config import system_config_service
 
-from AiVision.features import all_specs                                     # 系统有那些检测功能
-from AiVision.features._base.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
-from AiVision.features.recognize_face.records import RecognitionMediaReferences
+from AiVision.features.registry import all_specs                                     # 系统有那些检测功能
+from AiVision.features._shared.consumer import BaseFunctionConsumer           # 所有检测业务处理器的父类
+from AiVision.features.face_recognition.records import RecognitionMediaReferences
 
 from AiVision.cameras.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
 from AiVision.cameras.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
 from AiVision.cameras.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
 from AiVision.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
 from AiVision.inference.model_registry import MODEL_SPECS
-from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
-from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
-from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
+from AiVision.features.logistics_channel.service import logistics_channel_service
 from AiVision.alarms.devices.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.alarms.records.service import violation_writer                  # 写入违规记录
 from AiVision.alarms.evidence.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据

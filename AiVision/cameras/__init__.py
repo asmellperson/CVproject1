@@ -117,7 +117,7 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
             管理员新增、修改和删除摄像头；普通用户读取时按部门权限过滤并隐藏视频源。
         当前帧接口经 Orchestrator 取得新鲜的原始帧或指定功能的标注帧，再编码为 JPEG。
 
-    api/routes/features.py、features/_base/config_manager.py：
+    api/routes/features.py、features/_shared/config_manager.py：
         管理摄像头与普通检测功能的绑定、ROI、阈值和告警配置。
         FeatureSpec 描述有哪些功能及其 ORM，CameraConfigManager 按 all_specs() 建默认行。
         “停用这台摄像头的某个功能”修改功能配置，不等于删除摄像头主记录。
@@ -135,7 +135,7 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
         Consumer 从 latest_frames 取图、裁 ROI，再经推理队列交给模型 Worker。
         摄像头可采集与模型可推理是两种状态，检测功能还需要自己的模型等依赖可用。
 
-    features/detect_logistics_single_person/：
+    features/logistics_channel/：
         复用摄像头采集和最新帧，管理通道成员及通道检测；成员的新增、绑定、移除
         使用通道服务，不能用普通功能新增接口代替通道的建档和绑定事务。
 

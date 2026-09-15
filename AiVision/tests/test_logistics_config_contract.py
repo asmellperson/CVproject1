@@ -13,24 +13,24 @@ from pydantic import ValidationError
 
 from AiVision.core import db
 from AiVision.core.cache import ConfigCache
-from AiVision.features._base import config_manager
-from AiVision.features.detect_logistics_single_person import SPEC
-from AiVision.features.detect_logistics_single_person.schema import LogisticsSinglePersonConfigSchema, LogisticsChannelConfigUpdate
+from AiVision.features._shared import config_manager
+from AiVision.features.logistics_channel.spec import SPEC
+from AiVision.features.logistics_channel.schema import LogisticsSinglePersonConfigSchema, LogisticsChannelConfigUpdate
 from AiVision.tests.test_logistics_channel_service import service_db as service_db, _seed_camera
 from AiVision.tests.test_logistics_single_person import build_consumer, RuntimeSpy
 
 
 @pytest.mark.parametrize('entry', [
-    'AiVision.features', 'AiVision.features.detect_logistics_single_person.service',
-    'AiVision.features.detect_logistics_single_person.runtime',
+    'AiVision.features', 'AiVision.features.logistics_channel.service',
+    'AiVision.features.logistics_channel.runtime',
     'AiVision.cameras.config_manager', 'AiVision.runtime.orchestrator',
 ])
 def test_fresh_process_imports_register_all_features_once(entry):
     script = f'''import importlib
 importlib.import_module({entry!r})
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from AiVision.core.db import Base
-from AiVision.features.detect_logistics_single_person import SPEC
+from AiVision.features.logistics_channel.spec import SPEC
 expected = {{
     'blocks', 'detect_door', 'detect_face', 'detect_human',
     'detect_logistics_single_person', 'detect_phone', 'recognize_face',
@@ -40,9 +40,15 @@ assert set(specs) == expected, sorted(specs)
 assert {{spec.name for spec in specs.values()}} == expected
 assert len({{id(spec) for spec in specs.values()}}) == len(expected)
 assert len({{spec.orm_class for spec in specs.values()}}) == len(expected)
-for name in expected:
+packages = {{
+    'blocks': 'intrusion', 'detect_door': 'door_state', 'detect_face': 'face_dwell',
+    'detect_human': 'person_dwell', 'detect_phone': 'phone_detection',
+    'recognize_face': 'face_recognition', 'detect_logistics_single_person': 'logistics_channel',
+}}
+assert set(packages) == expected
+for name, package in packages.items():
     spec = specs[name]
-    assert importlib.import_module(f'AiVision.features.{{name}}').SPEC is spec
+    assert importlib.import_module(f'AiVision.features.{{package}}.spec').SPEC is spec
     assert Base.metadata.tables[spec.orm_class.__tablename__] is spec.orm_class.__table__
 assert all_specs() == specs
 assert specs[SPEC.name] is SPEC

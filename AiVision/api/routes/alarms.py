@@ -237,7 +237,7 @@ def _scoped_query(session, user: dict, department: str | None = None, feature: s
     if requested is not None:
         query = query.filter(AiAlarmEvent.department == requested)
     if feature is not None:
-        from AiVision.features import get_spec
+        from AiVision.features.registry import get_spec
         if get_spec(feature) is None:
             raise HTTPException(status_code=404, detail="unknown feature")
         query = query.filter(AiAlarmEvent.feature_name == feature)

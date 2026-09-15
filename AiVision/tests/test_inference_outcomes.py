@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from AiVision.features._base.consumer import BaseFunctionConsumer
+from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.inference.base_worker import BaseModelWorker
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
@@ -293,7 +293,7 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
 #   - 内部调用：`monkeypatch.setattr`、`queue.Queue`、`result_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch):
-    monkeypatch.setattr("AiVision.features._base.consumer.time.monotonic_ns", lambda: 123)
+    monkeypatch.setattr("AiVision.features._shared.consumer.time.monotonic_ns", lambda: 123)
     infer_queue, result_queue = queue.Queue(), queue.Queue()
     task = _task()
     result_queue.put({**task, "request_id": "stale", "detections": [{"type": "wrong"}]})
@@ -315,7 +315,7 @@ def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch)
     {"status": INFERENCE_STATUS_OK, "detections": {}},
 ])
 def test_dispatch_rejects_incomplete_results_instead_of_defaulting_to_success(monkeypatch, payload):
-    monkeypatch.setattr("AiVision.features._base.consumer.time.monotonic_ns", lambda: 123)
+    monkeypatch.setattr("AiVision.features._shared.consumer.time.monotonic_ns", lambda: 123)
     infer_queue, result_queue = queue.Queue(), queue.Queue()
     result_queue.put({**_task(), **payload})
     consumer = _consumer({"test-model": infer_queue}, result_queue)
@@ -343,11 +343,11 @@ def test_dispatch_reports_timeout_for_missing_current_camera_result():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
     monkeypatch.setattr(
-        "AiVision.features._base.consumer.settings.runtime.inference_alert_consecutive_failures",
+        "AiVision.features._shared.consumer.settings.runtime.inference_alert_consecutive_failures",
         2,
     )
     monkeypatch.setattr(
-        "AiVision.features._base.consumer.settings.runtime.inference_alert_cooldown_seconds",
+        "AiVision.features._shared.consumer.settings.runtime.inference_alert_cooldown_seconds",
         300.0,
     )
     consumer = _consumer({"test-model": queue.Queue()})

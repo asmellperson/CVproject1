@@ -8,10 +8,10 @@ import pytest
 from fastapi import FastAPI
 
 from AiVision.api.routes import logistics_channels as api
-from AiVision.features import all_specs
+from AiVision.features.registry import all_specs
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURE_NAME as FEATURE
-from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURE_NAME as FEATURE
+from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
 from AiVision.tests.test_logistics_channel_service import service_db, _seed_camera
 
 

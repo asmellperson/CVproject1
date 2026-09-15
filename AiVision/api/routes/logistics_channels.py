@@ -16,12 +16,12 @@ from AiVision.api.deps import (
 from AiVision.api.routes.features import FeatureConfigResponse
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
-from AiVision.features import all_specs
-from AiVision.features.detect_logistics_single_person.constants import (
+from AiVision.features.registry import all_specs
+from AiVision.features.logistics_channel.constants import (
     LOGISTICS_FEATURE_NAME,
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
-from AiVision.features.detect_logistics_single_person.schema import (
+from AiVision.features.logistics_channel.schema import (
     LogisticsChannelAlarmListResponse,                  # 物流通道报警数据模型
     LogisticsCameraInventoryResponse,                   # 用户有权看到的物流摄像头汇总
     LogisticsChannelCreate,                             # 创建通道的数据模型

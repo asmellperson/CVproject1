@@ -119,11 +119,11 @@ def create_all_tables():
 
 def ensure_schema_ready():
     """创建全新表并只读核验功能配置表；历史结构必须先离线迁移。"""
-    from AiVision.features import all_specs
+    from AiVision.features.registry import all_specs
     from AiVision.core import system_config as _system_config_orm  # noqa: F401
     from AiVision.alarms.devices import orm as _alarm_device_orm  # noqa: F401
     from AiVision.cameras import orm as _camera_orm  # noqa: F401
-    from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
+    from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
     from AiVision.alarms.records import orm as _violation_orm  # noqa: F401
     from AiVision.core.schema import assert_table_matches
 

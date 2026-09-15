@@ -106,9 +106,9 @@ class HornService:
             h = session.get(AiHornConfig, horn_id, with_for_update=True)
             if h is None:
                 return False
-            from AiVision.features import all_specs
-            from AiVision.features._base.orm import FeatureConfigBase
-            from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel
+            from AiVision.features.registry import all_specs
+            from AiVision.features._shared.orm import FeatureConfigBase
+            from AiVision.features.logistics_channel.orm import LogisticsChannel
 
             # 包括停用的功能/通道配置；存在引用时不依赖外键 SET NULL 隐式解绑。
             models = [

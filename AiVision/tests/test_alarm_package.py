@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
     "AiVision.alarms.dispatcher", "AiVision.alarms.devices.horn",
     "AiVision.alarms.notifications.wechat", "AiVision.alarms.notifications.notification_image",
     "AiVision.api.routes.alarms", "AiVision.api.app", "AiVision.runtime.orchestrator",
-    "AiVision.features._base.consumer", "AiVision.features.detect_logistics_single_person.runtime",
+    "AiVision.features._shared.consumer", "AiVision.features.logistics_channel.runtime",
     "AiVision.alarms.records.service",
 ])
 def test_fresh_alarm_imports_share_implementations_without_external_actions(entry, tmp_path):
@@ -58,8 +58,8 @@ def test_fresh_alarm_imports_share_implementations_without_external_actions(entr
             from AiVision.api.routes import alarms
             from AiVision.api import app
             from AiVision.core import db
-            from AiVision.features._base import consumer
-            from AiVision.features.detect_logistics_single_person import runtime
+            from AiVision.features._shared import consumer
+            from AiVision.features.logistics_channel import runtime
             from AiVision.runtime import orchestrator
             from AiVision.alarms.records import service
 
