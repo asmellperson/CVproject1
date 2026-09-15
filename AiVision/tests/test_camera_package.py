@@ -66,9 +66,11 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
             assert any(fk.column.table is AiCameraConfig.__table__ for fk in spec.orm_class.__table__.foreign_keys)
         # 强制解析全部外键；不用创建或查询任何表。
         assert len(Base.metadata.sorted_tables) == len(Base.metadata.tables)
-        old_package = "AiVision.platform"
-        assert importlib.util.find_spec(old_package) is None
-        assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
+        # Check removed layout and loaded package hierarchy without resolving a retired import path.
+        aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+        assert not (aivision_root / "platform").exists()
+        assert not (aivision_root / "platform.py").exists()
+        assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
         print(json.dumps({"features": sorted(specs), "tables": sorted(Base.metadata.tables)}))
     """)
     result = subprocess.run([sys.executable, "-c", program, entry], cwd=tmp_path,

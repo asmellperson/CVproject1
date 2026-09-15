@@ -55,7 +55,8 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
                 assert "AiVision.departments.service" not in sys.modules
 
             from auth import user_store
-            from AiVision import departments, features
+            from AiVision import departments
+            import AiVision.features.registry as features
             from AiVision.departments import department_registry as registry, service
             from AiVision.cameras import config_manager
             from AiVision.alarms import validation
@@ -112,9 +113,11 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
             assert orchestrator.violation_writer._thread is orchestrator.violation_writer._scheduler is None
             assert orchestrator.alarm_evidence_recorder._writer_threads == []
             assert orchestrator.alarm_evidence_recorder._sampler_thread is None
-            old_package = "AiVision.platform"
-            assert importlib.util.find_spec(old_package) is None
-            assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
+            # Check removed layout and loaded package hierarchy without resolving a retired import path.
+            aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+            assert not (aivision_root / "platform").exists()
+            assert not (aivision_root / "platform.py").exists()
+            assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
             assert attempts == [], attempts
             print("department definitions and lazy imports verified")
     """)

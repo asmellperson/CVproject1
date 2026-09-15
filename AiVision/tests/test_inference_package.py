@@ -72,9 +72,11 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
             "blocks", "detect_door", "detect_face", "detect_human",
             "detect_logistics_single_person", "detect_phone", "recognize_face",
         }
-        old_package = "AiVision.platform"
-        assert importlib.util.find_spec(old_package) is None
-        assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
+        # Check removed layout and loaded package hierarchy without resolving a retired import path.
+        aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+        assert not (aivision_root / "platform").exists()
+        assert not (aivision_root / "platform.py").exists()
+        assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
         print("registered")
     """)
     result = subprocess.run([sys.executable, "-c", program, entry, str(REPO_ROOT)],

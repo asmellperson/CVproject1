@@ -108,9 +108,11 @@ def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
             assert horns.HornInUseError is service.HornInUseError
             assert not runtime._active and runtime._threads == [] and runtime._entries == {}
             assert db._engine is None and db._session_factory is None
-            old_package = "AiVision.platform"
-            assert importlib.util.find_spec(old_package) is None
-            assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
+            # Check removed layout and loaded package hierarchy without resolving a retired import path.
+            aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+            assert not (aivision_root / "platform").exists()
+            assert not (aivision_root / "platform.py").exists()
+            assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
             # 即使导入代码捕获了异常，也不能掩盖尝试过外部访问或启动任务。
             assert attempts == [], attempts
             print("registered without side effects")

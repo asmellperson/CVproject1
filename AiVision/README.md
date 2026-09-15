@@ -5,32 +5,70 @@ AiVision 后端采用 **features-first** 架构：每个检测能力都是 `feat
 ## 目录结构
 
 ```text
-core/                 共享配置、DB、缓存、事件及通用媒体工具
-features/             检测功能模块
-features/_shared/       功能通用基类、配置管理与 Consumer
-features/registry.py   七项内置功能的唯一注册入口
-runtime/              总编排、生命周期协调及残留进程清理
-runtime/bootstrap.py  启动时注册业务 ORM、创建缺失表及核验结构
-cameras/              摄像头采集、帧读取及配置管理
-inference/            模型加载、推理 Worker 及运行管理
-alarms/               告警分发、设备、通知、记录及证据
-departments/          事业部定义、查询及约束
-integrations/         Guard Room 与 Security VLM 内置业务模块
-api/                  FastAPI app、依赖注入及视觉子应用挂载适配
-api/routes/           正式 HTTP 路由
-main.py               后端入口
+AiVision/
+├── main.py                      # 正式启动入口
+├── api/
+│   ├── app.py                   # FastAPI 应用创建
+│   ├── deps.py                  # 共享依赖注入
+│   ├── mounted_apps.py          # Guard Room / Security VLM 挂载适配
+│   └── routes/                  # HTTP API 路由
+├── runtime/
+│   ├── bootstrap.py             # 启动阶段数据库初始化
+│   ├── orchestrator.py          # 总运行调度
+│   └── process_cleanup.py       # 残留进程清理
+├── cameras/                     # 摄像头配置、采集与帧读取
+├── inference/                   # 模型、推理 Worker 和运行管理
+├── alarms/                      # 设备、分发、通知、记录与证据
+├── departments/                 # 事业部定义、查询与约束
+├── features/
+│   ├── __init__.py              # 简单包声明
+│   ├── registry.py              # 七项内置功能唯一注册入口
+│   ├── _shared/                 # 通用基类、配置与跟踪计时
+│   ├── intrusion/
+│   ├── door_state/
+│   ├── face_dwell/
+│   ├── person_dwell/
+│   ├── phone_detection/
+│   ├── face_recognition/        # 含 library/ 人员与特征底库
+│   └── logistics_channel/
+├── core/                        # 配置、数据库基础能力、缓存、事件及公共工具
+├── connectors/                  # 外部系统协议与客户端，当前含 hikvision/
+├── integrations/                # 内置 Guard Room / Security VLM
+├── config/                      # 模型路径配置模板
+├── migrations/                  # 显式离线业务迁移与说明
+└── tests/
 ```
 
-认证与管理员鉴权直接复用根目录 `auth/auth.py`。
-内置功能包为 `intrusion`、`door_state`、`face_dwell`、`person_dwell`、`phone_detection`、
-`face_recognition`、`logistics_channel`；对应业务标识仍为 `blocks`、`detect_door`、
-`detect_face`、`detect_human`、`detect_phone`、`recognize_face`、`detect_logistics_single_person`。
-各功能包不重新导出 SPEC；查询从 `AiVision.features.registry` 导入。
-总编排与进程清理从 `AiVision.runtime` 导入，视觉子应用挂载适配使用
-`AiVision.api.mounted_apps`，HTTP 路由使用 `AiVision.api.routes`。
-旧平台目录已删除，不保留转发包；启动入口、API URL、认证与生命周期顺序保持不变。
-数据库准备由 `runtime.bootstrap.bootstrap_database()` 在 `.env` 和 settings 加载后、
-创建 `mp.Manager` 前执行；`core/db.py` 只提供 Base、连接池、会话和事务等基础能力。
+**Python 包名与业务标识分离**。数据库、API 和前端继续使用右列，不能改成目录名：
+
+| Python 包 | `FeatureSpec.name` |
+| --- | --- |
+| `intrusion` | `blocks` |
+| `door_state` | `detect_door` |
+| `face_dwell` | `detect_face` |
+| `person_dwell` | `detect_human` |
+| `phone_detection` | `detect_phone` |
+| `face_recognition` | `recognize_face` |
+| `logistics_channel` | `detect_logistics_single_person` |
+
+每个功能的唯一 SPEC 定义在自身 `spec.py`。`AiVision.features.registry` 显式导入七项 SPEC，
+拒绝重复名称，导入错误直接传播；`all_specs()`、`get_spec()`、`list_orm_classes()` 均从该入口导入。
+根包与各功能 `__init__.py` 只作包声明，不自动扫描、不注册、不转发 SPEC 或查询函数。
+人员逗留只有一套 Consumer、Schema 和配置表，同时支持通用电气与皓达，按摄像头和事业部隔离。
+
+认证与管理员鉴权复用根目录 `auth/auth.py`。正式启动顺序为：
+
+```text
+.env → settings → runtime.bootstrap.bootstrap_database()
+     → mp.Manager → init_orchestrator → orchestrator.start()
+     → create_app / Uvicorn
+```
+
+bootstrap 在调用时集中注册 ORM、创建缺失表并核验现有结构，不负责启动业务运行资源。
+`core/db.py` 只提供 Base、连接池、会话与事务；`core/schema.py` 提供通用结构核验工具。
+`core/cache.py` 仍有摄像头和 Feature 依赖，未在本批重构。
+主启动不使用旧 schema 初始化入口；人脸库 CLI 与 Guard Room 的独立建表流程保留。
+旧平台目录已删除，API URL、业务标识、权限及其他运行顺序保持不变。
 
 ## 启动
 
@@ -96,8 +134,8 @@ GET    /api/departments/{name}/features
 本机配置：
 
 ```bash
-cp config/model_paths.example.yaml config/model_paths.yaml
-# 修改 config/model_paths.yaml 中各模型的 path
+cp AiVision/config/model_paths.example.yaml AiVision/config/model_paths.yaml
+# 在项目根目录执行；修改 AiVision/config/model_paths.yaml 中各模型的 path
 ```
 
 默认读取 `.env` 的 `MODEL_PATHS_CONFIG=config/model_paths.yaml`，相对路径以 `AiVision`
@@ -119,4 +157,31 @@ models:
 固定注册项直接引用 Worker 类，并通过 `class_filter`、`type_label`、`conf`、`iou`
 明确声明推理参数，不再解析数据库导入路径或 description JSON。
 
-详细迁移步骤见 `MIGRATION.md`。
+模型注册与主启动结构见[根 README](../README.md)。目录整理不执行业务数据迁移；
+现有离线脚本及各自说明位于 `migrations/`，不由启动入口自动运行。
+
+## 人脸库 CLI 与定时同步
+
+人员与特征底库位于 `features/face_recognition/library/`。在项目根目录显式执行的命令为：
+
+```bash
+python -m AiVision.features.face_recognition.library.sync
+python -m AiVision.features.face_recognition.library.embedding
+```
+
+两项 CLI 均按源码层级定位 `AiVision/.env`，不依赖工作目录，系统环境变量优先。
+[service](features/face_recognition/library/hikvision-face-library-sync.service) 与
+[timer](features/face_recognition/library/hikvision-face-library-sync.timer) 保持原名称和时序；
+`ExecStart` 已使用新的同步模块路径，timer 关联的 service 文件存在。
+模板没有 `EnvironmentFile` 指令，配置由 CLI 加载。
+模板 `WorkingDirectory=/srv/Fuda_CVPreject` 在本机不存在；指定解释器
+`/root/miniconda3/envs/aivision/bin/python` 存在，但未验证依赖。
+部署时需核实目标目录、解释器及相应 `.env`，不能把模板视为已部署配置。
+
+## 本批静态收尾
+
+第三批-2 仅同步文档及静态引用，未运行测试、导入业务模块、启动服务、连接数据库、
+加载模型、拉取 RTSP 或执行同步任务。既有测试数字属于历史批次，见根 README 对应说明。
+`.gitignore` 允许 runtime 的四个现有源码文件、features 和 api/routes；运行数据、日志、
+模型、缓存、临时文件和真实配置仍不提交。历史文档及 integrations 中保留的历史调用注释
+见根 README 的“架构收尾的静态检查范围”，不作为当前导入依据。

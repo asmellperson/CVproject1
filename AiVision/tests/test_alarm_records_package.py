@@ -117,9 +117,11 @@ def test_record_imports_share_registration_without_running_workers_or_cleanup(en
             explicit = evidence_recorder.AlarmEvidenceRecorder("explicit-output")
             assert explicit.output_dir == Path.cwd() / "explicit-output/alarm_clips"
             assert not explicit.output_dir.exists()
-            old_package = "AiVision.platform"
-            assert importlib.util.find_spec(old_package) is None
-            assert not any(name == old_package or name.startswith(old_package + ".") for name in sys.modules)
+            # Check removed layout and loaded package hierarchy without resolving a retired import path.
+            aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+            assert not (aivision_root / "platform").exists()
+            assert not (aivision_root / "platform.py").exists()
+            assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
             assert attempts == [], attempts
             print("record registration and paths verified without external operations")
     """)

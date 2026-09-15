@@ -1,4 +1,4 @@
-"""人员库迁移的独立导入、延迟注册、CLI 配置定位及 unit 契约。"""
+"""人员库独立导入、显式注册、CLI 配置定位及 unit 契约。"""
 import configparser
 from pathlib import Path
 import subprocess
@@ -108,9 +108,11 @@ for cls in (orm.FacePerson, orm.FaceEmbedding, index.FaceIndex, index.IndexedPer
 assert not any(isinstance(item, index.FaceIndex) for item in gc.get_objects())
 assert db._engine is None and db._session_factory is None
 assert model_paths._PROJECT_ROOT == Path(sys.argv[2]) / 'AiVision'
-old = "AiVision.platform"
-assert importlib.util.find_spec(old) is None
-assert not any(name == old or name.startswith(old + '.') for name in sys.modules)
+# Check removed layout and loaded package hierarchy without resolving a retired import path.
+aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent
+assert not (aivision_root / "platform").exists()
+assert not (aivision_root / "platform.py").exists()
+assert "platform" not in {name.split(".")[1] for name in sys.modules if name.startswith("AiVision.")}
 assert attempts == [], attempts
 """
     run_isolated(program, tmp_path, entry, REPO_ROOT)

@@ -33,6 +33,7 @@ Security VLM 的源码、API 与生命周期都属于 AiVision，不再是仓库
 ```text
 Fuda_CVPreject_V3/
 ├── unified_frontend/      # React + TypeScript + Vite 统一前端
+├── unified_backend/       # 统一认证、聚合与代理后端
 ├── AiVision/              # 统一视觉业务后端（含全部检测能力）
 │   └── integrations/
 │       ├── guard_room/    # 保安行为算法与 API 模块
@@ -40,8 +41,7 @@ Fuda_CVPreject_V3/
 ├── auth/                  # 共享认证逻辑与 SQLite 用户存储
 ├── docs/diagrams/         # 项目流程图
 ├── scripts/               # 三服务启停、状态检查与运行时探测
-├── run_guide.txt          # 部署、线上/tmux 运维与账号维护说明
-└── PROJECT_ARCHITECTURE.md
+└── run_guide.txt          # 部署、线上/tmux 运维与账号维护说明
 ```
 
 生产环境统一管理三个 tmux 运行服务，前端由 Vite 直接提供：
@@ -313,6 +313,7 @@ orm_class       # 配置表 ORM
 config_schema   # 配置 Pydantic schema
 required_models # 依赖哪些推理模型
 violation_type  # 违规类型枚举
+departments     # 支持的事业部集合
 ```
 
 `AiVision/features/registry.py` 是唯一功能注册入口，显式导入七个 `spec.py`，不扫描目录或吞掉导入异常。注册时拒绝重复 `FeatureSpec.name` 并继续核验事业部；查询统一使用 `from AiVision.features.registry import all_specs, get_spec, list_orm_classes`。`features/__init__.py` 和各功能 `__init__.py` 只有包说明，不转发这些查询函数、SPEC 或 Consumer。
@@ -329,9 +330,9 @@ violation_type  # 违规类型枚举
 | `phone_detection/` | `detect_phone` |
 | `face_recognition/` | `recognize_face` |
 
-共享配置基类、Consumer、跟踪与逗留计时位于 `_shared/`。`person_dwell/spec.py` 仍只有一个人员逗留 SPEC，同时支持 `general_electric` 和 `haoda_company`。目录迁移没有改变 ORM 表结构、配置字段、算法、报警条件或推理失败时的跟踪状态保留与暂停计时语义。本批只做静态检查，未运行测试，也未执行业务导入、启动服务、连接数据库、加载模型或迁移数据。
+共享配置基类、Consumer、跟踪与逗留计时位于 `_shared/`。`person_dwell/spec.py` 仍只有一个人员逗留 SPEC，同时支持 `general_electric` 和 `haoda_company`。目录迁移没有改变 ORM 表结构、配置字段、算法、报警条件或推理失败时的跟踪状态保留与暂停计时语义。架构收尾仅核对文档和静态引用；下文各历史批次的测试数字不代表当前源码已重新验证。
 
-人脸库统一归属 `features/face_recognition/library/`，配置、Consumer 和识别记录实现保留原位置：
+人脸库统一归属 `features/face_recognition/library/`，配置、Consumer 和识别记录均位于同一个人脸识别功能包：
 
 ```text
 AiVision/features/face_recognition/
@@ -357,7 +358,7 @@ AiVision/features/face_recognition/
 
 CLI 导入时经过的 `features` 和 `face_recognition` 父包均只有说明，人员库入口不会隐式加载 registry 或全部 Consumer。只有正式导入 `features.registry` 才加载固定的七项功能；功能导入异常直接传播。SPEC 与公开类使用其正式定义模块，不再依赖包级延迟导出。纯人脸检测仍不导入身份识别和人员库。
 
-同步与特征生成命令（用于部署后显式执行，本轮未执行真实任务）：
+同步与特征生成的正式模块命令（本批未执行）：
 
 ```bash
 python -m AiVision.features.face_recognition.library.sync
@@ -366,9 +367,20 @@ python -m AiVision.features.face_recognition.library.embedding
 
 两个入口继续使用 `Path(__file__).resolve().parents[3]` 定位源码所在项目的 `AiVision/.env`；本批目录改名没有改变深度，不依赖工作目录，系统环境变量仍优先（`override=False`）。没有复制 `.env` 或凭据。模型配置仍使用原 `MODEL_PATHS_CONFIG` 和 `AiVision/config/model_paths.yaml`，权重路径语义、`DATA_PATH`、识别截图及媒体清理位置不变；识别媒体子目录仍使用业务标识 `recognize_face`。表名、字段、外键和索引未变，不需要数据库迁移。
 
-仓库 unit 位于 [同步 service](AiVision/features/face_recognition/library/hikvision-face-library-sync.service) 和 [同步 timer](AiVision/features/face_recognition/library/hikvision-face-library-sync.timer)。service 仅更新 `ExecStart` 的 Python 模块名；timer 仍关联 `hikvision-face-library-sync.service`，保留开机 2 分钟、每次启动间隔 10 分钟、1 秒精度，以及 service 的 8 分钟启动超时、30 秒停止超时和 `root` 用户。
+仓库 unit 位于 [同步 service](AiVision/features/face_recognition/library/hikvision-face-library-sync.service) 和 [同步 timer](AiVision/features/face_recognition/library/hikvision-face-library-sync.timer)，当前静态配置如下：
 
-部署前需核实 unit 中的 `WorkingDirectory=/srv/Fuda_CVPreject`、相应项目下的 `AiVision/.env`，以及 `/root/miniconda3/envs/aivision/bin/python`。本轮只读检查发现 `/srv/Fuda_CVPreject` 不存在，指定 Python 文件存在；当前源码实际位于 `/usr/zyy/Fuda_CVPreject_V3`，不能直接把仓库模板当作当前部署配置。标准系统 unit 目录未发现同名 service/timer。本轮未改写这些部署路径、安装或启动 unit，也未执行 daemon-reload；unit 指定 Python 环境的运行依赖未验证。
+| 配置项 | 仓库模板值与检查结果 |
+| --- | --- |
+| `ExecStart` | `/root/miniconda3/envs/aivision/bin/python -m AiVision.features.face_recognition.library.sync`，模块文件存在 |
+| `WorkingDirectory` | `/srv/Fuda_CVPreject`，本机不存在；部署前必须核实目标项目目录 |
+| `EnvironmentFile` | 未配置此指令；sync CLI 根据自身源码位置读取 `AiVision/.env`，已存在的环境变量优先 |
+| 解释器 | `/root/miniconda3/envs/aivision/bin/python` 在本机存在，未执行或验证依赖 |
+| timer 关联 | `Unit=hikvision-face-library-sync.service`，与 service 文件名一致 |
+| 用户与时序 | `root`；开机 2 分钟、每 10 分钟；启动超时 8 分钟、停止超时 30 秒，均保持原配置 |
+
+当前源码位于 `/usr/zyy/Fuda_CVPreject_V3`。仓库 unit 是部署模板，不能据此认定线上已安装的 unit 正确；本批没有读取真实 `.env`、安装 unit、执行 daemon-reload 或启动同步。
+
+#### 历史验证记录：人脸库迁移
 
 以下为前一轮人脸库迁移的验证记录与后续可复跑命令，结果不代表本批已执行测试。本批仅更新测试引用及注册契约，没有执行下列命令。复跑时需使用下方 29 文件回归同样的隔离环境变量：
 
@@ -420,47 +432,58 @@ FastAPI 正式 API
 
 ```text
 AiVision/
-├── main.py                      # 后端入口，设置 multiprocessing spawn，启动 Uvicorn
-├── pyproject.toml               # AiVision Conda 环境内安装的 Python 依赖
-├── .env.example                 # 环境变量模板
-├── api/                         # FastAPI 应用装配、依赖注入与 HTTP 路由
-│   ├── app.py                  # FastAPI app、中间件、路由注册及 ASGI mount
-│   ├── deps.py                 # 共享依赖注入
-│   ├── mounted_apps.py         # 视觉子应用挂载槽、创建及生命周期适配
-│   └── routes/                 # alarms/cameras/departments/exception_alerts/face_recognition/
-│                               # features/horns/logistics_channels/models/runtime
-├── core/settings.py             # 统一环境变量配置入口
-├── core/db.py                   # SQLAlchemy Base、连接池、会话与事务工具
-├── core/cache.py                # 配置缓存
-├── core/events.py               # 配置变更事件总线
-├── runtime/                     # 运行编排与生命周期协调
-│   ├── bootstrap.py            # 启动 ORM 注册、缺失表创建及结构核验
-│   ├── orchestrator.py         # 总编排器及全局实例
-│   └── process_cleanup.py      # 启动前残留进程清理
-├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
-├── inference/                   # 模型 worker、队列、推理管理
-├── departments/                 # 固定事业部定义、只读查询及相关业务约束
-├── alarms/                      # 告警相关能力的归属目录
-│   ├── dispatcher.py           # 告警分发、冷却及通道协调
-│   ├── devices/                # 设备配置、绑定、运行管理及通信
-│   ├── notifications/          # 企业微信发送与通知缩略图签名
-│   ├── records/                # 数据库记录、截图、写入队列及关联媒体清理
-│   ├── evidence/               # 视频帧缓存、录制、编码及完成状态
-│   ├── types.py                # 告警类型及展示信息
-│   └── validation.py           # 类型、功能与事业部一致性校验
-└── features/                    # 所有检测功能模块
+├── main.py                      # 正式启动入口
+├── __init__.py
+├── api/
+│   ├── app.py                   # FastAPI 应用创建与装配
+│   ├── deps.py                  # 共享依赖注入
+│   ├── mounted_apps.py          # Guard Room / Security VLM 挂载与生命周期适配
+│   └── routes/                  # HTTP 路由，URL 与业务标识保持不变
+├── runtime/
+│   ├── bootstrap.py             # 启动阶段 ORM 注册、建表及结构核验
+│   ├── orchestrator.py          # 总运行调度及唯一全局实例
+│   └── process_cleanup.py       # 残留进程清理
+├── cameras/                     # 摄像头配置、采集、帧读取和运行管理
+├── inference/                   # 模型注册、加载、推理 Worker 和队列
+├── alarms/                      # 设备、分发、通知、记录与证据
+├── departments/                 # 固定事业部定义、查询与约束
+├── features/
+│   ├── __init__.py              # 简单包声明，不承担注册或查询
+│   ├── registry.py              # 显式注册七项内置功能的唯一入口
+│   ├── _shared/                 # 功能基类、配置、跟踪与逗留计时
+│   ├── intrusion/               # 业务标识 blocks
+│   ├── door_state/              # 业务标识 detect_door
+│   ├── face_dwell/              # 业务标识 detect_face
+│   ├── person_dwell/            # 业务标识 detect_human
+│   ├── phone_detection/         # 业务标识 detect_phone
+│   ├── face_recognition/        # 业务标识 recognize_face，含 library/
+│   └── logistics_channel/       # 业务标识 detect_logistics_single_person
+├── core/                        # settings、db、缓存、事件、日志及公共媒体工具
+├── connectors/                  # 外部系统协议与客户端，当前含 hikvision/
+├── integrations/                # Guard Room / Security VLM 内置模块
+├── config/                      # 模型路径配置模板
+├── migrations/                  # 显式执行的离线业务数据迁移与说明
+├── tests/
+├── pyproject.toml
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
-正式导入使用 `AiVision.runtime.orchestrator`、`AiVision.runtime.process_cleanup`、
-`AiVision.api.mounted_apps` 和 `AiVision.api.routes.*`。原平台目录已删除，没有兼容转发。
-启动入口仍为 `python -m AiVision.main`；Orchestrator 的实例、启停顺序和运行流程，
-视觉子应用生命周期与 ASGI mount，以及 HTTP URL、router prefix 和认证规则均保持不变。
-本轮只迁移文件、更新引用和说明，未运行测试、启动服务、连接数据库或加载模型。
+正式启动命令为 `python -m AiVision.main`。环境加载完成后，唯一主启动数据库入口
+`AiVision.runtime.bootstrap.bootstrap_database()` 注册 ORM、创建缺失表并核验结构；
+随后才创建 `mp.Manager`、初始化并启动 Orchestrator，最后创建 FastAPI 应用并交给 Uvicorn。
+`bootstrap.py` 不创建应用、启动设备或加载模型，导入本模块也不会执行初始化。
 
-数据库启动准备统一由 `AiVision.runtime.bootstrap.bootstrap_database()` 执行，
-在环境和 settings 加载后、创建 `mp.Manager` 前完成；调度器不重复建表和核验。
-建表与结构检查语义保持不变；人脸特征生成 CLI 自有的两张底库表创建流程继续保留。
-本批仅做静态检查，未执行测试、服务或数据库初始化。
+`core/db.py` 仅提供 Base、Engine、Session、事务及连接释放，不导入业务 ORM或运行编排层。
+`core/schema.py` 提供结构核验工具，业务表的选择属于 bootstrap。
+`core/cache.py` 仍有对 cameras 和 features.registry 的既有依赖，本批不将整个 core 描述为已完全解耦。
+人脸同步/特征生成 CLI 及 Guard Room 自有建表流程独立保留；它们不调用主启动 bootstrap。
+
+#### 既有模块与历史迁移验证
+
+下述迁移过程、旧目录对照和测试数量均为历史记录，不代表第三批架构收尾执行过测试。
+当前结构以上方目录树为准；本批没有运行任何测试、服务或数据库操作。
 
 事业部模块统一从 `AiVision.departments` 导入，原目录的三个源码文件完整迁移，公开对象和接口保持不变：
 
@@ -567,7 +590,7 @@ AiVision/alarms/
 
 此前已将原告警通道包的四个实现按职责移动：`dispatcher.py` 位于告警领域根目录，`horn.py` 位于 `devices/`，`wechat.py` 和 `notification_image.py` 位于 `notifications/`。原告警通道包已删除，`core/` 保留其他公共能力；告警记录、截图及视频证据现归入下述 `records/` 和 `evidence/`。所有调用均使用新模块路径，没有旧包转发、包级实现导出或双路径支持。
 
-本轮记录与证据迁移将原 `AiVision/platform/violation/` 中六个文件按下表归属，保留文件名、公开对象和内部保存流程：
+历史结构对照（记录与证据迁移批次）：原 `AiVision/platform/violation/` 的六个文件归属如下。旧路径仅用于说明迁移来源，不是当前导入或运行入口：
 
 | 原包内文件 | 新位置 |
 | --- | --- |
@@ -744,8 +767,30 @@ AiVision/features/person_dwell/
 3. 实现 `orm.py`，定义该功能配置表。
 4. 实现 `schema.py`，定义配置校验。
 5. 在 `spec.py` 定义唯一 `SPEC = FeatureSpec(...)`，在 `features/registry.py` 的显式清单中登记；`__init__.py` 只保留包说明。
-6. 如果依赖新模型，确保数据库 `ai_model` 中有对应 `name` 和 `import_path`。
+6. 如果依赖新模型，在 `AiVision/inference/model_registry.py` 明确登记 Worker 类，并在 `AiVision/config/model_paths.yaml` 配置权重路径；`required_models` 使用模型注册名，不写数据库导入路径。
 7. 前端增加 section、导航和 API 封装。
+
+### 7.8 架构收尾的静态检查范围
+
+第三批-2 只同步文档和路径；未运行测试、应用导入、服务、数据库、RTSP 或模型。
+生产导入、测试的正式依赖、动态模块入口和脚本均使用当前目录。测试中对已删除平台包的检查
+改为源码目录/文件和已加载包层级检查，继续防止旧目录或兼容模块恢复。
+事业部包验证改从 `AiVision.features.registry` 引用查询函数，不恢复根包导出。
+
+历史文本明确保留以下例外，不应作为当前导入依据：
+
+- 本文告警记录迁移表中的旧目录，用于说明文件来源。
+- Git 忽略的本地 `代码调用关系说明.md` 是迁移前快照，文件顶部已标注历史性质，不随本批提交。
+- integrations 内有五行历史自动生成调用注释，分布于 `security_vlm/src/vlm_worker.py`、
+  `security_vlm/tests/test_vlm_worker.py`、`guard_room/tests/test_vehicle_detection.py`。
+  注释涉及已删除的摄像头、推理和挂载目录；本批禁止修改 integrations，原样保留，不存在相应可执行导入。
+- 人员离线迁移测试中的 `ai_function.import_path` 是历史持久化数据样本，不是动态模块加载入口；
+  本批不改写迁移规则或历史样本。业务 API 中的 `detect_human`、`recognize_face` 等键也保持不变。
+
+主启动已无旧 schema 初始化函数调用。Guard Room 自有的 `create_all_tables()` 属于独立模块内部流程，
+不等同于 AiVision 主数据库入口，不在本批迁移范围。
+`.gitignore` 允许 runtime 的四个现有源码文件，以及 features 和 api/routes 源码；
+运行数据、日志、模型、缓存、临时文件和真实配置继续忽略，不扩大 runtime 数据的提交范围。
 
 ## 8. security_vlm 安检流程规范检测
 
@@ -951,7 +996,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 | 页面 | 优先检查 |
 | --- | --- |
 | 保安行为规范检测 | `AiVision/integrations/guard_room/src/runtime.py`、`AiVision/integrations/guard_room/config/config.yaml` 的 RTSP 和模型路径。 |
-| AiVision 各检测页面 | AiVision 摄像头配置、功能是否启用、模型表是否启用、`/api/runtime/status`。 |
+| AiVision 各检测页面 | AiVision 摄像头/功能配置、`inference/model_registry.py`、模型路径配置和 `/api/models`、`/api/runtime/status`。 |
 | 安检流程规范检测 | `aivision` 日志中 Security VLM worker 是否启动、状态 API、`runtime.dir` 下状态文件。 |
 
 ### 11.4 报警没有出现
@@ -966,7 +1011,7 @@ Guard Room 随 AiVision 启动。Security VLM 的 API 同样随 AiVision 启动�
 | 子系统 | 注意事项 |
 | --- | --- |
 | Guard Room | 部分规则参数被运行中对象持有，配置更新后可能需要重启检测或服务。 |
-| AiVision | 摄像头/功能配置通过事件总线热更新；模型 worker 相关变化通常需要重启后端。 |
+| AiVision | 摄像头/功能配置通过事件总线热更新；模型路径保存后在后台重载，通过 `/api/models` 检查实际重载与运行状态。 |
 | Security VLM | ROI 支持热加载；worker_python、模型、VLM 凭据等通常需要重启服务。 |
 
 ## 12. 二次开发入口

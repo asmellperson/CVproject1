@@ -78,7 +78,7 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     _camera_cache：按 camera_id 保存摄像头基础配置。
     _function_cache：按 (camera_id, feature_name) 保存功能配置，同摄像头各 Feature 独立。
     init()：先 _load_cameras()，再 _load_function_configs()，重复初始化由标志位控制。
-    _load_function_configs()：遍历 features.all_specs()，通过 spec.orm_class 查询配置表，
+    _load_function_configs()：遍历 features.registry.all_specs()，通过 spec.orm_class 查询配置表，
         新功能完成注册后即可被覆盖，不需要在缓存文件中硬编码每张功能表。
     _orm_to_dict()：仅把 ORM 表列转成字典，不附带 ORM Session 或关系加载对象。
     _enrich_function_config()：向功能字典注入 name、shm_name、camera_enable、department，
