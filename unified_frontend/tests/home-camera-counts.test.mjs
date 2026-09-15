@@ -5,6 +5,19 @@ import ts from 'typescript'
 
 const frontendRoot = new URL('../', import.meta.url)
 
+test('shared human feature counts and online state are isolated by department', async () => {
+  const { getLoadedAiVisionFeatureCounts } = await importTypeScript('src/sections/homeCameraCounts.ts')
+  const cameras = [
+    { enabled: true, department: 'general_electric', functions: { detect_human: true }, runtimeOnline: true },
+    { enabled: true, department: 'haoda_company', functions: { detect_human: true }, runtimeOnline: false },
+    { enabled: false, department: 'haoda_company', functions: { detect_human: true }, runtimeOnline: true },
+  ]
+  assert.deepEqual(getLoadedAiVisionFeatureCounts(cameras, true, 'general_electric').detect_human,
+    { cameraCount: 1, enabledCameraCount: 1, onlineCameraCount: 1 })
+  assert.deepEqual(getLoadedAiVisionFeatureCounts(cameras, true, 'haoda_company').detect_human,
+    { cameraCount: 2, enabledCameraCount: 1, onlineCameraCount: 0 })
+})
+
 async function importTypeScript(path) {
   const source = await readFile(new URL(path, frontendRoot), 'utf8')
   const output = ts.transpileModule(source, {

@@ -169,7 +169,7 @@ def test_event_dict_skips_oversized_camera_ids_without_response_failure():
 @pytest.mark.parametrize("unsupported_type", [7, 8, 9, 10])
 def test_queries_do_not_recover_missing_ownership_from_old_types(unsupported_type):
     row = _channel_row(violation_type=unsupported_type, feature_name=None, department=None,
-        event_metadata={"feature_name": "detect_human_haoda", "department": "haoda_company"})
+        event_metadata={"feature_name": "detect_human", "department": "haoda_company"})
     event = alarms._event_dict(row)
     assert event["violation_type"] == unsupported_type
     assert event["event_type"] == "unknown"
@@ -220,7 +220,7 @@ def test_alarm_statistics_uses_subject_contract_and_has_no_fake_week(monkeypatch
 
     monkeypatch.setattr(alarms, "get_session", Session)
 
-    statistics = alarms.alarm_statistics(days=7)
+    statistics = alarms.alarm_statistics(days=7, user={"role": "admin"})
 
     assert statistics["summary"]["total"] == 2
     assert statistics["summary"]["active_subjects"] == 1

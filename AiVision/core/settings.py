@@ -101,6 +101,7 @@ class AlarmSettings(BaseSettings):
     wechat_corp_secret: str = Field("",          alias="WECHAT_CORP_SECRET")      # 应用Secrect
     wechat_agent_id: int    = Field(1000050,     alias="WECHAT_AGENT_ID")         # AgentID
     wechat_card_base_url: str = Field("https://aicv.fudar.com", alias="WECHAT_CARD_BASE_URL")
+    wechat_thumbnail_ttl_seconds: int = Field(86400, ge=60, le=604800, alias="WECHAT_THUMBNAIL_TTL_SECONDS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -395,6 +395,10 @@ def get_camera_frame_jpg(
     """
     # 这个函数做：1、摄像头不存在：404，2、用户没有权限：403，3、有权限：继续
     camera = get_camera_for_user(camera_config_manager, key, user)
+    if feature is not None:
+        from AiVision.features import get_spec
+        if get_spec(feature) is None:
+            raise HTTPException(status_code=404, detail="unknown feature")
     return build_camera_frame_response(
         key=camera["shm_name"],
         feature=feature,

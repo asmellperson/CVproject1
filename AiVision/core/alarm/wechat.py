@@ -1,8 +1,8 @@
 """
 core/alarm/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
-负责拿token、上传告警图片、组织消息、然后调用企业微信HTTP API发出去
-AlarmDispatcher._wechat_loop()把Opencv帧编码成JPEG，然后调用self.wechat.sent(),通过wechatnotifier获取access_token,发生图文卡片，或降级 文本 + 图片，然后经过企业微信服务器，最后用户手机收到消息
+负责获取 token、组织图文卡片并调用企业微信 HTTP API。
+AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人员缩略图使用受限签名链接。
 对应环境变量(可选,未配置时仅日志告警):
     WECHAT_CORP_ID
     WECHAT_CORP_SECRET
@@ -11,9 +11,8 @@ AlarmDispatcher._wechat_loop()把Opencv帧编码成JPEG，然后调用self.wecha
 流程：
     __init__():保存企业微信凭据
     _get_token():crop_id + secret 获取access_token
-    _upload_image():从PEG bytes得到media_id
     _send_news_card():单条图文卡片
-    send(): AI业务报警：正常:news图文卡片，降级：Markdown + 图片
+    send(): AI业务报警 news 图文卡片，URL 缺失则记录失败
     send_text():系统异常等纯文本通知
 """
 from __future__ import annotations
@@ -33,7 +32,6 @@ _EVENT_DISPLAY = {
     "detect_phone":  "手机违规",
     "detect_door":   "大门状态",
     "detect_human":  "人员违规逗留检测",
-    "detect_human_haoda": "人员违规逗留检测（皓达公司）",
     "detect_logistics_single_person": "物流通道单人异常",
 }
 _TOKEN_REFRESH_MARGIN_SECONDS = 60
@@ -43,8 +41,8 @@ class WeChatNotifier:
     企业微信应用消息发送器。
 
     发送流程（每次 send() 调用）:
-        1. _get_token()    — 向企业微信接口换取 access_token（未缓存，每次重新获取）。
-        2. send()          — 优先发送单条 news 图文卡片；缺少卡片 URL 时降级为旧文本+图片。
+        1. _get_token()    — 获取并按有效期缓存 access_token。
+        2. send()          — 发送单条 news 图文卡片；缺少卡片 URL 时记录失败。
 
     凭据优先级（三选一，从高到低）:
         构造参数 > settings.alarm > 环境变量 WECHAT_CORP_ID / WECHAT_CORP_SECRET / WECHAT_AGENT_ID
@@ -65,7 +63,7 @@ class WeChatNotifier:
         self.corp_secret = corp_secret or settings.alarm.wechat_corp_secret or os.environ.get("WECHAT_CORP_SECRET", "")
         self.agent_id = int(agent_id or settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", 1000050))
 
-        self._token: Optional[str] = None  # 预留字段，当前每次 send() 都重新获取
+        self._token: Optional[str] = None  # 按企业微信返回的有效期缓存
         self._token_expires_at = 0.0
         self._token_lock = threading.Lock()
 
@@ -80,8 +78,7 @@ class WeChatNotifier:
             成功时返回 token 字符串；凭据未配置或接口报错时返回 None。
 
         Note:
-            access_token 有效期为 7200 秒，当前未做本地缓存，每次调用都重新请求。
-            若并发量大或调用频繁，可在此处加入过期时间缓存以减少接口压力。
+            按响应 expires_in 缓存，提前刷新，并通过锁避免并发重复获取。
         """
         if not self.corp_id or not self.corp_secret:
             logger.warning("[WeChat] 企业微信凭据未配置，缺少 corp_id 或 corp_secret")
@@ -210,12 +207,11 @@ class WeChatNotifier:
 
         发送策略:
             - image_url/detail_url 存在时发送单条 news 图文卡片。
-            - URL 缺失时保留旧文本+图片降级路径，避免配置缺失导致报警完全不可见。
+            - URL 缺失时记录失败，不发送没有可用链接的卡片。
 
         Args:
             feature_name    : 功能内部名称，通过 _EVENT_DISPLAY 映射为中文展示名。
             camera_name     : 摄像头展示名称，写入告警文本。
-            image_jpeg_bytes: 违规帧的 JPEG 字节流，由 AlarmDispatcher 编码后传入。
             recipients      : 接收人账号，多人用 | 分隔，如 "user1|user2"。
             image_url       : 企业微信可访问的报警缩略图 URL。
             detail_url      : 平台报警详情页 URL。

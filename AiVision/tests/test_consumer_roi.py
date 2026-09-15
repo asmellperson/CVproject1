@@ -175,7 +175,7 @@ def test_roi_edit_rebuilds_mask_and_resets_frame_difference_state():
 
 
 ORDINARY_FEATURES = (
-    "blocks", "detect_door", "detect_face", "detect_human", "detect_human_haoda",
+    "blocks", "detect_door", "detect_face", "detect_human",
     "detect_phone", "detect_logistics_single_person",
 )
 

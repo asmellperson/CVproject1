@@ -197,7 +197,7 @@ def test_explicit_camera_department_then_enable_multi_department_feature(departm
 @pytest.mark.parametrize("spec", ORDINARY_FEATURES, ids=lambda spec: spec.name)
 def test_mismatched_department_rejects_enable_but_allows_disabled_save(department_api, spec):
     api = department_api
-    department = "general_electric" if spec.name == "detect_human_haoda" else "haoda_company"
+    department = next(dept for dept in ("haoda_company", "general_electric", "research_institute") if dept not in spec.departments)
     camera = create_camera(api, department=department)
     response = save(api, spec.name, True)
     assert response.status_code == 400
@@ -212,7 +212,7 @@ def test_mismatched_department_rejects_enable_but_allows_disabled_save(departmen
 def test_autofill_is_rolled_back_on_other_validation_or_commit_failure(department_api, monkeypatch):
     api = department_api
     camera = create_camera(api)
-    response = save(api, "detect_human", True, alarm={"horn": {"enable": True}})
+    response = save(api, "detect_face", True, alarm={"horn": {"enable": True}})
     assert response.status_code == 400
     assert "喇叭" in response.json()["detail"]
 
@@ -222,12 +222,12 @@ def test_autofill_is_rolled_back_on_other_validation_or_commit_failure(departmen
     with monkeypatch.context() as patch:
         patch.setattr(api.factory.class_, "commit", fail_commit)
         with pytest.raises(OperationalError):
-            save(api, "detect_human", True)
+            save(api, "detect_face", True)
     assert api.observations == []
     assert api.cache.get_camera_config(camera["camera_id"])["department"] is None
     with api.factory() as session:
         assert session.get(AiCameraConfig, camera["camera_id"]).department is None
-        assert session.query(get_spec("detect_human").orm_class).filter_by(camera_id=camera["camera_id"]).one().enable is False
+        assert session.query(get_spec("detect_face").orm_class).filter_by(camera_id=camera["camera_id"]).one().enable is False
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -243,9 +243,9 @@ def test_existing_enabled_legacy_config_can_be_saved_or_disabled_without_guessin
         assert save(api, "detect_phone", True).status_code == 400
 
 
-def test_autofilled_department_is_reused_and_cannot_be_overwritten_by_next_feature(department_api):
+def test_explicit_department_is_reused_and_cannot_be_overwritten_by_next_feature(department_api):
     api = department_api
-    camera = create_camera(api)
+    camera = create_camera(api, department="general_electric")
     assert save(api, "detect_human", True).status_code == 200
     assert save(api, "detect_phone", True).status_code == 200
     assert save(api, "detect_face", True).status_code == 400

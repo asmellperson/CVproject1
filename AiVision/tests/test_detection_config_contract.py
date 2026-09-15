@@ -80,7 +80,7 @@ def test_database_invalid_values_fail_at_cache_entry(api):
 
 REMOVED = [
     ("detect_face", "YAW_THRESHOLD"), ("detect_face", "IOU_THR"),
-    ("detect_human", "IOU_THR"), ("detect_human_haoda", "IOU_THR"),
+    ("detect_human", "IOU_THR"),
     ("detect_door", "blur_kernel"), ("blocks", "blur_kernel"),
     ("blocks", "diff_threshold"), ("blocks", "diff_threshold_env"), ("blocks", "env_threshold"),
 ]
@@ -108,7 +108,7 @@ def test_undefined_fields_at_every_level(feature, payload):
 
 @pytest.mark.parametrize("feature,field,minimum", [
     ("detect_face", "MAX_LOST", 0), ("detect_phone", "MIN_CONSECUTIVE_HITS", 1),
-    ("detect_human", "MAX_LOST", 0), ("detect_human_haoda", "MAX_LOST", 0),
+    ("detect_human", "MAX_LOST", 0),
 ])
 def test_counts_require_integer(api, feature, field, minimum):
     path = f"/api/features/{feature}/configs/test"
@@ -123,7 +123,7 @@ def test_counts_require_integer(api, feature, field, minimum):
 @pytest.mark.parametrize("feature,field,nullable", [
     ("detect_door", "threshold", False), ("detect_door", "global_motion_threshold", False),
     ("detect_door", "env_threshold", True), ("blocks", "threshold", False),
-] + [(feature, field, False) for feature in ["detect_face", "detect_human", "detect_human_haoda"]
+] + [(feature, field, False) for feature in ["detect_face", "detect_human"]
      for field in ["DETECTION_IOU_THR", "TRACK_IOU_THR"]])
 def test_ratio_boundaries_and_invalid_values(api, feature, field, nullable):
     path = f"/api/features/{feature}/configs/test"
@@ -145,7 +145,7 @@ def consumer(feature, **values):
     return instance
 
 
-@pytest.mark.parametrize("feature", ["detect_face", "detect_human", "detect_human_haoda"])
+@pytest.mark.parametrize("feature", ["detect_face", "detect_human"])
 def test_independent_iou_hot_update_zero_time_and_visible_tracks(feature):
     instance = consumer(feature, DETECTION_IOU_THR=0.0, TRACK_IOU_THR=1.0, MAX_LOST=0, MAX_TIME=0)
     kind = "face" if feature == "detect_face" else "person"

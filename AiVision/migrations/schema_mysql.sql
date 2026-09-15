@@ -208,42 +208,6 @@ CREATE TABLE ai_camera_config_detect_human (
 
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_human_camera_id ON ai_camera_config_detect_human (camera_id);
 
-CREATE TABLE ai_camera_config_detect_human_haoda (
-	`CONF_THRESHOLD` FLOAT,
-	`DETECTION_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
-	`TRACK_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
-	`MAX_LOST` INTEGER NOT NULL DEFAULT '5',
-	`MAX_TIME` FLOAT,
-	roi_pos JSON NOT NULL,
-	`MIN_BOX_AREA` INTEGER,
-	`ASPECT_RATIO_RANGE` JSON NOT NULL,
-	`CENTER_DIST_THR` FLOAT,
-	`AREA_RATIO_THR` FLOAT,
-	`MATCH_SCORE_THR` FLOAT,
-	`TRACK_SMOOTH_ALPHA` FLOAT,
-	alarm_interval FLOAT COMMENT '告警间隔(秒)',
-	sql_enable BOOL COMMENT 'SQL告警启用',
-	horn_enable BOOL COMMENT '喇叭告警启用',
-	horn_event_id INTEGER COMMENT '告警音ID',
-	wechat_enable BOOL COMMENT '微信告警启用',
-	wechat_user VARCHAR(255) COMMENT '微信用户列表',
-	horn_id INTEGER COMMENT '喇叭设备ID',
-	id INTEGER NOT NULL AUTO_INCREMENT,
-	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
-	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
-	PRIMARY KEY (id),
-	CONSTRAINT ck_ai_camera_config_detect_human_haoda_0 CHECK (DETECTION_IOU_THR BETWEEN 0 AND 1),
-	CONSTRAINT ck_ai_camera_config_detect_human_haoda_1 CHECK (TRACK_IOU_THR BETWEEN 0 AND 1),
-	CONSTRAINT ck_ai_camera_config_detect_human_haoda_2 CHECK (MAX_LOST >= 0),
-	FOREIGN KEY(horn_id) REFERENCES ai_horn_config (id) ON DELETE SET NULL,
-	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX ix_ai_camera_config_detect_human_haoda_camera_id ON ai_camera_config_detect_human_haoda (camera_id);
-
 CREATE TABLE ai_camera_config_detect_logistics_single_person (
 	cap_interval FLOAT,
 	`IOU_THR` FLOAT,

@@ -219,7 +219,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
             for prefix in ("/api/cameras",):
                 default_list = await client.get(prefix)
                 assert default_list.status_code == 200
-                assert [item["camera_id"] for item in default_list.json()] == [1, 4]
+                assert [item["camera_id"] for item in default_list.json()] == [1]
                 assert "url" not in default_list.json()[0]
                 assert (await client.get(
                     prefix,
@@ -231,7 +231,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
                 assert camera_by_shm.status_code == 200
                 assert "url" not in camera_by_id.json()
                 assert "url" not in camera_by_shm.json()
-                assert (await client.get(f"{prefix}/camera_4")).status_code == 200
+                assert (await client.get(f"{prefix}/camera_4")).status_code == 403
                 assert (await client.get(f"{prefix}/2")).status_code == 403
                 assert (await client.get(f"{prefix}/camera_2")).status_code == 403
                 assert (await client.get(f"{prefix}/camera_5")).status_code == 403
@@ -244,7 +244,7 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
             for prefix in ("/api/cameras",):
                 authorized_cameras = await client.get(prefix)
                 assert authorized_cameras.status_code == 200
-                assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2, 4]
+                assert [item["camera_id"] for item in authorized_cameras.json()] == [1, 2]
                 assert all("url" not in item for item in authorized_cameras.json())
                 second_department = await client.get(
                     prefix,

@@ -12,5 +12,5 @@ SPEC = FeatureSpec(
     config_schema=HumanConfigSchema,
     required_models=("yolo_human",),
     violation_type=5,
-    departments=("general_electric",),
+    departments=("general_electric", "haoda_company"),
 )

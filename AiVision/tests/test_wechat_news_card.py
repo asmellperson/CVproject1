@@ -58,7 +58,6 @@ class FakeResponse:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_wechat_human_alarm_uses_personnel_violation_dwell_name():
     assert _EVENT_DISPLAY["detect_human"] == "人员违规逗留检测"
-    assert _EVENT_DISPLAY["detect_human_haoda"] == "人员违规逗留检测（皓达公司）"
 
 
 # 功能：验证 `test_wechat_alarm_uses_single_news_card` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明

@@ -85,12 +85,12 @@ test('uses the personnel violation dwell name across user-facing views', () => {
   }
 })
 
-test('offers the global camera pool without copying cameras into the Haoda feature', () => {
-  assert.match(haodaPage, /feature="detect_human_haoda"/)
+test('uses the shared feature with department-scoped camera selection', () => {
+  assert.match(page, /const feature = 'detect_human'/)
   assert.match(haodaPage, /department="haoda_company"/)
   assert.doesNotMatch(haodaPage, /cameraDepartment=/)
   assert.match(haodaPage, /departmentLabel="皓达公司"/)
-  assert.match(page, /getAiVisionCameras\(cameraDepartment\)/)
+  assert.match(page, /getAiVisionCameras\(department\)/)
   assert.match(page, /isAiVisionFeatureEnabled\(camera, feature\)/)
   assert.match(cameraManager, /从平台全局摄像头池选择/)
   assert.match(cameraManager, /加入当前功能不会修改摄像头的所属事业部或公司/)

@@ -93,7 +93,7 @@ class FeatureConfigManager:
             old_enable = bool(cfg.enable) if cfg is not None else False
             new_enable = bool(payload.get("enable", False))
             # 当前准备启用，之前没有启用，而且不是物流功能，执行camera department校验
-            if new_enable and not old_enable and spec.name not in LOGISTICS_FEATURES:
+            if new_enable and (not old_enable or spec.name == "detect_human") and spec.name not in LOGISTICS_FEATURES:
                 camera.department = spec.resolve_camera_department(camera.department)
             # 配置不存在就创建
             if cfg is None:

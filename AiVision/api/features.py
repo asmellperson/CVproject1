@@ -69,6 +69,7 @@ def get_feature_status(
     orchestrator=Depends(get_current_orchestrator),
 ):
     """读取指定摄像头的功能运行状态。"""
+    _require_spec(feature)
     get_camera_for_user(camera_config_manager, key, user)                 # 检查用户有没有权限查看这台摄像头：摄像头不存在返回404，用户没有权限访问返回403
     return orchestrator.get_feature_monitor_status(key, feature)          # 去调度器查询功能的运行状态
 
@@ -158,6 +159,8 @@ def create_features_router(
                 detail="logistics camera config requires channel membership access",
             )
         # 读取指定摄像头的功能配置
+        if user.get("role") != "admin":
+            get_camera_for_user(camera_config_manager, shm_name, user)
         result = feature_config_manager.get_config(spec, shm_name)
         if result is None:
             raise HTTPException(status_code=404, detail="camera or config not found")

@@ -72,13 +72,14 @@ const configs = {
     MIN_CONFIRM_SECONDS: 1.2, MIN_CONSECUTIVE_HITS: 3, REQUIRE_PERSON_ASSOCIATION: true, PERSON_EXPAND_RATIO: .18 },
 }
 
-async function mount(name, feature = `detect_${name.toLowerCase()}`) {
+async function mount(name, feature = `detect_${name.toLowerCase()}`, department = 'general_electric') {
   const h = harness()
   const writes = []
+  const cameraDepartments = []
   let config = { enable: true, value: structuredClone(configs[name]), alarm: structuredClone(alarm) }
   const response = () => ({ camera: { id: 1, name: '测试摄像头', shm_name: 'test', enable: true }, feature, config })
   const api = {
-    getAiVisionCameras: async () => [{ id: '1', name: '测试摄像头', shm_name: 'test', functions: { [feature]: true } }],
+    getAiVisionCameras: async (requestedDepartment) => { cameraDepartments.push(requestedDepartment); return [{ id: '1', name: '测试摄像头', shm_name: 'test', functions: { [feature]: true } }] },
     isAiVisionFeatureEnabled: (camera, key) => Boolean(camera.functions[key]),
     getAiVisionFeatureConfig: async () => response(),
     saveAiVisionFeatureConfig: async (_feature, _key, next) => {
@@ -103,9 +104,9 @@ async function mount(name, feature = `detect_${name.toLowerCase()}`) {
     (key) => imports[key] ?? (key.startsWith('@/') || key === 'lucide-react' ? stub : require(key)), module.exports, module)
   globalThis.window = { addEventListener() {}, removeEventListener() {} }
   const component = module.exports[`${name}DetectionSection`]
-  await h.mount(() => component({ feature }))
+  await h.mount(() => component({ department }))
   return {
-    writes,
+    writes, cameraDepartments,
     async input(id, value) {
       const tree = await h.flush()
       const input = elements(tree, (node) => node.props?.id === id)[0]
@@ -151,7 +152,8 @@ test('face reads backend values, edits zero seconds/counts and independently sav
 })
 
 test('Haoda uses the shared human form and preserves independent IOUs', async () => {
-  const page = await mount('Human', 'detect_human_haoda')
+  const page = await mount('Human', 'detect_human', 'haoda_company')
+  assert.deepEqual(page.cameraDepartments, ['haoda_company'])
   assert.equal((await page.input('human-iou')).value, '0.21')
   await page.input('human-track-iou', '0'); await page.save()
   assert.equal(page.writes[0].value.DETECTION_IOU_THR, .21)

@@ -71,8 +71,8 @@ def camera_access_departments(
     feature_specs = specs if specs is not None else all_specs()
     departments: set[str] = set()
     for feature_name in enabled_features:
-        # 统一物流 Feature 覆盖四个事业部，不能用它推断空归属 Camera 的可见范围。
-        if feature_name == LOGISTICS_FEATURE_NAME:
+        # 共用功能不能用来推断空归属摄像头的可见范围。
+        if feature_name in {LOGISTICS_FEATURE_NAME, "detect_human"}:
             continue
         spec = feature_specs.get(feature_name)
         if spec is None:
@@ -342,6 +342,9 @@ class CameraConfigManager:
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return None
+            if "department" in payload:
+                # 与功能启用事务按相同顺序锁摄像头，避免并发更改归属绕过校验。
+                session.refresh(cam, with_for_update=True)
             # _event_snapshot:把当前摄像头的重要运行配置复制成一个普通dict
             old_value = self._event_snapshot(cam)
             # 修改字段
@@ -352,6 +355,11 @@ class CameraConfigManager:
                     setattr(cam, field, payload[field])
             if "enabled" in payload:
                 cam.enable = bool(payload["enabled"])
+            if "department" in payload:
+                human = all_specs()["detect_human"]
+                human_config = session.query(human.orm_class).filter_by(camera_id=cam.id).with_for_update().first()
+                if human_config is not None and human_config.enable:
+                    human.resolve_camera_department(cam.department)
             # 把update发给数据库，但session_scope还没退出，所以事务还没正式commit
             session.flush()
             # 记录修改后的配置

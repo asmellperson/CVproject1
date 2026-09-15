@@ -141,7 +141,6 @@ def test_legacy_camera_alarm_contract_remains_compatible():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_alarm_type_metadata_is_canonical_and_has_no_colors():
     assert ALARM_TYPE_META["detect_human"]["name"] == "人员违规逗留检测"
-    assert "detect_human_haoda" not in ALARM_TYPE_META
     assert all("color" not in meta for meta in ALARM_TYPE_META.values())
 
 
@@ -150,14 +149,14 @@ def test_unified_normalizer_preserves_explicit_ownership():
         "id": "10",
         "event_type": "detect_human",
         "violation_type": 5,
-        "feature_name": "detect_human_haoda",
+        "feature_name": "detect_human",
         "department": "haoda_company",
         "camera_no": "haoda-camera",
     })
 
     assert normalized["event_type"] == "detect_human"
     assert normalized["violation_type"] == 5
-    assert normalized["feature_name"] == "detect_human_haoda"
+    assert normalized["feature_name"] == "detect_human"
     assert normalized["department"] == "haoda_company"
 
 

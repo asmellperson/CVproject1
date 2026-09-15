@@ -1,5 +1,4 @@
 """features/detect_human/orm.py"""
-from sqlalchemy.orm import declared_attr
 from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON
 from AiVision.features._base import defaults
 from AiVision.features._base.orm import FeatureConfigBase
@@ -7,16 +6,15 @@ from .schema import HumanValueSchema
 
 _VALUE_DEFAULTS = HumanValueSchema().model_dump()
 
-class HumanConfigFieldsMixin:
-    """人员违规逗留检测配置字段，供各公司独立配置表复用。"""
+class HumanConfigORM(FeatureConfigBase):
+    """两个事业部共用配置表，每台摄像头独立保存一行。"""
 
-    @declared_attr
-    def __table_args__(cls):
-        return (
-            CheckConstraint("DETECTION_IOU_THR BETWEEN 0 AND 1", name=f"ck_{cls.__tablename__}_0"),
-            CheckConstraint("TRACK_IOU_THR BETWEEN 0 AND 1", name=f"ck_{cls.__tablename__}_1"),
-            CheckConstraint("MAX_LOST >= 0", name=f"ck_{cls.__tablename__}_2"),
-        )
+    __tablename__ = "ai_camera_config_detect_human"
+    __table_args__ = (
+        CheckConstraint("DETECTION_IOU_THR BETWEEN 0 AND 1", name="ck_ai_camera_config_detect_human_0"),
+        CheckConstraint("TRACK_IOU_THR BETWEEN 0 AND 1", name="ck_ai_camera_config_detect_human_1"),
+        CheckConstraint("MAX_LOST >= 0", name="ck_ai_camera_config_detect_human_2"),
+    )
 
     CONF_THRESHOLD = Column(Float, default=_VALUE_DEFAULTS["CONF_THRESHOLD"])
     # DETECTION_IOU_THR 用于模型推理；TRACK_IOU_THR 用于跨帧目标匹配
@@ -38,6 +36,3 @@ class HumanConfigFieldsMixin:
     MATCH_SCORE_THR = Column(Float, default=defaults.MATCH_SCORE_THR)
     # 控制新检测框与原检测框的平滑权重
     TRACK_SMOOTH_ALPHA = Column(Float, default=defaults.TRACK_SMOOTH_ALPHA)
-
-class HumanConfigORM(HumanConfigFieldsMixin, FeatureConfigBase):
-    __tablename__ = "ai_camera_config_detect_human"

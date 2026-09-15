@@ -274,9 +274,14 @@ AiVision/integrations/guard_room/config/config.example.yaml
 | `blocks` | 区域入侵检测 | ROI 区域变化/入侵检测 | 否 |
 | `detect_door` | 大门开关异常检测 | 门禁状态检测 | 否 |
 | `detect_face` | 人脸逗留检测 | 人脸框检测、跟踪与逗留计时 | `insightface_detection` |
-| `detect_human` | 人员逗留检测 | 人体逗留检测 | `yolo_human` |
+| `detect_human` | 人员违规逗留检测（通用电气、皓达公司） | 共用算法和 Schema，按摄像头独立配置与计时 | `yolo_human` |
 | `detect_phone` | 手机使用检测 | 手机检测 | `yolo_phone` |
 | `detect_logistics_single_person` | 物流通道单人检测（四个事业部） | 多摄像头联合人数判定 | `yolo_human` |
+
+人员逗留统一使用 `HumanConsumer`、`HumanConfigSchema` 和 `ai_camera_config_detect_human`。
+摄像头必须明确归属 `general_electric` 或 `haoda_company`，页面入口分别限定事业部；后端按摄像头归属及报警归属快照校验权限。
+已有皓达配置必须先执行[人员逗留离线迁移与恢复说明](AiVision/migrations/human_20260915.md)，服务启动不会自动转换数据。
+人员报警证据按事业部授权；微信卡片使用默认有效 24 小时的单条报警签名缩略图，详情和视频仍需登录。
 
 #### 手机使用检测全链路
 

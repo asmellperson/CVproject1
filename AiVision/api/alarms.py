@@ -6,9 +6,12 @@ import os
 from collections import Counter, defaultdict                        # 自动计数字典，主要用于告警类型统计、摄像头告警排行、小时告警统计
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query                # Query:URL查询参数
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse                         # FileResponse：直接把磁盘上的文件作为HTTP响应返回
 from pydantic import BaseModel, ConfigDict, Field                  # ConfigDict：API数据库严格模式，Field:字段默认值
+from auth.auth import get_current_user, token_from_request
+from AiVision.api.cameras import _camera_departments_for_user, camera_read_department
+from AiVision.core.alarm.notification_image import thumbnail_response, verify_thumbnail_token
 
 from AiVision.core.db import get_session                           # 获取数据库操作会话
 from AiVision.core.logger import logger                            # AiVision统一日志记录器
@@ -224,14 +227,40 @@ def _event_dict(row: AiAlarmEvent) -> dict[str, Any]:
         "metadata": metadata,
     }
 
+def _scoped_query(session, user: dict, department: str | None = None, feature: str | None = None):
+    """使用报警的归属快照过滤，在分页和统计前完成权限校验。"""
+    requested = camera_read_department(user, department)
+    query = session.query(AiAlarmEvent)
+    if user.get("role") != "admin":
+        query = query.filter(AiAlarmEvent.department.in_(_camera_departments_for_user(user)))
+    if requested is not None:
+        query = query.filter(AiAlarmEvent.department == requested)
+    if feature is not None:
+        from AiVision.features import get_spec
+        if get_spec(feature) is None:
+            raise HTTPException(status_code=404, detail="unknown feature")
+        query = query.filter(AiAlarmEvent.feature_name == feature)
+    return query
+
+
+def _require_alarm_access(row, user: dict) -> None:
+    if user.get("role") != "admin" and row.department not in _camera_departments_for_user(user):
+        raise HTTPException(status_code=403, detail="alarm department permission required")
+
+
 @router.get("", response_model=AlarmListResponse)
-def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
+def list_alarms(
+    limit: int = Query(200, ge=1, le=1000),
+    department: str | None = None,
+    feature: str | None = None,
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """从数据库查最近的告警记录，转成前端统一格式，然后返回"""
     session = get_session()
     try:
         rows = (
             # 查询告警记录表
-            session.query(AiAlarmEvent)
+            _scoped_query(session, user, department, feature)
             # 按时间排序，最新告警排在前面，时间一样就id比较大的排在前面
             .order_by(AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc())
             # 限制条数
@@ -243,14 +272,29 @@ def list_alarms(limit: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     finally:
         session.close()
 
+@router.get("/{alarm_id}", response_model=AlarmEventResponse)
+def alarm_detail(alarm_id: int, user: dict = Depends(get_current_user)):
+    """按 ID 校验历史报警及处置记录的访问权限，不受最近列表条数限制。"""
+    session = get_session()
+    try:
+        row = session.get(AiAlarmEvent, alarm_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="alarm not found")
+        _require_alarm_access(row, user)
+        return _event_dict(row)
+    finally:
+        session.close()
+
+
 @router.get("/{alarm_id}/image")
-def alarm_image(alarm_id: int):
+def alarm_image(alarm_id: int, user: dict = Depends(get_current_user)):
     """根据告警id找到对应的告警截图，然后把图片文件返回给浏览器"""
     session = get_session()
     try:
         row = session.query(AiAlarmEvent).filter(AiAlarmEvent.id == alarm_id).first() #通过alarm_id去数据库找截图，拿第一条
         if row is None:
             raise HTTPException(status_code=404, detail="alarm not found")
+        _require_alarm_access(row, user)
         if not row.image_path or not os.path.exists(row.image_path):
             raise HTTPException(status_code=404, detail="alarm image not found")
         # 直接读取服务器磁盘上的图片文件，通过HTTP发给浏览器
@@ -260,18 +304,41 @@ def alarm_image(alarm_id: int):
 
 
 @public_router.get("/{alarm_id}/image")
-def public_alarm_image(alarm_id: int):
-    """提供企业微信卡片可直接访问的告警图片。"""
-    return alarm_image(alarm_id)
+def public_alarm_image(alarm_id: int, request: Request, thumbnail_token: str | None = None):
+    """人员证据要求登录；通知签名仅授权该报警的短期缩略图。"""
+    session = get_session()
+    try:
+        row = session.get(AiAlarmEvent, alarm_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="alarm not found")
+        if row.violation_type == 5 or row.feature_name == "detect_human":
+            if thumbnail_token is not None:
+                # 已携带登录身份时仍执行事业部检查，不让链接绕过用户权限。
+                if token_from_request(request):
+                    _require_alarm_access(row, get_current_user(request))
+                if row.feature_name != "detect_human" or row.violation_type != 5 or not verify_thumbnail_token(
+                    thumbnail_token, row.id, row.department,
+                ):
+                    raise HTTPException(status_code=403, detail="invalid or expired notification thumbnail")
+                if not row.image_path or not os.path.exists(row.image_path):
+                    raise HTTPException(status_code=404, detail="alarm image not found")
+                return thumbnail_response(row.image_path)
+            return alarm_image(alarm_id, get_current_user(request))
+        if not row.image_path or not os.path.exists(row.image_path):
+            raise HTTPException(status_code=404, detail="alarm image not found")
+        return FileResponse(row.image_path, media_type="image/png")
+    finally:
+        session.close()
 
 @router.get("/{alarm_id}/video")
-def alarm_video(alarm_id: int):
+def alarm_video(alarm_id: int, user: dict = Depends(get_current_user)):
     """根据告警ID找到告警视频，确认视频已经生成、文件存在、浏览器可以播放、然后把MP4返回给前端"""
     session = get_session()
     try:
         row = session.query(AiAlarmEvent).filter(AiAlarmEvent.id == alarm_id).first()
         if row is None:
             raise HTTPException(status_code=404, detail="alarm not found")
+        _require_alarm_access(row, user)
         if getattr(row, "video_status", None) != "ready":
             raise HTTPException(status_code=404, detail="alarm video is not ready")
         video_path = getattr(row, "video_path", None)
@@ -289,7 +356,12 @@ def alarm_video(alarm_id: int):
         session.close()
 
 @router.get("/statistics/summary")
-def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+def alarm_statistics(
+    days: int = Query(7, ge=1, le=90),
+    department: str | None = None,
+    feature: str | None = None,
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """查询最近 N 天告警，按类型、主体、日期和小时聚合。"""
     now = dt.datetime.now()
     # 算今天的00：00
@@ -299,7 +371,7 @@ def alarm_statistics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     session = get_session()
     try:
         rows = (
-            session.query(AiAlarmEvent)
+            _scoped_query(session, user, department, feature)
             .filter(AiAlarmEvent.create_time >= range_start)
             .order_by(AiAlarmEvent.create_time.asc())
             .all()                                        # 查询range_start内的告警，按时间从旧到新排序

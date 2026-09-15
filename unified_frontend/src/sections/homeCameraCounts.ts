@@ -18,11 +18,13 @@ type CameraInventoryItem = {
   department?: string | null
   functions: Record<string, boolean> | string[]
   logisticsOnline?: boolean
+  runtimeOnline?: boolean
 }
 
 export type OverviewAiVisionCamera = AiVisionCamera & {
   inventoryOnly?: boolean
   logisticsOnline?: boolean
+  runtimeOnline?: boolean
   logisticsMemberships?: LogisticsCameraInventoryMembership[]
 }
 
@@ -38,7 +40,6 @@ const AI_VISION_FEATURES = [
   'detect_face',
   'recognize_face',
   'detect_human',
-  'detect_human_haoda',
   'detect_logistics_single_person',
   'detect_phone',
 ]
@@ -105,6 +106,9 @@ export function getLoadedAiVisionFeatureCounts(
     counts[feature] = {
       cameraCount: featureCameras.length,
       enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
+      ...(department && feature === 'detect_human'
+        ? { onlineCameraCount: featureCameras.filter((camera) => camera.enabled && camera.runtimeOnline === true).length }
+        : {}),
       ...(department && feature === 'detect_logistics_single_person'
         ? { onlineCameraCount: featureCameras.filter((camera) => camera.logisticsOnline === true).length }
         : {}),

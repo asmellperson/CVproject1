@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
 from AiVision.core.alarm.wechat import WeChatNotifier
+from AiVision.core.alarm.notification_image import issue_thumbnail_token
 from AiVision.platform.violation.validation import validate_alarm_identity
 
 
@@ -328,7 +329,7 @@ class AlarmDispatcher:
             pass
         return writer_method(**values)
 
-    def _alarm_card_urls(self, alarm_id: object | None) -> tuple[str, str]:
+    def _alarm_card_urls(self, alarm_id: object | None, *, feature_name: str = "", department: str = "") -> tuple[str, str]:
         """根据数据库告警ID，生成企业微信卡片需要的告警截图地址和点击卡片以后进入前端告警详情页的两个网址"""
         if not alarm_id:
             return "", ""
@@ -337,6 +338,8 @@ class AlarmDispatcher:
             return "", ""
         raw_id = str(alarm_id)
         image_url = f"{base_url}/api/public/alarms/{quote(raw_id)}/image"
+        if feature_name == "detect_human":
+            image_url += "?thumbnail_token=" + issue_thumbnail_token(int(raw_id), department)
         detail_id = quote(f"aivision:{raw_id}", safe="")
         detail_url = f"{base_url}/?page=alarms&alarmId={detail_id}"
         return image_url, detail_url
@@ -347,7 +350,7 @@ class AlarmDispatcher:
 
         处理流程:
             1. 阻塞等待 _wechat_queue 中的 (AlarmRequest, user) 元组。
-            2. 将 frame（BGR ndarray）编码为 JPEG 字节流。
+            2. 根据已保存的报警生成卡片 URL；人员缩略图附带短期签名。
             3. 调用 WeChatNotifier.send() 推送消息与图片。
 
         异常处理:
@@ -364,7 +367,9 @@ class AlarmDispatcher:
                 continue  # wechat 客户端未注入，跳过（理论上不应发生）
 
             try:
-                image_url, detail_url = self._alarm_card_urls(getattr(alarm_record, "id", None))
+                image_url, detail_url = self._alarm_card_urls(
+                    getattr(alarm_record, "id", None), feature_name=req.feature_name, department=req.department,
+                )
                 # 把告警类型、摄像头、截图、接收人和卡片连接交给企业微信客户端
                 self.wechat.send(
                     feature_name=req.feature_name,

@@ -958,7 +958,7 @@ def _filter_alarms(
         alarms = [
             alarm
             for alarm in alarms
-            if not alarm.get("department")
+            if (not alarm.get("department") and alarm.get("event_type") != "detect_human")
             or _normalize_department(alarm.get("department")) in departments
         ]
     if event_types is not None:
@@ -1397,7 +1397,7 @@ def _camera_feature_enabled(camera: dict, feature: str) -> bool:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
     running_camera_names = {str(item) for item in running_cameras}
-    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_human_haoda", "detect_phone")
+    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_phone")
     status: dict[str, dict[str, int]] = {}
     for feature in feature_names:
         configured_cameras = [
@@ -2024,9 +2024,21 @@ def create_app() -> FastAPI:
     #   - 调用方：由 FastAPI 按 `app.get('/api/alarm-dispositions')` 注册，并在请求到达时调用以生成接口响应
     #   - 内部调用：`disposition_store.list_items`、`app.get`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    def aivision_disposition_visible(alarm_id: str, request: Request, user: dict) -> bool:
+        if user.get("role") == "admin" or not alarm_id.startswith("aivision:"):
+            return True
+        source_id = alarm_id.removeprefix("aivision:")
+        if not source_id.isascii() or not source_id.isdecimal():
+            return False
+        alarm = _get_upstream_json(aivision_url, f"/api/alarms/{source_id}", request)
+        return isinstance(alarm, dict) and bool(_filter_alarms([_normalize_aivision_alarm(alarm)], user=user))
+
     @app.get("/api/alarm-dispositions")
-    def get_alarm_dispositions():
-        return {"items": disposition_store.list_items()}
+    def get_alarm_dispositions(request: Request, user: dict = Depends(get_current_user)):
+        items = disposition_store.list_items()
+        checks = [(item, _PLATFORM_STATUS_EXECUTOR.submit(aivision_disposition_visible, item["alarm_id"], request, user))
+                  for item in items]
+        return {"items": [item for item, future in checks if future.result()]}
 
     # 功能：更新或保存 `update_alarm_disposition` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -2038,7 +2050,9 @@ def create_app() -> FastAPI:
     #   - 内部调用：`Depends`、`disposition_store.update`、`HTTPException`、`str`、`app.post`。
     # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/alarm-dispositions")
-    def update_alarm_disposition(payload: AlarmDispositionUpdateRequest, user: dict = Depends(get_current_user)):
+    def update_alarm_disposition(payload: AlarmDispositionUpdateRequest, request: Request, user: dict = Depends(get_current_user)):
+        if not aivision_disposition_visible(payload.alarm_id.strip(), request, user):
+            raise HTTPException(status_code=403, detail="alarm department permission required")
         try:
             item = disposition_store.update(
                 alarm_id=payload.alarm_id,

@@ -1,4 +1,4 @@
-"""人脸、人体和昊达人体逗留共用的推理故障、计时与恢复规则。"""
+"""人脸与两事业部人员逗留共用的推理故障、计时与恢复规则。"""
 from copy import deepcopy
 from dataclasses import asdict
 from functools import partial
@@ -16,7 +16,7 @@ from AiVision.platform.inference.contracts import INFERENCE_FAILURE_STATUSES
 from AiVision.platform.orchestrator import Orchestrator
 
 
-@pytest.fixture(params=["detect_face", "detect_human", "detect_human_haoda"])
+@pytest.fixture(params=["detect_face", "detect_human"])
 def scene(request, monkeypatch):
     spec = get_spec(request.param)
     now = [100.0]
@@ -33,7 +33,7 @@ def scene(request, monkeypatch):
     for camera_id in [1, 2]:
         consumer.config_cache[camera_id] = {
             **deepcopy(config), "shm_name": f"camera-{camera_id}",
-            "name": f"camera-{camera_id}", "department": spec.departments[0],
+            "name": f"camera-{camera_id}", "department": spec.departments[(camera_id - 1) % len(spec.departments)],
         }
         consumer.frame_cache[camera_id] = frame
         consumer._get_roi(camera_id, frame)

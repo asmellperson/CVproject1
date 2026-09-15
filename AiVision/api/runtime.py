@@ -5,6 +5,10 @@ api/runtime.py
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends                        # APIRouter：API路由分组器,Depends:FastAPI的依赖注入机制
+from collections import Counter
+from auth.auth import get_current_user
+from AiVision.api.cameras import camera_list_response_for_user
+from AiVision.api.deps import get_camera_config_manager
 
 from AiVision.api.deps import get_current_orchestrator                 # 获取当前的Orchestrator实例，这是API层获取当前AiVision总调度器的统一入口
 from AiVision.core.settings import settings                            # AiVision全局配置对象，主要用于读取当前数据库名称
@@ -40,6 +44,32 @@ def health(orchestrator=Depends(get_current_orchestrator)) -> dict:
     }
 
 @router.get("/status")
-def runtime_status(orchestrator=Depends(get_current_orchestrator)) -> dict:
+def runtime_status(
+    orchestrator=Depends(get_current_orchestrator),
+    user: dict = Depends(get_current_user),
+    camera_config_manager=Depends(get_camera_config_manager),
+) -> dict:
     """AiVision完整运行状态查询接口"""
-    return orchestrator.runtime_status()
+    status = orchestrator.runtime_status()
+    if user.get("role") == "admin":
+        return status
+    cameras = camera_list_response_for_user(camera_config_manager.list_cameras(), user)
+    names = {camera["shm_name"] for camera in cameras}
+    ids = {camera["camera_id"] for camera in cameras}
+    features = {name for camera in cameras for name, enabled in camera["functions"].items() if enabled}
+    consumers = {}
+    for name, snapshot in status.get("inference", {}).get("consumers", {}).items():
+        if name not in features:
+            continue
+        targets = [target for target in snapshot.get("targets", []) if target.get("camera_id") in ids]
+        totals = Counter()
+        for target in targets:
+            totals.update(target.get("counts", {}))
+        consumers[name] = {"targets": targets, "totals": dict(totals)}
+    return {
+        **status,
+        "running_cameras": [name for name in status.get("running_cameras", []) if name in names],
+        "running_consumers": [name for name in status.get("running_consumers", []) if name in features],
+        # Worker 级统计跨摄像头聚合，只有管理员读取；普通用户仅获取授权摄像头统计。
+        "inference": {"consumers": consumers},
+    }

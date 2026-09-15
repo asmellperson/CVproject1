@@ -103,20 +103,17 @@ function toForm(shmName: string, config: HumanConfig) {
 }
 
 export type HumanDetectionSectionProps = {
-  feature?: 'detect_human' | 'detect_human_haoda'
-  department?: string
-  cameraDepartment?: string
+  department?: 'general_electric' | 'haoda_company'
   title?: string
   departmentLabel?: string
 }
 
 export function HumanDetectionSection({
-  feature = 'detect_human',
   department = 'general_electric',
-  cameraDepartment,
   title = '人员违规逗留检测',
   departmentLabel = '通用电气事业部',
 }: HumanDetectionSectionProps = {}) {
+  const feature = 'detect_human'
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [humanConfig, setHumanConfig] = useState<HumanConfig | null>(null)
@@ -168,7 +165,7 @@ export function HumanDetectionSection({
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras(cameraDepartment)
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
       const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current)
@@ -206,7 +203,7 @@ export function HumanDetectionSection({
   }, [])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras(cameraDepartment)
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -403,7 +400,7 @@ export function HumanDetectionSection({
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title={`${title}监控`} feature={feature} department={cameraDepartment} presentation="human-dwell" />
+          <AiVisionMonitor title={`${title}监控`} feature={feature} department={department} presentation="human-dwell" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">

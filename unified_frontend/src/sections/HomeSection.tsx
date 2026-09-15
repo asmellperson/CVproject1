@@ -215,7 +215,7 @@ type ServiceKey = keyof PlatformStatus['services']
 type ModuleStatusSource = {
   serviceKey: ServiceKey
   featureKey?: string
-  department?: LogisticsDepartment
+  department?: Department
 }
 
 const moduleStatusSources: Record<string, ModuleStatusSource> = {
@@ -230,8 +230,8 @@ const moduleStatusSources: Record<string, ModuleStatusSource> = {
   'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
   'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
   'face-recognition': { serviceKey: 'aivision', featureKey: 'recognize_face', department: 'electronics_electrician' },
-  'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
-  'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human_haoda' },
+  'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human', department: 'general_electric' },
+  'haoda-human-detection': { serviceKey: 'aivision', featureKey: 'detect_human', department: 'haoda_company' },
   'logistics-single-person-general-electric': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'general_electric' },
   'logistics-single-person-electronics-electrician': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'electronics_electrician' },
   'logistics-single-person-electrical-components': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person', department: 'electrical_components' },
@@ -247,7 +247,6 @@ const aiVisionFeatureLabels: Record<string, string> = {
   detect_face: '人脸逗留检测',
   recognize_face: '人脸身份识别',
   detect_human: '人员违规逗留检测',
-  detect_human_haoda: '人员违规逗留检测（皓达公司）',
   detect_logistics_single_person: '物流单人',
   detect_phone: '手机使用',
 }
@@ -363,6 +362,7 @@ function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, feature
 function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
   if (!service?.online || !service.running) return false
   if (!featureKey) return true
+  if (featureKey === 'detect_human' && featureCounts?.[featureKey]?.onlineCameraCount === 0) return false
   const localCount = getLocalFeatureCount(featureCounts, featureKey)
   if (typeof localCount === 'number' && localCount <= 0) return false
   const featureStatus = getFeatureStatus(service, featureKey)
@@ -393,14 +393,14 @@ function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: Platf
   return 'down'
 }
 
-function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean): ModuleStatusCard[] {
+function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean, humanLoaded = loaded): ModuleStatusCard[] {
   return visibleEntries.flatMap((entry) => {
     const source = moduleStatusSources[entry.id]
     return source ? [{
       ...entry,
       ...source,
       featureCounts: source.department
-        ? getLoadedAiVisionFeatureCounts(loaded ? cameras : [], true, source.department)
+        ? getLoadedAiVisionFeatureCounts((source.featureKey === 'detect_human' ? humanLoaded : loaded) ? cameras : [], true, source.department)
         : undefined,
     }] : []
   })
@@ -517,8 +517,11 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
   )
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const mergedAiVisionCameras = useMemo(
-    () => mergeAiVisionAndLogisticsCameras(aiVisionCameras, logisticsCameras),
-    [aiVisionCameras, logisticsCameras],
+    () => mergeAiVisionAndLogisticsCameras(aiVisionCameras, logisticsCameras).map((camera) => ({
+      ...camera,
+      runtimeOnline: platformStatus?.services.aivision.running_cameras?.includes(camera.shm_name) ?? false,
+    })),
+    [aiVisionCameras, logisticsCameras, platformStatus],
   )
   const aiVisionFeatureCounts = useMemo(
     () => getLoadedAiVisionFeatureCounts(
@@ -528,8 +531,8 @@ export function HomeSection({ onNavigate, platformStatus }: HomeSectionProps) {
     [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras],
   )
   const visibleStatusCards = useMemo(
-    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded),
-    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded],
+    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded),
+    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded],
   )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
