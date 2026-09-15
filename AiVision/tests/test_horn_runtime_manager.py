@@ -7,7 +7,7 @@ import pytest
 
 from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
 from AiVision.core.settings import settings
-from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
+from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
 
 
 class FakeHorn:

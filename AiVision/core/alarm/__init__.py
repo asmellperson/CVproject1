@@ -15,7 +15,7 @@ SQL 写入和证据录像由 platform/violation/ 实现，本包通过注入的�
     线程启停与依赖注入由 platform/orchestrator.py 的运行生命周期负责。
 
     core/alarm/horn.py：单台设备的 HTTP 协议与连接状态。
-    platform/alarm_device/：设备数据库 CRUD、绑定有效性校验和多个设备的运行管理。
+    alarms/devices/：设备数据库 CRUD、绑定有效性校验和多个设备的运行管理。
     core/alarm/dispatcher.py：某次告警使用什么通道、向哪台设备发送什么任务。
     platform/violation/：保存告警记录、截图和视频证据，并向查询 API 提供数据。
 
@@ -68,7 +68,7 @@ SQL 写入和证据录像由 platform/violation/ 实现，本包通过注入的�
 
     Horn(config, connect_on_init=True)：保存 horn_url、username、password 等连接参数。
         直接构造默认立即尝试 connect()；运行管理器与连接测试使用 False 延迟联网。
-        不负责查数据库，设备配置由 platform/alarm_device/ 转换后传入。
+        不负责查数据库，设备配置由 alarms/devices/ 转换后传入。
 
     connect()：POST 设备 /login，提交 user/password；成功响应需要包含
         access_key 和 access_id，之后保存认证会话并标记 online。

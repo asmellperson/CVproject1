@@ -355,9 +355,10 @@ AiVision/
 ├── core/alarm/                  # 告警分发、喇叭、企业微信
 ├── platform/orchestrator.py     # 总编排器
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
-├── inference/          # 模型 worker、队列、推理管理
+├── inference/                   # 模型 worker、队列、推理管理
 ├── platform/violation/          # 违规图片与事件写入
-├── platform/alarm_device/       # 声光报警设备
+├── alarms/                      # 告警相关能力的归属目录
+│   └── devices/                 # 报警设备配置、绑定校验与运行管理
 └── features/                    # 所有检测功能模块
 ```
 
@@ -398,6 +399,40 @@ python -m pytest -q -ra AiVision/tests/test_model_registry.py AiVision/tests/tes
   AiVision/tests/test_face_detection.py
 python -m pytest -q -ra AiVision/tests/test_consumer_frame_change.py
 ```
+
+报警设备统一从 `AiVision.alarms.devices` 导入，内部文件与公开接口保持不变：
+
+```text
+AiVision/alarms/
+├── __init__.py                  # 仅说明告警领域职责，不集中导入实现
+└── devices/
+    ├── __init__.py              # 设备模块职责与调用链说明
+    ├── binding.py               # 检测配置与物流通道的设备绑定校验
+    ├── orm.py                   # AiHornConfig，仍映射 ai_horn_config
+    ├── runtime_manager.py       # 设备生命周期、热同步与播放队列
+    ├── schema.py                # 请求校验与公开响应结构
+    └── service.py               # 配置 CRUD 与事务提交后的运行同步
+```
+
+`alarms/` 父包仅含职责说明，导入时不连接数据库、访问设备或启动任务。设备模块详细职责见 [devices 包说明](AiVision/alarms/devices/__init__.py)。本次仅迁移设备模块；设备 HTTP 协议仍在 `AiVision/core/alarm/horn.py`，告警分发仍在 `AiVision/core/alarm/dispatcher.py`，违规记录与证据写入仍在 `AiVision/platform/violation/`，未创建通知或证据空目录。
+
+API 及其依赖、Orchestrator、告警分发的类型引用、普通检测和物流通道的绑定校验、ORM 注册入口、现有离线脚本与测试均使用新包。设备模块没有依赖 `__file__`、目录深度或包资源定位的路径计算，因此不需调整资源路径；原配置及运行数据位置保持不变。设备表、字段、绑定关系、`/api/horns` 接口与权限不变，不需要数据库迁移。旧设备目录已删除，没有兼容包、导入别名或双路径支持。
+
+在下方回归命令的隔离环境变量下执行设备专项和包迁移验证：
+
+```bash
+python -m pytest -q -ra AiVision/tests/test_alarm_horn.py \
+  AiVision/tests/test_horn_backend.py AiVision/tests/test_horn_binding.py \
+  AiVision/tests/test_horn_runtime_manager.py AiVision/tests/test_alarm_config_hot_update.py
+python -m pytest -q -ra AiVision/tests/test_alarm_device_package.py
+python -m pytest -q -ra AiVision/tests/test_camera_package.py AiVision/tests/test_inference_package.py
+```
+
+设备专项五个文件在迁移前后均为 **84 项通过、0 失败、0 跳过**，覆盖无效或停用设备绑定、保存失败回滚、提交后热更新、未授权访问、凭据脱敏和资源释放。新包的 **9 项独立导入测试通过**，分别从父包、设备子模块、API、功能注册、数据库模块和调度器入口加载，禁止数据库连接、网络请求与后台任务启动，并核验单一 ORM 注册与共享运行实例。摄像头及推理包的 **14 项测试通过**，包含隔离 spawn 验证。
+
+报警设备目录迁移后，下方原有 **29 文件回归仍为 767 项通过、0 失败、10 项跳过**，用例集合与上一轮相同。10 项均为未配置隔离 MySQL 的既有跳过项（检测配置 4 项、人员逗留迁移 1 项、物流迁移 5 项），没有新增 skip/xfail，也未连接生产库验证。
+
+迁移前后的源码 AST 在排除导入路径和说明文字后相同；只读比较的 ORM 元数据、功能注册集合及喇叭 OpenAPI 描述也完全一致。所有测试仅使用临时测试库与模拟设备；未向现场设备发指令，真实设备登录、心跳重连、播放效果和长期运行尚未验证。
 
 目录迁移时的相关回归为 742 项通过、10 项跳过、21 项失败；这些失败均在迁移前源码中复现。后续基线修复按现行业务规则更正了以下测试，未修改生产代码或放宽权限：
 

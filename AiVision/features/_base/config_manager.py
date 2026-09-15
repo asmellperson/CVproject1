@@ -10,7 +10,7 @@ from AiVision.core.events import config_event_bus, ConfigChangeEvent
 from AiVision.core.cache import config_cache
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.orm import FeatureConfigBase
-from AiVision.platform.alarm_device.binding import validate_horn_binding
+from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig, get_camera_by_key
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 

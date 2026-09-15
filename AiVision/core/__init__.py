@@ -172,7 +172,7 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     alarm/dispatcher.py：AlarmRequest、业务冷却、证据入口、SQL 调用和微信/喇叭分发。
     alarm/horn.py：单台 IP 喇叭的登录、心跳、自动重连、停止门控和预录任务播放。
     alarm/wechat.py：企业微信 token 缓存、检测告警图文卡片和系统异常 Markdown 通知。
-    设备 CRUD 与多设备运行管理在 platform/alarm_device/，告警记录与媒体在
+    设备 CRUD 与多设备运行管理在 alarms/devices/，告警记录与媒体在
     platform/violation/；alarm/ 通过 Orchestrator 注入这些对象，避免重复创建资源。
 
 十一、把几个公共模块串起来看

@@ -1,4 +1,4 @@
-"""platform/alarm_device/orm.py — 喇叭设备配置表"""
+"""alarms/devices/orm.py — 喇叭设备配置表"""
 from sqlalchemy import Column, Integer, String, Boolean, Text, TIMESTAMP, text     # Column:定义数据库的一列，Integer：整数，string：字符串，Boolen：布尔值，text：长文本，TIMESTAMP：时间，text():写数据库原生SQL表达式
 from AiVision.core.db import Base    # 所有ORM表模型的父类
 

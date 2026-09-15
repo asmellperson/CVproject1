@@ -1,5 +1,5 @@
 """
-platform/alarm_device/service.py
+alarms/devices/service.py
 喇叭设备 CRUD；提交成功后通知 HornRuntimeManager 热同步。
 
 职责：

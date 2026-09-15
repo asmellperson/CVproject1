@@ -19,7 +19,7 @@ from AiVision.api.deps import get_current_orchestrator
 from AiVision.migrations import human_20260915 as migration
 from AiVision.features.detect_human import SPEC
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.platform.violation.orm import AiAlarmEvent
 
 

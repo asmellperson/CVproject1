@@ -202,7 +202,7 @@ def test_all_feature_schemas_accept_only_one_normalized_roi(feature):
 def test_new_camera_configuration_persists_empty_normalized_roi(feature):
     from sqlalchemy import create_engine, select
     from AiVision.cameras.orm import AiCameraConfig
-    from AiVision.platform.alarm_device.orm import AiHornConfig
+    from AiVision.alarms.devices.orm import AiHornConfig
     assert AiCameraConfig.__table__.name == "ai_camera_config"
     assert AiHornConfig.__table__.name == "ai_horn_config"
     table = _spec(feature).orm_class.__table__

@@ -52,7 +52,7 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
         for module in ("config_manager", "orm", "runtime", "runtime_manager", "frame_reader", "probe"):
             imported = importlib.import_module(f"AiVision.cameras.{module}")
             assert Path(imported.__file__).parent == Path(cameras.__file__).parent
-        for module in ("AiVision.platform.alarm_device.orm", "AiVision.platform.violation.orm", "AiVision.core.system_config"):
+        for module in ("AiVision.alarms.devices.orm", "AiVision.platform.violation.orm", "AiVision.core.system_config"):
             importlib.import_module(module)
         configure_mappers()
         specs = features.all_specs()

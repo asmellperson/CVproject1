@@ -44,7 +44,7 @@ from AiVision.inference.model_registry import MODEL_SPECS
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
 from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
-from AiVision.platform.alarm_device.runtime_manager import horn_runtime_manager                   # 喇叭设备
+from AiVision.alarms.devices.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.platform.violation.service import violation_writer                  # 写入违规记录
 from AiVision.platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
 

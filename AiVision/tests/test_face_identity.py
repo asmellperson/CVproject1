@@ -28,7 +28,7 @@ from AiVision.features.recognize_face.consumer import FaceRecognitionConsumer
 from AiVision.features.recognize_face.orm import FaceRecognitionConfig, FaceRecognitionRecord
 from AiVision.features.recognize_face.schema import FaceRecognitionConfigSchema
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.platform.face_library import PersonSyncError, service
 from AiVision.platform.face_library.constants import EMBEDDING_DIM, INDEX_REFRESH_SECONDS, MODEL_FILES, MODEL_NAME
 from AiVision.platform.face_library.embedding import generate_embeddings

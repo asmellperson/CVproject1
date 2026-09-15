@@ -9,11 +9,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from auth.auth import require_admin
 from AiVision.api.deps import get_horn_runtime_manager, get_horn_service
 from AiVision.core.logger import logger
-from AiVision.platform.alarm_device.schema import (
+from AiVision.alarms.devices.schema import (
     HornConnectionResult, HornConnectionTest, HornCreate, HornResponse,
     HornRuntimeStatus, HornUpdate,
 )
-from AiVision.platform.alarm_device.service import HornInUseError
+from AiVision.alarms.devices.service import HornInUseError
 
 
 class HornRoute(APIRoute):

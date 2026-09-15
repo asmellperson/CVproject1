@@ -13,9 +13,9 @@ from AiVision.api.deps import get_horn_service, get_horn_runtime_manager
 from AiVision.api.horns import router
 from AiVision.core.db import Base
 from AiVision.features import all_specs
-from AiVision.platform.alarm_device.orm import AiHornConfig
-from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
-from AiVision.platform.alarm_device.service import HornService, HornInUseError
+from AiVision.alarms.devices.orm import AiHornConfig
+from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
+from AiVision.alarms.devices.service import HornService, HornInUseError
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
 
@@ -23,7 +23,7 @@ from AiVision.features.detect_logistics_single_person.orm import LogisticsChanne
 @pytest.fixture
 def backend(tmp_path, monkeypatch):
     import AiVision.core.db as db_module
-    import AiVision.platform.alarm_device.service as service_module
+    import AiVision.alarms.devices.service as service_module
 
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'horn.db'}", connect_args={"check_same_thread": False})
 

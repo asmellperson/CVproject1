@@ -21,7 +21,7 @@ from AiVision.core.settings import settings
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from AiVision.platform.alarm_device.runtime_manager import HornRuntimeManager
+    from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
 from AiVision.core.alarm.wechat import WeChatNotifier
 from AiVision.core.alarm.notification_image import issue_thumbnail_token
 from AiVision.platform.violation.validation import validate_alarm_identity

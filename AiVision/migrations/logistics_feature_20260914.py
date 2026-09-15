@@ -23,7 +23,7 @@ from AiVision.features.detect_logistics_single_person.orm import (
 from AiVision.features.detect_logistics_single_person.schema import (
     LogisticsChannelConfigResponse, LogisticsChannelCreate,
 )
-from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.cameras.orm import AiCameraConfig
 
 

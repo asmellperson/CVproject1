@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from AiVision.core.db import Base
 from AiVision.features import all_specs
-from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.cameras.config_manager import CameraConfigManager
 from AiVision.features._base.config_manager import FeatureConfigManager

@@ -49,11 +49,11 @@ def get_logistics_channel_service():
 
 def get_horn_service():
     """获取喇叭配置服务。"""
-    from AiVision.platform.alarm_device.service import horn_service
+    from AiVision.alarms.devices.service import horn_service
     return horn_service
 
 
 def get_horn_runtime_manager():
     """获取与 Orchestrator 共用的喇叭运行管理器。"""
-    from AiVision.platform.alarm_device.runtime_manager import horn_runtime_manager
+    from AiVision.alarms.devices.runtime_manager import horn_runtime_manager
     return horn_runtime_manager

@@ -21,7 +21,7 @@ from AiVision.core.db import get_session
 from AiVision.core.events import ConfigChangeEvent, config_event_bus
 from AiVision.core.logger import logger
 from AiVision.features import all_specs
-from AiVision.platform.alarm_device.binding import validate_horn_binding
+from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.cameras.config_manager import (
     _camera_integrity_value_error,

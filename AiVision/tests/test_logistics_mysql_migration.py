@@ -11,7 +11,7 @@ from AiVision.features.detect_logistics_single_person import SPEC
 from AiVision.features.detect_logistics_single_person.orm import LogisticsChannel, LogisticsChannelCamera
 from AiVision.migrations import logistics_feature_20260914 as migration
 from AiVision.cameras.orm import AiCameraConfig
-from AiVision.platform.alarm_device.orm import AiHornConfig
+from AiVision.alarms.devices.orm import AiHornConfig
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from AiVision.features._base.roi import NormalizedRoi
-from AiVision.platform.alarm_device.binding import MAX_HORN_ID
+from AiVision.alarms.devices.binding import MAX_HORN_ID
 from AiVision.features._base import defaults
 from .constants import (
     DEFAULT_DETECTION_END, DEFAULT_DETECTION_START,

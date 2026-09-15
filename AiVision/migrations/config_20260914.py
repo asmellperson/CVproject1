@@ -37,7 +37,7 @@ INTEGER_CHANGES = {"detect_face": "MAX_LOST", "detect_phone": "MIN_CONSECUTIVE_H
 
 def specs():
     global _legacy_human_orm
-    from AiVision.platform.alarm_device import orm as alarm_orm  # noqa: F401
+    from AiVision.alarms.devices import orm as alarm_orm  # noqa: F401
     from AiVision.cameras import orm as camera_orm  # noqa: F401
     registry = all_specs()
     # 冻结旧版离线迁移契约；正式 Feature 注册表不注册历史功能。
