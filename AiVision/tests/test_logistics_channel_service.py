@@ -331,7 +331,7 @@ def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
     assert len(select_statements) == 1 + len(all_specs())
 
 
-# 功能：验证历史空归属摄像头会按已启用功能推导事业部，同时显式归属始终优先。
+# 功能：人员逗留不推断空归属；显式事业部优先，其他功能的既有查询规则保持不变。
 # 参数：
 #   - `service_db`（未显式标注）：隔离的摄像头与物流服务测试数据库
 # 返回：None；通过断言验证按事业部查询结果。
@@ -339,13 +339,20 @@ def test_camera_list_loads_feature_states_in_fixed_query_count(service_db):
 #   - 调用方：程序入口 / 无调用者（由 pytest 自动发现执行）
 #   - 内部调用：`_seed_camera`、`service_db.camera_config_manager.list_cameras`、`set`。
 # 副作用/注意事项：仅写入测试内存数据库，不修改生产数据。
-def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
-    _seed_camera(
+def test_camera_list_requires_explicit_human_department_and_preserves_other_feature_visibility(service_db):
+    unassigned_id = _seed_camera(
         service_db,
-        "legacy-general",
+        "unassigned-human",
         department=None,
         enabled_features=("detect_human",),
     )
+    for department in ("general_electric", "haoda_company"):
+        _seed_camera(
+            service_db,
+            f"human-{department}",
+            department=department,
+            enabled_features=("detect_human",),
+        )
     _seed_camera(
         service_db,
         "legacy-research",
@@ -358,6 +365,7 @@ def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
         department=None,
         enabled_features=("detect_phone",),
     )
+    # 已有不一致记录的显式归属仍优先；列表不能根据功能重分配其事业部。
     _seed_camera(
         service_db,
         "explicit-research",
@@ -373,13 +381,27 @@ def test_camera_list_infers_legacy_department_from_enabled_features(service_db):
         camera["name"]
         for camera in service_db.camera_config_manager.list_cameras("research_institute")
     }
+    haoda_names = {
+        camera["name"]
+        for camera in service_db.camera_config_manager.list_cameras("haoda_company")
+    }
 
-    assert general_names == {"legacy-general", "legacy-shared"}
+    assert general_names == {"human-general_electric", "legacy-shared"}
+    assert haoda_names == {"human-haoda_company"}
     assert research_names == {
         "legacy-research",
         "legacy-shared",
         "explicit-research",
     }
+    # 未归属记录仍可通过未过滤清单维护，但不会因此补填或扩大可见事业部。
+    unassigned = next(
+        camera for camera in service_db.camera_config_manager.list_cameras()
+        if camera["camera_id"] == unassigned_id
+    )
+    assert unassigned["department"] is None
+    assert unassigned["functions"]["detect_human"] is True
+    with service_db.factory() as session:
+        assert session.get(AiCameraConfig, unassigned_id).department is None
 
 
 BASE_FEATURE = "detect_logistics_single_person"
@@ -1665,25 +1687,20 @@ def test_camera_delete_feature_failure_rolls_back_entire_transaction(service_db)
     assert service_db.notifications == []
 
 
-# 功能：验证 `test_camera_config_manager_create_camera_for_feature_enables_only_target_atomically` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `service_db`（未显式标注）：`service_db` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`service_db.camera_config_manager.create_camera_for_feature`、`all`、`result['functions'].items`、`event_types.count`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_camera_config_manager_create_camera_for_feature_enables_only_target_atomically(service_db):
+@pytest.mark.parametrize("department", ["general_electric", "haoda_company"])
+def test_create_human_camera_with_explicit_department_enables_only_target_atomically(service_db, department):
+    """两个正式事业部均须明确选择，提交后仅启用人员逗留并发布各一次事件。"""
     result = service_db.camera_config_manager.create_camera_for_feature(
         "detect_human",
         {
             "name": "人员逗留新增相机",
             "url": "rtsp://example/human",
             "fps": 7,
+            "department": department,
         },
     )
 
-    assert result["department"] == "general_electric"
+    assert result["department"] == department
     assert result["functions"]["detect_human"] is True
     assert all(
         enabled is (feature_name == "detect_human")
@@ -1696,6 +1713,22 @@ def test_camera_config_manager_create_camera_for_feature_enables_only_target_ato
     ]
     assert event_types.count("camera_added") == 1
     assert event_types.count("detect_human_enabled") == 1
+
+
+@pytest.mark.parametrize("department", [None, "", "research_institute"])
+def test_create_human_camera_rejects_missing_or_mismatched_department_without_writes(service_db, department):
+    payload = {"name": "未合法选择事业部", "url": "rtsp://example/human"}
+    if department is not None:
+        payload["department"] = department
+    message = "department 必须属于当前功能" if department else "department 是必填项"
+    with pytest.raises(ValueError, match=message):
+        service_db.camera_config_manager.create_camera_for_feature("detect_human", payload)
+
+    with service_db.factory() as session:
+        assert session.query(AiCameraConfig).count() == 0
+        for spec in all_specs().values():
+            assert session.query(spec.orm_class).count() == 0
+    assert service_db.notifications == []
 
 
 # 功能：验证 `test_camera_config_manager_create_camera_for_feature_requires_valid_department` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明

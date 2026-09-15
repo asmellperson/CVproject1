@@ -365,11 +365,33 @@ AiVision/
 
 摄像头包不按自身目录计算配置、模型或运行数据路径；这些位置仍由原有 `AiVision.core.settings`、模型配置及环境变量决定。目录调整不需要数据迁移，也不改变启动命令。可运行 `python -m pytest AiVision/tests/test_camera_package.py -q` 检查独立导入和 spawn：测试在临时目录使用模拟 ffprobe/ffmpeg，实际启动新包的摄像头采集入口，验证共享内存帧发布、读取及退出清理，不连接真实摄像头。
 
-本次目录迁移的相关回归结果为 742 项通过、10 项跳过、21 项失败；新增的 5 项包导入和 spawn 测试全部通过。21 项失败均在迁移前源码的独立临时副本中复现，本次只更新其必要导入，不修改这些既有预期：
+目录迁移时的相关回归为 742 项通过、10 项跳过、21 项失败；这些失败均在迁移前源码中复现。后续基线修复按现行业务规则更正了以下测试，未修改生产代码或放宽权限：
 
-- [喇叭绑定测试](AiVision/tests/test_horn_binding.py)：14 项在未明确摄像头事业部时启用人员检测，触发现行权限前置校验，尚未进入预期的喇叭绑定断言。
-- [物流摄像头服务测试](AiVision/tests/test_logistics_channel_service.py)：2 项仍预期人员检测可推断事业部，或创建并启用摄像头时可省略事业部，与现行规则不一致。
-- [功能注册测试](AiVision/tests/test_logistics_config_contract.py)：5 项固定预期 8 个功能，迁移前后均实际注册 7 个。独立导入核验确认迁移前后的功能、16 张 ORM 表及摄像头字段定义一致。
+- [喇叭绑定测试](AiVision/tests/test_horn_binding.py)：为摄像头和测试管理员明确设置通用电气事业部，使原有 14 项测试进入喇叭绑定逻辑；保留无效绑定、停用设备、事务回滚及热更新事件断言。
+- [物流摄像头服务测试](AiVision/tests/test_logistics_channel_service.py)：人员逗留不能推断空归属摄像头的可见事业部；新建并启用时显式选择通用电气或皓达。缺失、空白和不匹配事业部均拒绝，且不写入摄像头、配置或发布事件。其他功能的既有列表规则不变。
+- [功能注册测试](AiVision/tests/test_logistics_config_contract.py)：五个独立导入入口均验证明确的七项名称集合：`blocks`、`detect_door`、`detect_face`、`detect_human`、`detect_logistics_single_person`、`detect_phone`、`recognize_face`，并检查 SPEC 唯一性、模块身份与 ORM 表注册。
+
+修复后三个文件共 158 项通过、0 失败；摄像头包的 5 项测试通过。复跑原来同一组 29 个回归文件，结果为 **767 项通过、0 失败、10 项跳过**；较原来的 773 项增加 4 项事业部参数化用例，总计 777 项。10 项跳过均为未配置隔离 MySQL 实例的既有测试：检测配置 4 项、人员逗留迁移 1 项、物流迁移 5 项，未连接生产库。
+
+在项目根目录使用 Bash 复跑相同范围（SQLite 测试使用临时库；下列命令禁用真实 MySQL 测试连接）：
+
+```bash
+env -u CONFIG_TEST_MYSQL_URL -u LOGISTICS_TEST_MYSQL_URL -u HUMAN_TEST_MYSQL_URL \
+  MYSQL_DB_URL=127.0.0.1 MYSQL_DB_PORT=1 MYSQL_DB_USER=test MYSQL_DB_PASSWORD=test MYSQL_DB_NAME=test \
+  AUTO_CREATE_DB=false DATA_PATH=/tmp/camera-test-baseline-data \
+  AUTH_USERS_DB=/tmp/camera-test-baseline-auth.sqlite UNIFIED_BACKEND_DATA_DIR=/tmp/camera-test-baseline-backend \
+  PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -ra -o faulthandler_timeout=30 \
+  AiVision/tests/test_{camera_package,camera_probe,camera_frame_response}.py \
+  AiVision/tests/test_{orchestrator_camera_update,orchestrator_camera_frame,feature_department_enable}.py \
+  AiVision/tests/test_{alarm_config_hot_update,consumer_roi,detection_config_contract}.py \
+  AiVision/tests/test_{detection_config_migration,detection_config_mysql_migration,face_identity}.py \
+  AiVision/tests/test_{horn_backend,horn_binding,human_departments}.py \
+  AiVision/tests/test_{human_migration,logistics_channel_departments,logistics_channel_service}.py \
+  AiVision/tests/test_{logistics_config_contract,logistics_feature_migration,logistics_mysql_migration}.py \
+  AiVision/tests/test_{dwell_inference_failure,dwell_monitor_status,logistics_single_person}.py \
+  AiVision/tests/test_{logistics_channel_runtime,core_regressions,runtime_api}.py \
+  AiVision/tests/test_{department_api,main_runtime}.py
+```
 
 真实 RTSP 摄像头、网络断流重连、现场长时间运行及 MySQL 实测未验证；隔离 spawn 测试不能替代实机验证。
 

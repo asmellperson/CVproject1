@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from auth.auth import get_current_user
 from AiVision.api.deps import get_logistics_channel_service
 from AiVision.api.features import create_features_router
 from AiVision.api.logistics_channels import router as logistics_router
@@ -34,8 +35,16 @@ def binding_api(backend, monkeypatch):
     backend.app.include_router(create_features_router(FeatureConfigManager()))
     backend.app.include_router(logistics_router)
     backend.app.dependency_overrides[get_logistics_channel_service] = lambda: service
+    backend.app.dependency_overrides[get_current_user] = lambda: {
+        'role': 'admin', 'departments': ['general_electric'],
+    }
     with backend.factory() as session:
-        session.add_all([AiCameraConfig(name=f'Camera {i}', shm_name=f'cam_{i}', url='rtsp://test.local/video') for i in (1, 2)])
+        # 人员逗留支持多个事业部；明确归属后才能进入本测试的喇叭绑定校验。
+        session.add_all([
+            AiCameraConfig(name=f'Camera {i}', shm_name=f'cam_{i}',
+                           url='rtsp://test.local/video', department='general_electric')
+            for i in (1, 2)
+        ])
         session.commit()
     backend.horn = backend.service.create_horn(payload(enable=True))['id']
     backend.channel_id = service.create_channel(FEATURE, '通道 A', department="general_electric")['id']
@@ -74,7 +83,8 @@ def test_camera_feature_independence_disable_retains_and_explicit_unbind(binding
                                                   (1, True, True), (1, '7', True), (1, 2147483648, True)])
 def test_feature_invalid_binding_rejected_without_commit_or_hot_event(binding_api, horn_id, task, enabled):
     b = binding_api
-    assert save(b.client, 'detect_human', 'cam_1', alarm(b.horn)).status_code == 200
+    initial = save(b.client, 'detect_human', 'cam_1', alarm(b.horn))
+    assert initial.status_code == 200, initial.text
     before = len(b.notifications)
     response = save(b.client, 'detect_human', 'cam_1', alarm(horn_id, task, enabled))
     assert response.status_code == 400, response.text
@@ -84,7 +94,8 @@ def test_feature_invalid_binding_rejected_without_commit_or_hot_event(binding_ap
 
 def test_disabled_device_can_be_retained_but_not_enabled(binding_api):
     b = binding_api
-    save(b.client, 'detect_human', 'cam_1', alarm(b.horn))
+    initial = save(b.client, 'detect_human', 'cam_1', alarm(b.horn))
+    assert initial.status_code == 200, initial.text
     b.service.update_horn(b.horn, {'enable': False})
     response = save(b.client, 'detect_human', 'cam_1', alarm(b.horn))
     assert response.status_code == 400 and '已停用' in response.text

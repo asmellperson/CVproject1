@@ -26,14 +26,29 @@ from AiVision.tests.test_logistics_single_person import build_consumer, RuntimeS
     'AiVision.cameras.config_manager', 'AiVision.platform.orchestrator',
 ])
 def test_fresh_process_imports_register_all_features_once(entry):
-    script = f'''import importlib, sys
+    script = f'''import importlib
 importlib.import_module({entry!r})
 from AiVision.features import all_specs
 from AiVision.core.db import Base
 from AiVision.features.detect_logistics_single_person import SPEC
-assert len(all_specs()) == 8
-assert all_specs()[SPEC.name] is SPEC
-assert len([name for name in Base.metadata.tables if name.startswith('ai_logistics_channel')]) == 2
+expected = {{
+    'blocks', 'detect_door', 'detect_face', 'detect_human',
+    'detect_logistics_single_person', 'detect_phone', 'recognize_face',
+}}
+specs = all_specs()
+assert set(specs) == expected, sorted(specs)
+assert {{spec.name for spec in specs.values()}} == expected
+assert len({{id(spec) for spec in specs.values()}}) == len(expected)
+assert len({{spec.orm_class for spec in specs.values()}}) == len(expected)
+for name in expected:
+    spec = specs[name]
+    assert importlib.import_module(f'AiVision.features.{{name}}').SPEC is spec
+    assert Base.metadata.tables[spec.orm_class.__tablename__] is spec.orm_class.__table__
+assert all_specs() == specs
+assert specs[SPEC.name] is SPEC
+assert {{name for name in Base.metadata.tables if name.startswith('ai_logistics_channel')}} == {{
+    'ai_logistics_channel', 'ai_logistics_channel_camera',
+}}
 assert SPEC.orm_class.__tablename__ in Base.metadata.tables
 '''
     result = subprocess.run([sys.executable, '-c', script], env=os.environ.copy(), capture_output=True, text=True, timeout=20)
