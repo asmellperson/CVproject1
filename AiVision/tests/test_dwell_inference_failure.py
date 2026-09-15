@@ -12,7 +12,7 @@ import pytest
 from AiVision.features import get_spec
 from AiVision.features._base import consumer as base_consumer
 from AiVision.features._base import dwell_consumer
-from AiVision.platform.inference.contracts import INFERENCE_FAILURE_STATUSES
+from AiVision.inference.contracts import INFERENCE_FAILURE_STATUSES
 from AiVision.platform.orchestrator import Orchestrator
 
 

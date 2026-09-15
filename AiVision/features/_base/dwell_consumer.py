@@ -25,7 +25,7 @@ import cv2
 from AiVision.core.logger import logger
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.features._base.tracking import IouTracker
-from AiVision.platform.inference.contracts import INFERENCE_STATUS_OK
+from AiVision.inference.contracts import INFERENCE_STATUS_OK
 
 
 @dataclass

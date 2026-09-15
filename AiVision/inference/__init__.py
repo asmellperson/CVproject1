@@ -1,5 +1,5 @@
 """
-platform/inference/：模型推理模块
+inference/：模型推理模块
 
 Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送回对应 Consumer。
 这个目录负责“模型怎么加载、怎么推理、进程怎么运行”；检测结果是否构成违规、

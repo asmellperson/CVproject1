@@ -1,8 +1,8 @@
 """人脸纯检测 Worker：只返回 ROI 内的检测框，不访问人员库。"""
 from __future__ import annotations
 
-from AiVision.platform.inference.base_worker import BaseModelWorker
-from AiVision.platform.inference.insightface_detector import InsightFaceDetector
+from AiVision.inference.base_worker import BaseModelWorker
+from AiVision.inference.insightface_detector import InsightFaceDetector
 
 
 class FaceDetectorWorker(BaseModelWorker):

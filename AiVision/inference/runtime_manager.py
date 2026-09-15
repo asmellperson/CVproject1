@@ -1,5 +1,5 @@
 """
-platform/inference/runtime_manager.py
+inference/runtime_manager.py
 所有模型Worker的总运行调度器
 
 负责建队列、查模型配置、启动Worker、判断是否就绪、Worker挂掉后自动恢复、提供运行状态

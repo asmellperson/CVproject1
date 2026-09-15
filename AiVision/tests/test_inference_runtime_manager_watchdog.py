@@ -7,13 +7,13 @@ import importlib
 import queue
 import pytest
 
-from AiVision.platform.inference.runtime_manager import (
+from AiVision.inference.runtime_manager import (
     InferenceRuntimeManager,
     WorkerWatchdogState,
 )
 
 
-manager_module = importlib.import_module("AiVision.platform.inference.runtime_manager")
+manager_module = importlib.import_module("AiVision.inference.runtime_manager")
 
 
 # 功能：定义 `FakeWorker` 类，封装模型推理相关的状态、约束与操作
@@ -257,8 +257,8 @@ class ManagedWorker(FakeWorker):
 @pytest.fixture
 def fixed_runtime(tmp_path, monkeypatch):
     from dataclasses import replace
-    from AiVision.platform.inference import model_paths
-    from AiVision.platform.inference.model_registry import MODEL_SPECS
+    from AiVision.inference import model_paths
+    from AiVision.inference.model_registry import MODEL_SPECS
 
     config = tmp_path / "model_paths.yaml"
     shared = tmp_path / "shared.pt"
@@ -348,7 +348,7 @@ def test_physical_identity_deduplicates_symlinks_and_hardlinks(fixed_runtime, tm
 
 
 def test_failed_reload_is_saved_but_failed_and_still_watched(fixed_runtime, tmp_path, monkeypatch):
-    from AiVision.platform.inference.model_paths import load_model_paths
+    from AiVision.inference.model_paths import load_model_paths
 
     manager, _, _, _ = fixed_runtime
     bad = tmp_path / "bad.pt"
@@ -370,7 +370,7 @@ def test_failed_reload_is_saved_but_failed_and_still_watched(fixed_runtime, tmp_
 
 def test_concurrent_save_is_rejected_before_second_write(fixed_runtime, tmp_path, monkeypatch):
     import threading
-    from AiVision.platform.inference.model_paths import load_model_paths
+    from AiVision.inference.model_paths import load_model_paths
 
     manager, _, _, _ = fixed_runtime
     entered, release = threading.Event(), threading.Event()

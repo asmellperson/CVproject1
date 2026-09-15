@@ -39,8 +39,8 @@ from AiVision.features.recognize_face.records import RecognitionMediaReferences
 from AiVision.cameras.runtime_manager import CameraRuntimeManager                  # 管理摄像头采集进程
 from AiVision.cameras.frame_reader import frame_reader_registry     # 给主进程提供最新的视频帧
 from AiVision.cameras.config_manager import camera_config_manager                 # 从数据库读/改摄像头配置
-from AiVision.platform.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
-from AiVision.platform.inference.model_registry import MODEL_SPECS
+from AiVision.inference.runtime_manager import inference_runtime_manager           # 真正管理模型推理进程和推理队列
+from AiVision.inference.model_registry import MODEL_SPECS
 from AiVision.features.detect_logistics_single_person.constants import LOGISTICS_FEATURES
 from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
 from AiVision.features.detect_logistics_single_person.service import logistics_channel_service

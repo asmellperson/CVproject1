@@ -1,5 +1,5 @@
 """
-/platform/inference/contracts.py
+/inference/contracts.py
 统一规定模型推理结果应该长什么样，以及失败状态叫什么
 """
 from __future__ import annotations

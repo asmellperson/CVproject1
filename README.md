@@ -355,7 +355,7 @@ AiVision/
 ├── core/alarm/                  # 告警分发、喇叭、企业微信
 ├── platform/orchestrator.py     # 总编排器
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
-├── platform/inference/          # 模型 worker、队列、推理管理
+├── inference/          # 模型 worker、队列、推理管理
 ├── platform/violation/          # 违规图片与事件写入
 ├── platform/alarm_device/       # 声光报警设备
 └── features/                    # 所有检测功能模块
@@ -364,6 +364,40 @@ AiVision/
 摄像头模块统一从 `AiVision.cameras` 导入，文件职责见 [cameras 包说明](AiVision/cameras/__init__.py)。目录包含 `config_manager.py`、`orm.py`、`probe.py`、`runtime.py`、`runtime_manager.py`、`frame_reader.py` 和 `__init__.py`；类名、方法、数据库表和摄像头 API 保持不变，没有旧包转发或双路径支持。
 
 摄像头包不按自身目录计算配置、模型或运行数据路径；这些位置仍由原有 `AiVision.core.settings`、模型配置及环境变量决定。目录调整不需要数据迁移，也不改变启动命令。可运行 `python -m pytest AiVision/tests/test_camera_package.py -q` 检查独立导入和 spawn：测试在临时目录使用模拟 ffprobe/ffmpeg，实际启动新包的摄像头采集入口，验证共享内存帧发布、读取及退出清理，不连接真实摄像头。
+
+推理模块统一从 `AiVision.inference` 导入，内部结构及 Worker 接口保持不变：
+
+```text
+AiVision/inference/
+├── __init__.py
+├── base_worker.py
+├── contracts.py
+├── insightface_detector.py
+├── model_paths.py
+├── model_registry.py
+├── runtime_manager.py
+└── workers/
+    ├── __init__.py
+    ├── face_detector.py
+    ├── face_recognizer.py
+    └── yolo_detector.py
+```
+
+`model_paths.py` 的 `_PROJECT_ROOT` 按新目录深度取 `Path(__file__).resolve().parents[1]`，仍指向原来的 `AiVision/`。因此默认配置仍为 `AiVision/config/model_paths.yaml`；自定义相对 `MODEL_PATHS_CONFIG`、绝对配置路径和 YAML 中的模型权重路径语义不变。没有旧推理包转发、导入别名或双路径支持，`platform/` 中其他模块保留。
+
+新增验证可执行 `python -m pytest -q AiVision/tests/test_inference_package.py`：六种独立导入顺序验证模型和功能注册，两项从其他工作目录读写临时 YAML 的测试验证相对及绝对配置路径，一项通过真实 `YoloDetectorWorker.start()` 和 `BaseModelWorker._run()` 完成 spawn、共享模型队列、结果路由、错误返回与退出清理。该进程测试只替换外部 `ultralytics` 为模型替身，不是 GPU 或真实模型精度验证。
+
+本次推理目录迁移验证：新包 9 项通过；现有推理、模型 API 和人脸检测五个文件在迁移前后均为 109 项通过、3 项因未安装 InsightFace 而跳过；额外的 consumer 帧处理测试 11 项通过。下方原有 29 文件回归在迁移后仍为 **767 项通过、0 失败、10 项因缺少隔离 MySQL 而跳过**，测试范围没有删减。未验证真实 GPU/模型推理、生产模型重载和真实视频。
+
+推理相关测试命令如下；在下方回归命令的隔离环境变量下执行：
+
+```bash
+python -m pytest -q -ra AiVision/tests/test_inference_package.py
+python -m pytest -q -ra AiVision/tests/test_model_registry.py AiVision/tests/test_model_api.py \
+  AiVision/tests/test_inference_outcomes.py AiVision/tests/test_inference_runtime_manager_watchdog.py \
+  AiVision/tests/test_face_detection.py
+python -m pytest -q -ra AiVision/tests/test_consumer_frame_change.py
+```
 
 目录迁移时的相关回归为 742 项通过、10 项跳过、21 项失败；这些失败均在迁移前源码中复现。后续基线修复按现行业务规则更正了以下测试，未修改生产代码或放宽权限：
 

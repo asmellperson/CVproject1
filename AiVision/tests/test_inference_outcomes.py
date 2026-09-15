@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from AiVision.features._base.consumer import BaseFunctionConsumer
-from AiVision.platform.inference.base_worker import BaseModelWorker
-from AiVision.platform.inference.contracts import (
+from AiVision.inference.base_worker import BaseModelWorker
+from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,

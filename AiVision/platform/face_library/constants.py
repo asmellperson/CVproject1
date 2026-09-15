@@ -1,6 +1,6 @@
 """人脸身份识别使用的正式模型及默认参数。"""
 
-from AiVision.platform.inference.insightface_detector import DETECTION_MODEL_FILE
+from AiVision.inference.insightface_detector import DETECTION_MODEL_FILE
 
 MODEL_NAME = "buffalo_l"
 EMBEDDING_DIM = 512

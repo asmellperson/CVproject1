@@ -2,7 +2,7 @@
 cameras/：摄像头配置、视频采集和最新帧读取
 
 这个目录把摄像头视频源变成其他模块可以使用的 NumPy 图像。
-Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人”；模型推理由 platform/inference/
+Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人”；模型推理由 inference/
 负责，检测规则由 features/ 或物流通道模块负责，告警证据由 platform/violation/ 等模块处理。
 本文件只作讲解，导入本包不会在这里连接摄像头或启动采集进程。
 
@@ -131,7 +131,7 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
         删除：移除 Consumer 的摄像头状态，刷新物流业务，移除采集配置并回收资源。
         功能启停：重新计算这台摄像头是否仍需采集；其他功能仍使用时保留采集进程。
 
-    features/、platform/inference/：
+    features/、inference/：
         Consumer 从 latest_frames 取图、裁 ROI，再经推理队列交给模型 Worker。
         摄像头可采集与模型可推理是两种状态，检测功能还需要自己的模型等依赖可用。
 

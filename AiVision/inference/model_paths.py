@@ -1,5 +1,5 @@
 """
-/platform/inference/model_paths.py
+/inference/model_paths.py
 本机模型路径配置。
 
 这里按模型 name 读取本机配置文件，作为 worker 实际加载模型时唯一的路径来源。
@@ -21,7 +21,7 @@ from yaml.nodes import MappingNode, ScalarNode
 from AiVision.core.settings import settings
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _PATH_LOCK = threading.RLock()
 
 

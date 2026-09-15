@@ -1,5 +1,5 @@
 """
-platform/inference/workers/yolo_detector.py
+inference/workers/yolo_detector.py
 
 模型文件路径来自本机配置文件。同一物理权重由多个逻辑模型共享，例如:
     yolo_human → class_filter=[0],   type_label="person"
@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from AiVision.core.logger import logger
-from AiVision.platform.inference.base_worker import BaseModelWorker
+from AiVision.inference.base_worker import BaseModelWorker
 
 class YoloDetectorWorker(BaseModelWorker):
     """通用 YOLO 目标检测 Worker"""
@@ -36,7 +36,7 @@ class YoloDetectorWorker(BaseModelWorker):
             task_meta: 这一次任务自己的参数
         """
         # 让请求方在 task_meta 里覆盖默认 conf/iou（所以任务可以覆盖默认参数）
-        from AiVision.platform.inference.model_registry import get_model_spec
+        from AiVision.inference.model_registry import get_model_spec
         # 同一个Worker收到不同任务时会动态选择不同配置
         spec = get_model_spec(task_meta["model_name"])
         conf = float(task_meta.get("conf", spec.conf))

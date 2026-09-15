@@ -20,7 +20,7 @@ from .sync import HikvisionSyncSettings, _error_summary
 
 if TYPE_CHECKING:
     from .service import FaceLibraryService
-    from AiVision.platform.inference.workers.face_recognizer import InsightFaceRecognizer
+    from AiVision.inference.workers.face_recognizer import InsightFaceRecognizer
 
 
 @dataclass
@@ -74,8 +74,8 @@ def main() -> int:
     try:
         from AiVision.core.db import Base, get_engine
         from AiVision.core.settings import settings
-        from AiVision.platform.inference.model_paths import load_model_paths
-        from AiVision.platform.inference.workers.face_recognizer import InsightFaceRecognizer
+        from AiVision.inference.model_paths import load_model_paths
+        from AiVision.inference.workers.face_recognizer import InsightFaceRecognizer
         from .orm import FaceEmbedding, FacePerson
         from .service import FaceLibraryService
 

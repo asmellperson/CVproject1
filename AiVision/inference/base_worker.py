@@ -1,5 +1,5 @@
 """
-platform/inference/base_worker.py
+inference/base_worker.py
 推理 Worker 抽象基类 — 定义 ModelWorker 的通用骨架。
 
 每个物理权重对应一个独立子进程,从逻辑模型队列取任务、跑推理、
@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod    # ABC 抽象基类
 from typing import Any
 
 from AiVision.core.logger import logger
-from AiVision.platform.inference.contracts import (
+from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_STATUS_ERROR,
     INFERENCE_STATUS_OK,

@@ -16,7 +16,7 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
         例如摄像头、喇叭、物流通道、某台摄像头某项功能的 ROI 和报警绑定。
     固定定义：Department 名称来自 department_registry.py，功能来自 FeatureSpec，
         Feature 归属来自 FeatureSpec.departments，模型定义来自 model_registry.py。
-    本机模型文件位置：platform/inference/model_paths.py 管理的 YAML 路径配置。
+    本机模型文件位置：inference/model_paths.py 管理的 YAML 路径配置。
     配置缓存：cache.py 保存摄像头及 Feature 配置的运行副本，不是新的主数据来源。
 
     不同配置的更新方式不同：改数据库、改环境变量、改注册表、改 YAML，

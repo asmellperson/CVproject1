@@ -33,7 +33,7 @@ def get_feature_config_manager():
 
 def get_inference_runtime_manager():
     """获取本机模型运行服务"""
-    from AiVision.platform.inference.runtime_manager import inference_runtime_manager
+    from AiVision.inference.runtime_manager import inference_runtime_manager
     return inference_runtime_manager
 
 def get_department_service():

@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 
 from AiVision.features.detect_face import SPEC
-from AiVision.platform.inference import model_paths
-from AiVision.platform.inference.insightface_detector import InsightFaceDetector
-from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+from AiVision.inference import model_paths
+from AiVision.inference.insightface_detector import InsightFaceDetector
+from AiVision.inference.workers.face_detector import FaceDetectorWorker
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ class NoIdentity(importlib.abc.MetaPathFinder):
                                 'AiVision.features.recognize_face', 'ultralytics')):
             raise AssertionError('unexpected import: ' + fullname)
 sys.meta_path.insert(0, NoIdentity())
-from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+from AiVision.inference.workers.face_detector import FaceDetectorWorker
 model = Mock()
 model.detect.return_value = ([], None)
 worker = FaceDetectorWorker({}, {}, 'insightface_detection', '/unused.onnx')

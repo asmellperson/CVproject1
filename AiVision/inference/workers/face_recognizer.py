@@ -12,15 +12,15 @@ from AiVision.platform.face_library.constants import (
     INDEX_REFRESH_SECONDS, RECOGNITION_MODEL_FILE,
 )
 from AiVision.platform.face_library.index import FaceIndex
-from AiVision.platform.inference.base_worker import BaseModelWorker
-from AiVision.platform.inference.insightface_detector import (
+from AiVision.inference.base_worker import BaseModelWorker
+from AiVision.inference.insightface_detector import (
     DETECTION_MODEL_FILE, InsightFaceDetector, load_insightface_model,
 )
 
 
 class InsightFaceRecognizer:
     def __init__(self, model_path: str):
-        from AiVision.platform.inference.model_paths import validate_model_path
+        from AiVision.inference.model_paths import validate_model_path
 
         directory = Path(validate_model_path(model_path, model_type="insightface"))
         self.detector = InsightFaceDetector(str(directory / DETECTION_MODEL_FILE))

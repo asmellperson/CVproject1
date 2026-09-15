@@ -62,7 +62,8 @@ GET    /api/departments/{name}/features
 
 ## 模型配置
 
-模型名称、Worker 类和推理参数固定注册在 `platform/inference/model_registry.py`。
+模型名称、Worker 类和推理参数固定注册在 `inference/model_registry.py`。
+推理包的正式导入路径为 `AiVision.inference`；`workers/` 内部结构及公开接口保持不变。
 模型文件路径只从本机 YAML 配置读取，不再依赖 `ai_model` 表。
 相同物理权重由多个逻辑模型共享一个 Worker，保留各自的类别过滤与结果标签。
 
@@ -84,7 +85,8 @@ cp config/model_paths.example.yaml config/model_paths.yaml
 ```
 
 默认读取 `.env` 的 `MODEL_PATHS_CONFIG=config/model_paths.yaml`，相对路径以 `AiVision`
-目录为基准。配置文件中按模型 `name` 覆盖路径：
+目录为基准。推理目录迁移后仍保持该基准，模型权重位置及环境变量含义不变。
+配置文件中按模型 `name` 覆盖路径：
 
 ```yaml
 models:

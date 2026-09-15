@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 import yaml
 
-from AiVision.platform.inference.model_registry import MODEL_SPECS, get_model_spec
-from AiVision.platform.inference import model_paths
-from AiVision.platform.inference.workers.yolo_detector import YoloDetectorWorker
+from AiVision.inference.model_registry import MODEL_SPECS, get_model_spec
+from AiVision.inference import model_paths
+from AiVision.inference.workers.yolo_detector import YoloDetectorWorker
 
 
 @pytest.fixture
@@ -26,12 +26,12 @@ def test_fixed_registry_has_explicit_inference_settings():
     assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "insightface_detection", "insightface"}
     assert get_model_spec("yolo_human").class_filter == (0,)
     assert get_model_spec("yolo_phone").class_filter == (1,)
-    from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+    from AiVision.inference.workers.face_detector import FaceDetectorWorker
     assert get_model_spec("insightface_detection").worker_class is FaceDetectorWorker
     assert get_model_spec("insightface_detection").conf == 0.6
     assert get_model_spec("insightface_detection").iou == 0.3
     assert all(spec.worker_class is YoloDetectorWorker for spec in MODEL_SPECS.values() if spec.type == "yolo")
-    from AiVision.platform.inference.workers.face_recognizer import FaceRecognizerWorker
+    from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
     assert get_model_spec("insightface").worker_class is FaceRecognizerWorker
     assert get_model_spec("insightface").type == "insightface"
     assert get_model_spec("insightface").conf == 0.5

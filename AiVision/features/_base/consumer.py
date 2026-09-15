@@ -31,7 +31,7 @@ from AiVision.core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
 from AiVision.core.settings import settings
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.roi import roi_to_pixels
-from AiVision.platform.inference.contracts import (
+from AiVision.inference.contracts import (
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
     INFERENCE_ERROR_TIMEOUT,

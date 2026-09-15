@@ -34,8 +34,8 @@ from AiVision.platform.face_library.constants import EMBEDDING_DIM, INDEX_REFRES
 from AiVision.platform.face_library.embedding import generate_embeddings
 from AiVision.platform.face_library.index import FaceIndex, decode_embedding, encode_embedding, photo_signature
 from AiVision.platform.face_library.orm import FaceEmbedding, FacePerson
-from AiVision.platform.inference import model_paths
-from AiVision.platform.inference.workers import face_recognizer
+from AiVision.inference import model_paths
+from AiVision.inference.workers import face_recognizer
 
 
 def vector(position=0):
@@ -944,7 +944,7 @@ def test_missing_models_fail_before_loading_or_downloading(tmp_path, monkeypatch
 
 
 def test_detection_and_recognition_reuse_code_with_independent_model_instances(model_directory, monkeypatch):
-    from AiVision.platform.inference.workers.face_detector import FaceDetectorWorker
+    from AiVision.inference.workers.face_detector import FaceDetectorWorker
 
     models = [Mock(taskname=task) for task in ("detection", "detection", "recognition")]
     for model in models:

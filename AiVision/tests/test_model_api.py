@@ -38,8 +38,8 @@ def test_list_fixed_models_without_database(client):
 
 
 def test_path_save_and_list_use_local_yaml_and_real_runtime_state(client, tmp_path, monkeypatch):
-    from AiVision.platform.inference import model_paths
-    from AiVision.platform.inference.runtime_manager import InferenceRuntimeManager
+    from AiVision.inference import model_paths
+    from AiVision.inference.runtime_manager import InferenceRuntimeManager
 
     http, service, _ = client
     manager = InferenceRuntimeManager()
@@ -84,8 +84,8 @@ def test_path_update_returns_saved_separately_from_loading(client):
 
 
 def test_detection_path_save_and_echo_need_no_recognition_models(client, tmp_path, monkeypatch):
-    from AiVision.platform.inference import model_paths
-    from AiVision.platform.inference.runtime_manager import InferenceRuntimeManager
+    from AiVision.inference import model_paths
+    from AiVision.inference.runtime_manager import InferenceRuntimeManager
 
     http, service, _ = client
     manager = InferenceRuntimeManager()
