@@ -84,6 +84,8 @@ def test_feature_registry_rejects_duplicate_names_without_changing_registered_sp
 
 
 def test_schema_verification_leaves_historical_department_tables_untouched(monkeypatch):
+    from AiVision.runtime.bootstrap import bootstrap_database
+
     engine = create_engine("sqlite://")
     monkeypatch.setattr(db, "get_engine", lambda: engine)
     with engine.begin() as connection:
@@ -92,7 +94,7 @@ def test_schema_verification_leaves_historical_department_tables_untouched(monke
         connection.execute(text("INSERT INTO ai_department VALUES ('legacy', '旧部门')"))
         connection.execute(text("INSERT INTO ai_feature_department VALUES ('detect_phone', 'legacy')"))
     try:
-        db.ensure_schema_ready()
+        bootstrap_database()
         assert "ai_department" not in db.Base.metadata.tables
         assert "ai_feature_department" not in db.Base.metadata.tables
         assert {"ai_department", "ai_feature_department"} <= set(inspect(engine).get_table_names())

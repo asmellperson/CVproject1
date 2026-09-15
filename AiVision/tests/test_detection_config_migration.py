@@ -180,10 +180,11 @@ def test_committed_mysql_create_sql_matches_orm(tmp_path):
 
 def test_startup_rejects_old_schema_without_adding_columns(legacy, monkeypatch):
     from AiVision.core import db
+    from AiVision.runtime.bootstrap import bootstrap_database
     engine, tables, _ = legacy
     monkeypatch.setattr(db, "get_engine", lambda: engine)
     with pytest.raises(ValueError, match="离线迁移"):
-        db.ensure_schema_ready()
+        bootstrap_database()
     columns = {c["name"] for c in inspect(engine).get_columns(tables["detect_face"].name)}
     assert "IOU_THR" in columns
     assert not IOU_FIELDS.intersection(columns)

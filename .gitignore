@@ -62,6 +62,7 @@ runtime/
 !/AiVision/runtime/
 /AiVision/runtime/*
 !/AiVision/runtime/__init__.py
+!/AiVision/runtime/bootstrap.py
 !/AiVision/runtime/orchestrator.py
 !/AiVision/runtime/process_cleanup.py
 runs/

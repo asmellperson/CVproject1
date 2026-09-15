@@ -24,7 +24,6 @@ from typing import Optional
 
 from AiVision.core.logger import logger
 from AiVision.core.cache import config_cache
-from AiVision.core.db import ensure_schema_ready                        # 数据库检查
 from AiVision.core.events import config_event_bus, ConfigChangeEvent         # 配置变化的时候，通知正在运行的模块更新
 from AiVision.alarms.dispatcher import alarm_dispatcher                  # 统一告警处理
 from AiVision.alarms.notifications.wechat import WeChatNotifier                        # 企业微信通知
@@ -98,7 +97,7 @@ class Orchestrator:
     def start(self):
         """
         启动顺序：
-            1、整理数据库和配置
+            1、整理摄像头和功能配置（数据库已由启动入口准备）
             2、初始化企业微信异常通知
             3、启动摄像头采集进程
             4、启动帧读取和违规记录
@@ -113,8 +112,7 @@ class Orchestrator:
             return
         logger.info("=" * 20 + " Orchestrator 启动 " + "=" * 20)
 
-        # 1) 数据库 schema 修补，在启动摄像头和模型之前，把配置整理干净
-        ensure_schema_ready()                             # 创建新表并核验数据库结构
+        # 1) 数据库 bootstrap 已完成，在启动摄像头和模型之前准备运行配置
         camera_config_manager.normalize_shm_names()                   # 整理摄像头共享内存名称
         camera_config_manager.ensure_feature_configs() # 确保每台摄像头需要的功能配置存在
         config_cache.init()                                     # 把配置从数据库加载到运行时缓存

@@ -105,39 +105,6 @@ def session_scope():
     finally:
         session.close()
 
-def create_all_tables():
-    """
-    根据所有已注册 ORM 模型在数据库中创建对应的表（不存在时创建，已存在时跳过）。
-
-    Note:
-        须在所有 ORM 模块完成 import（即 Base.metadata 已收集到全部表定义）后调用，
-        否则部分表会被遗漏。已有表必须通过离线迁移更新，不自动修补。
-    """
-    Base.metadata.create_all(bind=get_engine())
-    logger.info("[DB] 数据库表已创建/验证")
-
-
-def ensure_schema_ready():
-    """创建全新表并只读核验功能配置表；历史结构必须先离线迁移。"""
-    from AiVision.features.registry import all_specs
-    from AiVision.core import system_config as _system_config_orm  # noqa: F401
-    from AiVision.alarms.devices import orm as _alarm_device_orm  # noqa: F401
-    from AiVision.cameras import orm as _camera_orm  # noqa: F401
-    from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-    from AiVision.alarms.records import orm as _violation_orm  # noqa: F401
-    from AiVision.core.schema import assert_table_matches
-
-    specs = all_specs()  # lazy discovery 必须先注册所有功能 ORM，再创建表。
-    engine = get_engine()
-    Base.metadata.create_all(bind=engine)
-    with engine.connect() as connection:
-        for spec in specs.values():
-            assert_table_matches(connection, spec.orm_class.__table__)
-        for model in (LogisticsChannel, LogisticsChannelCamera):
-            assert_table_matches(connection, model.__table__)
-    logger.info("[DB] 功能配置结构核验通过")
-
-
 def _ensure_database_exists():
     """
     当 settings.db.auto_create 为 True 时，若目标数据库不存在则自动创建。

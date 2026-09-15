@@ -10,6 +10,7 @@ features/             检测功能模块
 features/_shared/       功能通用基类、配置管理与 Consumer
 features/registry.py   七项内置功能的唯一注册入口
 runtime/              总编排、生命周期协调及残留进程清理
+runtime/bootstrap.py  启动时注册业务 ORM、创建缺失表及核验结构
 cameras/              摄像头采集、帧读取及配置管理
 inference/            模型加载、推理 Worker 及运行管理
 alarms/               告警分发、设备、通知、记录及证据
@@ -28,6 +29,8 @@ main.py               后端入口
 总编排与进程清理从 `AiVision.runtime` 导入，视觉子应用挂载适配使用
 `AiVision.api.mounted_apps`，HTTP 路由使用 `AiVision.api.routes`。
 旧平台目录已删除，不保留转发包；启动入口、API URL、认证与生命周期顺序保持不变。
+数据库准备由 `runtime.bootstrap.bootstrap_database()` 在 `.env` 和 settings 加载后、
+创建 `mp.Manager` 前执行；`core/db.py` 只提供 Base、连接池、会话和事务等基础能力。
 
 ## 启动
 

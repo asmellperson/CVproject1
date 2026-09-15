@@ -392,13 +392,18 @@ python -m pytest -q -ra \
 ```text
 main.py
   |
+  +-- 加载 .env / settings
+  +-- runtime.bootstrap.bootstrap_database()
+  |     +-- 注册七项功能及其他业务 ORM
+  |     +-- 创建缺失表并只读核验现有配置结构
+  +-- mp.Manager()
+  |
   v
 init_orchestrator()
   |
   v
 Orchestrator.start()
   |
-  +-- ensure_schema_ready()
   +-- camera_config_manager 加载摄像头与功能配置
   +-- CameraRuntimeManager 启动摄像头进程
   +-- frame_reader_registry 读取最新帧
@@ -425,10 +430,11 @@ AiVision/
 │   └── routes/                 # alarms/cameras/departments/exception_alerts/face_recognition/
 │                               # features/horns/logistics_channels/models/runtime
 ├── core/settings.py             # 统一环境变量配置入口
-├── core/db.py                   # 数据库连接与 schema 初始化
+├── core/db.py                   # SQLAlchemy Base、连接池、会话与事务工具
 ├── core/cache.py                # 配置缓存
 ├── core/events.py               # 配置变更事件总线
 ├── runtime/                     # 运行编排与生命周期协调
+│   ├── bootstrap.py            # 启动 ORM 注册、缺失表创建及结构核验
 │   ├── orchestrator.py         # 总编排器及全局实例
 │   └── process_cleanup.py      # 启动前残留进程清理
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
@@ -450,6 +456,11 @@ AiVision/
 启动入口仍为 `python -m AiVision.main`；Orchestrator 的实例、启停顺序和运行流程，
 视觉子应用生命周期与 ASGI mount，以及 HTTP URL、router prefix 和认证规则均保持不变。
 本轮只迁移文件、更新引用和说明，未运行测试、启动服务、连接数据库或加载模型。
+
+数据库启动准备统一由 `AiVision.runtime.bootstrap.bootstrap_database()` 执行，
+在环境和 settings 加载后、创建 `mp.Manager` 前完成；调度器不重复建表和核验。
+建表与结构检查语义保持不变；人脸特征生成 CLI 自有的两张底库表创建流程继续保留。
+本批仅做静态检查，未执行测试、服务或数据库初始化。
 
 事业部模块统一从 `AiVision.departments` 导入，原目录的三个源码文件完整迁移，公开对象和接口保持不变：
 

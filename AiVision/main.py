@@ -4,7 +4,7 @@ AiVision 后端入口。
 职责保持极简:
 1. 设置 multiprocessing spawn
 2. 加载 .env
-3. 初始化 Orchestrator
+3. 数据库初始化后创建共享管理器和 Orchestrator
 4. 启动 FastAPI/Uvicorn
 5. SIGINT/SIGTERM 优雅停止
 """
@@ -66,13 +66,15 @@ def main() -> None:
 
     from AiVision.api.app import create_app      # 创建AiVision HTTP API服务
     from AiVision.core.logger import logger      # 项目统一日志工具
+    from AiVision.runtime.bootstrap import bootstrap_database
     from AiVision.runtime.orchestrator import init_orchestrator
 
     logger.info(
         f"[main] OpenCV 线程限制 配置需求={settings.runtime.opencv_threads} "
         f"实际={actual_opencv_threads}"
     )
-    # 6、创建跨进程共享管理器
+    # 6、先完成数据库准备，再创建跨进程共享管理器
+    bootstrap_database()
     mp_manager = mp.Manager()           # 创建一个可以帮助多个Python进程共享数据的管理服务
     # 7、创建AiVision总调度器，将跨进程共享管理器传入，后续Orchestrator会使用它来创建共享队列、共享字典等
     orchestrator = init_orchestrator(mp_manager)   ## 后续orchestrator.start()代表启动整个实时视觉系统

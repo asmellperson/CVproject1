@@ -17,6 +17,7 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
 
         assert not any(name.startswith('AiVision.features') for name in sys.modules)
         from AiVision.core import db, schema
+        from AiVision.runtime.bootstrap import bootstrap_database
         from AiVision import features
         assert 'AiVision.features.registry' not in sys.modules
         assert '_REGISTRY' not in vars(features)
@@ -70,7 +71,7 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
                                                          wraps=schema.assert_table_matches))
                 # Real metadata DDL and real schema reflection/validation; only the engine is isolated.
                 sys.setprofile(observe_registry_query)
-                db.ensure_schema_ready()
+                bootstrap_database()
                 sys.setprofile(None)
                 assert registry_queries == ['all_specs']
                 assert len(creation_snapshots) == 1

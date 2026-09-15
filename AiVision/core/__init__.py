@@ -61,9 +61,6 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     get_session()：创建一次 Session，调用方负责关闭；不要跨线程共用同一个 Session。
     session_scope()：提供 with 事务上下文，正常退出 commit，异常 rollback 并重新抛出，
         最后关闭 Session；适合服务层写操作。
-    create_all_tables()：按已注册 metadata 创建缺失的表，不自动改变已有表结构。
-    ensure_schema_ready()：创建全新表并核验功能配置列、类型、空值、默认值和约束；
-        已有表不做兼容修补，结构不一致时要求先执行离线迁移。
     _ensure_database_exists()：校验库名、字符集，用临时服务器级连接执行可选建库，
         完成后释放临时 Engine；它和“在已有库中建表”是不同步骤。
     dispose()：释放当前 Engine 的连接池并重置全局工厂引用，供退出与测试清理使用。
@@ -72,6 +69,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     事务顺序要明确：session.flush() 只是把 SQL 发给数据库，事务仍可能回滚。
     只有 session_scope 成功退出、提交完成后，才应刷新运行缓存和通知热更新。
     创建表依赖 ORM 已导入；只新增一个 ORM 文件却从未导入，不会自动登记到 metadata。
+    启动时的业务 ORM 注册、缺失表创建与结构核验由 runtime/bootstrap.py 负责；
+    db.py 不导入业务 ORM，也不向运行编排层反向导入。已有表不自动修补。
 
 四、cache.py：摄像头与 Feature 配置的进程内读取副本
 
@@ -179,7 +178,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
 十一、把几个公共模块串起来看
 
     初始化：
-        启动入口 / Orchestrator → settings → db.ensure_schema_ready()
+        main → .env → settings → runtime/bootstrap.py 的 bootstrap_database()
+            → mp.Manager → init_orchestrator → Orchestrator.start()
             → 摄像头和 Feature 配置准备 → config_cache.init()。
         开始运行时 → 清理匹配的残留进程 → 启动 Camera / Inference / Consumer / 物流
             等运行资源，并按 Orchestrator 的生命周期配置告警依赖。
