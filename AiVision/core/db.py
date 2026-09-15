@@ -127,10 +127,11 @@ def ensure_schema_ready():
     from AiVision.alarms.records import orm as _violation_orm  # noqa: F401
     from AiVision.core.schema import assert_table_matches
 
+    specs = all_specs()  # lazy discovery 必须先注册所有功能 ORM，再创建表。
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     with engine.connect() as connection:
-        for spec in all_specs().values():
+        for spec in specs.values():
             assert_table_matches(connection, spec.orm_class.__table__)
         for model in (LogisticsChannel, LogisticsChannelCamera):
             assert_table_matches(connection, model.__table__)
