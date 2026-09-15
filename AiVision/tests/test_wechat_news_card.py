@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
-from AiVision.core.alarm import wechat as wechat_module
-from AiVision.core.alarm.wechat import WeChatNotifier, _EVENT_DISPLAY
+from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
+from AiVision.alarms.notifications import wechat as wechat_module
+from AiVision.alarms.notifications.wechat import WeChatNotifier, _EVENT_DISPLAY
 
 
 # 功能：定义 `FakeResponse` 类，封装企业微信通知相关的状态、约束与操作
@@ -40,8 +40,8 @@ class FakeResponse:
     #   - `self`（未显式标注）：当前类实例
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/core/alarm/horn.py` 的 `Horn::connect` 调用本符号；`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::_get_token`
-    #         调用本符号；`AiVision/core/alarm/wechat.py` 的 `WeChatNotifier::_upload_image` 调用本符号；`AiVision/core/alarm/wechat.py` 的
+    #   - 调用方：`AiVision/alarms/devices/horn.py` 的 `Horn::connect` 调用本符号；`AiVision/alarms/notifications/wechat.py` 的 `WeChatNotifier::_get_token`
+    #         调用本符号；`AiVision/alarms/notifications/wechat.py` 的 `WeChatNotifier::_upload_image` 调用本符号；`AiVision/alarms/notifications/wechat.py` 的
     #         `WeChatNotifier::_send_news_card` 调用本符号；另有 8 处静态调用
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -73,7 +73,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
     monkeypatch.setattr(notifier, "_get_token", lambda: "token")
     monkeypatch.setattr(
-        "AiVision.core.alarm.wechat.requests.post",
+        "AiVision.alarms.notifications.wechat.requests.post",
         lambda *args, **kwargs: posts.append(kwargs["json"]) or FakeResponse({"errcode": 0}),
     )
 
@@ -434,7 +434,7 @@ def test_dispatcher_persists_card_record_when_sql_is_disabled():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_dispatcher_builds_public_image_and_detail_urls(monkeypatch):
     dispatcher = AlarmDispatcher()
-    monkeypatch.setattr("AiVision.core.alarm.dispatcher.settings.alarm.wechat_card_base_url", "https://aicv.fudar.com/")
+    monkeypatch.setattr("AiVision.alarms.dispatcher.settings.alarm.wechat_card_base_url", "https://aicv.fudar.com/")
 
     image_url, detail_url = dispatcher._alarm_card_urls(42)
 

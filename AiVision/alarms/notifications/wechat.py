@@ -1,5 +1,5 @@
 """
-core/alarm/wechat.py
+alarms/notifications/wechat.py
 企业微信告警发送 — 默认单条图文卡片消息。
 负责获取 token、组织图文卡片并调用企业微信 HTTP API。
 AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人员缩略图使用受限签名链接。
@@ -14,6 +14,22 @@ AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人�
     _send_news_card():单条图文卡片
     send(): AI业务报警 news 图文卡片，URL 缺失则记录失败
     send_text():系统异常等纯文本通知
+协议与调用入口：企业微信消息协议
+
+    WeChatNotifier：保存企业 ID、应用密钥、应用 ID；构造本身不发送网络请求。
+        凭据按构造参数、settings.alarm、环境变量等既有回退规则取值。
+    _get_token()：校验凭据，请求 access_token，检查 HTTP 状态、业务错误码和响应。
+        当前已经缓存 token 和过期时间，使用 monotonic 时钟及锁避免并发重复刷新，
+        并按接口响应的 expires_in 提前刷新；不是每次发送都重新获取 token。
+    _EVENT_DISPLAY：把内部 Feature 名称转换为通知展示名称，未收录名称保持原值。
+    send()：用于检测业务告警，需要接收人、缩略图 URL 和详情 URL。
+        当前只走单条 news 图文卡片；缺少 URL 时记录原因并返回 False，
+        不再执行旧说明中提到的“上传图片 / 文本加图片降级”流程。
+    _send_news_card()：组织标题、说明、图片 URL、跳转 URL，调用企业微信 message/send。
+        检查 HTTP 和企业微信业务错误码，返回本次发送是否成功。
+    send_text()：发送 Markdown 文本，用于摄像头、模型、Consumer 或 API 的系统异常通知。
+        与业务告警图文卡片是不同入口，系统异常不必构造 AlarmRequest。
+
 """
 from __future__ import annotations
 import os

@@ -199,7 +199,7 @@ def test_delete_protects_disabled_logistics_channel(backend):
 
 
 def test_connection_is_silent_transient_and_can_reuse_saved_password(backend, monkeypatch):
-    from AiVision.core.alarm import horn as horn_module
+    from AiVision.alarms.devices import horn as horn_module
     calls, probes = [], []
 
     def post(url, **kwargs):
@@ -233,7 +233,7 @@ def test_connection_is_silent_transient_and_can_reuse_saved_password(backend, mo
 
 
 def test_failed_probe_sanitizes_network_error(backend, monkeypatch, caplog):
-    from AiVision.core.alarm import horn as horn_module
+    from AiVision.alarms.devices import horn as horn_module
 
     def fail(*_args, **_kwargs):
         raise RuntimeError("temporary-password access-key device-body")
@@ -253,7 +253,7 @@ def test_production_app_registers_horn_router():
 
 
 def test_api_crud_hot_syncs_real_runtime_after_commit(backend, monkeypatch):
-    from AiVision.core.alarm import horn as horn_module
+    from AiVision.alarms.devices import horn as horn_module
     monkeypatch.setattr(horn_module.requests, "post", lambda *_args, **_kwargs:
                         SimpleNamespace(status_code=200, json=lambda: {"access_key": "key", "access_id": "id"}))
     manager = HornRuntimeManager(backend.service.runtime_configs)

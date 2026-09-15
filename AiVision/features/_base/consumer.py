@@ -27,7 +27,7 @@ import numpy as np
 
 from AiVision.core.cache import config_cache
 from AiVision.core.logger import logger
-from AiVision.core.alarm.dispatcher import alarm_dispatcher, AlarmRequest
+from AiVision.alarms.dispatcher import alarm_dispatcher, AlarmRequest
 from AiVision.core.settings import settings
 from AiVision.features._base.spec import FeatureSpec
 from AiVision.features._base.roi import roi_to_pixels

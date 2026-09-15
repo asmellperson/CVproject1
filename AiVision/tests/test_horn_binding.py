@@ -9,7 +9,7 @@ from auth.auth import get_current_user
 from AiVision.api.deps import get_logistics_channel_service
 from AiVision.api.features import create_features_router
 from AiVision.api.logistics_channels import router as logistics_router
-from AiVision.core.alarm.dispatcher import AlarmDispatcher
+from AiVision.alarms.dispatcher import AlarmDispatcher
 from AiVision.features import get_spec
 from AiVision.features._base.config_manager import FeatureConfigManager
 from AiVision.features._base.consumer import BaseFunctionConsumer

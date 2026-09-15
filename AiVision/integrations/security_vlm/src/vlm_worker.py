@@ -278,7 +278,7 @@ class DepartmentFairTaskQueue:
     #   - `item`（PendingTask）：`item` 对应的业务输入值
     # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::enqueue` 调用本符号；`AiVision/core/alarm/dispatcher.py` 的
+    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::enqueue` 调用本符号；`AiVision/alarms/dispatcher.py` 的
     #         `AlarmDispatcher::_execute` 调用本符号
     #   - 内部调用：`self.put`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。

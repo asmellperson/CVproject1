@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from AiVision.core.alarm.dispatcher import AlarmRequest
+from AiVision.alarms.dispatcher import AlarmRequest
 from AiVision.features import all_specs
 from AiVision.features._base.consumer import BaseFunctionConsumer
 from AiVision.platform.violation.orm import AiAlarmEvent

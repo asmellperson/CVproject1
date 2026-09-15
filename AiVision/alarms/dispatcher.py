@@ -1,5 +1,5 @@
 """
-core/alarm/dispatcher.py
+alarms/dispatcher.py
 统一告警分发器 — 把"判断该不该告警 + 触发哪些通道"从 Consumer 里抽出来。
 consumer只负责"我检测到了违规"。AlarmDispatcher负责:这个违规应该怎么样报警
 流程:
@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
-from AiVision.core.alarm.wechat import WeChatNotifier
-from AiVision.core.alarm.notification_image import issue_thumbnail_token
+from AiVision.alarms.notifications.wechat import WeChatNotifier
+from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
 from AiVision.platform.violation.validation import validate_alarm_identity
 
 
@@ -383,6 +383,6 @@ class AlarmDispatcher:
 
 
 # 模块级全局单例
-# 大多数场景直接 `from AiVision.core.alarm import alarm_dispatcher` 使用；
+# 大多数场景直接 `from AiVision.alarms.dispatcher import alarm_dispatcher` 使用；
 # 需要独立实例时才直接实例化 AlarmDispatcher。
 alarm_dispatcher = AlarmDispatcher()

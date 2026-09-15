@@ -166,14 +166,14 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     以及集成 Guard Room 的视频接口。它只处理已有视频，不负责采集原始摄像头画面，
     也不负责判断录像开始/结束时机，更不会把 Horn 的语音任务录成证据音轨。
 
-十、alarm/ 子包：统一告警分发及外部通知协议
+十、与告警领域 AiVision.alarms 的协作
 
-    alarm/__init__.py：包级接口及更详细的告警流程说明。
-    alarm/dispatcher.py：AlarmRequest、业务冷却、证据入口、SQL 调用和微信/喇叭分发。
-    alarm/horn.py：单台 IP 喇叭的登录、心跳、自动重连、停止门控和预录任务播放。
-    alarm/wechat.py：企业微信 token 缓存、检测告警图文卡片和系统异常 Markdown 通知。
-    设备 CRUD 与多设备运行管理在 alarms/devices/，告警记录与媒体在
-    platform/violation/；alarm/ 通过 Orchestrator 注入这些对象，避免重复创建资源。
+    alarms/__init__.py：告警职责及流程说明，不集中导入实现。
+    alarms/dispatcher.py：AlarmRequest、业务冷却、证据入口及各通知通道协调。
+    alarms/devices/：设备配置、绑定、运行管理及 horn.py 中的设备通信协议。
+    alarms/notifications/：企业微信发送、token 缓存及通知缩略图签名。
+    core 为告警模块提供 settings、logger 等公共能力；告警记录与媒体仍在
+    platform/violation/，由 Orchestrator 注入分发器，避免重复创建资源。
 
 十一、把几个公共模块串起来看
 

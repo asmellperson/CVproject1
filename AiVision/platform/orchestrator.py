@@ -26,8 +26,8 @@ from AiVision.core.logger import logger
 from AiVision.core.cache import config_cache
 from AiVision.core.db import ensure_schema_ready                        # 数据库检查
 from AiVision.core.events import config_event_bus, ConfigChangeEvent         # 配置变化的时候，通知正在运行的模块更新
-from AiVision.core.alarm.dispatcher import alarm_dispatcher                  # 统一告警处理
-from AiVision.core.alarm.wechat import WeChatNotifier                        # 企业微信通知
+from AiVision.alarms.dispatcher import alarm_dispatcher                  # 统一告警处理
+from AiVision.alarms.notifications.wechat import WeChatNotifier                        # 企业微信通知
 from AiVision.core.process_cleanup import cleanup_aivision_residual_processes
 from AiVision.core.settings import settings
 from AiVision.core.system_config import system_config_service

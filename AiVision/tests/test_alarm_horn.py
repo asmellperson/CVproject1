@@ -2,8 +2,8 @@ import logging
 import threading
 import time
 
-from AiVision.core.alarm import horn as horn_module
-from AiVision.core.alarm.horn import Horn
+from AiVision.alarms.devices import horn as horn_module
+from AiVision.alarms.devices.horn import Horn
 
 
 def test_stop_during_login_prevents_online_play_and_restart(monkeypatch):

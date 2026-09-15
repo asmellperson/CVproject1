@@ -231,7 +231,7 @@ def test_face_roi_detector_and_tracker_have_independent_parameters(detector_back
 
 @pytest.mark.parametrize("period", [.1, .5, 1.0])
 def test_dwell_time_loss_updates_and_alarm_cooldown_at_different_rates(monkeypatch, period):
-    from AiVision.core.alarm.dispatcher import AlarmDispatcher
+    from AiVision.alarms.dispatcher import AlarmDispatcher
     from AiVision.features._base import consumer as base_consumer
     from AiVision.features._base import dwell_consumer
 

@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 
-from AiVision.core.alarm.horn import Horn
+from AiVision.alarms.devices.horn import Horn
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 

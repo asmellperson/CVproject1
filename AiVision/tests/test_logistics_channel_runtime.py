@@ -468,12 +468,12 @@ def test_alarm_incident_reopens_after_recovery_without_resetting_cooldown():
 #          等共 13 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_alarm_interval_remains_effective_after_recovery(monkeypatch):
-    from AiVision.core.alarm.dispatcher import AlarmDispatcher
+    from AiVision.alarms.dispatcher import AlarmDispatcher
 
     dispatcher = AlarmDispatcher()
     dispatched = []
     dispatcher_time = {"now": 100.0}
-    monkeypatch.setattr("AiVision.core.alarm.dispatcher.time.time", lambda: dispatcher_time["now"])
+    monkeypatch.setattr("AiVision.alarms.dispatcher.time.time", lambda: dispatcher_time["now"])
     monkeypatch.setattr(dispatcher, "_execute", lambda request: dispatched.append(request))
     runtime, _ = build_runtime(
         [channel(member_ids=(10,))],

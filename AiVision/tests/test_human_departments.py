@@ -166,13 +166,14 @@ def test_human_evidence_access_matrix(human_evidence, monkeypatch, role, departm
     for resource in ("image", "video"):
         response = api.client.get(f"/api/alarms/1/{resource}")
         assert response.status_code == expected, response.text
+    assert api.client.get("/api/alarms/1").status_code == expected
     assert api.client.get("/api/public/alarms/1/image").status_code == expected
 
 
-def test_notification_link_only_grants_one_small_image_and_expires(human_evidence, monkeypatch):
+def test_notification_link_only_grants_one_small_image_and_expires(human_evidence, monkeypatch, caplog):
     import cv2
-    from AiVision.core.alarm import notification_image as thumbnails
-    from AiVision.core.alarm.dispatcher import AlarmDispatcher
+    from AiVision.alarms.notifications import notification_image as thumbnails
+    from AiVision.alarms.dispatcher import AlarmDispatcher
     from urllib.parse import urlsplit, parse_qs
     api = human_evidence
     api.app.dependency_overrides.pop(get_current_user, None)
@@ -183,6 +184,8 @@ def test_notification_link_only_grants_one_small_image_and_expires(human_evidenc
     split = urlsplit(url)
     path = split.path + "?" + split.query
     token = parse_qs(split.query)["thumbnail_token"][0]
+    secret = "test-thumbnail-secret-with-at-least-32-characters"
+    assert secret not in url and secret not in detail
     assert "thumbnail_token" not in detail
     response = api.client.get(path)
     assert response.status_code == 200
@@ -193,16 +196,20 @@ def test_notification_link_only_grants_one_small_image_and_expires(human_evidenc
     assert api.client.get(path.replace("/1/", "/2/")).status_code == 403
     for resource in ("image", "video"):
         assert api.client.get(f"/api/alarms/1/{resource}?thumbnail_token={token}").status_code == 401
+    assert api.client.get("/api/alarms/1", params={"thumbnail_token": token}).status_code == 401
     wrong_department = thumbnails.issue_thumbnail_token(1, "haoda_company")
     assert api.client.get(split.path, params={"thumbnail_token": wrong_department}).status_code == 403
     for bad in ("", "broken", token + "x", "9" * 101):
-        assert api.client.get(split.path, params={"thumbnail_token": bad}).status_code == 403
+        rejected = api.client.get(split.path, params={"thumbnail_token": bad})
+        assert rejected.status_code == 403
+        assert secret not in rejected.text
     clock[0] += thumbnails.settings.alarm.wechat_thumbnail_ttl_seconds
     assert api.client.get(path).status_code == 403
+    assert secret not in caplog.text
 
 
 def test_notification_link_does_not_override_authenticated_department(human_evidence, monkeypatch):
-    from AiVision.core.alarm.notification_image import issue_thumbnail_token
+    from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
     api = human_evidence
     token = issue_thumbnail_token(1, "general_electric")
     url = f"/api/public/alarms/1/image?thumbnail_token={token}"
@@ -214,7 +221,7 @@ def test_notification_link_does_not_override_authenticated_department(human_evid
 
 
 def test_notification_link_revokes_after_department_or_key_change(human_evidence, monkeypatch):
-    from AiVision.core.alarm.notification_image import issue_thumbnail_token
+    from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
     api = human_evidence
     url = "/api/public/alarms/1/image?thumbnail_token=" + issue_thumbnail_token(1, "general_electric")
     with api.factory.begin() as session:
@@ -228,8 +235,8 @@ def test_notification_link_revokes_after_department_or_key_change(human_evidence
 
 @pytest.mark.parametrize("alarm_id,department", [(1, "general_electric"), (2, "haoda_company")])
 def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evidence, monkeypatch, alarm_id, department):
-    from AiVision.core.alarm.dispatcher import AlarmDispatcher, AlarmRequest
-    from AiVision.core.alarm.wechat import WeChatNotifier
+    from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
+    from AiVision.alarms.notifications.wechat import WeChatNotifier
     from urllib.parse import urlsplit
     api = human_evidence
     dispatcher = AlarmDispatcher()
@@ -240,7 +247,7 @@ def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evid
         messages.append(kwargs["json"])
         dispatcher._wechat_stop_event.set()
         return SimpleNamespace(status_code=200, json=lambda: {"errcode": 0})
-    monkeypatch.setattr("AiVision.core.alarm.wechat.requests.post", post)
+    monkeypatch.setattr("AiVision.alarms.notifications.wechat.requests.post", post)
     request = AlarmRequest(feature_name="detect_human", department=department, camera_id=alarm_id,
                            camera_name="test-camera", frame=np.zeros((8, 8, 3)), violation_type=5, alarm_config={})
     dispatcher._wechat_queue.put((request, "test-recipient", SimpleNamespace(id=alarm_id)))
@@ -253,7 +260,7 @@ def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evid
 
 
 def test_notification_signing_requires_a_real_secret(monkeypatch):
-    from AiVision.core.alarm.notification_image import issue_thumbnail_token, verify_thumbnail_token
+    from AiVision.alarms.notifications.notification_image import issue_thumbnail_token, verify_thumbnail_token
     from auth.auth import DEV_AUTH_SECRET
     for secret in ("", "short", DEV_AUTH_SECRET):
         monkeypatch.setenv("AUTH_SECRET", secret)

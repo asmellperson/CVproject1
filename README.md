@@ -352,13 +352,14 @@ AiVision/
 ├── core/db.py                   # 数据库连接与 schema 初始化
 ├── core/cache.py                # 配置缓存
 ├── core/events.py               # 配置变更事件总线
-├── core/alarm/                  # 告警分发、喇叭、企业微信
 ├── platform/orchestrator.py     # 总编排器
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
 ├── inference/                   # 模型 worker、队列、推理管理
 ├── platform/violation/          # 违规图片与事件写入
 ├── alarms/                      # 告警相关能力的归属目录
-│   └── devices/                 # 报警设备配置、绑定校验与运行管理
+│   ├── dispatcher.py           # 告警分发、冷却及通道协调
+│   ├── devices/                # 设备配置、绑定、运行管理及通信
+│   └── notifications/          # 企业微信发送与通知缩略图签名
 └── features/                    # 所有检测功能模块
 ```
 
@@ -400,21 +401,47 @@ python -m pytest -q -ra AiVision/tests/test_model_registry.py AiVision/tests/tes
 python -m pytest -q -ra AiVision/tests/test_consumer_frame_change.py
 ```
 
-报警设备统一从 `AiVision.alarms.devices` 导入，内部文件与公开接口保持不变：
+告警能力统一归属 `AiVision.alarms`，调用方从实现子模块显式导入。类名、函数名、数据结构及调用接口保持不变：
 
 ```text
 AiVision/alarms/
 ├── __init__.py                  # 仅说明告警领域职责，不集中导入实现
-└── devices/
-    ├── __init__.py              # 设备模块职责与调用链说明
-    ├── binding.py               # 检测配置与物流通道的设备绑定校验
-    ├── orm.py                   # AiHornConfig，仍映射 ai_horn_config
-    ├── runtime_manager.py       # 设备生命周期、热同步与播放队列
-    ├── schema.py                # 请求校验与公开响应结构
-    └── service.py               # 配置 CRUD 与事务提交后的运行同步
+├── dispatcher.py               # AlarmRequest、分发器与进程内单例
+├── devices/
+│   ├── __init__.py              # 设备模块职责与调用链说明
+│   ├── binding.py               # 检测配置与物流通道的设备绑定校验
+│   ├── horn.py                  # 单设备登录、心跳、重连、播放及停止门控
+│   ├── orm.py                   # AiHornConfig，仍映射 ai_horn_config
+│   ├── runtime_manager.py       # 设备生命周期、热同步与播放队列
+│   ├── schema.py                # 请求校验与公开响应结构
+│   └── service.py               # 配置 CRUD 与事务提交后的运行同步
+└── notifications/
+    ├── __init__.py              # 仅含简短职责说明
+    ├── notification_image.py    # 人员报警通知缩略图签名及尺寸限制
+    └── wechat.py                # 企业微信 token 缓存、图文卡片及系统文本通知
 ```
 
-`alarms/` 父包仅含职责说明，导入时不连接数据库、访问设备或启动任务。设备模块详细职责见 [devices 包说明](AiVision/alarms/devices/__init__.py)。本次仅迁移设备模块；设备 HTTP 协议仍在 `AiVision/core/alarm/horn.py`，告警分发仍在 `AiVision/core/alarm/dispatcher.py`，违规记录与证据写入仍在 `AiVision/platform/violation/`，未创建通知或证据空目录。
+`alarms/`、`devices/` 和 `notifications/` 的包入口仅含说明，不集中导入实现，也不连接数据库、访问设备、发送通知或启动任务。旧包中有效的分发和调用链说明已整合到 [告警领域说明](AiVision/alarms/__init__.py)，设备协议说明归入 [devices 包说明](AiVision/alarms/devices/__init__.py)，微信协议说明归入 [wechat.py](AiVision/alarms/notifications/wechat.py) 的模块文档。
+
+本轮将原告警通道包的四个实现按职责移动：`dispatcher.py` 位于告警领域根目录，`horn.py` 位于 `devices/`，`wechat.py` 和 `notification_image.py` 位于 `notifications/`。原告警通道包已删除，`core/` 保留其他公共能力；违规记录、截图及视频证据仍在 `AiVision/platform/violation/`。所有调用均使用新模块路径，没有旧包转发、包级实现导出或双路径支持。
+
+调度器、普通检测 Consumer、物流通道运行时使用同一个 `dispatcher.alarm_dispatcher`；设备运行管理器使用 `devices.horn.Horn`。系统异常通知与图文卡片使用 `notifications.wechat.WeChatNotifier`，告警 API 从 `notifications.notification_image` 导入缩略图工具。迁移的四个文件没有依赖 `__file__`、目录深度、模板或包资源的定位计算，无需调整资源路径；配置、环境变量及实际数据位置不变。
+
+新包测试从 13 种入口启动独立 Python 进程，检查外部调用与后台任务不会在导入时触发、模块只加载一次、调用方共享同一分发器及设备管理器。系统通知测试用模拟微信发送和线程验证 API 与调度器的 Markdown 内容、收件人和冷却；人员报警权限测试增加详情访问检查，确认缩略图签名不能授权详情或视频，签名密钥不出现在响应或日志中。验证命令如下，使用下方回归命令的隔离环境变量：
+
+```bash
+python -m pytest -q -ra AiVision/tests/test_alarm_package.py AiVision/tests/test_alarm_system_notifications.py
+python -m pytest -q -ra \
+  AiVision/tests/test_{alarm_horn,horn_backend,horn_binding,horn_runtime_manager,alarm_config_hot_update}.py \
+  AiVision/tests/test_{wechat_news_card,human_departments,alarm_api,alarm_access_batch,alarm_identity}.py \
+  AiVision/tests/test_{alarm_evidence_recorder,violation_writer,system_config}.py
+python -m pytest -q -ra AiVision/tests/test_{alarm_device_package,camera_package,inference_package}.py
+python -m pytest -q -ra AiVision/tests/test_face_detection.py
+```
+
+本轮告警分发与通知目录迁移的验证针对仅含本次改动的隔离源码副本执行，未纳入其他未提交工作区修改。原告警专项 13 文件在迁移前后均为 **187 项通过**；加上系统通知和相关人脸回归共 **225 项通过、0 失败、3 项因未安装 InsightFace 跳过**。告警、报警设备、摄像头和推理四个包的迁移验证共 **36 项通过、0 失败、0 跳过**，包含独立导入与隔离 spawn 验证。
+
+下方原有 29 文件回归仍为 **767 项通过、0 失败、10 项因缺少隔离 MySQL 跳过**，用例及跳过集合与上一轮相同。现有实现的 AST 在排除引用与说明后不变；告警及喇叭 OpenAPI、功能注册集合、固定输入下的缩略图签名和有效期也与迁移前一致。验证额外拦截外部网络连接，未向现场设备或企业微信发送真实消息；真实设备、微信端展示、GPU 推理及 MySQL 实测未验证。
 
 API 及其依赖、Orchestrator、告警分发的类型引用、普通检测和物流通道的绑定校验、ORM 注册入口、现有离线脚本与测试均使用新包。设备模块没有依赖 `__file__`、目录深度或包资源定位的路径计算，因此不需调整资源路径；原配置及运行数据位置保持不变。设备表、字段、绑定关系、`/api/horns` 接口与权限不变，不需要数据库迁移。旧设备目录已删除，没有兼容包、导入别名或双路径支持。
 
@@ -428,7 +455,7 @@ python -m pytest -q -ra AiVision/tests/test_alarm_device_package.py
 python -m pytest -q -ra AiVision/tests/test_camera_package.py AiVision/tests/test_inference_package.py
 ```
 
-设备专项五个文件在迁移前后均为 **84 项通过、0 失败、0 跳过**，覆盖无效或停用设备绑定、保存失败回滚、提交后热更新、未授权访问、凭据脱敏和资源释放。新包的 **9 项独立导入测试通过**，分别从父包、设备子模块、API、功能注册、数据库模块和调度器入口加载，禁止数据库连接、网络请求与后台任务启动，并核验单一 ORM 注册与共享运行实例。摄像头及推理包的 **14 项测试通过**，包含隔离 spawn 验证。
+上一轮设备目录迁移的专项五个文件在迁移前后均为 **84 项通过、0 失败、0 跳过**，覆盖无效或停用设备绑定、保存失败回滚、提交后热更新、未授权访问、凭据脱敏和资源释放。设备包的 **9 项独立导入测试通过**，分别从父包、设备子模块、API、功能注册、数据库模块和调度器入口加载，禁止数据库连接、网络请求与后台任务启动，并核验单一 ORM 注册与共享运行实例。该轮摄像头及推理包的 **14 项测试通过**，包含隔离 spawn 验证。
 
 报警设备目录迁移后，下方原有 **29 文件回归仍为 767 项通过、0 失败、10 项跳过**，用例集合与上一轮相同。10 项均为未配置隔离 MySQL 的既有跳过项（检测配置 4 项、人员逗留迁移 1 项、物流迁移 5 项），没有新增 skip/xfail，也未连接生产库验证。
 

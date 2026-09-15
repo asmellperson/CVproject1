@@ -27,7 +27,7 @@ from typing import Callable
 
 import numpy as np
 
-from AiVision.core.alarm.dispatcher import AlarmRequest, alarm_dispatcher
+from AiVision.alarms.dispatcher import AlarmRequest, alarm_dispatcher
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.features import all_specs

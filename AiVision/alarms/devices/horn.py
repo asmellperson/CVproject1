@@ -1,5 +1,5 @@
 """
-core/alarm/horn.py
+alarms/devices/horn.py
 IP 喇叭设备控制 — 通过 HTTP API 触发语音告警。
 AlarmDispatcher 将播放任务交给 HornRuntimeManager，后台调用 horn.play(event_id) 请求设备播放预录语音
 包装登录认证、心跳保活、告警触发(带冷却防抖)。

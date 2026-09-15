@@ -1,9 +1,9 @@
 """
-alarms/devices/：全局喇叭设备配置、检测绑定校验与运行管理
+alarms/devices/：喇叭设备配置、检测绑定校验、运行管理与设备通信
 
 这个包管理“现场有哪些喇叭、配置保存在哪里、哪些设备需要运行”。
-真正的设备 HTTP 协议由 core/alarm/horn.py 实现，某次违规应该通知哪些通道，
-由 core/alarm/dispatcher.py 决定。本文件只作说明，不导入服务、不启动线程。
+真正的设备 HTTP 协议由 alarms/devices/horn.py 实现，某次违规应该通知哪些通道，
+由 alarms/dispatcher.py 决定。本文件只作说明，不导入服务、不启动线程。
 
 一、先分清设备、检测绑定和运行实例
 
@@ -22,6 +22,8 @@ alarms/devices/：全局喇叭设备配置、检测绑定校验与运行管理
     管理器只为全局 enable=True 的设备创建运行实例，不要求设备先被检测配置引用。
 
 二、每个文件以及内部关键对象负责什么
+
+    horn.py：单台设备的登录、心跳、重连、播放与停止门控，详见第六节。
 
     orm.py：设备主表的 SQLAlchemy 映射。
         AiHornConfig 对应 ai_horn_config，一行是一台设备。
@@ -138,7 +140,7 @@ alarms/devices/：全局喇叭设备配置、检测绑定校验与运行管理
 
     新增设备字段：同步检查 orm.py、schema.py、service.py、API 与公共设备管理组件。
     修改绑定规则：从 binding.py 入手，同时检查普通 Feature、物流原生格式及前端适配。
-    修改设备协议：到 core/alarm/horn.py；生命周期、热同步、队列策略在本包管理器中。
+    修改设备协议：到 alarms/devices/horn.py；生命周期、热同步、队列策略在本包管理器中。
     不要在每个 Consumer 内各建 Horn，否则同一设备会出现重复登录、心跳和冷却状态。
 
     在项目根目录、已配置测试环境的 Python 中运行：
@@ -147,4 +149,33 @@ alarms/devices/：全局喇叭设备配置、检测绑定校验与运行管理
         python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_binding.py
         python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_alarm_horn.py
     自动化测试使用临时数据库和模拟设备，真实安装后再确认协议、任务 ID 与发声效果。
+六、horn.py：单个 IP 喇叭的登录、保活与播放
+
+    Horn(config, connect_on_init=True)：保存 horn_url、username、password 等连接参数。
+        直接构造默认立即尝试 connect()；运行管理器与连接测试使用 False 延迟联网。
+        不负责查数据库，设备配置由 alarms/devices/ 转换后传入。
+
+    connect()：POST 设备 /login，提交 user/password；成功响应需要包含
+        access_key 和 access_id，之后保存认证会话并标记 online。
+        登录失败标记 failed 并记录原因，不把设备请求异常抛回业务检测循环。
+    start_heartbeat() / _heart_loop()：启动单台设备的心跳线程，周期调用 _send_heart()。
+        周期间隔来自 settings.alarm，使用可被停止信号唤醒的 Event.wait()。
+    _send_heart()：未登录时先 connect()，再 POST /online 维持会话。
+        请求失败标记 offline；后续心跳或 play() 会重新尝试登录。
+    play(event_id, expires_at=None)：检查停止信号、任务有效期、登录态和设备级冷却，
+        再 POST /run_task，JSON 的 id 字段就是调用方传入的 horn_event_id。
+        这里只调用设备中已有任务，不上传音频、不生成语音、不管理设备任务目录。
+    _serialized：让同一 Horn 的登录、心跳、测试和播放串行访问设备，
+        获取锁后再次检查停止门控，避免旧实例排队操作在停用后继续请求。
+    request_stop()：立即关闭新操作入口、清除本地登录态，不等待在途 HTTP 结束。
+    stop_heartbeat()：发停止信号并限时等待心跳线程退出；已停用实例不能重新启动。
+    snapshot() / _set_state()：维护并返回在线标志、详细状态、最后错误、最近在线时间，
+        区分正在退出的 stopping 和已无在途操作/心跳的 stopped，不公开登录凭据。
+    check_connection()：仅登录和检查在线；不保存、不播放、不启动新的心跳线程。
+
+    两层冷却含义不同：
+        Dispatcher 冷却：同一摄像头/通道 × Feature 的业务重复告警控制。
+        Horn 冷却：同一设备短时间内的播放保护，多个 Feature 共用设备时也共用它。
+        所以多个告警可以引用同一台 Horn，但短时间内的每个告警不一定都实际发声。
+
 """

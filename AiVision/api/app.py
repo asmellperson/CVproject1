@@ -35,7 +35,7 @@ from AiVision.api.models import router as models_router
 from AiVision.api.horns import router as horns_router
 from AiVision.api.runtime import router as runtime_router
 
-from AiVision.core.alarm.wechat import WeChatNotifier               # 调用企业微信发送报警信息
+from AiVision.alarms.notifications.wechat import WeChatNotifier               # 调用企业微信发送报警信息
 from AiVision.core.logger import logger                             # 项目统一日志对象
 from AiVision.core.settings import settings                         # 全局settings（.env、默认值、运行参数）
 from AiVision.core.system_config import system_config_service       # 系统业务配置（管理页面可以修改的运行期间业务配置）

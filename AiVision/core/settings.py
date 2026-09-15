@@ -86,7 +86,7 @@ class AlarmSettings(BaseSettings):
     Note:
         此处为系统级总开关；每个摄像头的功能配置中还有各自的细粒度开关，
         两者均启用时告警才真正触发。
-        微信凭据留空时，WeChatNotifier 会静默跳过推送（见 core.alarm.wechat）。
+        微信凭据留空时，WeChatNotifier 会静默跳过推送（见 alarms.notifications.wechat）。
     """
     horn_enable: bool       = Field(True,       alias="HORN_ENABLE")              # 喇叭
     horn_url: str           = Field("http://localhost:8000/", alias="HORN_URL")
