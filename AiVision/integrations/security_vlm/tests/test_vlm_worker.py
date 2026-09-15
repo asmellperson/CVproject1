@@ -35,7 +35,7 @@ def test_pending_task_lock_entries_release_after_all_waiters_exit():
     # 参数：无。
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::update_video_status`
+    #   - 调用方：`AiVision/alarms/records/service.py` 的 `AsyncViolationWriter::update_video_status`
     #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::create_camera_record`
     #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::ensure_feature_configs`
     #         调用本符号；`AiVision/platform/camera/config_manager.py` 的 `CameraConfigManager::_get_orm_by_key` 调用本符号；另有 12 处静态调用

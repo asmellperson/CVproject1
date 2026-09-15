@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from auth.auth import create_token
 from auth.user_store import UserStore
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 alarms = importlib.import_module("AiVision.api.alarms")
 

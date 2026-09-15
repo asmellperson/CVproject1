@@ -18,7 +18,7 @@ os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
 AlarmEvidenceRecorder = importlib.import_module(
-    "AiVision.platform.violation.evidence_recorder"
+    "AiVision.alarms.evidence.evidence_recorder"
 ).AlarmEvidenceRecorder
 
 
@@ -130,7 +130,7 @@ def test_recorder_throttles_samples_and_discards_expired_prebuffer(tmp_path):
 
 
 def test_video_workers_and_total_tasks_are_bounded(tmp_path, monkeypatch):
-    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
     monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 3)
     monkeypatch.setattr(module.settings.storage, "alarm_clip_workers", 2)
     recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0)
@@ -172,7 +172,7 @@ def test_video_workers_and_total_tasks_are_bounded(tmp_path, monkeypatch):
 
 
 def test_pending_post_frames_share_capacity_and_stop_drains_them(tmp_path, monkeypatch):
-    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
     monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 2)
     completed = []
     recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=10)
@@ -210,7 +210,7 @@ def test_default_clip_preserves_ten_seconds_either_side_fps_and_width(tmp_path, 
 
 
 def test_failed_clip_releases_slot_and_reports_status(tmp_path, monkeypatch):
-    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
     monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
     statuses = []
     recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0, status_callback=lambda *args: statuses.append(args))
@@ -223,7 +223,7 @@ def test_failed_clip_releases_slot_and_reports_status(tmp_path, monkeypatch):
 
 
 def test_unexpected_encoding_error_keeps_worker_alive(tmp_path, monkeypatch):
-    module = importlib.import_module("AiVision.platform.violation.evidence_recorder")
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
     monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
     statuses = []
     recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=0, status_callback=lambda *args: statuses.append(args))

@@ -35,7 +35,7 @@ from AiVision.features.detect_logistics_single_person.schema import (
     LogisticsChannelStatisticsResponse,                 # 通道告警统计的数据模型
     LogisticsChannelPatchRequest,                       # 修改通道时
 )
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])

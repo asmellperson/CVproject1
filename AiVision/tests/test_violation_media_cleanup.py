@@ -15,9 +15,9 @@ os.environ.setdefault("MYSQL_DB_URL", "127.0.0.1")
 os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
-from AiVision.platform.violation import cleanup as violation_cleanup
+from AiVision.alarms.records import cleanup as violation_cleanup
 from AiVision.core.media_cleanup import MediaCleanupStats
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 # 功能：实现 `_database` 对应的资源清理逻辑；输入由参数提供，处理结果见返回值说明

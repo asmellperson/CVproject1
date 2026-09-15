@@ -3,7 +3,7 @@ cameras/：摄像头配置、视频采集和最新帧读取
 
 这个目录把摄像头视频源变成其他模块可以使用的 NumPy 图像。
 Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人”；模型推理由 inference/
-负责，检测规则由 features/ 或物流通道模块负责，告警证据由 platform/violation/ 等模块处理。
+负责，检测规则由 features/ 或物流通道模块负责，告警记录与证据由 alarms/records/ 和 alarms/evidence/ 处理。
 本文件只作讲解，导入本包不会在这里连接摄像头或启动采集进程。
 
 一、先分清配置、运行和业务功能
@@ -139,7 +139,7 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
         复用摄像头采集和最新帧，管理通道成员及通道检测；成员的新增、绑定、移除
         使用通道服务，不能用普通功能新增接口代替通道的建档和绑定事务。
 
-    platform/violation/evidence_recorder.py：
+    alarms/evidence/evidence_recorder.py：
         通过帧读取层取得原始画面，维护告警前后的视频证据；Camera 本身不管理告警录像。
 
 五、摄像头 ID、共享内存名和部门的区别

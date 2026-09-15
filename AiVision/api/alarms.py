@@ -17,8 +17,8 @@ from AiVision.alarms.notifications.notification_image import thumbnail_response,
 from AiVision.core.db import get_session                           # 获取数据库操作会话
 from AiVision.core.logger import logger                            # AiVision统一日志记录器
 from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4      # ensure_brower_compatible_mp4:确保这个报警视频是浏览器可以直接播放的MP4（浏览器通常更喜欢MP4容器+H.264视频编码）
-from AiVision.platform.violation.orm import AiAlarmEvent           # 完整告警事件数据库映射
-from AiVision.platform.violation.types import (
+from AiVision.alarms.records.orm import AiAlarmEvent           # 完整告警事件数据库映射
+from AiVision.alarms.types import (
     DEFAULT_ALARM_TYPE_META,
     VIOLATION_TYPE_META,
 )

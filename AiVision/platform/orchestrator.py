@@ -45,8 +45,8 @@ from AiVision.features.detect_logistics_single_person.constants import LOGISTICS
 from AiVision.features.detect_logistics_single_person.runtime import LogisticsChannelRuntime
 from AiVision.features.detect_logistics_single_person.service import logistics_channel_service
 from AiVision.alarms.devices.runtime_manager import horn_runtime_manager                   # 喇叭设备
-from AiVision.platform.violation.service import violation_writer                  # 写入违规记录
-from AiVision.platform.violation.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
+from AiVision.alarms.records.service import violation_writer                  # 写入违规记录
+from AiVision.alarms.evidence.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
 
 # 全局常量，这些改了可能需要重启摄像头进程
 _CAMERA_RUNTIME_FIELDS = ("url", "fps", "max_restart", "enabled", "enable")

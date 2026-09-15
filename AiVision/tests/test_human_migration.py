@@ -20,7 +20,7 @@ from AiVision.migrations import human_20260915 as migration
 from AiVision.features.detect_human import SPEC
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 def test_retired_feature_has_no_registration_or_http_alias():

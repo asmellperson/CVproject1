@@ -736,8 +736,8 @@ def test_recognition_shared_image_uses_newest_reference_for_retention_and_grace(
 
 @pytest.mark.parametrize("oldest", ["face", "alarm"])
 def test_alarm_and_recognition_media_share_one_capacity_and_database_ownership(library, oldest):
-    from AiVision.platform.violation.cleanup import ViolationMediaCleaner
-    from AiVision.platform.violation.orm import AiAlarmEvent
+    from AiVision.alarms.records.cleanup import ViolationMediaCleaner
+    from AiVision.alarms.records.orm import AiAlarmEvent
 
     AiAlarmEvent.__table__.create(library.factory.kw["bind"])
     now = datetime.now()

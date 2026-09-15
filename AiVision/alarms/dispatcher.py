@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
 from AiVision.alarms.notifications.wechat import WeChatNotifier
 from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
-from AiVision.platform.violation.validation import validate_alarm_identity
+from AiVision.alarms.validation import validate_alarm_identity
 
 
 @dataclass

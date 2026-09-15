@@ -73,7 +73,7 @@ def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
             from AiVision.core import db, system_config
             from AiVision.features import all_specs
             from AiVision.platform import orchestrator
-            from AiVision.platform.violation import orm as violation_orm
+            from AiVision.alarms.records import orm as violation_orm
             from sqlalchemy.orm import configure_mappers
 
             root = Path(sys.argv[2]) / "AiVision"

@@ -71,7 +71,7 @@ def test_rtsp_reader_opens_stream_with_ffmpeg_tcp_options(monkeypatch):
         # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
         # 调用关系：
         #   - 调用方：`AiVision/integrations/guard_room/src/runtime.py` 的 `RTSPReader::run`
-        #         调用本符号；`AiVision/platform/violation/evidence_recorder.py` 的 `AlarmEvidenceRecorder::_finish_task`
+        #         调用本符号；`AiVision/alarms/evidence/evidence_recorder.py` 的 `AlarmEvidenceRecorder::_finish_task`
         #         调用本符号；`unified_frontend/scripts/build-overview-mascot.py` 的 `read_video_metadata` 调用本符号
         #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
         # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。

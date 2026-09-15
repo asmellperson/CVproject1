@@ -111,7 +111,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
 
     core/settings.py：配置文件位置及 Watchdog 参数。
     core/logger.py：推理和进程日志。
-    alarms/、platform/violation/：由业务层衔接通知、截图、录像及违规记录。
+    alarms/：由业务层衔接通知、截图、录像及违规记录。
 
 四、一张图片的完整数据链
 

@@ -90,6 +90,13 @@ video/
 frames/
 captures/
 records/
+# Alarm record source package; keep recordings and other records directories ignored.
+!/AiVision/alarms/records/
+/AiVision/alarms/records/*
+!/AiVision/alarms/records/__init__.py
+!/AiVision/alarms/records/orm.py
+!/AiVision/alarms/records/service.py
+!/AiVision/alarms/records/cleanup.py
 recordings/
 *.mp4
 *.avi

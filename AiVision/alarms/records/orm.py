@@ -1,5 +1,5 @@
 """
-platform/violation/orm.py
+alarms/records/orm.py
 
 一条告警事件最终在数据库里保存成什么样
 调用链：
@@ -31,7 +31,7 @@ platform/violation/orm.py
 from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, text, event
 from sqlalchemy.dialects.mysql import BIGINT
 from AiVision.core.db import Base
-from .validation import validate_alarm_identity
+from ..validation import validate_alarm_identity
 
 # Python类 AiAlarmEvent <--> 数据库表 ai_violation_image
 class AiAlarmEvent(Base):

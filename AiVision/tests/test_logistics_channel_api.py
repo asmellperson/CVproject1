@@ -441,10 +441,10 @@ class EmptyAlarmQuery:
     #   - `*_args`（未显式标注）：`_args` 对应的业务输入值
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
-    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
-    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
-    #         调用本符号；`AiVision/platform/violation/service.py` 的 `AsyncViolationWriter::update_video_status` 调用本符号；另有 31 处静态调用
+    #   - 调用方：`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
+    #         调用本符号；`AiVision/alarms/records/service.py` 的 `AsyncViolationWriter::update_video_status` 调用本符号；另有 31 处静态调用
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def filter(self, *_args):
@@ -459,7 +459,7 @@ class EmptyAlarmQuery:
     #   - 调用方：`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_deletes_expired_records_files_and_historical_orphans`
     #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的 `test_cleanup_capacity_removes_oldest_database_backed_image`
     #         调用本符号；`AiVision/tests/test_violation_media_cleanup.py` 的
-    #         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号；`AiVision/platform/violation/cleanup.py` 的
+    #         `test_cleanup_capacity_keeps_fresh_image_during_push_grace_period` 调用本符号；`AiVision/alarms/records/cleanup.py` 的
     #         `ViolationMediaCleaner::_delete_expired_records` 调用本符号；另有 9 处静态调用
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -472,8 +472,8 @@ class EmptyAlarmQuery:
     #   - `_limit`（未显式标注）：`_limit` 对应的业务输入值
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
-    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #   - 调用方：`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
     #         调用本符号；`AiVision/api/alarms.py` 的 `list_alarms` 调用本符号
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -485,9 +485,9 @@ class EmptyAlarmQuery:
     #   - `self`（未显式标注）：当前类实例
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
-    #   - 调用方：`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
-    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
-    #         调用本符号；`AiVision/platform/violation/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
+    #   - 调用方：`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_delete_expired_records`
+    #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_enforce_size_limit`
+    #         调用本符号；`AiVision/alarms/records/cleanup.py` 的 `ViolationMediaCleaner::_referenced_paths`
     #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
     #         `test_inactive_detection_window_still_composes_live_preview_frames` 调用本符号；另有 40 处静态调用
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。

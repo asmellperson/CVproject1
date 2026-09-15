@@ -1,16 +1,21 @@
-"""告警领域：分发协调、报警设备及通知发送。
+"""告警领域：分发协调、报警设备、通知发送、记录与视频证据。
 
 本包仅作职责说明，不集中导入实现，不连接数据库、设备或启动后台任务。
-检测触发条件由 features/ 与物流业务判断；SQL、截图和视频证据仍由
-platform/violation/ 实现，经 Orchestrator 注入分发器。
+检测触发条件由 features/ 与物流业务判断；SQL 与截图由 records/ 负责，
+视频证据由 evidence/ 负责，经 Orchestrator 注入分发器。
 
 一、入口与职责边界
 
     alarms/dispatcher.py：AlarmRequest、AlarmDispatcher 与 alarm_dispatcher 单例。
     alarms/devices/：设备配置、绑定校验、运行管理与 horn.py 的设备通信。
     alarms/notifications/：wechat.py 的发送协议与 notification_image.py 的缩略图签名。
+    alarms/records/：数据库记录、截图、写入队列及关联媒体清理，不拆分保存流程。
+    alarms/evidence/：视频帧缓存、录制任务、编码及完成状态回调。
+    alarms/types.py、validation.py：告警类型展示及类型、功能、事业部的一致性校验。
     调用方从上述实现子模块显式导入；分发器单例仅在 dispatcher.py 中创建。
     导入实现可创建队列、锁等进程内对象，外部访问和线程启停由显式生命周期调用控制。
+    records.service 的单例沿用原行为，导入时创建 DATA_PATH 目录，但不写入媒体、
+    连接数据库或启动清理任务；validation 在实际校验时才导入 Feature 注册表。
 
 二、dispatcher.py：一次违规的统一分发入口
 
@@ -73,8 +78,8 @@ platform/violation/ 实现，经 Orchestrator 注入分发器。
 
     后续分支：
         喇叭：HornRuntimeManager 后台队列 → 对应 Horn.play(horn_event_id) → 现场设备。
-        持久化：platform/violation/service.py → 告警记录、截图及相关元数据。
-        证据：platform/violation/evidence_recorder.py → 告警前后录像任务。
+        持久化：alarms/records/service.py → 告警记录、截图及相关元数据。
+        证据：alarms/evidence/evidence_recorder.py → 告警前后录像任务。
         微信：_wechat_queue → _wechat_loop() → WeChatNotifier → 企业微信图文卡片。
         查询：api/alarms.py 与前端告警页使用已保存的记录和媒体，不依赖喇叭是否发声。
 

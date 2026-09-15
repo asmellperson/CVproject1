@@ -1,5 +1,5 @@
 """
-platform/violation/service.py
+alarms/records/service.py
 违规图片异步批量写入器 
 设计原则:
     - Consumer 调 enqueue() 后立即返回(磁盘写入和 SQL 提交都异步)
@@ -28,7 +28,7 @@ from AiVision.core.media_cleanup import GIB, MediaCleanupStats, MediaReferences
 from AiVision.core.settings import settings
 from .cleanup import ViolationMediaCleaner
 from .orm import AiAlarmEvent
-from .validation import validate_alarm_identity
+from ..validation import validate_alarm_identity
 
 class AsyncViolationWriter:
     """

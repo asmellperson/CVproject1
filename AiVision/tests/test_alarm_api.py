@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 alarms = importlib.import_module("AiVision.api.alarms")

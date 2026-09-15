@@ -355,11 +355,14 @@ AiVision/
 ├── platform/orchestrator.py     # 总编排器
 ├── cameras/                     # 摄像头进程、帧读取、摄像头配置服务
 ├── inference/                   # 模型 worker、队列、推理管理
-├── platform/violation/          # 违规图片与事件写入
 ├── alarms/                      # 告警相关能力的归属目录
 │   ├── dispatcher.py           # 告警分发、冷却及通道协调
 │   ├── devices/                # 设备配置、绑定、运行管理及通信
-│   └── notifications/          # 企业微信发送与通知缩略图签名
+│   ├── notifications/          # 企业微信发送与通知缩略图签名
+│   ├── records/                # 数据库记录、截图、写入队列及关联媒体清理
+│   ├── evidence/               # 视频帧缓存、录制、编码及完成状态
+│   ├── types.py                # 告警类型及展示信息
+│   └── validation.py           # 类型、功能与事业部一致性校验
 └── features/                    # 所有检测功能模块
 ```
 
@@ -407,6 +410,8 @@ python -m pytest -q -ra AiVision/tests/test_consumer_frame_change.py
 AiVision/alarms/
 ├── __init__.py                  # 仅说明告警领域职责，不集中导入实现
 ├── dispatcher.py               # AlarmRequest、分发器与进程内单例
+├── types.py                    # 告警类型及展示信息
+├── validation.py               # 类型、功能和事业部一致性校验
 ├── devices/
 │   ├── __init__.py              # 设备模块职责与调用链说明
 │   ├── binding.py               # 检测配置与物流通道的设备绑定校验
@@ -415,15 +420,55 @@ AiVision/alarms/
 │   ├── runtime_manager.py       # 设备生命周期、热同步与播放队列
 │   ├── schema.py                # 请求校验与公开响应结构
 │   └── service.py               # 配置 CRUD 与事务提交后的运行同步
-└── notifications/
+├── notifications/
+│   ├── __init__.py              # 仅含简短职责说明
+│   ├── notification_image.py    # 人员报警通知缩略图签名及尺寸限制
+│   └── wechat.py                # 企业微信 token 缓存、图文卡片及系统文本通知
+├── records/
+│   ├── __init__.py              # 仅含简短职责说明
+│   ├── orm.py                  # AiAlarmEvent，仍映射 ai_violation_image
+│   ├── service.py              # 截图保存、同步写入、异步写入队列及失败批次
+│   └── cleanup.py              # 关联记录及媒体清理，复用 core/media_cleanup.py
+└── evidence/
     ├── __init__.py              # 仅含简短职责说明
-    ├── notification_image.py    # 人员报警通知缩略图签名及尺寸限制
-    └── wechat.py                # 企业微信 token 缓存、图文卡片及系统文本通知
+    └── evidence_recorder.py     # 帧缓存、录像任务及状态回调，复用 core/video_encoding.py
 ```
 
-`alarms/`、`devices/` 和 `notifications/` 的包入口仅含说明，不集中导入实现，也不连接数据库、访问设备、发送通知或启动任务。旧包中有效的分发和调用链说明已整合到 [告警领域说明](AiVision/alarms/__init__.py)，设备协议说明归入 [devices 包说明](AiVision/alarms/devices/__init__.py)，微信协议说明归入 [wechat.py](AiVision/alarms/notifications/wechat.py) 的模块文档。
+`alarms/`、`devices/`、`notifications/`、`records/` 和 `evidence/` 的包入口仅含说明，不集中导入实现，也不连接数据库、访问设备、发送通知或启动任务。旧包中有效的分发和调用链说明已整合到 [告警领域说明](AiVision/alarms/__init__.py)，设备协议说明归入 [devices 包说明](AiVision/alarms/devices/__init__.py)，微信协议说明归入 [wechat.py](AiVision/alarms/notifications/wechat.py) 的模块文档。
 
-本轮将原告警通道包的四个实现按职责移动：`dispatcher.py` 位于告警领域根目录，`horn.py` 位于 `devices/`，`wechat.py` 和 `notification_image.py` 位于 `notifications/`。原告警通道包已删除，`core/` 保留其他公共能力；违规记录、截图及视频证据仍在 `AiVision/platform/violation/`。所有调用均使用新模块路径，没有旧包转发、包级实现导出或双路径支持。
+此前已将原告警通道包的四个实现按职责移动：`dispatcher.py` 位于告警领域根目录，`horn.py` 位于 `devices/`，`wechat.py` 和 `notification_image.py` 位于 `notifications/`。原告警通道包已删除，`core/` 保留其他公共能力；告警记录、截图及视频证据现归入下述 `records/` 和 `evidence/`。所有调用均使用新模块路径，没有旧包转发、包级实现导出或双路径支持。
+
+本轮记录与证据迁移将原 `AiVision/platform/violation/` 中六个文件按下表归属，保留文件名、公开对象和内部保存流程：
+
+| 原包内文件 | 新位置 |
+| --- | --- |
+| `orm.py` | `AiVision/alarms/records/orm.py` |
+| `service.py` | `AiVision/alarms/records/service.py` |
+| `cleanup.py` | `AiVision/alarms/records/cleanup.py` |
+| `types.py` | `AiVision/alarms/types.py` |
+| `validation.py` | `AiVision/alarms/validation.py` |
+| `evidence_recorder.py` | `AiVision/alarms/evidence/evidence_recorder.py` |
+
+分发器、记录 ORM 和写入器引用同一个 `alarms.validation`；记录包内部的校验相对导入改为 `..validation`，校验函数仍在调用时才导入 Feature 注册表。调度器继续使用同一个 `violation_writer` 和 `alarm_evidence_recorder`，启动顺序、视频状态回写及退出流程不变。告警与物流 API、批量权限查询、数据库初始化、现有离线脚本和测试中的引用均已更新，离线脚本本轮未执行。旧记录目录已删除，`platform/` 保留其他模块。`.gitignore` 仅为记录包的四个 Python 源文件开放例外，其余 `records/` 数据目录仍被忽略。
+
+六个迁移文件没有依赖 `__file__` 或目录深度的资源定位计算，无需修改路径。截图仍保存到 `DATA_PATH/<告警类型>/`，视频仍位于 `DATA_PATH/alarm_clips/`，失败批次仍位于 `DATA_PATH/alarm_failed_batches/`；相对路径仍以进程工作目录为基准。通用媒体清理和视频编码工具保持原位置。写入器实现导入时会沿用原行为创建 `DATA_PATH` 目录，但不会因此连接数据库、读写媒体、清理文件或启动后台任务；新包初始化文件仅含职责说明。表名、字段、索引、外键、API、权限、缩略图签名和录制参数均未改变，本次目录迁移不需要数据迁移。
+
+本轮另修复 `alarms/devices/service.py` 首行文档字符串前的意外空格：只删除该空格，文件其余内容不变。保留开始时已有的七个 `guard_room` 源文件修改；该模块及 `security_vlm` 本轮仅有旧路径注释更新。
+
+本轮所有测试直接使用最终工作目录源码，没有使用排除工作区修改的源码副本。现有记录、身份、权限、写入、录像和清理专项 11 文件在迁移前后均为 **189 项通过、0 失败、0 跳过**；新增独立导入、单一 ORM 注册、共享实例、相对路径和真实临时 SQLite 状态回写测试共 **18 项通过**。四个既有包的迁移验证为 **36 项通过**，包含隔离 spawn；下方原有 29 文件回归为 **767 项通过、0 失败、10 项跳过**，用例与跳过集合未改变。10 项均缺少隔离 MySQL：检测配置 4 项、人员逗留迁移 1 项、物流迁移 5 项，没有新增 skip/xfail。
+
+验证命令如下，在下方回归命令相同的隔离环境变量下执行（仅使用临时数据库、临时媒体和模拟设备/通知）：
+
+```bash
+python -m pytest -q -ra \
+  AiVision/tests/test_{violation_writer,alarm_evidence_recorder,violation_media_cleanup}.py \
+  AiVision/tests/test_{alarm_identity,alarm_api,alarm_access_batch,human_departments}.py \
+  AiVision/tests/test_{face_identity,alarm_config_hot_update,logistics_channel_api,wechat_news_card}.py
+python -m pytest -q -ra AiVision/tests/test_alarm_records_package.py AiVision/tests/test_alarm_record_evidence.py
+python -m pytest -q -ra AiVision/tests/test_{alarm_package,alarm_device_package,camera_package,inference_package}.py
+```
+
+本轮实际执行时额外加载 `/tmp/alarm_records_test_guard.py` 的 pytest 网络拦截插件，禁止 TCP 外连，保留隔离多进程测试所需的本机 Unix socket。迁移前后 AST 排除路径引用与说明后一致；16 张已注册表的 DDL（仅归一化 MySQL 表选项输出顺序）、告警与物流 OpenAPI、告警类型、功能集合、资源路径及运行参数快照一致。未验证真实 MySQL、现场摄像头/设备、生产媒体清理或微信端展示；临时帧与模拟通知测试不能替代这些验证。
 
 调度器、普通检测 Consumer、物流通道运行时使用同一个 `dispatcher.alarm_dispatcher`；设备运行管理器使用 `devices.horn.Horn`。系统异常通知与图文卡片使用 `notifications.wechat.WeChatNotifier`，告警 API 从 `notifications.notification_image` 导入缩略图工具。迁移的四个文件没有依赖 `__file__`、目录深度、模板或包资源的定位计算，无需调整资源路径；配置、环境变量及实际数据位置不变。
 
@@ -439,9 +484,9 @@ python -m pytest -q -ra AiVision/tests/test_{alarm_device_package,camera_package
 python -m pytest -q -ra AiVision/tests/test_face_detection.py
 ```
 
-本轮告警分发与通知目录迁移的验证针对仅含本次改动的隔离源码副本执行，未纳入其他未提交工作区修改。原告警专项 13 文件在迁移前后均为 **187 项通过**；加上系统通知和相关人脸回归共 **225 项通过、0 失败、3 项因未安装 InsightFace 跳过**。告警、报警设备、摄像头和推理四个包的迁移验证共 **36 项通过、0 失败、0 跳过**，包含独立导入与隔离 spawn 验证。
+上一轮告警分发与通知目录迁移的验证针对仅含该轮改动的隔离源码副本执行，未纳入其他未提交工作区修改。原告警专项 13 文件在迁移前后均为 **187 项通过**；加上系统通知和相关人脸回归共 **225 项通过、0 失败、3 项因未安装 InsightFace 跳过**。告警、报警设备、摄像头和推理四个包的迁移验证共 **36 项通过、0 失败、0 跳过**，包含独立导入与隔离 spawn 验证。
 
-下方原有 29 文件回归仍为 **767 项通过、0 失败、10 项因缺少隔离 MySQL 跳过**，用例及跳过集合与上一轮相同。现有实现的 AST 在排除引用与说明后不变；告警及喇叭 OpenAPI、功能注册集合、固定输入下的缩略图签名和有效期也与迁移前一致。验证额外拦截外部网络连接，未向现场设备或企业微信发送真实消息；真实设备、微信端展示、GPU 推理及 MySQL 实测未验证。
+该轮下方原有 29 文件回归仍为 **767 项通过、0 失败、10 项因缺少隔离 MySQL 跳过**，用例及跳过集合与此前相同。现有实现的 AST 在排除引用与说明后不变；告警及喇叭 OpenAPI、功能注册集合、固定输入下的缩略图签名和有效期也与迁移前一致。验证额外拦截外部网络连接，未向现场设备或企业微信发送真实消息；真实设备、微信端展示、GPU 推理及 MySQL 实测未验证。
 
 API 及其依赖、Orchestrator、告警分发的类型引用、普通检测和物流通道的绑定校验、ORM 注册入口、现有离线脚本与测试均使用新包。设备模块没有依赖 `__file__`、目录深度或包资源定位的路径计算，因此不需调整资源路径；原配置及运行数据位置保持不变。设备表、字段、绑定关系、`/api/horns` 接口与权限不变，不需要数据库迁移。旧设备目录已删除，没有兼容包、导入别名或双路径支持。
 

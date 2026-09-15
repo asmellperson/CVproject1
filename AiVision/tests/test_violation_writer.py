@@ -18,8 +18,8 @@ os.environ.setdefault("MYSQL_DB_URL", "127.0.0.1")
 os.environ.setdefault("MYSQL_DB_USER", "test")
 os.environ.setdefault("MYSQL_DB_PASSWORD", "test")
 os.environ.setdefault("MYSQL_DB_NAME", "test")
-from AiVision.platform.violation import service
-from AiVision.platform.violation.orm import AiAlarmEvent
+from AiVision.alarms.records import service
+from AiVision.alarms.records.orm import AiAlarmEvent
 
 
 @pytest.fixture
