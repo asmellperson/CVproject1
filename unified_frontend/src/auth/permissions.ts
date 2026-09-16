@@ -27,6 +27,8 @@ export type PageId =
   | 'phone-detection'
   | 'alarms'
   | 'statistics'
+  | 'alarm-push-config'
+  | 'horn-config'
   | 'access-audit'
   | 'user-management'
 
@@ -104,6 +106,7 @@ export const alarmEventTypesByPage: Partial<Record<PageId, string[]>> = {
   'intrusion-detection': ['blocks'],
   'door-detection': ['detect_door'],
   'face-detection': ['detect_face'],
+  'face-recognition': ['recognize_face'],
   'human-detection': ['detect_human'],
   'haoda-human-detection': ['detect_human'],
   'logistics-single-person-general-electric': ['detect_logistics_single_person'],
@@ -186,6 +189,8 @@ const pageIds = new Set<string>([
   'phone-detection',
   'alarms',
   'statistics',
+  'alarm-push-config',
+  'horn-config',
   'access-audit',
   'user-management',
 ])
