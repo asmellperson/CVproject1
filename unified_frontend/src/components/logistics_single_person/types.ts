@@ -47,7 +47,9 @@ export type LogisticsChannelConfig = {
   alarm: LogisticsChannelAlarmConfig
 }
 
-export type LogisticsChannelConfigPayload = LogisticsChannelConfig
+export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm'>
+
+export type LogisticsChannelConfigPatch = Partial<LogisticsChannelConfig>
 
 export type LogisticsChannelMember = {
   id: number
@@ -173,7 +175,7 @@ export type UpdateLogisticsChannelPayload = {
   name?: string
   enabled?: boolean
   sort_order?: number
-  config?: LogisticsChannelConfigPayload
+  config?: LogisticsChannelConfigPatch
 }
 
 export type BindExistingLogisticsCameraPayload = {

@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch as mock_patch
 
 import numpy as np
 import pytest
@@ -177,17 +177,68 @@ def test_incomplete_inference_result_is_unknown(result):
     assert consumer._process(np.zeros((10, 10, 3)), 7)[1]["person_count"] is None
 
 
-def test_partial_channel_update_validates_against_retained_fields_before_commit(service_db):
-    from datetime import time
-    channel = service_db.service.create_channel(SPEC.name, 'times', 'general_electric')
-    service_db.service.update_channel_and_config(SPEC.name, channel['id'], {},
-        {'detection_start': time(7), 'detection_end': time(9)})
-    with pytest.raises(ValueError):
-        service_db.service.update_channel_and_config(SPEC.name, channel['id'], {'name': 'must-rollback'},
-            {'detection_start': time(10)})
-    saved = service_db.service.get_channel(SPEC.name, channel['id'])
-    assert saved['name'] == 'times'
-    assert saved['config']['detection_start'] == time(7)
+@pytest.mark.parametrize("start,end,patch", [
+    ("08:00:00", "23:00:00", {"detection_start": "21:00:00"}),
+    ("06:00:00", "23:00:00", {"detection_end": "07:00:00"}),
+])
+def test_partial_detection_time_patch_uses_retained_database_time(member_api, start, end, patch):
+    api = member_api
+    response = api.client.patch(api.channel_path, json={
+        "config": {"detection_start": start, "detection_end": end},
+    })
+    assert response.status_code == 200, response.text
+    before = response.json()["config"]
+    response = api.client.patch(api.channel_path, json={"config": patch})
+    assert response.status_code == 200, response.text
+    assert response.json()["config"] == {**before, **patch}
+    assert api.client.get(api.channel_path).json()["config"] == {**before, **patch}
+
+
+@pytest.mark.parametrize("start,end,patch", [
+    ("07:00:00", "09:00:00", {"detection_start": "10:00:00"}),
+    ("07:00:00", "09:00:00", {"detection_start": "09:00:00"}),
+    ("18:00:00", "23:00:00", {"detection_end": "17:00:00"}),
+    ("18:00:00", "23:00:00", {"detection_end": "18:00:00"}),
+])
+def test_invalid_merged_detection_window_rolls_back_config_and_name(member_api, start, end, patch):
+    api = member_api
+    response = api.client.patch(api.channel_path, json={
+        "config": {"detection_start": start, "detection_end": end},
+    })
+    assert response.status_code == 200, response.text
+    before = response.json()
+    response = api.client.patch(api.channel_path, json={
+        "name": "must-rollback", "config": {**patch, "model_iou_threshold": 0.91},
+    })
+    assert response.status_code == 400, response.text
+    assert "detection_start 必须早于 detection_end" in response.json()["detail"]
+    saved = api.client.get(api.channel_path).json()
+    assert saved["name"] == before["name"]
+    assert saved["config"] == before["config"]
+
+
+@pytest.mark.parametrize("start,end", [("21:00:00", "20:00:00"), ("21:00:00", "21:00:00")])
+def test_explicit_detection_window_is_validated_before_service_update(member_api, start, end):
+    api = member_api
+    payload = {"detection_start": start, "detection_end": end}
+    with pytest.raises(ValidationError, match="detection_start 必须早于 detection_end"):
+        LogisticsChannelConfigUpdate.model_validate(payload)
+    before = api.client.get(api.channel_path).json()
+    with mock_patch.object(
+        api.service, "update_channel_and_config", wraps=api.service.update_channel_and_config,
+    ) as update:
+        response = api.client.patch(api.channel_path, json={"name": "must-not-save", "config": payload})
+        assert response.status_code == 422, response.text
+        update.assert_not_called()
+    saved = api.client.get(api.channel_path).json()
+    assert saved["name"] == before["name"]
+    assert saved["config"] == before["config"]
+
+
+@pytest.mark.parametrize("field", ["detection_start", "detection_end"])
+def test_partial_detection_time_still_rejects_timezones(field):
+    with pytest.raises(ValidationError, match="不支持时区"):
+        LogisticsChannelConfigUpdate.model_validate({field: "10:00:00+08:00"})
 
 
 def test_partial_aspect_update_validates_against_channel_values_and_rolls_back(member_api):

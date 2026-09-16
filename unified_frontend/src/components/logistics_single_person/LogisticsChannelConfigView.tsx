@@ -43,7 +43,9 @@ import {
 import type {
   LogisticsCameraRoiResponse,
   LogisticsChannel,
+  LogisticsChannelAlarmConfig,
   LogisticsChannelConfig,
+  LogisticsChannelDetectionConfig,
   LogisticsChannelDetail,
   LogisticsFeatureName,
 } from './types'
@@ -78,6 +80,15 @@ type Props = {
 const timeForInput = (value: string) => value.slice(0, 5)
 const timeForApi = (value: string) => value.length === 5 ? `${value}:00` : value
 
+function detectionTimeSeconds(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d(?:\.\d{1,6})?))?$/.exec(value)
+  return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0) : null
+}
+
+function splitChannelConfig({ alarm, ...detection }: LogisticsChannelConfig) {
+  return { alarm, detection }
+}
+
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
 }
@@ -103,7 +114,8 @@ export function LogisticsChannelConfigView({
     initialChannelCreateDialogState,
   )
   const [channelName, setChannelName] = useState('')
-  const [config, setConfig] = useState<LogisticsChannelConfig | null>(null)
+  const [detectionConfigDraft, setDetectionConfigDraft] = useState<LogisticsChannelDetectionConfig | null>(null)
+  const [alarmDraft, setAlarmDraft] = useState<LogisticsChannelAlarmConfig | null>(null)
   const [existingCameraId, setExistingCameraId] = useState('')
   const [moveExisting, setMoveExisting] = useState(false)
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
@@ -114,7 +126,10 @@ export function LogisticsChannelConfigView({
   const [channelMemberCounts, setChannelMemberCounts] = useState<Record<number, ChannelMemberCount>>({})
   const [membershipsLoaded, setMembershipsLoaded] = useState(false)
   const [membershipRevision, refreshMemberships] = useReducer((value: number) => value + 1, 0)
-  const hydratedChannelId = useRef<number | null>(null)
+  const channelSelection = useMemo(() => ({ feature, department, selectedChannelId }), [feature, department, selectedChannelId])
+  const currentChannelSelection = useRef(channelSelection)
+  currentChannelSelection.current = channelSelection
+  const hydratedChannelSelection = useRef<typeof channelSelection | null>(null)
   const membershipLoadRef = useRef<MembershipLoadIdentity>({ generation: 0, feature, channelIdsKey: '' })
 
   const members = useMemo(
@@ -226,12 +241,21 @@ export function LogisticsChannelConfigView({
   }, [department, feature, isAdmin, selectedChannelDetail])
 
   useEffect(() => {
-    const nextChannelId = selectedChannelDetail?.id ?? null
-    if (hydratedChannelId.current === nextChannelId) return
-    hydratedChannelId.current = nextChannelId
-    setChannelName(selectedChannelDetail?.name ?? '')
-    setConfig(selectedChannelDetail?.config ?? null)
-  }, [selectedChannelDetail])
+    if (!selectedChannelDetail || selectedChannelDetail.id !== channelSelection.selectedChannelId) {
+      hydratedChannelSelection.current = null
+      setChannelName('')
+      setDetectionConfigDraft(null)
+      setAlarmDraft(null)
+      return
+    }
+    // 同一通道的轮询或保存刷新不能覆盖任一 Tab 的未保存草稿。
+    if (hydratedChannelSelection.current === channelSelection) return
+    hydratedChannelSelection.current = channelSelection
+    const { detection, alarm } = splitChannelConfig(selectedChannelDetail.config)
+    setChannelName(selectedChannelDetail.name)
+    setDetectionConfigDraft(detection)
+    setAlarmDraft(alarm)
+  }, [channelSelection, selectedChannelDetail])
 
   useEffect(() => {
     setSelectedCameraId((current) => members.some((member) => member.camera_id === current) ? current : members[0]?.camera_id ?? null)
@@ -298,32 +322,66 @@ export function LogisticsChannelConfigView({
     }
   }
 
-  const saveChannel = () => {
-    if (!selectedChannelDetail || !config) return
-    if (!Number.isFinite(config.model_iou_threshold) || config.model_iou_threshold < 0 || config.model_iou_threshold > 1
-      || !Number.isInteger(config.min_box_area) || config.min_box_area < 0
-      || !Number.isFinite(config.min_aspect_ratio) || config.min_aspect_ratio < 0
-      || !Number.isFinite(config.max_aspect_ratio) || config.max_aspect_ratio < config.min_aspect_ratio
-      || !Number.isFinite(config.cap_interval) || config.cap_interval <= 0) {
+  const saveDetectionConfig = () => {
+    if (!selectedChannelDetail || !detectionConfigDraft || hydratedChannelSelection.current !== channelSelection) return
+    const name = channelName.trim()
+    if (!name || name.length > 100) {
+      setMessage('通道名称不能为空，且不得超过 100 个字符。')
+      return
+    }
+    const start = detectionTimeSeconds(detectionConfigDraft.detection_start)
+    const end = detectionTimeSeconds(detectionConfigDraft.detection_end)
+    if (start === null || end === null || start >= end) {
+      setMessage('请填写有效的检测时间，开始时间必须早于结束时间。')
+      return
+    }
+    if (!Number.isFinite(detectionConfigDraft.confidence_threshold)
+      || detectionConfigDraft.confidence_threshold < 0 || detectionConfigDraft.confidence_threshold > 1) {
+      setMessage('人体检测阈值必须在 0～1 之间。')
+      return
+    }
+    if (!Number.isFinite(detectionConfigDraft.model_iou_threshold) || detectionConfigDraft.model_iou_threshold < 0 || detectionConfigDraft.model_iou_threshold > 1
+      || !Number.isInteger(detectionConfigDraft.min_box_area) || detectionConfigDraft.min_box_area < 0
+      || !Number.isFinite(detectionConfigDraft.min_aspect_ratio) || detectionConfigDraft.min_aspect_ratio < 0
+      || !Number.isFinite(detectionConfigDraft.max_aspect_ratio) || detectionConfigDraft.max_aspect_ratio < detectionConfigDraft.min_aspect_ratio
+      || !Number.isFinite(detectionConfigDraft.cap_interval) || detectionConfigDraft.cap_interval <= 0) {
       setMessage('请检查模型 IOU（0～1）、最小面积（非负整数）、宽高比范围及处理间隔（大于 0 秒）。')
       return
     }
-    const hornError = validateHornBinding(toFeatureAlarm(config.alarm).horn)
+    if (!Number.isFinite(detectionConfigDraft.empty_grace_seconds) || detectionConfigDraft.empty_grace_seconds < 0
+      || !Number.isFinite(detectionConfigDraft.multi_grace_seconds) || detectionConfigDraft.multi_grace_seconds < 0
+      || !Number.isFinite(detectionConfigDraft.alarm_interval) || detectionConfigDraft.alarm_interval <= 0) {
+      setMessage('无人、多人持续时间必须非负，告警间隔必须大于 0 秒。')
+      return
+    }
+    void run(async () => {
+      const saved = await updateLogisticsChannel(feature, selectedChannelDetail.id, {
+        name,
+        config: {
+          ...detectionConfigDraft,
+          detection_start: timeForApi(detectionConfigDraft.detection_start),
+          detection_end: timeForApi(detectionConfigDraft.detection_end),
+        },
+      })
+      if (currentChannelSelection.current === channelSelection) {
+        setDetectionConfigDraft(splitChannelConfig(saved.config).detection)
+        setChannelName(saved.name)
+      }
+    }, '检测参数已保存。')
+  }
+
+  const saveAlarmConfig = () => {
+    if (!selectedChannelDetail || !alarmDraft || hydratedChannelSelection.current !== channelSelection) return
+    const hornError = validateHornBinding(toFeatureAlarm(alarmDraft).horn)
     if (hornError) { setMessage(hornError); return }
     void run(async () => {
       const saved = await updateLogisticsChannel(feature, selectedChannelDetail.id, {
-        name: channelName.trim(),
-        config: {
-          ...config,
-          detection_start: timeForApi(config.detection_start),
-          detection_end: timeForApi(config.detection_end),
-        },
+        config: { alarm: alarmDraft },
       })
-      if (hydratedChannelId.current === saved.id) {
-        setConfig(saved.config)
-        setChannelName(saved.name)
+      if (currentChannelSelection.current === channelSelection) {
+        setAlarmDraft(saved.config.alarm)
       }
-    }, '通道配置已保存。')
+    }, '报警推送配置已保存。')
   }
 
   const setChannelEnabled = (channel: LogisticsChannel, enabled: boolean) => {
@@ -500,7 +558,7 @@ export function LogisticsChannelConfigView({
           </Card>
         </TabsContent>
 
-        {!selectedChannelDetail || !config ? (
+        {!selectedChannelDetail || !detectionConfigDraft || !alarmDraft ? (
           ['members', 'params', 'roi', 'alarm'].map((tab) => (
             <TabsContent key={tab} value={tab}>
               <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">请先在“通道管理”中选择物流通道进行配置。</div>
@@ -578,33 +636,30 @@ export function LogisticsChannelConfigView({
                 <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="同一通道的所有摄像头统一使用以下检测策略，ROI 按摄像头独立配置。" />
                 <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
-                  <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(config.detection_start)} onChange={(value) => setConfig({ ...config, detection_start: value })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(config.detection_end)} onChange={(value) => setConfig({ ...config, detection_end: value })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(config.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setConfig({ ...config, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-channel-iou" value={String(config.model_iou_threshold)} min={0} max={1} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setConfig({ ...config, model_iou_threshold: Number(value) })} />
-                  <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-channel-area" value={String(config.min_box_area)} min={0} step={1} disabled={!isAdmin || busy} onChange={(value) => setConfig({ ...config, min_box_area: Number(value) })} />
-                  <ConfigNumber label="最小宽高比（宽/高）" id="logistics-channel-min-aspect" value={String(config.min_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setConfig({ ...config, min_aspect_ratio: Number(value) })} />
-                  <ConfigNumber label="最大宽高比（宽/高）" id="logistics-channel-max-aspect" value={String(config.max_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setConfig({ ...config, max_aspect_ratio: Number(value) })} />
-                  <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-channel-interval" value={String(config.cap_interval)} min={0} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setConfig({ ...config, cap_interval: Number(value) })} />
-                  <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(config.empty_grace_seconds)} onChange={(value) => setConfig({ ...config, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(config.multi_grace_seconds)} onChange={(value) => setConfig({ ...config, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="告警间隔（秒，大于 0）" id="logistics-alarm-interval" value={String(config.alarm_interval)} min={0} onChange={(value) => setConfig({ ...config, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(detectionConfigDraft.detection_start)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, detection_start: value })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(detectionConfigDraft.detection_end)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, detection_end: value })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(detectionConfigDraft.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-channel-iou" value={String(detectionConfigDraft.model_iou_threshold)} min={0} max={1} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, model_iou_threshold: Number(value) })} />
+                  <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-channel-area" value={String(detectionConfigDraft.min_box_area)} min={0} step={1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_box_area: Number(value) })} />
+                  <ConfigNumber label="最小宽高比（宽/高）" id="logistics-channel-min-aspect" value={String(detectionConfigDraft.min_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_aspect_ratio: Number(value) })} />
+                  <ConfigNumber label="最大宽高比（宽/高）" id="logistics-channel-max-aspect" value={String(detectionConfigDraft.max_aspect_ratio)} min={0} step={0.1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, max_aspect_ratio: Number(value) })} />
+                  <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-channel-interval" value={String(detectionConfigDraft.cap_interval)} min={0} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, cap_interval: Number(value) })} />
+                  <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(detectionConfigDraft.empty_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(detectionConfigDraft.multi_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
+                  <ConfigNumber label="告警间隔（秒，大于 0）" id="logistics-alarm-interval" value={String(detectionConfigDraft.alarm_interval)} min={0} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
                 </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveChannel} saveLabel="保存检测参数" />
+              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存检测参数" />
             </TabsContent>
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
               <AlarmPushConfig
-                alarm={toFeatureAlarm(config.alarm)}
+                alarm={toFeatureAlarm(alarmDraft)}
                 disabled={!isAdmin || busy}
                 saving={busy}
                 message={message}
-                onChange={(alarm) => setConfig({
-                  ...config,
-                  alarm: toLogisticsAlarm(alarm),
-                })}
-                onSave={saveChannel}
+                onChange={(alarm) => setAlarmDraft(toLogisticsAlarm(alarm))}
+                onSave={saveAlarmConfig}
               />
             </TabsContent>
           </>

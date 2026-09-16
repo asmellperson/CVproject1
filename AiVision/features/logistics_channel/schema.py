@@ -134,8 +134,10 @@ class LogisticsChannelConfigUpdate(BaseModel):
             or self.detection_end.utcoffset() is not None
         ):
             raise ValueError("detection_start 和 detection_end 不支持时区")
-        if self.detection_start >= self.detection_end:
-            raise ValueError("detection_start 必须早于 detection_end")
+        # 单字段更新由服务层合并数据库保留值后校验，不能使用另一字段的默认值。
+        if {"detection_start", "detection_end"} <= self.model_fields_set:
+            if self.detection_start >= self.detection_end:
+                raise ValueError("detection_start 必须早于 detection_end")
         return self
 
 class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
