@@ -26,11 +26,6 @@ def get_camera_config_manager():
     from AiVision.cameras.config_manager import camera_config_manager
     return camera_config_manager
 
-def get_feature_config_manager():
-    """获取普通检测能力功能配置服务"""
-    from AiVision.features._shared.config_manager import feature_config_manager
-    return feature_config_manager
-
 def get_inference_runtime_manager():
     """获取本机模型运行服务"""
     from AiVision.inference.runtime_manager import inference_runtime_manager

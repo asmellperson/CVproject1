@@ -281,7 +281,9 @@ class BaseFunctionConsumer(ABC):
                         roi = self._get_roi(cam_id, frame)
                         frame_changed = self._frame_changed(cam_id, roi)
                         now = time.time()
-                        cap_interval = cfg["cap_interval"]
+                        cap_interval = self._processing_interval_seconds(cam_id, cfg)
+                        if cap_interval is None:
+                            continue
                         due_by_interval = now - self._last_process_at.get(cam_id, 0.0) >= cap_interval
 
                         # 跳帧：画面无变化 且 不需要处理静止帧（或未到采集间隔）
@@ -518,6 +520,10 @@ class BaseFunctionConsumer(ABC):
     def _should_alarm(self, camera_id: int, result: tuple, cfg: dict) -> bool:
         """当前摄像头唯一 ROI 的判定；冷却由 AlarmDispatcher 处理。"""
         return bool(result[0])
+
+    def _processing_interval_seconds(self, camera_id: int, cfg: dict) -> float | None:
+        """普通功能使用逐路间隔；通道功能可覆盖，返回 None 表示本轮不处理。"""
+        return float(cfg["cap_interval"])
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
         """

@@ -10,8 +10,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
-from sqlalchemy import Boolean, Column, DefaultClause, Float, ForeignKey, Integer, JSON, MetaData, String, Table, cast, create_engine, inspect, select, text
+from sqlalchemy import Boolean, Column, DefaultClause, Float, ForeignKey, Index, Integer, JSON, MetaData, String, Table, UniqueConstraint, cast, create_engine, inspect, select, text
 from sqlalchemy.schema import CreateColumn
 
 from AiVision.core.schema import assert_table_matches
@@ -22,7 +23,7 @@ from AiVision.features.logistics_channel.orm import (
     LogisticsChannel, LogisticsChannelCamera, LogisticsSinglePersonConfigORM,
 )
 from AiVision.features.logistics_channel.schema import (
-    LogisticsChannelConfigResponse, LogisticsChannelCreate,
+    LogisticsChannelConfigResponse, LogisticsChannelCreate, LogisticsChannelConfigUpdate, LogisticsCameraRoiUpdate,
 )
 from AiVision.alarms.devices.orm import AiHornConfig
 from AiVision.cameras.orm import AiCameraConfig
@@ -36,12 +37,36 @@ REMOVED_COLUMNS = {
 }
 
 
+def target_tables() -> tuple[Table, Table]:
+    """固定本版本的离线迁移目标；后续迁移独立上收摄像头检测策略。"""
+    metadata = MetaData()
+    AiCameraConfig.__table__.to_metadata(metadata)
+    AiHornConfig.__table__.to_metadata(metadata)
+    tables = []
+    for target, excluded in ((LogisticsChannel.__table__, ("model_iou_threshold", "min_box_area", "min_aspect_ratio", "max_aspect_ratio", "cap_interval")), (LogisticsSinglePersonConfigORM.__table__, ())):
+        columns = [Column(column.name, column.type,
+                          *(ForeignKey(fk.target_fullname, ondelete=fk.ondelete) for fk in column.foreign_keys),
+                          primary_key=column.primary_key, nullable=column.nullable, server_default=column.server_default,
+                          comment=column.comment, default=column.default, onupdate=column.onupdate)
+                   for column in target.columns if column.name not in excluded]
+        table = Table(target.name, metadata, *columns, comment=target.comment, **dict(target.dialect_kwargs))
+        for constraint in target.constraints:
+            if isinstance(constraint, UniqueConstraint):
+                table.append_constraint(UniqueConstraint(*(column.name for column in constraint.columns), name=constraint.name))
+        for index in target.indexes:
+            Index(index.name, *(table.c[column.name] for column in index.columns), unique=index.unique)
+        tables.append(table)
+    camera_config = tables[1]
+    for name, kind, default in (("IOU_THR", Float, .3), ("MIN_BOX_AREA", Integer, 0),
+                                ("ASPECT_RATIO_RANGE", JSON, lambda: [0., 10.]), ("cap_interval", Float, .2)):
+        camera_config.append_column(Column(name, kind, nullable=True, default=default))
+    LogisticsChannelCamera.__table__.to_metadata(metadata)
+    return tables[0], tables[1]
+
+
 def source_table():
     """仅供离线前置检查：迁移前唯一允许的摄像头表结构。"""
-    metadata = MetaData()
-    for table in SPEC.orm_class.metadata.sorted_tables:
-        table.to_metadata(metadata)
-    source = metadata.tables[SPEC.orm_class.__tablename__]
+    _, source = target_tables()
     source.c.roi_pos.server_default = DefaultClause(text("(json_array())"))
     for name in sorted(REMOVED_COLUMNS):
         if name == "region":
@@ -60,14 +85,14 @@ def source_table():
     return source
 
 
-def _validated_row(row, model):
+def _validated_row(row, table):
     result = dict(row)
     # MySQL BOOLEAN 反射为 TINYINT；只接受数据库布尔域 0/1，不更改业务值。
-    for column in model.__table__.columns:
+    for column in table.columns:
         if isinstance(column.type, Boolean):
             value = result[column.name]
             if value is None or value not in (0, 1):
-                raise ValueError(f"{model.__tablename__} id={row['id']}.{column.name}: 非法布尔值")
+                raise ValueError(f"{table.name} id={row['id']}.{column.name}: 非法布尔值")
             result[column.name] = bool(value)
     return result
 
@@ -90,7 +115,7 @@ def preflight(connection, *, value_changes=None):
         if not {"STRICT_ALL_TABLES", "STRICT_TRANS_TABLES"}.intersection(modes):
             raise ValueError("MySQL 必须启用严格 SQL 模式")
     inspector = inspect(connection)
-    table = LogisticsSinglePersonConfigORM.__table__
+    channel_table, table = target_tables()
     required = {table.name, LogisticsChannel.__tablename__, LogisticsChannelCamera.__tablename__,
                 AiCameraConfig.__tablename__, AiHornConfig.__tablename__}
     present = set(inspector.get_table_names())
@@ -98,8 +123,8 @@ def preflight(connection, *, value_changes=None):
         raise ValueError(f"缺少前版本表: {sorted(required - present)}")
     expected_source = source_table()
     assert_table_matches(connection, expected_source)
-    for model in (LogisticsChannel, LogisticsChannelCamera):
-        assert_table_matches(connection, model.__table__)
+    for expected in (channel_table, LogisticsChannelCamera.__table__):
+        assert_table_matches(connection, expected)
     if dialect == "mysql":
         incoming = connection.execute(text(
             "SELECT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE "
@@ -130,22 +155,29 @@ def preflight(connection, *, value_changes=None):
     check_row_ids(changes, [row["id"] for row in source_rows])
     for source in source_rows:
         source = apply_row_changes(source, changes, allowed_fields={"ASPECT_RATIO_RANGE"})
-        row = _validated_row({key: source[key] for key in table.columns.keys()}, SPEC.orm_class)
+        row = _validated_row({key: source[key] for key in table.columns.keys()}, table)
         if row["camera_id"] not in cameras or row["camera_id"] in configured:
             raise ValueError(f"摄像头配置 id={row['id']}: 无效或重复 camera_id")
         configured.add(row["camera_id"])
-        instance = SPEC.orm_class(**row)
         try:
-            SPEC.config_schema.model_validate(instance.to_config_dict())
+            LogisticsCameraRoiUpdate(roi_pos=row["roi_pos"])
+            aspect = row["ASPECT_RATIO_RANGE"]
+            if not isinstance(aspect, list) or len(aspect) != 2:
+                raise ValueError("ASPECT_RATIO_RANGE 必须有两个数值")
+            LogisticsChannelConfigUpdate(model_iou_threshold=row["IOU_THR"], min_box_area=row["MIN_BOX_AREA"],
+                                         min_aspect_ratio=aspect[0], max_aspect_ratio=aspect[1], cap_interval=row["cap_interval"])
         except ValueError as exc:
             raise ValueError(f"摄像头配置 id={row['id']}: {exc}") from exc
         rows.append(row)
 
     channels = {}
     horns = {row.id: row.enable for row in connection.execute(select(AiHornConfig.id, AiHornConfig.enable))}
-    for source in _read_rows(connection, LogisticsChannel.__table__):
-        row = _validated_row(source, LogisticsChannel)
-        channel = LogisticsChannel(**row)
+    for source in _read_rows(connection, channel_table):
+        row = _validated_row(source, channel_table)
+        defaults = LogisticsChannelConfigUpdate()
+        channel = SimpleNamespace(**row, model_iou_threshold=defaults.model_iou_threshold,
+                                  min_box_area=defaults.min_box_area, min_aspect_ratio=defaults.min_aspect_ratio,
+                                  max_aspect_ratio=defaults.max_aspect_ratio, cap_interval=defaults.cap_interval)
         if channel.feature_name != SPEC.name or channel.department not in DEPARTMENT_SPECS:
             raise ValueError(f"通道 id={channel.id}: 功能或事业部不合法")
         LogisticsChannelCreate(name=channel.name, department=channel.department)
@@ -159,7 +191,7 @@ def preflight(connection, *, value_changes=None):
     assigned = set()
     counts = {}
     for source in _read_rows(connection, LogisticsChannelCamera.__table__):
-        row = _validated_row(source, LogisticsChannelCamera)
+        row = _validated_row(source, LogisticsChannelCamera.__table__)
         channel = channels.get(row["channel_id"])
         if channel is None or row["camera_id"] not in cameras:
             raise ValueError(f"成员 id={row['id']}: 通道或摄像头不存在")
@@ -176,7 +208,7 @@ def preflight(connection, *, value_changes=None):
 
 def migrate(engine, *, value_changes=None, apply=False):
     """MySQL 原表一次 ALTER 删除列；SQLite 测试库在事务中重建该配置表。"""
-    target = LogisticsSinglePersonConfigORM.__table__
+    channel_table, target = target_tables()
     with engine.connect() as connection:
         if connection.dialect.name == "sqlite":
             connection.exec_driver_sql("BEGIN IMMEDIATE" if apply else "BEGIN")
@@ -213,8 +245,8 @@ def migrate(engine, *, value_changes=None, apply=False):
                 target.create(connection)
                 if rows:
                     connection.execute(target.insert(), rows)
-            for model in (LogisticsSinglePersonConfigORM, LogisticsChannel, LogisticsChannelCamera):
-                assert_table_matches(connection, model.__table__)
+            for expected in (target, channel_table, LogisticsChannelCamera.__table__):
+                assert_table_matches(connection, expected)
             saved = connection.execute(select(target)).mappings().all()
             if sorted([dict(row) for row in saved], key=lambda row: row["id"]) != sorted(rows, key=lambda row: row["id"]):
                 raise ValueError("迁移后保留列的数据不一致")

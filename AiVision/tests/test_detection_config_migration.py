@@ -2,7 +2,7 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Column, Float, Integer, JSON, MetaData, Table, create_engine, inspect, select, text
+from sqlalchemy import Column, Float, JSON, MetaData, Table, create_engine, inspect, select, text
 
 from AiVision.core.schema import assert_table_matches
 from AiVision.migrations.config_20260914 import DWELL, IOU_FIELDS, REMOVED, migrate, specs, write_schema
@@ -188,3 +188,77 @@ def test_startup_rejects_old_schema_without_adding_columns(legacy, monkeypatch):
     columns = {c["name"] for c in inspect(engine).get_columns(tables["detect_face"].name)}
     assert "IOU_THR" in columns
     assert not IOU_FIELDS.intersection(columns)
+
+
+@pytest.fixture
+def camera_order_database(tmp_path):
+    from sqlalchemy import Index
+    from AiVision.cameras.orm import AiCameraConfig
+    engine = create_engine(f"sqlite:///{tmp_path / 'camera_order.sqlite'}")
+    metadata = MetaData()
+    camera = Table(AiCameraConfig.__tablename__, metadata, *[
+        Column(column.name, column.type, primary_key=column.primary_key, nullable=column.nullable,
+               server_default=column.server_default)
+        for column in AiCameraConfig.__table__.columns if column.name != "sort_order"
+    ])
+    for index in AiCameraConfig.__table__.indexes:
+        if "sort_order" not in index.columns:
+            Index(index.name, *(camera.c[column.name] for column in index.columns), unique=index.unique)
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        for camera_id, department in [(12, "general_electric"), (3, "general_electric"),
+                                     (8, "general_electric"), (6, "fulida_company"), (5, None), (15, None)]:
+            connection.execute(camera.insert(), dict(id=camera_id, name=f"camera {camera_id}",
+                shm_name=f"camera_{camera_id}", url="rtsp://test.local/video", enable=False, department=department))
+    yield engine, camera
+    engine.dispose()
+
+
+def test_camera_order_offline_migration_preserves_data_and_backfills_each_department(camera_order_database, tmp_path):
+    import json
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.migrations.camera_order_20260916 import run
+    engine, previous = camera_order_database
+    with engine.connect() as connection:
+        before = connection.execute(select(previous).order_by(previous.c.id)).mappings().all()
+    assert run(engine)["cameras"] == 6
+    assert "sort_order" not in {column["name"] for column in inspect(engine).get_columns(previous.name)}
+    backup = tmp_path / "camera-order-backup.json"
+    assert run(engine, action="apply", backup=backup)["result"] == "applied"
+    assert run(engine, action="verify")["result"] == "verified"
+    assert len(json.loads(backup.read_text())["rows"]) == 6
+    assert backup.stat().st_mode & 0o777 == 0o600
+    with engine.connect() as connection:
+        assert_table_matches(connection, AiCameraConfig.__table__)
+        rows = connection.execute(select(AiCameraConfig.__table__).order_by(AiCameraConfig.id)).mappings().all()
+        assert [{key: row[key] for key in previous.c.keys()} for row in rows] == [dict(row) for row in before]
+        assert {row["id"]: row["sort_order"] for row in rows} == {3: 0, 8: 1, 12: 2, 6: 0, 5: 0, 15: 1}
+        assert [row["department"] for row in rows if row["id"] in {5, 15}] == [None, None]
+    with pytest.raises(ValueError, match="已经迁移"):
+        run(engine, action="apply", backup=tmp_path / "second.json")
+    assert not (tmp_path / "second.json").exists()
+
+
+def test_camera_order_migration_requires_new_backup_before_schema_mutation(camera_order_database, tmp_path):
+    from AiVision.migrations.camera_order_20260916 import run
+    engine, previous = camera_order_database
+    with pytest.raises(ValueError, match="backup"):
+        run(engine, action="apply")
+    backup = tmp_path / "existing.json"
+    backup.write_text("必须保留")
+    with pytest.raises(FileExistsError):
+        run(engine, action="apply", backup=backup)
+    assert backup.read_text() == "必须保留"
+    assert "sort_order" not in {column["name"] for column in inspect(engine).get_columns(previous.name)}
+
+
+def test_camera_order_migration_rejects_unknown_structure_before_mutation(camera_order_database, tmp_path):
+    from AiVision.migrations.camera_order_20260916 import run
+    engine, previous = camera_order_database
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE ai_camera_config ADD COLUMN unexpected INTEGER")
+    backup = tmp_path / "rejected.json"
+    with pytest.raises(ValueError, match="前版本"):
+        run(engine, action="apply", backup=backup)
+    assert not backup.exists()
+    assert "sort_order" not in {column["name"] for column in inspect(engine).get_columns(previous.name)}

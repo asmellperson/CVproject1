@@ -73,7 +73,7 @@ test('preserves frame lifecycle and configuration behavior', () => {
   assert.match(page, /presentation="human-dwell"/)
   for (const binding of [
     'getAiVisionFeatureConfig', 'saveAiVisionFeatureConfig', 'loadConfig', 'loadCameras', 'saveConfig',
-    'addCameraToFeature', 'removeCameraFromFeature', 'FeatureCameraManager', 'AiVisionRoiEditor',
+    'onCamerasChanged', 'FeatureCameraManager', 'AiVisionRoiEditor',
   ]) assert.match(page, new RegExp(binding))
 })
 
@@ -87,9 +87,10 @@ test('uses the personnel violation dwell name across user-facing views', () => {
 test('uses the shared feature with department-scoped camera selection', () => {
   assert.match(page, /const feature = 'detect_human'/)
   assert.match(page, /getAiVisionCameras\(department\)/)
-  assert.match(page, /isAiVisionFeatureEnabled\(camera, feature\)/)
-  assert.match(cameraManager, /从当前事业部摄像头选择/)
-  assert.match(cameraManager, /加入当前功能不会修改摄像头的所属事业部或公司/)
+  assert.match(cameraManager, /camera\.department === department/)
+  assert.match(cameraManager, /当前事业部摄像头/)
+  assert.match(cameraManager, /<Switch/)
+  assert.doesNotMatch(page, /addCameraToFeature|removeCameraFromFeature/)
   assert.match(cameraManager, /createAiVisionFeatureCamera\(feature, \{[\s\S]*?department,[\s\S]*?enabled: true/)
   assert.match(nav, /id: 'human-detection'/)
   assert.match(sidebar, /getAccessibleDepartments\(user\)/)
@@ -98,8 +99,8 @@ test('uses the shared feature with department-scoped camera selection', () => {
 
 test('keeps the selected camera when ROI save emits a camera refresh event', () => {
   assert.match(page, /const selectedCameraRef = useRef\(''\)/)
-  assert.match(page, /enabledCameras\.find\(\(camera\) => camera\.shm_name === selectedCameraRef\.current\)/)
-  assert.match(page, /\|\| enabledCameras\[0\]/)
+  assert.match(page, /items\.find\(\(camera\) => camera\.shm_name === selectedCameraRef\.current\)/)
+  assert.match(page, /\|\| items\[0\]/)
   assert.match(page, /selectedCameraRef\.current = payload\.camera\.shm_name/)
   assert.match(page, /selectedCameraRef\.current = cameraName/)
 })

@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -102,9 +102,9 @@ export function IntrusionDetectionSection({ department }: { department: Departme
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [cameraAction, setCameraAction] = useState(false)
   const selectedCameraRef = useRef('')
   const configRequestRef = useRef(0)
+  const cameraListRequestRef = useRef(0)
   const loadedCameraRef = useRef('')
 
   const getCameraDisplayName = (shmName: string, fallback?: string, source: AiVisionCamera[] = cameras) => {
@@ -141,28 +141,31 @@ export function IntrusionDetectionSection({ department }: { department: Departme
   }
 
   const loadCameras = async () => {
+    const requestId = ++cameraListRequestRef.current
     setCameraLoading(true)
     try {
       const items = await getAiVisionCameras(department)
+      if (requestId !== cameraListRequestRef.current) return
       setCameras(items)
-      const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
-      const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
-      const nextCamera = enabledCamera?.shm_name || ''
+      const selectedCamera = items.find((camera) => camera.shm_name === selectedCameraRef.current) || items[0]
+      const nextCamera = selectedCamera?.shm_name || ''
       if (items.length === 0) {
+        selectedCameraRef.current = ''
+        configRequestRef.current += 1
+        loadedCameraRef.current = ''
+        setLoading(false)
+        setBlocks(null)
+        setForm((previous) => ({ ...previous, cameraName: '' }))
         setMessage('当前事业部暂未配置摄像头')
-        return
-      }
-      if (!nextCamera) {
-        setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前区域入侵检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
       await loadConfig(nextCamera, items)
     } catch (error) {
+      if (requestId !== cameraListRequestRef.current) return
       setMessage(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setCameraLoading(false)
+      if (requestId === cameraListRequestRef.current) setCameraLoading(false)
     }
   }
 
@@ -174,52 +177,18 @@ export function IntrusionDetectionSection({ department }: { department: Departme
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => {
       configRequestRef.current += 1
+      cameraListRequestRef.current += 1
       window.removeEventListener('aivision:cameras-changed', refreshCameras)
     }
   }, [department])
 
   const refreshCameraList = async () => {
+    const requestId = ++cameraListRequestRef.current
     const items = await getAiVisionCameras(department)
+    if (requestId !== cameraListRequestRef.current) return items
     setCameras(items)
+    setCameraLoading(false)
     return items
-  }
-
-  const addCameraToFeature = async (cameraName: string) => {
-    setCameraAction(true)
-    setMessage('正在添加摄像头并启用区域入侵检测...')
-    try {
-      const payload = await requestBlocksConfig(cameraName)
-      await requestBlocksConfig(cameraName, { ...payload.blocks, enable: true })
-      await refreshCameraList()
-      await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用区域入侵检测。`)
-    } catch (error) {
-      setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCameraAction(false)
-    }
-  }
-
-  const removeCameraFromFeature = async (cameraName: string) => {
-    setCameraAction(true)
-    setMessage('正在停用该摄像头的区域入侵检测...')
-    try {
-      const payload = await requestBlocksConfig(cameraName)
-      await requestBlocksConfig(cameraName, { ...payload.blocks, enable: false })
-      const items = await refreshCameraList()
-      const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))?.shm_name || ''
-      if (form.cameraName === cameraName && nextCamera) {
-        await loadConfig(nextCamera)
-      } else if (form.cameraName === cameraName) {
-        setBlocks(null)
-        setForm({ ...defaultForm, cameraName: '' })
-      }
-      setMessage(`停用成功：${cameraName} 已关闭区域入侵检测。`)
-    } catch (error) {
-      setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCameraAction(false)
-    }
   }
 
   const saveConfig = async () => {
@@ -265,7 +234,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
 
     const nextBlocks: BlocksConfig = {
       ...blocks,
-      enable: true,
+      enable: blocks.enable,
       value: {
         ...blocks.value,
         roi_pos: blocks.value.roi_pos,
@@ -309,7 +278,6 @@ export function IntrusionDetectionSection({ department }: { department: Departme
     setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
-  const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
 
   return (
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
@@ -341,13 +309,12 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                 feature="blocks"
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
+                disabled={!isAdmin || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
                 }}
-                onAddCamera={addCameraToFeature}
-                onRemoveCamera={removeCameraFromFeature}
+                onCamerasChanged={refreshCameraList}
                 onConfigCopied={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   return loadConfig(cameraName)
@@ -362,7 +329,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                   cameraKey={form.cameraName}
                   mode="line"
                   roiJson={form.linePoints}
-                  disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(linePoints) => setForm((prev) => ({ ...prev, linePoints }))}
@@ -376,7 +343,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的区域入侵检测参数。" actions={<Badge variant="outline">AiVision blocks</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -389,13 +356,13 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                         setForm((prev) => ({ ...prev, cameraName: value }))
                         loadConfig(value)
                       }}
-                      disabled={cameraLoading || loading || saving || cameraAction || featureCameras.length === 0}
+                      disabled={cameraLoading || loading || saving || cameras.length === 0}
                     >
                       <SelectTrigger id="intrusion-camera" className="w-full">
                         <SelectValue placeholder={cameraLoading ? '正在读取摄像头' : '选择摄像头'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {featureCameras.map((camera) => (
+                        {cameras.map((camera) => (
                           <SelectItem key={camera.id} value={camera.shm_name}>
                             {camera.name}
                           </SelectItem>
@@ -429,7 +396,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                     <Select
                       value={form.alarmSide}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, alarmSide: value }))}
-                      disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                      disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
                     >
                       <SelectTrigger id="intrusion-side" className="w-full">
                         <SelectValue />
@@ -453,7 +420,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
                 </div>
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || cameraAction || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
@@ -465,7 +432,7 @@ export function IntrusionDetectionSection({ department }: { department: Departme
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
                 alarm={blocks?.alarm}
-                disabled={!blocks || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                disabled={!blocks || !isAdmin || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setBlocks((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

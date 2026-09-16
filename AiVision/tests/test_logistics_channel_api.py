@@ -40,6 +40,7 @@ class FakeService:
     # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.channels = {feature: {} for feature in FEATURES}
+        self.rois = {}
         self.next_id = 1
         self.calls = []
         self.error = None
@@ -120,6 +121,18 @@ class FakeService:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`deepcopy`、`self.channels[feature].get`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    def get_camera_roi(self, feature, channel_id, camera_id):
+        channel = self.channels[feature].get(channel_id)
+        if not channel or not any(member["camera_id"] == camera_id for member in channel["members"]):
+            raise ValueError("通道摄像头不存在")
+        return {"camera": {"id": camera_id, "name": f"camera {camera_id}", "shm_name": f"camera_{camera_id}", "enable": True},
+                "roi_pos": deepcopy(self.rois.get(camera_id, []))}
+
+    def update_camera_roi(self, feature, channel_id, camera_id, payload):
+        self.get_camera_roi(feature, channel_id, camera_id)
+        self.rois[camera_id] = deepcopy(payload["roi_pos"])
+        return self.get_camera_roi(feature, channel_id, camera_id)
+
     def get_channel(self, feature, channel_id):
         return deepcopy(self.channels[feature].get(channel_id))
 
@@ -143,6 +156,7 @@ class FakeService:
             "config": {
                 "detection_start": "08:00:00",
                 "detection_end": "20:00:00",
+                **LogisticsChannelConfigUpdate().model_dump(mode="json"),
                 "confidence_threshold": 0.3,
                 "empty_grace_seconds": 2,
                 "multi_grace_seconds": 1,
@@ -564,8 +578,8 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
         ("/api/logistics-channels/{feature}/{channel_id}/cameras", "POST"),
         ("/api/logistics-channels/{feature}/{channel_id}/cameras/order", "PUT"),
         ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/enabled", "PUT"),
-        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "GET"),
-        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config", "PUT"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/roi", "GET"),
+        ("/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/roi", "PUT"),
         ("/api/logistics-channels/{feature}/{channel_id}/status", "GET"),
         ("/api/logistics-channels/{feature}/{channel_id}/frame.jpg", "GET"),
         ("/api/logistics-channels/{feature}/{channel_id}/alarms", "GET"),
@@ -574,7 +588,7 @@ def test_router_exposes_full_channel_contract_and_app_registers_it():
     assert expected <= paths
     assert ("/api/logistics-channels/{feature}/{channel_id}", "PUT") not in paths
     assert not any(
-        path == "/api/logistics-channels/{feature}/{channel_id}/config"
+        path.endswith("/config")
         for path, _method in paths
     )
     app_module = importlib.import_module("AiVision.api.app")
@@ -746,12 +760,10 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     ee_channel = _seed(service, department="electronics_electrician")
     ec_channel = _seed(service, department="electrical_components")
     service.add_existing_camera(feature, channel_id, 7)
-    feature_config_manager = FakeFeatureConfigManager()
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.get_logistics_channel_service] = lambda: service
     app.dependency_overrides[api.get_current_orchestrator] = lambda: orchestrator
-    app.dependency_overrides[api.get_feature_config_manager] = lambda: feature_config_manager
     monkeypatch.setattr(api, "get_session", EmptyAlarmSession)
 
     # 功能：启动或执行 `inline_run_sync` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -775,7 +787,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`member_config.json`、`client.request`、`client.post`、`created.json`、`client.put`、`np.zeros`、`frame.content.startswith`
+    #   - 内部调用：`httpx.ASGITransport`、`httpx.AsyncClient`、`client.get`、`member_roi.json`、`client.request`、`client.post`、`created.json`、`client.put`、`np.zeros`、`frame.content.startswith`
     #          等共 12 个调用。
     # 副作用/注意事项：可能发起网络请求或发送外部消息；可能启动、等待或停止线程/进程资源。
     async def scenario():
@@ -802,15 +814,15 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 f"{base}/{ee_channel['id']}"
             )).status_code == 403
             app.dependency_overrides[api.get_current_user] = lambda: viewer
-            member_config_url = f"{base}/{channel_id}/cameras/7/config"
-            member_config = await client.get(member_config_url)
-            assert member_config.status_code == 200
-            assert "url" not in member_config.json()["camera"]
-            assert (await client.get(f"{base}/{channel_id}/cameras/999/config")).status_code == 404
-            cross_config = (
-                f"{base}/{ee_channel['id']}/cameras/7/config"
+            member_roi_url = f"{base}/{channel_id}/cameras/7/roi"
+            member_roi = await client.get(member_roi_url)
+            assert member_roi.status_code == 200
+            assert "url" not in member_roi.json()["camera"]
+            assert (await client.get(f"{base}/{channel_id}/cameras/999/roi")).status_code == 404
+            cross_roi = (
+                f"{base}/{ee_channel['id']}/cameras/7/roi"
             )
-            assert (await client.get(cross_config)).status_code == 403
+            assert (await client.get(cross_roi)).status_code == 403
 
             write_requests = (
                 ("POST", base, {"name": "禁止新增"}),
@@ -820,7 +832,7 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 ("PUT", f"{base}/{channel_id}/cameras/order", {"camera_ids": [7]}),
                 ("PUT", f"{base}/{channel_id}/cameras/7", None),
                 ("PUT", f"{base}/{channel_id}/cameras/7/enabled", {"enabled": False}),
-                ("PUT", member_config_url, member_config.json()["config"]),
+                ("PUT", member_roi_url, {"roi_pos": member_roi.json()["roi_pos"]}),
                 ("DELETE", f"{base}/{channel_id}/cameras/7", None),
             )
             for method, url, payload in write_requests:
@@ -848,8 +860,8 @@ def test_real_asgi_auth_permissions_and_endpoint_contracts(monkeypatch):
                 json={"enabled": False},
             )).status_code == 200
             assert (await client.put(
-                member_config_url,
-                json=member_config.json()["config"],
+                member_roi_url,
+                json={"roi_pos": member_roi.json()["roi_pos"]},
             )).status_code == 200
             assert (await client.get(
                 "/api/logistics-channels/not-a-feature"
@@ -973,13 +985,13 @@ def test_generic_feature_config_http_cannot_bypass_logistics_membership_guard(mo
                 "department": "general_electric",
             }
             denied = await client.get(path)
-            assert denied.status_code == 403
+            assert denied.status_code == 404
             assert feature_config_manager.calls == []
 
             app.dependency_overrides[feature_api.get_current_user] = lambda: ADMIN
             allowed = await client.get(path)
-            assert allowed.status_code == 200
-            assert "url" not in allowed.json()["camera"]
+            assert allowed.status_code == 404
+            assert feature_config_manager.calls == []
 
     asyncio.run(scenario())
 

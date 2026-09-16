@@ -1,6 +1,8 @@
 import type { DepartmentId } from '@/auth/permissions'
-import { useEffect, useMemo, useState } from 'react'
-import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, Camera, Copy, Plus } from 'lucide-react'
+import { useAuth } from '@/auth/useAuth'
+import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -16,6 +18,7 @@ import {
   type AiVisionCamera,
   isAiVisionFeatureEnabled,
   saveAiVisionFeatureConfig,
+  saveAiVisionCameraOrder,
 } from '@/lib/aivision'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { LogisticsCameraCreateDialog } from '@/components/logistics_single_person/LogisticsCameraCreateDialog'
@@ -30,9 +33,7 @@ type FeatureCameraManagerProps = {
 
   onSelectCamera: (shmName: string) => void
 
-  onAddCamera: (shmName: string) => Promise<void>
-
-  onRemoveCamera: (shmName: string) => Promise<void>
+  onCamerasChanged: () => Promise<unknown>
 
   onConfigCopied?: (targetShmName: string) => void | Promise<void>
 }
@@ -44,32 +45,30 @@ export function FeatureCameraManager({
   currentCameraName,
   disabled,
   onSelectCamera,
-  onAddCamera,
-  onRemoveCamera,
+  onCamerasChanged,
   onConfigCopied,
 }: FeatureCameraManagerProps) {
   const cameras = useMemo(() => sourceCameras.filter((camera) => camera.department === department), [sourceCameras, department])
   const [workingCamera, setWorkingCamera] = useState('')
-  const [selectedExistingCamera, setSelectedExistingCamera] = useState('')
   const [copySourceCamera, setCopySourceCamera] = useState('')
   const [copyTargetCamera, setCopyTargetCamera] = useState('')
-  const [copyError, setCopyError] = useState('')
+  const [operationError, setOperationError] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
-  const enabledCameras = useMemo(
-    () => cameras.filter((camera) => isAiVisionFeatureEnabled(camera, feature)),
-    [cameras, feature],
-  )
-  const availableCameras = useMemo(
-    () => cameras.filter((camera) => !isAiVisionFeatureEnabled(camera, feature)),
-    [cameras, feature],
-  )
+  const { isAdmin } = useAuth()
+  const operationRef = useRef(0)
+  const busyRef = useRef(false)
+  const readOnly = !isAdmin || disabled || Boolean(workingCamera)
 
   useEffect(() => {
-    if (selectedExistingCamera && !availableCameras.some((camera) => camera.shm_name === selectedExistingCamera)) {
-      setSelectedExistingCamera('')
-    }
-  }, [availableCameras, selectedExistingCamera])
+    setWorkingCamera('')
+    setCopySourceCamera('')
+    setCopyTargetCamera('')
+    setOperationError('')
+    setCreateDialogOpen(false)
+    busyRef.current = false
+    return () => { operationRef.current += 1 }
+  }, [department, feature])
 
   useEffect(() => {
     if (copySourceCamera && !cameras.some((camera) => camera.shm_name === copySourceCamera)) {
@@ -80,65 +79,107 @@ export function FeatureCameraManager({
     }
   }, [cameras, copySourceCamera, copyTargetCamera])
 
-  const canAddSelectedCamera = availableCameras.some((camera) => camera.shm_name === selectedExistingCamera && camera.enabled)
-
-  const handleEnableExisting = async () => {
-    const shmName = selectedExistingCamera.trim()
-    if (!shmName || !canAddSelectedCamera) return
-
-    setWorkingCamera(shmName)
+  const handleToggle = async (camera: AiVisionCamera, enable: boolean) => {
+    if (readOnly || busyRef.current) return
+    if (enable && !camera.enabled) {
+      setOperationError('请先在平台启用该摄像头')
+      return
+    }
+    const operation = operationRef.current
+    busyRef.current = true
+    setWorkingCamera(camera.shm_name)
+    setOperationError('')
     try {
-      await onAddCamera(shmName)
-      setSelectedExistingCamera('')
-      notifyPlatformCamerasChanged()
+      const payload = await getAiVisionFeatureConfig(feature, camera.shm_name)
+      if (operation !== operationRef.current) return
+      await saveAiVisionFeatureConfig(feature, camera.shm_name, { ...payload.config, enable })
+      if (operation !== operationRef.current) return
+      await onCamerasChanged()
+      if (operation === operationRef.current) notifyPlatformCamerasChanged()
     } catch (error) {
-      setCopyError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+      if (operation === operationRef.current) setOperationError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setWorkingCamera('')
+      if (operation === operationRef.current) {
+        busyRef.current = false
+        setWorkingCamera('')
+      }
     }
   }
 
-  const handleRemove = async (shmName: string) => {
-    setWorkingCamera(shmName)
+  const handleMove = async (index: number, direction: -1 | 1) => {
+    const destination = index + direction
+    if (readOnly || busyRef.current || destination < 0 || destination >= cameras.length) return
+    const operation = operationRef.current
+    const ids = cameras.map((camera) => camera.camera_id)
+    ;[ids[index], ids[destination]] = [ids[destination], ids[index]]
+    busyRef.current = true
+    setWorkingCamera(cameras[index].shm_name)
+    setOperationError('')
     try {
-      await onRemoveCamera(shmName)
-      notifyPlatformCamerasChanged()
+      await saveAiVisionCameraOrder(department, ids)
+      if (operation !== operationRef.current) return
+      await onCamerasChanged()
+      if (operation === operationRef.current) notifyPlatformCamerasChanged()
     } catch (error) {
-      setCopyError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
+      if (operation !== operationRef.current) return
+      setOperationError(`排序失败：${error instanceof Error ? error.message : String(error)}`)
+      try {
+        await onCamerasChanged()
+      } catch (reloadError) {
+        if (operation === operationRef.current) setOperationError(`重新加载失败：${reloadError instanceof Error ? reloadError.message : String(reloadError)}`)
+      }
     } finally {
-      setWorkingCamera('')
+      if (operation === operationRef.current) {
+        busyRef.current = false
+        setWorkingCamera('')
+      }
     }
   }
 
   const handleCopyConfig = async () => {
+    if (readOnly || busyRef.current) return
+    const operation = operationRef.current
     const source = copySourceCamera.trim()
     const target = copyTargetCamera.trim()
     if (!source || !target || source === target || !cameras.some((camera) => camera.shm_name === source) || !cameras.some((camera) => camera.shm_name === target)) {
-      setCopyError('请选择不同的源摄像头和目标摄像头。')
+      setOperationError('请选择不同的源摄像头和目标摄像头。')
       return
     }
 
+    busyRef.current = true
     setWorkingCamera(target)
-    setCopyError('')
+    setOperationError('')
     try {
       const [sourceConfig, targetConfig] = await Promise.all([
         getAiVisionFeatureConfig(feature, source), getAiVisionFeatureConfig(feature, target),
       ])
+      if (operation !== operationRef.current) return
       await saveAiVisionFeatureConfig(feature, target, {
         ...sourceConfig.config,
         enable: targetConfig.config.enable,
       })
+      if (operation !== operationRef.current) return
+      await onCamerasChanged()
+      if (operation !== operationRef.current) return
       await onConfigCopied?.(target)
-      setCopyTargetCamera('')
-      notifyPlatformCamerasChanged()
+      if (operation === operationRef.current) {
+        setCopyTargetCamera('')
+        notifyPlatformCamerasChanged()
+      }
     } catch (error) {
-      setCopyError(`复制失败：${error instanceof Error ? error.message : String(error)}`)
+      if (operation === operationRef.current) setOperationError(`复制失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setWorkingCamera('')
+      if (operation === operationRef.current) {
+        busyRef.current = false
+        setWorkingCamera('')
+      }
     }
   }
 
   const handleCreateCamera = async (payload: LogisticsCameraCreateInput) => {
+    if (readOnly || busyRef.current) throw new Error('当前无法新建摄像头')
+    const operation = operationRef.current
+    busyRef.current = true
     setWorkingCamera('__creating__')
     try {
       const camera = await createAiVisionFeatureCamera(feature, {
@@ -146,9 +187,14 @@ export function FeatureCameraManager({
         department,
         enabled: true,
       })
-      onSelectCamera(camera.shm_name)
+      if (operation !== operationRef.current) return
+      await onCamerasChanged()
+      if (operation === operationRef.current) onSelectCamera(camera.shm_name)
     } finally {
-      setWorkingCamera('')
+      if (operation === operationRef.current) {
+        busyRef.current = false
+        setWorkingCamera('')
+      }
     }
   }
 
@@ -158,82 +204,38 @@ export function FeatureCameraManager({
         icon={Camera}
         tone="blue"
         title="摄像头"
-        description="管理当前检测功能绑定的摄像头，并保持平台汇总与配置页面同步。"
+        description="管理当前事业部摄像头的检测开关、展示顺序和功能配置。"
       />
       <DetectionConfigCardContent className="space-y-4">
+        {operationError ? <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{operationError}</div> : null}
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前功能摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">当前功能已启用的摄像头；全局停用的摄像头不会运行检测。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前事业部摄像头</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">检测停用时仍可预配置参数；摄像头顺序在本事业部各普通检测功能中统一。</div>
           </div>
-          <div className="overflow-hidden rounded-xl border border-[#E2E7F2] bg-white dark:border-slate-800 dark:bg-slate-900/80">
-            {enabledCameras.length === 0 ? (
-              <div className="px-4 py-5 text-sm text-slate-500">{cameras.length ? '当前功能还没有加入摄像头。' : '当前事业部暂未配置摄像头'}</div>
-            ) : (
-              enabledCameras.map((camera) => {
-                const active = camera.shm_name === currentCameraName
-                return (
-                  <div
-                    key={camera.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 transition last:border-b-0 dark:border-slate-800 dark:hover:bg-slate-800/60 ${active ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-100 dark:bg-blue-950/30 dark:ring-blue-900' : 'hover:bg-slate-50'}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onSelectCamera(camera.shm_name)}
-                      className="min-w-0 text-left"
-                      disabled={disabled}
-                    >
-                      <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}{!camera.enabled && <Badge variant="secondary" className="ml-2 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">摄像头已停用</Badge>}</div>
-                      <div className="mt-1 text-xs text-slate-500">{active ? <span className="rounded-md bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">当前正在编辑</span> : '点击切换配置'}</div>
-                    </button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 text-amber-700 hover:text-amber-800"
-                      onClick={() => handleRemove(camera.shm_name)}
-                      disabled={disabled || Boolean(workingCamera)}
-                    >
-                      <PowerOff className="h-4 w-4" />
-                      停用当前功能
-                    </Button>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
-          <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从已有摄像头加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">从当前事业部摄像头选择；已有明确归属时，加入当前功能不会修改摄像头的所属事业部或公司。停用摄像头需先在平台启用。</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Select
-              value={selectedExistingCamera}
-              onValueChange={setSelectedExistingCamera}
-              disabled={disabled || Boolean(workingCamera) || availableCameras.length === 0}
-            >
-              <SelectTrigger className="min-w-0 flex-1 bg-white sm:min-w-60">
-                <SelectValue placeholder={availableCameras.length === 0 ? '暂无可启用摄像头' : '选择已有摄像头'} />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCameras.map((camera) => (
-                  <SelectItem key={camera.id} value={camera.shm_name} disabled={!camera.enabled}>
-                    {camera.name}{!camera.enabled ? '（已停用）' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              className="gap-2"
-              onClick={handleEnableExisting}
-              disabled={disabled || Boolean(workingCamera) || !canAddSelectedCamera}
-            >
-              <Power className="h-4 w-4" />
-              加入当前功能
-            </Button>
-          </div>
+          {cameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">当前事业部暂未配置摄像头</div> : cameras.map((camera, index) => {
+            const active = camera.shm_name === currentCameraName
+            const enabled = isAiVisionFeatureEnabled(camera, feature)
+            const blocked = !camera.enabled && !enabled
+            return (
+              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
+                <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
+                  <div className="truncate text-sm font-semibold">{camera.name}</div>
+                  <div className="truncate font-mono text-xs text-slate-500">{camera.shm_name}</div>
+                  {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
+                </button>
+                <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
+                <Badge variant={enabled ? 'default' : 'secondary'}>{enabled ? '检测已启用' : '检测已停用'}</Badge>
+                <span title={blocked ? '请先在平台启用该摄像头' : undefined}>
+                  <Switch checked={enabled} aria-label={`${camera.name}：${enabled ? '停用检测' : '启用检测'}`} onCheckedChange={(value) => void handleToggle(camera, value)} disabled={readOnly || blocked} />
+                </span>
+                <Button size="sm" variant="outline" aria-label={`${camera.name}上移`} onClick={() => void handleMove(index, -1)} disabled={readOnly || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
+                <Button size="sm" variant="outline" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === cameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
+                {blocked ? <p className="w-full text-xs text-amber-700 dark:text-amber-400">请先在平台启用该摄像头</p> : null}
+              </div>
+            )
+          })}
         </div>
 
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -244,7 +246,7 @@ export function FeatureCameraManager({
           <Button
             className="gap-2"
             onClick={() => setCreateDialogOpen(true)}
-            disabled={disabled || Boolean(workingCamera)}
+            disabled={readOnly}
           >
             <Plus className="h-4 w-4" />
             新建摄像头并加入
@@ -260,13 +262,13 @@ export function FeatureCameraManager({
             <Select
               value={copySourceCamera}
               onValueChange={setCopySourceCamera}
-              disabled={disabled || Boolean(workingCamera) || enabledCameras.length === 0}
+              disabled={readOnly || cameras.length === 0}
             >
               <SelectTrigger className="min-w-0 bg-white">
-                <SelectValue placeholder={enabledCameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
+                <SelectValue placeholder={cameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
               </SelectTrigger>
               <SelectContent>
-                {enabledCameras.map((camera) => (
+                {cameras.map((camera) => (
                   <SelectItem key={camera.id} value={camera.shm_name}>
                     {camera.name}
                   </SelectItem>
@@ -276,7 +278,7 @@ export function FeatureCameraManager({
             <Select
               value={copyTargetCamera}
               onValueChange={setCopyTargetCamera}
-              disabled={disabled || Boolean(workingCamera) || cameras.length < 2}
+              disabled={readOnly || cameras.length < 2}
             >
               <SelectTrigger className="min-w-0 bg-white">
                 <SelectValue placeholder={cameras.length < 2 ? '暂无目标摄像头' : '目标摄像头'} />
@@ -294,13 +296,12 @@ export function FeatureCameraManager({
             <Button
               className="gap-2"
               onClick={handleCopyConfig}
-              disabled={disabled || Boolean(workingCamera) || !copySourceCamera || !copyTargetCamera || copySourceCamera === copyTargetCamera}
+              disabled={readOnly || !copySourceCamera || !copyTargetCamera || copySourceCamera === copyTargetCamera}
             >
               <Copy className="h-4 w-4" />
-              {workingCamera === copyTargetCamera ? '复制中' : '复制配置'}
+              {workingCamera && workingCamera === copyTargetCamera ? '复制中' : '复制配置'}
             </Button>
           </div>
-          {copyError ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{copyError}</div> : null}
         </div>
       </DetectionConfigCardContent>
       {createDialogOpen ? (

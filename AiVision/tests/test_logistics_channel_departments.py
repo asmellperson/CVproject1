@@ -75,12 +75,12 @@ def test_camera_department_is_inherited_and_cross_department_membership_rejected
 @pytest.mark.parametrize("method,suffix,payload", [
     ("GET", "", None), ("GET", "/status", None), ("GET", "/frame.jpg", None),
     ("GET", "/alarms", None), ("GET", "/statistics", None),
-    ("GET", "/cameras/1/config", None),
+    ("GET", "/cameras/1/roi", None),
     ("PATCH", "", {"name": "更新"}), ("DELETE", "", None),
     ("POST", "/cameras", {"camera_id": 1}),
     ("PUT", "/cameras/order", {"camera_ids": [1]}),
     ("PUT", "/cameras/1", None), ("PUT", "/cameras/1/enabled", {"enabled": True}),
-    ("PUT", "/cameras/1/config", {}), ("DELETE", "/cameras/1", None),
+    ("PUT", "/cameras/1/roi", {"roi_pos": []}), ("DELETE", "/cameras/1", None),
 ])
 def test_every_channel_route_rejects_foreign_department(service_db, monkeypatch, method, suffix, payload):
     service = service_db.service
@@ -92,7 +92,6 @@ def test_every_channel_route_rejects_foreign_department(service_db, monkeypatch,
     def forbidden(*args, **kwargs):
         raise AssertionError("未授权请求不得访问 Runtime、告警库或配置")
     app.dependency_overrides[api.get_current_orchestrator] = lambda: SimpleNamespace(get_logistics_channel_status=forbidden, get_logistics_channel_frame=forbidden)
-    app.dependency_overrides[api.get_feature_config_manager] = lambda: SimpleNamespace(get_config=forbidden, save_config=forbidden)
     monkeypatch.setattr(api, "get_session", forbidden)
     async def inline(func, *args, **kwargs):
         return func(*args)

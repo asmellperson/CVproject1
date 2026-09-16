@@ -41,6 +41,7 @@ def department_api(backend, monkeypatch):
         with backend.factory() as session:
             camera = session.get(AiCameraConfig, event.camera_id)
             assert cache.get_camera_config(camera.id)["department"] == camera.department
+            assert cache.get_camera_config(camera.id)["sort_order"] == camera.sort_order
             for spec in all_specs().values():
                 cfg = session.query(spec.orm_class).filter_by(camera_id=camera.id).first()
                 cached = cache.get_function_config(camera.id, spec.name)
@@ -117,7 +118,7 @@ def test_camera_creation_requires_formal_department(department_api, department):
 
 
 
-@pytest.mark.parametrize("spec", list(all_specs().values()), ids=lambda spec: spec.name)
+@pytest.mark.parametrize("spec", ORDINARY_FEATURES, ids=lambda spec: spec.name)
 @pytest.mark.parametrize("department", [None, "", "unknown"])
 @pytest.mark.parametrize("missing_config", [False, True])
 def test_enable_requires_registered_camera_department_without_writes(department_api, spec, department, missing_config):
@@ -241,3 +242,168 @@ def test_enable_rechecks_department_after_camera_lookup(department_api, monkeypa
     with api.factory() as session:
         assert session.get(AiCameraConfig, camera["camera_id"]).department == "general_electric"
         assert session.query(get_spec("detect_face").orm_class).filter_by(camera_id=camera["camera_id"]).one().enable is True
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_camera_creation_appends_to_department_order(department_api, department):
+    api = department_api
+    first = create_camera(api, department=department)
+    second = create_camera(api, department=department, name="第二路", shm_name="second")
+    other_department = next(value for value in DEPARTMENT_SPECS if value != department)
+    other = create_camera(api, department=other_department, name="其他事业部", shm_name="other")
+    response = api.client.post("/api/features/detect_phone/cameras", json={
+        "department": department, "name": "功能页新增", "url": "rtsp://test.local/new",
+    })
+    assert response.status_code == 200, response.text
+    created = response.json()
+    assert [first["sort_order"], second["sort_order"], created["sort_order"]] == [0, 1, 2]
+    assert other["sort_order"] == 0
+    assert created["functions"]["detect_phone"] is True
+    assert all(not enabled for feature, enabled in created["functions"].items() if feature != "detect_phone")
+    assert api.client.get("/api/cameras", params={"department": department}).json() == [first, second, created]
+
+
+def test_camera_order_persists_with_stable_id_tiebreak_and_append(department_api):
+    api = department_api
+    cameras = [create_camera(api, name=f"camera {i}", shm_name=f"ordered_{i}") for i in range(3)]
+    ids = [camera["camera_id"] for camera in cameras]
+    with api.factory.begin() as session:
+        session.get(AiCameraConfig, ids[0]).sort_order = 9
+        session.get(AiCameraConfig, ids[1]).sort_order = 2
+        session.get(AiCameraConfig, ids[2]).sort_order = 2
+    manager = CameraConfigManager()
+    assert [row["camera_id"] for row in manager.list_cameras("general_electric")] == [ids[1], ids[2], ids[0]]
+    for order in ([ids[2], ids[1], ids[0]], [ids[2], ids[0], ids[1]]):
+        response = api.client.put("/api/cameras/order", json={"department": "general_electric", "camera_ids": order})
+        assert response.status_code == 200, response.text
+        persisted = CameraConfigManager().list_cameras("general_electric")
+        assert [row["camera_id"] for row in persisted] == order
+        assert [row["sort_order"] for row in persisted] == [0, 1, 2]
+    appended = create_camera(api, name="新增", shm_name="appended")
+    assert appended["sort_order"] == 3
+
+
+@pytest.mark.parametrize("case,status", [("duplicate", 400), ("missing", 409), ("unknown", 409),
+    ("foreign", 409), ("string", 422), ("bool", 422), ("extra", 422), ("invalid_department", 400)])
+def test_camera_order_rejects_invalid_complete_set_without_partial_writes(department_api, case, status):
+    api = department_api
+    first = create_camera(api)
+    second = create_camera(api, name="第二路", shm_name="second")
+    foreign = create_camera(api, name="其他事业部", shm_name="foreign", department="fulida_company")
+    ids = [first["camera_id"], second["camera_id"]]
+    variants = {"duplicate": [ids[0], ids[0]], "missing": [ids[0]], "unknown": [ids[0], 99999],
+        "foreign": [ids[0], foreign["camera_id"]], "string": [str(ids[0]), ids[1]], "bool": [True, ids[1]]}
+    payload = {"department": "general_electric", "camera_ids": variants.get(case, ids[::-1])}
+    if case == "extra":
+        payload["shm_names"] = ["test_camera", "second"]
+    if case == "invalid_department":
+        payload["department"] = "ge"
+    before = CameraConfigManager().list_cameras()
+    response = api.client.put("/api/cameras/order", json=payload)
+    assert response.status_code == status, response.text
+    assert CameraConfigManager().list_cameras() == before
+    assert api.observations == []
+
+
+def test_camera_order_rejects_stale_set_and_viewer(department_api):
+    from auth.auth import get_current_user
+    api = department_api
+    first = create_camera(api)
+    stale_ids = [first["camera_id"]]
+    create_camera(api, name="并发新增", shm_name="concurrent")
+    request = {"department": "general_electric", "camera_ids": stale_ids}
+    assert api.client.put("/api/cameras/order", json=request).status_code == 409
+    api.app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["general_electric"]}
+    assert api.client.put("/api/cameras/order", json=request).status_code == 403
+    assert api.observations == []
+
+
+@pytest.mark.parametrize("spec", ORDINARY_FEATURES, ids=lambda spec: spec.name)
+def test_feature_switch_respects_physical_camera_and_copy_preserves_resource(department_api, spec):
+    api = department_api
+    source = create_camera(api)
+    target = create_camera(api, name="复制目标", shm_name="target", enabled=False)
+    response = save(api, spec.name, True, camera="target")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请先在平台启用该摄像头"
+    assert save(api, spec.name, True).status_code == 200
+    assert api.client.patch("/api/cameras/test_camera", json={"enabled": False}).status_code == 200
+    assert save(api, spec.name, False).status_code == 200
+    assert save(api, spec.name, True).status_code == 400
+    assert api.client.patch("/api/cameras/test_camera", json={"enabled": True}).status_code == 200
+    assert save(api, spec.name, True).status_code == 200
+    source_config = api.client.get(f"/api/features/{spec.name}/configs/test_camera").json()["config"]
+    target_before = api.client.get("/api/cameras/target").json()
+    copied = api.client.put(f"/api/features/{spec.name}/configs/target", json={**source_config, "enable": False})
+    assert copied.status_code == 200, copied.text
+    target_after = api.client.get("/api/cameras/target").json()
+    assert target_after == target_before
+    assert (target_after["sort_order"], target_after["department"], target_after["enabled"]) == (1, "general_electric", False)
+    assert target["camera_id"] != source["camera_id"]
+
+
+def test_camera_order_does_not_change_logistics_membership_order(department_api):
+    from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+    api = department_api
+    cameras = [create_camera(api, name=f"camera {i}", shm_name=f"member_{i}") for i in range(2)]
+    ids = [camera["camera_id"] for camera in cameras]
+    with api.factory.begin() as session:
+        channel = LogisticsChannel(name="通道", department="general_electric", feature_name="detect_logistics_single_person")
+        session.add(channel)
+        session.flush()
+        session.add_all([LogisticsChannelCamera(channel_id=channel.id, camera_id=camera_id, sort_order=7 + index, enabled=index == 0)
+                         for index, camera_id in enumerate(ids)])
+    response = api.client.put("/api/cameras/order", json={"department": "general_electric", "camera_ids": ids[::-1]})
+    assert response.status_code == 200, response.text
+    with api.factory() as session:
+        members = session.query(LogisticsChannelCamera).order_by(LogisticsChannelCamera.camera_id).all()
+        assert [(member.camera_id, member.sort_order, member.enabled) for member in members] == [(ids[0], 7, True), (ids[1], 8, False)]
+
+
+def test_camera_department_move_appends_to_destination(department_api):
+    api = department_api
+    camera = create_camera(api)
+    create_camera(api, name="目标事业部", shm_name="destination", department="fulida_company")
+    response = api.client.patch("/api/cameras/test_camera", json={"department": "fulida_company"})
+    assert response.status_code == 200, response.text
+    assert response.json()["sort_order"] == 1
+    assert response.json()["camera_id"] == camera["camera_id"]
+
+
+def test_camera_order_transaction_failure_rolls_back_and_publishes_nothing(department_api, monkeypatch):
+    api = department_api
+    ids = [create_camera(api, name=f"camera {i}", shm_name=f"rollback_{i}")["camera_id"] for i in range(2)]
+    before = CameraConfigManager().list_cameras("general_electric")
+    def fail_commit(_session):
+        raise OperationalError("test commit", {}, RuntimeError("test failure"))
+    with monkeypatch.context() as patch:
+        patch.setattr(api.factory.class_, "commit", fail_commit)
+        with pytest.raises(OperationalError):
+            api.client.put("/api/cameras/order", json={"department": "general_electric", "camera_ids": ids[::-1]})
+    assert CameraConfigManager().list_cameras("general_electric") == before
+    assert api.observations == []
+
+
+def test_concurrent_camera_creation_allocates_distinct_department_positions(department_api, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    api = department_api
+    monkeypatch.setattr(CameraConfigManager, "notify_camera_created", staticmethod(lambda *_: None))
+    def create(index):
+        return CameraConfigManager().create_camera({"department": "general_electric",
+            "name": f"并发摄像头 {index}", "shm_name": f"parallel_{index}", "url": "rtsp://test.local/video"})
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        cameras = list(executor.map(create, range(4)))
+    assert sorted(camera["sort_order"] for camera in cameras) == [0, 1, 2, 3]
+    assert [row["sort_order"] for row in CameraConfigManager().list_cameras("general_electric")] == [0, 1, 2, 3]
+    assert api.observations == []
+
+
+def test_feature_camera_creation_rejects_disabled_physical_camera_atomically(department_api):
+    api = department_api
+    response = api.client.post("/api/features/detect_phone/cameras", json={
+        "department": "general_electric", "name": "禁用新摄像头", "url": "rtsp://test.local/video", "enabled": False,
+    })
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "请先在平台启用该摄像头"
+    assert CameraConfigManager().list_cameras("general_electric") == []
+    assert api.observations == []

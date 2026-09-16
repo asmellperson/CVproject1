@@ -19,6 +19,7 @@ export type AiVisionCamera = {
   shm_name: string
   url?: string
   camera_id: number
+  sort_order: number
   fps?: number
   enabled: boolean
   functions: Record<string, boolean>
@@ -143,6 +144,14 @@ async function readAiVisionError(response: Response) {
   return detail || `${response.status} ${response.statusText}`
 }
 
+export async function saveAiVisionCameraOrder(department: DepartmentId, cameraIds: number[]): Promise<void> {
+  const response = await fetch('/api/cameras/order', {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ department, camera_ids: cameraIds }),
+  })
+  if (!response.ok) throw new Error(await readAiVisionError(response))
+}
+
 export async function getAiVisionCameras(department: DepartmentId) {
   const params = new URLSearchParams({ department })
   const response = await fetch(`/api/cameras?${params}`, { credentials: 'include' })
@@ -192,7 +201,7 @@ export async function getAiVisionDepartmentFeatures(departmentName: DepartmentId
   return (await response.json()) as Array<{ name: string; display_name: string }>
 }
 
-export function getAiVisionCameraKey(camera: AiVisionCamera) {
+export function getAiVisionCameraKey(camera: Pick<AiVisionCamera, 'shm_name' | 'id' | 'camera_id'>) {
   return camera.shm_name || camera.id || String(camera.camera_id)
 }
 

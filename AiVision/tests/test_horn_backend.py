@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from auth.auth import get_current_user
 from AiVision.api.deps import get_horn_service, get_horn_runtime_manager
 from AiVision.api.routes.horns import router
+from AiVision.core.system_config import AiSystemConfig
 from AiVision.core.db import Base
 from AiVision.features.registry import all_specs
 from AiVision.alarms.devices.orm import AiHornConfig
@@ -31,7 +32,7 @@ def backend(tmp_path, monkeypatch):
     def foreign_keys(connection, _record):
         connection.execute("PRAGMA foreign_keys=ON")
 
-    tables = [AiHornConfig.__table__, AiCameraConfig.__table__, LogisticsChannel.__table__,
+    tables = [AiHornConfig.__table__, AiCameraConfig.__table__, AiSystemConfig.__table__, LogisticsChannel.__table__,
               LogisticsChannelCamera.__table__, *(spec.orm_class.__table__ for spec in all_specs().values())]
     Base.metadata.create_all(engine, tables=tables)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

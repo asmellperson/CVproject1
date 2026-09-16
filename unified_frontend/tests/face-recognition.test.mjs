@@ -58,7 +58,7 @@ const recognitionAlarm = {
   horn: { enable: true, parm: { horn_id: 2, horn_event_id: 7 } },
 }
 const camera = (id, enabled = true, feature = true) => ({
-  id: String(id), camera_id: id, shm_name: `camera_${id}`, name: `摄像头${id}`, enabled,
+  id: String(id), camera_id: id, sort_order: id - 1, shm_name: `camera_${id}`, name: `摄像头${id}`, enabled,
   department: 'electronics_electrician', functions: { recognize_face: feature },
 })
 const sharedUi = {
@@ -342,18 +342,21 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
       state = await harness.flush(); await state.save(); state = await harness.flush()
       assert.equal(saves.length, 2)
     }
-    await assert.rejects(state.setCameraEnabled('camera_3', true), /摄像头已停用/)
-    assert.equal(saves.length, 2)
-    await state.setCameraEnabled('camera_1', false); state = await harness.flush()
-    assert.equal(state.cameraKey, 'camera_2')
-    await state.setCameraEnabled('camera_2', false); state = await harness.flush()
-    assert.equal(state.cameraKey, '')
-    assert.equal(state.canSave, false)
-    assert.equal(state.form.detectionThreshold, '')
-    // 复用同一事件处理新建、加入与复制后的列表和配置刷新。
+    configs.get('camera_1').enable = false
+    pool[0].functions.recognize_face = false
+    target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
+    assert.equal(state.cameraKey, 'camera_1')
+    assert.equal(state.config.enable, false)
+    assert.equal(state.canSave, true)
+    state.setForm((form) => ({ ...form, detectionThreshold: '0.44' }))
+    state = await harness.flush(); await state.save(); state = await harness.flush()
+    assert.equal(saves.at(-1).config.enable, false)
+    assert.equal(saves.at(-1).config.value.detection_threshold, .44)
+    // 停用摄像头保留编辑选择，新建后可以明确选中新摄像头。
     pool.push(camera(4)); configs.set('camera_4', { enable: true, value: { ...values, detection_threshold: .24 }, alarm: structuredClone(recognitionAlarm) })
     target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
-    assert.equal(state.cameraKey, 'camera_4')
+    assert.equal(state.cameraKey, 'camera_1')
+    state.selectCamera('camera_4'); state = await harness.flush()
     assert.equal(state.form.detectionThreshold, '0.24')
     configs.get('camera_4').value.detection_threshold = .73
     target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
@@ -424,52 +427,6 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
         harness.dispose(); globalThis.window = previousWindow
       }
     }
-  }
-})
-
-test('摄像头管理显示停用状态、禁止加入，并在复制时保留目标 Feature 开关', async () => {
-  for (const targetEnabled of [false, true]) {
-    const harness = hookHarness()
-    const saves = [], reads = [], adds = [], copied = []
-    const pool = [camera(1), camera(2, true, targetEnabled), camera(3, false, false), camera(4, false, true)]
-    const { FeatureCameraManager } = await compile('src/components/FeatureCameraManager.tsx', {
-      ...sharedUi, react: harness.hooks,
-      '@/components/detection/DetectionConfigUi': ui,
-      '@/components/logistics_single_person/LogisticsCameraCreateDialog': ui,
-      '@/lib/camera-events': { notifyPlatformCamerasChanged() {} },
-      '@/lib/aivision': {
-        ...cameraApi,
-        getAiVisionFeatureConfig: async (_feature, key) => {
-          reads.push(key)
-          return { config: { enable: key === 'camera_1' || targetEnabled, value: { detection_threshold: key === 'camera_1' ? .38 : .9 } } }
-        },
-        saveAiVisionFeatureConfig: async (...args) => saves.push(args),
-      },
-    })
-    try {
-      let tree = await harness.mount(() => FeatureCameraManager({ cameras: pool, feature: 'recognize_face', department: 'electronics_electrician',
-        currentCameraName: 'camera_1', disabled: false, onSelectCamera() {}, onAddCamera: async (key) => adds.push(key), onRemoveCamera: async () => {},
-        onConfigCopied: async (key) => copied.push(key) }))
-      let selects = elements(tree, (node) => Boolean(node.props?.onValueChange))
-      selects[0].props.onValueChange('camera_3'); tree = await harness.flush()
-      const join = elements(tree, (node) => node.props?.onClick && elements(node.props.children, () => false).length === 0
-        && JSON.stringify(node.props.children).includes('加入当前功能'))[0]
-      assert.equal(join.props.disabled, true)
-      await join.props.onClick()
-      assert.deepEqual(adds, [])
-      const unavailable = elements(tree, (node) => node.props?.value === 'camera_3' && node.props.disabled)
-      assert.ok(unavailable.length > 0)
-      assert.ok(renderToStaticMarkup(tree).includes('摄像头已停用'))
-      selects = elements(tree, (node) => Boolean(node.props?.onValueChange))
-      selects[1].props.onValueChange('camera_1'); selects[2].props.onValueChange('camera_2')
-      tree = await harness.flush()
-      const copy = elements(tree, (node) => node.props?.onClick && JSON.stringify(node.props.children).includes('复制配置'))[0]
-      await copy.props.onClick()
-      assert.deepEqual(reads, ['camera_1', 'camera_2'])
-      assert.equal(saves[0][2].enable, targetEnabled)
-      assert.equal(saves[0][2].value.detection_threshold, .38)
-      assert.deepEqual(copied, ['camera_2'])
-    } finally { harness.dispose() }
   }
 })
 
@@ -568,4 +525,152 @@ test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL
     preview.props.onClose(); tree = await harness.flush()
     assert.equal(elements(tree, (node) => node.type === Preview).length, 0)
   } finally { harness.dispose() }
+})
+
+async function mountCameraManager({ feature = 'recognize_face', isAdmin = true, failOrder = false, deferOrder = false } = {}) {
+  const harness = hookHarness()
+  let stored = [camera(1), camera(2, true, false), camera(3, false, false), camera(4, false, true)]
+    .map((item) => ({ ...item, functions: { [feature]: item.functions.recognize_face } }))
+  const foreign = { ...camera(5), department: 'fulida_company', functions: { [feature]: true } }
+  let displayed = structuredClone([...stored, foreign]), releaseOrder
+  const configs = new Map(stored.map((item) => [item.shm_name, { enable: item.functions[feature], value: { threshold: item.camera_id / 10 } }]))
+  const writes = [], orders = [], selections = [], copied = [], events = []
+  const refresh = async () => { events.push('reload'); displayed = structuredClone([...stored, foreign]) }
+  const { FeatureCameraManager } = await compile('src/components/FeatureCameraManager.tsx', {
+    ...sharedUi, react: harness.hooks,
+    '@/auth/useAuth': { useAuth: () => ({ isAdmin }) },
+    '@/components/ui/switch': ui,
+    '@/components/detection/DetectionConfigUi': ui,
+    '@/components/logistics_single_person/LogisticsCameraCreateDialog': ui,
+    '@/lib/camera-events': { notifyPlatformCamerasChanged: () => events.push('notify') },
+    '@/lib/aivision': {
+      ...cameraApi,
+      getAiVisionFeatureConfig: async (_feature, key) => ({ config: structuredClone(configs.get(key)) }),
+      saveAiVisionFeatureConfig: async (requestedFeature, key, config) => {
+        assert.equal(requestedFeature, feature)
+        writes.push({ key, config: structuredClone(config) })
+        configs.set(key, structuredClone(config))
+        stored = stored.map((item) => item.shm_name === key ? { ...item, functions: { [feature]: config.enable } } : item)
+        events.push('save')
+      },
+      saveAiVisionCameraOrder: async (department, cameraIds) => {
+        orders.push({ department, cameraIds })
+        if (deferOrder) await new Promise((resolve) => { releaseOrder = resolve })
+        if (failOrder) throw new Error('摄像头集合已变化，请重新加载')
+        stored = cameraIds.map((id, sort_order) => ({ ...stored.find((item) => item.camera_id === id), sort_order }))
+        events.push('order')
+      },
+    },
+  })
+  const render = () => FeatureCameraManager({ cameras: displayed, feature, department: 'electronics_electrician',
+    currentCameraName: 'camera_1', onSelectCamera: (key) => selections.push(key),
+    onCamerasChanged: refresh, onConfigCopied: async (key) => copied.push(key) })
+  const tree = await harness.mount(render)
+  return { harness, tree, writes, orders, selections, copied, events, releaseOrder: () => releaseOrder(),
+    stored: () => structuredClone(stored) }
+}
+
+const control = (tree, label) => {
+  const found = elements(tree, (node) => node.props?.['aria-label'] === label)[0]
+  assert.ok(found, label)
+  return found.props
+}
+
+for (const feature of ['blocks', 'detect_door', 'detect_face', 'recognize_face', 'detect_human', 'detect_phone']) {
+  test(`${feature} 复用统一 Switch，物理关闭时可停用现有检测，停用行保留且可选`, async () => {
+    const page = await mountCameraManager({ feature })
+    try {
+      let tree = page.tree
+      assert.equal(elements(tree, (node) => Boolean(node.props?.onCheckedChange)).length, 4)
+      assert.equal(control(tree, '摄像头3：启用检测').disabled, true)
+      assert.equal(Boolean(control(tree, '摄像头4：停用检测').disabled), false)
+      control(tree, '摄像头3：启用检测').onCheckedChange(true)
+      tree = await page.harness.flush()
+      assert.deepEqual(page.writes, [])
+      assert.ok(renderToStaticMarkup(tree).includes('请先在平台启用该摄像头'))
+      control(tree, '摄像头2：启用检测').onCheckedChange(true)
+      tree = await page.harness.flush()
+      assert.equal(page.writes.at(-1).config.enable, true)
+      assert.deepEqual(page.events.slice(-3), ['save', 'reload', 'notify'])
+      control(tree, '摄像头2：停用检测').onCheckedChange(false)
+      tree = await page.harness.flush()
+      assert.equal(page.writes.at(-1).config.enable, false)
+      control(tree, '摄像头4：停用检测').onCheckedChange(false)
+      tree = await page.harness.flush()
+      assert.equal(page.writes.at(-1).key, 'camera_4')
+      assert.equal(page.writes.at(-1).config.enable, false)
+      assert.equal(control(tree, '摄像头4：启用检测').disabled, true)
+      assert.equal(elements(tree, (node) => Boolean(node.props?.onCheckedChange)).length, 4)
+      const select = elements(tree, (node) => node.type === 'button' && node.props?.['aria-pressed'] === false)[0]
+      select.props.onClick()
+      assert.deepEqual(page.selections, ['camera_2'])
+      const html = renderToStaticMarkup(tree)
+      assert.ok(html.includes('当前正在编辑'))
+      assert.equal(html.includes('从已有摄像头加入当前功能'), false)
+      assert.equal(html.includes('摄像头5'), false)
+    } finally { page.harness.dispose() }
+  })
+}
+
+test('上下移提交完整主键顺序，等待持久化后重读；跨事业部摄像头不参与', async () => {
+  const page = await mountCameraManager({ deferOrder: true })
+  try {
+    let tree = page.tree
+    assert.equal(control(tree, '摄像头1上移').disabled, true)
+    assert.equal(control(tree, '摄像头4下移').disabled, true)
+    control(tree, '摄像头2上移').onClick()
+    tree = await page.harness.flush()
+    assert.deepEqual(page.orders[0], { department: 'electronics_electrician', cameraIds: [2, 1, 3, 4] })
+    assert.deepEqual(page.stored().map((item) => item.camera_id), [1, 2, 3, 4])
+    assert.ok(renderToStaticMarkup(tree).indexOf('摄像头1') < renderToStaticMarkup(tree).indexOf('摄像头2'))
+    assert.ok(elements(tree, (node) => Boolean(node.props?.onCheckedChange)).every((node) => node.props.disabled))
+    page.releaseOrder(); tree = await page.harness.flush()
+    assert.deepEqual(page.stored().map((item) => item.camera_id), [2, 1, 3, 4])
+    assert.deepEqual(page.events.slice(-3), ['order', 'reload', 'notify'])
+    control(tree, '摄像头2下移').onClick(); await page.harness.flush()
+    assert.deepEqual(page.orders[1].cameraIds, [1, 2, 3, 4])
+    page.releaseOrder(); await page.harness.flush()
+    assert.deepEqual(page.stored().map((item) => item.sort_order), [0, 1, 2, 3])
+  } finally { page.harness.dispose() }
+})
+
+test('排序冲突重新加载，保留后端顺序并展示错误', async () => {
+  const page = await mountCameraManager({ failOrder: true })
+  try {
+    control(page.tree, '摄像头2上移').onClick()
+    const tree = await page.harness.flush()
+    assert.deepEqual(page.stored().map((item) => item.camera_id), [1, 2, 3, 4])
+    assert.deepEqual(page.events, ['reload'])
+    assert.ok(renderToStaticMarkup(tree).includes('摄像头集合已变化'))
+  } finally { page.harness.dispose() }
+})
+
+test('Viewer 的 Switch 和排序按钮只读，直接调用回调也不能提交', async () => {
+  const page = await mountCameraManager({ isAdmin: false })
+  try {
+    const toggle = control(page.tree, '摄像头2：启用检测')
+    const move = control(page.tree, '摄像头2上移')
+    assert.equal(toggle.disabled, true)
+    assert.equal(move.disabled, true)
+    toggle.onCheckedChange(true); move.onClick(); await page.harness.flush()
+    assert.deepEqual(page.writes, [])
+    assert.deepEqual(page.orders, [])
+  } finally { page.harness.dispose() }
+})
+
+test('复制当前功能配置保留停用目标开关、Camera 归属、物理开关及排序', async () => {
+  const page = await mountCameraManager()
+  try {
+    const before = page.stored()
+    const selects = elements(page.tree, (node) => Boolean(node.props?.onValueChange))
+    selects[0].props.onValueChange('camera_1'); selects[1].props.onValueChange('camera_3')
+    let tree = await page.harness.flush()
+    const copy = elements(tree, (node) => node.props?.onClick && JSON.stringify(node.props.children).includes('复制配置'))[0]
+    await copy.props.onClick(); tree = await page.harness.flush()
+    assert.deepEqual(page.writes, [{ key: 'camera_3', config: { enable: false, value: { threshold: .1 } } }])
+    assert.deepEqual(page.copied, ['camera_3'])
+    assert.deepEqual(page.stored(), before)
+    assert.deepEqual(page.orders, [])
+    assert.equal(control(tree, '摄像头3：启用检测').disabled, true)
+  } finally { page.harness.dispose() }
 })

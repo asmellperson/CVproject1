@@ -285,3 +285,25 @@ def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
     assert original.sum() == 0
     assert annotated.sum() > 0
     assert not np.shares_memory(original, annotated)
+
+
+@pytest.mark.parametrize('interval,expected', [(None, 0), (.5, 0), (.1, 1)])
+def test_processing_loop_uses_interval_extension_without_camera_interval(monkeypatch, interval, expected):
+    from AiVision.features._shared import consumer as consumer_module
+    consumer = _consumer()
+    consumer.config_cache = {7: {'shm_name': 'camera', 'enable': True}}
+    consumer.latest_frames['camera'] = np.zeros((8, 8, 3), np.uint8)
+    consumer._last_process_at[7] = 10.
+    processed = []
+    monkeypatch.setattr(consumer, '_processing_interval_seconds', lambda *_: interval)
+    monkeypatch.setattr(consumer, '_process_static_frames', lambda **_: True)
+    monkeypatch.setattr(consumer, '_get_roi', lambda *_: [])
+    monkeypatch.setattr(consumer, '_frame_changed', lambda *_: False)
+    monkeypatch.setattr(consumer, '_handle_alarm', lambda *_: None)
+    monkeypatch.setattr(consumer, '_process', lambda *_: processed.append(7))
+    monkeypatch.setattr(consumer_module.time, 'time', lambda: 10.2)
+    monkeypatch.setattr(consumer_module.time, 'sleep', lambda _: setattr(consumer, 'running', False))
+    consumer.running = True
+    consumer._run()
+    assert len(processed) == expected
+    assert BaseFunctionConsumer._processing_interval_seconds(consumer, 7, {'cap_interval': .7}) == .7

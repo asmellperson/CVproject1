@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Query, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from AiVision.core.system_config import AiSystemConfig
 from AiVision.core.db import Base
 from AiVision.features.registry import all_specs
 from AiVision.alarms.devices.orm import AiHornConfig
@@ -100,7 +101,7 @@ def service_db(monkeypatch):
 
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     tables = [
-        AiCameraConfig.__table__,
+        AiCameraConfig.__table__, AiSystemConfig.__table__,
         AiHornConfig.__table__,
         *(spec.orm_class.__table__ for spec in all_specs().values()),
         LogisticsChannel.__table__,
@@ -1240,7 +1241,6 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
             .one()
         )
         retained_cfg.roi_pos = [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
-        retained_cfg.IOU_THR = 0.66
     for camera_id in camera_ids:
         service.add_existing_camera(BASE_FEATURE, source["id"], camera_id)
 
@@ -1268,7 +1268,6 @@ def test_move_reorder_and_remove_preserve_camera_config(service_db):
         cfg = session.query(all_specs()[BASE_FEATURE].orm_class).filter_by(camera_id=camera_ids[1]).one()
         assert cfg.enable is False
         assert cfg.roi_pos == [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]]
-        assert cfg.IOU_THR == 0.66
 
 
 # 功能：验证 `test_move_to_full_channel_fails_without_losing_original_binding` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明

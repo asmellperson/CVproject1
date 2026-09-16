@@ -21,6 +21,7 @@ import numpy as np
 
 from .state import (
     CameraSnapshot,
+    LogisticsDetectionConfig,
     PersonDetection,
     deduplicate_person_detections,
     translate_person_detection,
@@ -33,7 +34,7 @@ class LogisticsConsumerRuntime(Protocol):
     """单路检测向通道运行时读取配置、发布快照和请求汇总的注入接口。"""
     def camera_should_run(self, feature_name: str, camera_id: int) -> bool: ...
 
-    def person_confidence_threshold(self, feature_name: str, camera_id: int) -> float | None: ...
+    def detection_config_for_camera(self, feature_name: str, camera_id: int) -> LogisticsDetectionConfig | None: ...
 
     def update_camera_snapshot(
         self,
@@ -79,18 +80,18 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         if shm_name:
             self.monitor_status.pop(shm_name, None)
 
+    def _processing_interval_seconds(self, camera_id: int, cfg: dict) -> float | None:
+        detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
+        return None if detection is None else detection.cap_interval
+
     def _process(self, roi, camera_id):
         """
         对当前摄像头唯一 ROI 做人体检测，过滤无效框，计算当前人数和状态
         """
-        cfg = self.config_cache[camera_id]
-        conf_thr = self.logistics_runtime.person_confidence_threshold(self.feature_name, camera_id)
-        # 成员配置可能在调度与推理之间被移除；不使用摄像头阈值继续推理。
-        if conf_thr is None:
+        detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
+        # 成员可能在调度与推理之间被移除；没有通道策略就不继续推理。
+        if detection is None:
             return self._unknown_roi_result()
-        iou_thr = cfg["IOU_THR"]
-        min_box_area = cfg["MIN_BOX_AREA"]
-        min_aspect, max_aspect = cfg["ASPECT_RATIO_RANGE"]
         # 模型不可用不会认为通道没有人，而是unknown
         if not self.spec.required_models:
             return self._unknown_roi_result()
@@ -99,16 +100,16 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
             camera_id,
             self.spec.required_models[0],
             roi,
-            task_meta={"conf": conf_thr, "iou": iou_thr},
+            task_meta={"conf": detection.confidence_threshold, "iou": detection.model_iou_threshold},
         )
         # 某条结果缺失或推理失败时，直接 unknown，不能误报为无人。
         if det_result.get("status") != "ok" or not isinstance(det_result.get("detections"), list):
             return self._unknown_roi_result()
         detections = self._filter_person_detections(
             det_result["detections"],
-            min_box_area=min_box_area,
-            min_aspect=min_aspect,
-            max_aspect=max_aspect,
+            min_box_area=detection.min_box_area,
+            min_aspect=detection.min_aspect_ratio,
+            max_aspect=detection.max_aspect_ratio,
         )
         # 单个ROI：0人empty，1人normal，2人及以上mutiple
         count = len(detections)

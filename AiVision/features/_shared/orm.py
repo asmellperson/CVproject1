@@ -2,7 +2,7 @@
 features/_shared/orm.py
 功能配置 ORM 基类
 
-_CommonFieldsMixin: 摄像头功能开关、处理间隔、标识与时间戳。
+_CommonFieldsMixin: 摄像头功能开关、标识与时间戳。
 _AlarmFieldMixin: 声明sql_enable、horn_enable、horn_id 、horn_event_id、wechat_enable、wechat_user等告警字段
 
 用 SQLAlchemy mixin + 抽象基类把这些字段抽出来。
@@ -45,7 +45,6 @@ class _CommonFieldsMixin:
     id = Column(Integer, primary_key=True, autoincrement=True)
     # 这台摄像头是否启用了当前Feature（有一点区别：AiCameraConfig.enable：这台物理摄像头整体是否启用。FeatureConfig.enable：这台摄像头上的某一个检测功能是否启用）
     enable = Column(Boolean, default=False, comment="是否启用")
-    cap_interval = Column(Float, default=defaults.CAP_INTERVAL, comment="采集间隔(秒)")
     created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
         TIMESTAMP,
@@ -111,6 +110,8 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
     """
     # FeatureConfigBase自己不是数据库表，这种表只给子类继承
     __abstract__ = True
+
+    cap_interval = Column(Float, default=defaults.CAP_INTERVAL, comment="采集间隔(秒)")
 
     def to_config_dict(self) -> dict:
         return {**super().to_config_dict(), "alarm": self.to_alarm_dict()}

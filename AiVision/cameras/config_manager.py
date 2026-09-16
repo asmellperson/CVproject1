@@ -27,6 +27,8 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import Session
+from AiVision.core.system_config import AiSystemConfig
 
 from AiVision.core.db import session_scope, get_session     # 查数据库，写数据库
 from AiVision.core.events import config_event_bus, ConfigChangeEvent      # configChangeEvent：告诉Orchestrator配置变了
@@ -89,6 +91,10 @@ def _camera_integrity_value_error(exc: IntegrityError) -> ValueError:
         return ValueError("name 已存在")
     return ValueError("摄像头数据约束冲突")
 
+class CameraOrderConflict(ValueError):
+    """摄像头集合已变化，调用方必须重新加载后再排序。"""
+
+
 class CameraConfigManager:
     """摄像头主表的所有操作"""
 
@@ -101,7 +107,7 @@ class CameraConfigManager:
             if department is not None:
                 require_department(department)
                 query = query.filter(AiCameraConfig.department == department)
-            cameras = query.order_by(AiCameraConfig.id).all()
+            cameras = query.order_by(AiCameraConfig.sort_order, AiCameraConfig.id).all()
             specs = all_specs()
             function_states = _load_function_states(
                 session,
@@ -168,6 +174,8 @@ class CameraConfigManager:
         def create_record(session):
             # create_camera_record会同时给所有功能建默认配置
             cam = self.create_camera_record(session, values)
+            if not cam.enable:
+                raise ValueError("请先在平台启用该摄像头")
             # 当前指定功能的那一行配置
             config = (
                 session.query(spec.orm_class)
@@ -221,6 +229,61 @@ class CameraConfigManager:
                 sleep(_WRITE_RETRY_BACKOFF_SECONDS * attempt)
         raise RuntimeError("unreachable")
 
+    @staticmethod
+    def _lock_department_cameras(session: Session, department: str) -> list[AiCameraConfig]:
+        """事业部事务锁覆盖空列表和并发新增，再按主键锁定摄像头。"""
+        department = require_department(department)
+        table = AiSystemConfig.__table__
+        key = f"camera_order:{department}"
+        dialect = session.get_bind().dialect.name
+        if dialect == "mysql":
+            from sqlalchemy.dialects.mysql import insert
+            statement = insert(table).values(key=key, value=None)
+            statement = statement.on_duplicate_key_update(key=statement.inserted.key)
+        elif dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+            statement = insert(table).values(key=key, value=None)
+            statement = statement.on_conflict_do_update(index_elements=[table.c.key], set_={"key": key})
+        else:
+            raise RuntimeError("摄像头排序只支持 MySQL 和 SQLite")
+        # 复用系统配置表的独立锁行；锁随业务事务提交或回滚释放。
+        session.execute(statement)
+        return (session.query(AiCameraConfig)
+                .filter(AiCameraConfig.department == department)
+                .order_by(AiCameraConfig.id).populate_existing().with_for_update().all())
+
+    def reorder_cameras(self, department: str, camera_ids: list[int]) -> list[dict]:
+        department = require_department(department)
+        if any(type(camera_id) is not int or camera_id <= 0 for camera_id in camera_ids):
+            raise ValueError("camera_ids 必须只包含正整数摄像头主键")
+        if len(camera_ids) != len(set(camera_ids)):
+            raise ValueError("camera_ids 不允许重复")
+
+        def reorder(session: Session):
+            cameras = self._lock_department_cameras(session, department)
+            by_id = {camera.id: camera for camera in cameras}
+            if set(camera_ids) != set(by_id):
+                raise CameraOrderConflict("摄像头集合已变化或包含其他事业部摄像头，请重新加载后排序")
+            changes = []
+            for position, camera_id in enumerate(camera_ids):
+                camera = by_id[camera_id]
+                if camera.sort_order != position:
+                    before = self._event_snapshot(camera)
+                    camera.sort_order = position
+                    changes.append((camera.id, camera.shm_name, before, self._event_snapshot(camera)))
+            session.flush()
+            return changes
+
+        changes = self._run_write_transaction(reorder)
+        for camera_id, _name, _before, _after in changes:
+            config_cache.refresh_camera(camera_id)
+        for camera_id, name, before, after in changes:
+            config_event_bus.publish(ConfigChangeEvent(
+                change_type="camera_updated", camera_id=camera_id, camera_name=name,
+                old_value=before, new_value=after,
+            ))
+        return self.list_cameras(department)
+
     def create_camera_record(self, session, payload: dict) -> AiCameraConfig:
         """真正的创建摄像头数据库记录。"""
         name = (payload.get("name") or "").strip()
@@ -237,6 +300,8 @@ class CameraConfigManager:
             raise ValueError("fps must be > 0")
         if max_restart < 0:
             raise ValueError("max_restart must be >= 0")
+        cameras = self._lock_department_cameras(session, department)
+        sort_order = max((camera.sort_order for camera in cameras), default=-1) + 1
         # 主动检查重复
         if session.query(AiCameraConfig).filter_by(name=name).first():
             raise ValueError(f"name 已存在: {name}")
@@ -249,7 +314,7 @@ class CameraConfigManager:
             name=name, url=url, shm_name=pending_shm,
             fps=fps, max_restart=max_restart, enable=enable,
             function_config={},
-            department=department,
+            department=department, sort_order=sort_order,
         )
         session.add(cam)
         # 把当前SQL发给数据库，让数据库生成ID等信息
@@ -296,7 +361,7 @@ class CameraConfigManager:
         for field in ("name", "url", "fps", "max_restart", "enabled"):
             if field in payload and payload[field] is None:
                 raise ValueError(f"{field} 不能为空")
-        with session_scope() as session:
+        def update_record(session: Session):
             # 根据key找到真正的AiCameraConfig数据库对象
             cam = self._get_orm_by_key(session, key)
             if cam is None:
@@ -305,8 +370,13 @@ class CameraConfigManager:
                 from AiVision.features.logistics_channel.orm import LogisticsChannelCamera
 
                 department = require_department(payload["department"])
-                # 成员写入也先锁摄像头；锁定后读取最新绑定，防止并发改变归属。
+                previous_department = cam.department
+                locked_departments = {}
+                for value in sorted({value for value in (previous_department, department) if value is not None}):
+                    locked_departments[value] = self._lock_department_cameras(session, value)
                 session.refresh(cam, with_for_update=True)
+                if cam.department != previous_department:
+                    raise CameraOrderConflict("摄像头归属已变化，请重新加载")
                 if department != cam.department:
                     membership = (
                         session.query(LogisticsChannelCamera.id)
@@ -318,6 +388,8 @@ class CameraConfigManager:
                         raise ValueError("摄像头已绑定物流通道，请先解除物流通道绑定后再修改事业部")
             # _event_snapshot:把当前摄像头的重要运行配置复制成一个普通dict
             old_value = self._event_snapshot(cam)
+            if "department" in payload and department != cam.department:
+                cam.sort_order = max((row.sort_order for row in locked_departments[department]), default=-1) + 1
             # 修改字段
             for field in ("name", "url", "fps", "max_restart", "department"):
                 if field in payload:
@@ -329,7 +401,12 @@ class CameraConfigManager:
             # 记录修改后的配置
             new_value = self._event_snapshot(cam)
             # 保存
-            cam_id, cam_shm = cam.id, cam.shm_name
+            return cam.id, cam.shm_name, old_value, new_value
+
+        result = self._run_write_transaction(update_record)
+        if result is None:
+            return None
+        cam_id, cam_shm, old_value, new_value = result
 
         # 刷新当前摄像头，并同步已缓存的关联功能字段
         config_cache.refresh_camera(cam_id)
@@ -441,6 +518,7 @@ class CameraConfigManager:
             "enabled": bool(cam.enable),
             "shape": cam.shape,
             "department": cam.department,
+            "sort_order": cam.sort_order,
             "functions": functions,
         }
 
@@ -456,6 +534,7 @@ class CameraConfigManager:
             "max_restart": cam.max_restart,
             "enabled": bool(cam.enable),
             "department": cam.department,
+            "sort_order": cam.sort_order,
         }
 
 # API共用camera_config_manager

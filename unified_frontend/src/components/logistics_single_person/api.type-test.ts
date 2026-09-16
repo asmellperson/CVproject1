@@ -1,11 +1,10 @@
 import type {
-  getLogisticsCameraConfig,
-  updateLogisticsCameraConfig,
+  getLogisticsCameraRoi,
+  updateLogisticsCameraRoi,
 } from './api'
 import type {
-  LogisticsCameraConfigPayload,
-  LogisticsCameraConfigResponse,
-  LogisticsCameraDetectionValue,
+  LogisticsCameraRoiPayload,
+  LogisticsCameraRoiResponse,
   LogisticsFeatureName,
 } from './types'
 
@@ -17,20 +16,19 @@ type Equal<Left, Right> =
 
 type AssertTrue<Value extends true> = Value
 
-export type LogisticsCameraConfigApiAssertions = [
-  AssertTrue<Equal<keyof LogisticsCameraConfigPayload, 'enable' | 'value'>>,
-  AssertTrue<Equal<keyof LogisticsCameraDetectionValue,
-    'roi_pos' | 'IOU_THR' | 'MIN_BOX_AREA' | 'ASPECT_RATIO_RANGE' | 'cap_interval'>>,
+export type LogisticsCameraRoiApiAssertions = [
+  AssertTrue<Equal<keyof LogisticsCameraRoiPayload, 'roi_pos'>>,
+  AssertTrue<Equal<keyof LogisticsCameraRoiResponse, 'camera' | 'roi_pos'>>,
   AssertTrue<Equal<
-    Parameters<typeof getLogisticsCameraConfig>,
+    Parameters<typeof getLogisticsCameraRoi>,
     [feature: LogisticsFeatureName, channelId: number, cameraId: number, init?: RequestInit]
   >>,
   AssertTrue<Equal<
-    ReturnType<typeof getLogisticsCameraConfig>,
-    Promise<LogisticsCameraConfigResponse>
+    ReturnType<typeof getLogisticsCameraRoi>,
+    Promise<LogisticsCameraRoiResponse>
   >>,
   AssertTrue<Equal<
-    Parameters<typeof updateLogisticsCameraConfig>,
-    [feature: LogisticsFeatureName, channelId: number, cameraId: number, payload: LogisticsCameraConfigPayload]
+    Parameters<typeof updateLogisticsCameraRoi>,
+    [feature: LogisticsFeatureName, channelId: number, cameraId: number, payload: LogisticsCameraRoiPayload]
   >>,
 ]

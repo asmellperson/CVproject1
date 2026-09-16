@@ -8,7 +8,7 @@ import ts from 'typescript'
 const require = createRequire(import.meta.url)
 const root = new URL('../', import.meta.url)
 
-// Exercise actual component callbacks with the same lightweight hook harness used by recognition tests.
+// 复用人脸识别测试的轻量 hook 驱动方式，检查真实组件回调。
 function harness() {
   const slots = []
   let cursor = 0, dirty = true, render, tree, effects = []
@@ -61,6 +61,7 @@ const alarm = {
 }
 const common = { roi_pos: [], cap_interval: .2, alarm_interval: 7 }
 const configs = {
+  Intrusion: { ...common, line_points: [[0, .5], [1, .5]], alarm_side: 1, foot_ratio: .2, threshold: .5 },
   Face: { ...common, FACE_SCORE_THR: .65, MAX_TIME: 12, MAX_LOST: 2, DETECTION_IOU_THR: .21, TRACK_IOU_THR: .79 },
   Human: { ...common, CONF_THRESHOLD: .4, MAX_TIME: 12, MAX_LOST: 2, DETECTION_IOU_THR: .21, TRACK_IOU_THR: .79,
     MIN_BOX_AREA: 0, ASPECT_RATIO_RANGE: [0, 10], CENTER_DIST_THR: .65, AREA_RATIO_THR: .55,
@@ -72,14 +73,14 @@ const configs = {
     MIN_CONFIRM_SECONDS: 1.2, MIN_CONSECUTIVE_HITS: 3, REQUIRE_PERSON_ASSOCIATION: true, PERSON_EXPAND_RATIO: .18 },
 }
 
-async function mount(name, feature = `detect_${name.toLowerCase()}`, department = 'general_electric') {
+async function mount(name, feature = `detect_${name.toLowerCase()}`, department = 'general_electric', enabled = true) {
   const h = harness()
   const writes = []
   const cameraDepartments = []
-  let config = { enable: true, value: structuredClone(configs[name]), alarm: structuredClone(alarm) }
+  let config = { enable: enabled, value: structuredClone(configs[name]), alarm: structuredClone(alarm) }
   const response = () => ({ camera: { id: 1, name: '测试摄像头', shm_name: 'test', enable: true }, feature, config })
   const api = {
-    getAiVisionCameras: async (requestedDepartment) => { cameraDepartments.push(requestedDepartment); return [{ id: '1', name: '测试摄像头', shm_name: 'test', functions: { [feature]: true } }] },
+    getAiVisionCameras: async (requestedDepartment) => { cameraDepartments.push(requestedDepartment); return [{ id: '1', camera_id: 1, sort_order: 0, department, enabled: true, name: '测试摄像头', shm_name: 'test', functions: { [feature]: enabled } }] },
     isAiVisionFeatureEnabled: (camera, key) => Boolean(camera.functions[key]),
     getAiVisionFeatureConfig: async () => response(),
     saveAiVisionFeatureConfig: async (_feature, _key, next) => {
@@ -177,4 +178,15 @@ test('phone rejects fractional hit counts and preserves valid integers', async (
   assert.equal(page.writes.length, 0)
   await page.input('phone-hit-count', '1'); await page.save()
   assert.equal(page.writes[0].value.MIN_CONSECUTIVE_HITS, 1)
+})
+
+
+test('停用 Feature 的摄像头仍可读取和保存参数，保存不会启用检测', async () => {
+  for (const name of ['Intrusion', 'Face', 'Human', 'Door', 'Phone']) {
+    const page = await mount(name, name === 'Intrusion' ? 'blocks' : `detect_${name.toLowerCase()}`, 'fulida_company', false)
+    await page.save()
+    assert.equal(page.writes.length, 1, name)
+    assert.equal(page.writes[0].enable, false, name)
+    assert.ok(page.cameraDepartments.every((department) => department === 'fulida_company'))
+  }
 })

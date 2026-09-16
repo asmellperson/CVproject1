@@ -22,6 +22,7 @@ from AiVision.core.db import get_session
 from AiVision.core.events import ConfigChangeEvent, config_event_bus
 from AiVision.core.logger import logger
 from AiVision.features.registry import all_specs
+from AiVision.features._shared.orm import CameraFeatureConfigBase
 from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.cameras.config_manager import (
@@ -38,7 +39,7 @@ from .orm import LogisticsChannel, LogisticsChannelCamera
 from .schema import (
     LogisticsChannelDetailResponse, LogisticsChannelListResponse,
     LogisticsChannelUpdate, LogisticsChannelConfigUpdate, LogisticsChannelMemberCreate,
-    LogisticsChannelConfigResponse,
+    LogisticsChannelConfigResponse, LogisticsCameraRoiResponse, LogisticsCameraRoiUpdate,
 )
 
 @dataclass(frozen=True)
@@ -607,6 +608,77 @@ class LogisticsChannelService(MembershipTransaction):
         return True
 
 
+    def get_camera_roi(self, feature_name: str, channel_id: int, camera_id: int) -> dict:
+        feature_name = require_logistics_feature(feature_name)
+        config_class = all_specs()[feature_name].orm_class
+        session = get_session()
+        try:
+            row = (
+                session.query(config_class, AiCameraConfig, LogisticsChannel)
+                .select_from(config_class)
+                .join(AiCameraConfig, AiCameraConfig.id == config_class.camera_id)
+                .join(LogisticsChannelCamera, LogisticsChannelCamera.camera_id == AiCameraConfig.id)
+                .join(LogisticsChannel, LogisticsChannel.id == LogisticsChannelCamera.channel_id)
+                .filter(
+                    LogisticsChannel.id == channel_id,
+                    LogisticsChannel.feature_name == feature_name,
+                    AiCameraConfig.id == camera_id,
+                )
+                .one_or_none()
+            )
+            if row is None:
+                raise ValueError("物流通道成员或 ROI 配置不存在")
+            config, camera, channel = row
+            self._require_camera_department(camera, channel)
+            return self._camera_roi_response(camera, config)
+        finally:
+            session.close()
+
+    def update_camera_roi(self, feature_name: str, channel_id: int, camera_id: int, payload: dict) -> dict:
+        feature_name = require_logistics_feature(feature_name)
+        values = LogisticsCameraRoiUpdate.model_validate(payload).model_dump()
+
+        def discover():
+            return self._discover_memberships(camera_ids=(camera_id,), channel_ids=(channel_id,))
+
+        def update(session, discovery):
+            # 沿用成员写事务的锁顺序，防止 ROI 保存期间被解绑、移动或改变摄像头归属。
+            state = self._lock_membership_state(
+                session, discovery,
+                required_channel_ids=(channel_id,), required_camera_ids=(camera_id,),
+            )
+            channel = state.channels.get(channel_id)
+            camera = state.cameras.get(camera_id)
+            if channel is None or channel.feature_name != feature_name or camera is None or not any(
+                member.channel_id == channel_id and member.camera_id == camera_id for member in state.members
+            ):
+                raise ValueError("物流通道成员不存在")
+            self._require_camera_department(camera, channel)
+            config = (
+                session.query(all_specs()[feature_name].orm_class)
+                .filter_by(camera_id=camera_id)
+                .with_for_update()
+                .one_or_none()
+            )
+            if config is None:
+                raise ValueError("物流摄像头 ROI 配置不存在")
+            config.roi_pos = values["roi_pos"]
+            session.flush()
+            return self._camera_roi_response(camera, config), _CameraRef(camera.id, camera.shm_name)
+
+        response, camera_ref = self._run_membership_transaction(discover, update)
+        self._notify_channel_changed(
+            channel_id, feature_name, camera_refs=(camera_ref,), feature_action="config_updated",
+        )
+        return response
+
+    @staticmethod
+    def _camera_roi_response(camera: AiCameraConfig, config: CameraFeatureConfigBase) -> dict:
+        return LogisticsCameraRoiResponse.model_validate({
+            "camera": {"id": camera.id, "name": camera.name, "shm_name": camera.shm_name, "enable": camera.enable},
+            "roi_pos": config.roi_pos,
+        }).model_dump()
+
     # ---------------  helper -----------------
     def _apply_channel_values(
         self,
@@ -646,6 +718,11 @@ class LogisticsChannelService(MembershipTransaction):
             "detection_start",
             "detection_end",
             "confidence_threshold",
+            "model_iou_threshold",
+            "min_box_area",
+            "min_aspect_ratio",
+            "max_aspect_ratio",
+            "cap_interval",
             "empty_grace_seconds",
             "multi_grace_seconds",
             "alarm_interval",

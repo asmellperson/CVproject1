@@ -12,6 +12,17 @@ from .constants import PERSON_DEDUP_IOU_THRESHOLD
 ChannelReason = Literal["normal", "empty", "multiple", "unknown", "unconfigured", "inactive"]
 
 @dataclass(frozen=True)
+class LogisticsDetectionConfig:
+    """同一通道所有启用成员共享的不可变检测策略。"""
+    confidence_threshold: float
+    model_iou_threshold: float
+    min_box_area: int
+    min_aspect_ratio: float
+    max_aspect_ratio: float
+    cap_interval: float
+
+
+@dataclass(frozen=True)
 class CameraSnapshot:
     """一台摄像头在某个时刻的检测结果"""
     camera_id: int

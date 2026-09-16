@@ -1,21 +1,4 @@
-"""
-四个事业部共用的物流通道级运行时。
-每路物流通道摄像头的Consumer。
-    做YOLO人员检测
-    CameraSnapshot
-        camera_id
-        count
-        updated_at
-    LogisticsChannelRuntime
-    聚合一个通道的多台摄像头
-    判断0/1/2人数
-    ChannelPresenceState
-    宽限时间判断
-    ChannelDecision
-    拼接多路画面
-    AlarmRequest
-    AlarmDispatcher
-"""
+"""物流通道共享检测策略、成员快照聚合与通道告警运行时。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,7 +19,7 @@ from AiVision.cameras.config_manager import camera_config_manager
 from .compositor import CameraTile, compose_channel_frame
 from .constants import LOGISTICS_FEATURES, require_logistics_feature
 from .service import logistics_channel_service
-from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, classify_channel
+from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, LogisticsDetectionConfig, classify_channel
 
 @dataclass(frozen=True)
 class _CameraInfo:
@@ -53,7 +36,7 @@ class _ChannelConfig:
     enabled: bool
     detection_start: object
     detection_end: object
-    confidence_threshold: float
+    detection: LogisticsDetectionConfig
     empty_grace_seconds: float
     multi_grace_seconds: float
     alarm_interval: float
@@ -216,14 +199,14 @@ class LogisticsChannelRuntime:
                 self._reset_cooldown(channel)
         return active
 
-    def person_confidence_threshold(self, feature_name: str, camera_id: int) -> float | None:
-        """返回摄像头所属通道的人体检测阈值；未绑定通道时返回 None。"""
+    def detection_config_for_camera(self, feature_name: str, camera_id: int) -> LogisticsDetectionConfig | None:
+        """只为启用通道的启用成员返回统一策略；未绑定或停用时返回 None。"""
         feature_name = require_logistics_feature(feature_name)
         self._ensure_feature_loaded(feature_name)
         with self._lock:
             channel_id = self._camera_channels.get((feature_name, camera_id))
             channel = self._channels.get((feature_name, channel_id)) if channel_id is not None else None
-            return None if channel is None else channel.confidence_threshold
+            return channel.detection if channel is not None and channel.enabled else None
 
     def update_camera_snapshot(
         self,
@@ -311,7 +294,7 @@ class LogisticsChannelRuntime:
         self._ensure_feature_loaded(feature_name)
 
     def refresh_camera_all(self, camera_id: int) -> None:
-        """全局摄像头改名、运行参数更新或删除后刷新四个物流命名空间。"""
+        """摄像头资源变化后刷新所有物流功能的成员缓存。"""
         for feature_name in sorted(LOGISTICS_FEATURES):
             self.refresh_camera(feature_name, camera_id)
 
@@ -600,7 +583,14 @@ class LogisticsChannelRuntime:
             enabled=detail["enabled"],
             detection_start=config["detection_start"],
             detection_end=config["detection_end"],
-            confidence_threshold=config["confidence_threshold"],
+            detection=LogisticsDetectionConfig(
+                confidence_threshold=config["confidence_threshold"],
+                model_iou_threshold=config["model_iou_threshold"],
+                min_box_area=config["min_box_area"],
+                min_aspect_ratio=config["min_aspect_ratio"],
+                max_aspect_ratio=config["max_aspect_ratio"],
+                cap_interval=config["cap_interval"],
+            ),
             empty_grace_seconds=config["empty_grace_seconds"],
             multi_grace_seconds=config["multi_grace_seconds"],
             alarm_interval=config["alarm_interval"],

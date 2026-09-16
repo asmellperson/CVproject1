@@ -223,9 +223,10 @@ def test_new_camera_configuration_persists_empty_normalized_roi(feature):
 @pytest.mark.parametrize("feature", ORDINARY_FEATURES)
 def test_each_feature_crops_infers_and_draws_in_current_frame_coordinates(feature):
     spec = _spec(feature)
+    from AiVision.features.logistics_channel.state import LogisticsDetectionConfig
     snapshots = []
     runtime = SimpleNamespace(
-        person_confidence_threshold=lambda *_args: 0.3,
+        detection_config_for_camera=lambda *_args: LogisticsDetectionConfig(.3, .3, 0, 0., 10., .2),
         update_camera_snapshot=lambda *args: snapshots.append(args),
     )
     kwargs = {"logistics_runtime": runtime} if feature == "detect_logistics_single_person" else {}

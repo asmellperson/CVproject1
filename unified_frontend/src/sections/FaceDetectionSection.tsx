@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
 const AiVisionRoiEditor = lazy(() =>
@@ -110,9 +110,9 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [cameraAction, setCameraAction] = useState(false)
   const selectedCameraRef = useRef('')
   const configRequestRef = useRef(0)
+  const cameraListRequestRef = useRef(0)
   const loadedCameraRef = useRef('')
 
   const getCameraDisplayName = (shmName: string, fallback?: string, source: AiVisionCamera[] = cameras) => {
@@ -149,28 +149,31 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
   }
 
   const loadCameras = async () => {
+    const requestId = ++cameraListRequestRef.current
     setCameraLoading(true)
     try {
       const items = await getAiVisionCameras(department)
+      if (requestId !== cameraListRequestRef.current) return
       setCameras(items)
-      const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_face'))
-      const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
-      const nextCamera = enabledCamera?.shm_name || ''
+      const selectedCamera = items.find((camera) => camera.shm_name === selectedCameraRef.current) || items[0]
+      const nextCamera = selectedCamera?.shm_name || ''
       if (items.length === 0) {
+        selectedCameraRef.current = ''
+        configRequestRef.current += 1
+        loadedCameraRef.current = ''
+        setLoading(false)
+        setFaceConfig(null)
+        setForm((previous) => ({ ...previous, cameraName: '' }))
         setMessage('当前事业部暂未配置摄像头')
-        return
-      }
-      if (!nextCamera) {
-        setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前人脸逗留检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
       await loadConfig(nextCamera, items)
     } catch (error) {
+      if (requestId !== cameraListRequestRef.current) return
       setMessage(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      setCameraLoading(false)
+      if (requestId === cameraListRequestRef.current) setCameraLoading(false)
     }
   }
 
@@ -182,52 +185,18 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
     window.addEventListener('aivision:cameras-changed', refreshCameras)
     return () => {
       configRequestRef.current += 1
+      cameraListRequestRef.current += 1
       window.removeEventListener('aivision:cameras-changed', refreshCameras)
     }
   }, [department])
 
   const refreshCameraList = async () => {
+    const requestId = ++cameraListRequestRef.current
     const items = await getAiVisionCameras(department)
+    if (requestId !== cameraListRequestRef.current) return items
     setCameras(items)
+    setCameraLoading(false)
     return items
-  }
-
-  const addCameraToFeature = async (cameraName: string) => {
-    setCameraAction(true)
-    setMessage('正在添加摄像头并启用人脸逗留检测...')
-    try {
-      const payload = await requestFaceConfig(cameraName)
-      await requestFaceConfig(cameraName, { ...payload.detect_face, enable: true })
-      await refreshCameraList()
-      await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用人脸逗留检测。`)
-    } catch (error) {
-      setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCameraAction(false)
-    }
-  }
-
-  const removeCameraFromFeature = async (cameraName: string) => {
-    setCameraAction(true)
-    setMessage('正在停用该摄像头的人脸逗留检测...')
-    try {
-      const payload = await requestFaceConfig(cameraName)
-      await requestFaceConfig(cameraName, { ...payload.detect_face, enable: false })
-      const items = await refreshCameraList()
-      const nextCamera = items.find((camera) => isAiVisionFeatureEnabled(camera, 'detect_face'))?.shm_name || ''
-      if (form.cameraName === cameraName && nextCamera) {
-        await loadConfig(nextCamera)
-      } else if (form.cameraName === cameraName) {
-        setFaceConfig(null)
-        setForm({ ...defaultForm, cameraName: '' })
-      }
-      setMessage(`停用成功：${cameraName} 已关闭人脸逗留检测。`)
-    } catch (error) {
-      setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setCameraAction(false)
-    }
   }
 
   const saveConfig = async () => {
@@ -280,7 +249,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
 
     const nextConfig: FaceConfig = {
       ...faceConfig,
-      enable: true,
+      enable: faceConfig.enable,
       value: {
         ...faceConfig.value,
         roi_pos: roiPos,
@@ -331,7 +300,6 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
     setMessage('已应用夜间参数预设，确认后请保存配置。')
   }
 
-  const featureCameras = cameras.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_face'))
 
   return (
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
@@ -363,13 +331,12 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                 feature="detect_face"
                 department={department}
                 currentCameraName={form.cameraName}
-                disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
+                disabled={!isAdmin || cameraLoading || loading || saving}
                 onSelectCamera={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   loadConfig(cameraName)
                 }}
-                onAddCamera={addCameraToFeature}
-                onRemoveCamera={removeCameraFromFeature}
+                onCamerasChanged={refreshCameraList}
                 onConfigCopied={(cameraName) => {
                   setForm((prev) => ({ ...prev, cameraName }))
                   return loadConfig(cameraName)
@@ -383,7 +350,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                   title="人脸逗留检测 ROI 绘制"
                   cameraKey={form.cameraName}
                   roiJson={form.roiPos}
-                  disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
                   saving={saving}
                   message={message}
                   onChange={(roiPos) => setForm((prev) => ({ ...prev, roiPos }))}
@@ -397,7 +364,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="InsightFace 检测人脸框，按轨迹计算逗留时间。" actions={<Badge variant="outline">AiVision detect_face</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
-                  disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                  disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
                   onApplyDay={applyDayPreset}
                   onApplyNight={applyNightPreset}
                 />
@@ -410,13 +377,13 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                         setForm((prev) => ({ ...prev, cameraName: value }))
                         loadConfig(value)
                       }}
-                      disabled={cameraLoading || loading || saving || cameraAction || featureCameras.length === 0}
+                      disabled={cameraLoading || loading || saving || cameras.length === 0}
                     >
                       <SelectTrigger id="face-camera" className="w-full">
                         <SelectValue placeholder={cameraLoading ? '正在读取摄像头' : '选择摄像头'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {featureCameras.map((camera) => (
+                        {cameras.map((camera) => (
                           <SelectItem key={camera.id} value={camera.shm_name}>
                             {camera.name}
                           </SelectItem>
@@ -489,7 +456,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
 
               </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || cameraAction || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+              <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
@@ -501,7 +468,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
             <TabsContent value="alarm" className="space-y-6">
               <AlarmPushConfig
                 alarm={faceConfig?.alarm}
-                disabled={!faceConfig || !isAdmin || loading || saving || cameraAction || !form.cameraName}
+                disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
                 saving={saving}
                 message={message}
                 onChange={(alarm) => setFaceConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}

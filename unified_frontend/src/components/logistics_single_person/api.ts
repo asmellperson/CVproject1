@@ -2,8 +2,8 @@ import type { DepartmentId } from '@/auth/permissions'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUrl } from '@/lib/api'
 import type {
   CreateLogisticsChannelPayload,
-  LogisticsCameraConfigPayload,
-  LogisticsCameraConfigResponse,
+  LogisticsCameraRoiPayload,
+  LogisticsCameraRoiResponse,
   LogisticsCameraInventoryResponse,
   LogisticsChannelAlarmListResponse,
   LogisticsChannelDetail,
@@ -61,11 +61,11 @@ export const getLogisticsCameraInventory = (department?: DepartmentId) =>
     `/logistics-channels/inventory${department ? `?department=${encodeURIComponent(department)}` : ''}`,
   )
 
-const memberCameraConfigPath = (
+const memberCameraRoiPath = (
   feature: LogisticsFeatureName,
   channelId: number,
   cameraId: number,
-) => `${logisticsChannelPath(feature, channelId)}/cameras/${encodeURIComponent(String(cameraId))}/config`
+) => `${logisticsChannelPath(feature, channelId)}/cameras/${encodeURIComponent(String(cameraId))}/roi`
 
 function invalidateAfter<T>(
   request: Promise<T>,
@@ -254,23 +254,23 @@ export function revokeLogisticsChannelFrameObjectUrl(objectUrl?: string | null) 
   if (objectUrl) URL.revokeObjectURL(objectUrl)
 }
 
-export const getLogisticsCameraConfig = (
+export const getLogisticsCameraRoi = (
   feature: LogisticsFeatureName,
   channelId: number,
   cameraId: number,
   init?: RequestInit,
-) => apiGet<LogisticsCameraConfigResponse>(
-  memberCameraConfigPath(feature, channelId, cameraId),
+) => apiGet<LogisticsCameraRoiResponse>(
+  memberCameraRoiPath(feature, channelId, cameraId),
   init,
 )
 
-export const updateLogisticsCameraConfig = (
+export const updateLogisticsCameraRoi = (
   feature: LogisticsFeatureName,
   channelId: number,
   cameraId: number,
-  payload: LogisticsCameraConfigPayload,
+  payload: LogisticsCameraRoiPayload,
 ) => invalidateAfter(
-  apiPut<LogisticsCameraConfigResponse>(memberCameraConfigPath(feature, channelId, cameraId), payload),
+  apiPut<LogisticsCameraRoiResponse>(memberCameraRoiPath(feature, channelId, cameraId), payload),
   feature,
   channelId,
 )

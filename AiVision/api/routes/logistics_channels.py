@@ -6,18 +6,14 @@ import datetime as dt
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import ValidationError
 
 from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import (
     get_current_orchestrator,
-    get_feature_config_manager,
     get_logistics_channel_service,      # 物流通道配置和成员关系管理器
 )
-from AiVision.api.routes.features import FeatureConfigResponse
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
-from AiVision.features.registry import all_specs
 from AiVision.features.logistics_channel.constants import (
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
@@ -33,6 +29,7 @@ from AiVision.features.logistics_channel.schema import (
     LogisticsChannelOkResponse,                         # 
     LogisticsChannelRuntimeStatusResponse,              # 通道当前运行状态的数据模型
     LogisticsChannelStatisticsResponse,                 # 通道告警统计的数据模型
+    LogisticsCameraRoiResponse, LogisticsCameraRoiUpdate,
     LogisticsChannelPatchRequest,                       # 修改通道时
 )
 from AiVision.alarms.records.orm import AiAlarmEvent
@@ -343,62 +340,44 @@ def set_camera_enabled(
     except ValueError as exc:
         _raise_service_error(exc)
 
-def _require_channel_member(service, feature: str, channel_id: int, camera_id: int) -> dict:
-    """确认摄像头确实属于当前物流通道"""
-    channel = _get_channel_or_404(service, feature, channel_id)
-    if not any(
-        int(member["camera_id"]) == camera_id
-        for member in channel.get("members", [])
-    ):
-        raise HTTPException(status_code=404, detail="channel camera membership not found")
-    return channel
-
 @router.get(
-    "/{feature}/{channel_id}/cameras/{camera_id}/config",
-    response_model=FeatureConfigResponse,
+    "/{feature}/{channel_id}/cameras/{camera_id}/roi",
+    response_model=LogisticsCameraRoiResponse,
 )
-def get_member_camera_config(
+def get_member_camera_roi(
     feature: str,
     channel_id: int,
     camera_id: int,
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
-    feature_config_manager=Depends(get_feature_config_manager),
-) -> FeatureConfigResponse:
-    """读取某个物流通道中某个成员自己的功能配置"""
+) -> LogisticsCameraRoiResponse:
     _require_channel_access(service, feature, channel_id, user)
-    _require_channel_member(service, feature, channel_id, camera_id)
-    # 读取单摄像头配置
-    result = feature_config_manager.get_config(all_specs()[feature], str(camera_id))
-    if result is None:
-        raise HTTPException(status_code=404, detail="camera or config not found")
-    return FeatureConfigResponse(**result)
+    try:
+        return LogisticsCameraRoiResponse.model_validate(service.get_camera_roi(feature, channel_id, camera_id))
+    except ValueError as exc:
+        _raise_service_error(exc)
+
 
 @router.put(
-    "/{feature}/{channel_id}/cameras/{camera_id}/config",
-    response_model=FeatureConfigResponse,
+    "/{feature}/{channel_id}/cameras/{camera_id}/roi",
+    response_model=LogisticsCameraRoiResponse,
 )
-def update_member_camera_config(
+def update_member_camera_roi(
     feature: str,
     channel_id: int,
     camera_id: int,
-    payload: dict,
+    payload: LogisticsCameraRoiUpdate,
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
-    feature_config_manager=Depends(get_feature_config_manager),
-) -> FeatureConfigResponse:
-    """修改某个摄像头自己的功能配置"""
+) -> LogisticsCameraRoiResponse:
     _require_channel_access(service, feature, channel_id, user)
-    _require_channel_member(service, feature, channel_id, camera_id)
-    spec = all_specs()[feature]
     try:
-        validated = spec.config_schema.model_validate(payload).model_dump()
-    except ValidationError as exc:
-        raise HTTPException(status_code=400, detail=f"validation error: {exc}") from exc
-    result = feature_config_manager.save_config(spec, str(camera_id), validated)
-    if result is None:
-        raise HTTPException(status_code=404, detail="camera not found")
-    return FeatureConfigResponse(**result)
+        return LogisticsCameraRoiResponse.model_validate(
+            service.update_camera_roi(feature, channel_id, camera_id, payload.model_dump()),
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
+
 
 @router.delete(
     "/{feature}/{channel_id}/cameras/{camera_id}",

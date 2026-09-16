@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from AiVision.core import db
 from AiVision.core.cache import ConfigCache
 from AiVision.features.registry import all_specs, get_spec
+from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from AiVision.features._shared import config_manager
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 from AiVision.cameras.orm import AiCameraConfig
@@ -41,7 +42,7 @@ def api(monkeypatch):
     engine.dispose()
 
 
-@pytest.mark.parametrize("feature", list(all_specs()))
+@pytest.mark.parametrize("feature", [name for name in all_specs() if name not in LOGISTICS_FEATURES])
 def test_defaults_read_save_echo_and_cache(api, feature):
     spec = get_spec(feature)
     path = f"/api/features/{feature}/configs/test"

@@ -1,4 +1,4 @@
-"""物流摄像头参数、通道配置、成员请求和运行状态的数据合同。"""
+"""物流摄像头 ROI、通道检测策略、成员请求和运行状态的数据合同。"""
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -18,30 +18,37 @@ from .constants import (
 
 
 class LogisticsSinglePersonValueSchema(BaseModel):
-    """单路几何过滤和处理频率；告警及人体置信度由通道管理。"""
+    """逐路摄像头只保存画面几何 ROI；检测策略由通道统一管理。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
-    IOU_THR: float = Field(DEFAULT_MODEL_IOU, ge=0, le=1)
     roi_pos: NormalizedRoi = Field(default_factory=list)
-    MIN_BOX_AREA: int = Field(DEFAULT_MIN_BOX_AREA, ge=0, description="检测框最小面积，像素平方")
-    ASPECT_RATIO_RANGE: list[Annotated[float, Field(ge=0)]] = Field(
-        default_factory=lambda: list(DEFAULT_ASPECT_RATIO_RANGE), min_length=2, max_length=2,
-        description="检测框宽/高的最小值和最大值",
-    )
-    cap_interval: float = Field(DEFAULT_CAP_INTERVAL, gt=0, description="画面处理间隔，秒")
-
-    @model_validator(mode="after")
-    def _ordered_aspect_range(self) -> LogisticsSinglePersonValueSchema:
-        if self.ASPECT_RATIO_RANGE[0] > self.ASPECT_RATIO_RANGE[1]:
-            raise ValueError("ASPECT_RATIO_RANGE 最小值不得大于最大值")
-        return self
 
 
 class LogisticsSinglePersonConfigSchema(BaseModel):
+    """内部 Feature 生命周期和逐路 ROI，不作为物流业务配置 API。"""
     model_config = ConfigDict(extra="forbid", strict=True)
 
     enable: bool = False
     value: LogisticsSinglePersonValueSchema = Field(default_factory=LogisticsSinglePersonValueSchema)
+
+
+class LogisticsCameraRoiUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    roi_pos: NormalizedRoi
+
+
+class LogisticsCameraIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    shm_name: str
+    enable: bool
+
+
+class LogisticsCameraRoiResponse(LogisticsCameraRoiUpdate):
+    camera: LogisticsCameraIdentity
 
 
 LogisticsFeatureName = Literal[
@@ -100,10 +107,23 @@ class LogisticsChannelConfigUpdate(BaseModel):
         ge=0,
         le=1,
     )
+    model_iou_threshold: float = Field(default=DEFAULT_MODEL_IOU, ge=0, le=1, strict=True)
+    min_box_area: int = Field(default=DEFAULT_MIN_BOX_AREA, ge=0, strict=True)
+    min_aspect_ratio: float = Field(default=DEFAULT_ASPECT_RATIO_RANGE[0], ge=0, strict=True)
+    max_aspect_ratio: float = Field(default=DEFAULT_ASPECT_RATIO_RANGE[1], ge=0, strict=True)
+    cap_interval: float = Field(default=DEFAULT_CAP_INTERVAL, gt=0, strict=True)
     empty_grace_seconds: float = Field(default=DEFAULT_EMPTY_GRACE_SECONDS, ge=0)
     multi_grace_seconds: float = Field(default=DEFAULT_MULTI_GRACE_SECONDS, ge=0)
     alarm_interval: float = Field(default=defaults.ALARM_INTERVAL, gt=0)
     alarm: LogisticsChannelAlarm = Field(default_factory=LogisticsChannelAlarm)
+
+    @model_validator(mode="after")
+    def _validate_aspect_ratio(self) -> LogisticsChannelConfigUpdate:
+        # 局部更新先校验明确提交的范围，服务层再与数据库保留值合并校验。
+        if {"min_aspect_ratio", "max_aspect_ratio"} <= self.model_fields_set:
+            if self.max_aspect_ratio < self.min_aspect_ratio:
+                raise ValueError("max_aspect_ratio 不得小于 min_aspect_ratio")
+        return self
 
     @model_validator(mode="after")
     def _validate_detection_window(self) -> "LogisticsChannelConfigUpdate":
@@ -191,6 +211,11 @@ class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
             "detection_start": value.detection_start,
             "detection_end": value.detection_end,
             "confidence_threshold": value.confidence_threshold,
+            "model_iou_threshold": value.model_iou_threshold,
+            "min_box_area": value.min_box_area,
+            "min_aspect_ratio": value.min_aspect_ratio,
+            "max_aspect_ratio": value.max_aspect_ratio,
+            "cap_interval": value.cap_interval,
             "empty_grace_seconds": value.empty_grace_seconds,
             "multi_grace_seconds": value.multi_grace_seconds,
             "alarm_interval": value.alarm_interval,

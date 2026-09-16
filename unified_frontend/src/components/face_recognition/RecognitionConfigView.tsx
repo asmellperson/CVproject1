@@ -17,7 +17,6 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { isAiVisionFeatureEnabled } from '@/lib/aivision'
 import { FACE_FEATURE, type FacePerson } from './api'
 import { useFacePersons, useRecognitionConfig } from './useRecognitionConfig'
 
@@ -99,9 +98,8 @@ function FacePersonPermissions() {
 
 export function RecognitionConfigView({ department }: { department: DepartmentId }) {
   const state = useRecognitionConfig(department)
-  const featureCameras = state.cameras.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE) || camera.shm_name === state.cameraKey)
   const alarm = state.config?.alarm
-  const cameraName = featureCameras.find((camera) => camera.shm_name === state.cameraKey)?.name
+  const cameraName = state.cameras.find((camera) => camera.shm_name === state.cameraKey)?.name
   return (
     <Tabs defaultValue="camera" className="space-y-6">
       <DetectionConfigTabsList className="lg:grid-cols-7">
@@ -116,7 +114,7 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
       <TabsContent value="camera" className="space-y-4">
         <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={department}
           currentCameraName={state.cameraKey} disabled={state.disabled} onSelectCamera={state.selectCamera}
-          onAddCamera={(key) => state.setCameraEnabled(key, true)} onRemoveCamera={(key) => state.setCameraEnabled(key, false)}
+          onCamerasChanged={state.refreshCameras}
           onConfigCopied={(key) => {
             state.selectCamera(key)
             return state.loadConfig(key)
@@ -129,9 +127,9 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
           <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="识别参数" description="对画面中的每张人脸分别比对；低于相似度阈值时显示未知人员。" />
           <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
             <div className="space-y-2"><Label htmlFor="identity-config-camera">摄像头</Label>
-              <Select value={state.cameraKey} onValueChange={state.selectCamera} disabled={state.loading || state.saving || !featureCameras.length}>
+              <Select value={state.cameraKey} onValueChange={state.selectCamera} disabled={state.loading || state.saving || !state.cameras.length}>
                 <SelectTrigger id="identity-config-camera" className="w-full"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
-                <SelectContent>{featureCameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}{!camera.enabled ? '（摄像头已停用）' : ''}</SelectItem>)}</SelectContent>
+                <SelectContent>{state.cameras.map((camera) => <SelectItem key={camera.id} value={camera.shm_name}>{camera.name}{!camera.enabled ? '（摄像头已停用）' : ''}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             {([

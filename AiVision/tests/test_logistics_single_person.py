@@ -4,6 +4,9 @@
 from types import SimpleNamespace
 
 import numpy as np
+from dataclasses import replace
+from AiVision.features.logistics_channel.state import LogisticsDetectionConfig
+
 import pytest
 
 from AiVision.features.registry import all_specs
@@ -29,7 +32,7 @@ def test_logistics_features_share_canonical_violation_type():
 #   - `confidence_threshold`（未显式标注）：`confidence_threshold` 对应的业务输入值；默认值为 `0.3`
 # 返回：RuntimeSpy；返回新建的 `RuntimeSpy` 实例。
 # 调用关系：
-#   - 调用方：`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_person_confidence_threshold`
+#   - 调用方：`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_detection_config_for_camera`
 #         实例化本符号；`AiVision/tests/test_logistics_single_person.py` 的
 #         `test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot`
 #         实例化本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_missing_roi_result_publishes_unknown_snapshot`
@@ -50,7 +53,7 @@ class RuntimeSpy:
     # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, *, should_run=True, confidence_threshold=0.3):
         self.should_run = should_run
-        self.confidence_threshold = confidence_threshold
+        self.detection = LogisticsDetectionConfig(confidence_threshold, .3, 0, 0., 10., .2)
         self.schedule_calls = []
         self.snapshot_calls = []
         self.evaluate_calls = []
@@ -69,7 +72,7 @@ class RuntimeSpy:
         self.schedule_calls.append((feature_name, camera_id))
         return self.should_run
 
-    # 功能：实现 `person_confidence_threshold` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+    # 功能：实现 `detection_config_for_camera` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
     #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
@@ -79,8 +82,8 @@ class RuntimeSpy:
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def person_confidence_threshold(self, feature_name, camera_id):
-        return self.confidence_threshold
+    def detection_config_for_camera(self, feature_name, camera_id):
+        return self.detection
 
     # 功能：更新或保存 `update_camera_snapshot` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -118,7 +121,7 @@ class RuntimeSpy:
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_single_person.py` 的 `test_all_logistics_consumers_publish_details_without_camera_alarm`
 #         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_process_preserves_model_and_camera_filter_configuration`
-#         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_person_confidence_threshold`
+#         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的 `test_process_uses_channel_detection_config_for_camera`
 #         调用本符号；`AiVision/tests/test_logistics_single_person.py` 的
 #         `test_post_process_deduplicates_overlapping_rois_and_publishes_snapshot` 调用本符号；另有 2 处静态调用
 #   - 内部调用：`object.__new__`、`SimpleNamespace`。
@@ -132,8 +135,7 @@ def build_consumer(consumer_class, *, runtime=None):
     )
     consumer.config_cache = {7: {
         "name": "Camera 7", "shm_name": "cam-7",
-        "IOU_THR": 0.3,
-                  "MIN_BOX_AREA": 0, "ASPECT_RATIO_RANGE": [0, 10], "roi_pos": [],
+        "roi_pos": [],
     }}
     return consumer
 
@@ -232,7 +234,7 @@ def test_process_preserves_model_and_camera_filter_configuration():
                 ],
             }
 
-    consumer.config_cache[7]["MIN_BOX_AREA"] = 100
+    consumer.logistics_runtime.detection = replace(consumer.logistics_runtime.detection, min_box_area=100)
     consumer.dispatch_inference_sync = dispatch
     roi = np.zeros((64, 64, 3), dtype=np.uint8)
 
@@ -247,14 +249,14 @@ def test_process_preserves_model_and_camera_filter_configuration():
     assert [item["bbox"] for item in result[1]["detections"]] == [[2, 2, 22, 62]]
 
 
-# 功能：验证 `test_process_uses_channel_person_confidence_threshold` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_process_uses_channel_detection_config_for_camera` 对应的`test_logistics_single_person` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`RuntimeSpy`、`build_consumer`、`consumer._process`、`np.zeros`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def test_process_uses_channel_person_confidence_threshold():
+def test_process_uses_channel_detection_config_for_camera():
     runtime = RuntimeSpy(confidence_threshold=0.72)
     consumer = build_consumer(LogisticsSinglePersonConsumer, runtime=runtime)
     dispatched = {}

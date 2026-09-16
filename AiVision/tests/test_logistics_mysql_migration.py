@@ -13,6 +13,8 @@ from AiVision.migrations import logistics_feature_20260914 as migration
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.devices.orm import AiHornConfig
 
+CHANNEL_TABLE, CONFIG_TABLE = migration.target_tables()
+
 
 @pytest.fixture
 def mysql_source():
@@ -39,7 +41,7 @@ def mysql_source():
                 **SPEC.config_schema().value.model_dump(), CONF_THRESHOLD=.99,
                 empty_grace_seconds=99, multi_grace_seconds=88, alarm_interval=77,
                 sql_enable=True, horn_enable=False, wechat_enable=False))
-            connection.execute(LogisticsChannel.__table__.insert(), dict(id=1, name='channel', feature_name=SPEC.name,
+            connection.execute(CHANNEL_TABLE.insert(), dict(id=1, name='channel', feature_name=SPEC.name,
                 department='general_electric', confidence_threshold=0, empty_grace_seconds=0,
                 sql_enable=True, wechat_enable=True, wechat_user='keep-value'))
             connection.execute(LogisticsChannelCamera.__table__.insert(), dict(id=1, channel_id=1, camera_id=1))
@@ -55,17 +57,17 @@ def mysql_source():
 def test_mysql_alter_preserves_tables_values_and_auto_increment(mysql_source):
     engine, source = mysql_source
     with engine.connect() as connection:
-        unchanged = {model: [dict(row) for row in connection.execute(select(model.__table__)).mappings()]
-                     for model in (LogisticsChannel, LogisticsChannelCamera)}
+        unchanged = {table: [dict(row) for row in connection.execute(select(table)).mappings()]
+                     for table in (CHANNEL_TABLE, LogisticsChannelCamera.__table__)}
     assert migration.migrate(engine) == 1
     assert migration.migrate(engine, apply=True) == 1
     with engine.connect() as connection:
-        for model in (SPEC.orm_class, LogisticsChannel, LogisticsChannelCamera):
-            assert_table_matches(connection, model.__table__)
-        row = connection.execute(select(SPEC.orm_class.__table__)).mappings().one()
+        for table in (CONFIG_TABLE, CHANNEL_TABLE, LogisticsChannelCamera.__table__):
+            assert_table_matches(connection, table)
+        row = connection.execute(select(CONFIG_TABLE)).mappings().one()
         assert not migration.REMOVED_COLUMNS.intersection(row)
-        for model, expected in unchanged.items():
-            assert [dict(row) for row in connection.execute(select(model.__table__)).mappings()] == expected
+        for table, expected in unchanged.items():
+            assert [dict(row) for row in connection.execute(select(table)).mappings()] == expected
         next_id = connection.execute(text('SELECT AUTO_INCREMENT FROM information_schema.TABLES '
             'WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:name'), {'name': source.name}).scalar_one()
         assert next_id == 50
@@ -92,6 +94,26 @@ def test_mysql_aspect_assignment_preserves_timestamp(mysql_source):
                      'values': {'ASPECT_RATIO_RANGE': [0, 10]}}}
     migration.migrate(engine, value_changes=changes, apply=True)
     with engine.connect() as connection:
-        row = connection.execute(select(SPEC.orm_class.__table__)).mappings().one()
+        row = connection.execute(select(CONFIG_TABLE)).mappings().one()
         assert row['updated_at'] == before['updated_at']
         assert row['ASPECT_RATIO_RANGE'] == [0, 10] and row['enable'] is False
+
+
+def test_mysql_channel_policy_migration_removes_camera_strategy_and_keeps_values(mysql_source, tmp_path):
+    from AiVision.migrations import logistics_channel_policy_20260916 as policy
+    engine, _ = mysql_source
+    migration.migrate(engine, apply=True)
+    channel_table, camera_table = policy.source_tables()
+    with engine.begin() as connection:
+        connection.execute(camera_table.update().values(IOU_THR=.61, MIN_BOX_AREA=17, ASPECT_RATIO_RANGE=[.2, 3.4], cap_interval=.7))
+        before = connection.execute(select(channel_table)).mappings().one()
+    assert policy.migrate(engine, apply=True, backup=tmp_path / 'mysql-policy.json')['applied'] is True
+    with engine.connect() as connection:
+        for table in (LogisticsChannel.__table__, SPEC.orm_class.__table__, LogisticsChannelCamera.__table__):
+            assert_table_matches(connection, table)
+        row = connection.execute(select(LogisticsChannel.__table__)).mappings().one()
+        assert row['updated_at'] == before['updated_at']
+        assert row['model_iou_threshold'] == pytest.approx(.61)
+        assert row['min_box_area'] == 17 and row['cap_interval'] == pytest.approx(.7)
+        assert row['min_aspect_ratio'] == pytest.approx(.2) and row['max_aspect_ratio'] == pytest.approx(3.4)
+        assert not set(policy.REMOVED_FIELDS) & {column['name'] for column in inspect(connection).get_columns(camera_table.name)}

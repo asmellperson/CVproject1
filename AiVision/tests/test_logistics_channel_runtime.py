@@ -148,7 +148,7 @@ class FakeDispatcher:
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_partial_unknown_does_not_trigger_empty_but_known_multiple_wins`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
-#         `test_runtime_exposes_channel_person_confidence_threshold_by_camera`
+#         `test_runtime_exposes_channel_detection_config_for_camera_by_camera`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_channel_root_enabled_is_the_only_runtime_switch`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
 #         `test_disabled_members_are_excluded_from_aggregation_status_and_composite` 调用本符号；另有 17 处静态调用
@@ -177,6 +177,8 @@ def channel(
             "detection_start": start,
             "detection_end": end,
             "confidence_threshold": 0.42,
+            "model_iou_threshold": .3, "min_box_area": 0,
+            "min_aspect_ratio": 0., "max_aspect_ratio": 10., "cap_interval": .2,
             "empty_grace_seconds": empty_grace,
             "multi_grace_seconds": multi_grace,
             "alarm_interval": 13.0,
@@ -210,7 +212,7 @@ def channel(
 # 调用关系：
 #   - 调用方：`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_partial_unknown_does_not_trigger_empty_but_known_multiple_wins`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
-#         `test_runtime_exposes_channel_person_confidence_threshold_by_camera`
+#         `test_runtime_exposes_channel_detection_config_for_camera_by_camera`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的 `test_channel_root_enabled_is_the_only_runtime_switch`
 #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
 #         `test_disabled_members_are_excluded_from_aggregation_status_and_composite` 调用本符号；另有 16 处静态调用
@@ -309,18 +311,54 @@ def test_partial_unknown_does_not_trigger_empty_but_known_multiple_wins():
     assert len(dispatcher.requests) == 1
 
 
-# 功能：验证 `test_runtime_exposes_channel_person_confidence_threshold_by_camera` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_runtime_exposes_channel_detection_config_for_camera_by_camera` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：None；仅执行处理流程，不返回业务数据。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`build_runtime`、`channel`、`runtime.person_confidence_threshold`。
+#   - 内部调用：`build_runtime`、`channel`、`runtime.detection_config_for_camera`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_runtime_exposes_channel_person_confidence_threshold_by_camera():
+def test_runtime_exposes_channel_detection_config_for_camera_by_camera():
     runtime, _dispatcher = build_runtime([channel(member_ids=(10,))])
 
-    assert runtime.person_confidence_threshold(FEATURE, 10) == 0.42
-    assert runtime.person_confidence_threshold(FEATURE, 999) is None
+    assert runtime.detection_config_for_camera(FEATURE, 10).confidence_threshold == 0.42
+    assert runtime.detection_config_for_camera(FEATURE, 999) is None
+
+
+@pytest.mark.parametrize("field,value", [
+    ("confidence_threshold", .8), ("model_iou_threshold", .7), ("min_box_area", 99),
+    ("min_aspect_ratio", .4), ("max_aspect_ratio", 3.), ("cap_interval", .81),
+])
+def test_channel_refresh_replaces_shared_immutable_detection_policy_for_all_members(field, value):
+    from dataclasses import FrozenInstanceError
+    primary = channel(member_ids=(10, 11))
+    other = channel(channel_id=4, member_ids=(12,))
+    service = FakeChannelService([primary, other])
+    runtime, _ = build_runtime([primary, other], channel_service=service)
+    initial = runtime.detection_config_for_camera(FEATURE, 10)
+    assert initial is runtime.detection_config_for_camera(FEATURE, 11)
+    other_initial = runtime.detection_config_for_camera(FEATURE, 12)
+    with pytest.raises(FrozenInstanceError):
+        initial.model_iou_threshold = .99
+    primary["config"][field] = value
+    runtime.refresh_channel(FEATURE, 3)
+    current = runtime.detection_config_for_camera(FEATURE, 10)
+    assert current is runtime.detection_config_for_camera(FEATURE, 11)
+    assert current is not initial and getattr(current, field) == value
+    assert runtime.detection_config_for_camera(FEATURE, 12) == other_initial
+    primary["members"].reverse()
+    for order, member in enumerate(primary["members"]):
+        member["sort_order"] = order
+    runtime.refresh_channel(FEATURE, 3)
+    assert runtime.detection_config_for_camera(FEATURE, 10) == current
+    primary["members"][0]["enabled"] = False
+    runtime.refresh_channel(FEATURE, 3)
+    assert runtime.detection_config_for_camera(FEATURE, 11) is None
+    assert runtime.detection_config_for_camera(FEATURE, 10) == current
+    primary["enabled"] = False
+    runtime.refresh_channel(FEATURE, 3)
+    assert runtime.detection_config_for_camera(FEATURE, 10) is None
+    assert runtime.detection_config_for_camera(FEATURE, 12) == other_initial
 
 
 # 功能：验证 `test_channel_root_enabled_is_the_only_runtime_switch` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明

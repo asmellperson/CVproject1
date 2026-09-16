@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Annotated, Any
 
 import cv2
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
@@ -153,6 +153,28 @@ def create_camera(
         return camera_config_manager.create_camera(payload.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+class CameraOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    department: str
+    camera_ids: list[Annotated[int, Field(strict=True, gt=0)]]
+
+
+@router.put("/order")
+def reorder_cameras(
+    payload: CameraOrderRequest,
+    _user: dict = Depends(require_admin),
+    camera_config_manager=Depends(get_camera_config_manager),
+) -> list[dict[str, Any]]:
+    from AiVision.cameras.config_manager import CameraOrderConflict
+
+    try:
+        return camera_config_manager.reorder_cameras(payload.department, payload.camera_ids)
+    except CameraOrderConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
 @router.get("/{key}")
 def get_camera(

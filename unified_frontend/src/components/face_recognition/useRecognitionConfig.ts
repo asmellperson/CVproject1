@@ -2,7 +2,7 @@ import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/auth/useAuth'
 import {
-  getAiVisionCameras, getAiVisionFeatureConfig, isAiVisionFeatureEnabled, saveAiVisionFeatureConfig,
+  getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig,
   type AiVisionCamera, type AiVisionFeatureConfig,
 } from '@/lib/aivision'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
@@ -95,16 +95,12 @@ export function useRecognitionConfig(department: DepartmentId) {
   const [message, setMessage] = useState('正在读取摄像头…')
   const [loadedKey, setLoadedKey] = useState('')
   const selectedRef = useRef('')
-  const camerasRef = useRef<AiVisionCamera[]>([])
-  const selectedInactiveRef = useRef('')
   const configLoadRef = useRef<{ key: string; revision: number } | null>(null)
   const requestRef = useRef(0)
   const cameraRequestRef = useRef(0)
   const mountedRef = useRef(true)
 
   const selectCamera = useCallback((key: string) => {
-    // 复制后允许查看目标的停用配置；后续主动移除已启用摄像头仍自动换路。
-    selectedInactiveRef.current = camerasRef.current.some((camera) => camera.shm_name === key && !isAiVisionFeatureEnabled(camera, FACE_FEATURE)) ? key : ''
     if (selectedRef.current === key) return
     selectedRef.current = key
     requestRef.current += 1
@@ -153,15 +149,9 @@ export function useRecognitionConfig(department: DepartmentId) {
       const items = await getAiVisionCameras(department)
       if (!mountedRef.current || request !== cameraRequestRef.current) return
       setCameras(items)
-      camerasRef.current = items
-      const enabled = items.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
-      if (enabled.some((camera) => camera.shm_name === selectedRef.current)) selectedInactiveRef.current = ''
-      const viewingInactive = selectedInactiveRef.current === selectedRef.current && items.some((camera) => camera.shm_name === selectedRef.current)
-      if (!viewingInactive && !enabled.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(enabled[0]?.shm_name || '')
+      if (!items.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(items[0]?.shm_name || '')
       setConfigRevision((value) => value + 1)
-      if (!selectedRef.current) setMessage(items.length ? '当前功能未添加摄像头，请先添加摄像头。' : '当前事业部暂未配置摄像头')
-    } catch (error) {
-      if (mountedRef.current && request === cameraRequestRef.current) setMessage(`摄像头读取失败：${String(error)}`)
+      if (!selectedRef.current) setMessage('当前事业部暂未配置摄像头')
     } finally {
       if (mountedRef.current && request === cameraRequestRef.current) setCameraLoading(false)
     }
@@ -169,10 +159,16 @@ export function useRecognitionConfig(department: DepartmentId) {
 
   useEffect(() => {
     mountedRef.current = true
-    void refreshCameras()
-    const refresh = () => { void refreshCameras() }
+    let active = true
+    const refresh = () => {
+      void refreshCameras().catch((error) => {
+        if (active) setMessage(`摄像头读取失败：${String(error)}`)
+      })
+    }
+    refresh()
     window.addEventListener('aivision:cameras-changed', refresh)
     return () => {
+      active = false
       mountedRef.current = false
       requestRef.current += 1
       cameraRequestRef.current += 1
@@ -185,23 +181,6 @@ export function useRecognitionConfig(department: DepartmentId) {
     const loaded = configLoadRef.current
     if (!cameraLoading && (loaded?.key !== cameraKey || loaded.revision !== cameraRequestRef.current)) void loadConfig(cameraKey)
   }, [cameraKey, cameraLoading, configRevision, loadConfig])
-
-  const setCameraEnabled = async (key: string, enable: boolean) => {
-    if (!isAdmin) return
-    setSaving(true)
-    try {
-      const payload = await getAiVisionFeatureConfig(FACE_FEATURE, key)
-      if (enable && !payload.camera.enable) throw new Error('摄像头已停用，请先在平台启用摄像头。')
-      await saveAiVisionFeatureConfig(FACE_FEATURE, key, { ...payload.config, enable })
-      if (!mountedRef.current) return
-      setMessage(enable ? '摄像头已启用人脸身份识别。' : '摄像头已停用人脸身份识别。')
-    } catch (error) {
-      if (mountedRef.current) setMessage(`操作失败：${String(error)}`)
-      throw error
-    } finally {
-      if (mountedRef.current) setSaving(false)
-    }
-  }
 
   const setAlarm = (alarm: NormalizedFeatureAlarmConfig) => {
     setConfig((current) => current && ({ ...current, alarm }))
@@ -239,6 +218,6 @@ export function useRecognitionConfig(department: DepartmentId) {
     cameras, cameraKey, form, setForm, config, setAlarm, hornError, setHornError, message, loading, cameraLoading, saving,
     disabled: !isAdmin || loading || cameraLoading || saving,
     canSave: isAdmin && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
-    selectCamera, loadConfig, setCameraEnabled, save,
+    selectCamera, loadConfig, refreshCameras, save,
   }
 }

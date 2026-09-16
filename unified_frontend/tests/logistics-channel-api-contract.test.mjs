@@ -21,6 +21,7 @@ test('declares one logistics feature with explicit department fields', () => {
     'feature_name', 'department', 'channel_id', 'channel_name', 'duration_seconds',
     'threshold_seconds', 'camera_ids', 'camera_counts', 'camera_states',
     'offending_camera_ids', 'detection_start', 'detection_end', 'confidence_threshold',
+    'model_iou_threshold', 'min_box_area', 'min_aspect_ratio', 'max_aspect_ratio', 'cap_interval',
   ]) assert.match(types, new RegExp(field))
   assert.match(types, /import type \{ DepartmentId \} from '@\/auth\/permissions'/)
   assert.match(types, /department: DepartmentId/)
@@ -36,13 +37,13 @@ test('uses canonical encoded API resource URLs for the complete client', () => {
   assert.match(api, /encodeURIComponent\(feature\)/)
   assert.match(api, /encodeURIComponent\(String\(channelId\)\)/)
   assert.match(api, /\/logistics-channels/)
-  for (const resource of ['cameras', 'config', 'status', 'frame.jpg', 'alarms', 'statistics']) {
+  for (const resource of ['cameras', 'roi', 'status', 'frame.jpg', 'alarms', 'statistics']) {
     assert.match(api, new RegExp(resource.replace('.', '\\.')))
   }
   assert.match(api, /apiPost<LogisticsChannelDetail>/)
   assert.match(api, /apiPut<LogisticsChannelDetail>/)
   assert.match(api, /apiDelete<LogisticsChannelOkResponse>/)
-  assert.match(api, /memberCameraConfigPath/)
+  assert.match(api, /memberCameraRoiPath/)
   assert.match(api, /getLogisticsCameraInventory/)
   assert.match(api, /\/logistics-channels\/inventory/)
   assert.match(api, /cameraId: number/)
@@ -93,4 +94,13 @@ test('mutations stay feature-scoped and cross-channel moves invalidate source an
   const moveSource = api.slice(moveStart, moveEnd)
   assert.match(moveSource, /feature,\s*\)/)
   assert.doesNotMatch(moveSource, /feature,\s*channelId,\s*\)/)
+})
+
+test('camera ROI contract has no policy envelope or old member config endpoint', () => {
+  assert.match(types, /type LogisticsCameraRoiPayload = \{\s*roi_pos:/)
+  assert.doesNotMatch(types, /LogisticsCameraConfig|IOU_THR|MIN_BOX_AREA|ASPECT_RATIO_RANGE/)
+  assert.match(api, /getLogisticsCameraRoi/)
+  assert.match(api, /updateLogisticsCameraRoi/)
+  assert.match(api, /cameraId\)\)\}\/roi/)
+  assert.doesNotMatch(api, /LogisticsCameraConfig|memberCameraConfigPath|\/config/)
 })

@@ -68,13 +68,16 @@ class FeatureConfigManager:
     ) -> Optional[dict]:
         """按 SPEC 校验并保存配置，补齐全部默认值。
         
-        摄像头级告警功能的 payload 形状如下；物流摄像头只含 enable/value:
+        普通摄像头级告警功能的 payload 形状如下:
             {
                 "enable": bool,
                 "value": {功能特有字段},
                 "alarm": {sql, horn, wechat}
             }
         """
+        from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+        if spec.name in LOGISTICS_FEATURES:
+            raise ValueError("物流摄像头仅通过通道 ROI 接口修改，Feature 生命周期由成员绑定维护")
         payload = spec.config_schema.model_validate(payload).model_dump()
         with session_scope() as session:
             camera = self._get_camera_by_key(session, shm_name)
@@ -92,6 +95,8 @@ class FeatureConfigManager:
             # 保存前先记住旧的enable，功能发生启停变化需要发detect_human_enabled.如果只是修改阈值，只发config_updated
             old_enable = bool(cfg.enable) if cfg is not None else False
             new_enable = bool(payload.get("enable", False))
+            if new_enable and not old_enable and not camera.enable:
+                raise ValueError("请先在平台启用该摄像头")
             if new_enable:
                 try:
                     require_department(camera.department)

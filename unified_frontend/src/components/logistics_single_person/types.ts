@@ -36,6 +36,11 @@ export type LogisticsChannelConfig = {
   detection_start: LogisticsDetectionTime
   detection_end: LogisticsDetectionTime
   confidence_threshold: number
+  model_iou_threshold: number
+  min_box_area: number
+  min_aspect_ratio: number
+  max_aspect_ratio: number
+  cap_interval: number
   empty_grace_seconds: number
   multi_grace_seconds: number
   alarm_interval: number
@@ -192,26 +197,15 @@ export type LogisticsChannelMemberPayload =
 export type LogisticsCameraRoiPoint = [number, number]
 export type LogisticsCameraRoiPolygon = LogisticsCameraRoiPoint[]
 
-export type LogisticsCameraDetectionValue = {
+export type LogisticsCameraRoiPayload = {
   roi_pos: LogisticsCameraRoiPolygon
-  IOU_THR: number
-  MIN_BOX_AREA: number
-  ASPECT_RATIO_RANGE: [number, number]
-  cap_interval: number
 }
 
-export type LogisticsCameraConfigPayload = {
-  enable: boolean
-  value: LogisticsCameraDetectionValue
-}
-
-export type LogisticsCameraConfigResponse = {
+export type LogisticsCameraRoiResponse = LogisticsCameraRoiPayload & {
   camera: {
     id: number
     name: string
     shm_name: string
     enable: boolean
   }
-  feature: LogisticsFeatureName
-  config: LogisticsCameraConfigPayload
 }

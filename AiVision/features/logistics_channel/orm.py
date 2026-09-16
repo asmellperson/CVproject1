@@ -1,8 +1,8 @@
-"""分别存储摄像头检测参数、物流通道配置与通道成员关系。"""
+"""分别存储摄像头 ROI、通道统一检测策略与成员关系。"""
 from __future__ import annotations
 
 from sqlalchemy import (
-    Boolean, Column, Float, ForeignKey, Integer, JSON, String, TIMESTAMP,
+    Boolean, Column, Double, Float, ForeignKey, Integer, JSON, String, TIMESTAMP,
     Time, UniqueConstraint, text,
 )
 from sqlalchemy.orm import relationship
@@ -23,11 +23,8 @@ from .constants import (
 class LogisticsSinglePersonConfigORM(CameraFeatureConfigBase):
     __tablename__ = "ai_camera_config_detect_logistics_single_person"
 
-    cap_interval = Column(Float, default=DEFAULT_CAP_INTERVAL)
-    IOU_THR = Column(Float, default=DEFAULT_MODEL_IOU)
     roi_pos = Column(JSON, nullable=False, default=list)
-    MIN_BOX_AREA = Column(Integer, default=DEFAULT_MIN_BOX_AREA)
-    ASPECT_RATIO_RANGE = Column(JSON, nullable=True, default=lambda: list(DEFAULT_ASPECT_RATIO_RANGE))
+
 
 
 class LogisticsChannel(Base):
@@ -61,6 +58,12 @@ class LogisticsChannel(Base):
         default=DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
         comment="人体检测置信度阈值",
     )
+    # 使用双精度保存上收的检测参数，避免原 JSON 宽高比在迁移时丢失精度。
+    model_iou_threshold = Column(Double, nullable=False, default=DEFAULT_MODEL_IOU, comment="模型检测 IOU")
+    min_box_area = Column(Integer, nullable=False, default=DEFAULT_MIN_BOX_AREA, comment="检测框最小面积")
+    min_aspect_ratio = Column(Double, nullable=False, default=DEFAULT_ASPECT_RATIO_RANGE[0], comment="最小宽高比")
+    max_aspect_ratio = Column(Double, nullable=False, default=DEFAULT_ASPECT_RATIO_RANGE[1], comment="最大宽高比")
+    cap_interval = Column(Double, nullable=False, default=DEFAULT_CAP_INTERVAL, comment="画面处理间隔(秒)")
     empty_grace_seconds = Column(Float, nullable=False, default=DEFAULT_EMPTY_GRACE_SECONDS, comment="无人告警宽限秒数")
     multi_grace_seconds = Column(Float, nullable=False, default=DEFAULT_MULTI_GRACE_SECONDS, comment="多人告警宽限秒数")
     # 报警间隔默认五秒
@@ -122,7 +125,7 @@ class LogisticsChannelCamera(Base):
         index=True,
         comment="摄像头ID",
     )
-    # 物流实际有三层开关：1、摄像头资源是否启用，2、物流通道是否启用，3、这台摄像头是否在这个通道里
+    # 成员暂停参与检测时保留绑定及内部 Feature 生命周期。
     enabled = Column(Boolean, nullable=False, default=True, comment="是否在通道内启用")
     # 摄像头在通道里面的排列顺序
     sort_order = Column(Integer, nullable=False, default=0, comment="通道内排序")

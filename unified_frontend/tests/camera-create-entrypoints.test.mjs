@@ -20,7 +20,7 @@ test('ordinary AiVision configuration can create and immediately bind a camera',
   assert.match(manager, /createAiVisionFeatureCamera\(feature, \{/)
   assert.match(manager, /department,/)
   assert.match(manager, /onSelectCamera\(camera\.shm_name\)/)
-  assert.doesNotMatch(manager, /createAiVisionFeatureCamera[\s\S]*?await onAddCamera\(camera\.shm_name\)/)
+  assert.doesNotMatch(manager, /onAddCamera|onRemoveCamera|selectedExistingCamera|availableCameras|canAddSelectedCamera|handleEnableExisting/)
   assert.match(manager, /新建摄像头并加入当前功能/)
   assert.match(manager, /<LogisticsCameraCreateDialog/)
   assert.match(manager, /notifyPlatformCamerasChanged\(\)/)
@@ -124,5 +124,11 @@ test('camera queries and Guard mutations transmit explicit department context', 
       assert.equal(options.method ?? 'GET', expected[index][0])
       assert.equal(options.credentials, 'include')
     })
+    calls.length = 0
+    await ai.saveAiVisionCameraOrder(department, [3, 7, 2])
+    assert.equal(calls[0].url, '/api/cameras/order')
+    assert.equal(calls[0].options.method, 'PUT')
+    assert.equal(calls[0].options.credentials, 'include')
+    assert.deepEqual(JSON.parse(calls[0].options.body), { department, camera_ids: [3, 7, 2] })
   }
 })

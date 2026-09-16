@@ -147,14 +147,9 @@ def create_features_router(
         摄像头或对应功能配置不存在时返回 404。
         """
         spec = _require_spec(feature)
-        # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
-        # 端点，后者同时校验通道部门和成员归属；这里禁止绕过归属校验。
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
-        if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
-            raise HTTPException(
-                status_code=403,
-                detail="logistics camera config requires channel membership access",
-            )
+        if feature in LOGISTICS_FEATURES:
+            raise HTTPException(status_code=404, detail="物流摄像头配置只通过通道 ROI 接口访问")
         # 读取指定摄像头的功能配置
         if user.get("role") != "admin":
             get_camera_for_user(camera_config_manager, shm_name, user)
@@ -184,6 +179,9 @@ def create_features_router(
         校验失败返回 400，摄像头不存在返回 404。
         """
         spec = _require_spec(feature)
+        from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+        if feature in LOGISTICS_FEATURES:
+            raise HTTPException(status_code=404, detail="物流摄像头配置只通过通道 ROI 接口访问")
         try:
             # 用各功能自定义的 Pydantic schema 校验入参，类型错误或缺字段时抛异常
             validated = spec.config_schema.model_validate(payload).model_dump()

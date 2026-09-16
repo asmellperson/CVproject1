@@ -14,12 +14,15 @@ CREATE TABLE ai_camera_config (
 	import_message TEXT,
 	shape JSON COMMENT '默认分辨率 [H,W,C]',
 	department VARCHAR(100) COMMENT '归属部门',
+	sort_order INTEGER NOT NULL COMMENT '事业部内摄像头展示排序' DEFAULT 0,
 	PRIMARY KEY (id)
 );
 
 CREATE UNIQUE INDEX ix_ai_camera_config_name ON ai_camera_config (name);
 
 CREATE UNIQUE INDEX ix_ai_camera_config_shm_name ON ai_camera_config (shm_name);
+
+CREATE INDEX ix_ai_camera_config_sort_order ON ai_camera_config (sort_order);
 
 CREATE TABLE ai_face_person (
 	id INTEGER NOT NULL AUTO_INCREMENT,
@@ -87,6 +90,7 @@ CREATE TABLE ai_camera_config_blocks (
 	alarm_side INTEGER COMMENT '警戒线入侵侧: 1=左侧,-1=右侧',
 	foot_ratio FLOAT COMMENT '人体框脚底点高度比例',
 	threshold FLOAT NOT NULL COMMENT '人体检测置信度，0~1' DEFAULT '0.1',
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	alarm_interval FLOAT COMMENT '告警间隔(秒)',
 	sql_enable BOOL COMMENT 'SQL告警启用',
 	horn_enable BOOL COMMENT '喇叭告警启用',
@@ -96,7 +100,6 @@ CREATE TABLE ai_camera_config_blocks (
 	horn_id INTEGER COMMENT '喇叭设备ID',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
@@ -119,6 +122,7 @@ CREATE TABLE ai_camera_config_detect_door (
 	background_update_alpha FLOAT,
 	global_motion_threshold FLOAT NOT NULL DEFAULT '0.22',
 	min_local_change_ratio FLOAT,
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	alarm_interval FLOAT COMMENT '告警间隔(秒)',
 	sql_enable BOOL COMMENT 'SQL告警启用',
 	horn_enable BOOL COMMENT '喇叭告警启用',
@@ -128,7 +132,6 @@ CREATE TABLE ai_camera_config_detect_door (
 	horn_id INTEGER COMMENT '喇叭设备ID',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
@@ -150,6 +153,7 @@ CREATE TABLE ai_camera_config_detect_face (
 	`DETECTION_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
 	`TRACK_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
 	`MAX_LOST` INTEGER NOT NULL COMMENT '允许连续丢失的跟踪更新次数' DEFAULT '5',
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	alarm_interval FLOAT COMMENT '告警间隔(秒)',
 	sql_enable BOOL COMMENT 'SQL告警启用',
 	horn_enable BOOL COMMENT '喇叭告警启用',
@@ -159,7 +163,6 @@ CREATE TABLE ai_camera_config_detect_face (
 	horn_id INTEGER COMMENT '喇叭设备ID',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
@@ -186,6 +189,7 @@ CREATE TABLE ai_camera_config_detect_human (
 	`AREA_RATIO_THR` FLOAT,
 	`MATCH_SCORE_THR` FLOAT,
 	`TRACK_SMOOTH_ALPHA` FLOAT,
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	alarm_interval FLOAT COMMENT '告警间隔(秒)',
 	sql_enable BOOL COMMENT 'SQL告警启用',
 	horn_enable BOOL COMMENT '喇叭告警启用',
@@ -195,7 +199,6 @@ CREATE TABLE ai_camera_config_detect_human (
 	horn_id INTEGER COMMENT '喇叭设备ID',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
@@ -210,11 +213,7 @@ CREATE TABLE ai_camera_config_detect_human (
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_human_camera_id ON ai_camera_config_detect_human (camera_id);
 
 CREATE TABLE ai_camera_config_detect_logistics_single_person (
-	cap_interval FLOAT,
-	`IOU_THR` FLOAT,
 	roi_pos JSON NOT NULL,
-	`MIN_BOX_AREA` INTEGER,
-	`ASPECT_RATIO_RANGE` JSON,
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -241,6 +240,7 @@ CREATE TABLE ai_camera_config_detect_phone (
 	`PERSON_EXPAND_RATIO` FLOAT,
 	`HAND_REGION_MAX_Y_RATIO` FLOAT,
 	`MIN_PERSON_PHONE_OVERLAP` FLOAT,
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	alarm_interval FLOAT COMMENT '告警间隔(秒)',
 	sql_enable BOOL COMMENT 'SQL告警启用',
 	horn_enable BOOL COMMENT '喇叭告警启用',
@@ -250,7 +250,6 @@ CREATE TABLE ai_camera_config_detect_phone (
 	horn_id INTEGER COMMENT '喇叭设备ID',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
-	cap_interval FLOAT COMMENT '采集间隔(秒)',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
@@ -330,6 +329,11 @@ CREATE TABLE ai_logistics_channel (
 	detection_start TIME NOT NULL COMMENT '检测开始时间',
 	detection_end TIME NOT NULL COMMENT '检测结束时间',
 	confidence_threshold FLOAT NOT NULL COMMENT '人体检测置信度阈值',
+	model_iou_threshold DOUBLE NOT NULL COMMENT '模型检测 IOU',
+	min_box_area INTEGER NOT NULL COMMENT '检测框最小面积',
+	min_aspect_ratio DOUBLE NOT NULL COMMENT '最小宽高比',
+	max_aspect_ratio DOUBLE NOT NULL COMMENT '最大宽高比',
+	cap_interval DOUBLE NOT NULL COMMENT '画面处理间隔(秒)',
 	empty_grace_seconds FLOAT NOT NULL COMMENT '无人告警宽限秒数',
 	multi_grace_seconds FLOAT NOT NULL COMMENT '多人告警宽限秒数',
 	alarm_interval FLOAT NOT NULL COMMENT '告警间隔秒数',

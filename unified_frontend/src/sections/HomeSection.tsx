@@ -75,6 +75,7 @@ import {
   getLoadedAiVisionFeatureCounts,
   mergeAiVisionAndLogisticsCameras,
   type FeatureCameraCounts,
+  type OverviewAiVisionCamera,
 } from './homeCameraCounts'
 
 interface HomeSectionProps {
@@ -109,7 +110,7 @@ type PlatformCameraInventoryItem = {
   detail?: string
   featureLabels: string[]
   pageId?: string
-  aiVisionCamera?: AiVisionCamera
+  aiVisionCamera?: OverviewAiVisionCamera
   guardRoomCamera?: GuardRoomCamera
   securityVlmCamera?: SecurityVlmCamera
 }
@@ -205,7 +206,7 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
   return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
 }
 
-function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
+function getAiVisionCameraFeatureLabels(camera: OverviewAiVisionCamera) {
   const functions = camera.functions
   const enabledFeatures = Object.entries(functions)
       .filter(([, enabled]) => Boolean(enabled))
@@ -286,7 +287,7 @@ function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: Platf
   return 'down'
 }
 
-function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean, department: DepartmentId): ModuleStatusCard[] {
+function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: OverviewAiVisionCamera[], loaded: boolean, department: DepartmentId): ModuleStatusCard[] {
   const featureCounts = getLoadedAiVisionFeatureCounts(cameras, loaded, department)
   return visibleEntries.flatMap((entry) => {
     const source = moduleStatusSources[entry.id]
@@ -356,7 +357,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
   const [exceptionSettingsError, setExceptionSettingsError] = useState('')
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
-  const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
+  const [cameraToEdit, setCameraToEdit] = useState<OverviewAiVisionCamera | null>(null)
   const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
   const [cameraDepartment, setCameraDepartment] = useState('')
   const [cameraGuardSiteId, setCameraGuardSiteId] = useState('')
@@ -365,7 +366,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
   const [cameraFps, setCameraFps] = useState('5')
   const [cameraFormError, setCameraFormError] = useState('')
   const [cameraActionKey, setCameraActionKey] = useState('')
-  const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
+  const [cameraToDelete, setCameraToDelete] = useState<OverviewAiVisionCamera | null>(null)
   const [cameraDeleteError, setCameraDeleteError] = useState('')
   const {
     options: departmentOptions,
@@ -625,7 +626,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     setCameraFormError('')
   }
 
-  const openEditCameraDialog = (camera: AiVisionCamera) => {
+  const openEditCameraDialog = (camera: OverviewAiVisionCamera) => {
     setCameraDialogMode('edit')
     setCameraToEdit(camera)
     setCameraName(camera.name)

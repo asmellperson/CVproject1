@@ -1,9 +1,4 @@
-"""
-cameras/orm.py
-摄像头配置的增删改查
-
-字段与旧表 ai_camera_config 一致 — 不改表结构。
-"""
+"""摄像头资源、所属事业部及事业部内展示顺序。"""
 from __future__ import annotations
 from sqlalchemy import Column, Integer, String, Boolean, JSON, TIMESTAMP, Text, text
 
@@ -39,6 +34,8 @@ class AiCameraConfig(Base):
     # 摄像头画面尺寸
     shape = Column(JSON, nullable=True, default=[1080, 1920, 3], comment="默认分辨率 [H,W,C]")
     department = Column(String(100), nullable=True, comment="归属部门")
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"),
+                        index=True, comment="事业部内摄像头展示排序")
 
     def __repr__(self):
         # Python打印当前对象的时候会输出什么

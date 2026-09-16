@@ -22,7 +22,7 @@ type CameraInventoryItem = {
   runtimeOnline?: boolean
 }
 
-export type OverviewAiVisionCamera = AiVisionCamera & {
+export type OverviewAiVisionCamera = Omit<AiVisionCamera, 'sort_order'> & {
   inventoryOnly?: boolean
   logisticsOnline?: boolean
   runtimeOnline?: boolean
