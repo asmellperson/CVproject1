@@ -250,8 +250,8 @@ def test_site_api_routes_scope_sites_by_department(tmp_path):
         with pytest.raises(HTTPException) as caught:
             list_sites(department=foreign["department"], _user=viewer)
         assert caught.value.status_code == 403
-    assert len(list_sites(_user={"role": "viewer", "departments": ["all"]})["items"]) == len(DEPARTMENT_SPECS)
-    for departments in ([], ["unknown"]):
+    assert len(list_sites(_user={"role": "admin"})["items"]) == len(DEPARTMENT_SPECS)
+    for departments in ([], ["unknown"], ["all"], ["ge"], ["通用电气"]):
         with pytest.raises(HTTPException) as caught:
             list_sites(_user={"role": "viewer", "departments": departments})
         assert caught.value.status_code == 403

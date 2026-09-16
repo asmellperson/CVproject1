@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 #   - 内部调用：`camera_registry.CameraRegistry`、`start_event.wait`、`range`、`registry.create`、`prefix.lower`、`results.put`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _process_create_cameras(registry_path, start_event, results, prefix):
-    registry = camera_registry.CameraRegistry(registry_path)
+    registry = camera_registry.CameraRegistry(registry_path, department="general_electric")
     original_read = registry._read_unlocked
 
     # 功能：读取或查询 `slow_read` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -76,7 +76,7 @@ def test_camera_registry_module_exists():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
 def test_create_read_and_redact_camera(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "config" / "cameras.json")
+    registry = camera_registry.CameraRegistry(tmp_path / "config" / "cameras.json", department="general_electric")
 
     created = registry.create(
         "安检工位一号",
@@ -101,7 +101,7 @@ def test_create_read_and_redact_camera(tmp_path):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
 def test_rejects_empty_duplicate_names_and_non_rtsp_urls(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
+    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json", department="general_electric")
     registry.create("Camera A", "rtsp://camera-a/stream")
 
     with pytest.raises(ValueError, match="名称"):
@@ -122,7 +122,7 @@ def test_rejects_empty_duplicate_names_and_non_rtsp_urls(tmp_path):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
 def test_update_blank_url_preserves_secret_and_delete_returns_record(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
+    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json", department="general_electric")
     created = registry.create("Camera A", "rtsps://user:pass@camera-a/stream")
 
     updated = registry.update(
@@ -148,7 +148,7 @@ def test_update_blank_url_preserves_secret_and_delete_returns_record(tmp_path):
 @pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
 def test_concurrent_creates_keep_registry_json_valid(tmp_path):
     registry_path = tmp_path / "cameras.json"
-    registry = camera_registry.CameraRegistry(registry_path)
+    registry = camera_registry.CameraRegistry(registry_path, department="general_electric")
 
     # 功能：创建或构建 `create` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -183,8 +183,8 @@ def test_concurrent_creates_keep_registry_json_valid(tmp_path):
 def test_two_registry_instances_do_not_lose_concurrent_creates(tmp_path):
     registry_path = tmp_path / "cameras.json"
     registries = [
-        camera_registry.CameraRegistry(registry_path),
-        camera_registry.CameraRegistry(registry_path),
+        camera_registry.CameraRegistry(registry_path, department="general_electric"),
+        camera_registry.CameraRegistry(registry_path, department="general_electric"),
     ]
     for registry in registries:
         original_read = registry._read_unlocked
@@ -223,7 +223,7 @@ def test_two_registry_instances_do_not_lose_concurrent_creates(tmp_path):
         )
 
     assert sum(len(items) for items in results) == 4
-    assert len(camera_registry.CameraRegistry(registry_path).list()) == 4
+    assert len(camera_registry.CameraRegistry(registry_path, department="general_electric").list()) == 4
 
 
 # 功能：验证 `test_two_processes_share_capacity_without_lost_creates` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -257,7 +257,7 @@ def test_two_processes_share_capacity_without_lost_creates(tmp_path):
 
     assert outcomes.count("created") == 4
     assert outcomes.count("full") == 2
-    assert len(camera_registry.CameraRegistry(registry_path).list()) == 4
+    assert len(camera_registry.CameraRegistry(registry_path, department="general_electric").list()) == 4
 
 
 # 功能：验证 `test_registry_rejects_more_than_four_cameras` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -269,7 +269,7 @@ def test_two_processes_share_capacity_without_lost_creates(tmp_path):
 #   - 内部调用：`camera_registry.CameraRegistry`、`range`、`registry.create`、`pytest.raises`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_registry_rejects_more_than_four_cameras(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
+    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json", department="general_electric")
     for index in range(4):
         registry.create(f"Camera {index}", f"rtsp://camera-{index}/stream")
 
@@ -321,7 +321,7 @@ def test_registry_rejects_v1_file_even_for_default_department(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="格式"):
-        camera_registry.CameraRegistry(registry_path).list()
+        camera_registry.CameraRegistry(registry_path, department="general_electric").list()
 
 
 # 功能：验证 `test_registry_rejects_malformed_camera_records` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -346,7 +346,7 @@ def test_registry_rejects_malformed_camera_records(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="格式"):
-        camera_registry.CameraRegistry(registry_path).list()
+        camera_registry.CameraRegistry(registry_path, department="general_electric").list()
 
 
 # 功能：验证 `test_registry_rejects_unsafe_persisted_camera_ids` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -396,7 +396,7 @@ def test_registry_rejects_unsafe_persisted_camera_ids(tmp_path, camera_id):
     )
 
     with pytest.raises(RuntimeError, match="camera_id"):
-        camera_registry.CameraRegistry(registry_path).list()
+        camera_registry.CameraRegistry(registry_path, department="general_electric").list()
 
 
 # 功能：验证 `test_public_camera_id_validator_accepts_safe_identifier` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
@@ -408,59 +408,3 @@ def test_registry_rejects_unsafe_persisted_camera_ids(tmp_path, camera_id):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_public_camera_id_validator_accepts_safe_identifier():
     assert camera_registry.validate_camera_id("A.camera_1-test") == "A.camera_1-test"
-
-
-# 功能：验证 `test_legacy_migration_is_idempotent_and_copies_roi` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`camera_registry.CameraRegistry`、`staff_dir.mkdir`、`legacy_roi.write_text`、`json.dumps`、`registry.migrate_legacy`、`len`、`registry.list`、`json.loads`、`registry.path.read_text`、`migrated_roi.read_text`
-#          等共 13 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-@pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
-def test_legacy_migration_is_idempotent_and_copies_roi(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "config" / "cameras.json")
-    staff_dir = tmp_path / "staff_rois"
-    staff_dir.mkdir()
-    legacy_roi = staff_dir / "stream_staff_rois.json"
-    legacy_roi.write_text(
-        json.dumps({"staff_rois": {"security_staff_1": [1, 2, 3, 4]}}),
-        encoding="utf-8",
-    )
-    cfg = {
-        "data": {
-            "input_video": "rtsp://legacy-camera/stream",
-            "video_id": "stream",
-        },
-    }
-
-    first = registry.migrate_legacy(cfg, staff_dir)
-    second = registry.migrate_legacy(cfg, staff_dir)
-
-    assert first["camera_id"] == "legacy-default"
-    assert second is None
-    assert len(registry.list()) == 1
-    payload = json.loads(registry.path.read_text(encoding="utf-8"))
-    assert payload["version"] == 2
-    assert payload["department"] == "general_electric"
-    migrated_roi = staff_dir / "legacy-default_staff_rois.json"
-    assert migrated_roi.read_text(encoding="utf-8") == legacy_roi.read_text(encoding="utf-8")
-    assert legacy_roi.exists()
-
-
-# 功能：验证 `test_migration_does_nothing_without_legacy_source` 对应的摄像头、资源注册逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`camera_registry.CameraRegistry`、`registry.migrate_legacy`、`registry.list`、`pytest.mark.skipif`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.skipif(camera_registry is None, reason="camera_registry is not implemented")
-def test_migration_does_nothing_without_legacy_source(tmp_path):
-    registry = camera_registry.CameraRegistry(tmp_path / "cameras.json")
-
-    assert registry.migrate_legacy({"data": {"input_video": ""}}, tmp_path) is None
-    assert registry.list() == []

@@ -4,7 +4,7 @@ import { DEPARTMENTS, DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessi
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
-import { Building2, ChevronRight, ChevronsLeft, Cpu, FlaskConical, Gem, KeyRound, LogOut, PackageOpen, X, Zap } from 'lucide-react'
+import { Building2, ChevronRight, ChevronsLeft, Cpu, FlaskConical, Gem, KeyRound, LogOut, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -205,7 +205,8 @@ export function Sidebar({
               {group.children?.map((child) => {
                 const childActive = activeChildGroupId === child.id
                 const expanded = compact || expandedGroups.has(child.id) || activeChildGroupId === child.id
-                const childMeta = sidebarChildMeta[child.id] ?? sidebarChildMeta.shared
+                if (!child.department) return null
+                const childMeta = sidebarChildMeta[child.department]
                 const GroupIcon = childMeta.icon
                 return (
                 <div key={child.id} className={cn(!compact && 'pt-1')} style={navToneStyle(childMeta.tone)}>
@@ -515,14 +516,14 @@ function navToneStyle(tone: NavTone) {
   return { '--nav-rgb': navToneRgb[tone] } as CSSProperties
 }
 
-const sidebarChildMeta: Record<string, { tone: NavTone; icon: typeof Building2 }> = {
+const sidebarChildMeta: Record<DepartmentId, { tone: NavTone; icon: typeof Building2 }> = {
   general_electric: { tone: 'cyan', icon: Building2 },
   electronics_electrician: { tone: 'yellow', icon: Zap },
   electrical_components: { tone: 'purple', icon: Cpu },
   precious_metal_recycling: { tone: 'gold', icon: Gem },
   haoda_company: { tone: 'magenta', icon: Building2 },
   research_institute: { tone: 'green', icon: FlaskConical },
-  shared: { tone: 'blue', icon: PackageOpen },
+  fulida_company: { tone: 'blue', icon: Building2 },
 }
 
 function sectionTone(groupId: string): NavTone {

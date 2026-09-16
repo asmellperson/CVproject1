@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,7 @@ import {
 
 type GuardRoomVehicleRoiEditorProps = {
   siteId: number | null
-  department?: string
+  department: DepartmentId
   cameraId: string
   cameraLabel?: string
   roi: VehicleRoiPoint[]

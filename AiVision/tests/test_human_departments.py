@@ -16,9 +16,10 @@ from AiVision.features.person_dwell.spec import SPEC
 from AiVision.features.person_dwell.consumer import HumanConsumer
 from AiVision.features.person_dwell.schema import HumanConfigSchema
 from AiVision.cameras.config_manager import camera_access_departments
+from AiVision.cameras.orm import AiCameraConfig
 from AiVision.alarms.records.orm import AiAlarmEvent
-from test_feature_department_enable import department_api, create_camera, save
-from test_horn_backend import backend
+from test_feature_department_enable import department_api as department_api, create_camera, save
+from test_horn_backend import backend as backend
 
 
 def test_one_registered_human_feature_supports_all_departments():
@@ -129,6 +130,8 @@ def test_admin_config_and_enable_changes_only_affect_selected_camera(human_api):
 def test_shared_human_requires_explicit_department_even_for_preexisting_enable(department_api):
     api = department_api
     camera = create_camera(api)
+    with api.factory.begin() as session:
+        session.get(AiCameraConfig, camera["camera_id"]).department = None
     assert save(api, SPEC.name, True).status_code == 400
     with api.factory.begin() as session:
         session.query(SPEC.orm_class).filter_by(camera_id=camera["camera_id"]).one().enable = True
@@ -270,3 +273,15 @@ def test_notification_signing_requires_a_real_secret(monkeypatch):
         with pytest.raises(ValueError, match="AUTH_SECRET"):
             issue_thumbnail_token(1, "general_electric")
         assert not verify_thumbnail_token("9999999999.invalid", 1, "general_electric")
+
+
+@pytest.mark.parametrize("department", DEPARTMENTS)
+def test_notification_thumbnail_accepts_all_official_departments(monkeypatch, department):
+    from AiVision.alarms.notifications.notification_image import issue_thumbnail_token, verify_thumbnail_token
+
+    monkeypatch.setenv("AUTH_SECRET", "notification-test-secret-at-least-32-characters")
+    token = issue_thumbnail_token(1, department)
+    assert verify_thumbnail_token(token, 1, department)
+    for other in DEPARTMENTS:
+        if other != department:
+            assert not verify_thumbnail_token(token, 1, other)

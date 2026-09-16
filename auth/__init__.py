@@ -19,7 +19,7 @@ auth/：统一登录认证、用户存储与角色授权
         本文件没有 FastAPI 路由；HTTP 路径和响应结构由调用它的服务注册。
 
     user_store.py：UserStore 用户存储与数据约束。
-        负责 SQLite 连接、建表和旧库迁移、用户 CRUD、部门规范化、密码哈希生成，
+        负责 SQLite 连接、正式建表、用户 CRUD、事业部校验、密码哈希生成，
         以及保护当前管理员、保护最后一个有效管理员等数据库操作规则。
         它不解析 HTTP 请求、不读写 Cookie、不判断请求调用者是否通过了管理员认证。
 
@@ -38,29 +38,21 @@ auth/：统一登录认证、用户存储与角色授权
         name：姓名/显示名称，要求唯一；当前登录查询也支持用姓名匹配用户。
         role：admin 或 viewer；enabled 表示账号是否允许登录和访问受保护接口。
         departments：用户可以查看哪些事业部，以 JSON 数组字符串存入 SQLite TEXT。
-        department：旧单部门兼容列，写入时同步保存 departments 的第一个值。
-            当前权限对象使用 departments 列表，不能把旧 department 列当成唯一授权来源。
         password_hash：带算法、迭代次数和随机盐的密码哈希，不保存用户输入的明文密码。
         auth_version：登录凭证版本，初始为 1；修改密码时递增，用于拒绝旧 JWT。
         created_at / updated_at：用户创建和修改时间。
 
     UserStore.__init__()：记录数据库路径和初始化锁，不立即连接或创建数据库。
     _connect()：建立 SQLite 连接，设置 Row 访问方式、锁等待时间和外键检查。
-    initialize()：首次实际读写前，在初始化锁保护下创建目录、开启 WAL、执行建表/迁移。
+    initialize()：首次实际读写前，在初始化锁保护下创建目录、开启 WAL、执行建表。
         初始化事务使用 BEGIN IMMEDIATE；成功 commit，失败 rollback，最后关闭连接。
-        缺少 departments / password_hash 的旧表会补列；旧单部门或别名会规范化。
-        旧用户缺少 password_hash 时，使用 _legacy_default_password() 生成迁移用哈希。
-            该值取自 AUTH_DEFAULT_PASSWORD 或代码中的历史默认值，仅用于旧账号迁移；
-            新建用户必须通过上层服务明确传入密码，不能把迁移默认值理解成新用户默认密码。
-        初始化不会自动创建一个管理员账号。首次查询也可能触发这一步迁移写入，
-            所以排查真实用户库时，不能把第一次 list_users() 简单理解成纯 SELECT。
+        只创建当前正式结构，不在业务启动时转换旧字段或事业部别名。
 
     规范化与密码工具：
         _normalize_required()：清理工号、姓名等输入两端空白，并拒绝空值。
-        _normalize_role_departments()：校验角色、转换部门别名、去重并检查固定部门白名单。
+        _normalize_role_departments()：校验角色、去重并通过正式事业部目录校验。
             admin 统一保存为 ["all"]；viewer 必须选择至少一个有效的固定事业部。
-        ALLOWED_VIEWER_DEPARTMENTS：直接来自 AiVision 的 DEPARTMENT_SPECS 注册表。
-        DEPARTMENT_ALIASES：旧称、中文名和简称到正式部门编码的转换，不是第二份部门注册表。
+        事业部校验：直接调用平台正式 require_department()。
         _encode_departments() / _decode_departments()：在 Python 列表与 SQLite JSON 文本之间转换。
         hash_password()：使用随机盐和 PBKDF2-HMAC-SHA256，默认 PASSWORD_HASH_ITERATIONS 次迭代。
             哈希串包含算法、迭代次数、盐和摘要，认证时可用相同参数重新计算并比较。
@@ -182,14 +174,14 @@ auth/：统一登录认证、用户存储与角色授权
     新增/停用/删除用户：使用现有管理员用户管理入口，保持事务约束与密码哈希流程。
     改密码规则：检查 auth.py 的创建、本人改密、管理员重置三个入口，以及哈希验证流程。
     改登录有效期或 Cookie 策略：检查 auth.py 中对应环境变量、Token 与 Cookie 函数。
-    加用户字段：同步检查 user_store.py 建表/迁移、公开/内部字典、统一后端请求模型和前端类型。
-    加固定部门：修改 Department 注册表；Feature 归属在 FeatureSpec 中声明，用户管理只负责选择。
+    加用户字段：同步检查 user_store.py 建表、公开/内部字典、统一后端请求模型和前端类型。
+    加固定事业部：修改正式 Department 注册表；Feature 不声明事业部，用户管理只配置数据访问范围。
     仅修改此包说明时，不需要调用 UserStore.initialize()，也不应访问真实用户库验证注释。
 
     在项目根目录的 Python 环境中，相关既有测试可以这样运行：
         python -m pytest -q -c AiVision/pyproject.toml unified_backend/tests/test_auth_database.py
         python -m pytest -q -c AiVision/pyproject.toml unified_backend/tests/test_user_store.py
         python -m pytest -q -c AiVision/pyproject.toml unified_backend/tests/test_admin_users_api.py
-    前两组覆盖密码、JWT、用户存储与旧库迁移；第三组检查管理员 API 权限和用户管理约束。
+    前两组覆盖密码、JWT、用户存储与正式表结构；第三组检查管理员 API 权限和用户管理约束。
     这些测试使用临时用户数据库，不应为测试而修改现场 AUTH_USERS_DB 指向的真实账号资料。
 """

@@ -73,7 +73,7 @@ def _normalize_rect(values: Sequence[float]):
     return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
 
 
-# 功能：把旧矩形或多边形 ROI 规范化为 ``[[x, y], ...]``；输入与输出详见下方说明
+# 功能：把多边形 ROI 规范化为 ``[[x, y], ...]``；输入与输出详见下方说明
 # 参数：
 #   - `values`（Any）：`values` 对应的业务输入值
 # 返回：Polygon；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
@@ -85,20 +85,9 @@ def _normalize_rect(values: Sequence[float]):
 #   - 内部调用：`_is_sequence`、`ValueError`、`len`、`any`、`_finite_float`、`sorted`、`enumerate`、`points.append`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def normalize_roi_points(values: Any) -> Polygon:
-    """把旧矩形或多边形 ROI 规范化为 ``[[x, y], ...]``。"""
+    """把多边形 ROI 规范化为 ``[[x, y], ...]``。"""
     if not _is_sequence(values):
         raise ValueError("ROI 必须是坐标列表")
-
-    if len(values) == 4 and not any(_is_sequence(value) for value in values):
-        x1, y1, x2, y2 = (_finite_float(value) for value in values)
-        left, right = sorted((x1, x2))
-        top, bottom = sorted((y1, y2))
-        return [
-            [left, top],
-            [right, top],
-            [right, bottom],
-            [left, bottom],
-        ]
 
     if len(values) < 3:
         raise ValueError("多边形至少 3 个点")
@@ -166,7 +155,6 @@ def scale_roi_mapping(
 # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois`
-#         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_migrate_legacy_roi_dimensions` 调用本符号
 #   - 内部调用：`_finite_float`、`ValueError`、`isinstance`、`any`、`rois.values`、`normalize_roi_points`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def roi_mapping_exceeds_bounds(rois: Any, width: float, height: float) -> bool:

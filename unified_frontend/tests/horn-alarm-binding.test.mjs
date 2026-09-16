@@ -199,10 +199,10 @@ for (const [name, configKey] of [['Face', 'detect_face'], ['Human', 'detect_huma
       '@/components/AiVisionRoiEditor.geometry': moduleOf('components/AiVisionRoiEditor.geometry.ts'),
     })
     function response(key, config) {
-      return { camera: { id: key === 'a' ? 1 : 2, shm_name: key, name: key, enable: true }, feature: configKey,
+      return { camera: { id: key === 'a' ? 1 : 2, shm_name: key, name: key, enable: true, department: 'fulida_company' }, feature: configKey,
         config: config || { value: backendValues[name], enable: true, alarm: { sql: { enable: false, parm: {} }, wechat: { enable: false, parm: { user: '' } }, horn: binding(key === 'a' ? 1 : 2, key === 'a' ? 7 : 9) } } }
     }
-    const render = () => state.render(() => view[`${name}DetectionSection`]())
+    const render = () => state.render(() => view[`${name}DetectionSection`]({ department: 'fulida_company' }))
     const select = (key) => component(render(), 'FeatureCameraManager').props.onSelectCamera(key)
     select('a'); await settle()
     assert.deepEqual(plain(component(render(), 'AlarmPushConfig').props.alarm.horn), binding())

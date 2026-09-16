@@ -16,7 +16,7 @@ from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.cameras.config_manager import CameraConfigManager
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
-from test_horn_backend import backend
+from test_horn_backend import backend as backend
 
 
 ORDINARY_FEATURES = [spec for spec in all_specs().values() if spec.name not in LOGISTICS_FEATURES]
@@ -66,7 +66,7 @@ def department_api(backend, monkeypatch):
 
 def create_camera(api, **changes):
     response = api.client.post("/api/cameras", json={
-        "name": "测试摄像头", "shm_name": "test_camera", "url": "rtsp://test.local/video",
+        "department": "general_electric", "name": "测试摄像头", "shm_name": "test_camera", "url": "rtsp://test.local/video",
         **changes,
     })
     assert response.status_code == 201, response.text
@@ -106,19 +106,15 @@ def test_recognize_face_detection_threshold_is_persisted_per_camera(department_a
         assert api.client.get(path).json()["config"]["value"] == expected
 
 
-@pytest.mark.parametrize("department", [None, ""])
-@pytest.mark.parametrize("enabled", [False, True])
-def test_camera_creation_and_disabled_feature_saves_allow_empty_department(department_api, department, enabled):
-    api = department_api
-    camera = create_camera(api, department=department, enabled=enabled)
-    assert not any(camera["functions"].values())
-    for spec in ORDINARY_FEATURES:
-        response = save(api, spec.name, False)
-        assert response.status_code == 200, response.text
-    with api.factory() as session:
-        stored = session.get(AiCameraConfig, camera["camera_id"])
-        assert stored.department == department
-        assert stored.enable is enabled
+@pytest.mark.parametrize("department", [None, "", "ge", "通用电气", "general-electric"])
+def test_camera_creation_requires_formal_department(department_api, department):
+    response = department_api.client.post("/api/cameras", json={
+        "name": "未分配摄像头", "shm_name": "unassigned", "url": "rtsp://test.local/video",
+        "department": department,
+    })
+    assert response.status_code in {400, 422}
+    assert department_api.observations == []
+
 
 
 @pytest.mark.parametrize("spec", list(all_specs().values()), ids=lambda spec: spec.name)
@@ -133,7 +129,7 @@ def test_enable_requires_registered_camera_department_without_writes(department_
             session.query(spec.orm_class).filter_by(camera_id=camera["camera_id"]).delete()
     response = save(api, spec.name, True)
     assert response.status_code == 400
-    assert response.json()["detail"] == "摄像头必须先设置所属事业部/公司"
+    assert response.json()["detail"] == "摄像头必须先设置所属事业部/子公司"
     assert api.observations == []
     with api.factory() as session:
         assert session.get(AiCameraConfig, camera["camera_id"]).department == department
@@ -153,7 +149,7 @@ def test_explicit_camera_department_then_enable_multi_department_feature(departm
     assert save(api, "detect_phone", True).status_code == 200
     with api.factory() as session:
         assert session.get(AiCameraConfig, camera["camera_id"]).department == department
-        assert session.get(AiCameraConfig, other["camera_id"]).department is None
+        assert session.get(AiCameraConfig, other["camera_id"]).department == "general_electric"
         assert session.query(get_spec("detect_phone").orm_class).filter_by(camera_id=other["camera_id"]).one().enable is False
 
 
@@ -206,6 +202,7 @@ def test_enabled_unassigned_camera_must_be_assigned_before_saving_enabled(depart
     api = department_api
     camera = create_camera(api)
     with api.factory.begin() as session:
+        session.get(AiCameraConfig, camera["camera_id"]).department = None
         session.query(get_spec("detect_phone").orm_class).filter_by(camera_id=camera["camera_id"]).one().enable = True
     assert save(api, "detect_phone", enabled).status_code == (400 if enabled else 200)
     with api.factory() as session:
@@ -227,6 +224,8 @@ def test_explicit_department_is_reused_and_cannot_be_overwritten_by_next_feature
 def test_enable_rechecks_department_after_camera_lookup(department_api, monkeypatch):
     api = department_api
     camera = create_camera(api)
+    with api.factory.begin() as session:
+        session.get(AiCameraConfig, camera["camera_id"]).department = None
     original_lookup = FeatureConfigManager._get_camera_by_key
 
     def lookup_then_update(session, key):

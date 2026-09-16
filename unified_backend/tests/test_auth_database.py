@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 
 import pytest
 from starlette.requests import Request
@@ -139,51 +138,14 @@ def test_version_one_token_without_auth_version_remains_compatible(monkeypatch, 
     )["auth_version"] == 1
 
 
-def test_migrates_hashless_legacy_users_before_login(monkeypatch, tmp_path):
-    database_path = tmp_path / "runtime" / "auth_users.db"
-    database_path.parent.mkdir(parents=True)
-    with sqlite3.connect(database_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE auth_users (
-                employee_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL,
-                department TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                password_hash TEXT,
-                auth_version INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO auth_users(
-                employee_id, name, role, department, enabled, password_hash
-            ) VALUES
-                ('legacy-viewer', '旧普通账号', 'viewer', 'general_electric', 1, NULL),
-                ('legacy-admin', '旧管理员', 'admin', 'general_electric', 1, '');
-            """
-        )
-    monkeypatch.setenv("AUTH_USERS_DB", str(database_path))
-    monkeypatch.setenv("AUTH_DEFAULT_PASSWORD", "legacy-default-password")
+def test_fulida_user_login_preserves_explicit_department(monkeypatch, tmp_path):
+    _configure_database_user(monkeypatch, tmp_path)
+    create_auth_user(employee_id="fulida", name="福力达用户", role="viewer", departments=["fulida_company"], password="fulida-password")
+    user = verify_login("fulida", "fulida-password")
+    assert user["departments"] == ["fulida_company"]
+    assert "department" not in user
+    assert get_current_user_from_request(_request_with_token(create_token(user)))["departments"] == ["fulida_company"]
 
-    viewer = verify_login("legacy-viewer", "legacy-default-password")
-    admin = verify_login("legacy-admin", "legacy-default-password")
-
-    assert viewer is not None
-    assert viewer["departments"] == ["general_electric"]
-    assert "department" not in viewer
-    assert admin is not None
-    assert admin["departments"] == ["all"]
-    assert verify_login("legacy-viewer", "wrong-password") is None
-    with sqlite3.connect(database_path) as connection:
-        hashes = [
-            row[0]
-            for row in connection.execute(
-                "SELECT password_hash FROM auth_users ORDER BY employee_id"
-            )
-        ]
-    assert all(value.startswith("pbkdf2_sha256$") for value in hashes)
-    assert len(set(hashes)) == 2
 
 
 @pytest.mark.parametrize("value", ["", "0", "never", "permanent", "forever"])

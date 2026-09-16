@@ -38,7 +38,7 @@ class CameraCreateRequest(BaseModel):
     shm_name: str = Field(..., min_length=1)
     fps: int = Field(5, gt=0)
     enabled: bool | None = None
-    department: str | None = None
+    department: str
 
 # 修改摄像头时前端可以传什么
 class CameraUpdateRequest(BaseModel):
@@ -54,12 +54,10 @@ def _camera_departments_for_user(user: dict) -> list[str]:
     """从当前登录用户信息里，整理出这个用户有权限访问的所有部门"""
     raw_departments = user.get("departments")
     candidates = raw_departments if isinstance(raw_departments, list) else []
-    departments: list[str] = []
-    for candidate in candidates:
-        department = str(candidate or "").strip()               # 去空格
-        if department and department not in departments:        # 去空值+去重复
-            departments.append(department)
-    return list(DEPARTMENT_SPECS) if "all" in departments else [d for d in departments if d in DEPARTMENT_SPECS]
+    return list(dict.fromkeys(
+        department for department in candidates
+        if isinstance(department, str) and department in DEPARTMENT_SPECS
+    ))
 
 
 def camera_read_department(user: dict, requested_department: str | None) -> str | None:
@@ -198,7 +196,7 @@ def patch_camera(
 ) -> dict[str, Any]:
     """局部修改某一台摄像头。"""
     try:
-        camera = camera_config_manager.update_camera(key, payload.model_dump(exclude_none=True))
+        camera = camera_config_manager.update_camera(key, payload.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if camera is None:

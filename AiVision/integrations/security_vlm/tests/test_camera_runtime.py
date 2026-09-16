@@ -110,7 +110,7 @@ def test_build_camera_config_is_isolated_from_base_config(tmp_path):
         "camera-a",
     )
 
-    snapshot = camera_runtime.build_camera_config(base_cfg, camera, paths)
+    snapshot = camera_runtime.build_camera_config(base_cfg, camera, paths, staff_identity_dir=tmp_path / ELECTRONICS / "rois")
 
     assert snapshot["data"]["department"] == ELECTRONICS
     assert snapshot["data"]["input_video"] == camera["rtsp_url"]
@@ -760,7 +760,6 @@ def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
         "envs": {"worker_python": "/env/bin/python"},
         "runtime": {
             "dir": "runtime",
-            "camera_root": "runtime/legacy-cameras",
             "max_running_cameras": 16,
         },
         "departments": {
@@ -779,9 +778,6 @@ def test_manager_resolves_relative_roots_from_security_vlm_project(tmp_path):
     )
 
     assert manager.base_runtime_dir == (project_root / "runtime").resolve()
-    assert manager.legacy_camera_root == (
-        project_root / "runtime" / "legacy-cameras"
-    ).resolve()
     assert manager.departments_root == (
         project_root / "runtime" / "custom" / "departments"
     ).resolve()
@@ -817,7 +813,7 @@ def test_started_session_worker_reads_the_same_department_roi_directory(tmp_path
     )
 
 
-# 功能：验证 `test_vlm_command_passes_exact_department_and_legacy_roots` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_vlm_command_passes_only_formal_department_root` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -826,7 +822,7 @@ def test_started_session_worker_reads_the_same_department_roi_directory(tmp_path
 #   - 内部调用：`make_manager`、`manager.start`、`next`、`vlm_command.index`、`str`、`pytest.mark.skipif`。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 @pytest.mark.skipif(camera_runtime is None, reason="camera_runtime is not implemented")
-def test_vlm_command_passes_exact_department_and_legacy_roots(tmp_path):
+def test_vlm_command_passes_only_formal_department_root(tmp_path):
     cameras = [
         {"camera_id": "camera-a", "name": "A", "rtsp_url": "rtsp://a/stream"},
     ]
@@ -842,9 +838,7 @@ def test_vlm_command_passes_exact_department_and_legacy_roots(tmp_path):
     assert vlm_command[vlm_command.index("--departments-root") + 1] == str(
         manager.departments_root
     )
-    assert vlm_command[vlm_command.index("--camera-root") + 1] == str(
-        manager.legacy_camera_root
-    )
+    assert "--camera-root" not in vlm_command
 
 
 # 功能：验证 `test_stop_all_linearizes_against_concurrent_start` 对应的摄像头、运行时逻辑；输入由参数提供，处理结果见返回值说明

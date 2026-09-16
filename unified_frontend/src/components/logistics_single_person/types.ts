@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 export const LOGISTICS_FEATURES = [
   'detect_logistics_single_person',
 ] as const
@@ -65,7 +66,7 @@ export type LogisticsCameraInventoryItem = {
   camera_id: number
   name: string
   shm_name: string
-  department: string | null
+  department: DepartmentId | null
   enabled: boolean
   online: boolean
   memberships: LogisticsCameraInventoryMembership[]
@@ -99,7 +100,7 @@ export type LogisticsChannel = {
   id: number
   name: string
   feature_name: LogisticsFeatureName
-  department: string
+  department: DepartmentId
   enabled: boolean
   sort_order: number
   created_at: string | null
@@ -117,7 +118,7 @@ export type LogisticsChannelListResponse = {
 }
 
 export type LogisticsChannelRuntimeStatus = {
-  department: string
+  department: DepartmentId
   feature_name: LogisticsFeatureName
   channel_id: number
   channel_name: string
@@ -133,7 +134,7 @@ export type LogisticsChannelRuntimeStatus = {
 }
 
 export type LogisticsChannelAlarm = {
-  department: string | null
+  department: DepartmentId | null
   id: string
   feature_name: LogisticsFeatureName | null
   channel_id: number
@@ -161,7 +162,7 @@ export type LogisticsChannelStatistics = {
 
 export type LogisticsChannelOkResponse = { ok: boolean }
 
-export type CreateLogisticsChannelPayload = { name: string; department: string }
+export type CreateLogisticsChannelPayload = { name: string; department: DepartmentId }
 
 export type UpdateLogisticsChannelPayload = {
   name?: string

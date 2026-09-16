@@ -64,7 +64,6 @@ import {
   type SecurityVlmRoiMap,
   type SecurityVlmRoiPoint,
   type SecurityVlmRoiPolygon,
-  type SecurityVlmRoiValue,
 } from '@/lib/security-vlm'
 import { useAuth } from '@/auth/useAuth'
 
@@ -116,16 +115,8 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-function normalizeRoi(values: SecurityVlmRoiValue): SecurityVlmRoiPolygon | null {
+function normalizeRoi(values: SecurityVlmRoiPolygon): SecurityVlmRoiPolygon | null {
   const entries: unknown[] = values
-  if (entries.length === 4 && entries.every(isFiniteNumber)) {
-    const [rawX1, rawY1, rawX2, rawY2] = entries
-    const x1 = Math.min(rawX1, rawX2)
-    const y1 = Math.min(rawY1, rawY2)
-    const x2 = Math.max(rawX1, rawX2)
-    const y2 = Math.max(rawY1, rawY2)
-    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-  }
   if (entries.length < 3) return null
 
   const points: SecurityVlmRoiPoint[] = []
@@ -301,11 +292,11 @@ export function SecurityVlmSection({
 
   useEffect(() => {
     if (!roiActive || !selectedCameraId) return
+    let active = true
     getSecurityVlmCameraRois(department, selectedCameraId)
       .then((data) => {
-        const names = data.available_slots?.length
-          ? data.available_slots
-          : Object.keys(data.staff_rois || {})
+        if (!active) return
+        const names = data.available_slots
         setRois(normalizeRois(data.staff_rois))
         setSlotNames(names)
         setCurrentRoi((previous) => (
@@ -313,9 +304,11 @@ export function SecurityVlmSection({
         ))
       })
       .catch((error) => {
+        if (!active) return
         setRoiMessage('')
         logSecurityVlmError('读取 ROI 失败', error)
       })
+    return () => { active = false }
   }, [department, roiActive, selectedCameraId])
 
   useEffect(() => {
@@ -516,7 +509,7 @@ export function SecurityVlmSection({
         selectedCameraId,
         rois,
       )
-      const names = data.available_slots?.length ? data.available_slots : Object.keys(data.staff_rois || {})
+      const names = data.available_slots
       setRois(normalizeRois(data.staff_rois))
       setSlotNames(names)
       setCurrentRoi((prev) => (prev && names.includes(prev) ? prev : names[0] || null))

@@ -1,4 +1,4 @@
-"""批量处置授权使用真实认证、历史报警归属快照和原有类型权限。"""
+"""批量处置授权以真实账号事业部范围隔离数据，同一事业部允许全部检测类型。"""
 import asyncio
 from datetime import datetime
 import importlib
@@ -58,10 +58,10 @@ def alarm_api(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("key,expected", [
-    ("ge", [1]), ("haoda", [2]), ("both", [1, 2]), ("research", [3002]),
+    ("ge", [1, 3001]), ("haoda", [2]), ("both", [1, 2, 3001]), ("research", [3002]),
     ("admin", [1, 2, 3001, 3002, 3003]),
 ])
-def test_batch_returns_only_authorized_ids_and_one_indexed_query(alarm_api, key, expected):
+def test_batch_authorizes_all_department_event_types_with_one_indexed_query(alarm_api, key, expected):
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=alarm_api.app), base_url="http://aivision") as client:
             response = await client.post("/api/alarms/access-check", json={"alarm_ids": [1, 2, 3001, 3002, 3003, 9999]},

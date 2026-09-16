@@ -221,31 +221,6 @@ GUARD_EVENT_META: dict[str, dict[str, str]] = {
 
 _MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 
-DEPARTMENT_ALIASES = {
-    "ge": "general_electric",
-    "general-electric": "general_electric",
-    "general electric": "general_electric",
-    "electronics-electrician": "electronics_electrician",
-    "electronics electrician": "electronics_electrician",
-    "electrical-components": "electrical_components",
-    "electrical components": "electrical_components",
-    "precious-metal-recycling": "precious_metal_recycling",
-    "precious metal recycling": "precious_metal_recycling",
-    "weida": "precious_metal_recycling",
-    "weida_company": "precious_metal_recycling",
-    "weida-company": "precious_metal_recycling",
-    "weida company": "precious_metal_recycling",
-    "伟达": "precious_metal_recycling",
-    "伟达公司": "precious_metal_recycling",
-    "贵金属回收": "precious_metal_recycling",
-    "haoda": "haoda_company",
-    "haoda-company": "haoda_company",
-    "haoda company": "haoda_company",
-    "皓达": "haoda_company",
-    "皓达公司": "haoda_company",
-}
-
-
 # 功能：实现 `_now` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
@@ -295,40 +270,14 @@ def _is_guard_room_api_path(path: str) -> bool:
     return normalized == "sites" or normalized.startswith("sites/")
 
 
-# 功能：转换或规范化 `_normalize_department` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（object）：待转换、校验或写入的值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`str(value or '').strip`、`str`、`DEPARTMENT_ALIASES.get`、`department.lower`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _normalize_department(value: object) -> str:
-    department = str(value or "").strip()
-    if not department:
-        return ""
-    return DEPARTMENT_ALIASES.get(department, DEPARTMENT_ALIASES.get(department.lower(), department))
-
-
-# 功能：实现 `_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_allowed_event_types_for_user` 调用本符号；`unified_backend/app.py` 的 `_guard_departments_for_user`
-#         调用本符号；`unified_backend/app.py` 的 `_security_vlm_departments_for_user` 调用本符号；`unified_backend/app.py` 的
-#         `_can_access_security_vlm` 调用本符号
-#   - 内部调用：`user.get`、`isinstance`、`_normalize_department`、`departments.append`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _departments_for_user(user: dict[str, Any]) -> list[str]:
+    """只读取账号明确授权的正式事业部编码。"""
     raw_departments = user.get("departments")
     candidates = raw_departments if isinstance(raw_departments, list) else []
-    departments: list[str] = []
-    for candidate in candidates:
-        department = _normalize_department(candidate)
-        if department and department not in departments:
-            departments.append(department)
-    return departments
+    return list(dict.fromkeys(
+        department for department in candidates
+        if isinstance(department, str) and department in DEPARTMENT_SPECS
+    ))
 
 
 # 功能：实现 `_cors_origins` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -543,17 +492,15 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         "event_label": "保安行为",
     }
     camera_name = site_name or str(alarm.get("camera_name") or "保安行为规范检测")
-    normalized_id = f"guard:{site_id}:{source_id}" if site_id is not None else f"guard:{source_id}"
-    image_url = f"/api/alarms/{source_id}/image"
-    video_url = f"/api/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None
-    if site_id is not None:
-        image_url = f"/api/sites/{site_id}/alarms/{source_id}/image"
-        video_url = f"/api/sites/{site_id}/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None
-        department = alarm.get("department")
-        if department in DEPARTMENT_SPECS:
-            image_url += f"?department={department}"
-            if video_url:
-                video_url += f"?department={department}"
+    department = require_department(alarm.get("department"))
+    if not isinstance(site_id, int):
+        raise ValueError("保安报警必须明确所属站点")
+    normalized_id = f"guard:{site_id}:{source_id}"
+    image_url = f"/api/sites/{site_id}/alarms/{source_id}/image?department={department}"
+    video_url = (
+        f"/api/sites/{site_id}/alarms/{source_id}/video?department={department}"
+        if alarm.get("video_status") == "ready" else None
+    )
     return {
         **alarm,
         "id": normalized_id,
@@ -564,7 +511,7 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
         "event_type": meta["event_type"],
         "event_label": meta["event_label"],
         "subject_type": "guard_room_site",
-        "subject_id": str(site_id) if site_id is not None else source_id,
+        "subject_id": str(site_id),
         "subject_name": camera_name,
         "camera_no": alarm.get("camera_no"),
         "camera_name": alarm.get("camera_name"),
@@ -584,7 +531,7 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     source_id = str(alarm.get("id") or "")
-    raw_metadata = alarm.get("metadata", alarm.get("event_metadata"))
+    raw_metadata = alarm.get("metadata")
     metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
     subject_type = str(alarm.get("subject_type") or "camera")
     is_channel = subject_type == "logistics_channel"
@@ -783,8 +730,6 @@ def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
     if role != "viewer":
         return []
     departments = _departments_for_user(user)
-    if "all" in departments:
-        return None
     return [department for department in departments if department in DEPARTMENT_SPECS]
 
 
@@ -817,7 +762,7 @@ def _security_vlm_departments_for_user(
 ) -> list[str]:
     role = str(user.get("role") or "").strip().lower()
     departments = _departments_for_user(user)
-    if role == "admin" or "all" in departments:
+    if role == "admin":
         return list(DEPARTMENT_SPECS)
     if role == "viewer":
         return [
@@ -903,7 +848,7 @@ def _filter_alarms(
     role = str(user.get("role") or "").strip().lower()
     departments = set(_departments_for_user(user))
     if role == "viewer":
-        departments = set(DEPARTMENT_SPECS) if "all" in departments else departments.intersection(DEPARTMENT_SPECS)
+        departments = departments.intersection(DEPARTMENT_SPECS)
         alarms = [
             alarm
             for alarm in alarms
@@ -1117,25 +1062,7 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
     }
 
 
-# 功能：实现 `_count_guard_cameras` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `config`（object）：运行配置对象
-# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`isinstance`、`config.get`、`sum`、`str(video.get(key) or '').strip`、`str`、`video.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _count_guard_cameras(config: object) -> int:
-    if not isinstance(config, dict):
-        return 0
-    video = config.get("video")
-    if not isinstance(video, dict):
-        return 0
-    return sum(
-        1
-        for key in ("source_cam1", "source_cam2", "source_cam3")
-        if str(video.get(key) or "").strip()
-    )
+
 
 
 # 功能：实现 `_guard_site_items` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1292,8 +1219,6 @@ def _camera_functions_enabled(camera: dict) -> bool:
     functions = camera.get("functions")
     if isinstance(functions, dict):
         return any(bool(value) for value in functions.values())
-    if isinstance(functions, list):
-        return len(functions) > 0
     return False
 
 
@@ -1310,8 +1235,6 @@ def _camera_feature_enabled(camera: dict, feature: str) -> bool:
     functions = camera.get("functions")
     if isinstance(functions, dict):
         return bool(functions.get(feature))
-    if isinstance(functions, list):
-        return feature in {str(item) for item in functions}
     return False
 
 
@@ -1326,7 +1249,9 @@ def _camera_feature_enabled(camera: dict, feature: str) -> bool:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
     running_camera_names = {str(item) for item in running_cameras}
-    feature_names = ("blocks", "detect_door", "detect_face", "detect_human", "detect_phone")
+    from AiVision.features.registry import all_specs
+
+    feature_names = all_specs()
     status: dict[str, dict[str, int]] = {}
     for feature in feature_names:
         configured_cameras = [
@@ -1547,22 +1472,26 @@ def create_app() -> FastAPI:
     #          等共 31 个调用。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/platform/status")
-    def platform_status(request: Request):
+    def platform_status(request: Request, department: str):
+        try:
+            department = require_department(department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if department not in _security_vlm_departments_for_user(request.state.user):
+            raise HTTPException(status_code=403, detail="无权访问该事业部")
         now = _now()
 
         upstream = _get_json_concurrently(
             {
                 "guard_health": (guard_room_url, "/api/health", request),
-                "guard_status": (guard_room_url, "/api/status", request),
-                "guard_sites": (guard_room_url, "/api/sites", request),
+                "guard_sites": (guard_room_url, f"/api/sites?department={department}", request),
                 "ai_health": (aivision_url, "/api/runtime/health", None),
                 "ai_status": (aivision_url, "/api/runtime/status", request),
-                "ai_cameras": (aivision_url, "/api/cameras", request),
-                "vlm_health": (security_vlm_url, "/health", request),
+                "ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
+                "vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
             }
         )
         guard_health_ok, _guard_health, guard_latency, guard_health_error = upstream["guard_health"]
-        _guard_status_ok, guard_status, _guard_status_latency, guard_status_error = upstream["guard_status"]
         guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = upstream["guard_sites"]
         guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
         guard_site_statuses: dict[int, dict[str, Any]] = {}
@@ -1578,7 +1507,7 @@ def create_app() -> FastAPI:
             site_results = _get_json_concurrently({
                 str(site_id): (
                     guard_room_url,
-                    f"/api/sites/{site_id}/status",
+                    f"/api/sites/{site_id}/status?department={department}",
                     request,
                 )
                 for site_id in site_ids
@@ -1595,16 +1524,8 @@ def create_app() -> FastAPI:
             else {}
         )
         guard_last_frame_ts = _parse_iso_ts(guard_runtime.get("updated_at"))
-        guard_running = bool(guard_runtime.get("running")) if guard_sites_ok else (bool(guard_status.get("running")) if isinstance(guard_status, dict) else False)
-        guard_service_error = (
-            guard_health_error
-            if not guard_health_ok
-            else (
-                guard_status_error
-                if guard_status_error and guard_status_error != "401 Unauthorized"
-                else (_guard_sites_error or guard_runtime.get("status_error"))
-            )
-        )
+        guard_running = bool(guard_runtime.get("running"))
+        guard_service_error = guard_health_error or _guard_sites_error or guard_runtime.get("status_error")
 
         ai_health_ok, ai_health, ai_latency, ai_health_error = upstream["ai_health"]
         _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = upstream["ai_status"]
@@ -1614,18 +1535,18 @@ def create_app() -> FastAPI:
         ai_running_cameras = ai_status.get("running_cameras", []) if isinstance(ai_status, dict) else []
         ai_running_models = ai_status.get("running_models", []) if isinstance(ai_status, dict) else []
         ai_running_consumers = ai_status.get("running_consumers", []) if isinstance(ai_status, dict) else []
-        ai_camera_items = ai_cameras if isinstance(ai_cameras, list) else []
+        ai_camera_items = [camera for camera in ai_cameras if camera.get("department") == department] if isinstance(ai_cameras, list) else []
+        visible_camera_keys = {camera.get("shm_name") for camera in ai_camera_items}
+        ai_running_cameras = [key for key in ai_running_cameras if key in visible_camera_keys]
         ai_enabled_camera_count = sum(1 for camera in ai_camera_items if camera.get("enabled") and _camera_functions_enabled(camera))
         ai_feature_status = _aivision_feature_status(ai_camera_items, ai_running_cameras)
 
-        vlm_ok, vlm_health, vlm_latency, vlm_error = upstream["vlm_health"]
-        vlm_running = bool(vlm_health.get("running")) if isinstance(vlm_health, dict) else False
-        vlm_capture = vlm_health.get("capture", {}) if isinstance(vlm_health, dict) else {}
-        vlm_detector = vlm_health.get("detector", {}) if isinstance(vlm_health, dict) else {}
-        vlm_session = vlm_health.get("session", {}) if isinstance(vlm_health, dict) else {}
-        vlm_worker = vlm_health.get("vlm", {}) if isinstance(vlm_health, dict) else {}
-        vlm_stats = vlm_health.get("stats", {}) if isinstance(vlm_health, dict) else {}
-        vlm_frame_ts = float(vlm_capture.get("ts", 0) or 0) if isinstance(vlm_capture, dict) else 0
+        vlm_ok, vlm_state, vlm_latency, vlm_error = upstream["vlm_state"]
+        vlm_state = vlm_state if isinstance(vlm_state, dict) else {}
+        vlm_cameras = vlm_state.get("cameras", [])
+        vlm_running = bool(vlm_state.get("running"))
+        vlm_camera_count = len(vlm_cameras)
+        vlm_online_count = sum(bool(camera.get("running")) for camera in vlm_cameras)
 
         services = {
             "guard_room": _service_status(
@@ -1640,12 +1561,12 @@ def create_app() -> FastAPI:
                     "enabled_camera_count": guard_enabled_camera_count,
                     "online_camera_count": int(guard_runtime.get("online_camera_count") or 0) if guard_sites_ok else (guard_enabled_camera_count if guard_running else 0),
                     "offline_camera_count": int(guard_runtime.get("offline_camera_count") or 0) if guard_sites_ok else (0 if guard_running else guard_enabled_camera_count),
-                    "fps": guard_runtime.get("fps") if guard_sites_ok else (guard_status.get("fps") if isinstance(guard_status, dict) else None),
-                    "frame_count": guard_runtime.get("frame_count") if guard_sites_ok else (guard_status.get("frame_count") if isinstance(guard_status, dict) else None),
+                    "fps": guard_runtime.get("fps"),
+                    "frame_count": guard_runtime.get("frame_count"),
                     "running_sites": guard_runtime.get("running_sites", []),
                     "last_frame_age_sec": round(now - guard_last_frame_ts, 1) if guard_last_frame_ts else None,
                     "model_status": {
-                        "pose_enabled": bool(guard_runtime.get("pose_enabled")) if guard_sites_ok else (bool(guard_status.get("pose_enabled")) if isinstance(guard_status, dict) else False),
+                        "pose_enabled": bool(guard_runtime.get("pose_enabled")),
                         "loaded": guard_health_ok,
                     },
                 },
@@ -1657,7 +1578,7 @@ def create_app() -> FastAPI:
                 ai_latency,
                 ai_health_error if not ai_health_ok else (ai_status_error if ai_status_error and ai_status_error != "401 Unauthorized" else None),
                 {
-                    "running": bool(ai_status.get("started")) if isinstance(ai_status, dict) else False,
+                    "running": bool(ai_running_cameras),
                     "camera_count": len(ai_camera_items),
                     "enabled_camera_count": ai_enabled_camera_count,
                     "online_camera_count": len(ai_running_cameras),
@@ -1680,21 +1601,13 @@ def create_app() -> FastAPI:
                 vlm_error,
                 {
                     "running": vlm_running,
-                    "camera_count": 1,
-                    "online_camera_count": 1 if vlm_running and isinstance(vlm_capture, dict) and vlm_capture.get("ok") else 0,
-                    "offline_camera_count": 0 if vlm_running and isinstance(vlm_capture, dict) and vlm_capture.get("ok") else 1,
-                    "last_frame_age_sec": round(now - vlm_frame_ts, 1) if vlm_frame_ts else None,
-                    "worker_status": {
-                        "capture": vlm_capture,
-                        "detector": vlm_detector,
-                        "session": vlm_session,
-                        "vlm": vlm_worker,
-                    },
+                    "camera_count": vlm_camera_count,
+                    "online_camera_count": vlm_online_count,
+                    "offline_camera_count": max(0, vlm_camera_count - vlm_online_count),
                     "model_status": {
-                        "loaded": bool(isinstance(vlm_detector, dict) and vlm_detector.get("ok")),
-                        "vlm_ok": bool(isinstance(vlm_worker, dict) and vlm_worker.get("ok")),
+                        "loaded": vlm_running,
+                        "vlm_ok": bool(vlm_state.get("vlm", {}).get("ok")),
                     },
-                    "stats": vlm_stats,
                 },
             ),
         }

@@ -23,7 +23,7 @@ from auth.user_store import (
 #   - 调用方：`unified_backend/tests/test_user_store.py` 的 `test_initializes_and_reads_users_from_database`
 #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_create_update_reset_and_delete_user`
 #         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_accepts_haoda_company_viewer_department`
-#         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_accepts_weida_company_as_legacy_department_alias` 调用本符号；另有 5
+#         调用本符号；`unified_backend/tests/test_user_store.py` 的 `test_accepts_precious_metal_recycling_department` 调用本符号；另有 5
 #         处静态调用
 #   - 内部调用：`UserStore`、`store.create_user`。
 # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
@@ -126,14 +126,14 @@ def test_accepts_haoda_company_viewer_department(tmp_path):
         employee_id="20002",
         name="皓达公司用户",
         role="viewer",
-        departments=["皓达公司"],
+        departments=["haoda_company"],
         password_hash="hash-haoda",
     )
 
     assert created["departments"] == ["haoda_company"]
 
 
-# 功能：验证 `test_accepts_weida_company_as_legacy_department_alias` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_accepts_precious_metal_recycling_department` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -141,14 +141,14 @@ def test_accepts_haoda_company_viewer_department(tmp_path):
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`_store`、`store.create_user`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_accepts_weida_company_as_legacy_department_alias(tmp_path):
+def test_accepts_precious_metal_recycling_department(tmp_path):
     store = _store(tmp_path)
 
     created = store.create_user(
         employee_id="20003",
         name="伟达公司用户",
         role="viewer",
-        departments=["伟达公司"],
+        departments=["precious_metal_recycling"],
         password_hash="hash-weida",
     )
 
@@ -188,7 +188,7 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
         actor_employee_id="10001",
         name="跨公司负责人",
         role="viewer",
-        departments=["伟达公司", "皓达公司"],
+        departments=["precious_metal_recycling", "haoda_company"],
         enabled=True,
     )
 
@@ -198,55 +198,13 @@ def test_creates_and_updates_viewer_with_multiple_departments(tmp_path):
     ]
 
 
-# 功能：验证 `test_backfills_departments_when_opening_older_sqlite_database` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`database_path.parent.mkdir`、`sqlite3.connect`、`connection.executescript`、`UserStore`、`store.list_users`、`connection.execute`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能读取或修改数据库事务。
-def test_backfills_departments_when_opening_older_sqlite_database(tmp_path):
-    database_path = tmp_path / "runtime" / "auth_users.db"
-    database_path.parent.mkdir(parents=True)
-    with sqlite3.connect(database_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE auth_users (
-                employee_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL,
-                department TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                password_hash TEXT,
-                auth_version INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO auth_users(
-                employee_id, name, role, department, enabled, auth_version
-            ) VALUES ('legacy-viewer', '旧账号', 'viewer', 'general_electric', 1, 1);
-            """
-        )
-
-    store = UserStore(database_path=database_path)
-
-    user = store.list_users()[0]
-    assert user["departments"] == ["general_electric"]
-    assert "department" not in user
-    with sqlite3.connect(database_path) as connection:
-        columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(auth_users)")
-        }
-        migrated = connection.execute(
-            "SELECT department, departments, password_hash FROM auth_users"
-        ).fetchone()
+def test_user_schema_has_only_formal_departments_field(tmp_path):
+    store = _store(tmp_path)
+    with sqlite3.connect(store.database_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(auth_users)")}
     assert "departments" in columns
-    assert "department" in columns
-    assert migrated[0] == "general_electric"
-    assert migrated[1] == '["general_electric"]'
-    assert migrated[2].startswith("pbkdf2_sha256$")
+    assert "department" not in columns
+
 
 
 # 功能：验证 `test_rejects_invalid_or_duplicate_users` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -361,25 +319,11 @@ def test_allows_admin_change_when_another_enabled_admin_exists(tmp_path):
     assert updated["departments"] == ["research_institute"]
 
 
-# 功能：验证 `test_accepts_legacy_and_current_materials_institute_labels` 对应的`test_user_store` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-#   - `department`（未显式标注）：业务部门名称或标识
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_store`、`store.create_user`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize("department_alias", ["研究院", "人工智能研究院", "福达新材院"])
-def test_accepts_legacy_and_current_materials_institute_labels(tmp_path, department_alias):
+@pytest.mark.parametrize("department", ["研究院", "福达新材院", "通用电气", "电子电工", "伟达公司", "皓达公司", "ge", "general-electric", "general electric", "electronics-electrician", "weida", "weida_company", "haoda", "all"])
+def test_rejects_department_aliases_on_create_and_update(tmp_path, department):
     store = _store(tmp_path)
-
-    created = store.create_user(
-        employee_id=f"viewer-{department_alias}",
-        name="新材院用户",
-        role="viewer",
-        departments=[department_alias],
-        password_hash="hash",
-    )
-
-    assert created["departments"] == ["research_institute"]
+    with pytest.raises(UserValidationError, match="有效事业部"):
+        store.create_user(employee_id="invalid", name="非法事业部", role="viewer", departments=[department], password_hash="hash")
+    with pytest.raises(UserValidationError, match="有效事业部"):
+        store.update_user("10002", actor_employee_id="10001", name="普通用户", role="viewer", departments=[department], enabled=True)
+    assert store.get_user_record("10002")["departments"] == ["general_electric"]

@@ -21,12 +21,12 @@ export type AiVisionCamera = {
   camera_id: number
   fps?: number
   enabled: boolean
-  functions: Record<string, boolean> | string[]
-  department?: string | null
+  functions: Record<string, boolean>
+  department: DepartmentId | null
 }
 
 export type AiVisionDepartment = {
-  name: string
+  name: DepartmentId
   display_name: string
 }
 
@@ -45,7 +45,7 @@ export type CreateAiVisionCameraPayload = {
   shm_name: string
   fps?: number
   enabled?: boolean
-  department?: string | null
+  department: DepartmentId
 }
 
 export type CreateAiVisionFeatureCameraPayload = Omit<CreateAiVisionCameraPayload, 'shm_name' | 'department'> & {
@@ -127,9 +127,7 @@ type AiVisionFeatureConfigResponse = {
   config: AiVisionFeatureConfig
 }
 
-type AiVisionCamerasResponse = {
-  cameras: AiVisionCamera[]
-} | AiVisionCamera[]
+type AiVisionCamerasResponse = AiVisionCamera[]
 
 async function readAiVisionError(response: Response) {
   if (response.status === 401) {
@@ -145,7 +143,7 @@ async function readAiVisionError(response: Response) {
   return detail || `${response.status} ${response.statusText}`
 }
 
-export async function getAiVisionCameras(department?: string) {
+export async function getAiVisionCameras(department: DepartmentId) {
   const params = new URLSearchParams()
   if (department) params.set('department', department)
   const query = params.toString()
@@ -155,7 +153,7 @@ export async function getAiVisionCameras(department?: string) {
   }
 
   const payload = (await response.json()) as AiVisionCamerasResponse
-  return Array.isArray(payload) ? payload : payload.cameras || []
+  return payload
 }
 
 export async function getAiVisionLogisticsSinglePersonStatus(cameraKey: string, feature: string) {
@@ -188,7 +186,7 @@ export async function getAiVisionDepartments(signal?: AbortSignal) {
   return (await response.json()) as AiVisionDepartment[]
 }
 
-export async function getAiVisionDepartmentFeatures(departmentName: string) {
+export async function getAiVisionDepartmentFeatures(departmentName: DepartmentId) {
   const response = await fetch(`/api/departments/${encodeURIComponent(departmentName)}/features`, { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
@@ -201,11 +199,7 @@ export function getAiVisionCameraKey(camera: AiVisionCamera) {
 }
 
 export function isAiVisionFeatureEnabled(camera: AiVisionCamera, feature: string) {
-  const functions = camera.functions
-  if (Array.isArray(functions)) {
-    return functions.includes(feature)
-  }
-  return Boolean(functions?.[feature])
+  return Boolean(camera.functions[feature])
 }
 
 export type AiVisionFrameOptions = {

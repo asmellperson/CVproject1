@@ -44,7 +44,10 @@ _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 def camera_access_departments(camera: dict) -> set[str]:
     """摄像头归属只由显式 department 决定；未分配摄像头对 viewer 不可见。"""
     department = camera.get("department")
-    return {department} if department else set()
+    try:
+        return {require_department(department)}
+    except ValueError:
+        return set()
 
 def _load_function_states(session, camera_ids: list[int], specs: dict) -> dict[int, dict[str, bool]]:
     """批量查出每台摄像头分别开启了哪些Feature。"""
@@ -95,7 +98,7 @@ class CameraConfigManager:
         session = get_session()
         try:
             query = session.query(AiCameraConfig)
-            if department:
+            if department is not None:
                 require_department(department)
                 query = query.filter(AiCameraConfig.department == department)
             cameras = query.order_by(AiCameraConfig.id).all()
@@ -226,9 +229,7 @@ class CameraConfigManager:
         fps = int(payload.get("fps", 5))
         max_restart = int(payload.get("max_restart", 10))
         enable = bool(payload.get("enabled", True))
-        department = payload.get("department")
-        if department is not None and department != "":
-            require_department(department)
+        department = require_department(payload.get("department"))
         # 基础校验
         if not (name and url):
             raise ValueError("name, url 都是必填")
@@ -292,21 +293,34 @@ class CameraConfigManager:
 
     def update_camera(self, key: str, payload: dict) -> Optional[dict]:
         """更新摄像头基础信息 — 不动功能配置"""
+        for field in ("name", "url", "fps", "max_restart", "enabled"):
+            if field in payload and payload[field] is None:
+                raise ValueError(f"{field} 不能为空")
         with session_scope() as session:
             # 根据key找到真正的AiCameraConfig数据库对象
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return None
             if "department" in payload:
-                # 与功能启用事务按相同顺序锁摄像头，避免并发更改归属绕过校验。
+                from AiVision.features.logistics_channel.orm import LogisticsChannelCamera
+
+                department = require_department(payload["department"])
+                # 成员写入也先锁摄像头；锁定后读取最新绑定，防止并发改变归属。
                 session.refresh(cam, with_for_update=True)
+                if department != cam.department:
+                    membership = (
+                        session.query(LogisticsChannelCamera.id)
+                        .filter(LogisticsChannelCamera.camera_id == cam.id)
+                        .with_for_update()
+                        .first()
+                    )
+                    if membership is not None:
+                        raise ValueError("摄像头已绑定物流通道，请先解除物流通道绑定后再修改事业部")
             # _event_snapshot:把当前摄像头的重要运行配置复制成一个普通dict
             old_value = self._event_snapshot(cam)
             # 修改字段
             for field in ("name", "url", "fps", "max_restart", "department"):
                 if field in payload:
-                    if field == "department":
-                        require_department(payload[field])
                     setattr(cam, field, payload[field])
             if "enabled" in payload:
                 cam.enable = bool(payload["enabled"])

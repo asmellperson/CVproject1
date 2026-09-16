@@ -40,7 +40,7 @@ for (const department of departments) {
 }
 for (const [name, viewer, expected] of [
   ['admin', user([], 'admin'), departments],
-  ['all', user(['all']), departments],
+  ['explicit-all-departments', user(departments), departments],
   ['multiple', user(departments.slice(0, 2)), departments.slice(0, 2)],
 ]) {
   test(`${name} repeats the same nine NavItems for authorized departments only`, () => {

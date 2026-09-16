@@ -87,10 +87,10 @@ function PageLoadingFallback() {
 
 function App() {
   const { user } = useAuth()
-  const platformStatus = usePlatformStatus()
   const [currentPage, setCurrentPage] = useState(getInitialPage)
   const [requestedDepartment, setCurrentDepartment] = useState(() => new URLSearchParams(window.location.search).get('department'))
   const currentDepartment = resolveDepartment(user, requestedDepartment)
+  const platformStatus = usePlatformStatus(currentDepartment)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)

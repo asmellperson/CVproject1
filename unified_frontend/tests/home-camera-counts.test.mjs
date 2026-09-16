@@ -31,8 +31,8 @@ test('uses backend feature counts until the camera inventory has loaded', async 
     'src/sections/homeCameraCounts.ts',
   )
 
-  assert.equal(getLoadedAiVisionFeatureCounts([], false), undefined)
-  assert.equal(getLoadedAiVisionFeatureCounts([], true).detect_logistics_single_person.cameraCount, 0)
+  assert.equal(getLoadedAiVisionFeatureCounts([], false, 'fulida_company'), undefined)
+  assert.equal(getLoadedAiVisionFeatureCounts([], true, 'fulida_company').detect_logistics_single_person.cameraCount, 0)
 })
 
 test('counts a loaded logistics camera inventory by feature', async () => {
@@ -42,15 +42,17 @@ test('counts a loaded logistics camera inventory by feature', async () => {
   const cameras = [
     {
       enabled: true,
+      department: 'fulida_company',
       functions: { detect_logistics_single_person: true },
     },
     {
       enabled: false,
-      functions: ['detect_logistics_single_person'],
+      department: 'fulida_company',
+      functions: { detect_logistics_single_person: true },
     },
   ]
 
-  const counts = getLoadedAiVisionFeatureCounts(cameras, true)
+  const counts = getLoadedAiVisionFeatureCounts(cameras, true, 'fulida_company')
   assert.deepEqual(counts.detect_logistics_single_person, {
     cameraCount: 2,
     enabledCameraCount: 1,

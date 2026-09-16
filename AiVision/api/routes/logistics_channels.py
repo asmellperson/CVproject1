@@ -41,16 +41,15 @@ from AiVision.alarms.records.orm import AiAlarmEvent
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])
 
 def _accessible_departments(user: dict) -> tuple[str, ...] | None:
-    """None 表示管理员/全部事业部；空元组表示没有可访问事业部。"""
+    """None 表示管理员；空元组表示没有可访问事业部。"""
     if user.get("role") == "admin":
         return None
     raw_departments = user.get("departments")
     candidates = raw_departments if isinstance(raw_departments, list) else []
-    # 部门数据清洗：去空字符串、去空格，自动去重
-    departments = {str(value or "").strip() for value in candidates if str(value or "").strip()}
+    departments = {value for value in candidates if isinstance(value, str) and value in DEPARTMENT_SPECS}
     if user.get("role") != "viewer":
         return ()
-    return tuple(DEPARTMENT_SPECS) if "all" in departments else tuple(sorted(departments.intersection(DEPARTMENT_SPECS)))
+    return tuple(sorted(departments))
 
 
 def _require_feature_access(feature: str) -> str:

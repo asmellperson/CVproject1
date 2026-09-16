@@ -1,6 +1,7 @@
+import type { DepartmentId } from '@/auth/permissions'
 export type ChannelListRequestIdentity = {
   feature: string
-  department: string
+  department: DepartmentId
   generation: number
 }
 
@@ -10,7 +11,7 @@ export type ChannelDetailRequestIdentity = ChannelListRequestIdentity & {
 
 export type ChannelRequestCursor = {
   feature: string
-  department: string
+  department: DepartmentId
   listGeneration: number
   detailGeneration: number
   selectedChannelId: number | null

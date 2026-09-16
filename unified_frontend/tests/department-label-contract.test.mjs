@@ -6,7 +6,7 @@ const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf
 
 test('all detection page labels derive from the shared department catalog', async () => {
   const permissions = await read('auth/permissions.ts')
-  for (const label of ['通用电气', '福达新材院', '电子电工', '电气部件事业部', '伟达公司', '皓达公司']) assert.ok(permissions.includes(label))
+  for (const label of ['通用电气事业部', '电子电工事业部', '电气部件事业部', '福达新材院', '伟达子公司', '皓达子公司', '福力达子公司']) assert.ok(permissions.includes(label))
   for (const name of ['IntrusionDetection', 'DoorDetection', 'FaceDetection', 'FaceRecognition', 'PhoneDetection', 'HumanDetection', 'SecurityVlm', 'GuardBehavior']) {
     const source = await read(`sections/${name}Section.tsx`)
     assert.match(source, /DEPARTMENT_LABELS\[department\]/)
@@ -18,6 +18,7 @@ test('all detection page labels derive from the shared department catalog', asyn
 
 test('sidebar reuses one capability list for all authorized departments', async () => {
   const source = await read('components/Sidebar.tsx')
+  assert.doesNotMatch(source, /sidebarChildMeta\.shared|公共能力|共享能力/)
   assert.match(source, /getAccessibleDepartments\(user\).map/)
   assert.match(source, /label: DEPARTMENT_LABELS\[department\], items: group.items/)
   const nav = await read('lib/nav.ts')

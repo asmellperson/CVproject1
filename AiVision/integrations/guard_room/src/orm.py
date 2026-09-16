@@ -37,7 +37,7 @@ class GuardRoomSite(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    department = Column(String(100), nullable=False, default="general_electric", index=True, comment="所属部门")
+    department = Column(String(100), nullable=False, index=True, comment="所属部门")
     name = Column(String(100), nullable=False, index=True, comment="保安室名称")
     enabled = Column(Boolean, nullable=False, default=True, index=True, comment="是否启用")
     sort_order = Column(Integer, nullable=False, default=0, comment="显示排序")

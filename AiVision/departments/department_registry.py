@@ -17,12 +17,13 @@ class DepartmentSpec:
 DEPARTMENT_SPECS = MappingProxyType({
     spec.name: spec
     for spec in (
-        DepartmentSpec("general_electric", "通用电气"),
-        DepartmentSpec("research_institute", "福达新材院"),
-        DepartmentSpec("electronics_electrician", "电子电工"),
+        DepartmentSpec("general_electric", "通用电气事业部"),
+        DepartmentSpec("electronics_electrician", "电子电工事业部"),
         DepartmentSpec("electrical_components", "电气部件事业部"),
-        DepartmentSpec("precious_metal_recycling", "伟达公司"),
-        DepartmentSpec("haoda_company", "皓达公司"),
+        DepartmentSpec("research_institute", "福达新材院"),
+        DepartmentSpec("precious_metal_recycling", "伟达子公司"),
+        DepartmentSpec("haoda_company", "皓达子公司"),
+        DepartmentSpec("fulida_company", "福力达子公司"),
     )
 })
 

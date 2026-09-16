@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -249,7 +250,7 @@ type ConfigSectionProps = {
   loadingSites: boolean
   siteError?: string
   onSelectSite: (siteId: number) => void
-  department?: string
+  department: DepartmentId
   onCreateSite: (name: string) => Promise<GuardRoomSite>
   onDeleteSite: (siteId: number) => Promise<void>
   onSitesChanged?: () => void | Promise<void>

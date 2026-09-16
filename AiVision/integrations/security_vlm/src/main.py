@@ -1,37 +1,11 @@
 # 文件说明：作为程序启动入口并装配依赖。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
-"""
-================================================================================
-main.py —— Web 主进程 (FastAPI)
-================================================================================
-职责:
-    1. 启动 Web API；检测 worker 仅在 /api/control/start 被调用后启动
-    2. 提供 REST API:
-         GET  /              服务信息
-         GET  /health        所有 worker 状态 + 历史 + 统计 (前端轮询)
-         GET  /api/history   只返回历史
-         GET  /api/rois      读 ROI 配置
-         POST /api/rois      保存 ROI 配置 (前端绘制后调用)
-         GET  /video/original 原始 MJPEG 流
-         GET  /video/rule     带 ROI / 人体框 / 统计 banner 的 MJPEG 流
-    3. 退出时反向终止已启动的 worker
-
-MJPEG 渲染:
-    web 端两路视频都是从 FrameHub 读最新帧, 按 6fps 限流 + 长边 960 缩放
-    + JPEG 编码后通过 multipart 流式推送。"rule" 流额外叠加 ROI / tracks /
-    统计信息 (从 ResultStore 实时读)。
-
-ROI 热加载:
-    POST /api/rois 把 JSON 写到 staff_identity_dir/<video_id>_staff_rois.json,
-    session_worker 通过 mtime 检测自动重新加载, 不需要重启进程。
-================================================================================
-"""
+"""安检 API：事业部工作区隔离摄像头、ROI、结果和运行状态。"""
 import asyncio
 import json
 import logging
 import math
-import re
 import shutil
 import subprocess
 import time
@@ -42,16 +16,17 @@ from typing import Any, Dict, List
 import cv2
 import numpy as np
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+
+from auth.auth import get_current_user
 
 from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore
 from AiVision.integrations.security_vlm.src.roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
-    roi_mapping_exceeds_bounds,
     scale_roi_mapping,
     validate_rois,
 )
@@ -59,7 +34,6 @@ from AiVision.integrations.security_vlm.src.camera_registry import CameraRegistr
 from AiVision.integrations.security_vlm.src.camera_runtime import CameraRuntimeManager, CameraRuntimePaths
 from AiVision.integrations.security_vlm.src.department_workspace import (
     DepartmentWorkspaceManager,
-    GENERAL_ELECTRIC,
 )
 from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 
@@ -70,28 +44,11 @@ LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 工具
 # ---------------------------------------------------------------------------
-# 功能：读取或查询 `load_yaml` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path`（Path）：目标路径
-# 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`open`、`yaml.safe_load`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
-# 功能：计算或解析 `resolve_path` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `p`（str）：`p` 对应的业务输入值
-#   - `base`（Path）：`base` 对应的业务输入值
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Path`、`pp.is_absolute`、`pp.resolve`、`(base / pp).resolve`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_path(p: str, base: Path) -> Path:
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
@@ -100,79 +57,30 @@ def resolve_path(p: str, base: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Pydantic 模型定义
 # ---------------------------------------------------------------------------
-# 功能：同时接收旧矩形和多边形 ROI，具体几何约束由服务端校验；输入与输出详见下方说明
-# 参数：
-#   - `staff_rois`（Dict[str, Any]）：`staff_rois` 对应的业务输入值
-# 返回：ROIRequest；返回新建的 `ROIRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class ROIRequest(BaseModel):
-    """同时接收旧矩形和多边形 ROI，具体几何约束由服务端校验。"""
+    """接收多边形 ROI，几何约束由服务端统一校验。"""
 
     staff_rois: Dict[str, Any]
 
 
-# 功能：定义 `CameraCreateRequest` 类，封装程序启动相关的状态、约束与操作
-# 参数：
-#   - `name`（str）：业务对象名称
-#   - `rtsp_url`（str）：`rtsp_url` 对应的业务输入值
-# 返回：CameraCreateRequest；返回新建的 `CameraCreateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraCreateRequest(BaseModel):
     name: str
     rtsp_url: str
 
 
-# 功能：定义 `CameraUpdateRequest` 类，封装程序启动相关的状态、约束与操作
-# 参数：
-#   - `name`（str | None）：业务对象名称
-#   - `rtsp_url`（str | None）：`rtsp_url` 对应的业务输入值
-# 返回：CameraUpdateRequest；返回新建的 `CameraUpdateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraUpdateRequest(BaseModel):
     name: str | None = None
     rtsp_url: str | None = None
 
 
-# 功能：定义 `CameraTestRequest` 类，封装程序启动相关的状态、约束与操作
-# 参数：
-#   - `rtsp_url`（str）：`rtsp_url` 对应的业务输入值
-# 返回：CameraTestRequest；返回新建的 `CameraTestRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CameraTestRequest(BaseModel):
     rtsp_url: str
 
 
-# 功能：摄像头尚未产生可用于 ROI 校验的原始画面尺寸；输入与输出详见下方说明
-# 参数：无。
-# 返回：CaptureDimensionsUnavailable；返回新建的 `CaptureDimensionsUnavailable` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::capture_dimensions` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class CaptureDimensionsUnavailable(RuntimeError):
     """摄像头尚未产生可用于 ROI 校验的原始画面尺寸。"""
 
 
-# 功能：用 ffprobe 检查 RTSP 视频流，错误信息不回显包含凭据的地址；输入与输出详见下方说明
-# 参数：
-#   - `rtsp_url`（str）：`rtsp_url` 对应的业务输入值
-# 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`str`、`subprocess.run`、`json.loads(result.stdout or '{}').get`、`json.loads`、`int`、`stream.get`、`RuntimeError`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
 def probe_camera(rtsp_url: str) -> Dict[str, Any]:
     """用 ffprobe 检查 RTSP 视频流，错误信息不回显包含凭据的地址。"""
     command = [
@@ -222,40 +130,14 @@ def probe_camera(rtsp_url: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 业务服务: 管理 worker 子进程、读写共享状态、处理 ROI 持久化与缓存
 # ---------------------------------------------------------------------------
-# 功能：摄像头注册、进程组、ROI、共享状态和画面读取的业务门面；输入与输出详见下方说明
-# 参数：
-#   - `config_path`（Path）：`config_path` 对应的业务输入值
-#   - `registry`（CameraRegistry | None）：`registry` 对应的业务输入值；默认值为 `None`
-#   - `runtime_manager`（CameraRuntimeManager | None）：`runtime_manager` 对应的业务输入值；默认值为 `None`
-#   - `probe_func`（未显式标注）：`probe_func` 对应的业务输入值；默认值为 `probe_camera`
-#   - `offload_sync`（bool）：`offload_sync` 对应的业务输入值；默认值为 `True`
-# 返回：AppService；返回新建的 `AppService` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class AppService:
     """摄像头注册、进程组、ROI、共享状态和画面读取的业务门面。"""
 
-    # 功能：初始化或配置 `__init__` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `config_path`（Path）：`config_path` 对应的业务输入值
-    #   - `registry`（CameraRegistry | None）：`registry` 对应的业务输入值；默认值为 `None`
-    #   - `runtime_manager`（CameraRuntimeManager | None）：`runtime_manager` 对应的业务输入值；默认值为 `None`
-    #   - `probe_func`（未显式标注）：`probe_func` 对应的业务输入值；默认值为 `probe_camera`
-    #   - `offload_sync`（bool）：`offload_sync` 对应的业务输入值；默认值为 `True`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`Path`、`Path(__file__).resolve`、`load_yaml`、`resolve_path`、`str`、`self.cfg['runtime'].get`、`self.cfg.get`、`departments_cfg.get`、`DepartmentWorkspaceManager`、`self.runtime_dir.mkdir`
-    #          等共 20 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def __init__(
         self,
         config_path: Path,
         *,
-        registry: CameraRegistry | None = None,
+        workspace_manager: DepartmentWorkspaceManager | None = None,
         runtime_manager: CameraRuntimeManager | None = None,
         probe_func=probe_camera,
         offload_sync: bool = True,
@@ -265,15 +147,6 @@ class AppService:
         self.cfg = load_yaml(self.config_path)
         self.runtime_dir = resolve_path(
             str(self.cfg["runtime"]["dir"]),
-            self.project_root,
-        )
-        self.camera_root = resolve_path(
-            str(
-                self.cfg["runtime"].get(
-                    "camera_root",
-                    self.runtime_dir / "cameras",
-                )
-            ),
             self.project_root,
         )
         departments_cfg = self.cfg.get("departments", {}) or {}
@@ -293,40 +166,10 @@ class AppService:
             str(departments_data_root),
             self.project_root,
         )
-        self.workspace_manager = DepartmentWorkspaceManager(
+        self.workspace_manager = workspace_manager or DepartmentWorkspaceManager(
             self.departments_data_root, self.departments_runtime_root
         )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        data_cfg = self.cfg.setdefault("data", {})
-        registry_path = resolve_path(
-            str(data_cfg.get("camera_registry_path", "data/config/cameras.json")),
-            self.project_root,
-        )
-        self._injected_registry = registry
-        self.registry = registry or CameraRegistry(registry_path)
-        self.staff_dir = resolve_path(
-            str(data_cfg["staff_identity_dir"]),
-            self.project_root,
-        )
-        self.staff_dir.mkdir(parents=True, exist_ok=True)
-        if registry is None:
-            self.registry.migrate_legacy(self.cfg, self.staff_dir)
-            self.workspace_manager.migrate_general_electric(
-                legacy_registry_path=registry_path,
-                legacy_roi_dir=self.staff_dir,
-                legacy_runtime_dir=self.runtime_dir,
-            )
-            # 所有旧兼容入口也必须使用迁移后的 GE 注册表。
-            self.registry = self.workspace_manager.get(
-                GENERAL_ELECTRIC
-            ).registry
-        else:
-            # Keep the old single-camera fixture behavior without attempting
-            # to migrate arbitrary injected temporary registry files.
-            self.registry.migrate_legacy(self.cfg, self.staff_dir)
-        self.global_store = self.workspace(GENERAL_ELECTRIC).result_store
-        self.store = self.global_store
-
         self.runtime_manager = runtime_manager or CameraRuntimeManager(
             base_cfg=self.cfg,
             project_root=self.project_root,
@@ -345,95 +188,28 @@ class AppService:
             ],
         ] = {}
 
-    # 功能：返回部门专属工作区；显式注入的 registry 只替换 GE 以兼容测试；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::__init__`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::roi_path`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_migrate_legacy_roi_dimensions`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::save_rois` 调用本符号；另有 9 处静态调用
-    #   - 内部调用：`require_department`、`self.workspace_manager.get`、`replace`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def workspace(self, department: str):
-        """返回部门专属工作区；显式注入的 registry 只替换 GE 以兼容测试。"""
-        department = require_department(department)
-        workspace = self.workspace_manager.get(department)
-        if department == GENERAL_ELECTRIC and self._injected_registry is not None:
-            # Tests may provide a registry outside the configured data root.
-            from dataclasses import replace
-            return replace(workspace, registry=self._injected_registry)
-        return workspace
+        """所有业务数据均从显式指定的事业部工作区读取。"""
+        return self.workspace_manager.get(require_department(department))
 
-    # 功能：实现 `mark_stopped` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::lifespan` 调用本符号
-    #   - 内部调用：`self.global_store.write`、`time.time`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def mark_stopped(self):
-        self.global_store.write(
-            "runtime_control",
-            {"enabled": False, "message": "stopped", "ts": time.time()},
-        )
+        for department in DEPARTMENTS:
+            self.workspace(department).result_store.write(
+                "runtime_control",
+                {"enabled": False, "message": "stopped", "ts": time.time()},
+            )
 
-    # 功能：停止并释放 `shutdown` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.runtime_manager.shutdown`、`self._frame_hubs.clear`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def shutdown(self) -> None:
         self.runtime_manager.shutdown()
         self._frame_hubs.clear()
 
-    # 功能：实现 `camera_runtime_dir` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::camera_store`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_frame_hub`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::delete_camera` 调用本符号
-    #   - 内部调用：`CameraRuntimePaths`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def camera_runtime_dir(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Path:
+    def camera_runtime_dir(self, camera_id: str, department: str) -> Path:
         return CameraRuntimePaths(self.departments_runtime_root, department, camera_id).runtime_dir
 
-    # 功能：实现 `camera_store` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：ResultStore；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::capture_dimensions`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_camera_state`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `_overlay_on_frame` 调用本符号
-    #   - 内部调用：`ResultStore`、`self.camera_runtime_dir`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def camera_store(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> ResultStore:
+    def camera_store(self, camera_id: str, department: str) -> ResultStore:
         return ResultStore(self.camera_runtime_dir(camera_id, department))
 
-    # 功能：读取或查询 `get_frame_hub` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::_mjpeg` 调用本符号
-    #   - 内部调用：`require_department`、`FrameHubReader`、`self.camera_runtime_dir`、`LOGGER.debug`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
-    def get_frame_hub(self, camera_id: str, department: str = GENERAL_ELECTRIC):
+    def get_frame_hub(self, camera_id: str, department: str):
         key = (require_department(department), camera_id)
         if key in self._frame_hubs:
             return self._frame_hubs[key]
@@ -448,34 +224,9 @@ class AppService:
             LOGGER.debug("摄像头 %s 的 FrameHub 尚未就绪: %s", camera_id, exc)
             return None
 
-    # 功能：实现 `roi_path` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::save_rois`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_rois_cached`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::delete_camera` 调用本符号
-    #   - 内部调用：`self.workspace`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def roi_path(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Path:
-        if department == GENERAL_ELECTRIC and self._injected_registry is not None:
-            return self.staff_dir / f"{camera_id}_staff_rois.json"
+    def roi_path(self, camera_id: str, department: str) -> Path:
         return self.workspace(department).roi_dir / f"{camera_id}_staff_rois.json"
 
-    # 功能：读取或查询 `_normalize_rois_for_read` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `rois`（Any）：`rois` 对应的业务输入值
-    # 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois` 调用本符号
-    #   - 内部调用：`isinstance`、`LOGGER.warning`、`rois.items`、`str`、`normalize_roi_points`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def _normalize_rois_for_read(
         self,
         camera_id: str,
@@ -498,20 +249,7 @@ class AppService:
                 )
         return normalized
 
-    # 功能：读取或查询 `load_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_rois_cached`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_camera_state`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_roi_load` 调用本符号
-    #   - 内部调用：`self.roi_path`、`path.exists`、`json.loads`、`path.read_text`、`self._normalize_rois_for_read`、`raw.get`、`self._capture_dimensions_or_none`、`self._roi_source_dimensions`、`roi_mapping_exceeds_bounds`、`self._migrate_legacy_roi_dimensions`
-    #          等共 13 个调用。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
-    def load_rois(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Dict[str, List[List[float]]]:
+    def load_rois(self, camera_id: str, department: str) -> Dict[str, List[List[float]]]:
         path = self.roi_path(camera_id, department)
         if path.exists():
             try:
@@ -527,24 +265,8 @@ class AppService:
                 if target_dimensions is None:
                     return normalized
                 source_dimensions = self._roi_source_dimensions(raw)
-                if (
-                    source_dimensions is None
-                    and roi_mapping_exceeds_bounds(
-                        normalized,
-                        target_dimensions[0],
-                        target_dimensions[1],
-                    )
-                ):
-                    source_dimensions = self._migrate_legacy_roi_dimensions(
-                        camera_id,
-                        department,
-                        path,
-                        raw,
-                        normalized,
-                        target_dimensions,
-                    )
                 if source_dimensions is None:
-                    return normalized
+                    raise ValueError("ROI 文件必须包含源画面尺寸")
                 return scale_roi_mapping(
                     normalized,
                     source_dimensions[0],
@@ -560,23 +282,8 @@ class AppService:
                 json.JSONDecodeError,
             ) as exc:
                 LOGGER.warning("读取摄像头 %s 的 ROI 失败: %s", camera_id, exc)
-        return self._normalize_rois_for_read(
-            camera_id,
-            (
-                self.cfg.get("staff_rois", {}) or {}
-                if department == GENERAL_ELECTRIC
-                else {}
-            ),
-        )
+        return {}
 
-    # 功能：实现 `_roi_source_dimensions` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `raw`（Dict[str, Any]）：`raw` 对应的业务输入值
-    # 返回：tuple[float, float] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois` 调用本符号
-    #   - 内部调用：`raw.get`、`isinstance`、`ValueError`、`float`、`math.isfinite`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @staticmethod
     def _roi_source_dimensions(raw: Dict[str, Any]) -> tuple[float, float] | None:
         width = raw.get("source_width")
@@ -601,17 +308,6 @@ class AppService:
             raise ValueError("ROI 文件中的源画面尺寸无效")
         return source_width, source_height
 
-    # 功能：实现 `_capture_dimensions_or_none` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：tuple[float, float] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_rois_cached` 调用本符号
-    #   - 内部调用：`self.capture_dimensions`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _capture_dimensions_or_none(
         self,
         camera_id: str,
@@ -622,111 +318,7 @@ class AppService:
         except CaptureDimensionsUnavailable:
             return None
 
-    # 功能：仅为坐标已越界的海康子码流旧文件探测对应主码流尺寸；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识
-    #   - `path`（Path）：目标路径
-    #   - `raw`（Dict[str, Any]）：`raw` 对应的业务输入值
-    #   - `normalized`（Dict[str, List[List[float]]]）：`normalized` 对应的业务输入值
-    #   - `target_dimensions`（tuple[float, float]）：`target_dimensions` 对应的业务输入值
-    # 返回：tuple[float, float] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::load_rois` 调用本符号
-    #   - 内部调用：`self.workspace(department).registry.get`、`self.workspace`、`str`、`camera.get`、`re.subn`、`self.probe_func`、`float`、`all`、`math.isfinite`、`roi_mapping_exceeds_bounds`
-    #          等共 18 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
-    def _migrate_legacy_roi_dimensions(
-        self,
-        camera_id: str,
-        department: str,
-        path: Path,
-        raw: Dict[str, Any],
-        normalized: Dict[str, List[List[float]]],
-        target_dimensions: tuple[float, float],
-    ) -> tuple[float, float] | None:
-        """仅为坐标已越界的海康子码流旧文件探测对应主码流尺寸。"""
-        camera = self.workspace(department).registry.get(camera_id)
-        if camera is None:
-            return None
-        source_url = str(camera.get("rtsp_url") or "")
-
-        # 功能：实现 `main_channel` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：
-        #   - `match`（re.Match[str]）：`match` 对应的业务输入值
-        # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-        # 调用关系：
-        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`match.group`。
-        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-        def main_channel(match: re.Match[str]) -> str:
-            return f"{match.group(1)}{match.group(2)}01"
-
-        main_url, replacements = re.subn(
-            r"(?i)(/streaming/channels/)(\d+)02(?=$|[/?#])",
-            main_channel,
-            source_url,
-            count=1,
-        )
-        if replacements == 0 or main_url == source_url:
-            return None
-        try:
-            probe = self.probe_func(main_url)
-            source_width = float(probe["width"])
-            source_height = float(probe["height"])
-            source_dimensions = (source_width, source_height)
-            if (
-                not all(math.isfinite(value) and value > 0 for value in source_dimensions)
-                or roi_mapping_exceeds_bounds(
-                    normalized,
-                    source_width,
-                    source_height,
-                )
-            ):
-                raise ValueError("主码流尺寸无法容纳旧 ROI")
-        except (KeyError, TypeError, ValueError, OverflowError, RuntimeError) as exc:
-            LOGGER.warning(
-                "摄像头 %s 的旧 ROI 无法自动识别源尺寸: %s",
-                camera_id,
-                exc,
-            )
-            return None
-
-        backup_path = path.with_name(f"{path.stem}.pre-dimension-migration.json")
-        if not backup_path.exists():
-            shutil.copy2(path, backup_path)
-        migrated = dict(raw)
-        migrated["source_width"] = source_width
-        migrated["source_height"] = source_height
-        path.write_text(
-            json.dumps(migrated, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        LOGGER.warning(
-            "摄像头 %s 的旧 ROI 已按源尺寸 %.0fx%.0f 兼容，当前尺寸 %.0fx%.0f；备份: %s",
-            camera_id,
-            source_width,
-            source_height,
-            target_dimensions[0],
-            target_dimensions[1],
-            backup_path,
-        )
-        return source_dimensions
-
-    # 功能：实现 `capture_dimensions` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：tuple[float, float]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_capture_dimensions_or_none`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::save_rois` 调用本符号
-    #   - 内部调用：`self.camera_store(camera_id,
-    #          department).read`、`self.camera_store`、`status.get`、`isinstance`、`CaptureDimensionsUnavailable`、`float`、`math.isfinite`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def capture_dimensions(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> tuple[float, float]:
+    def capture_dimensions(self, camera_id: str, department: str) -> tuple[float, float]:
         status = self.camera_store(camera_id, department).read("capture_status", {}) or {}
         width_value = status.get("width", 0)
         height_value = status.get("height", 0)
@@ -758,21 +350,9 @@ class AppService:
             )
         return width, height
 
-    # 功能：更新或保存 `save_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `rois`（Dict[str, Any]）：`rois` 对应的业务输入值
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_roi_save` 调用本符号
-    #   - 内部调用：`self.workspace(department).registry.get`、`self.workspace`、`KeyError`、`self.capture_dimensions`、`self.cfg.get`、`validate_rois`、`roi_cfg.get`、`self.roi_path`、`path.write_text`、`json.dumps`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def save_rois(
         self,
-        camera_id: str, rois: Dict[str, Any], department: str = GENERAL_ELECTRIC,
+        camera_id: str, rois: Dict[str, Any], department: str,
     ) -> Dict[str, List[List[float]]]:
         camera = self.workspace(department).registry.get(camera_id)
         if camera is None:
@@ -802,19 +382,9 @@ class AppService:
         self._roi_caches.pop((department, camera_id), None)
         return normalized
 
-    # 功能：读取或查询 `get_rois_cached` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.roi_path`、`path.exists`、`path.stat`、`self._capture_dimensions_or_none`、`self._roi_caches.get`、`self.load_rois`、`LOGGER.warning`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
     def get_rois_cached(
         self,
-        camera_id: str, department: str = GENERAL_ELECTRIC,
+        camera_id: str, department: str,
     ) -> Dict[str, List[List[float]]]:
         path = self.roi_path(camera_id, department)
         try:
@@ -835,18 +405,7 @@ class AppService:
             LOGGER.warning("检查摄像头 %s 的 ROI 缓存失败: %s", camera_id, exc)
             return self.load_rois(camera_id, department)
 
-    # 功能：读取或查询 `get_camera_state` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_state` 调用本符号
-    #   - 内部调用：`self.workspace`、`workspace.registry.get`、`KeyError`、`self.runtime_manager.status`、`bool`、`self.camera_store`、`time.time`、`store.read`、`workspace.registry.public`、`public.update`
-    #          等共 12 个调用。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def get_camera_state(self, camera_id: str, department: str = GENERAL_ELECTRIC) -> Dict[str, Any]:
+    def get_camera_state(self, camera_id: str, department: str) -> Dict[str, Any]:
         workspace = self.workspace(department)
         camera = workspace.registry.get(camera_id)
         if camera is None:
@@ -879,18 +438,7 @@ class AppService:
         })
         return public
 
-    # 功能：读取或查询 `get_state` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.workspace`、`self.runtime_manager.reconcile`、`self.get_camera_state`、`workspace.registry.list`、`(workspace.result_store.read('vlm_history',
-    #          {}) or {}).get`、`workspace.result_store.read`、`hasattr`、`self.runtime_manager.vlm_status`、`any`、`vlm.update` 等共 14
-    #          个调用。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def get_state(self, department: str = GENERAL_ELECTRIC) -> Dict[str, Any]:
+    def get_state(self, department: str) -> Dict[str, Any]:
         workspace = self.workspace(department)
         self.runtime_manager.reconcile()
         cameras = [
@@ -901,16 +449,7 @@ class AppService:
             workspace.result_store.read("vlm_history", {}) or {}
         ).get("items", [])
         vlm = workspace.result_store.read("vlm_status", {}) or {}
-        if hasattr(self.runtime_manager, "vlm_status"):
-            vlm_runtime = self.runtime_manager.vlm_status()
-        else:
-            vlm_runtime = {
-                "running": any(camera["running"] for camera in cameras),
-                "desired_running": any(camera["running"] for camera in cameras),
-                "restart_at": None,
-                "restart_attempts": 0,
-                "last_error": "",
-            }
+        vlm_runtime = self.runtime_manager.vlm_status()
         vlm = {**vlm, **vlm_runtime}
         if vlm_runtime["desired_running"] and not vlm_runtime["running"]:
             vlm.update({
@@ -932,58 +471,10 @@ class AppService:
             "stats": workspace.result_store.read("vlm_latest_stats", {}) or {},
             "history": history[:200],
         }
-        default_id = self.default_camera_id(department)
-        if default_id is not None:
-            default = next(
-                camera for camera in cameras if camera["camera_id"] == default_id
-            )
-            state.update({
-                "capture": default["capture"],
-                "detector": default["detector"],
-                "session": default["session"],
-                "staff_rois": default["staff_rois"],
-            })
         return state
 
-    # 功能：实现 `default_camera_id` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：str | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::get_state`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::start_workers`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_roi_load`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `AppService::_roi_save` 调用本符号；另有 4 处静态调用
-    #   - 内部调用：`self.workspace(department).registry.list`、`self.workspace`、`next`、`str`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def default_camera_id(self, department: str = GENERAL_ELECTRIC) -> str | None:
-        cameras = self.workspace(department).registry.list()
-        if not cameras:
-            return None
-        legacy = next(
-            (
-                camera
-                for camera in cameras
-                if camera["camera_id"] == "legacy-default"
-            ),
-            None,
-        )
-        return str((legacy or cameras[0])["camera_id"])
-
-    # 功能：Stop first, then preserve ROI and volatile camera runtime under archive；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.workspace`、`workspace.registry.get`、`KeyError`、`self.runtime_manager.stop`、`stopped.get`、`RuntimeError`、`str`、`int`、`time.time`、`archive.mkdir`
-    #          等共 17 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def delete_camera(self, department: str, camera_id: str) -> dict:
-        """Stop first, then preserve ROI and volatile camera runtime under archive."""
+        """先停止摄像头，再归档当前事业部的 ROI 和摄像头运行数据。"""
         workspace = self.workspace(department)
         camera = workspace.registry.get(camera_id)
         if camera is None:
@@ -1005,98 +496,15 @@ class AppService:
         self._roi_caches.pop((department, camera_id), None)
         return deleted
 
-    # 功能：启动或执行 `start_workers` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.default_camera_id`、`self.runtime_manager.start`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-    def start_workers(self):
-        camera_id = self.default_camera_id()
-        return (
-            self.runtime_manager.start(GENERAL_ELECTRIC, camera_id)
-            if camera_id is not None
-            else {"ok": False, "message": "尚未添加摄像头"}
-        )
-
-    # 功能：停止并释放 `stop_workers` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.runtime_manager.stop_all`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def stop_workers(self):
-        return self.runtime_manager.stop_all(GENERAL_ELECTRIC)
-
-    # 功能：检查或判断 `is_running` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`any`、`self.runtime_manager.is_running`、`self.registry.list`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def is_running(self) -> bool:
-        return any(
-            self.runtime_manager.is_running(
-                GENERAL_ELECTRIC,
-                camera["camera_id"],
-            )
-            for camera in self.registry.list()
-        )
-
-    # 功能：读取或查询 `_roi_load` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：Dict[str, List[List[float]]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.default_camera_id`、`self.load_rois`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def _roi_load(self) -> Dict[str, List[List[float]]]:
-        camera_id = self.default_camera_id()
-        return self.load_rois(camera_id) if camera_id is not None else {}
-
-    # 功能：更新或保存 `_roi_save` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `rois`（Dict[str, Any]）：`rois` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.default_camera_id`、`KeyError`、`self.save_rois`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def _roi_save(self, rois: Dict[str, Any]):
-        camera_id = self.default_camera_id()
-        if camera_id is None:
-            raise KeyError("尚未添加摄像头")
-        return self.save_rois(camera_id, rois)
-
 
 # ---------------------------------------------------------------------------
 # MJPEG 渲染辅助: 在 frame 上叠加 ROI / 人体框 / 统计 banner
 # ---------------------------------------------------------------------------
-# 功能：用于 /video/rule 流。frame 此时已经被缩放到 max_side=960,；输入与输出详见下方说明
-# 参数：
-#   - `frame`（未显式标注）：待处理的视频图像帧
-#   - `service`（'AppService'）：`service` 对应的业务输入值
-#   - `camera_id`（str）：摄像头唯一标识；默认值为 `'legacy-default'`
-#   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::_mjpeg` 调用本符号
-#   - 内部调用：`hasattr`、`service.camera_store`、`service.workspace`、`getattr`、`camera_store.read`、`global_store.read`、`service.get_rois_cached`、`sess_latest.get`、`tracker.get`、`min`
-#          等共 40 个调用。
-# 副作用/注意事项：会向日志系统输出运行或异常信息。
 def _overlay_on_frame(
     frame,
     service: "AppService",
-    camera_id: str = "legacy-default",
-    department: str = GENERAL_ELECTRIC,
+    camera_id: str,
+    department: str,
 ):
     """
     用于 /video/rule 流。frame 此时已经被缩放到 max_side=960,
@@ -1109,26 +517,15 @@ def _overlay_on_frame(
     """
     try:
         # 读取最新状态
-        camera_store = (
-            service.camera_store(camera_id, department)
-            if hasattr(service, "camera_store")
-            else service.store
-        )
-        global_store = (
-            service.workspace(department).result_store
-            if hasattr(service, "workspace")
-            else getattr(service, "global_store", service.store)
-        )
+        camera_store = service.camera_store(camera_id, department)
+        global_store = service.workspace(department).result_store
         sess_latest = camera_store.read("session_latest", {}) or {}
         tracker = camera_store.read("tracker_latest", {}) or {}
         vlm_stats = global_store.read("vlm_latest_stats", {}) or {}
 
         # ROI 直接从配置文件读
-        rois = (
-            service.get_rois_cached(camera_id, department)
-            if hasattr(service, "camera_store")
-            else service.get_rois_cached()
-        )
+        rois = service.get_rois_cached(camera_id, department)
+
         per_roi = sess_latest.get("per_roi") or {}
         tracks = tracker.get("tracks") or []
         enter_overlap_ratio = min(
@@ -1242,15 +639,6 @@ def _overlay_on_frame(
 # ---------------------------------------------------------------------------
 # 创建 FastAPI app
 # ---------------------------------------------------------------------------
-# 功能：工厂函数，创建并配置 FastAPI 应用；输入与输出详见下方说明
-# 参数：
-#   - `config_path`（Path）：`config_path` 对应的业务输入值
-#   - `service`（AppService | None）：`service` 对应的业务输入值；默认值为 `None`
-# 返回：FastAPI；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者；由解释器、ASGI 服务器、React 或框架生命周期直接触发
-#   - 内部调用：`AppService`、`FastAPI`、`app.add_middleware`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app(
     config_path: Path,
     *,
@@ -1262,32 +650,11 @@ def create_app(
     """
     service = service or AppService(config_path)
 
-    # 功能：启动或执行 `run_blocking` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `func`（未显式标注）：`func` 对应的业务输入值
-    #   - `*args`（未显式标注）：`args` 对应的业务输入值
-    #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_cameras`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_create_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_get_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_update_camera` 调用本符号；另有 28 处静态调用
-    #   - 内部调用：`asyncio.to_thread`、`func`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     async def run_blocking(func, *args, **kwargs):
         if service.offload_sync:
             return await asyncio.to_thread(func, *args, **kwargs)
         return func(*args, **kwargs)
 
-    # 功能：FastAPI 生命周期上下文管理器；输入与输出详见下方说明
-    # 参数：
-    #   - `app`（FastAPI）：`app` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者；由解释器、ASGI 服务器、React 或框架生命周期直接触发
-    #   - 内部调用：`service.mark_stopped`、`service.shutdown`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """
@@ -1301,7 +668,32 @@ def create_app(
         finally:
             service.shutdown()
 
-    app = FastAPI(title="Security VLM Inspection", lifespan=lifespan)
+    def authorize_department(request: Request, user: dict = Depends(get_current_user)) -> None:
+        # 子应用直接访问时也校验归属，不能只依赖统一网关的权限过滤。
+        department = request.path_params.get("department")
+        if department is not None:
+            try:
+                require_department(department)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if user.get("role") == "admin":
+            return
+        departments = user.get("departments")
+        if (
+            user.get("role") != "viewer"
+            or not isinstance(departments, list)
+            or department is None
+            or department not in departments
+            or request.method not in {"GET", "HEAD"}
+            or request.url.path.rstrip("/").endswith("/credentials")
+        ):
+            raise HTTPException(status_code=403, detail="无权访问该事业部安检资源")
+
+    app = FastAPI(
+        title="Security VLM Inspection",
+        lifespan=lifespan,
+        dependencies=[Depends(authorize_department)],
+    )
     # 允许跨域请求，便于前端开发
     app.add_middleware(
         CORSMiddleware,
@@ -1311,52 +703,12 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # 功能：实现 `mark_legacy_routes_deprecated` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（未显式标注）：当前 HTTP 请求及上下文
-    #   - `call_next`（未显式标注）：`call_next` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`call_next`、`path.startswith`、`app.middleware`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-    @app.middleware("http")
-    async def mark_legacy_routes_deprecated(request, call_next):
-        response = await call_next(request)
-        path = request.url.path
-        if path in {"/health", "/api/history", "/api/state"} or path.startswith("/api/cameras") or path.startswith("/api/rois") or path.startswith("/api/control") or path.startswith("/video"):
-            response.headers["Deprecation"] = "true"
-        return response
-
-    # 功能：实现 `department_or_400` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_cameras`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_create_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_test_camera` 调用本符号；另有 3 处静态调用
-    #   - 内部调用：`require_department`、`HTTPException`、`str`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def department_or_400(department: str) -> str:
         try:
             return require_department(department)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 功能：实现 `department_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_get_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_update_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_delete_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_credentials` 调用本符号；另有 5 处静态调用
-    #   - 内部调用：`department_or_400`、`service.workspace(department).registry.get`、`service.workspace`、`HTTPException`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def department_camera(department: str, camera_id: str) -> dict:
         department = department_or_400(department)
         camera = service.workspace(department).registry.get(camera_id)
@@ -1364,18 +716,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="摄像头不存在")
         return camera
 
-    # 功能：实现 `invalidate_frame_hubs` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str | None）：摄像头唯一标识；默认值为 `None`
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_update_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_camera_control`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_all_control`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::update_camera` 调用本符号；另有 5 处静态调用
-    #   - 内部调用：`require_department`、`list`、`service._frame_hubs.pop`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def invalidate_frame_hubs(
         department: str,
         camera_id: str | None = None,
@@ -1387,30 +727,13 @@ def create_app(
             ):
                 service._frame_hubs.pop(key, None)
 
-    # Canonical department APIs.  Legacy endpoints below intentionally remain GE-only.
-    # 功能：实现 `department_cameras` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`run_blocking`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    # 所有检测接口都要求显式事业部上下文。
     @app.get("/api/departments/{department}/cameras")
     async def department_cameras(department: str):
         department = department_or_400(department)
         state = await run_blocking(service.get_state, department)
         return JSONResponse({"department": department, "cameras": state["cameras"]})
 
-    # 功能：创建或构建 `department_create_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `req`（CameraCreateRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/departments/{department}/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`service.workspace`、`run_blocking`、`HTTPException`、`str`、`JSONResponse`、`registry.public`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/departments/{department}/cameras")
     async def department_create_camera(department: str, req: CameraCreateRequest):
         department = department_or_400(department)
@@ -1421,30 +744,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({"ok": True, "camera": registry.public(camera)}, status_code=201)
 
-    # 功能：读取或查询 `department_get_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`JSONResponse`、`run_blocking`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/departments/{department}/cameras/{camera_id}")
     async def department_get_camera(department: str, camera_id: str):
         department_camera(department, camera_id)
         return JSONResponse({"camera": await run_blocking(service.get_camera_state, camera_id, department)})
 
-    # 功能：更新或保存 `department_update_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `req`（CameraUpdateRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.put('/api/departments/{department}/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`run_blocking`、`status.get`、`HTTPException`、`service.workspace`、`str`、`invalidate_frame_hubs`、`JSONResponse`、`service.workspace(department).registry.public`、`app.put`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.put("/api/departments/{department}/cameras/{camera_id}")
     async def department_update_camera(department: str, camera_id: str, req: CameraUpdateRequest):
         department_camera(department, camera_id)
@@ -1458,15 +762,6 @@ def create_app(
         invalidate_frame_hubs(department, camera_id)
         return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
 
-    # 功能：删除或清理 `department_delete_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.delete('/api/departments/{department}/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`run_blocking`、`HTTPException`、`str`、`JSONResponse`、`service.workspace(department).registry.public`、`service.workspace`、`app.delete`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.delete("/api/departments/{department}/cameras/{camera_id}")
     async def department_delete_camera(department: str, camera_id: str):
         department_camera(department, camera_id)
@@ -1476,29 +771,11 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
 
-    # 功能：实现 `department_credentials` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/cameras/{camera_id}/credentials')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/departments/{department}/cameras/{camera_id}/credentials")
     async def department_credentials(department: str, camera_id: str):
         camera = department_camera(department, camera_id)
         return JSONResponse({"camera": {key: camera[key] for key in ("camera_id", "name", "rtsp_url")}})
 
-    # 功能：验证 `department_test_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `req`（CameraTestRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/departments/{department}/cameras/test')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`run_blocking`、`CameraRegistry.validate_rtsp_url`、`HTTPException`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/departments/{department}/cameras/test")
     async def department_test_camera(department: str, req: CameraTestRequest):
         department_or_400(department)
@@ -1508,16 +785,6 @@ def create_app(
             raise HTTPException(status_code=400, detail="无法连接摄像头或读取视频信息") from exc
         return JSONResponse({"ok": True, **details})
 
-    # 功能：实现 `department_camera_control` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `action`（str）：`action` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/departments/{department}/cameras/{camera_id}/control/{action}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`HTTPException`、`run_blocking`、`getattr`、`invalidate_frame_hubs`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/departments/{department}/cameras/{camera_id}/control/{action}")
     async def department_camera_control(department: str, camera_id: str, action: str):
         department_camera(department, camera_id)
@@ -1527,15 +794,6 @@ def create_app(
         invalidate_frame_hubs(department, camera_id)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
-    # 功能：实现 `department_all_control` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `action`（str）：`action` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/departments/{department}/cameras/control/{action}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`HTTPException`、`invalidate_frame_hubs`、`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/departments/{department}/cameras/control/{action}")
     async def department_all_control(department: str, action: str):
         department_or_400(department)
@@ -1546,32 +804,12 @@ def create_app(
         result = await run_blocking(method, department)
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
-    # 功能：读取或查询 `department_get_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/cameras/{camera_id}/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`run_blocking`、`JSONResponse`、`list`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/departments/{department}/cameras/{camera_id}/rois")
     async def department_get_rois(department: str, camera_id: str):
         department_camera(department, camera_id)
         rois = await run_blocking(service.load_rois, camera_id, department)
         return JSONResponse({"department": department, "camera_id": camera_id, "staff_rois": rois, "available_slots": list(rois)})
 
-    # 功能：更新或保存 `department_save_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `req`（ROIRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.put('/api/departments/{department}/cameras/{camera_id}/rois')
-    #         app.post('/api/departments/{department}/cameras/{camera_id}/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`run_blocking`、`HTTPException`、`str`、`JSONResponse`、`list`、`app.put`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.put("/api/departments/{department}/cameras/{camera_id}/rois")
     @app.post("/api/departments/{department}/cameras/{camera_id}/rois")
     async def department_save_rois(department: str, camera_id: str, req: ROIRequest):
@@ -1590,31 +828,11 @@ def create_app(
             "available_slots": list(rois),
         })
 
-    # 功能：实现 `department_state` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/state') app.get('/api/departments/{department}/health')`
-    #         注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`JSONResponse`、`run_blocking`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/departments/{department}/state")
     @app.get("/api/departments/{department}/health")
     async def department_state(department: str):
         department = department_or_400(department)
         return JSONResponse(await run_blocking(service.get_state, department))
 
-    # 功能：实现 `department_history` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `100`
-    #   - `camera_id`（str | None）：摄像头唯一标识；默认值为 `None`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/history')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_or_400`、`run_blocking`、`department_camera`、`str`、`item.get`、`JSONResponse`、`time.strftime`、`max`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/departments/{department}/history")
     async def department_history(department: str, limit: int = 100, camera_id: str | None = None):
         department = department_or_400(department)
@@ -1626,13 +844,6 @@ def create_app(
         return JSONResponse({"date": time.strftime("%Y-%m-%d"), "stats": state["stats"], "history": items[:max(1, limit)]})
 
     # ---- 基础信息 ----
-    # 功能：返回服务信息；页面统一由 unified_frontend 提供；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/")
     async def root():
         """返回服务信息；页面统一由 unified_frontend 提供。"""
@@ -1644,507 +855,27 @@ def create_app(
         }
 
     # ---- 数据接口 ----
-    # 功能：保留 GE 兼容状态，并附带四事业部不含历史的健康摘要；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/health')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`state.get`、`bool`、`len`、`sum`、`camera.get`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/health")
     async def health():
-        """保留 GE 兼容状态，并附带四事业部不含历史的健康摘要。"""
-        general_state = await run_blocking(
-            service.get_state,
-            GENERAL_ELECTRIC,
-        )
+        """平台健康端点只返回各事业部运行摘要。"""
         summaries = {}
         for department in DEPARTMENTS:
-            state = (
-                general_state
-                if department == GENERAL_ELECTRIC
-                else await run_blocking(service.get_state, department)
-            )
-            cameras = state.get("cameras", [])
+            state = await run_blocking(service.get_state, department)
+            cameras = state["cameras"]
             summaries[department] = {
                 "department": department,
-                "running": bool(state.get("running")),
+                "running": state["running"],
                 "camera_count": len(cameras),
-                "online_camera_count": sum(
-                    1 for camera in cameras if camera.get("running")
-                ),
-                "vlm": state.get("vlm", {}),
+                "online_camera_count": sum(bool(camera["running"]) for camera in cameras),
+                "vlm": state["vlm"],
             }
-        general_state["departments"] = summaries
-        return JSONResponse(general_state)
-
-    # 功能：仅返回历史记录和统计信息，用于前端展示历史列表；输入与输出详见下方说明
-    # 参数：
-    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `100`
-    #   - `camera_id`（str | None）：摄像头唯一标识；默认值为 `None`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/history')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`st.get`、`service.registry.get`、`HTTPException`、`str`、`item.get`、`JSONResponse`、`time.strftime`、`time.localtime`、`max`
-    #          等共 12 个调用。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.get("/api/history")
-    async def history(limit: int = 100, camera_id: str | None = None):
-        """仅返回历史记录和统计信息，用于前端展示历史列表"""
-        st = await run_blocking(service.get_state)
-        items = st.get("history", [])
-        if camera_id is not None:
-            if service.registry.get(camera_id) is None:
-                raise HTTPException(status_code=404, detail="摄像头不存在")
-            items = [
-                item for item in items
-                if str(item.get("camera_id")) == camera_id
-            ]
-        return JSONResponse({
-            "date":  time.strftime("%Y-%m-%d", time.localtime()),
-            "stats": st.get("stats", {}),
-            "history": items[:max(1, int(limit))],
-        })
-
-    # 功能：实现 `require_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::get_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::get_camera_credentials`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::update_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::delete_camera` 调用本符号；另有 6 处静态调用
-    #   - 内部调用：`service.registry.get`、`HTTPException`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def require_camera(camera_id: str) -> Dict[str, Any]:
-        camera = service.registry.get(camera_id)
-        if camera is None:
-            raise HTTPException(status_code=404, detail="摄像头不存在")
-        return camera
-
-    # ---- 摄像头管理 ----
-    # 功能：读取或查询 `list_cameras` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/cameras")
-    async def list_cameras():
-        state = await run_blocking(service.get_state)
-        return JSONResponse({"cameras": state["cameras"]})
-
-    # 功能：读取或查询 `get_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/cameras/{camera_id}")
-    async def get_camera(camera_id: str):
-        require_camera(camera_id)
-        state = await run_blocking(service.get_camera_state, camera_id)
-        return JSONResponse({"camera": state})
-
-    # 功能：读取或查询 `get_camera_credentials` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/cameras/{camera_id}/credentials')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`JSONResponse`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/cameras/{camera_id}/credentials")
-    async def get_camera_credentials(camera_id: str):
-        camera = require_camera(camera_id)
-        return JSONResponse({
-            "camera": {
-                "camera_id": camera["camera_id"],
-                "name": camera["name"],
-                "rtsp_url": camera["rtsp_url"],
-            },
-        })
-
-    # 功能：创建或构建 `create_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `req`（CameraCreateRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`HTTPException`、`str`、`JSONResponse`、`service.registry.public`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/cameras")
-    async def create_camera(req: CameraCreateRequest):
-        try:
-            camera = await run_blocking(
-                service.registry.create,
-                req.name,
-                req.rtsp_url,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse(
-            {"ok": True, "camera": service.registry.public(camera)},
-            status_code=201,
-        )
-
-    # 功能：更新或保存 `update_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `req`（CameraUpdateRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.put('/api/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`status.get`、`HTTPException`、`str`、`invalidate_frame_hubs`、`JSONResponse`、`service.registry.public`、`app.put`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.put("/api/cameras/{camera_id}")
-    async def update_camera(camera_id: str, req: CameraUpdateRequest):
-        require_camera(camera_id)
-        status = await run_blocking(
-            service.runtime_manager.status,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        if status.get("desired_running"):
-            raise HTTPException(
-                status_code=409,
-                detail="请先关闭摄像头检测再修改配置",
-            )
-        try:
-            camera = await run_blocking(
-                service.registry.update,
-                camera_id,
-                name=req.name,
-                rtsp_url=req.rtsp_url,
-            )
-        except (ValueError, KeyError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
-        return JSONResponse(
-            {"ok": True, "camera": service.registry.public(camera)}
-        )
-
-    # 功能：删除或清理 `delete_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.delete('/api/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`status.get`、`HTTPException`、`str`、`JSONResponse`、`service.registry.public`、`app.delete`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.delete("/api/cameras/{camera_id}")
-    async def delete_camera(camera_id: str):
-        require_camera(camera_id)
-        status = await run_blocking(
-            service.runtime_manager.status,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        if status.get("desired_running"):
-            raise HTTPException(
-                status_code=409,
-                detail="请先关闭摄像头检测再删除",
-            )
-        try:
-            camera = await run_blocking(
-                service.delete_camera,
-                GENERAL_ELECTRIC,
-                camera_id,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return JSONResponse(
-            {"ok": True, "camera": service.registry.public(camera)}
-        )
-
-    # 功能：验证 `test_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `req`（CameraTestRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/test')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`service.registry.validate_rtsp_url`、`run_blocking`、`HTTPException`、`str`、`LOGGER.warning`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
-    @app.post("/api/cameras/test")
-    async def test_camera(req: CameraTestRequest):
-        try:
-            rtsp_url = service.registry.validate_rtsp_url(req.rtsp_url)
-            details = await run_blocking(service.probe_func, rtsp_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            LOGGER.warning("摄像头连通性测试失败: %s", exc)
-            raise HTTPException(
-                status_code=400,
-                detail="无法连接摄像头或读取视频信息",
-            ) from exc
-        return JSONResponse({"ok": True, **details})
-
-    # 功能：启动或执行 `start_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/{camera_id}/control/start')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`invalidate_frame_hubs`、`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/cameras/{camera_id}/control/start")
-    async def start_camera(camera_id: str):
-        require_camera(camera_id)
-        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
-        result = await run_blocking(
-            service.runtime_manager.start,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        return JSONResponse(result, status_code=200 if result["ok"] else 500)
-
-    # 功能：停止并释放 `stop_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/{camera_id}/control/stop')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`invalidate_frame_hubs`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/cameras/{camera_id}/control/stop")
-    async def stop_camera(camera_id: str):
-        require_camera(camera_id)
-        result = await run_blocking(
-            service.runtime_manager.stop,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
-        return JSONResponse(result, status_code=200 if result["ok"] else 500)
-
-    # 功能：实现 `restart_camera` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/{camera_id}/control/restart')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`invalidate_frame_hubs`、`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/cameras/{camera_id}/control/restart")
-    async def restart_camera(camera_id: str):
-        require_camera(camera_id)
-        invalidate_frame_hubs(GENERAL_ELECTRIC, camera_id)
-        result = await run_blocking(
-            service.runtime_manager.restart,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        return JSONResponse(result, status_code=200 if result["ok"] else 500)
-
-    # 功能：启动或执行 `start_all_cameras` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/control/start-all')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`invalidate_frame_hubs`、`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/cameras/control/start-all")
-    async def start_all_cameras():
-        invalidate_frame_hubs(GENERAL_ELECTRIC)
-        result = await run_blocking(
-            service.runtime_manager.start_all,
-            GENERAL_ELECTRIC,
-        )
-        return JSONResponse(result, status_code=200 if result["ok"] else 207)
-
-    # 功能：停止并释放 `stop_all_cameras` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/control/stop-all')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`invalidate_frame_hubs`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/cameras/control/stop-all")
-    async def stop_all_cameras():
-        result = await run_blocking(
-            service.runtime_manager.stop_all,
-            GENERAL_ELECTRIC,
-        )
-        invalidate_frame_hubs(GENERAL_ELECTRIC)
-        return JSONResponse(result, status_code=200 if result["ok"] else 207)
-
-    # 功能：读取或查询 `get_camera_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/cameras/{camera_id}/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`JSONResponse`、`list`、`rois.keys`、`service.cfg.get('staff_rois',
-    #          {}).keys`、`service.cfg.get`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/cameras/{camera_id}/rois")
-    async def get_camera_rois(camera_id: str):
-        require_camera(camera_id)
-        rois = await run_blocking(service.load_rois, camera_id)
-        return JSONResponse({
-            "staff_rois": rois,
-            "available_slots": list(rois.keys())
-            or list(service.cfg.get("staff_rois", {}).keys()),
-            "camera_id": camera_id,
-        })
-
-    # 功能：更新或保存 `save_camera_rois` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `req`（ROIRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/cameras/{camera_id}/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`run_blocking`、`HTTPException`、`str`、`JSONResponse`、`list`、`rois.keys`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/cameras/{camera_id}/rois")
-    async def save_camera_rois(camera_id: str, req: ROIRequest):
-        require_camera(camera_id)
-        try:
-            rois = await run_blocking(
-                service.save_rois,
-                camera_id,
-                req.staff_rois,
-            )
-        except CaptureDimensionsUnavailable as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (ValueError, TypeError, OverflowError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse({
-            "ok": True,
-            "staff_rois": rois,
-            "available_slots": list(rois.keys()),
-            "camera_id": camera_id,
-        })
-
-    # ---- ROI 接口 ----
-    # 功能：获取当前 ROI 配置，供前端画布展示；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`service.default_camera_id`、`HTTPException`、`run_blocking`、`JSONResponse`、`list`、`rois.keys`、`service.cfg.get('staff_rois',
-    #          {}).keys`、`service.cfg.get`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.get("/api/rois")
-    async def get_rois():
-        """获取当前 ROI 配置，供前端画布展示"""
-        camera_id = service.default_camera_id()
-        if camera_id is None:
-            raise HTTPException(status_code=404, detail="尚未添加摄像头")
-        rois = await run_blocking(service._roi_load)
-        return JSONResponse({
-            "staff_rois":      rois,
-            "available_slots": list(rois.keys())
-                              or list(service.cfg.get("staff_rois", {}).keys()),
-            "video_id":        camera_id,
-        })
-
-    # 功能：前端绘制完 ROI 后调用此接口保存，session_worker 将自动热加载；输入与输出详见下方说明
-    # 参数：
-    #   - `req`（ROIRequest）：`req` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/rois')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`HTTPException`、`str`、`service.default_camera_id`、`JSONResponse`、`list`、`rois.keys`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/rois")
-    async def save_rois(req: ROIRequest):
-        """前端绘制完 ROI 后调用此接口保存，session_worker 将自动热加载"""
-        try:
-            await run_blocking(service._roi_save, req.staff_rois)
-        except CaptureDimensionsUnavailable as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (ValueError, TypeError, OverflowError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        rois = await run_blocking(service._roi_load)
-        camera_id = service.default_camera_id()
-        return JSONResponse({
-            "ok": True,
-            "staff_rois":      rois,
-            "available_slots": list(rois.keys()),
-            "video_id":        camera_id,
-        })
-
-    # ---- 检测总开关 ----
-    # 功能：开启安检流程规范检测。已开启时幂等，不重复拉起 worker；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/control/start')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`JSONResponse`、`bool`、`result.get`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/control/start")
-    async def control_start():
-        """开启安检流程规范检测。已开启时幂等，不重复拉起 worker。"""
-        result = await run_blocking(service.start_workers)
-        return JSONResponse({
-            "success": bool(result.get("ok")),
-            "running": bool(result.get("running")),
-            **result,
-        })
-
-    # 功能：关闭安检流程规范检测，终止所有 worker，避免继续产生 VLM 调用费用；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/control/stop')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/control/stop")
-    async def control_stop():
-        """关闭安检流程规范检测，终止所有 worker，避免继续产生 VLM 调用费用。"""
-        result = await run_blocking(service.stop_workers)
-        return JSONResponse({"success": result["ok"], "running": False, **result})
-
-    # 功能：重启安检流程规范检测；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/control/restart')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`service.default_camera_id`、`HTTPException`、`run_blocking`、`JSONResponse`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/control/restart")
-    async def control_restart():
-        """重启安检流程规范检测。"""
-        camera_id = service.default_camera_id()
-        if camera_id is None:
-            raise HTTPException(status_code=404, detail="尚未添加摄像头")
-        result = await run_blocking(
-            service.runtime_manager.restart,
-            GENERAL_ELECTRIC,
-            camera_id,
-        )
-        return JSONResponse({
-            "success": result["ok"],
-            "running": result["running"],
-            **result,
-        })
+        return JSONResponse({"ok": True, "departments": summaries})
 
     # ---- MJPEG 流生成器 ----
-    # 功能：MJPEG 流生成器，统一限速 6fps，长边最大 960，JPEG 质量可配置；输入与输出详见下方说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `kind`（str）：`kind` 对应的业务输入值
-    #   - `department`（str）：业务部门名称或标识；默认值为 `GENERAL_ELECTRIC`
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::camera_video`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::department_camera_video`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/main.py` 的 `create_app::video` 调用本符号
-    #   - 内部调用：`int`、`service.cfg.get('web',
-    #          {}).get`、`service.cfg.get`、`time.time`、`asyncio.sleep`、`service.get_frame_hub`、`hub.get_latest_meta`、`meta.get`、`hub.read_frame`、`max`
-    #          等共 15 个调用。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def _mjpeg(
         camera_id: str,
         kind: str,
-        department: str = GENERAL_ELECTRIC,
+        department: str,
     ):
         """
         MJPEG 流生成器，统一限速 6fps，长边最大 960，JPEG 质量可配置。
@@ -2218,35 +949,6 @@ def create_app(
                 print(f"[mjpeg] {camera_id}/{kind} error: {e}", flush=True)
                 await asyncio.sleep(0.1)
 
-    # 功能：实现 `camera_video` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `kind`（str）：`kind` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/video/{camera_id}/{kind}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`require_camera`、`HTTPException`、`StreamingResponse`、`_mjpeg`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.get("/video/{camera_id}/{kind}")
-    async def camera_video(camera_id: str, kind: str):
-        require_camera(camera_id)
-        if kind not in {"original", "rule"}:
-            raise HTTPException(status_code=404, detail="invalid kind")
-        return StreamingResponse(
-            _mjpeg(camera_id, kind),
-            media_type="multipart/x-mixed-replace; boundary=frame",
-        )
-
-    # 功能：实现 `department_camera_video` 对应的程序启动逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `kind`（str）：`kind` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/departments/{department}/video/{camera_id}/{kind}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`department_camera`、`HTTPException`、`StreamingResponse`、`_mjpeg`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get(
         "/api/departments/{department}/video/{camera_id}/{kind}"
     )
@@ -2260,30 +962,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="invalid kind")
         return StreamingResponse(
             _mjpeg(camera_id, kind, department),
-            media_type="multipart/x-mixed-replace; boundary=frame",
-        )
-
-    # 功能：路由：根据 kind 返回原始或带标注的 MJPEG 视频流；输入与输出详见下方说明
-    # 参数：
-    #   - `kind`（str）：`kind` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/video/{kind}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`JSONResponse`、`service.default_camera_id`、`HTTPException`、`StreamingResponse`、`_mjpeg`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.get("/video/{kind}")
-    async def video(kind: str):
-        """
-        路由：根据 kind 返回原始或带标注的 MJPEG 视频流。
-        """
-        if kind not in {"original", "rule"}:
-            return JSONResponse({"ok": False, "message": "invalid kind"},
-                                status_code=404)
-        camera_id = service.default_camera_id()
-        if camera_id is None:
-            raise HTTPException(status_code=404, detail="尚未添加摄像头")
-        return StreamingResponse(
-            _mjpeg(camera_id, kind),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 

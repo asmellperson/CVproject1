@@ -12,7 +12,7 @@ from AiVision.departments.department_registry import DEPARTMENT_SPECS
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURE_NAME as FEATURE
 from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-from AiVision.tests.test_logistics_channel_service import service_db, _seed_camera
+from AiVision.tests.test_logistics_channel_service import service_db as service_db, _seed_camera
 
 
 def test_names_are_unique_within_department_and_department_cannot_be_patched(service_db):
@@ -107,7 +107,7 @@ def test_every_channel_route_rejects_foreign_department(service_db, monkeypatch,
 @pytest.mark.parametrize("user,expected", [
     ({"role": "viewer", "departments": ["general_electric"]}, ["general_electric"]),
     ({"role": "viewer", "departments": []}, []),
-    ({"role": "viewer", "departments": ["all"]}, ["general_electric", "electronics_electrician"]),
+    ({"role": "viewer", "departments": ["all"]}, []),
     ({"role": "admin"}, ["general_electric", "electronics_electrician"]),
 ])
 def test_api_list_passes_user_departments_to_database(service_db, user, expected):
@@ -119,7 +119,7 @@ def test_api_list_passes_user_departments_to_database(service_db, user, expected
 
 @pytest.mark.parametrize("user", [
     {"role": "admin"},
-    {"role": "viewer", "departments": ["all"]},
+    {"role": "viewer", "departments": list(DEPARTMENT_SPECS)},
     {"role": "viewer", "departments": ["general_electric", "electronics_electrician"]},
     {"role": "viewer", "departments": ["electronics_electrician"]},
 ])

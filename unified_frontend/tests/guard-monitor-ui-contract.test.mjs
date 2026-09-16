@@ -20,13 +20,14 @@ const runtime = await readIfPresent('src/components/guard_room/GuardRoomRuntimeC
 const pageHeader = await readIfPresent('src/components/detection/DetectionPageHeader.tsx')
 
 test('renders the approved heading, segmented tabs, and dashboard grid', () => {
-  assert.match(guardPage, /通用电气保安行为规范/)
+  assert.match(guardPage, /const detectionTitle = '保安行为规范检测'/)
+  assert.match(guardPage, /departmentLabel=\{DEPARTMENT_LABELS\[department\]\}/)
   assert.match(guardPage, /行为分析监控面板/)
   assert.match(guardPage, /DetectionPageHeader/)
   assert.match(guardPage, /GuardRoomRuntimeControl/)
   assert.match(pageHeader, /data-\[state=active\]:bg-\[#0B1226\]/)
   assert.match(monitor, /grid grid-cols-2 gap-4 lg:grid-cols-4/)
-  assert.match(monitor, /ResizableMonitorLayout id=\{`guard-room-\$\{department \|\| 'general-electric'\}`\}/)
+  assert.match(monitor, /ResizableMonitorLayout id=\{`guard-room-\$\{department\}`\}/)
   assert.match(monitor, /lg:col-span-2/)
   assert.match(monitor, /监控对象/)
   assert.doesNotMatch(monitor, /检测控制/)

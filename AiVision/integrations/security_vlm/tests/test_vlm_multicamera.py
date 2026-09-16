@@ -95,44 +95,6 @@ def _write_pending(path: Path, enqueue_ts: float = 100.0):
     path.write_bytes(pickle.dumps({"enqueue_ts": enqueue_ts}))
 
 
-# 功能：验证 `test_multicamera_scanner_round_robins_and_deduplicates_full_paths` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`path.name.split`、`len`、`str`、`all`
-#          等共 12 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def test_multicamera_scanner_round_robins_and_deduplicates_full_paths(tmp_path):
-    camera_root = tmp_path / "cameras"
-    _write_pending(camera_root / "camera-a" / "pending" / "same.pkl")
-    _write_pending(camera_root / "camera-a" / "pending" / "second.pkl")
-    _write_pending(camera_root / "camera-b" / "pending" / "same.pkl")
-    _write_pending(camera_root / "camera-b" / "pending" / "second.pkl")
-    task_q = queue.Queue()
-    processing_dir = tmp_path / "global" / "processing"
-    scanner = vlm_worker.MultiCameraPendingScanner(
-        camera_root,
-        task_q,
-        processing_dir=processing_dir,
-    )
-
-    scanner.scan_once()
-    scanner.scan_once()
-
-    queued = [task_q.get_nowait() for _ in range(4)]
-    assert [path.name.split("__", 1)[0] for path in queued] == [
-        "camera-a",
-        "camera-b",
-        "camera-b",
-        "camera-a",
-    ]
-    assert len({str(path) for path in queued}) == 4
-    assert all(path.parent == processing_dir for path in queued)
-    assert list(camera_root.glob("*/pending/*.pkl")) == []
-
-
 # 功能：验证 `test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
@@ -159,28 +121,6 @@ def test_cleanup_keeps_valid_preexisting_tasks_and_removes_only_expired(tmp_path
     assert not expired.exists()
 
 
-# 功能：验证 `test_legacy_pending_tasks_are_moved_into_global_processing` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_write_pending`、`vlm_worker.migrate_legacy_pending`、`task.exists`、`(processing /
-#          'legacy-default__legacy-session.pkl').exists`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
-def test_legacy_pending_tasks_are_moved_into_global_processing(tmp_path):
-    legacy_pending = tmp_path / "session_pending"
-    processing = tmp_path / "global" / "processing"
-    task = legacy_pending / "legacy-session.pkl"
-    _write_pending(task)
-
-    moved = vlm_worker.migrate_legacy_pending(legacy_pending, processing)
-
-    assert moved == 1
-    assert not task.exists()
-    assert (processing / "legacy-default__legacy-session.pkl").exists()
-
-
 # 功能：验证 `test_preexisting_processing_tasks_are_marked_for_crash_recovery` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
@@ -198,257 +138,6 @@ def test_preexisting_processing_tasks_are_marked_for_crash_recovery(tmp_path):
 
     assert marked == 1
     assert (processing / "camera-a__session.pkl.recovered").exists()
-
-
-# 功能：验证 `test_pending_payload_without_department_defaults_to_general_electric` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`vlm_worker.payload_department`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_pending_payload_without_department_defaults_to_general_electric():
-    assert vlm_worker.payload_department({}) == "general_electric"
-    assert (
-        vlm_worker.payload_department({"department": "electrical_components"})
-        == "electrical_components"
-    )
-
-
-# 功能：验证 `test_scanner_discovers_new_department_and_legacy_pending_paths` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`path.name.rsplit`、`next`、`path.name.endswith`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def test_scanner_discovers_new_department_and_legacy_pending_paths(tmp_path):
-    runtime_root = tmp_path / "runtime"
-    legacy_task = runtime_root / "cameras" / "legacy-camera" / "pending" / "old.pkl"
-    general_task = (
-        runtime_root
-        / "departments"
-        / "general_electric"
-        / "cameras"
-        / "shared-camera"
-        / "pending"
-        / "general.pkl"
-    )
-    electronics_task = (
-        runtime_root
-        / "departments"
-        / "electronics_electrician"
-        / "cameras"
-        / "shared-camera"
-        / "pending"
-        / "electronics.pkl"
-    )
-    for task in (legacy_task, general_task, electronics_task):
-        _write_pending(task)
-    task_q = queue.Queue()
-    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
-
-    scanner.scan_once()
-
-    queued = [task_q.get_nowait() for _ in range(3)]
-    assert {path.name.rsplit("__", 1)[-1] for path in queued} == {
-        "old.pkl",
-        "general.pkl",
-        "electronics.pkl",
-    }
-    general_claim = next(path for path in queued if path.name.endswith("general.pkl"))
-    electronics_claim = next(
-        path for path in queued if path.name.endswith("electronics.pkl")
-    )
-    legacy_claim = next(path for path in queued if path.name.endswith("old.pkl"))
-    assert general_claim.parent == (
-        runtime_root / "departments" / "general_electric" / "global" / "processing"
-    )
-    assert electronics_claim.parent == (
-        runtime_root
-        / "departments"
-        / "electronics_electrician"
-        / "global"
-        / "processing"
-    )
-    assert legacy_claim.parent == runtime_root / "global" / "processing"
-
-
-# 功能：验证 `test_department_processing_collision_stays_in_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`all`、`list`、`(runtime_root
-#          / 'global' / 'processing').glob`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
-def test_department_processing_collision_stays_in_department(tmp_path):
-    runtime_root = tmp_path / "runtime"
-    pending_task = (
-        runtime_root
-        / "departments"
-        / "general_electric"
-        / "cameras"
-        / "shared-camera"
-        / "pending"
-        / "same.pkl"
-    )
-    processing_dir = (
-        runtime_root
-        / "departments"
-        / "general_electric"
-        / "global"
-        / "processing"
-    )
-    existing_task = processing_dir / "shared-camera__same.pkl"
-    _write_pending(pending_task)
-    _write_pending(existing_task)
-    task_q = queue.Queue()
-    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
-
-    scanner.scan_once()
-
-    queued = [task_q.get_nowait() for _ in range(2)]
-    assert all(path.parent == processing_dir for path in queued)
-    assert list((runtime_root / "global" / "processing").glob("*.pkl")) == []
-
-
-# 功能：验证 `test_scanner_rejects_and_cleans_unknown_department_pending` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_write_pending`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.empty`、`unknown_task.exists`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def test_scanner_rejects_and_cleans_unknown_department_pending(tmp_path):
-    runtime_root = tmp_path / "runtime"
-    unknown_task = (
-        runtime_root
-        / "departments"
-        / "unknown_department"
-        / "cameras"
-        / "camera-a"
-        / "pending"
-        / "task.pkl"
-    )
-    _write_pending(unknown_task)
-    task_q = queue.Queue()
-    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
-
-    scanner.scan_once()
-
-    assert task_q.empty()
-    assert not unknown_task.exists()
-
-
-# 功能：验证 `test_department_pending_requires_explicit_matching_payload_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`pytest.raises`、`vlm_worker.validate_pending_payload_department`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_department_pending_requires_explicit_matching_payload_department(tmp_path):
-    processing_dir = (
-        tmp_path
-        / "runtime"
-        / "departments"
-        / "general_electric"
-        / "global"
-        / "processing"
-    )
-    task = processing_dir / "camera-a__task.pkl"
-
-    with pytest.raises(ValueError, match="缺少 department"):
-        vlm_worker.validate_pending_payload_department({}, task)
-    with pytest.raises(ValueError, match="不一致"):
-        vlm_worker.validate_pending_payload_department(
-            {"department": "electronics_electrician"},
-            task,
-        )
-    assert (
-        vlm_worker.validate_pending_payload_department(
-            {"department": "general_electric"},
-            task,
-        )
-        == "general_electric"
-    )
-
-
-# 功能：验证 `test_legacy_processing_without_department_defaults_to_general_electric` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`vlm_worker.validate_pending_payload_department`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_legacy_processing_without_department_defaults_to_general_electric(tmp_path):
-    task = (
-        tmp_path
-        / "runtime"
-        / "global"
-        / "processing"
-        / "legacy-camera__task.pkl"
-    )
-
-    assert vlm_worker.validate_pending_payload_department({}, task) == (
-        "general_electric"
-    )
-    single_queue_task = tmp_path / "runtime" / "session_pending" / "task.pkl"
-    assert vlm_worker.validate_pending_payload_department(
-        {},
-        single_queue_task,
-    ) == "general_electric"
-
-
-# 功能：验证 `test_same_named_tasks_in_two_departments_do_not_collide` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`task.parent.mkdir`、`task.write_bytes`、`pickle.dumps`、`queue.Queue`、`vlm_worker.MultiCameraPendingScanner`、`scanner.scan_once`、`task_q.get_nowait`、`range`、`set`、`vlm_worker.validate_pending_payload_department`
-#          等共 12 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def test_same_named_tasks_in_two_departments_do_not_collide(tmp_path):
-    runtime_root = tmp_path / "runtime"
-    departments = ("general_electric", "electronics_electrician")
-    for department in departments:
-        task = (
-            runtime_root
-            / "departments"
-            / department
-            / "cameras"
-            / "shared-camera"
-            / "pending"
-            / "same.pkl"
-        )
-        task.parent.mkdir(parents=True, exist_ok=True)
-        task.write_bytes(
-            pickle.dumps({
-                "department": department,
-                "enqueue_ts": 100.0,
-            })
-        )
-    task_q = queue.Queue()
-    scanner = vlm_worker.MultiCameraPendingScanner(runtime_root, task_q)
-
-    scanner.scan_once()
-
-    queued = [task_q.get_nowait() for _ in range(2)]
-    assert {path.parents[2].name for path in queued} == set(departments)
-    assert {
-        vlm_worker.validate_pending_payload_department(
-            pickle.loads(path.read_bytes()),
-            path,
-        )
-        for path in queued
-    } == set(departments)
 
 
 # 功能：实现 `_valid_department_payload` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -501,7 +190,8 @@ def _general_processing_task(tmp_path):
         / "general_electric"
         / "global"
         / "processing"
-        / "camera-a__task.pkl"
+        / "camera-a"
+        / "task.pkl"
     )
 
 
@@ -520,7 +210,7 @@ def test_pending_parser_rejects_missing_session_id(tmp_path):
     with pytest.raises(ValueError, match="session_id"):
         vlm_worker.normalize_pending_payload(
             payload,
-            _general_processing_task(tmp_path),
+            vlm_worker.PendingTask("general_electric", "camera-a", _general_processing_task(tmp_path)),
         )
 
 
@@ -547,7 +237,7 @@ def test_pending_parser_rejects_invalid_enqueue_timestamp(
     ):
         vlm_worker.normalize_pending_payload(
             _valid_department_payload(enqueue_ts=enqueue_ts),
-            _general_processing_task(tmp_path),
+            vlm_worker.PendingTask("general_electric", "camera-a", _general_processing_task(tmp_path)),
         )
 
 
@@ -575,7 +265,7 @@ def test_invalid_pending_load_cleans_task_and_markers_before_processing(
     results_dir = tmp_path / "results"
     judge_called = False
 
-    payload = vlm_worker.load_validated_pending_task(task)
+    payload = vlm_worker.load_validated_pending_task(vlm_worker.PendingTask("general_electric", "camera-a", task))
     if payload is not None:
         judge_called = True
         results_dir.mkdir()
@@ -928,32 +618,6 @@ def test_new_processing_identity_requires_matching_department_and_camera(tmp_pat
         )
 
 
-# 功能：验证 `test_legacy_task_rejects_explicit_non_general_department` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`vlm_worker.PendingTask`、`pytest.raises`、`vlm_worker.normalize_pending_payload`、`_valid_department_payload`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_legacy_task_rejects_explicit_non_general_department(tmp_path):
-    task = vlm_worker.PendingTask(
-        "general_electric",
-        "legacy-camera",
-        tmp_path / "runtime" / "global" / "processing" / "legacy.pkl",
-        legacy=True,
-    )
-
-    with pytest.raises(ValueError, match="旧版"):
-        vlm_worker.normalize_pending_payload(
-            _valid_department_payload(
-                department="electronics_electrician",
-                camera_id="legacy-camera",
-            ),
-            task,
-        )
-
-
 # 功能：验证 `test_invalid_task_identifiers_are_rejected_and_cleaned` 对应的`test_vlm_multicamera` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
@@ -1066,7 +730,6 @@ def test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root(
     cfg = {
         "runtime": {
             "dir": "runtime",
-            "camera_root": "runtime/legacy-cameras",
         },
         "departments": {
             "runtime_root": "runtime/custom/departments",
@@ -1079,9 +742,6 @@ def test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root(
     assert paths.runtime_dir == (project_root / "runtime").resolve()
     assert paths.departments_root == (
         project_root / "runtime" / "custom" / "departments"
-    ).resolve()
-    assert paths.legacy_camera_root == (
-        project_root / "runtime" / "legacy-cameras"
     ).resolve()
     assert paths.data_root == (
         project_root / "data" / "custom" / "departments"
@@ -1371,3 +1031,25 @@ def test_corrupt_department_state_is_isolated_and_preserved(
             now_ts=103.0,
         )
     assert task_path.exists()
+
+
+@pytest.mark.parametrize("department", vlm_worker.DEPARTMENTS)
+def test_scanner_and_payload_require_explicit_registered_department(tmp_path, department):
+    root = tmp_path / "isolated-runtime"
+    path = root / department / "cameras" / "camera-a" / "pending" / "task.pkl"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(pickle.dumps(_valid_department_payload(department=department)))
+    task_q = vlm_worker.DepartmentFairTaskQueue()
+    scanner = vlm_worker.DepartmentPendingScanner(root, task_q)
+    scanner.scan_once()
+    task = task_q.get_nowait()
+    assert task.department == department
+    assert task.path == root / department / "global" / "processing" / "camera-a" / "task.pkl"
+    assert vlm_worker.load_validated_pending_task(task)["department"] == department
+    for invalid_department in (None, "ge", "通用电气", "general-electric", "unknown"):
+        with pytest.raises(ValueError, match="department"):
+            vlm_worker.normalize_pending_payload(_valid_department_payload(department=invalid_department), task)
+    payload = _valid_department_payload()
+    del payload["department"]
+    with pytest.raises(ValueError, match="department"):
+        vlm_worker.normalize_pending_payload(payload, task)

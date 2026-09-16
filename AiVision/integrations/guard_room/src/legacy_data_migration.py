@@ -35,7 +35,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import AppConfig
 from .db import Base
 from .orm import GuardRoomCamera, GuardRoomSite, GuardRoomSiteConfig
-from .service import DEFAULT_DEPARTMENT, MAX_CAMERAS_PER_SITE
+from .service import MAX_CAMERAS_PER_SITE
+
+DEFAULT_DEPARTMENT = "general_electric"
 
 _DATABASE_ENV_KEYS = (
     "GUARD_ROOM_DATABASE_URL",

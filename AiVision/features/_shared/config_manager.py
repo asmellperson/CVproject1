@@ -96,7 +96,7 @@ class FeatureConfigManager:
                 try:
                     require_department(camera.department)
                 except ValueError as exc:
-                    raise ValueError("摄像头必须先设置所属事业部/公司") from exc
+                    raise ValueError("摄像头必须先设置所属事业部/子公司") from exc
             # 配置不存在就创建
             if cfg is None:
                 cfg = spec.orm_class(camera_id=camera.id)

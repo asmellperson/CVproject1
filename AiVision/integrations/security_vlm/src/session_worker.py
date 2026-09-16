@@ -29,7 +29,7 @@ import numpy as np
 import yaml
 
 from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
-from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import require_department
 from AiVision.integrations.security_vlm.src.roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
@@ -445,7 +445,7 @@ class PairSessionManager:
         s = cfg["session"]
         data_cfg = cfg.get("data", {}) or {}
         self.department = require_department(
-            data_cfg.get("department", DEPARTMENTS[0])
+            data_cfg.get("department")
         )
         self.camera_id = str(data_cfg.get("video_id", "stream") or "stream")
         self.camera_name = str(
@@ -1029,11 +1029,7 @@ def main():
         Path(cfg["data"]["staff_identity_dir"])
         / f"{cfg['data']['video_id']}_staff_rois.json"
     )
-    try:
-        roi_cache = _normalize_roi_mapping(cfg.get("staff_rois") or {})
-    except ValueError as exc:
-        print(f"[session] 默认 ROI 配置无效: {exc}", flush=True)
-        roi_cache = {}
+    roi_cache: Dict[str, List[List[float]]] = {}
     roi_mtime = 0.0
 
     while not _STOP.is_set():

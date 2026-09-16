@@ -71,7 +71,7 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
             ):
                 assert Path(module.__file__) == root / filename
                 assert sum(getattr(loaded, "__file__", None) == module.__file__ for loaded in list(sys.modules.values())) == 1
-            assert departments.DEPARTMENT_SPECS is service.DEPARTMENT_SPECS is user_store.DEPARTMENT_SPECS is registry.DEPARTMENT_SPECS
+            assert departments.DEPARTMENT_SPECS is service.DEPARTMENT_SPECS is registry.DEPARTMENT_SPECS
             assert departments.DepartmentSpec is service.DepartmentSpec is registry.DepartmentSpec
             assert departments.require_department is config_manager.require_department is validation.require_department is registry.require_department
             assert departments.__all__ == ["DEPARTMENT_SPECS", "DepartmentSpec", "require_department"]
@@ -81,10 +81,10 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
             assert deps.get_department_service() is service.department_service
             assert service.all_specs is features.all_specs
             assert [spec.name for spec in service.department_service.list_departments()] == [
-                "general_electric", "research_institute", "electronics_electrician",
-                "electrical_components", "precious_metal_recycling", "haoda_company",
+                "general_electric", "electronics_electrician", "electrical_components",
+                "research_institute", "precious_metal_recycling", "haoda_company", "fulida_company",
             ]
-            assert user_store.ALLOWED_VIEWER_DEPARTMENTS == registry.DEPARTMENT_SPECS.keys()
+            assert user_store.require_department is registry.require_department
             for department in registry.DEPARTMENT_SPECS:
                 assert {item["name"] for item in service.department_service.get_features_by_department(department)} == set(features.all_specs())
                 validation.validate_alarm_identity(5, "detect_human", department)

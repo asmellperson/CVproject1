@@ -216,13 +216,14 @@ export function LogisticsChannelConfigView({
           url: '',
           enabled: camera.enable,
           functions: {},
+          department,
         })))
       })
       .catch((reason) => {
         if (!controller.signal.aborted) setMessage(`通道摄像头读取失败：${messageOf(reason)}`)
       })
     return () => controller.abort()
-  }, [feature, isAdmin, selectedChannelDetail])
+  }, [department, feature, isAdmin, selectedChannelDetail])
 
   useEffect(() => {
     const nextChannelId = selectedChannelDetail?.id ?? null

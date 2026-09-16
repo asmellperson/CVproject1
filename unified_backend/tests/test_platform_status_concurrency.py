@@ -4,6 +4,11 @@
 import threading
 import time
 
+import pytest
+from fastapi import HTTPException
+from starlette.requests import Request
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+
 import unified_backend.app as app_module
 
 
@@ -54,3 +59,47 @@ def test_get_json_concurrently_starts_upstream_requests_in_parallel(monkeypatch)
     assert results["one"][1] == {"path": "/health"}
     assert results["two"][1] == {"path": "/status"}
     assert results["three"][1] == {"path": "/cameras"}
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_platform_status_uses_only_requested_authorized_department(monkeypatch, department):
+    other = next(item for item in DEPARTMENT_SPECS if item != department)
+    calls = []
+    payloads = {
+        "guard_health": {"ok": True},
+        "guard_sites": {"items": []},
+        "ai_health": {"ok": True},
+        "ai_status": {"started": True, "running_cameras": ["own", "foreign"]},
+        "ai_cameras": [
+            {"shm_name": "own", "department": department, "enabled": True, "functions": {"recognize_face": True}},
+            {"shm_name": "foreign", "department": other, "enabled": True, "functions": {"recognize_face": True}},
+        ],
+        "vlm_state": {"running": False, "cameras": [{"running": False}, {"running": False}]},
+    }
+
+    def read_upstreams(requests):
+        calls.extend(path for _base, path, _request in requests.values())
+        return {key: (True, payloads[key], 1.0, None) for key in requests}
+
+    monkeypatch.setattr(app_module, "_get_json_concurrently", read_upstreams)
+    endpoint = next(route.endpoint for route in app_module.create_app().routes if route.path == "/api/platform/status")
+    request = Request({"type": "http"})
+    request.state.user = {"role": "viewer", "departments": [department]}
+    result = endpoint(request, department)
+    assert result["services"]["aivision"]["camera_count"] == 1
+    assert result["services"]["aivision"]["running_cameras"] == ["own"]
+    assert result["services"]["aivision"]["feature_status"]["recognize_face"]["camera_count"] == 1
+    assert result["services"]["security_vlm"]["camera_count"] == 2
+    assert result["services"]["security_vlm"]["running"] is False
+    assert f"/api/cameras?department={department}" in calls
+    assert f"/api/sites?department={department}" in calls
+    assert f"/api/departments/{department}/health" in calls
+    with pytest.raises(HTTPException) as caught:
+        endpoint(request, other)
+    assert caught.value.status_code == 403
+    request.state.user = {"role": "admin"}
+    assert endpoint(request, department)["services"]["security_vlm"]["camera_count"] == 2
+    for invalid in ("ge", "通用电气", "general-electric", "unknown"):
+        with pytest.raises(HTTPException) as caught:
+            endpoint(request, invalid)
+        assert caught.value.status_code == 400

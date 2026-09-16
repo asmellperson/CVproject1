@@ -11,9 +11,9 @@ from fastapi import HTTPException, Response
 
 from auth.auth import DEV_AUTH_SECRET
 from AiVision.core.settings import settings
+from AiVision.departments.department_registry import require_department
 
 _PURPOSE = "human-alarm-notification-thumbnail-v1"
-_DEPARTMENTS = frozenset({"general_electric", "haoda_company"})
 _THUMBNAIL_MAX_EDGE = 320
 
 
@@ -27,16 +27,18 @@ def _signature(alarm_id: int, department: str, expires: int) -> str:
 
 
 def issue_thumbnail_token(alarm_id: int, department: str) -> str:
-    if type(alarm_id) is not int or alarm_id <= 0 or department not in _DEPARTMENTS:
+    require_department(department)
+    if type(alarm_id) is not int or alarm_id <= 0:
         raise ValueError("人员报警通知缺少有效的报警 ID 或事业部")
     expires = int(time.time()) + settings.alarm.wechat_thumbnail_ttl_seconds
     return f"{expires}.{_signature(alarm_id, department, expires)}"
 
 
 def verify_thumbnail_token(token: str, alarm_id: int, department: str) -> bool:
-    if department not in _DEPARTMENTS or len(token) > 100:
+    if len(token) > 100:
         return False
     try:
+        require_department(department)
         raw_expiry, signature = token.split(".")
         expires = int(raw_expiry)
         now = int(time.time())

@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -62,7 +63,7 @@ type MonitorSectionProps = {
   selectedSiteId: number | null
   loadingSites: boolean
   onSelectSite: (siteId: number) => void
-  department?: string
+  department: DepartmentId
 }
 
 export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSelectSite, department }: MonitorSectionProps) {
@@ -221,7 +222,7 @@ export function MonitorSection({ site, sites, selectedSiteId, loadingSites, onSe
         />
       </section>
 
-      <ResizableMonitorLayout id={`guard-room-${department || 'general-electric'}`}>
+      <ResizableMonitorLayout id={`guard-room-${department}`}>
         <div className="space-y-5">
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3">

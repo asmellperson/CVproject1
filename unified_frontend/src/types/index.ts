@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 export type AlarmType = 'absent' | 'phone_use' | 'prone_sleep' | 'vehicle_unattended'
 
 export interface Detection {
@@ -210,7 +211,7 @@ export interface GuardRoomCamera {
 
 export interface GuardRoomSite {
   id: number
-  department: string
+  department: DepartmentId
   name: string
   enabled: boolean
   sort_order: number

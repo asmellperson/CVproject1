@@ -65,5 +65,5 @@ test('camera mutations from every backend notify the shared overview inventory',
   }
   assert.match(aiVision, /\/api\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)
   assert.match(platformStatus, /PLATFORM_CAMERAS_CHANGED_EVENT/)
-  assert.match(platformStatus, /restartKey: cameraRevision/)
+  assert.match(platformStatus, /restartKey: `\$\{department\}:\$\{cameraRevision\}`/)
 })

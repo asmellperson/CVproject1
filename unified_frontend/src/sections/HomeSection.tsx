@@ -37,7 +37,7 @@ import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   filterHomeModulesByPermission,
   getAccessibleAlarmEventTypes,
-  DEPARTMENT_LABELS,
+  DEPARTMENT_LABELS, isDepartment,
   type DepartmentId,
 } from '@/auth/permissions'
 import {
@@ -105,7 +105,7 @@ type PlatformCameraInventoryItem = {
   source: CameraSource
   name: string
   identifier: string
-  department?: string | null
+  department?: DepartmentId | null
   detail?: string
   featureLabels: string[]
   pageId?: string
@@ -207,9 +207,7 @@ function getRunningConsumers(service?: PlatformServiceStatus) {
 
 function getAiVisionCameraFeatureLabels(camera: AiVisionCamera) {
   const functions = camera.functions
-  const enabledFeatures = Array.isArray(functions)
-    ? functions
-    : Object.entries(functions || {})
+  const enabledFeatures = Object.entries(functions)
       .filter(([, enabled]) => Boolean(enabled))
       .map(([feature]) => feature)
   return enabledFeatures.map((feature) => aiVisionFeatureLabels[feature] || feature)
@@ -288,8 +286,8 @@ function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: Platf
   return 'down'
 }
 
-function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean): ModuleStatusCard[] {
-  const featureCounts = getLoadedAiVisionFeatureCounts(cameras, loaded)
+function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: AiVisionCamera[], loaded: boolean, department: DepartmentId): ModuleStatusCard[] {
+  const featureCounts = getLoadedAiVisionFeatureCounts(cameras, loaded, department)
   return visibleEntries.flatMap((entry) => {
     const source = moduleStatusSources[entry.id]
     return source ? [{ ...entry, ...source, featureCounts: source.serviceKey === 'aivision' ? featureCounts : undefined }] : []
@@ -377,7 +375,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     reload: reloadDepartments,
   } = useDepartmentCatalog(Boolean(user))
   const departmentsUnavailable = departmentsLoading || Boolean(departmentsError)
-  const cameraSourceDepartments: Record<CameraSource, string[]> = useMemo(() => ({
+  const cameraSourceDepartments: Record<CameraSource, DepartmentId[]> = useMemo(() => ({
     aivision: [department], guard_room: [department], security_vlm: [department],
   }), [department])
   const cameraDepartmentLabel = (name?: string | null) => name ? departmentLabels[name] || name : '未分配事业部'
@@ -404,12 +402,13 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     () => getLoadedAiVisionFeatureCounts(
       mergedAiVisionCameras,
       aiVisionCamerasLoaded || logisticsCamerasLoaded,
+      department,
     ),
-    [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras],
+    [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras, department],
   )
   const visibleStatusCards = useMemo(
-    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, aiVisionCamerasLoaded || logisticsCamerasLoaded),
-    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded],
+    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, aiVisionCamerasLoaded || logisticsCamerasLoaded, department),
+    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded, department],
   )
   const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
   const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
@@ -603,7 +602,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
 
   const handleCameraSourceChange = (source: CameraSource) => {
     const departments = cameraSourceDepartments[source]
-    const nextDepartment = departments.includes(cameraDepartment)
+    const nextDepartment = isDepartment(cameraDepartment) && departments.includes(cameraDepartment)
       ? cameraDepartment
       : departments[0] || ''
     setCameraSource(source)
@@ -651,7 +650,8 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     }
 
     if (cameraDialogMode === 'create' && (
-      departmentsUnavailable
+      !isDepartment(cameraDepartment)
+      || departmentsUnavailable
       || !allowedCameraDepartments.includes(cameraDepartment)
       || !departmentOptions.some((item) => item.value === cameraDepartment)
     )) {
@@ -673,7 +673,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     try {
       if (cameraDialogMode === 'edit' && cameraToEdit) {
         await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url, fps })
-      } else if (cameraSource === 'aivision') {
+      } else if (cameraSource === 'aivision' && isDepartment(cameraDepartment)) {
         await createAiVisionCamera({
           name,
           url,

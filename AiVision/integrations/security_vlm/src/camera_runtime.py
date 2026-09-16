@@ -150,7 +150,7 @@ class CameraRuntimePaths:
 #   - `base_cfg`（dict）：`base_cfg` 对应的业务输入值
 #   - `camera`（dict）：摄像头配置或实体
 #   - `paths`（CameraRuntimePaths）：`paths` 对应的业务输入值
-#   - `staff_identity_dir`（Path | None）：`staff_identity_dir` 对应的业务输入值；默认值为 `None`
+#   - `staff_identity_dir`（Path）：当前事业部工作区的 ROI 目录
 # 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`AiVision/integrations/security_vlm/src/camera_runtime.py` 的 `CameraRuntimeManager::_start_runtime` 调用本符号
@@ -161,7 +161,7 @@ def build_camera_config(
     camera: dict,
     paths: CameraRuntimePaths,
     *,
-    staff_identity_dir: Path | None = None,
+    staff_identity_dir: Path,
 ) -> dict:
     """从全局配置生成一台摄像头专用且互不共享引用的配置。"""
     snapshot = copy.deepcopy(base_cfg)
@@ -173,8 +173,7 @@ def build_camera_config(
     data_cfg["input_video"] = camera["rtsp_url"]
     data_cfg["video_id"] = camera["camera_id"]
     data_cfg["camera_name"] = camera["name"]
-    if staff_identity_dir is not None:
-        data_cfg["staff_identity_dir"] = str(Path(staff_identity_dir).resolve())
+    data_cfg["staff_identity_dir"] = str(Path(staff_identity_dir).resolve())
     runtime_cfg["dir"] = str(paths.runtime_dir)
     runtime_cfg["department_dir"] = str(paths.department_runtime_dir)
     session_cfg["pending_queue_dir"] = str(paths.pending_dir)
@@ -294,13 +293,6 @@ class CameraRuntimeManager:
         self.clock = clock
         self.base_runtime_dir = resolve_path(
             self.base_cfg["runtime"]["dir"],
-            self.project_root,
-        )
-        self.legacy_camera_root = resolve_path(
-            self.base_cfg["runtime"].get(
-                "camera_root",
-                self.base_runtime_dir / "cameras",
-            ),
             self.project_root,
         )
         configured_departments_root = (
@@ -869,8 +861,6 @@ class CameraRuntimeManager:
             str(self.base_config_path),
             "--departments-root",
             str(self.departments_root),
-            "--camera-root",
-            str(self.legacy_camera_root),
         ]
         try:
             self.vlm_process = self.popen_factory(

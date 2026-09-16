@@ -26,20 +26,10 @@ def test_roi_geometry_module_exists():
     assert roi_geometry is not None, "shared roi_geometry module is required"
 
 
-# 功能：验证 `test_legacy_rectangle_is_normalized_to_four_polygon_points` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`roi_geometry.normalize_roi_points`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_legacy_rectangle_is_normalized_to_four_polygon_points():
-    assert roi_geometry.normalize_roi_points([100, 80, 20, 10]) == [
-        [20.0, 10.0],
-        [100.0, 10.0],
-        [100.0, 80.0],
-        [20.0, 80.0],
-    ]
+def test_roi_requires_polygon_points():
+    with pytest.raises(ValueError, match="坐标必须为"):
+        roi_geometry.normalize_roi_points([100, 80, 20, 10])
+
 
 
 # 功能：验证 `test_polygon_normalization_area_and_bounds` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
@@ -136,7 +126,7 @@ def test_normalize_roi_points_only_accepts_finite_json_numbers(value):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_validate_rois_normalizes_and_rejects_invalid_geometry():
     assert roi_geometry.validate_rois(
-        {"工位 A": [10, 20, 80, 70]},
+        {"工位 A": [[10, 20], [80, 20], [80, 70], [10, 70]]},
         width=100,
         height=80,
         min_area=100,
@@ -288,7 +278,7 @@ def test_validate_rois_returns_rounded_persistence_points():
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_center_inside_counts_even_when_person_overlap_is_small():
     person_box = [-950, 0, 1050, 100]
-    roi = [0, 0, 100, 100]
+    roi = [[0, 0], [100, 0], [100, 100], [0, 100]]
 
     assert roi_geometry.bbox_roi_overlap_ratio(person_box, roi) == pytest.approx(0.05)
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
@@ -304,7 +294,7 @@ def test_center_inside_counts_even_when_person_overlap_is_small():
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_partial_overlap_uses_person_box_area_for_entry():
     person_box = [70, 0, 170, 100]
-    roi = [0, 0, 100, 100]
+    roi = [[0, 0], [100, 0], [100, 100], [0, 100]]
 
     assert roi_geometry.bbox_roi_overlap_ratio(person_box, roi) == pytest.approx(0.30)
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
@@ -320,7 +310,7 @@ def test_partial_overlap_uses_person_box_area_for_entry():
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_hold_threshold_keeps_edge_person_without_allowing_new_entry():
     person_box = [85, 0, 185, 100]
-    roi = [0, 0, 100, 100]
+    roi = [[0, 0], [100, 0], [100, 100], [0, 100]]
 
     assert roi_geometry.bbox_roi_overlap_ratio(person_box, roi) == pytest.approx(0.15)
     assert not roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
@@ -336,7 +326,7 @@ def test_hold_threshold_keeps_edge_person_without_allowing_new_entry():
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_disjoint_and_invalid_person_boxes_are_outside():
-    roi = [0, 0, 100, 100]
+    roi = [[0, 0], [100, 0], [100, 100], [0, 100]]
 
     assert not roi_geometry.bbox_belongs_to_roi([101, 0, 201, 100], roi, 0.10)
     assert roi_geometry.bbox_roi_overlap_ratio([10, 10, 10, 30], roi) == 0.0
@@ -353,7 +343,7 @@ def test_disjoint_and_invalid_person_boxes_are_outside():
 @pytest.mark.skipif(roi_geometry is None, reason="roi_geometry is not implemented")
 def test_reversed_coordinates_are_normalized():
     person_box = [170, 100, 70, 0]
-    roi = [100, 100, 0, 0]
+    roi = [[100, 100], [0, 100], [0, 0], [100, 0]]
 
     assert roi_geometry.bbox_roi_overlap_ratio(person_box, roi) == pytest.approx(0.30)
     assert roi_geometry.bbox_belongs_to_roi(person_box, roi, 0.30)
@@ -421,6 +411,7 @@ def test_concave_polygon_membership_and_overlap_are_exact():
 def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
     manager = session_worker.PairSessionManager(
         {
+            "data": {"department": "fulida_company", "video_id": "camera-a"},
             "session": {
                 "roi_enter_overlap_ratio": 0.30,
                 "roi_hold_overlap_ratio": 0.10,
@@ -435,7 +426,7 @@ def test_session_manager_uses_looser_overlap_for_active_session(tmp_path):
         "x2": 185,
         "y2": 100,
     }
-    roi = [0, 0, 100, 100]
+    roi = [[0, 0], [100, 0], [100, 100], [0, 100]]
 
     assert manager._tracks_for_roi([edge_track], roi, active=False) == []
     assert manager._tracks_for_roi([edge_track], roi, active=True) == [edge_track]
@@ -592,7 +583,7 @@ def test_session_worker_reload_updates_valid_rois_and_keeps_only_named_lkg(
 def test_session_worker_default_roi_normalization_ignores_only_bad_items(capsys):
     rois = session_worker._normalize_roi_mapping(
         {
-            "合法": [0, 0, 20, 20],
+            "合法": [[0, 0], [20, 0], [20, 20], [0, 20]],
             "坏值": [[0, 0], [10, 0]],
             "超大": [[0, 0], [10**400, 0], [0, 10]],
         }
@@ -642,6 +633,7 @@ def test_session_worker_reload_keeps_whole_cache_for_invalid_json_structure(
 def test_new_pair_session_keeps_polygon_bounds_as_roi_box(tmp_path, monkeypatch):
     manager = session_worker.PairSessionManager(
         {
+            "data": {"department": "fulida_company", "video_id": "camera-a"},
             "session": {
                 "pair_start_hold_frames": 1,
                 "roi_enter_overlap_ratio": 0.30,
@@ -684,6 +676,7 @@ def test_deleted_roi_cancels_active_session_without_pending_task(
 ):
     manager = session_worker.PairSessionManager(
         {
+            "data": {"department": "fulida_company", "video_id": "camera-a"},
             "session": {
                 "pair_start_hold_frames": 1,
                 "roi_enter_overlap_ratio": 0.30,
@@ -702,7 +695,7 @@ def test_deleted_roi_cancels_active_session_without_pending_task(
         {"track_id": 2, "x1": 35, "y1": 10, "x2": 55, "y2": 50},
     ]
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
-    manager.step(frame, tracks, {"会删除": [0, 0, 80, 80]})
+    manager.step(frame, tracks, {"会删除": [[0, 0], [80, 0], [80, 80], [0, 80]]})
     manager.roi_states["会删除"].active.keyframes.extend([frame, frame])
 
     manager.step(frame, tracks, {})
@@ -724,6 +717,7 @@ def test_session_manager_rejects_hold_threshold_above_enter_threshold(tmp_path):
     with pytest.raises(ValueError, match="roi_hold_overlap_ratio"):
         session_worker.PairSessionManager(
             {
+                "data": {"department": "fulida_company", "video_id": "camera-a"},
                 "session": {
                     "roi_enter_overlap_ratio": 0.20,
                     "roi_hold_overlap_ratio": 0.30,
@@ -797,7 +791,16 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     class FakeService:
         cfg = {"session": {"roi_enter_overlap_ratio": 0.30}}
-        store = FakeStore()
+        @staticmethod
+        def camera_store(camera_id, department):
+            assert camera_id == "camera-a" and department == "fulida_company"
+            return FakeStore()
+
+        @staticmethod
+        def workspace(department):
+            from types import SimpleNamespace
+            assert department == "fulida_company"
+            return SimpleNamespace(result_store=FakeStore())
 
         # 功能：读取或查询 `get_rois_cached` 对应的感兴趣区域逻辑；输入由参数提供，处理结果见返回值说明
         # 参数：无。
@@ -807,7 +810,7 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
         #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
         # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         @staticmethod
-        def get_rois_cached():
+        def get_rois_cached(camera_id, department):
             return {
                 "security_staff_1": [
                     [0, 0],
@@ -900,7 +903,7 @@ def test_rule_overlay_colors_roi_members_green_and_outside_tracks_gray(monkeypat
 
     security_main._overlay_on_frame(
         np.zeros((100, 200, 3), dtype=np.uint8),
-        FakeService(),
+        FakeService(), "camera-a", "fulida_company",
     )
 
     assert [polygon.tolist() for polygon in filled_polygons] == [

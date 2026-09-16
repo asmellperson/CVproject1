@@ -8,7 +8,7 @@ export type AdminUser = {
   employee_id: string
   name: string
   role: AdminUserRole
-  departments: AdminUserDepartment[]
+  departments: Array<AdminUserDepartment | 'all'>
   enabled: boolean
   auth_version: number
 }

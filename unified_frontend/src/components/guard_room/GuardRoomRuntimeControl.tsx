@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useState } from 'react'
 
 import { DetectionRuntimeControl, type DetectionRuntimeState } from '@/components/detection/DetectionRuntimeControl'
@@ -14,7 +15,7 @@ const REQUEST_TIMEOUT_MS = 8_000
 
 type GuardRoomRuntimeControlProps = {
   site: GuardRoomSite | null
-  department?: string
+  department: DepartmentId
   isAdmin: boolean
   onChanged: () => void | Promise<void>
 }

@@ -93,9 +93,7 @@ export type SecurityVlmHistoryItem = {
 
 export type SecurityVlmRoiPoint = [number, number]
 export type SecurityVlmRoiPolygon = SecurityVlmRoiPoint[]
-export type SecurityVlmLegacyRoiRect = [number, number, number, number]
-export type SecurityVlmRoiValue = SecurityVlmRoiPolygon | SecurityVlmLegacyRoiRect
-export type SecurityVlmRoiMap = Record<string, SecurityVlmRoiValue>
+export type SecurityVlmRoiMap = Record<string, SecurityVlmRoiPolygon>
 
 export type SecurityVlmCamera = {
   camera_id: string
@@ -119,23 +117,20 @@ export type SecurityVlmCameraCredentials = Pick<
 >
 
 export type SecurityVlmHealth = {
-  running?: boolean
-  ts?: number
-  capture?: SecurityVlmWorkerStatus
-  detector?: SecurityVlmWorkerStatus
-  session?: SecurityVlmWorkerStatus
-  vlm?: SecurityVlmWorkerStatus
-  stats?: SecurityVlmStats
-  history?: SecurityVlmHistoryItem[]
-  staff_rois?: SecurityVlmRoiMap
-  cameras?: SecurityVlmCamera[]
+  department: DepartmentId
+  running: boolean
+  ts: number
+  vlm: SecurityVlmWorkerStatus
+  stats: SecurityVlmStats
+  history: SecurityVlmHistoryItem[]
+  cameras: SecurityVlmCamera[]
 }
 
 export type SecurityVlmRoisResponse = {
+  department: DepartmentId
+  camera_id: string
   staff_rois: SecurityVlmRoiMap
   available_slots: string[]
-  video_id?: string
-  camera_id?: string
   ok?: boolean
 }
 
@@ -260,22 +255,6 @@ export const saveSecurityVlmCameraRois = (
     `${departmentApi(department)}/cameras/${encodeURIComponent(cameraId)}/rois`,
     { staff_rois: staffRois },
   )
-
-export const getSecurityVlmRois = () => securityVlmGet<SecurityVlmRoisResponse>('/api/rois')
-
-export const saveSecurityVlmRois = (
-  staff_rois: Record<string, SecurityVlmRoiPolygon>,
-) =>
-  securityVlmPost<SecurityVlmRoisResponse>('/api/rois', { staff_rois })
-
-export const startSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/start')
-
-export const stopSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/stop')
-
-export const restartSecurityVlmRuntime = () => securityVlmPost<{ success?: boolean; running: boolean }>('/api/control/restart')
-
-export const securityVlmVideoUrl = (kind: 'original' | 'rule', nonce?: number) =>
-  `/security-vlm/video/${kind}${nonce ? `?t=${nonce}` : ''}`
 
 export const securityVlmCameraVideoUrl = (
   department: SecurityVlmDepartment,

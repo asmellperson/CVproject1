@@ -13,7 +13,7 @@ test('access audit is capability-gated in navigation and page routing', async ()
 
   assert.match(
     permissions,
-    /normalizedPageId === 'access-audit'[\s\S]*view_access_audit === true/,
+    /pageId === 'access-audit'[\s\S]*view_access_audit === true/,
   )
   assert.match(navigation, /id: 'system'[\s\S]*id: 'access-audit'/)
   assert.match(app, /case 'access-audit':[\s\S]*<AccessAuditSection/)

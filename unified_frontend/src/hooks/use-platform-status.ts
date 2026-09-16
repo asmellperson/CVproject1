@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { DepartmentId } from '../auth/permissions'
 
 import {
   getPlatformStatus,
@@ -10,8 +11,8 @@ import { useSerialPoll } from './use-serial-poll'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '../lib/camera-events'
 import { PLATFORM_RUNTIME_CHANGED_EVENT } from '../lib/runtime-events'
 
-export function usePlatformStatus(): PlatformStatus | null {
-  const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null)
+export function usePlatformStatus(department: DepartmentId | null): PlatformStatus | null {
+  const [platformStatus, setPlatformStatus] = useState<{ department: DepartmentId; status: PlatformStatus } | null>(null)
   const [cameraRevision, setCameraRevision] = useState(0)
 
   useEffect(() => {
@@ -26,16 +27,18 @@ export function usePlatformStatus(): PlatformStatus | null {
 
   useSerialPoll(
     async (signal) => {
-      const status = await getPlatformStatus({ signal })
-      setPlatformStatus(status)
+      if (!department) return
+      const status = await getPlatformStatus(department, { signal })
+      if (!signal.aborted) setPlatformStatus({ department, status })
     },
     {
+      enabled: department !== null,
       intervalMs: PLATFORM_STATUS_POLL_INTERVAL_MS,
       timeoutMs: PLATFORM_STATUS_REQUEST_TIMEOUT_MS,
       onError: () => setPlatformStatus(null),
-      restartKey: cameraRevision,
+      restartKey: `${department}:${cameraRevision}`,
     },
   )
 
-  return platformStatus
+  return platformStatus?.department === department ? platformStatus.status : null
 }

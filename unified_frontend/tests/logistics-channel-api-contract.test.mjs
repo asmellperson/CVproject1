@@ -22,7 +22,9 @@ test('declares one logistics feature with explicit department fields', () => {
     'threshold_seconds', 'camera_ids', 'camera_counts', 'camera_states',
     'offending_camera_ids', 'detection_start', 'detection_end', 'confidence_threshold',
   ]) assert.match(types, new RegExp(field))
-  for (const department of ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling']) assert.match(types, new RegExp(`'${department}'`))
+  assert.match(types, /import type \{ DepartmentId \} from '@\/auth\/permissions'/)
+  assert.match(types, /department: DepartmentId/)
+  assert.doesNotMatch(types, /LOGISTICS_DEPARTMENTS|type LogisticsDepartment/)
   assert.doesNotMatch(types, /detect_logistics_single_person_/)
   assert.match(types, /roi_pos: LogisticsCameraRoiPolygon\b/)
   assert.match(types, /type LogisticsCameraInventoryItem/)

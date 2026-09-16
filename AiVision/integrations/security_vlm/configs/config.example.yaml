@@ -12,7 +12,6 @@ envs:
 # ---- 易失运行时目录(共享帧、心跳、pending；允许主机重启后清空) ----
 runtime:
   dir: /dev/shm/security_vlm_runtime
-  camera_root: /dev/shm/security_vlm_runtime/cameras
   # 所有事业部合计允许同时处于运行/重试状态的摄像头实例数。
   max_running_cameras: 16
   camera_fps_hint: 10
@@ -25,7 +24,6 @@ departments:
   data_root: data/departments
   # 摄像头共享帧、心跳和 pending 等易失运行数据
   runtime_root: /dev/shm/security_vlm_runtime/departments
-  max_cameras_per_department: 4
 
 # ---- 子进程轮询间隔 ----
 workers:
@@ -35,20 +33,6 @@ workers:
 web: {}
   # jpeg_quality: 60
   # display_every_n: 1
-
-# ---- 视频源 ----
-data:
-  input_video:
-  # 安检模块独立维护的多摄像头注册表
-  camera_registry_path: data/config/cameras.json
-  # ROI 配置持久化目录
-  staff_identity_dir: data/annotations/staff_rois
-
-# ---- 默认工位 ROI(首次启动用;后续以前端保存的 JSON 为准) ----
-staff_rois:
-  security_staff_1: [455, 160, 735, 555]
-  security_staff_2: [690, 95, 985, 565]
-  security_staff_3: [995, 95, 1215, 520]
 
 # ---- ROI 服务端校验 ----
 roi:

@@ -1,4 +1,4 @@
-"""SQLite 用户存储、旧库迁移和用户数据读写。"""
+"""SQLite 用户存储和用户数据读写。"""
 from __future__ import annotations
 
 import base64
@@ -12,34 +12,11 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from AiVision.departments.department_registry import require_department
 
 # 两级角色权限
 ALLOWED_ROLES = {"admin", "viewer"}
-# 普通用户允许访问的事业部
-ALLOWED_VIEWER_DEPARTMENTS = frozenset(DEPARTMENT_SPECS)
-LEGACY_DEFAULT_PASSWORD = "Fuda@2026"
 PASSWORD_HASH_ITERATIONS = 260_000
-# 把各种旧名字，中文名字，简称统一成标准事业部编码
-DEPARTMENT_ALIASES = {
-    "ge": "general_electric",
-    "general": "general_electric",
-    "通用电气": "general_electric",
-    "研究院": "research_institute",
-    "人工智能研究院": "research_institute",
-    "福达新材院": "research_institute",
-    "电子电工": "electronics_electrician",
-    "电气部件": "electrical_components",
-    "weida": "precious_metal_recycling",
-    "weida_company": "precious_metal_recycling",
-    "weida-company": "precious_metal_recycling",
-    "weida company": "precious_metal_recycling",
-    "伟达": "precious_metal_recycling",
-    "伟达公司": "precious_metal_recycling",
-    "贵金属回收": "precious_metal_recycling",
-    "皓达公司": "haoda_company",
-    "皓达": "haoda_company",
-}
 
 # ========= 四个异常类 ==========
 class UserStoreError(RuntimeError):
@@ -79,7 +56,16 @@ def _normalize_role_departments(
     if normalized_role not in ALLOWED_ROLES:
         raise UserValidationError("角色必须是 admin 或 viewer")
     if normalized_role == "admin":
-        return normalized_role, ["all"]                     # 管理员不会绑定具体事业部
+        if departments is not None:
+            if not isinstance(departments, list):
+                raise UserValidationError("事业部必须是数组")
+            for department in departments:
+                if department != "all":
+                    try:
+                        require_department(department)
+                    except ValueError as exc:
+                        raise UserValidationError("必须选择有效事业部") from exc
+        return normalized_role, ["all"]
 
     if isinstance(departments, (list, tuple)):
         raw_departments = list(departments)
@@ -88,18 +74,10 @@ def _normalize_role_departments(
 
     normalized_departments: list[str] = []
     for raw_department in raw_departments:
-        # 部门别名转换
-        normalized_department = str(raw_department or "").strip()
-        normalized_department = DEPARTMENT_ALIASES.get(
-            normalized_department,
-            DEPARTMENT_ALIASES.get(
-                normalized_department.lower(),
-                normalized_department,
-            ),
-        )
-        # 检查事业部是否合法
-        if normalized_department not in ALLOWED_VIEWER_DEPARTMENTS:
-            raise UserValidationError("普通用户必须选择有效事业部")
+        try:
+            normalized_department = require_department(raw_department)
+        except ValueError as exc:
+            raise UserValidationError("普通用户必须选择有效事业部") from exc
         # 去重
         if normalized_department not in normalized_departments:
             normalized_departments.append(normalized_department)
@@ -107,7 +85,7 @@ def _normalize_role_departments(
         raise UserValidationError("普通用户必须至少选择一个有效事业部")
     return normalized_role, normalized_departments
 
-# ================= 部门兼容 =====================
+# ================= 部门列表存储 =====================
 def _encode_departments(departments: list[str]) -> str:
     """把Python的部门列表转换成SQLite可以保存的字符串"""
     # Python list -> json.dumps() -> 字符串 -> SQLite TEXT
@@ -122,10 +100,6 @@ def _decode_departments(value: object) -> list[str]:
     if isinstance(decoded, list) and decoded:
         return [str(item) for item in decoded]
     return []
-
-def _legacy_default_password() -> str:
-    """仅供初始化时迁移无密码哈希的旧账号。"""
-    return os.getenv("AUTH_DEFAULT_PASSWORD", LEGACY_DEFAULT_PASSWORD)
 
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -186,7 +160,7 @@ class UserStore:
         return connection
 
     def initialize(self) -> None:
-        """第一次使用UserStore时，创建数据库目录，创建auth_user表，并兼容升级旧数据库结构"""
+        """第一次使用UserStore时，创建数据库目录，创建正式 auth_users 表"""
         if self._initialized:
             return
         with self._initialize_lock:
@@ -208,61 +182,15 @@ class UserStore:
                         employee_id TEXT PRIMARY KEY,               
                         name TEXT NOT NULL UNIQUE,
                         role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
-                        department TEXT NOT NULL,
                         departments TEXT NOT NULL DEFAULT '[]',
                         enabled INTEGER NOT NULL DEFAULT 1,
-                        password_hash TEXT,
+                        password_hash TEXT NOT NULL,
                         auth_version INTEGER NOT NULL DEFAULT 1,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
-                # 获取当前表的列
-                columns = {
-                    str(row["name"])
-                    for row in connection.execute(
-                        "PRAGMA table_info(auth_users)"
-                    ).fetchall()
-                }
-                # 检查旧数据库有没有departments
-                if "departments" not in columns:
-                    # 运行时的数据迁移
-                    connection.execute(
-                        "ALTER TABLE auth_users "
-                        "ADD COLUMN departments TEXT NOT NULL DEFAULT '[]'"
-                    )
-                if "password_hash" not in columns:
-                    connection.execute(
-                        "ALTER TABLE auth_users ADD COLUMN password_hash TEXT"
-                    )
-                for row in connection.execute(
-                    "SELECT employee_id, role, department, departments, password_hash "
-                    "FROM auth_users"
-                ).fetchall():
-                    migrated_departments = _decode_departments(row["departments"])
-                    if not migrated_departments:
-                        legacy_department = str(row["department"] or "").strip()
-                        migrated_departments = [legacy_department] if legacy_department else []
-                    role, departments = _normalize_role_departments(
-                        row["role"],
-                        migrated_departments,
-                    )
-                    password_hash = str(row["password_hash"] or "").strip()
-                    if not password_hash:
-                        password_hash = hash_password(_legacy_default_password())
-                    connection.execute(
-                        "UPDATE auth_users "
-                        "SET role = ?, department = ?, departments = ?, password_hash = ? "
-                        "WHERE employee_id = ?",
-                        (
-                            role,
-                            departments[0],
-                            _encode_departments(departments),
-                            password_hash,
-                            row["employee_id"],
-                        ),
-                    )
                 connection.commit()
                 self._initialized = True
             except Exception:
@@ -363,15 +291,14 @@ class UserStore:
             connection.execute(
                 """
                 INSERT INTO auth_users(
-                    employee_id, name, role, department, departments, enabled,
+                    employee_id, name, role, departments, enabled,
                     password_hash, auth_version
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, 1)
+                ) VALUES (?, ?, ?, ?, 1, ?, 1)
                 """,
                 (
                     normalized_employee_id,
                     normalized_name,
                     normalized_role,
-                    normalized_departments[0],
                     _encode_departments(normalized_departments),
                     password_hash,
                 ),
@@ -445,14 +372,13 @@ class UserStore:
             connection.execute(
                 """
                 UPDATE auth_users
-                SET name = ?, role = ?, department = ?, departments = ?, enabled = ?,
+                SET name = ?, role = ?, departments = ?, enabled = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE employee_id = ?
                 """,
                 (
                     normalized_name,
                     normalized_role,
-                    normalized_departments[0],
                     _encode_departments(normalized_departments),
                     int(normalized_enabled),                     # SQLite仍然使用1和0
                     normalized_employee_id,
@@ -563,7 +489,6 @@ def _public_without_password(record: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "ALLOWED_ROLES",
-    "ALLOWED_VIEWER_DEPARTMENTS",
     "UserConflictError",
     "UserNotFoundError",
     "UserStore",

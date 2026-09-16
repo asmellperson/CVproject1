@@ -11,17 +11,18 @@ import AiVision.features.registry as features
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.departments.service import DepartmentService
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
-from auth.user_store import ALLOWED_VIEWER_DEPARTMENTS, UserStore, UserValidationError
+from auth.user_store import UserStore, UserValidationError
 
 
 def test_department_registry_is_immutable_and_preserves_existing_catalog():
     assert [(spec.name, spec.display_name) for spec in DEPARTMENT_SPECS.values()] == [
-        ("general_electric", "通用电气"),
-        ("research_institute", "福达新材院"),
-        ("electronics_electrician", "电子电工"),
+        ("general_electric", "通用电气事业部"),
+        ("electronics_electrician", "电子电工事业部"),
         ("electrical_components", "电气部件事业部"),
-        ("precious_metal_recycling", "伟达公司"),
-        ("haoda_company", "皓达公司"),
+        ("research_institute", "福达新材院"),
+        ("precious_metal_recycling", "伟达子公司"),
+        ("haoda_company", "皓达子公司"),
+        ("fulida_company", "福力达子公司"),
     ]
     with pytest.raises(TypeError):
         DEPARTMENT_SPECS["new"] = next(iter(DEPARTMENT_SPECS.values()))
@@ -39,7 +40,7 @@ def test_registry_can_be_imported_without_loading_features_or_database():
     ], env=environment, check=True)
 
 
-@pytest.mark.parametrize("name", ["unknown", "all", "", " general_electric", None, []])
+@pytest.mark.parametrize("name", ["unknown", "all", "", " general_electric", "ge", "general-electric", "通用电气", "weida_company", "haoda", None, []])
 def test_registry_rejects_unregistered_departments(name):
     with pytest.raises(ValueError, match="unknown department"):
         require_department(name)
@@ -92,7 +93,6 @@ def test_schema_verification_leaves_historical_department_tables_untouched(monke
 
 
 def test_user_store_accepts_only_registered_departments(tmp_path):
-    assert ALLOWED_VIEWER_DEPARTMENTS == DEPARTMENT_SPECS.keys()
     store = UserStore(database_path=tmp_path / "users.db")
     for index, name in enumerate(DEPARTMENT_SPECS):
         user = store.create_user(employee_id=str(index), name=name, role="viewer", departments=[name], password_hash="test-hash")

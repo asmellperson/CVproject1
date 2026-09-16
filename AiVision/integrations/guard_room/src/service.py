@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func
-from sqlalchemy import inspect, text
 
 from .config import (
     AppConfig,
@@ -28,7 +27,6 @@ from .orm import GuardRoomCamera, GuardRoomSite, GuardRoomSiteConfig
 
 
 MAX_CAMERAS_PER_SITE = 9
-DEFAULT_DEPARTMENT = "general_electric"
 
 
 # 功能：CRUD and configuration assembly for guard-room monitoring sites；输入与输出详见下方说明
@@ -88,12 +86,11 @@ class GuardRoomService:
     #         `test_first_enabled_camera_starts_an_enabled_site_after_app_startup`
     #         调用本符号；`AiVision/integrations/guard_room/tests/test_site_service.py` 的
     #         `test_site_service_creates_site_cameras_and_app_config` 调用本符号；另有 6 处静态调用
-    #   - 内部调用：`create_all_tables`、`self._ensure_department_schema`。
+    #   - 内部调用：`create_all_tables`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def ensure_schema(self) -> None:
         """Create guard-room tables if they do not already exist."""
         create_all_tables()
-        self._ensure_department_schema()
 
     # ---------- Sites ----------
 
@@ -105,16 +102,15 @@ class GuardRoomService:
     # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_session`、`session.query`、`self._normalize_department`、`query.filter`、`query.order_by(GuardRoomSite.sort_order,
+    #   - 内部调用：`get_session`、`session.query`、`require_department`、`query.filter`、`query.order_by(GuardRoomSite.sort_order,
     #          GuardRoomSite.id).all`、`query.order_by`、`self._site_to_dict`、`session.close`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def list_sites(self, include_cameras: bool = True, department: str | None = None) -> list[dict[str, Any]]:
         session = get_session()
         try:
             query = session.query(GuardRoomSite)
-            normalized_department = self._normalize_department(department, required=False)
-            if normalized_department:
-                query = query.filter(GuardRoomSite.department == normalized_department)
+            if department is not None:
+                query = query.filter(GuardRoomSite.department == require_department(department))
             rows = query.order_by(GuardRoomSite.sort_order, GuardRoomSite.id).all()
             return [self._site_to_dict(row, include_cameras=include_cameras) for row in rows]
         finally:
@@ -146,14 +142,14 @@ class GuardRoomService:
     #   - `self`（未显式标注）：当前类实例
     #   - `name`（str）：业务对象名称
     #   - `enabled`（bool）：是否启用相应能力；默认值为 `True`
-    #   - `department`（str | None）：业务部门名称或标识；默认值为 `None`
+    #   - `department`（str）：正式事业部编码，创建站点时必填
     #   - `description`（str | None）：`description` 对应的业务输入值；默认值为 `None`
     #   - `sort_order`（int | None）：`sort_order` 对应的业务输入值；默认值为 `None`
     #   - `config`（dict[str, Any] | AppConfig | None）：运行配置对象；默认值为 `None`
     # 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._required_text`、`self._normalize_department`、`session_scope`、`session.query(GuardRoomSite).filter_by(name=name,
+    #   - 内部调用：`self._required_text`、`require_department`、`session_scope`、`session.query(GuardRoomSite).filter_by(name=name,
     #          department=department).first`、`session.query(GuardRoomSite).filter_by`、`session.query`、`ValueError`、`self._next_site_sort_order`、`GuardRoomSite`、`bool`
     #          等共 21 个调用。
     # 副作用/注意事项：可能读取或修改数据库事务；校验或执行失败时会主动抛出异常。
@@ -162,13 +158,13 @@ class GuardRoomService:
         name: str,
         *,
         enabled: bool = True,
-        department: str | None = None,
+        department: str,
         description: str | None = None,
         sort_order: int | None = None,
         config: dict[str, Any] | AppConfig | None = None,
     ) -> dict[str, Any]:
         name = self._required_text(name, "保安室名称")
-        department = self._normalize_department(department)
+        department = require_department(department)
         with session_scope() as session:
             if session.query(GuardRoomSite).filter_by(name=name, department=department).first():
                 raise ValueError(f"保安室名称已存在: {name}")
@@ -792,76 +788,5 @@ class GuardRoomService:
         if not text:
             raise ValueError(f"{label}不能为空")
         return text
-
-    # 功能：转换或规范化 `_normalize_department` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `department`（str | None）：业务部门名称或标识
-    #   - `required`（bool）：`required` 对应的业务输入值；默认值为 `True`
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::list_sites`
-    #         调用本符号；`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::create_site` 调用本符号
-    #   - 内部调用：`str(department or '').strip`、`str`、`aliases.get`、`text_value.lower`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @staticmethod
-    def _normalize_department(department: str | None, *, required: bool = True) -> str:
-        """所有站点归属使用平台正式事业部目录。"""
-        if not required and department is None:
-            return ""
-        return require_department(department)
-
-    # 功能：检查或判断 `_ensure_department_schema` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/guard_room/src/service.py` 的 `GuardRoomService::ensure_schema` 调用本符号
-    #   - 内部调用：`get_engine`、`inspect`、`inspector.get_table_names`、`inspector.get_columns`、`engine.begin`、`conn.execute`、`text`、`inspector.get_indexes`、`inspector.get_unique_constraints`、`str`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能读取或修改数据库事务。
-    @staticmethod
-    def _ensure_department_schema() -> None:
-        from .db import get_engine
-
-        engine = get_engine()
-        inspector = inspect(engine)
-        if "guard_room_site" not in inspector.get_table_names():
-            return
-
-        columns = {column["name"] for column in inspector.get_columns("guard_room_site")}
-        dialect = engine.dialect.name
-        with engine.begin() as conn:
-            if "department" not in columns:
-                if dialect == "mysql":
-                    conn.execute(text(
-                        "ALTER TABLE guard_room_site "
-                        "ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT 'general_electric' COMMENT '所属部门'"
-                    ))
-                else:
-                    conn.execute(text(
-                        "ALTER TABLE guard_room_site "
-                        "ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT 'general_electric'"
-                    ))
-                conn.execute(text(
-                    "UPDATE guard_room_site SET department = 'general_electric' "
-                    "WHERE department IS NULL OR department = ''"
-                ))
-
-            indexes = inspector.get_indexes("guard_room_site") + inspector.get_unique_constraints("guard_room_site")
-            index_names = {str(index.get("name") or "") for index in indexes}
-            if dialect == "mysql":
-                for index_name in ("name", "ix_guard_room_site_name"):
-                    if index_name in index_names:
-                        try:
-                            conn.execute(text(f"ALTER TABLE guard_room_site DROP INDEX {index_name}"))
-                        except Exception:
-                            pass
-                if "ix_guard_room_site_department" not in index_names:
-                    conn.execute(text("CREATE INDEX ix_guard_room_site_department ON guard_room_site (department)"))
-                if "uq_guard_room_site_department_name" not in index_names:
-                    conn.execute(text(
-                        "CREATE UNIQUE INDEX uq_guard_room_site_department_name "
-                        "ON guard_room_site (department, name)"
-                    ))
-
 
 guard_room_service = GuardRoomService()

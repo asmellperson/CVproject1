@@ -2,15 +2,24 @@ import type { AuthUser } from '@/auth/auth-context'
 import type { NavGroup } from '@/lib/nav'
 
 export const DEPARTMENTS = [
-  'general_electric', 'research_institute', 'electronics_electrician',
-  'electrical_components', 'precious_metal_recycling', 'haoda_company',
+  'general_electric',
+  'electronics_electrician',
+  'electrical_components',
+  'research_institute',
+  'precious_metal_recycling',
+  'haoda_company',
+  'fulida_company',
 ] as const
 export type DepartmentId = typeof DEPARTMENTS[number]
 export type Department = DepartmentId | 'all'
 export const DEPARTMENT_LABELS: Record<DepartmentId, string> = {
-  general_electric: '通用电气', research_institute: '福达新材院',
-  electronics_electrician: '电子电工', electrical_components: '电气部件事业部',
-  precious_metal_recycling: '伟达公司', haoda_company: '皓达公司',
+  general_electric: '通用电气事业部',
+  electronics_electrician: '电子电工事业部',
+  electrical_components: '电气部件事业部',
+  research_institute: '福达新材院',
+  precious_metal_recycling: '伟达子公司',
+  haoda_company: '皓达子公司',
+  fulida_company: '福力达子公司',
 }
 export const DETECTION_PAGE_IDS = [
   'security-vlm', 'guard-behavior', 'intrusion-detection', 'door-detection',
@@ -52,7 +61,7 @@ export function getAccessibleDepartments(user: AuthUser | null | undefined): Dep
   const departments = getUserDepartments(user)
   if (getUserRole(user) === 'admin') return [...DEPARTMENTS]
   if (getUserRole(user) !== 'viewer') return []
-  return departments.includes('all') ? [...DEPARTMENTS] : departments.filter(isDepartment)
+  return departments.filter(isDepartment)
 }
 
 export function resolveDepartment(user: AuthUser | null | undefined, requested: unknown): DepartmentId | null {

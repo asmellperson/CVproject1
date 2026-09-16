@@ -1,3 +1,4 @@
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 """以虚构人员、内存照片、SQLite 和 Mock 验证整条身份识别链路。"""
 from datetime import datetime, timedelta
 from contextlib import contextmanager
@@ -627,25 +628,27 @@ def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatc
     assert orchestrator.get_feature_monitor_status("camera_7", "recognize_face")["detections"] == []
 
 
-def test_record_api_has_department_scope_pagination_and_auth(library):
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_record_api_has_department_scope_pagination_and_auth(library, department):
     from auth.auth import get_current_user
     from AiVision.api.routes.face_recognition import router
 
+    other_department = next(value for value in DEPARTMENT_SPECS if value != department)
     directory = Path(settings.storage.data_path) / "recognize_face"
     directory.mkdir()
     image_path = directory / "test.png"
     assert cv2.imwrite(str(image_path), np.zeros((20, 30, 3), dtype=np.uint8))
     with library.factory.begin() as session:
-        for camera_id, department in [(1, "electronics_electrician"), (2, "research_institute")]:
+        for camera_id, camera_department in [(1, department), (2, other_department)]:
             session.add(AiCameraConfig(id=camera_id, name=f"测试摄像头{camera_id}", shm_name=f"camera_{camera_id}",
-                                       url="test-camera", department=department))
+                                       url="test-camera", department=camera_department))
             session.add(FaceRecognitionRecord(camera_id=camera_id, person_id=None, person_name="未知人员",
                                               similarity=.1, image_path=str(image_path)))
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["electronics_electrician"]}
+    app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": [department]}
     with TestClient(app) as client:
-        response = client.get("/api/face-recognition/records?department=electronics_electrician&page_size=1")
+        response = client.get(f"/api/face-recognition/records?department={department}&page_size=1")
         assert response.status_code == 200
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["camera_id"] == 1
@@ -657,12 +660,12 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
         assert image.content == image_path.read_bytes()
         assert client.get("/api/face-recognition/records/2/image").status_code == 404
         assert client.get("/api/face-recognition/records/999/image").status_code == 404
-        assert client.get("/api/face-recognition/records?department=electronics_electrician&camera_id=2").json()["total"] == 0
-        assert client.get("/api/face-recognition/records?department=electronics_electrician&page=2").json()["items"] == []
-        assert client.get("/api/face-recognition/records?department=electronics_electrician&page_size=101").status_code == 422
-        app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["research_institute"]}
-        assert client.get("/api/face-recognition/records?department=electronics_electrician").status_code == 403
-        response = client.get("/api/face-recognition/records?department=research_institute")
+        assert client.get(f"/api/face-recognition/records?department={department}&camera_id=2").json()["total"] == 0
+        assert client.get(f"/api/face-recognition/records?department={department}&page=2").json()["items"] == []
+        assert client.get(f"/api/face-recognition/records?department={department}&page_size=101").status_code == 422
+        app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": [other_department]}
+        assert client.get(f"/api/face-recognition/records?department={department}").status_code == 403
+        response = client.get(f"/api/face-recognition/records?department={other_department}")
         assert response.status_code == 200
         assert [row["camera_id"] for row in response.json()["items"]] == [2]
         assert client.get(item["image_url"]).status_code == 404

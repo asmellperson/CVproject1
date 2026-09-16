@@ -365,9 +365,9 @@ def test_overview_alarms_query_department_before_limiting(monkeypatch, departmen
         calls.append((base, path))
         if base == "ai":
             return {"items": [
-                {"id": 1, "feature_name": "recognize_face", "violation_type": 7,
+                {"id": 1, "feature_name": "recognize_face", "event_type": "recognize_face", "violation_type": 7,
                  "department": department, "created_at": "2026-09-01"},
-                {"id": 2, "feature_name": "recognize_face", "violation_type": 7,
+                {"id": 2, "feature_name": "recognize_face", "event_type": "recognize_face", "violation_type": 7,
                  "department": foreign, "created_at": "2026-09-02"},
             ]}
         return {}

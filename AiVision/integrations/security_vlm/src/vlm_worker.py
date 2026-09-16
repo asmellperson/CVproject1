@@ -31,7 +31,6 @@ import math
 import os
 import pickle
 import queue
-import shutil
 import signal
 import sys
 import threading
@@ -58,14 +57,6 @@ from AiVision.integrations.security_vlm.src.frame_hub import ResultStore
 # ---------------------------------------------------------------------------
 # 通用工具
 # ---------------------------------------------------------------------------
-# 功能：更新或保存 `set_process_title` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `title`（str）：`title` 对应的业务输入值
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`setproctitle`、`str`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def set_process_title(title: str) -> None:
     try:
         from setproctitle import setproctitle
@@ -74,65 +65,22 @@ def set_process_title(title: str) -> None:
         pass
 
 
-# 功能：读取或查询 `load_yaml` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path`（Path）：目标路径
-# 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`open`、`yaml.safe_load`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
-# 功能：计算或解析 `resolve_path` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `p`（str）：`p` 对应的业务输入值
-#   - `base`（Path）：`base` 对应的业务输入值
-# 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Path`、`pp.is_absolute`、`pp.resolve`、`(base / pp).resolve`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def resolve_path(p: str, base: Path) -> Path:
     pp = Path(p)
     return pp.resolve() if pp.is_absolute() else (base / pp).resolve()
 
 
-# 功能：定义 `VLMWorkerPaths` 类，封装后台任务相关的状态、约束与操作
-# 参数：
-#   - `runtime_dir`（Path）：`runtime_dir` 对应的业务输入值
-#   - `departments_root`（Path）：`departments_root` 对应的业务输入值
-#   - `legacy_camera_root`（Path）：`legacy_camera_root` 对应的业务输入值
-#   - `data_root`（Path）：`data_root` 对应的业务输入值
-# 返回：VLMWorkerPaths；返回新建的 `VLMWorkerPaths` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`dataclass`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class VLMWorkerPaths:
     runtime_dir: Path
     departments_root: Path
-    legacy_camera_root: Path
     data_root: Path
 
-    # 功能：实现 `from_config` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `cls`（未显式标注）：当前类对象
-    #   - `cfg`（dict）：运行配置对象
-    #   - `project_root`（Path）：`project_root` 对应的业务输入值
-    #   - `departments_root`（str | Path | None）：`departments_root` 对应的业务输入值；默认值为 `None`
-    #   - `legacy_camera_root`（str | Path | None）：`legacy_camera_root` 对应的业务输入值；默认值为 `None`
-    # 返回：'VLMWorkerPaths'；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_worker_paths_resolve_relative_roots_from_project_and_keep_exact_root` 调用本符号
-    #   - 内部调用：`Path`、`cfg.get`、`resolve_path`、`departments_cfg.get`、`runtime_cfg.get`、`cls`、`str`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @classmethod
     def from_config(
         cls,
@@ -140,7 +88,6 @@ class VLMWorkerPaths:
         project_root: Path,
         *,
         departments_root: str | Path | None = None,
-        legacy_camera_root: str | Path | None = None,
     ) -> "VLMWorkerPaths":
         base = Path(project_root)
         runtime_cfg = cfg.get("runtime", {}) or {}
@@ -154,15 +101,9 @@ class VLMWorkerPaths:
                 runtime_dir / "departments",
             )
         )
-        configured_legacy = (
-            legacy_camera_root
-            if legacy_camera_root is not None
-            else runtime_cfg.get("camera_root", runtime_dir / "cameras")
-        )
         return cls(
             runtime_dir=runtime_dir,
             departments_root=resolve_path(str(configured_departments), base),
-            legacy_camera_root=resolve_path(str(configured_legacy), base),
             data_root=resolve_path(
                 str(departments_cfg.get("data_root", "data/departments")),
                 base,
@@ -170,19 +111,6 @@ class VLMWorkerPaths:
         )
 
 
-# 功能：已由目录结构认证的待处理任务身份；输入与输出详见下方说明
-# 参数：
-#   - `department`（str）：业务部门名称或标识
-#   - `camera_id`（str）：摄像头唯一标识
-#   - `path`（Path）：目标路径
-#   - `legacy`（bool）：`legacy` 对应的业务输入值
-# 返回：PendingTask；返回新建的 `PendingTask` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_flat_processing_task`
-#         实例化本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_existing_tasks_by_camera`
-#         实例化本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_claim_pending_dir` 实例化本符号
-#   - 内部调用：`dataclass`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 @dataclass(frozen=True)
 class PendingTask:
     """已由目录结构认证的待处理任务身份。"""
@@ -190,40 +118,16 @@ class PendingTask:
     department: str
     camera_id: str
     path: Path
-    legacy: bool = False
 
-    # 功能：初始化或配置 `__post_init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`object.__setattr__`、`require_department`、`validate_camera_id`、`Path`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def __post_init__(self) -> None:
         object.__setattr__(self, "department", require_department(self.department))
         object.__setattr__(self, "camera_id", validate_camera_id(self.camera_id))
         object.__setattr__(self, "path", Path(self.path))
 
 
-# 功能：在 worker 取任务时按事业部、摄像头两级轮询的线程安全队列；输入与输出详见下方说明
-# 参数：无。
-# 返回：DepartmentFairTaskQueue；返回新建的 `DepartmentFairTaskQueue` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentFairTaskQueue:
     """在 worker 取任务时按事业部、摄像头两级轮询的线程安全队列。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`threading.Condition`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self) -> None:
         self.maxsize = 0
         self._condition = threading.Condition()
@@ -240,17 +144,6 @@ class DepartmentFairTaskQueue:
         self._qsize = 0
         self._unfinished_tasks = 0
 
-    # 功能：更新或保存 `put` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `item`（PendingTask）：`item` 对应的业务输入值
-    #   - `block`（bool）：`block` 对应的业务输入值；默认值为 `True`
-    #   - `timeout`（float | None）：允许操作等待的最长秒数；默认值为 `None`
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentFairTaskQueue::put_nowait` 调用本符号
-    #   - 内部调用：`isinstance`、`TypeError`、`department_queues.get`、`deque`、`self._camera_order[item.department].append`、`camera_queue.append`、`self._condition.notify`。
-    # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
     def put(
         self,
         item: PendingTask,
@@ -272,29 +165,9 @@ class DepartmentFairTaskQueue:
             self._unfinished_tasks += 1
             self._condition.notify()
 
-    # 功能：更新或保存 `put_nowait` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `item`（PendingTask）：`item` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/alarms/records/service.py` 的 `AsyncViolationWriter::enqueue` 调用本符号；`AiVision/alarms/dispatcher.py` 的
-    #         `AlarmDispatcher::_execute` 调用本符号
-    #   - 内部调用：`self.put`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def put_nowait(self, item: PendingTask) -> None:
         self.put(item, block=False)
 
-    # 功能：读取或查询 `get` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `block`（bool）：`block` 对应的业务输入值；默认值为 `True`
-    #   - `timeout`（float | None）：允许操作等待的最长秒数；默认值为 `None`
-    # 返回：PendingTask；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentFairTaskQueue::get_nowait` 调用本符号
-    #   - 内部调用：`ValueError`、`time.monotonic`、`float`、`self._condition.wait`、`self._select_department`、`self._select_camera`、`self._queues[department][camera_id].popleft`。
-    # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
     def get(
         self,
         block: bool = True,
@@ -323,32 +196,9 @@ class DepartmentFairTaskQueue:
             self._qsize -= 1
             return item
 
-    # 功能：读取或查询 `get_nowait` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：PendingTask；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_multicamera_scanner_round_robins_and_deduplicates_full_paths`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_scanner_discovers_new_department_and_legacy_pending_paths`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_department_processing_collision_stays_in_department`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_same_named_tasks_in_two_departments_do_not_collide` 调用本符号；另有 8 处静态调用
-    #   - 内部调用：`self.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_nowait(self) -> PendingTask:
         return self.get(block=False)
 
-    # 功能：实现 `_select_department` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentFairTaskQueue::get` 调用本符号
-    #   - 内部调用：`len`、`range`、`any`、`self._queues[department].values`。
-    # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
     def _select_department(self) -> str:
         department_count = len(DEPARTMENTS)
         for offset in range(department_count):
@@ -359,15 +209,6 @@ class DepartmentFairTaskQueue:
                 return department
         raise queue.Empty
 
-    # 功能：实现 `_select_camera` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentFairTaskQueue::get` 调用本符号
-    #   - 内部调用：`order.index`、`len`、`range`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _select_camera(self, department: str) -> str:
         order = self._camera_order[department]
         last_camera = self._last_camera[department]
@@ -382,20 +223,6 @@ class DepartmentFairTaskQueue:
                 return camera_id
         raise queue.Empty
 
-    # 功能：实现 `task_done` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `process_queued_item`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_worker_get_fairly_selects_late_department_after_general_backlog`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_worker_get_fairly_selects_late_camera_after_camera_backlog`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera` 调用本符号；另有 3 处静态调用
-    #   - 内部调用：`ValueError`、`self._condition.notify_all`。
-    # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
     def task_done(self) -> None:
         with self._condition:
             if self._unfinished_tasks <= 0:
@@ -404,110 +231,32 @@ class DepartmentFairTaskQueue:
             if self._unfinished_tasks == 0:
                 self._condition.notify_all()
 
-    # 功能：实现 `join` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `_load_banner_font`
-    #         调用本符号；`AiVision/platform/visual_services/managed.py` 的 `ManagedVisualServices::_validate_config_paths`
-    #         调用本符号；`AiVision/integrations/guard_room/tests/test_legacy_data_migration.py` 的 `_write_config`
-    #         调用本符号；`AiVision/alarms/records/service.py` 的 `AsyncViolationWriter::stop` 调用本符号；另有 32 处静态调用
-    #   - 内部调用：`self._condition.wait`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def join(self) -> None:
         with self._condition:
             while self._unfinished_tasks:
                 self._condition.wait()
 
-    # 功能：实现 `unfinished_tasks` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @property
     def unfinished_tasks(self) -> int:
         with self._condition:
             return self._unfinished_tasks
 
-    # 功能：实现 `qsize` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentFairTaskQueue::empty`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_scanner_unifies_recovered_and_pending_with_one_prefetch_per_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_department_fair_queue_concurrent_semantics_and_counts` 调用本符号
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def qsize(self) -> int:
         with self._condition:
             return self._qsize
 
-    # 功能：实现 `empty` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_scanner_rejects_and_cleans_unknown_department_pending`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_department_scanner_uses_exact_root_and_does_not_scan_nested_decoy`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_department_fair_queue_concurrent_semantics_and_counts`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_shutdown_drains_task_put_after_global_stop_during_scanner_scan` 调用本符号；另有 1 处静态调用
-    #   - 内部调用：`self.qsize`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def empty(self) -> bool:
         return self.qsize() == 0
 
-    # 功能：实现 `full` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
-    #         `test_frame_hub_resolution_change_keeps_old_mapping_safe`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_frame_hub.py` 的
-    #         `test_frame_hub_reader_retries_when_meta_precedes_slots` 调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
-    #         `test_inactive_detection_window_still_composes_live_preview_frames`
-    #         调用本符号；`AiVision/tests/test_logistics_channel_runtime.py` 的
-    #         `test_alarm_incident_reopens_after_recovery_without_resetting_cooldown` 调用本符号；另有 3 处静态调用
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def full(self) -> bool:
         return False
 
-    # 功能：检查或判断 `has_queued` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_has_prefetched_task` 调用本符号
-    #   - 内部调用：`require_department`、`validate_camera_id`、`bool`、`self._queues[department].get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def has_queued(self, department: str, camera_id: str) -> bool:
         department = require_department(department)
         camera_id = validate_camera_id(camera_id)
         with self._condition:
             return bool(self._queues[department].get(camera_id))
 
-    # 功能：实现 `department_counts` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：dict[str, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `queued_department_counts` 调用本符号
-    #   - 内部调用：`sum`、`len`、`department_queues.values`、`self._queues.items`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def department_counts(self) -> dict[str, int]:
         with self._condition:
             return {
@@ -519,112 +268,6 @@ class DepartmentFairTaskQueue:
             }
 
 
-# 功能：兼容旧 pending；缺少事业部时归入通用电气；输入与输出详见下方说明
-# 参数：
-#   - `payload`（dict）：接口或事件携带的业务数据
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `validate_pending_payload_department` 调用本符号
-#   - 内部调用：`require_department`、`payload.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def payload_department(payload: dict) -> str:
-    """兼容旧 pending；缺少事业部时归入通用电气。"""
-    return require_department(
-        payload.get("department", DEPARTMENTS[0])
-    )
-
-
-# 功能：返回 pending 来源事业部及其是否属于新版事业部目录；输入与输出详见下方说明
-# 参数：
-#   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-# 返回：tuple[str, bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::pending_dirs`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::_processing_dir_for` 调用本符号
-#   - 内部调用：`Path`、`ValueError`、`require_department`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def pending_directory_origin(pending_dir: Path) -> tuple[str, bool]:
-    """返回 pending 来源事业部及其是否属于新版事业部目录。"""
-    path = Path(pending_dir)
-    cameras_dir = path.parent.parent
-    if path.name != "pending" or cameras_dir.name != "cameras":
-        raise ValueError(f"无效 pending 目录结构: {path}")
-    department_dir = cameras_dir.parent
-    if department_dir.parent.name == "departments":
-        return require_department(department_dir.name), True
-    return DEPARTMENTS[0], False
-
-
-# 功能：从持久化 processing 路径恢复任务来源事业部；输入与输出详见下方说明
-# 参数：
-#   - `processing_dir`（Path）：`processing_dir` 对应的业务输入值
-# 返回：tuple[str, bool]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `validate_pending_payload_department`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::processing_dirs` 调用本符号
-#   - 内部调用：`Path`、`ValueError`、`require_department`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def processing_directory_origin(processing_dir: Path) -> tuple[str, bool]:
-    """从持久化 processing 路径恢复任务来源事业部。"""
-    path = Path(processing_dir)
-    if path.name != "processing" or path.parent.name != "global":
-        raise ValueError(f"无效 processing 目录结构: {path}")
-    department_dir = path.parent.parent
-    if department_dir.parent.name == "departments":
-        return require_department(department_dir.name), True
-    return DEPARTMENTS[0], False
-
-
-# 功能：以 processing 路径为准校验 payload 事业部，兼容旧全局任务；输入与输出详见下方说明
-# 参数：
-#   - `payload`（dict）：接口或事件携带的业务数据
-#   - `task_path`（Path）：`task_path` 对应的业务输入值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `normalize_pending_payload` 调用本符号
-#   - 内部调用：`isinstance`、`ValueError`、`Path`、`payload_department`、`processing_directory_origin`、`require_department`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
-def validate_pending_payload_department(payload: dict, task_path: Path) -> str:
-    """以 processing 路径为准校验 payload 事业部，兼容旧全局任务。"""
-    if not isinstance(payload, dict):
-        raise ValueError("pending payload 必须是字典")
-    task_parent = Path(task_path).parent
-    if (
-        task_parent.name != "processing"
-        or task_parent.parent.name != "global"
-    ):
-        return payload_department(payload)
-    source_department, department_scoped = processing_directory_origin(
-        task_parent
-    )
-    if not department_scoped:
-        return payload_department(payload)
-    if "department" not in payload:
-        raise ValueError(
-            f"新版 pending payload 缺少 department: {task_path}"
-        )
-    declared_department = require_department(payload["department"])
-    if declared_department != source_department:
-        raise ValueError(
-            "pending payload department 与来源事业部不一致: "
-            f"来源 {source_department}, payload {declared_department}"
-        )
-    return source_department
-
-
-# 功能：删除无法安全归属的任务及恢复标记，避免重启后无限重试；输入与输出详见下方说明
-# 参数：
-#   - `task_path`（Path | PendingTask）：`task_path` 对应的业务输入值
-#   - `reason`（Exception）：`reason` 对应的业务输入值
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `load_validated_pending_task`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_cleanup_unknown_departments`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_existing_tasks_by_camera`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_pending_candidates_by_camera`
-#         调用本符号；另有 1 处静态调用
-#   - 内部调用：`isinstance`、`Path`、`print`、`path.with_suffix`、`target.unlink`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def discard_invalid_pending_task(
     task_path: Path | PendingTask,
     reason: Exception,
@@ -651,16 +294,6 @@ def discard_invalid_pending_task(
             )
 
 
-# 功能：实现 `_finite_pending_timestamp` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `payload`（dict）：接口或事件携带的业务数据
-#   - `field_name`（str）：`field_name` 对应的业务输入值
-#   - `default`（float）：`default` 对应的业务输入值
-# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `normalize_pending_payload` 调用本符号
-#   - 内部调用：`payload.get`、`isinstance`、`TypeError`、`float`、`ValueError`、`math.isfinite`、`datetime.fromtimestamp`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _finite_pending_timestamp(
     payload: dict,
     field_name: str,
@@ -686,16 +319,6 @@ def _finite_pending_timestamp(
     return value
 
 
-# 功能：实现 `_safe_pending_identifier` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（Any）：待转换、校验或写入的值
-#   - `field_name`（str）：`field_name` 对应的业务输入值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `normalize_pending_payload`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::record` 调用本符号
-#   - 内部调用：`isinstance`、`value.strip`、`ValueError`、`len`、`Path`、`any`、`ord`、`character.isascii`、`character.isalnum`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _safe_pending_identifier(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"pending payload 缺少有效 {field_name}")
@@ -727,47 +350,20 @@ def _safe_pending_identifier(value: Any, field_name: str) -> str:
     return identifier
 
 
-# 功能：校验并规范化 process_one 后续会使用的 pending 字段；输入与输出详见下方说明
-# 参数：
-#   - `payload`（dict）：接口或事件携带的业务数据
-#   - `task_path`（Path | PendingTask）：`task_path` 对应的业务输入值
-#   - `now_ts`（float | None）：`now_ts` 对应的业务输入值；默认值为 `None`
-# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `load_validated_pending_task` 调用本符号
-#   - 内部调用：`isinstance`、`Path`、`ValueError`、`require_department`、`validate_pending_payload_department`、`time.time`、`float`、`dict`、`_safe_pending_identifier`、`validate_camera_id`
-#          等共 15 个调用。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def normalize_pending_payload(
     payload: dict,
-    task_path: Path | PendingTask,
+    task_path: PendingTask,
     *,
     now_ts: float | None = None,
 ) -> dict:
     """校验并规范化 process_one 后续会使用的 pending 字段。"""
-    trusted_task = task_path if isinstance(task_path, PendingTask) else None
-    path = trusted_task.path if trusted_task is not None else Path(task_path)
+    if not isinstance(task_path, PendingTask):
+        raise TypeError("pending 任务必须携带已验证的事业部和摄像头身份")
     if not isinstance(payload, dict):
         raise ValueError("pending payload 必须是字典")
-    if trusted_task is not None:
-        if trusted_task.legacy:
-            if (
-                "department" in payload
-                and require_department(payload["department"])
-                != DEPARTMENTS[0]
-            ):
-                raise ValueError("旧版 pending 任务只能归属 general_electric")
-            department = DEPARTMENTS[0]
-        else:
-            if "department" not in payload:
-                raise ValueError("新版 pending payload 缺少 department")
-            department = require_department(payload["department"])
-            if department != trusted_task.department:
-                raise ValueError(
-                    "pending payload department 与来源路径不一致"
-                )
-    else:
-        department = validate_pending_payload_department(payload, path)
+    department = require_department(payload.get("department"))
+    if department != task_path.department:
+        raise ValueError("pending payload department 与来源路径不一致")
     if "session_id" not in payload:
         raise ValueError("pending payload 缺少 session_id")
     current_ts = time.time() if now_ts is None else float(now_ts)
@@ -777,13 +373,8 @@ def normalize_pending_payload(
         payload["session_id"],
         "session_id",
     )
-    declared_camera_id = validate_camera_id(
-        payload.get(
-            "camera_id",
-            trusted_task.camera_id if trusted_task is not None else "legacy-default",
-        )
-    )
-    if trusted_task is not None and declared_camera_id != trusted_task.camera_id:
+    declared_camera_id = validate_camera_id(payload.get("camera_id"))
+    if declared_camera_id != task_path.camera_id:
         raise ValueError("pending payload camera_id 与来源路径不一致")
     normalized["camera_id"] = declared_camera_id
     normalized["camera_name"] = str(
@@ -825,19 +416,11 @@ def normalize_pending_payload(
     return normalized
 
 
-# 功能：读取并校验 pending；坏任务立即丢弃，调用方必须在 None 时早退；输入与输出详见下方说明
-# 参数：
-#   - `task_path`（Path | PendingTask）：`task_path` 对应的业务输入值
-# 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::process` 调用本符号
-#   - 内部调用：`isinstance`、`Path`、`path.open`、`pickle.load`、`normalize_pending_payload`、`discard_invalid_pending_task`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def load_validated_pending_task(
-    task_path: Path | PendingTask,
+    task_path: PendingTask,
 ) -> dict | None:
     """读取并校验 pending；坏任务立即丢弃，调用方必须在 None 时早退。"""
-    path = task_path.path if isinstance(task_path, PendingTask) else Path(task_path)
+    path = task_path.path
     try:
         with path.open("rb") as file:
             payload = pickle.load(file)
@@ -849,15 +432,6 @@ def load_validated_pending_task(
         return None
 
 
-# 功能：更新或保存 `atomic_write_json` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `path`（Path）：目标路径
-#   - `payload`（Dict[str, Any]）：接口或事件携带的业务数据
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`Path`、`target.parent.mkdir`、`target.with_name`、`uuid.uuid4`、`temp_path.write_text`、`json.dumps`、`temp_path.replace`、`temp_path.unlink`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -875,15 +449,6 @@ def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
 _STOP = threading.Event()
 
 
-# 功能：实现 `_signal_handler` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `signum`（未显式标注）：`signum` 对应的业务输入值
-#   - `frame`（未显式标注）：待处理的视频图像帧
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_STOP.set`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _signal_handler(signum, frame):
     _STOP.set()
 
@@ -891,17 +456,6 @@ def _signal_handler(signum, frame):
 # ---------------------------------------------------------------------------
 # 预算守护
 # ---------------------------------------------------------------------------
-# 功能：按"次数 * 单价"估算每日开销, 超出 daily_limit 拒绝调用；输入与输出详见下方说明
-# 参数：
-#   - `daily_limit`（float）：`daily_limit` 对应的业务输入值
-#   - `est_cost_per_call`（float）：`est_cost_per_call` 对应的业务输入值
-#   - `initial_state`（Dict[str, Any] | None）：`initial_state` 对应的业务输入值；默认值为 `None`
-#   - `on_change`（未显式标注）：`on_change` 对应的业务输入值；默认值为 `None`
-# 返回：BudgetGuard；返回新建的 `BudgetGuard` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class BudgetGuard:
     """
     按"次数 * 单价"估算每日开销, 超出 daily_limit 拒绝调用。
@@ -909,18 +463,6 @@ class BudgetGuard:
     线程安全 (内部用 lock)。
     """
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `daily_limit`（float）：`daily_limit` 对应的业务输入值
-    #   - `est_cost_per_call`（float）：`est_cost_per_call` 对应的业务输入值
-    #   - `initial_state`（Dict[str, Any] | None）：`initial_state` 对应的业务输入值；默认值为 `None`
-    #   - `on_change`（未显式标注）：`on_change` 对应的业务输入值；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`float`、`datetime.now().strftime`、`datetime.now`、`threading.Lock`、`str`、`initial.get`、`max`、`int`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         daily_limit: float,
@@ -940,18 +482,6 @@ class BudgetGuard:
             self.spent = max(0.0, float(initial.get("spent_yuan", 0.0)))
             self.call_count = max(0, int(initial.get("call_count", 0)))
 
-    # 功能：成功扣费 → True; 超预算 → False (调用方应放弃本次调用)；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `VLMJudge::judge`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_budget_guard_restores_same_day_and_persists_each_consumption`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_budget_persistence_snapshots_never_move_backwards_under_concurrency` 调用本符号
-    #   - 内部调用：`datetime.now().strftime`、`datetime.now`、`self.on_change`、`self._snapshot_unlocked`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def try_consume(self) -> bool:
         """成功扣费 → True; 超预算 → False (调用方应放弃本次调用)"""
         with self.lock:
@@ -970,27 +500,10 @@ class BudgetGuard:
                 self.on_change(self._snapshot_unlocked())
             return True
 
-    # 功能：实现 `snapshot` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._snapshot_unlocked`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def snapshot(self) -> Dict[str, Any]:
         with self.lock:
             return self._snapshot_unlocked()
 
-    # 功能：实现 `_snapshot_unlocked` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `BudgetGuard::try_consume`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `BudgetGuard::snapshot` 调用本符号
-    #   - 内部调用：`round`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _snapshot_unlocked(self) -> Dict[str, Any]:
         return {
             "date": self.date,
@@ -1075,16 +588,6 @@ VLM_USER_PROMPT = """以下是某安检工位的 {n_frames} 张监控截图,按�
 # ---------------------------------------------------------------------------
 # VLM 调用封装
 # ---------------------------------------------------------------------------
-# 功能：封装 dashscope 多模态调用:；输入与输出详见下方说明
-# 参数：
-#   - `cfg`（Dict[str, Any]）：运行配置对象
-#   - `budget`（BudgetGuard）：`budget` 对应的业务输入值
-#   - `tmp_dir`（Path）：`tmp_dir` 对应的业务输入值
-# 返回：VLMJudge；返回新建的 `VLMJudge` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class VLMJudge:
     """
     封装 dashscope 多模态调用:
@@ -1094,17 +597,6 @@ class VLMJudge:
     4) try-finally 删临时 jpg, 不留垃圾
     """
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `cfg`（Dict[str, Any]）：运行配置对象
-    #   - `budget`（BudgetGuard）：`budget` 对应的业务输入值
-    #   - `tmp_dir`（Path）：`tmp_dir` 对应的业务输入值
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`int`、`cfg['vlm'].get`、`float`、`Path`、`self.tmp_dir.mkdir`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def __init__(self, cfg: Dict[str, Any], budget: BudgetGuard, tmp_dir: Path):
         import dashscope
         from dashscope import MultiModalConversation
@@ -1121,18 +613,6 @@ class VLMJudge:
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
         dashscope.api_key = self.api_key
 
-    # 功能：临时 jpg, dashscope 用 file:// 协议读；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `frame`（np.ndarray）：待处理的视频图像帧
-    #   - `session_id`（str）：`session_id` 对应业务对象的唯一标识
-    #   - `idx`（int）：`idx` 对应的业务输入值
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `VLMJudge::judge` 调用本符号
-    #   - 内部调用：`require_department`、`department_dir.mkdir`、`max`、`cv2.resize`、`int`、`cv2.imwrite`、`str`、`path.absolute`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def _save_frame(
         self,
         frame: np.ndarray,
@@ -1151,21 +631,6 @@ class VLMJudge:
         cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, self.image_quality])
         return str(path.absolute())
 
-    # 功能：返回 dict:；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `session_id`（str）：`session_id` 对应业务对象的唯一标识
-    #   - `roi_name`（str）：`roi_name` 对应的业务输入值
-    #   - `roi_box`（List[float]）：`roi_box` 对应的业务输入值
-    #   - `keyframes`（List[np.ndarray]）：`keyframes` 对应的业务输入值
-    #   - `department`（str）：业务部门名称或标识；默认值为 `DEPARTMENTS[0]`
-    # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的 `test_vlm_judge_passes_request_timeout` 调用本符号
-    #   - 内部调用：`self.budget.try_consume`、`enumerate`、`paths.append`、`self._save_frame`、`user_content.append`、`VLM_USER_PROMPT.format`、`len`、`time.time`、`self.MMC.call`、`round`
-    #          等共 16 个调用。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def judge(
         self,
         session_id: str,
@@ -1173,7 +638,7 @@ class VLMJudge:
         roi_box: List[float],
         keyframes: List[np.ndarray],
         *,
-        department: str = DEPARTMENTS[0],
+        department: str,
     ) -> Dict[str, Any]:
         """
         返回 dict:
@@ -1253,14 +718,6 @@ class VLMJudge:
                 except Exception:
                     pass
 
-    # 功能：尽力解析模型返回的 JSON:；输入与输出详见下方说明
-    # 参数：
-    #   - `text`（str）：`text` 对应的业务输入值
-    # 返回：Optional[Dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `VLMJudge::judge` 调用本符号
-    #   - 内部调用：`text.strip`、`t.startswith`、`t.split`、`len`、`t.lstrip().startswith`、`t.lstrip`、`t.strip`、`json.loads`、`t.index`、`t.rindex`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @staticmethod
     def _parse_json(text: str) -> Optional[Dict[str, Any]]:
         """
@@ -1291,33 +748,12 @@ class VLMJudge:
 # ---------------------------------------------------------------------------
 # Pending 目录扫描线程
 # ---------------------------------------------------------------------------
-# 功能：后台线程: 周期 glob pending_queue_dir/*.pkl, 把新文件丢进 task_q；输入与输出详见下方说明
-# 参数：
-#   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-#   - `q`（queue.Queue）：`q` 对应的业务输入值
-#   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-# 返回：PendingScanner；返回新建的 `PendingScanner` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class PendingScanner(threading.Thread):
     """
     后台线程: 周期 glob pending_queue_dir/*.pkl, 把新文件丢进 task_q。
     用 self.seen 集合去重, 避免重复入队。
     """
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-    #   - `q`（queue.Queue）：`q` 对应的业务输入值
-    #   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`super().__init__`、`super`、`set`、`threading.Event`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self, pending_dir: Path, q: queue.Queue, poll_sec: float = 0.5):
         super().__init__(daemon=True)
         self.pending_dir = pending_dir
@@ -1326,14 +762,6 @@ class PendingScanner(threading.Thread):
         self.seen: set = set()
         self._stop_event = threading.Event()
 
-    # 功能：启动或执行 `run` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.is_set`、`sorted`、`self.pending_dir.glob`、`self.seen.add`、`self.q.put`、`print`、`self._stop_event.wait`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def run(self):
         while not self._stop_event.is_set():
             try:
@@ -1346,59 +774,21 @@ class PendingScanner(threading.Thread):
                 print(f"[vlm-scan] 扫描异常: {e}", flush=True)
             self._stop_event.wait(self.poll_sec)
 
-    # 功能：停止并释放 `stop` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.set`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def stop(self):
         self._stop_event.set()
 
 
-# 功能：按事业部、再按摄像头轮询，并原子认领到无歧义 processing 路径；输入与输出详见下方说明
-# 参数：
-#   - `departments_root`（Path）：`departments_root` 对应的业务输入值
-#   - `q`（queue.Queue）：`q` 对应的业务输入值
-#   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-#   - `legacy_camera_root`（Path | None）：`legacy_camera_root` 对应的业务输入值；默认值为 `None`
-# 返回：DepartmentPendingScanner；返回新建的 `DepartmentPendingScanner` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentPendingScanner(threading.Thread):
     """按事业部、再按摄像头轮询，并原子认领到无歧义 processing 路径。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `departments_root`（Path）：`departments_root` 对应的业务输入值
-    #   - `q`（queue.Queue）：`q` 对应的业务输入值
-    #   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-    #   - `legacy_camera_root`（Path | None）：`legacy_camera_root` 对应的业务输入值；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`super().__init__`、`super`、`Path`、`set`、`threading.Event`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         departments_root: Path,
         q: queue.Queue,
         poll_sec: float = 0.5,
-        *,
-        legacy_camera_root: Path | None = None,
     ):
         super().__init__(daemon=True)
         self.departments_root = Path(departments_root)
-        self.legacy_camera_root = (
-            Path(legacy_camera_root)
-            if legacy_camera_root is not None
-            else None
-        )
         self.q = q
         self.poll_sec = poll_sec
         self.seen: set[str] = set()
@@ -1409,14 +799,6 @@ class DepartmentPendingScanner(threading.Thread):
         self._source_cursors: dict[tuple[str, str], bool] = {}
         self._stop_event = threading.Event()
 
-    # 功能：实现 `pending_dirs` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：list[Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_all_existing_paths` 调用本符号
-    #   - 内部调用：`directories.extend`、`sorted`、`cameras_dir.glob`、`path.is_dir`、`self.legacy_camera_root.glob`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def pending_dirs(self) -> list[Path]:
         directories = []
         for department in DEPARTMENTS:
@@ -1426,55 +808,19 @@ class DepartmentPendingScanner(threading.Thread):
                 for path in sorted(cameras_dir.glob("*/pending"))
                 if path.is_dir()
             )
-        if self.legacy_camera_root is not None:
-            directories.extend(
-                path
-                for path in sorted(self.legacy_camera_root.glob("*/pending"))
-                if path.is_dir()
-            )
         return directories
 
-    # 功能：实现 `processing_dirs` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：list[Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_all_existing_paths` 调用本符号
-    #   - 内部调用：`directories.append`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def processing_dirs(self) -> list[Path]:
         directories = [
             self.departments_root / department / "global" / "processing"
             for department in DEPARTMENTS
         ]
-        if self.legacy_camera_root is not None:
-            directories.append(
-                self.legacy_camera_root.parent / "global" / "processing"
-            )
         return directories
 
-    # 功能：实现 `_identity` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（Path）：目标路径
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_all_existing_paths`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_existing_tasks_by_camera`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`str`、`path.resolve`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _identity(path: Path) -> str:
         return str(path.resolve())
 
-    # 功能：实现 `_all_existing_paths` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：set[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`self._identity`、`self.pending_dirs`、`pending_dir.glob`、`self.processing_dirs`、`paths.update`、`processing_dir.glob`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def _all_existing_paths(self) -> set[str]:
         paths = {
             self._identity(path)
@@ -1492,14 +838,6 @@ class DepartmentPendingScanner(threading.Thread):
             )
         return paths
 
-    # 功能：删除或清理 `_cleanup_unknown_departments` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`self.departments_root.is_dir`、`self.departments_root.iterdir`、`department_dir.is_dir`、`ValueError`、`department_dir.glob`、`discard_invalid_pending_task`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _cleanup_unknown_departments(self) -> None:
         if not self.departments_root.is_dir():
             return
@@ -1521,46 +859,6 @@ class DepartmentPendingScanner(threading.Thread):
             ):
                 discard_invalid_pending_task(task_path, reason)
 
-    # 功能：实现 `_flat_processing_task` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `path`（Path）：目标路径
-    #   - `legacy`（bool）：`legacy` 对应的业务输入值
-    # 返回：PendingTask；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_existing_tasks_by_camera` 调用本符号
-    #   - 内部调用：`path.open`、`pickle.load`、`validate_camera_id`、`payload.get`、`path.name.startswith`、`PendingTask`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
-    def _flat_processing_task(
-        self,
-        department: str,
-        path: Path,
-        *,
-        legacy: bool,
-    ) -> PendingTask:
-        camera_id = "legacy-default"
-        try:
-            with path.open("rb") as file:
-                payload = pickle.load(file)
-            declared = validate_camera_id(payload.get("camera_id", camera_id))
-            if legacy or path.name.startswith(f"{declared}__"):
-                camera_id = declared
-        except Exception:
-            # 坏任务仍需入队，由统一校验路径负责记录并清理。
-            pass
-        return PendingTask(department, camera_id, path, legacy=legacy)
-
-    # 功能：实现 `_existing_tasks_by_camera` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：dict[str, PendingTask]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_next_candidate` 调用本符号
-    #   - 内部调用：`sorted`、`processing_dir.glob`、`self._identity`、`tasks.append`、`PendingTask`、`discard_invalid_pending_task`、`tasks.extend`、`self._flat_processing_task`、`legacy_processing.glob`、`tasks_by_camera.setdefault(task.camera_id,
-    #          []).append` 等共 12 个调用。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def _existing_tasks_by_camera(
         self,
         department: str,
@@ -1580,32 +878,6 @@ class DepartmentPendingScanner(threading.Thread):
                 ))
             except ValueError as exc:
                 discard_invalid_pending_task(path, exc)
-        tasks.extend(
-            self._flat_processing_task(department, path, legacy=False)
-            for path in sorted(processing_dir.glob("*.pkl"))
-            if self._identity(path) not in self.seen
-        )
-        if department == DEPARTMENTS[0] and self.legacy_camera_root is not None:
-            legacy_processing = (
-                self.legacy_camera_root.parent / "global" / "processing"
-            )
-            for path in sorted(legacy_processing.glob("*/*.pkl")):
-                if self._identity(path) in self.seen:
-                    continue
-                try:
-                    tasks.append(PendingTask(
-                        department,
-                        path.parent.name,
-                        path,
-                        legacy=True,
-                    ))
-                except ValueError as exc:
-                    discard_invalid_pending_task(path, exc)
-            tasks.extend(
-                self._flat_processing_task(department, path, legacy=True)
-                for path in sorted(legacy_processing.glob("*.pkl"))
-                if self._identity(path) not in self.seen
-            )
         tasks_by_camera: dict[str, list[PendingTask]] = {}
         for task in tasks:
             tasks_by_camera.setdefault(task.camera_id, []).append(task)
@@ -1614,20 +886,9 @@ class DepartmentPendingScanner(threading.Thread):
             for camera_id, camera_tasks in tasks_by_camera.items()
         }
 
-    # 功能：实现 `_pending_camera_dirs` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：list[tuple[Path, bool]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_pending_candidates_by_camera`
-    #         调用本符号
-    #   - 内部调用：`sorted`、`(self.departments_root / department /
-    #          'cameras').glob`、`path.is_dir`、`any`、`path.glob`、`directories.extend`、`self.legacy_camera_root.glob`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def _pending_camera_dirs(self, department: str) -> list[tuple[Path, bool]]:
+    def _pending_camera_dirs(self, department: str) -> list[Path]:
         directories = [
-            (path, False)
+            path
             for path in sorted(
                 (
                     self.departments_root
@@ -1637,75 +898,35 @@ class DepartmentPendingScanner(threading.Thread):
             )
             if path.is_dir() and any(path.glob("*.pkl"))
         ]
-        if (
-            department == DEPARTMENTS[0]
-            and self.legacy_camera_root is not None
-        ):
-            directories.extend(
-                (path, True)
-                for path in sorted(self.legacy_camera_root.glob("*/pending"))
-                if path.is_dir() and any(path.glob("*.pkl"))
-            )
         return directories
 
-    # 功能：实现 `_pending_candidates_by_camera` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：dict[str, tuple[Path, bool]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_next_candidate` 调用本符号
-    #   - 内部调用：`self._pending_camera_dirs`、`validate_camera_id`、`pending_dir.glob`、`discard_invalid_pending_task`、`candidates.setdefault`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _pending_candidates_by_camera(
         self,
         department: str,
-    ) -> dict[str, tuple[Path, bool]]:
+    ) -> dict[str, Path]:
         candidates = {}
-        for pending_dir, legacy in self._pending_camera_dirs(department):
+        for pending_dir in self._pending_camera_dirs(department):
             try:
                 camera_id = validate_camera_id(pending_dir.parent.name)
             except ValueError as exc:
                 for invalid_path in pending_dir.glob("*.pkl"):
                     discard_invalid_pending_task(invalid_path, exc)
                 continue
-            candidates.setdefault(camera_id, (pending_dir, legacy))
+            candidates.setdefault(camera_id, pending_dir)
         return candidates
 
-    # 功能：实现 `_claim_pending_dir` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-    #   - `legacy`（bool）：`legacy` 对应的业务输入值
-    # 返回：PendingTask | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_next_candidate` 调用本符号
-    #   - 内部调用：`self._stop_event.is_set`、`next`、`iter`、`sorted`、`pending_dir.glob`、`processing_dir.mkdir`、`target.exists`、`time.time_ns`、`source.replace`、`PendingTask`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
     def _claim_pending_dir(
         self,
         department: str,
         camera_id: str,
         pending_dir: Path,
-        legacy: bool,
     ) -> PendingTask | None:
         if self._stop_event.is_set():
             return None
         source = next(iter(sorted(pending_dir.glob("*.pkl"))), None)
         if source is None:
             return None
-        processing_dir = (
-            (
-                self.legacy_camera_root.parent
-                if legacy and self.legacy_camera_root is not None
-                else self.departments_root / department
-            )
-            / "global"
-            / "processing"
-            / camera_id
-        )
+        processing_dir = self.departments_root / department / "global" / "processing" / camera_id
         processing_dir.mkdir(parents=True, exist_ok=True)
         target = processing_dir / source.name
         if target.exists():
@@ -1719,18 +940,8 @@ class DepartmentPendingScanner(threading.Thread):
         if self._stop_event.is_set():
             # 已认领的任务留在 processing，供下次启动恢复；绝不在 stop 后入队。
             return None
-        return PendingTask(department, camera_id, target, legacy=legacy)
+        return PendingTask(department, camera_id, target)
 
-    # 功能：检查或判断 `_has_prefetched_task` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::_next_candidate` 调用本符号
-    #   - 内部调用：`getattr`、`bool`、`callable`、`has_queued`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def _has_prefetched_task(self, department: str, camera_id: str) -> bool:
         has_queued = getattr(self.q, "has_queued", None)
         return bool(
@@ -1738,16 +949,6 @@ class DepartmentPendingScanner(threading.Thread):
             and has_queued(department, camera_id)
         )
 
-    # 功能：实现 `_next_candidate` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：PendingTask | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`self._existing_tasks_by_camera`、`self._pending_candidates_by_camera`、`sorted`、`set`、`self._has_prefetched_task`、`camera_ids.index`、`len`、`next`、`enumerate`、`recovered.get`
-    #          等共 13 个调用。
-    # 副作用/注意事项：可能读取或修改数据库事务。
     def _next_candidate(self, department: str) -> PendingTask | None:
         recovered = self._existing_tasks_by_camera(department)
         pending = self._pending_candidates_by_camera(department)
@@ -1784,7 +985,7 @@ class DepartmentPendingScanner(threading.Thread):
             task = self._claim_pending_dir(
                 department,
                 camera_id,
-                *pending_candidate,
+                pending_candidate,
             )
             if task is not None:
                 return task
@@ -1794,19 +995,10 @@ class DepartmentPendingScanner(threading.Thread):
             return self._claim_pending_dir(
                 department,
                 camera_id,
-                *pending_candidate,
+                pending_candidate,
             )
         return None
 
-    # 功能：实现 `scan_once` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentPendingScanner::run` 调用本符号
-    #   - 内部调用：`self._stop_event.is_set`、`self._cleanup_unknown_departments`、`self.seen.intersection_update`、`self._all_existing_paths`、`len`、`list`、`self._next_candidate`、`self._identity`、`self.seen.add`、`self.seen.discard`
-    #          等共 11 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def scan_once(self) -> None:
         if self._stop_event.is_set():
             return
@@ -1835,14 +1027,6 @@ class DepartmentPendingScanner(threading.Thread):
                 return
             self.q.put(task)
 
-    # 功能：启动或执行 `run` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.is_set`、`self.scan_once`、`print`、`self._stop_event.wait`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def run(self) -> None:
         while not self._stop_event.is_set():
             try:
@@ -1855,268 +1039,7 @@ class DepartmentPendingScanner(threading.Thread):
                 )
             self._stop_event.wait(self.poll_sec)
 
-    # 功能：停止并释放 `stop` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.set`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def stop(self) -> None:
-        self._stop_event.set()
-
-
-# 功能：以轮询顺序扫描所有摄像头的 pending 队列；输入与输出详见下方说明
-# 参数：
-#   - `camera_root`（Path）：`camera_root` 对应的业务输入值
-#   - `q`（queue.Queue）：`q` 对应的业务输入值
-#   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-#   - `processing_dir`（Path | None）：`processing_dir` 对应的业务输入值；默认值为 `None`
-# 返回：MultiCameraPendingScanner；返回新建的 `MultiCameraPendingScanner` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class MultiCameraPendingScanner(threading.Thread):
-    """以轮询顺序扫描所有摄像头的 pending 队列。"""
-
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `camera_root`（Path）：`camera_root` 对应的业务输入值
-    #   - `q`（queue.Queue）：`q` 对应的业务输入值
-    #   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-    #   - `processing_dir`（Path | None）：`processing_dir` 对应的业务输入值；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`super().__init__`、`super`、`Path`、`self.processing_dir.mkdir`、`set`、`threading.Event`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
-    def __init__(
-        self,
-        camera_root: Path,
-        q: queue.Queue,
-        poll_sec: float = 0.5,
-        processing_dir: Path | None = None,
-    ):
-        super().__init__(daemon=True)
-        self.camera_root = Path(camera_root)
-        self.processing_dir = (
-            Path(processing_dir)
-            if processing_dir is not None
-            else (
-                self.camera_root.parent
-                if self.camera_root.name == "cameras"
-                else self.camera_root
-            )
-            / "global"
-            / "processing"
-        )
-        self.processing_dir.mkdir(parents=True, exist_ok=True)
-        self.q = q
-        self.poll_sec = poll_sec
-        self.seen: set[str] = set()
-        self._camera_cursor = 0
-        self._stop_event = threading.Event()
-        self._invalid_source_warnings: set[str] = set()
-
-    # 功能：实现 `pending_dirs` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：list[Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::processing_dirs`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`self.camera_root.glob`、`path.is_dir`、`sorted`、`pending_directory_origin`、`self._warn_invalid_source`、`path.glob`、`discard_invalid_pending_task`、`accepted.append`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def pending_dirs(self) -> list[Path]:
-        if self.camera_root.name == "cameras":
-            patterns = ("*/pending",)
-        elif self.camera_root.name == "departments":
-            patterns = ("*/cameras/*/pending",)
-        else:
-            patterns = (
-                "cameras/*/pending",
-                "departments/*/cameras/*/pending",
-            )
-        candidates = {
-            path
-            for pattern in patterns
-            for path in self.camera_root.glob(pattern)
-            if path.is_dir()
-        }
-        accepted = []
-        for path in sorted(candidates):
-            try:
-                pending_directory_origin(path)
-            except ValueError as exc:
-                self._warn_invalid_source(path, exc)
-                for task_path in path.glob("*.pkl"):
-                    discard_invalid_pending_task(task_path, exc)
-                continue
-            accepted.append(path)
-        return accepted
-
-    # 功能：实现 `processing_dirs` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `pending_dirs`（list[Path] | None）：`pending_dirs` 对应的业务输入值；默认值为 `None`
-    # 返回：list[Path]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`self.pending_dirs`、`discovered.add`、`self._processing_dir_for`、`patterns.append`、`self.camera_root.glob`、`path.is_dir`、`processing_directory_origin`、`self._warn_invalid_source`、`sorted`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-    def processing_dirs(self, pending_dirs: list[Path] | None = None) -> list[Path]:
-        discovered = {self.processing_dir}
-        for pending_dir in pending_dirs or self.pending_dirs():
-            discovered.add(self._processing_dir_for(pending_dir))
-        patterns = ["global/processing"]
-        if self.camera_root.name == "departments":
-            patterns.append("*/global/processing")
-        elif self.camera_root.name != "cameras":
-            patterns.append("departments/*/global/processing")
-        for pattern in patterns:
-            for path in self.camera_root.glob(pattern):
-                if not path.is_dir():
-                    continue
-                try:
-                    processing_directory_origin(path)
-                except ValueError as exc:
-                    self._warn_invalid_source(path, exc)
-                    continue
-                discovered.add(path)
-        return sorted(discovered)
-
-    # 功能：实现 `_processing_dir_for` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::processing_dirs`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::scan_once` 调用本符号
-    #   - 内部调用：`pending_directory_origin`、`ValueError`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    def _processing_dir_for(self, pending_dir: Path) -> Path:
-        department, department_scoped = pending_directory_origin(pending_dir)
-        if department_scoped:
-            department_root = pending_dir.parent.parent.parent
-            if department_root.name != department:
-                raise ValueError("pending 来源事业部路径不一致")
-            return department_root / "global" / "processing"
-        return self.processing_dir
-
-    # 功能：实现 `_warn_invalid_source` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `path`（Path）：目标路径
-    #   - `exc`（Exception）：`exc` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::pending_dirs`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::processing_dirs` 调用本符号
-    #   - 内部调用：`str`、`Path(path).absolute`、`Path`、`self._invalid_source_warnings.add`、`print`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def _warn_invalid_source(self, path: Path, exc: Exception) -> None:
-        identity = str(Path(path).absolute())
-        if identity in self._invalid_source_warnings:
-            return
-        self._invalid_source_warnings.add(identity)
-        print(
-            f"[vlm-scan] 忽略无效事业部目录 {path}: {exc}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    # 功能：实现 `scan_once` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `MultiCameraPendingScanner::run` 调用本符号
-    #   - 内部调用：`self.pending_dirs`、`self.processing_dirs`、`str`、`path.resolve`、`processing_dir.glob`、`pending_dir.glob`、`self.seen.intersection_update`、`sorted`、`self.seen.add`、`self.q.put`
-    #          等共 17 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源。
-    def scan_once(self) -> None:
-        pending_dirs = self.pending_dirs()
-        processing_dirs = self.processing_dirs(pending_dirs)
-        existing = {
-            str(path.resolve())
-            for path in (
-                [
-                    processing_path
-                    for processing_dir in processing_dirs
-                    for processing_path in processing_dir.glob("*.pkl")
-                ]
-                + [
-                    pending_path
-                    for pending_dir in pending_dirs
-                    for pending_path in pending_dir.glob("*.pkl")
-                ]
-            )
-        }
-        self.seen.intersection_update(existing)
-        for processing_dir in processing_dirs:
-            for path in sorted(processing_dir.glob("*.pkl")):
-                identity = str(path.resolve())
-                if identity not in self.seen:
-                    self.seen.add(identity)
-                    self.q.put(path)
-
-        if not pending_dirs:
-            return
-        offset = self._camera_cursor % len(pending_dirs)
-        ordered_dirs = pending_dirs[offset:] + pending_dirs[:offset]
-        self._camera_cursor = (offset + 1) % len(pending_dirs)
-
-        for pending_dir in ordered_dirs:
-            for path in sorted(pending_dir.glob("*.pkl")):
-                identity = str(path.resolve())
-                if identity in self.seen:
-                    continue
-                camera_id = pending_dir.parent.name
-                processing_dir = self._processing_dir_for(pending_dir)
-                processing_dir.mkdir(parents=True, exist_ok=True)
-                claimed_path = processing_dir / f"{camera_id}__{path.name}"
-                if claimed_path.exists():
-                    claimed_path = processing_dir / (
-                        f"{camera_id}__{time.time_ns()}__{path.name}"
-                    )
-                try:
-                    path.replace(claimed_path)
-                except FileNotFoundError:
-                    continue
-                claimed_identity = str(claimed_path.resolve())
-                self.seen.add(claimed_identity)
-                self.q.put(claimed_path)
-                break
-
-    # 功能：启动或执行 `run` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.is_set`、`self.scan_once`、`print`、`self._stop_event.wait`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def run(self):
-        while not self._stop_event.is_set():
-            try:
-                self.scan_once()
-            except Exception as exc:
-                print(f"[vlm-scan] 多摄像头扫描异常: {exc}", flush=True)
-            self._stop_event.wait(self.poll_sec)
-
-    # 功能：停止并释放 `stop` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self._stop_event.set`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def stop(self):
         self._stop_event.set()
 
 
@@ -2133,14 +1056,6 @@ _FONT_CANDIDATES = (
 _FONT_FALLBACK_WARNED = False
 
 
-# 功能：读取或查询 `_load_banner_font` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `font_size`（int）：`font_size` 对应的数量或大小
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `_draw_text_pil` 调用本符号
-#   - 内部调用：`ImageFont.truetype`、`errors.append`、`print`、`'; '.join`、`ImageFont.load_default`。
-# 副作用/注意事项：会修改全局或闭包状态；可能启动、等待或停止线程/进程资源。
 def _load_banner_font(font_size: int):
     global _FONT_FALLBACK_WARNED
     errors = []
@@ -2163,18 +1078,6 @@ def _load_banner_font(font_size: int):
     return ImageFont.load_default()
 
 
-# 功能：绘制或渲染 `_draw_text_pil` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `img_bgr`（未显式标注）：`img_bgr` 对应的业务输入值
-#   - `text`（未显式标注）：`text` 对应的业务输入值
-#   - `xy`（未显式标注）：`xy` 对应的业务输入值
-#   - `font_size`（未显式标注）：`font_size` 对应的数量或大小；默认值为 `24`
-#   - `color`（未显式标注）：`color` 对应的业务输入值；默认值为 `(255, 255, 255)`
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `save_clip` 调用本符号
-#   - 内部调用：`cv2.cvtColor`、`Image.fromarray`、`ImageDraw.Draw`、`_load_banner_font`、`draw.text`、`str`、`np.array`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _draw_text_pil(img_bgr, text, xy, font_size=24, color=(255, 255, 255)):
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(img_rgb)
@@ -2190,17 +1093,6 @@ def _draw_text_pil(img_bgr, text, xy, font_size=24, color=(255, 255, 255)):
     return out
 
 
-# 功能：更新或保存 `save_clip` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `keyframes`（List[np.ndarray]）：`keyframes` 对应的业务输入值
-#   - `result`（Dict[str, Any]）：`result` 对应的业务输入值
-#   - `session_id`（str）：`session_id` 对应业务对象的唯一标识
-#   - `out_dir`（Path）：`out_dir` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked` 调用本符号
-#   - 内部调用：`frames.append`、`cv2.resize`、`int`、`max`、`np.zeros`、`np.vstack`、`padded.append`、`np.hstack`、`str`、`result.get` 等共 13 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def save_clip(keyframes: List[np.ndarray], result: Dict[str, Any],
               session_id: str, out_dir: Path):
     if not keyframes:
@@ -2244,26 +1136,9 @@ def save_clip(keyframes: List[np.ndarray], result: Dict[str, Any],
                 [cv2.IMWRITE_JPEG_QUALITY, 85])
 
 
-# 功能：四事业部持久结果仓库，以及唯一的共享预算仓库；输入与输出详见下方说明
-# 参数：
-#   - `data_root`（Path）：`data_root` 对应的业务输入值
-# 返回：DepartmentResultStores；返回新建的 `DepartmentResultStores` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentResultStores:
     """四事业部持久结果仓库，以及唯一的共享预算仓库。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `data_root`（Path）：`data_root` 对应的业务输入值
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`Path(data_root).resolve`、`Path`、`ResultStore`、`self.results_dir`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self, data_root: Path):
         self.data_root = Path(data_root).resolve()
         self._stores = {
@@ -2272,58 +1147,16 @@ class DepartmentResultStores:
         }
         self.budget_store = ResultStore(self.data_root / "_shared")
 
-    # 功能：实现 `results_dir` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentResultStores::__init__`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentResultStores::clips_dir`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_department_results_accumulators_are_fully_isolated` 调用本符号；另有 3 处静态调用
-    #   - 内部调用：`require_department`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def results_dir(self, department: str) -> Path:
         return self.data_root / require_department(department) / "results"
 
-    # 功能：实现 `clips_dir` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：Path；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked` 调用本符号
-    #   - 内部调用：`self.results_dir`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def clips_dir(self, department: str) -> Path:
         return self.results_dir(department) / "clips"
 
-    # 功能：读取或查询 `get` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：ResultStore；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`require_department`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get(self, department: str) -> ResultStore:
         return self._stores[require_department(department)]
 
 
-# 功能：严格读取状态对象；共享状态损坏时可保留证据后重新初始化；输入与输出详见下方说明
-# 参数：
-#   - `store`（ResultStore）：`store` 对应的业务输入值
-#   - `key`（str）：用于查询、分组或缓存的键
-#   - `quarantine_corrupt`（bool）：`quarantine_corrupt` 对应的业务输入值；默认值为 `False`
-# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`store._path`、`path.exists`、`json.loads`、`path.read_text`、`isinstance`、`ValueError`、`print`、`path.with_name`、`time.time_ns`、`path.replace`
-#          等共 11 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
 def read_strict_result_object(
     store: ResultStore,
     key: str,
@@ -2358,45 +1191,13 @@ def read_strict_result_object(
         return {}
 
 
-# 功能：单事业部持久状态损坏，必须保留任务以避免数据丢失；输入与输出详见下方说明
-# 参数：无。
-# 返回：DepartmentWorkspaceStateError；返回新建的 `DepartmentWorkspaceStateError` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::record`
-#         实例化本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::write` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentWorkspaceStateError(RuntimeError):
     """单事业部持久状态损坏，必须保留任务以避免数据丢失。"""
 
 
-# 功能：单事业部历史和当日统计的线程安全累计器；输入与输出详见下方说明
-# 参数：
-#   - `department`（str）：业务部门名称或标识
-#   - `store`（ResultStore）：`store` 对应的业务输入值
-#   - `max_history`（int）：`max_history` 对应的业务输入值
-#   - `budget_snapshot`（未显式标注）：`budget_snapshot` 对应的业务输入值；默认值为 `None`
-# 返回：DepartmentAccumulator；返回新建的 `DepartmentAccumulator` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulators::__init__` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentAccumulator:
     """单事业部历史和当日统计的线程安全累计器。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    #   - `store`（ResultStore）：`store` 对应的业务输入值
-    #   - `max_history`（int）：`max_history` 对应的业务输入值
-    #   - `budget_snapshot`（未显式标注）：`budget_snapshot` 对应的业务输入值；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`require_department`、`max`、`int`、`threading.RLock`、`self._strict_read`、`existing_state.get`、`isinstance`、`self._mark_disabled`、`history_payload.get`、`deque`
-    #          等共 16 个调用。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         department: str,
@@ -2468,17 +1269,6 @@ class DepartmentAccumulator:
             }
         self.date = today
 
-    # 功能：实现 `_mark_disabled` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `message`（str）：用于展示、记录或发送的文本消息
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::__init__`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::_strict_read`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulators::write_all` 调用本符号
-    #   - 内部调用：`self.store.write`、`time.time`、`print`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能创建、写入、移动或删除本地文件。
     def _mark_disabled(self, message: str) -> None:
         self.disabled = True
         try:
@@ -2494,15 +1284,6 @@ class DepartmentAccumulator:
                 flush=True,
             )
 
-    # 功能：不把损坏状态静默降级为默认值，避免覆盖原始证据；输入与输出详见下方说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `key`（str）：用于查询、分组或缓存的键
-    # 返回：dict | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::__init__` 调用本符号
-    #   - 内部调用：`self.store._path`、`path.exists`、`json.loads`、`path.read_text`、`isinstance`、`ValueError`、`self._mark_disabled`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     def _strict_read(self, key: str) -> dict | None:
         """不把损坏状态静默降级为默认值，避免覆盖原始证据。"""
         path = self.store._path(key)
@@ -2519,15 +1300,6 @@ class DepartmentAccumulator:
             )
             return None
 
-    # 功能：实现 `_roll_date` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::record`
-    #         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::write` 调用本符号
-    #   - 内部调用：`datetime.now().strftime`、`datetime.now`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def _roll_date(self) -> str:
         today = datetime.now().strftime("%Y-%m-%d")
         if today != self.date:
@@ -2539,21 +1311,6 @@ class DepartmentAccumulator:
             self.date = today
         return today
 
-    # 功能：实现 `record` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `record`（dict）：`record` 对应的业务输入值
-    #   - `queue_size`（int）：`queue_size` 对应的数量或大小；默认值为 `0`
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_department_results_accumulators_are_fully_isolated`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_corrupt_department_state_is_isolated_and_preserved` 调用本符号
-    #   - 内部调用：`DepartmentWorkspaceStateError`、`record.get`、`ValueError`、`validate_camera_id`、`_safe_pending_identifier`、`self._roll_date`、`any`、`item.get`、`result.get`、`self.history.appendleft`
-    #          等共 11 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def record(
         self,
         record: dict,
@@ -2609,16 +1366,6 @@ class DepartmentAccumulator:
             self.write(queue_size=queue_size)
             return not duplicate
 
-    # 功能：更新或保存 `write` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `queue_size`（int）：`queue_size` 对应的数量或大小；默认值为 `0`
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `DepartmentAccumulator::record` 调用本符号
-    #   - 内部调用：`DepartmentWorkspaceStateError`、`self._roll_date`、`list`、`time.time`、`sum`、`self.counts.values`、`round`、`max`、`int`、`self._budget_snapshot`
-    #          等共 12 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def write(self, *, queue_size: int = 0) -> None:
         with self._lock:
             if self.disabled:
@@ -2654,30 +1401,9 @@ class DepartmentAccumulator:
             self.store.write("vlm_latest_stats", stats)
 
 
-# 功能：为四个事业部持有独立累计器；输入与输出详见下方说明
-# 参数：
-#   - `stores`（DepartmentResultStores）：`stores` 对应的业务输入值
-#   - `max_history`（int）：`max_history` 对应的业务输入值
-#   - `budget_snapshot`（未显式标注）：`budget_snapshot` 对应的业务输入值；默认值为 `None`
-# 返回：DepartmentAccumulators；返回新建的 `DepartmentAccumulators` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class DepartmentAccumulators:
-    """为四个事业部持有独立累计器。"""
+    """为各事业部持有独立累计器。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `stores`（DepartmentResultStores）：`stores` 对应的业务输入值
-    #   - `max_history`（int）：`max_history` 对应的业务输入值
-    #   - `budget_snapshot`（未显式标注）：`budget_snapshot` 对应的业务输入值；默认值为 `None`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`DepartmentAccumulator`、`stores.get`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(
         self,
         stores: DepartmentResultStores,
@@ -2695,29 +1421,9 @@ class DepartmentAccumulators:
             for department in DEPARTMENTS
         }
 
-    # 功能：读取或查询 `get` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `department`（str）：业务部门名称或标识
-    # 返回：DepartmentAccumulator；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`require_department`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get(self, department: str) -> DepartmentAccumulator:
         return self._items[require_department(department)]
 
-    # 功能：更新或保存 `write_all` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `queue_sizes`（dict[str, int] | None）：`queue_sizes` 对应的业务输入值；默认值为 `None`
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main::write_stats_and_history`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_corrupt_department_state_is_isolated_and_preserved` 调用本符号
-    #   - 内部调用：`self._items.items`、`accumulator.write`、`sizes.get`、`accumulator._mark_disabled`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def write_all(self, queue_sizes: dict[str, int] | None = None) -> None:
         sizes = queue_sizes or {}
         for department, accumulator in self._items.items():
@@ -2736,55 +1442,15 @@ class DepartmentAccumulators:
                 )
 
 
-# 功能：定义 `_TaskLockEntry` 类，封装后台任务相关的状态、约束与操作
-# 参数：无。
-# 返回：_TaskLockEntry；返回新建的 `_TaskLockEntry` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_hold_task_lock` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class _TaskLockEntry:
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`threading.Lock`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.users = 0
 
 
-# 功能：一个可测试的认领任务处理单元，负责校验、判定、持久化和清理；输入与输出详见下方说明
-# 参数：
-#   - `stores`（DepartmentResultStores）：`stores` 对应的业务输入值
-#   - `accumulators`（DepartmentAccumulators）：`accumulators` 对应的业务输入值
-#   - `judge`（未显式标注）：`judge` 对应的业务输入值
-#   - `queue_timeout`（float）：`queue_timeout` 对应的业务输入值
-#   - `save_clip_only_non_compliant`（bool）：`save_clip_only_non_compliant` 对应的业务输入值；默认值为 `True`
-# 返回：PendingTaskProcessor；返回新建的 `PendingTaskProcessor` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class PendingTaskProcessor:
     """一个可测试的认领任务处理单元，负责校验、判定、持久化和清理。"""
 
-    # 功能：初始化或配置 `__init__` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `stores`（DepartmentResultStores）：`stores` 对应的业务输入值
-    #   - `accumulators`（DepartmentAccumulators）：`accumulators` 对应的业务输入值
-    #   - `judge`（未显式标注）：`judge` 对应的业务输入值
-    #   - `queue_timeout`（float）：`queue_timeout` 对应的业务输入值
-    #   - `save_clip_only_non_compliant`（bool）：`save_clip_only_non_compliant` 对应的业务输入值；默认值为 `True`
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`float`、`bool`、`threading.Lock`。
-    # 副作用/注意事项：会更新当前实例的运行状态；可能启动、等待或停止线程/进程资源。
     def __init__(
         self,
         *,
@@ -2807,19 +1473,6 @@ class PendingTaskProcessor:
             _TaskLockEntry,
         ] = {}
 
-    # 功能：实现 `_hold_task_lock` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `task_key`（tuple[str, str, str]）：`task_key` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::process`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_pending_task_lock_entries_release_after_all_waiters_exit::first`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_worker.py` 的
-    #         `test_pending_task_lock_entries_release_after_all_waiters_exit::second` 调用本符号
-    #   - 内部调用：`self._task_locks.get`、`_TaskLockEntry`、`entry.lock.acquire`、`entry.lock.release`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @contextmanager
     def _hold_task_lock(self, task_key: tuple[str, str, str]):
         with self._locks_guard:
@@ -2843,14 +1496,6 @@ class PendingTaskProcessor:
                 ):
                     del self._task_locks[task_key]
 
-    # 功能：删除或清理 `_cleanup` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `task`（PendingTask）：`task` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked` 调用本符号
-    #   - 内部调用：`task.path.with_suffix`、`target.unlink`、`print`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     @staticmethod
     def _cleanup(task: PendingTask) -> None:
         for target in (
@@ -2867,15 +1512,6 @@ class PendingTaskProcessor:
                     flush=True,
                 )
 
-    # 功能：实现 `_completion_matches` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `record`（dict）：`record` 对应的业务输入值
-    #   - `payload`（dict）：接口或事件携带的业务数据
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked` 调用本符号
-    #   - 内部调用：`all`、`record.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _completion_matches(record: dict, payload: dict) -> bool:
         return all(
@@ -2883,22 +1519,6 @@ class PendingTaskProcessor:
             for field in ("department", "camera_id", "session_id")
         )
 
-    # 功能：处理 `process` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `task`（PendingTask）：`task` 对应的业务输入值
-    #   - `now_ts`（float | None）：`now_ts` 对应的业务输入值；默认值为 `None`
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main::process_one`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_real_claim_process_partition_clip_history_stats_and_cleanup`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_completion_record_identity_mismatch_is_rejected_without_vlm_call`
-    #         调用本符号；`AiVision/integrations/security_vlm/tests/test_vlm_multicamera.py` 的
-    #         `test_corrupt_completion_preserves_task_markers_and_result` 调用本符号；另有 1 处静态调用
-    #   - 内部调用：`load_validated_pending_task`、`self._hold_task_lock`、`self._process_locked`、`time.time`、`float`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def process(
         self,
         task: PendingTask,
@@ -2920,18 +1540,6 @@ class PendingTaskProcessor:
                 time.time() if now_ts is None else float(now_ts),
             )
 
-    # 功能：处理 `_process_locked` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `task`（PendingTask）：`task` 对应的业务输入值
-    #   - `payload`（dict）：接口或事件携带的业务数据
-    #   - `now_ts`（float）：`now_ts` 对应的业务输入值
-    # 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::process` 调用本符号
-    #   - 内部调用：`self.stores.results_dir`、`task.path.with_suffix`、`result_path.exists`、`json.loads`、`result_path.read_text`、`isinstance`、`ValueError`、`print`、`self._completion_matches`、`started_marker.exists`
-    #          等共 26 个调用。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件；校验或执行失败时会主动抛出异常。
     def _process_locked(
         self,
         task: PendingTask,
@@ -3035,16 +1643,6 @@ class PendingTaskProcessor:
 # ---------------------------------------------------------------------------
 # 启动时清理过期 / 残留任务
 # ---------------------------------------------------------------------------
-# 功能：删除真正超过 queue_timeout 的任务；进程重启前已产生但未超时的任务保留；输入与输出详见下方说明
-# 参数：
-#   - `pending_dir`（Path）：`pending_dir` 对应的业务输入值
-#   - `now_ts`（float）：`now_ts` 对应的业务输入值
-#   - `queue_timeout`（float）：`queue_timeout` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`pending_dir.glob`、`open`、`pickle.load`、`float`、`payload.get`、`p.stat`、`p.unlink`、`print`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def cleanup_stale_pending(pending_dir: Path, now_ts: float, queue_timeout: float):
     """
     删除真正超过 queue_timeout 的任务；进程重启前已产生但未超时的任务保留。
@@ -3069,48 +1667,6 @@ def cleanup_stale_pending(pending_dir: Path, now_ts: float, queue_timeout: float
     return removed
 
 
-# 功能：升级多摄像头时把旧单路待处理任务转移到全局 processing；输入与输出详见下方说明
-# 参数：
-#   - `legacy_pending_dir`（Path）：`legacy_pending_dir` 对应的业务输入值
-#   - `processing_dir`（Path）：`processing_dir` 对应的业务输入值
-# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`Path`、`target_dir.mkdir`、`sorted`、`source_dir.glob`、`target_path.exists`、`time.time_ns`、`source_path.replace`、`shutil.move`、`str`、`print`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
-def migrate_legacy_pending(
-    legacy_pending_dir: Path,
-    processing_dir: Path,
-) -> int:
-    """升级多摄像头时把旧单路待处理任务转移到全局 processing。"""
-    source_dir = Path(legacy_pending_dir)
-    target_dir = Path(processing_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    moved = 0
-    for source_path in sorted(source_dir.glob("*.pkl")):
-        target_path = target_dir / f"legacy-default__{source_path.name}"
-        if target_path.exists():
-            target_path = target_dir / (
-                f"legacy-default__{time.time_ns()}__{source_path.name}"
-            )
-        try:
-            source_path.replace(target_path)
-        except OSError:
-            shutil.move(str(source_path), str(target_path))
-        moved += 1
-    if moved:
-        print(f"[vlm] 已迁移旧 pending 任务 {moved} 个", flush=True)
-    return moved
-
-
-# 功能：标记启动前已认领但尚未开始的任务，使其恢复时不受旧 TTL 影响；输入与输出详见下方说明
-# 参数：
-#   - `processing_dir`（Path）：`processing_dir` 对应的业务输入值
-# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`Path(processing_dir).glob`、`Path`、`task_path.with_suffix`、`started.exists`、`marker.exists`、`marker.touch`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def mark_recovered_processing(processing_dir: Path) -> int:
     """标记启动前已认领但尚未开始的任务，使其恢复时不受旧 TTL 影响。"""
     marked = 0
@@ -3129,16 +1685,6 @@ def mark_recovered_processing(processing_dir: Path) -> int:
     return marked
 
 
-# 功能：处理一个已入队任务,隔离异常并确保队列完成计数正确；输入与输出详见下方说明
-# 参数：
-#   - `task_q`（queue.Queue）：`task_q` 对应的业务输入值
-#   - `process_one`（未显式标注）：`process_one` 对应的业务输入值
-#   - `item`（未显式标注）：`item` 对应的业务输入值；默认值为 `None`
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `run_task_worker` 调用本符号
-#   - 内部调用：`task_q.get`、`process_one`、`print`、`traceback.print_exc`、`task_q.task_done`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
     """处理一个已入队任务,隔离异常并确保队列完成计数正确。"""
     queued_item = task_q.get() if item is None else item
@@ -3151,17 +1697,6 @@ def process_queued_item(task_q: queue.Queue, process_one, item=None) -> None:
         task_q.task_done()
 
 
-# 功能：使用独立停止事件消费任务；全局进程信号不直接终止 worker；输入与输出详见下方说明
-# 参数：
-#   - `task_q`（未显式标注）：`task_q` 对应的业务输入值
-#   - `process_one`（未显式标注）：`process_one` 对应的业务输入值
-#   - `stop_event`（threading.Event）：`stop_event` 对应的业务输入值
-#   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`stop_event.is_set`、`task_q.get`、`process_queued_item`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def run_task_worker(
     task_q,
     process_one,
@@ -3178,22 +1713,6 @@ def run_task_worker(
         process_queued_item(task_q, process_one, item)
 
 
-# 功能：停止唯一生产者后有界排空队列，再通知并等待 worker 退出；输入与输出详见下方说明
-# 参数：
-#   - `scanner`（threading.Thread）：`scanner` 对应的业务输入值
-#   - `task_q`（未显式标注）：`task_q` 对应的业务输入值
-#   - `worker_stop`（threading.Event）：`worker_stop` 对应的业务输入值
-#   - `workers`（list[threading.Thread]）：`workers` 对应的业务输入值
-#   - `drain_timeout_sec`（float）：`drain_timeout_sec` 对应的业务输入值；默认值为 `120.0`
-#   - `poll_sec`（float）：`poll_sec` 对应的业务输入值；默认值为 `0.5`
-#   - `worker_join_timeout_sec`（float）：`worker_join_timeout_sec` 对应的业务输入值；默认值为 `1.0`
-#   - `scanner_join_timeout_sec`（float）：`scanner_join_timeout_sec` 对应的业务输入值；默认值为 `2.0`
-# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`scanner.stop`、`scanner.join`、`max`、`float`、`time.monotonic`、`time.sleep`、`min`、`worker_stop.set`、`worker.join`、`scanner.is_alive`
-#          等共 12 个调用。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def shutdown_task_workers(
     scanner: threading.Thread,
     task_q,
@@ -3227,15 +1746,6 @@ def shutdown_task_workers(
     )
 
 
-# 功能：实现 `queued_department_counts` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `task_q`（queue.Queue）：`task_q` 对应的业务输入值
-# 返回：dict[str, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main::write_stats_and_history`
-#         调用本符号；`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main::write_statuses` 调用本符号
-#   - 内部调用：`isinstance`、`task_q.department_counts`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
     if isinstance(task_q, DepartmentFairTaskQueue):
         return task_q.department_counts()
@@ -3247,14 +1757,6 @@ def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
     return counts
 
 
-# 功能：实现 `vlm_max_concurrent` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `vlm_cfg`（dict）：`vlm_cfg` 对应的业务输入值
-# 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-#   - 内部调用：`int`、`vlm_cfg.get`、`ValueError`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def vlm_max_concurrent(vlm_cfg: dict) -> int:
     value = int(vlm_cfg.get("max_concurrent", 3))
     if value <= 0:
@@ -3265,23 +1767,10 @@ def vlm_max_concurrent(vlm_cfg: dict) -> int:
 # ---------------------------------------------------------------------------
 # 主程序
 # ---------------------------------------------------------------------------
-# 功能：实现 `main` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`set_process_title`、`argparse.ArgumentParser`、`parser.add_argument`、`parser.parse_args`、`Path(__file__).resolve`、`Path`、`resolve_path`、`load_yaml`、`VLMWorkerPaths.from_config`、`DepartmentResultStores`
-#          等共 54 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件；可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
 def main():
     set_process_title("security_vlm[vlm]")
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=str)
-    parser.add_argument(
-        "--camera-root",
-        type=str,
-        help="旧版摄像头根目录；兼容扫描 <camera_id>/pending",
-    )
     parser.add_argument(
         "--departments-root",
         type=str,
@@ -3297,12 +1786,9 @@ def main():
         cfg,
         project_root,
         departments_root=args.departments_root,
-        legacy_camera_root=args.camera_root,
     )
     runtime_dir = paths.runtime_dir
     stores = DepartmentResultStores(paths.data_root)
-    # 旧固定 API 在 Task5 前只读取 GE 分区；该别名不参与其他事业部写入。
-    store = stores.get(DEPARTMENTS[0])
 
     vlm_cfg = cfg["vlm"]
     out_cfg = cfg["output"]
@@ -3320,19 +1806,6 @@ def main():
     save_only_non = bool(out_cfg.get("save_clip_only_non_compliant", True))
     max_history   = int(out_cfg.get("max_history_items", 300))
 
-    camera_root = paths.legacy_camera_root
-    processing_dir = camera_root.parent / "global" / "processing"
-    pending_dir = resolve_path(
-        str(
-            cfg["session"].get(
-                "pending_queue_dir",
-                runtime_dir / "session_pending",
-            )
-        ),
-        project_root,
-    )
-    pending_dir.mkdir(parents=True, exist_ok=True)
-    camera_root.mkdir(parents=True, exist_ok=True)
     paths.departments_root.mkdir(parents=True, exist_ok=True)
     tmp_dir = runtime_dir / "vlm_tmp"
     task_q = DepartmentFairTaskQueue()
@@ -3340,36 +1813,18 @@ def main():
         paths.departments_root,
         task_q,
         poll_sec=0.5,
-        legacy_camera_root=camera_root,
     )
 
     # 仅清理真正超时的任务，重启前未完成且仍有效的任务继续处理。
     startup_ts = time.time()
-    migrate_legacy_pending(pending_dir, processing_dir)
     for discovered_processing_dir in scanner.processing_dirs():
         mark_recovered_processing(discovered_processing_dir)
     cleanup_dirs = scanner.pending_dirs()
     for cleanup_dir in cleanup_dirs:
         cleanup_stale_pending(cleanup_dir, startup_ts, queue_timeout)
 
-    existing_state = read_strict_result_object(store, "vlm_state")
-    existing_stats = read_strict_result_object(store, "vlm_latest_stats")
-    embedded_state_budget = existing_state.get("budget", {})
-    if not isinstance(embedded_state_budget, dict):
-        embedded_state_budget = {}
-    embedded_stats_budget = existing_stats.get("budget", {})
-    if not isinstance(embedded_stats_budget, dict):
-        embedded_stats_budget = {}
-    budget_state = (
-        read_strict_result_object(
-            stores.budget_store,
-            "vlm_budget",
-            quarantine_corrupt=True,
-        )
-        # Task1 曾把旧全局预算迁入 GE；这里只做一次兼容恢复来源。
-        or read_strict_result_object(store, "vlm_budget")
-        or embedded_state_budget
-        or embedded_stats_budget
+    budget_state = read_strict_result_object(
+        stores.budget_store, "vlm_budget", quarantine_corrupt=True,
     )
     budget = BudgetGuard(
         daily_limit=float(cfg["budget"]["daily_limit_yuan"]),
@@ -3380,7 +1835,6 @@ def main():
             snapshot,
         ),
     )
-    # 将 Task1 迁入 GE 的旧预算状态一次性固化为明确的全局共享状态。
     stores.budget_store.write("vlm_budget", budget.snapshot())
     judge = VLMJudge(cfg, budget, tmp_dir)
     accumulators = DepartmentAccumulators(
@@ -3402,39 +1856,15 @@ def main():
     # 任务队列 + 扫描线程
     scanner.start()
 
-    # 功能：持久化四个事业部各自的统计和历史；输入与输出详见下方说明
-    # 参数：无。
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-    #   - 内部调用：`accumulators.write_all`、`queued_department_counts`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def write_stats_and_history() -> None:
-        """持久化四个事业部各自的统计和历史。"""
+        """持久化各事业部各自的统计和历史。"""
         accumulators.write_all(queued_department_counts(task_q))
 
-    # 功能：处理 `process_one` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `task`（PendingTask）：`task` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`isinstance`、`TypeError`、`processor.process`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     def process_one(task: PendingTask) -> None:
         if not isinstance(task, PendingTask):
             raise TypeError("VLM 任务队列只接受 PendingTask")
         processor.process(task)
 
-    # 功能：更新或保存 `write_statuses` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `ok`（bool）：`ok` 对应的业务输入值
-    #   - `message`（str）：用于展示、记录或发送的文本消息
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `main` 调用本符号
-    #   - 内部调用：`queued_department_counts`、`stores.get(department).write`、`stores.get`、`time.time`。
-    # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def write_statuses(ok: bool, message: str) -> None:
         queue_sizes = queued_department_counts(task_q)
         for department in DEPARTMENTS:

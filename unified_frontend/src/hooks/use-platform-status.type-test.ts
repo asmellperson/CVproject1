@@ -19,9 +19,9 @@ type ExpectedHomeSectionProps = {
 }
 
 export type UsePlatformStatusContractAssertions = [
-  AssertTrue<Equal<Parameters<typeof getPlatformStatus>, [init?: RequestInit]>>,
+  AssertTrue<Equal<Parameters<typeof getPlatformStatus>, [department: DepartmentId, init?: RequestInit]>>,
   AssertTrue<Equal<ReturnType<typeof getPlatformStatus>, Promise<PlatformStatus>>>,
-  AssertTrue<Equal<Parameters<typeof usePlatformStatus>, []>>,
+  AssertTrue<Equal<Parameters<typeof usePlatformStatus>, [department: DepartmentId | null]>>,
   AssertTrue<Equal<ReturnType<typeof usePlatformStatus>, PlatformStatus | null>>,
   AssertTrue<Equal<ComponentProps<typeof HomeSection>, ExpectedHomeSectionProps>>,
 ]

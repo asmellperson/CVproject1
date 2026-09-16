@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import type { AiVisionCamera } from '@/lib/aivision'
 import type {
   LogisticsCameraInventoryItem,
@@ -15,8 +16,8 @@ type CameraInventoryItem = {
   shm_name?: string
   camera_id?: number
   enabled: boolean
-  department?: string | null
-  functions: Record<string, boolean> | string[]
+  department?: DepartmentId | null
+  functions: Record<string, boolean>
   logisticsOnline?: boolean
   runtimeOnline?: boolean
 }
@@ -45,9 +46,7 @@ const AI_VISION_FEATURES = [
 ]
 
 function hasFeature(camera: CameraInventoryItem, feature: string) {
-  return Array.isArray(camera.functions)
-    ? camera.functions.includes(feature)
-    : Boolean(camera.functions?.[feature])
+  return Boolean(camera.functions[feature])
 }
 
 export function mergeAiVisionAndLogisticsCameras(
@@ -61,15 +60,13 @@ export function mergeAiVisionAndLogisticsCameras(
     const logisticsCamera = logisticsByCameraId.get(camera.camera_id)
     if (!logisticsCamera) return { ...camera }
     logisticsByCameraId.delete(camera.camera_id)
-    const functions = Array.isArray(camera.functions)
-      ? Object.fromEntries(camera.functions.map((feature) => [feature, true]))
-      : { ...camera.functions }
+    const functions = { ...camera.functions }
     for (const membership of logisticsCamera.memberships) {
       functions[membership.feature_name] = true
     }
     return {
       ...camera,
-      department: camera.department || logisticsCamera.department,
+      department: camera.department,
       functions,
       logisticsOnline: logisticsCamera.online,
       logisticsMemberships: logisticsCamera.memberships,
@@ -98,11 +95,11 @@ export function mergeAiVisionAndLogisticsCameras(
 export function getLoadedAiVisionFeatureCounts(
   cameras: CameraInventoryItem[],
   loaded: boolean,
-  department?: string,
+  department: DepartmentId,
 ): FeatureCameraCounts | undefined {
   if (!loaded) return undefined
   return AI_VISION_FEATURES.reduce<FeatureCameraCounts>((counts, feature) => {
-    const featureCameras = cameras.filter((camera) => hasFeature(camera, feature) && (!department || camera.department === department))
+    const featureCameras = cameras.filter((camera) => hasFeature(camera, feature) && camera.department === department)
     counts[feature] = {
       cameraCount: featureCameras.length,
       enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
