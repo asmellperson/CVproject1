@@ -78,6 +78,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
                 "person_id", "person_name", "job_no", "person_code", "org_index_code",
             )})
         metadata["offending_detections"] = offending
+        metadata["camera_name"] = self.config_cache[camera_id]["name"]
         return {
             "subject_type": "face_person" if matched else "unknown_face",
             "subject_id": str(primary["person_id"]) if matched else "",

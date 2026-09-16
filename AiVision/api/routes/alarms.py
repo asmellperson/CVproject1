@@ -188,6 +188,8 @@ def _event_dict(row: AiAlarmEvent) -> dict[str, Any]:
         )
         subject_id = channel_id
         subject_name = channel_name
+    elif subject_type in ("face_person", "unknown_face"):
+        camera_name = metadata["camera_name"]
     else:
         camera_name = str(
             subject_name

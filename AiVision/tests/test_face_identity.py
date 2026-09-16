@@ -466,7 +466,7 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
     monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
     consumer.config_cache[7] = {
-        "shm_name": "camera_7", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
+        "shm_name": "camera_7", "name": "测试摄像头7", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
         "wechat_enable": True, "wechat_user": "test-user", "horn_enable": True,
         "horn_id": 1, "horn_event_id": 7, "alarm_interval": 5,
     }
@@ -505,6 +505,7 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
         assert request.subject_name == detections[0]["person_name"]
         assert request.reason == reason
         assert request.metadata["offending_detections"] == detections
+        assert request.camera_name == request.metadata["camera_name"] == "测试摄像头7"
         assert request.metadata["matched"] is matched and request.metadata["is_allowed"] is False
         assert request.metadata["similarity"] == detections[0]["similarity"]
         if matched:
@@ -670,6 +671,7 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
 @pytest.mark.parametrize("threshold", [0.0, .37, 1.0])
 def test_recognition_config_api_preserves_threshold_and_feature_switch(library, monkeypatch, threshold):
     from auth.auth import get_current_user, require_admin
+    from AiVision.api.routes.alarms import _event_dict
     from AiVision.api.routes.features import create_features_router
     from AiVision.features._shared import config_manager
     from AiVision.features._shared import consumer as consumer_module
@@ -753,11 +755,23 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
         written = dispatcher.violation_writer.save_now.call_args.kwargs
         assert written["subject_id"] == "17" and written["reason"] == "unauthorized"
         assert written["event_metadata"]["offending_detections"] == [unknown, unauthorized]
+        event = _event_dict(SimpleNamespace(id=10, image_path="snapshot.png", **written))
+        assert (event["camera_no"], event["camera_name"], event["subject_name"]) == ("test_camera", "测试", "测试人员17")
+        consumer._handle_alarm(1, (True, {"detections": [unknown]}), np.zeros((4, 4, 3), np.uint8))
+        dispatcher.violation_writer.save_now.assert_called_once()
+        dispatcher.reset_cooldown(1, "recognize_face")
         consumer._handle_alarm(1, (True, {"detections": [unknown]}), np.zeros((4, 4, 3), np.uint8))
         written = dispatcher.violation_writer.save_now.call_args.kwargs
         assert written["subject_type"] == "unknown_face" and written["subject_id"] == ""
         assert written["subject_name"] == "未知人员" and written["reason"] == "unknown"
-        assert written["event_metadata"] == {"similarity": .2, "matched": False, "is_allowed": False, "offending_detections": [unknown]}
+        assert written["event_metadata"] == {"similarity": .2, "matched": False, "is_allowed": False,
+                                             "offending_detections": [unknown], "camera_name": "测试"}
+        event = _event_dict(SimpleNamespace(id=11, image_path="snapshot.png", **written))
+        assert (event["camera_no"], event["camera_name"], event["subject_name"]) == ("test_camera", "测试", "未知人员")
+        consumer.config_cache[2] = {**runtime_config, "shm_name": "test_camera_2", "name": "测试摄像头2"}
+        consumer._handle_alarm(2, (True, {"detections": [unauthorized]}), np.zeros((4, 4, 3), np.uint8))
+        assert dispatcher.violation_writer.save_now.call_count == 3
+        assert dispatcher.violation_writer.save_now.call_args.kwargs["camera_no"] == "test_camera_2"
 
         published = events.publish.call_count
         for horn_id, event_id in [(None, 12), (9999, 12), (1, None), (1, 0), (1, -1), (1, True), (1, "12"), (1, 2147483648)]:

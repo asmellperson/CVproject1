@@ -144,7 +144,7 @@ class AlarmDispatcher:
         """
         收到违规生成cooldown key查看上次报警事件，还在五秒人冷却不报警，超过五秒冷却时间就更新时间并且推送报警
         冷却逻辑:
-            以 (subject_type, subject_id, feature_name) 为粒度记录上次触发时间；
+            摄像头报警（包括人脸）按 camera_id × feature_name，物流通道按 channel_id × feature_name；
             若距上次触发不足 alarm_interval 秒，静默丢弃并返回 False。
         Args:
             request        : 封装本次违规信息的 AlarmRequest 对象。
@@ -168,7 +168,7 @@ class AlarmDispatcher:
 
     def reset_cooldown(self, camera_id: int, feature_name: str) -> None:
         """清除指定摄像头和功能的告警冷却状态。
-        reset_cooldown:只针对camera
+        reset_cooldown:针对摄像头报警（包括人脸）
         reset_subject_cooldown:camera、logistics_channel等都能用
         """
         self.reset_subject_cooldown("camera", str(camera_id), feature_name)
@@ -186,10 +186,10 @@ class AlarmDispatcher:
 
     @staticmethod
     def _cooldown_key(request: AlarmRequest) -> tuple[str, str, str]:
-        """从ALarmRequest提取告警主体 + 主体ID + 检测功能得到唯一冷却标识"""
-        subject_type = request.subject_type or "camera"
-        subject_id = request.subject_id or str(request.camera_id)
-        return subject_type, subject_id, request.feature_name
+        """按配置所属的摄像头或物流通道冷却，人员主体不改变摄像头冷却范围。"""
+        if request.subject_type == "logistics_channel":
+            return "logistics_channel", request.subject_id, request.feature_name
+        return "camera", str(request.camera_id), request.feature_name
 
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
@@ -301,7 +301,7 @@ class AlarmDispatcher:
             "violation_type": req.violation_type,              # 违规类型编号
             "feature_name": req.feature_name,
             "department": req.department,      # 单部门历史字段
-            "camera_no": (req.camera_key or req.camera_name) if subject_type == "camera" else None,   # 不强行填camera_no
+            "camera_no": None if subject_type == "logistics_channel" else (req.camera_key or req.camera_name),
             "subject_type": subject_type,
             "subject_id": (req.subject_id or str(req.camera_id)) if subject_type == "camera" else req.subject_id,
             "subject_name": req.subject_name or req.camera_name,
