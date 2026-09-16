@@ -40,7 +40,7 @@ export function GuardRoomRuntimeControl({ site, department, isAdmin, onChanged }
     intervalMs: POLL_INTERVAL_MS,
     timeoutMs: REQUEST_TIMEOUT_MS,
     enabled: Boolean(site),
-    restartKey: `${department ?? ''}:${site?.id ?? ''}`,
+    restartKey: `${department}:${site?.id ?? ''}`,
     onError: (reason) => setError(reason instanceof Error ? reason.message : String(reason)),
   })
 
@@ -49,8 +49,8 @@ export function GuardRoomRuntimeControl({ site, department, isAdmin, onChanged }
     setBusyAction(action)
     setError('')
     try {
-      if (action === 'start') await startGuardRoomSiteRuntime(site.id)
-      else await stopGuardRoomSiteRuntime(site.id)
+      if (action === 'start') await startGuardRoomSiteRuntime(site.id, department)
+      else await stopGuardRoomSiteRuntime(site.id, department)
       await loadStatus()
       await onChanged()
     } catch (reason) {

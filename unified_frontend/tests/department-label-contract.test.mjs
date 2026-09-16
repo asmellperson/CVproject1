@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
+import ts from 'typescript'
 
 const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')
 
@@ -30,4 +32,46 @@ test('department selection uses the formal department API catalog', async () => 
   for (const name of ['HomeSection', 'UserManagementSection', 'AccessAuditSection']) {
     assert.match(await read(`sections/${name}.tsx`), /useDepartmentCatalog/)
   }
+})
+
+
+test('detection URLs need explicit authorized departments; only overview initializes a default', async () => {
+  const permissions = await read('auth/permissions.ts')
+  const source = await read('App.tsx')
+  const compile = (value) => ts.transpileModule(value, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const catalog = { exports: {} }
+  vm.runInNewContext(compile(permissions), catalog)
+  const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const initialize = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'initializeNavigation')
+  assert.ok(initialize)
+  const context = { ...catalog.exports }
+  vm.runInNewContext(compile(initialize.getText(ast)), context)
+  const departments = catalog.exports.DEPARTMENTS
+  const pages = catalog.exports.DETECTION_PAGE_IDS
+  const users = [
+    { role: 'admin', departments: [] },
+    { role: 'viewer', departments: [departments[0]] },
+    { role: 'viewer', departments: [departments[0], departments[1]] },
+  ]
+  for (const user of users) {
+    for (const page of pages) {
+      for (const requested of [null, '', 'ge', 'unknown', '通用电气', ...departments]) {
+        const url = new URL('http://test/')
+        url.searchParams.set('page', page)
+        if (requested !== null) url.searchParams.set('department', requested)
+        const navigation = context.initializeNavigation(user, url.searchParams.get('page'), url.searchParams.get('department'))
+        const allowed = catalog.exports.getAccessibleDepartments(user).includes(requested)
+        assert.equal(navigation.page, allowed ? page : 'overview')
+        assert.equal(navigation.department, allowed ? requested : departments[0])
+        assert.equal(catalog.exports.resolveDepartment(user, requested), allowed ? requested : null)
+      }
+    }
+  }
+  const unassigned = context.initializeNavigation({ role: 'viewer', departments: [] }, 'face-recognition', null)
+  assert.equal(unassigned.page, 'overview')
+  assert.equal(unassigned.department, null)
+  assert.match(source, /isDetectionPage\(page\) \? department : department \?\? currentDepartment/)
+  assert.match(source, /window\.addEventListener\('popstate', syncLocation\)/)
 })

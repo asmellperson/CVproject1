@@ -53,10 +53,6 @@ export function getUserDepartments(user: AuthUser | null | undefined): Departmen
   return [...new Set(values.filter((value): value is Department => value === 'all' || isDepartment(value)))]
 }
 
-export function getUserDepartment(user: AuthUser | null | undefined): Department | null {
-  return getUserDepartments(user)[0] ?? null
-}
-
 export function getAccessibleDepartments(user: AuthUser | null | undefined): DepartmentId[] {
   const departments = getUserDepartments(user)
   if (getUserRole(user) === 'admin') return [...DEPARTMENTS]
@@ -66,7 +62,7 @@ export function getAccessibleDepartments(user: AuthUser | null | undefined): Dep
 
 export function resolveDepartment(user: AuthUser | null | undefined, requested: unknown): DepartmentId | null {
   const accessible = getAccessibleDepartments(user)
-  return isDepartment(requested) && accessible.includes(requested) ? requested : accessible[0] ?? null
+  return isDepartment(requested) && accessible.includes(requested) ? requested : null
 }
 
 export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
@@ -76,6 +72,15 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string)
   if (getUserRole(user) === 'admin') return true
   if (pageId === 'user-management') return false
   return getUserRole(user) === 'viewer' && getAccessibleDepartments(user).length > 0
+}
+
+export function isDetectionPage(page: string): page is DetectionPageId {
+  return (DETECTION_PAGE_IDS as readonly string[]).includes(page)
+}
+
+export function resolvePage(user: AuthUser | null | undefined, page: string, department: unknown): PageId {
+  if (!hasPageAccess(user, page) || (isDetectionPage(page) && !resolveDepartment(user, department))) return 'overview'
+  return page as PageId
 }
 
 export function filterNavGroupsByPermission(user: AuthUser | null | undefined, groups: NavGroup[]): NavGroup[] {

@@ -1183,27 +1183,15 @@ def _guard_site_runtime_summary(
     }
 
 
-# 功能：实现 `_guard_alarm_paths` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `sites_payload`（object）：`sites_payload` 对应的业务输入值
-#   - `limit`（int）：返回或处理的最大记录数
-#   - `department`（str | None）：业务部门名称或标识；默认值为 `None`
-# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`_guard_site_items`、`int`、`site.get`、`paths.append`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _guard_alarm_paths(sites_payload: object, limit: int, department: str | None = None) -> list[str]:
+def _guard_alarm_paths(sites_payload: object, limit: int, department: str) -> list[str]:
+    department = require_department(department)
     paths: list[str] = []
     for site in _guard_site_items(sites_payload):
         try:
             site_id = int(site.get("id"))
         except (TypeError, ValueError):
             continue
-        path = f"/api/sites/{site_id}/alarms?limit={limit}"
-        if department:
-            path = f"{path}&department={department}"
-        paths.append(path)
+        paths.append(f"/api/sites/{site_id}/alarms?limit={limit}&department={department}")
     return paths
 
 
@@ -1406,7 +1394,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
-        public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout"}
+        public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout", "/security-vlm/health"}
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         protected = path.startswith("/api/") or path.startswith("/security-vlm") or path.startswith("/aivision")

@@ -7,7 +7,8 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { usePlatformStatus } from '@/hooks/use-platform-status'
 import { useAuth } from '@/auth/useAuth'
-import { hasPageAccess, resolveDepartment, type DepartmentId } from '@/auth/permissions'
+import { getAccessibleDepartments, isDetectionPage, resolveDepartment, resolvePage, type DepartmentId } from '@/auth/permissions'
+import type { AuthUser } from '@/auth/auth-context'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width-v2'
 const DEFAULT_SIDEBAR_WIDTH = 272
@@ -73,6 +74,16 @@ function getInitialPage() {
   return params.get('page') || 'overview'
 }
 
+function initializeNavigation(user: AuthUser | null, page: string, requestedDepartment: unknown) {
+  const department = resolveDepartment(user, requestedDepartment)
+  const nextPage = resolvePage(user, page, requestedDepartment)
+  return {
+    page: nextPage,
+    // 仅总览初始化选择首个授权事业部；检测导航必须提供有效上下文。
+    department: nextPage === 'overview' && !department ? getAccessibleDepartments(user)[0] ?? null : department,
+  }
+}
+
 function getInitialAlarmId() {
   return new URLSearchParams(window.location.search).get('alarmId') || ''
 }
@@ -87,9 +98,11 @@ function PageLoadingFallback() {
 
 function App() {
   const { user } = useAuth()
-  const [currentPage, setCurrentPage] = useState(getInitialPage)
-  const [requestedDepartment, setCurrentDepartment] = useState(() => new URLSearchParams(window.location.search).get('department'))
-  const currentDepartment = resolveDepartment(user, requestedDepartment)
+  const [navigation, setNavigation] = useState(() => initializeNavigation(
+    user, getInitialPage(), new URLSearchParams(window.location.search).get('department'),
+  ))
+  const currentPage = navigation.page
+  const currentDepartment = resolveDepartment(user, navigation.department)
   const platformStatus = usePlatformStatus(currentDepartment)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -97,7 +110,7 @@ function App() {
   const [sidebarResizing, setSidebarResizing] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
-  const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
+  const activePage = resolvePage(user, currentPage, navigation.department)
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -109,16 +122,17 @@ function App() {
 
   useEffect(() => {
     const syncLocation = () => {
-      setCurrentPage(getInitialPage())
-      setCurrentDepartment(new URLSearchParams(window.location.search).get('department'))
+      setNavigation(initializeNavigation(
+        user, getInitialPage(), new URLSearchParams(window.location.search).get('department'),
+      ))
     }
     window.addEventListener('popstate', syncLocation)
     return () => window.removeEventListener('popstate', syncLocation)
-  }, [])
+  }, [user])
 
   const handlePageChange = (page: string, department?: DepartmentId) => {
-    setCurrentDepartment(resolveDepartment(user, department ?? currentDepartment))
-    setCurrentPage(hasPageAccess(user, page) ? page : 'overview')
+    const requestedDepartment = isDetectionPage(page) ? department : department ?? currentDepartment
+    setNavigation(initializeNavigation(user, page, requestedDepartment))
     if (isMobile) setMobileSidebarOpen(false)
   }
 

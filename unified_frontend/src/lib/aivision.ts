@@ -144,10 +144,8 @@ async function readAiVisionError(response: Response) {
 }
 
 export async function getAiVisionCameras(department: DepartmentId) {
-  const params = new URLSearchParams()
-  if (department) params.set('department', department)
-  const query = params.toString()
-  const response = await fetch(`/api/cameras${query ? `?${query}` : ''}`, { credentials: 'include' })
+  const params = new URLSearchParams({ department })
+  const response = await fetch(`/api/cameras?${params}`, { credentials: 'include' })
   if (!response.ok) {
     throw new Error(await readAiVisionError(response))
   }

@@ -594,7 +594,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     setCameraDialogMode('create')
     resetCameraForm()
     setCameraSource('aivision')
-    setCameraDepartment(departmentOptions.some((item) => item.value === department) ? department! : departmentOptions[0]?.value || '')
+    setCameraDepartment(departmentOptions.some((item) => item.value === department) ? department : '')
     if (departmentsError) reloadDepartments()
     setCameraGuardSiteId('')
     setCameraDialogOpen(true)
@@ -604,7 +604,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     const departments = cameraSourceDepartments[source]
     const nextDepartment = isDepartment(cameraDepartment) && departments.includes(cameraDepartment)
       ? cameraDepartment
-      : departments[0] || ''
+      : ''
     setCameraSource(source)
     setCameraDepartment(nextDepartment)
     setCameraGuardSiteId(
@@ -682,12 +682,12 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
           enabled: true,
           department: cameraDepartment,
         })
-      } else if (cameraSource === 'guard_room') {
+      } else if (cameraSource === 'guard_room' && isDepartment(cameraDepartment)) {
         await createGuardRoomSiteCamera(Number(cameraGuardSiteId), {
           name,
           rtsp_url: url,
           enabled: true,
-        })
+        }, cameraDepartment)
       } else {
         await createSecurityVlmCamera(
           cameraDepartment as SecurityVlmDepartment,

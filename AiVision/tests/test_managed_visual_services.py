@@ -260,3 +260,33 @@ def test_missing_child_config_fails_parent_startup(tmp_path):
         assert "missing-security.yaml" in str(exc)
     else:
         raise AssertionError("缺少托管子应用配置时 AiVision 应拒绝启动")
+
+
+def test_parent_exposes_only_security_service_probe_without_auth(tmp_path, monkeypatch):
+    import importlib
+    from auth.auth import AuthError
+
+    api_module = importlib.import_module("AiVision.api.app")
+    manager = _manager(tmp_path, [])
+    child = FastAPI()
+
+    @child.get("/health")
+    async def health():
+        return {"status": "ok", "ready": True}
+
+    def unauthenticated(_request):
+        raise AuthError("authentication required")
+
+    manager.security_vlm.bind(child)
+    parent = create_app(managed_visual_services=manager)
+    monkeypatch.setattr(api_module, "get_current_user_from_request", unauthenticated)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=parent), base_url="http://test") as client:
+            response = await client.get("/api/integrations/security-vlm/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok", "ready": True}
+            response = await client.get("/api/integrations/security-vlm/api/departments/fulida_company/health")
+            assert response.status_code == 401
+
+    asyncio.run(scenario())

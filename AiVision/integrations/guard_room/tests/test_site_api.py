@@ -1,48 +1,22 @@
-from AiVision.departments.department_registry import DEPARTMENT_SPECS
-# 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
 import asyncio
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
-
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from AiVision.integrations.guard_room.src import server
 from AiVision.integrations.guard_room.src.db import configure_for_tests
 from AiVision.integrations.guard_room.src.server import CameraCreateRequest, CameraUpdateRequest, SiteCreateRequest, create_app
 from AiVision.integrations.guard_room.src.service import GuardRoomService
 
 
-# 功能：实现 `_app` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_create_site_and_camera`
-#         调用本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_scope_sites_by_department`
-#         调用本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_update_and_delete_camera` 调用本符号
-#   - 内部调用：`configure_for_tests`、`create_app`、`str`、`Path(__file__).resolve`、`Path`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _app(tmp_path):
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api.db'}")
     return create_app(str(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"))
 
 
-# 功能：实现 `_route_endpoint` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `app`（未显式标注）：`app` 对应的业务输入值
-#   - `path`（str）：目标路径
-#   - `method`（str）：`method` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_create_site_and_camera`
-#         调用本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_scope_sites_by_department`
-#         调用本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_update_and_delete_camera`
-#         调用本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的
-#         `test_site_api_routes_expose_runtime_controls_and_read_models` 调用本符号；另有 1 处静态调用
-#   - 内部调用：`method.upper`、`getattr`、`set`、`AssertionError`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _route_endpoint(app, path: str, method: str):
     method = method.upper()
     for route in app.routes:
@@ -51,149 +25,44 @@ def _route_endpoint(app, path: str, method: str):
     raise AssertionError(f"route not found: {method} {path}")
 
 
-# 功能：定义 `FakeRuntimeManager` 类，封装接口访问相关的状态、约束与操作
-# 参数：无。
-# 返回：FakeRuntimeManager；返回新建的 `FakeRuntimeManager` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class FakeRuntimeManager:
-    # 功能：初始化或配置 `__init__` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；初始化当前实例，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def __init__(self):
         self.started = []
         self.stopped = []
         self.restarted = []
         self.stop_all_calls = 0
 
-    # 功能：启动或执行 `start` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.started.append`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     def start(self, site_id: int):
         self.started.append(site_id)
         return {"site_id": site_id, "site_name": "测试保安室", "running": True}
 
-    # 功能：停止并释放 `stop` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.stopped.append`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def stop(self, site_id: int):
         self.stopped.append(site_id)
         return {"site_id": site_id, "site_name": "测试保安室", "running": False}
 
-    # 功能：实现 `restart` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`self.restarted.append`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def restart(self, site_id: int):
         self.restarted.append(site_id)
         return {"site_id": site_id, "site_name": "测试保安室", "running": True, "restarted": True}
 
-    # 功能：读取或查询 `get_status` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_status(self, site_id: int):
         return {"site_id": site_id, "site_name": "测试保安室", "running": False}
 
-    # 功能：读取或查询 `get_latest_frame` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_latest_frame(self, site_id: int):
         return b"jpeg-bytes"
 
-    # 功能：读取或查询 `get_camera_frame` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`f'{site_id}:{camera_id}:jpeg'.encode`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_camera_frame(self, site_id: int, camera_id: str):
         return f"{site_id}:{camera_id}:jpeg".encode()
 
-    # 功能：读取或查询 `get_alarms` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `50`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_alarms(self, site_id: int, limit: int = 50):
         return [{"id": "alarm-1", "site_id": site_id, "site_name": "测试保安室"}]
 
-    # 功能：读取或查询 `get_statistics` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def get_statistics(self, site_id: int):
         return {"site_id": site_id, "site_name": "测试保安室", "summary": {"total": 0}}
 
-    # 功能：停止并释放 `stop_all` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：会更新当前实例的运行状态。
     def stop_all(self):
         self.stop_all_calls += 1
 
 
-# 功能：验证 `test_site_api_routes_create_site_and_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_app`、`_route_endpoint`、`create_site`、`SiteCreateRequest`、`list_sites`、`create_camera`、`CameraCreateRequest`、`get_site`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_site_api_routes_create_site_and_camera(tmp_path):
     app = _app(tmp_path)
 
@@ -206,28 +75,20 @@ def test_site_api_routes_create_site_and_camera(tmp_path):
     assert site["name"] == "一厂区南门保安室"
     assert site["camera_count"] == 0
 
-    listed = list_sites(_user={"role": "admin"})
+    listed = list_sites(department="general_electric", _user={"role": "admin"})
     assert [item["name"] for item in listed["items"]] == ["一厂区南门保安室"]
 
     camera = create_camera(
         site["id"],
         CameraCreateRequest(name="门口左侧", rtsp_url="rtsp://camera-1"),
-        _user={"role": "admin"},
+        department="general_electric", _user={"role": "admin"},
     )
     assert camera["sort_order"] == 1
 
-    detail = get_site(site["id"], _user={"role": "admin"})
+    detail = get_site(site["id"], department="general_electric", _user={"role": "admin"})
     assert detail["cameras"][0]["name"] == "门口左侧"
 
 
-# 功能：验证 `test_site_api_routes_scope_sites_by_department` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_app`、`_route_endpoint`、`create_site`、`SiteCreateRequest`、`list_sites`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_site_api_routes_scope_sites_by_department(tmp_path):
     app = _app(tmp_path)
 
@@ -250,21 +111,14 @@ def test_site_api_routes_scope_sites_by_department(tmp_path):
         with pytest.raises(HTTPException) as caught:
             list_sites(department=foreign["department"], _user=viewer)
         assert caught.value.status_code == 403
-    assert len(list_sites(_user={"role": "admin"})["items"]) == len(DEPARTMENT_SPECS)
+    for department, site in sites.items():
+        assert [row["id"] for row in list_sites(department=department, _user={"role": "admin"})["items"]] == [site["id"]]
     for departments in ([], ["unknown"], ["all"], ["ge"], ["通用电气"]):
         with pytest.raises(HTTPException) as caught:
-            list_sites(_user={"role": "viewer", "departments": departments})
+            list_sites(department="general_electric", _user={"role": "viewer", "departments": departments})
         assert caught.value.status_code == 403
 
 
-# 功能：验证 `test_site_api_routes_update_and_delete_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_app`、`_route_endpoint`、`create_site`、`SiteCreateRequest`、`create_camera`、`CameraCreateRequest`、`update_camera`、`CameraUpdateRequest`、`delete_camera`、`get_site`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_site_api_routes_update_and_delete_camera(tmp_path):
     app = _app(tmp_path)
 
@@ -278,37 +132,32 @@ def test_site_api_routes_update_and_delete_camera(tmp_path):
     camera = create_camera(
         site["id"],
         CameraCreateRequest(name="旧名称", rtsp_url="rtsp://old"),
-        _user={"role": "admin"},
+        department="general_electric", _user={"role": "admin"},
     )
 
     updated = update_camera(
         camera["id"],
         CameraUpdateRequest(name="门口右侧", rtsp_url="rtsp://new", enabled=False),
-        _user={"role": "admin"},
+        department="general_electric", _user={"role": "admin"},
     )
     assert updated["name"] == "门口右侧"
     assert updated["rtsp_url"] == "rtsp://new"
     assert updated["enabled"] is False
 
-    assert delete_camera(camera["id"], _user={"role": "admin"}) == {"success": True}
-    assert get_site(site["id"], _user={"role": "admin"})["cameras"] == []
+    assert delete_camera(camera["id"], department="general_electric", _user={"role": "admin"}) == {"success": True}
+    assert get_site(site["id"], department="general_electric", _user={"role": "admin"})["cameras"] == []
 
 
-# 功能：验证 `test_site_api_routes_expose_runtime_controls_and_read_models` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`configure_for_tests`、`FakeRuntimeManager`、`create_app`、`str`、`Path(__file__).resolve`、`Path`、`_route_endpoint`、`start`、`stop`、`restart`
-#          等共 15 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_runtime.db'}")
+    service = GuardRoomService()
+    service.ensure_schema()
+    site_id = service.create_site("测试保安室", department="general_electric")["id"]
     manager = FakeRuntimeManager()
     app = create_app(
         str(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"),
         runtime_manager=manager,
+        guard_room_service=service,
     )
 
     start = _route_endpoint(app, "/api/sites/{site_id}/control/start", "POST")
@@ -320,26 +169,17 @@ def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     alarms = _route_endpoint(app, "/api/sites/{site_id}/alarms", "GET")
     statistics = _route_endpoint(app, "/api/sites/{site_id}/statistics", "GET")
 
-    assert start(7, _user={"role": "admin"})["running"] is True
-    assert stop(7, _user={"role": "admin"})["running"] is False
-    assert restart(7, _user={"role": "admin"})["restarted"] is True
-    assert manager.restarted == [7]
-    assert status(7, _user={"role": "admin"})["site_name"] == "测试保安室"
-    assert frame(7, _user={"role": "admin"}).body == b"jpeg-bytes"
-    assert camera_frame(7, "cam2", _user={"role": "admin"}).body == b"7:cam2:jpeg"
-    assert alarms(7, _user={"role": "admin"})["items"][0]["site_id"] == 7
-    assert statistics(7, _user={"role": "admin"})["summary"]["total"] == 0
+    assert start(site_id, department="general_electric", _user={"role": "admin"})["running"] is True
+    assert stop(site_id, department="general_electric", _user={"role": "admin"})["running"] is False
+    assert restart(site_id, department="general_electric", _user={"role": "admin"})["restarted"] is True
+    assert manager.restarted == [site_id]
+    assert status(site_id, department="general_electric", _user={"role": "admin"})["site_name"] == "测试保安室"
+    assert frame(site_id, department="general_electric", _user={"role": "admin"}).body == b"jpeg-bytes"
+    assert camera_frame(site_id, "cam2", department="general_electric", _user={"role": "admin"}).body == f"{site_id}:cam2:jpeg".encode()
+    assert alarms(site_id, department="general_electric", _user={"role": "admin"})["items"][0]["site_id"] == site_id
+    assert statistics(site_id, department="general_electric", _user={"role": "admin"})["summary"]["total"] == 0
 
 
-# 功能：验证 `test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`configure_for_tests`、`GuardRoomService`、`service.ensure_schema`、`service.create_site`、`service.create_camera`、`FakeRuntimeManager`、`create_app`、`str`、`Path(__file__).resolve`、`Path`
-#          等共 12 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites(tmp_path):
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_lifespan.db'}")
     service = GuardRoomService()
@@ -355,13 +195,6 @@ def test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites(tmp_path
         runtime_manager=manager,
     )
 
-    # 功能：启动或执行 `run_lifespan` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`app.router.lifespan_context`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def run_lifespan():
         async with app.router.lifespan_context(app):
             assert manager.started == [enabled["id"]]
@@ -371,15 +204,6 @@ def test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites(tmp_path
     assert manager.stop_all_calls == 1
 
 
-# 功能：验证 `test_first_enabled_camera_starts_an_enabled_site_after_app_startup` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`configure_for_tests`、`GuardRoomService`、`service.ensure_schema`、`service.create_site`、`FakeRuntimeManager`、`create_app`、`str`、`Path(__file__).resolve`、`Path`、`_route_endpoint`
-#          等共 12 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_first_enabled_camera_starts_an_enabled_site_after_app_startup(tmp_path):
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_first_camera.db'}")
     service = GuardRoomService()
@@ -393,21 +217,85 @@ def test_first_enabled_camera_starts_an_enabled_site_after_app_startup(tmp_path)
     )
     create_camera = _route_endpoint(app, "/api/sites/{site_id}/cameras", "POST")
 
-    # 功能：启动或执行 `run_lifespan` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：无。
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`app.router.lifespan_context`、`create_camera`、`CameraCreateRequest`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def run_lifespan():
         async with app.router.lifespan_context(app):
             assert manager.started == []
             create_camera(
                 site["id"],
                 CameraCreateRequest(name="入口", rtsp_url="rtsp://camera"),
-                _user={"role": "admin"},
+                department="general_electric", _user={"role": "admin"},
             )
             assert manager.restarted == [site["id"]]
 
     asyncio.run(run_lifespan())
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_business_reads_require_explicit_authorized_department(tmp_path, monkeypatch, department, role):
+    app = _app(tmp_path)
+    create_site = _route_endpoint(app, "/api/sites", "POST")
+    site = create_site(SiteCreateRequest(name="当前站点", department=department), _user={"role": "admin"})
+    other = next(value for value in DEPARTMENT_SPECS if value != department)
+    foreign = create_site(SiteCreateRequest(name="其他站点", department=other), _user={"role": "admin"})
+    user = {"role": role, "departments": [department]}
+    monkeypatch.setattr(server, "get_current_user_from_request", lambda _request: user)
+    suffixes = ("", "/config", "/status", "/frame.jpg", "/stream.mjpg", "/cameras",
+                "/cameras/cam1/frame.jpg", "/alarms", "/alarms/1/image", "/alarms/1/video", "/statistics")
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            for authorized in ([department], [department, other]):
+                user["departments"] = authorized
+                for path in ["/api/sites", *(f"/api/sites/{site['id']}{suffix}" for suffix in suffixes)]:
+                    assert (await client.get(path)).status_code == 422, path
+                    for invalid in ("", "ge", "unknown", "通用电气"):
+                        response = await client.get(path, params={"department": invalid})
+                        assert response.status_code == 400, (path, response.text)
+                response = await client.get("/api/sites", params={"department": department})
+                assert response.status_code == 200
+                assert [row["id"] for row in response.json()["items"]] == [site["id"]]
+            for suffix in suffixes:
+                response = await client.get(f"/api/sites/{foreign['id']}{suffix}", params={"department": department})
+                assert response.status_code == 404, (suffix, response.text)
+            user["departments"] = [department]
+            if role == "viewer":
+                assert (await client.get("/api/sites", params={"department": other})).status_code == 403
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_business_writes_require_department_and_matching_resources(tmp_path, monkeypatch, department):
+    app = _app(tmp_path)
+    create_site = _route_endpoint(app, "/api/sites", "POST")
+    other = next(value for value in DEPARTMENT_SPECS if value != department)
+    foreign = create_site(SiteCreateRequest(name="其他站点", department=other), _user={"role": "admin"})
+    create_camera = _route_endpoint(app, "/api/sites/{site_id}/cameras", "POST")
+    camera = create_camera(foreign["id"], CameraCreateRequest(name="其他摄像头", rtsp_url="rtsp://camera"),
+                           department=other, _user={"role": "admin"})
+    monkeypatch.setattr(server, "get_current_user_from_request", lambda _request: {"role": "admin"})
+    site_path = f"/api/sites/{foreign['id']}"
+    requests = [
+        ("PUT", site_path, {"name": "拒绝更新"}),
+        ("DELETE", site_path, None),
+        ("POST", f"{site_path}/config", {}),
+        *(("POST", f"{site_path}/control/{action}", None) for action in ("start", "stop", "restart")),
+        ("POST", f"{site_path}/cameras", {"name": "拒绝创建", "rtsp_url": "rtsp://new-camera"}),
+        ("PUT", f"/api/cameras/{camera['id']}", {"name": "拒绝更新"}),
+        ("DELETE", f"/api/cameras/{camera['id']}", None),
+    ]
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            assert (await client.post("/api/sites", json={"name": "缺少事业部"})).status_code == 422
+            for method, path, payload in requests:
+                assert (await client.request(method, path, json=payload)).status_code == 422, path
+                assert (await client.request(method, path, params={"department": "ge"}, json=payload)).status_code == 400, path
+                response = await client.request(method, path, params={"department": department}, json=payload)
+                assert response.status_code == 404, (path, response.text)
+            response = await client.get(site_path, params={"department": other})
+            assert response.json()["name"] == foreign["name"]
+            assert [row["id"] for row in response.json()["cameras"]] == [camera["id"]]
+
+    asyncio.run(scenario())

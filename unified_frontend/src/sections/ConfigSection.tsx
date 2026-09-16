@@ -331,11 +331,11 @@ function ConfigSection({
         classes: config.classes,
         runtime: config.runtime,
         wechat: config.wechat,
-      })
+      }, department)
 
       if (site.enabled) {
         setSavePhase('正在重启算法（约 15 秒）...')
-        await restartGuardRoomSiteRuntime(site.id)
+        await restartGuardRoomSiteRuntime(site.id, department)
 
         setSavePhase('等待算法就绪...')
         await waitUntilRunning(20000)
@@ -382,7 +382,7 @@ async function waitUntilRunning(timeoutMs: number) {
     setCameraBusy(true)
     setSaveError('')
     try {
-      await createGuardRoomSiteCamera(site.id, { name, rtsp_url: rtsp })
+      await createGuardRoomSiteCamera(site.id, { name, rtsp_url: rtsp }, department)
       setCameraName('')
       setCameraRtsp('')
       setCameraDialogOpen(false)
@@ -399,7 +399,7 @@ async function waitUntilRunning(timeoutMs: number) {
     setCameraBusy(true)
     setSaveError('')
     try {
-      await deleteGuardRoomCamera(cameraId)
+      await deleteGuardRoomCamera(cameraId, department)
       await onSitesChanged?.()
     } catch (err: unknown) {
       setSaveError(getErrorMessage(err, '删除摄像头失败'))

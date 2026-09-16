@@ -232,10 +232,13 @@ def _event_dict(row: AiAlarmEvent) -> dict[str, Any]:
 
 def _scoped_query(session, user: dict, department: str | None = None, feature: str | None = None):
     """使用报警的归属快照过滤，在分页和统计前完成权限校验。"""
-    requested = camera_read_department(user, department)
+    requested = camera_read_department(user, department) if department is not None else None
     query = session.query(AiAlarmEvent)
     if user.get("role") != "admin":
-        query = query.filter(AiAlarmEvent.department.in_(_camera_departments_for_user(user)))
+        departments = _camera_departments_for_user(user)
+        if user.get("role") != "viewer" or not departments:
+            raise HTTPException(status_code=403, detail="alarm department permission required")
+        query = query.filter(AiAlarmEvent.department.in_(departments))
     if requested is not None:
         query = query.filter(AiAlarmEvent.department == requested)
     if feature is not None:

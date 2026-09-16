@@ -349,35 +349,35 @@ export const getGuardRoomSites = async (department: DepartmentId): Promise<Guard
 export const createGuardRoomSite = (payload: CreateGuardRoomSitePayload) =>
   apiPost<GuardRoomSite>('/sites', payload)
 
-export const updateGuardRoomSite = (siteId: number, payload: UpdateGuardRoomSitePayload) =>
-  apiPut<GuardRoomSite>(`/sites/${siteId}`, payload)
+export const updateGuardRoomSite = (siteId: number, payload: UpdateGuardRoomSitePayload, department: DepartmentId) =>
+  apiPut<GuardRoomSite>(withQuery(`/sites/${siteId}`, { department }), payload)
 
-export const deleteGuardRoomSite = (siteId: number) =>
-  apiDelete<{ success: boolean }>(`/sites/${siteId}`)
+export const deleteGuardRoomSite = (siteId: number, department: DepartmentId) =>
+  apiDelete<{ success: boolean }>(withQuery(`/sites/${siteId}`, { department }))
 
 export const getGuardRoomSiteConfig = (siteId: number, department: DepartmentId) =>
   apiGet<AppConfigPayload>(withQuery(`/sites/${siteId}/config`, { department }))
 
-export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConfigPayload>) =>
-  apiPost<{ success: boolean; config: AppConfigPayload }>(`/sites/${siteId}/config`, payload)
+export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConfigPayload>, department: DepartmentId) =>
+  apiPost<{ success: boolean; config: AppConfigPayload }>(withQuery(`/sites/${siteId}/config`, { department }), payload)
 
 export const getGuardRoomSiteStatus = (siteId: number, department: DepartmentId) =>
   apiGet<BackendStatus>(withQuery(`/sites/${siteId}/status`, { department }))
 
-export const startGuardRoomSiteRuntime = async (siteId: number) => {
-  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/start`)
+export const startGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
+  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/start`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
 
-export const stopGuardRoomSiteRuntime = async (siteId: number) => {
-  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/stop`)
+export const stopGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
+  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/stop`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
 
-export const restartGuardRoomSiteRuntime = async (siteId: number) => {
-  const result = await apiPost<ControlResponse>(`/sites/${siteId}/control/restart`)
+export const restartGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
+  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/restart`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
@@ -387,20 +387,20 @@ export const getGuardRoomSiteCameras = async (siteId: number, department: Depart
   return data.items || []
 }
 
-export const createGuardRoomSiteCamera = async (siteId: number, payload: CreateGuardRoomCameraPayload) => {
-  const camera = await apiPost<GuardRoomCamera>(`/sites/${siteId}/cameras`, payload)
+export const createGuardRoomSiteCamera = async (siteId: number, payload: CreateGuardRoomCameraPayload, department: DepartmentId) => {
+  const camera = await apiPost<GuardRoomCamera>(withQuery(`/sites/${siteId}/cameras`, { department }), payload)
   notifyPlatformCamerasChanged()
   return camera
 }
 
-export const updateGuardRoomCamera = async (cameraId: number, payload: UpdateGuardRoomCameraPayload) => {
-  const camera = await apiPut<GuardRoomCamera>(`/cameras/${cameraId}`, payload)
+export const updateGuardRoomCamera = async (cameraId: number, payload: UpdateGuardRoomCameraPayload, department: DepartmentId) => {
+  const camera = await apiPut<GuardRoomCamera>(withQuery(`/integrations/guard-room/api/cameras/${cameraId}`, { department }), payload)
   notifyPlatformCamerasChanged()
   return camera
 }
 
-export const deleteGuardRoomCamera = async (cameraId: number) => {
-  const result = await apiDelete<{ success: boolean }>(`/cameras/${cameraId}`)
+export const deleteGuardRoomCamera = async (cameraId: number, department: DepartmentId) => {
+  const result = await apiDelete<{ success: boolean }>(withQuery(`/integrations/guard-room/api/cameras/${cameraId}`, { department }))
   notifyPlatformCamerasChanged()
   return result
 }

@@ -152,8 +152,8 @@ def create_app(
         """
         path = request.url.path
         # 先列出公共接口
-        public_paths = {"/api/runtime/health"}
-        # 三种请求直接放行：OPTIONS、path in public_paths(目前是/api/runtime/health)、所有的/api/public/xxx
+        public_paths = {"/api/runtime/health", "/api/integrations/security-vlm/health"}
+        # 服务探针不读取业务数据，无需登录；业务接口仍按原认证流程处理。
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):

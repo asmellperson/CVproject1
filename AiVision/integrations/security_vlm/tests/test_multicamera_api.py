@@ -623,8 +623,34 @@ async def test_direct_subapplication_enforces_viewer_department_and_read_only_ac
         assert (await client.get(f"{base}/history")).status_code == 200
         assert (await client.get(f"{base}/cameras/{camera['camera_id']}/credentials")).status_code == 403
         assert (await client.post(f"{base}/cameras", json={"name": "拒绝", "rtsp_url": "rtsp://new-camera/stream"})).status_code == 403
-        for resource in ("cameras", "health", "history"):
+        for resource in ("cameras", "health", "history", f"video/{camera['camera_id']}/original"):
             assert (await client.get(f"/api/departments/{other}/{resource}")).status_code == 403
-        assert (await client.get("/health")).status_code == 403
+        health = await client.get("/health")
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok", "ready": True}
         app.dependency_overrides[main.get_current_user] = lambda: {"role": "viewer", "departments": ["all"]}
         assert (await client.get(f"{base}/cameras")).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_service_health_is_public_and_does_not_read_business_data(tmp_path, monkeypatch):
+    service, _manager = make_service(tmp_path)
+    app = main.create_app(service.config_path, service=service)
+
+    def unauthenticated():
+        raise main.HTTPException(status_code=401, detail="authentication required")
+
+    def forbidden_business_read(*args, **kwargs):
+        raise AssertionError("服务探针不得读取事业部业务数据")
+
+    app.dependency_overrides[main.get_current_user] = unauthenticated
+    monkeypatch.setattr(service, "workspace", forbidden_business_read)
+    monkeypatch.setattr(service, "get_state", forbidden_business_read)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "ready": True}
+        assert (await client.get("/api/departments/fulida_company/health")).status_code == 401
+        assert (await client.get("/api/departments/fulida_company/video/cam1/original")).status_code == 401
+        app.dependency_overrides[main.get_current_user] = lambda: {"role": "admin"}
+        assert (await client.get("/api/departments/ge/health")).status_code == 400

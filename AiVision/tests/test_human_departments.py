@@ -92,7 +92,8 @@ def test_config_status_frame_alarm_and_statistics_are_scoped(human_api, departme
             assert save(api, SPEC.name, enabled, camera=key).status_code == 403
         assert api.client.patch(f"/api/cameras/{key}", json={"enabled": False}).status_code == 403
     assert api.client.get(f"/api/cameras?department={other}").status_code == 403
-    cameras = api.client.get("/api/cameras").json()
+    assert api.client.get("/api/cameras").status_code == 422
+    cameras = api.client.get("/api/cameras", params={"department": department}).json()
     assert [camera["department"] for camera in cameras] == [department]
     status = api.client.get("/api/runtime/status").json()
     assert status["running_cameras"] == [department]
@@ -285,3 +286,29 @@ def test_notification_thumbnail_accepts_all_official_departments(monkeypatch, de
     for other in DEPARTMENTS:
         if other != department:
             assert not verify_thumbnail_token(token, 1, other)
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+@pytest.mark.parametrize("department", DEPARTMENTS)
+def test_camera_list_requires_explicit_department_for_every_account(human_api, department, role):
+    api = human_api
+    other = next(value for value in DEPARTMENTS if value != department)
+    for authorized in ([department], [department, other]):
+        api.app.dependency_overrides[get_current_user] = lambda: {"role": role, "departments": authorized}
+        assert api.client.get("/api/cameras").status_code == 422
+        for invalid in ("", "unknown", "ge", "general-electric", "通用电气"):
+            assert api.client.get("/api/cameras", params={"department": invalid}).status_code == 400
+        response = api.client.get("/api/cameras", params={"department": department})
+        assert response.status_code == 200
+        assert [camera["department"] for camera in response.json()] == [department]
+
+
+@pytest.mark.parametrize("user", [
+    {"role": "viewer", "departments": []},
+    {"role": "viewer", "departments": ["all"]},
+    {"role": "unknown", "departments": ["general_electric"]},
+])
+def test_unfiltered_alarm_queries_still_require_authorized_departments(human_api, user):
+    human_api.app.dependency_overrides[get_current_user] = lambda: user
+    for path in ("/api/alarms", "/api/alarms/statistics/summary"):
+        assert human_api.client.get(path).status_code == 403

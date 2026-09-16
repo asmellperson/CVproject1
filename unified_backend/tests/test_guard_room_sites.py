@@ -312,20 +312,14 @@ def test_guard_site_runtime_summary_exposes_site_status_errors():
     assert summary["status_error"] == "1 个保安室运行状态获取失败: 1: 401 Unauthorized"
 
 
-# 功能：验证 `test_guard_alarm_paths_prefers_site_scoped_alarm_endpoints` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_guard_alarm_paths`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_guard_alarm_paths_prefers_site_scoped_alarm_endpoints():
+def test_guard_alarm_paths_requires_explicit_department():
     sites = {"items": [{"id": 1}, {"id": 2}]}
 
-    assert _guard_alarm_paths(sites, 100) == [
-        "/api/sites/1/alarms?limit=100",
-        "/api/sites/2/alarms?limit=100",
-    ]
+    with pytest.raises(TypeError):
+        _guard_alarm_paths(sites, 100)
+    for invalid in (None, "", "ge", "通用电气"):
+        with pytest.raises(ValueError):
+            _guard_alarm_paths(sites, 100, department=invalid)
 
 
 # 功能：验证 `test_guard_alarm_paths_can_scope_site_endpoints_by_department` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -385,3 +379,36 @@ def test_overview_alarms_query_department_before_limiting(monkeypatch, departmen
         backend._collect_alarms(**args, department=foreign)
     assert caught.value.status_code == 403
     assert calls == []
+
+
+def test_security_service_probe_passes_proxy_without_business_authorization(tmp_path, monkeypatch):
+    import asyncio
+    import importlib
+    import httpx
+    from fastapi.responses import JSONResponse
+    from auth.auth import AuthError
+
+    backend = importlib.import_module("unified_backend.app")
+    forwarded = []
+
+    async def proxy(request, base_url, upstream_path):
+        forwarded.append(upstream_path)
+        return JSONResponse({"status": "ok", "ready": True})
+
+    def unauthenticated(_request):
+        raise AuthError("authentication required")
+
+    monkeypatch.setenv("UNIFIED_BACKEND_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(backend, "_proxy", proxy)
+    monkeypatch.setattr(backend, "get_current_user_from_request", unauthenticated)
+    app = backend.create_app()
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/security-vlm/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok", "ready": True}
+            assert (await client.get("/security-vlm/api/departments/fulida_company/health")).status_code == 401
+        assert forwarded == ["/health"]
+
+    asyncio.run(scenario())

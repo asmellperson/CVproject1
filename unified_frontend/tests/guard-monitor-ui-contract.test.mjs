@@ -77,8 +77,8 @@ test('extracts repeated display elements without moving business logic', () => {
 
   assert.match(monitor, /getGuardRoomSiteStatus\(site\.id, department\)/)
   assert.doesNotMatch(monitor, /startGuardRoomSiteRuntime|stopGuardRoomSiteRuntime/)
-  assert.match(runtime, /startGuardRoomSiteRuntime\(site\.id\)/)
-  assert.match(runtime, /stopGuardRoomSiteRuntime\(site\.id\)/)
+  assert.match(runtime, /startGuardRoomSiteRuntime\(site\.id, department\)/)
+  assert.match(runtime, /stopGuardRoomSiteRuntime\(site\.id, department\)/)
   assert.match(runtime, /useSerialPoll/)
   assert.match(monitor, /guardRoomSiteFrameUrl\(site\.id, department\)/)
   assert.match(monitor, /window\.setInterval\(fetchStatus, POLL_MS\)/)

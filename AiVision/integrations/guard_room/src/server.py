@@ -35,7 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 
-from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from AiVision.departments.department_registry import require_department
 from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 
 from auth.auth import (
@@ -89,22 +89,6 @@ class ConfigUpdateRequest(BaseModel):
     classes: Optional[dict] = None
     runtime: Optional[dict] = None
     wechat: Optional[dict] = None
-
-
-# 功能：新增保安室/监控区域请求体；输入与输出详见下方说明
-# 参数：
-#   - `name`（str）：业务对象名称
-#   - `department`（Optional[str]）：业务部门名称或标识
-#   - `enabled`（bool）：是否启用相应能力
-#   - `description`（Optional[str]）：`description` 对应的业务输入值
-#   - `sort_order`（Optional[int]）：`sort_order` 对应的业务输入值
-# 返回：SiteCreateRequest；返回新建的 `SiteCreateRequest` 实例。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_create_site_and_camera`
-#         实例化本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_scope_sites_by_department`
-#         实例化本符号；`AiVision/integrations/guard_room/tests/test_site_api.py` 的 `test_site_api_routes_update_and_delete_camera` 实例化本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 class SiteCreateRequest(BaseModel):
     """新增保安室/监控区域请求体。"""
 
@@ -179,44 +163,36 @@ class CameraUpdateRequest(BaseModel):
 # 工厂函数
 # ---------------------------------------------------------------------------
 
-def _department_scope(requested_department: str | None, user: object) -> str:
-    requested = None
-    if requested_department is not None:
-        try:
-            requested = require_department(requested_department)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+def _department_scope(requested_department: str, user: object) -> str:
+    """请求必须明确事业部，管理员也不能省略业务数据范围。"""
+    try:
+        department = require_department(requested_department)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not isinstance(user, dict):
         raise HTTPException(status_code=403, detail="事业部权限不足")
-    role = user.get("role")
-    candidates = user.get("departments") or []
-    if role == "admin":
-        return requested or ""
-    departments = [d for d in candidates if isinstance(d, str) and d in DEPARTMENT_SPECS]
-    if role != "viewer" or not departments or (requested and requested not in departments):
-        raise HTTPException(status_code=403, detail="无权访问该部门保安室")
-    return requested or departments[0]
+    departments = user.get("departments")
+    if user.get("role") != "admin" and (
+        user.get("role") != "viewer"
+        or not isinstance(departments, list)
+        or department not in departments
+    ):
+        raise HTTPException(status_code=403, detail="无权访问该事业部保安室")
+    return department
 
 
-# 功能：实现 `_require_site_visible` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `site_service`（GuardRoomService）：`site_service` 对应的业务输入值
-#   - `site_id`（int）：保安室站点唯一标识
-#   - `department`（str）：业务部门名称或标识
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_config`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_status`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::site_frame_jpg` 调用本符号；另有 7 处静态调用
-#   - 内部调用：`site_service.get_site`、`site.get`、`HTTPException`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _require_site_visible(site_service: GuardRoomService, site_id: int, department: str) -> None:
-    if not department:
-        return
     site = site_service.get_site(site_id, include_config=False)
     if site is None or site.get("department") != department:
         raise HTTPException(status_code=404, detail="保安室不存在")
+
+
+def _require_camera_visible(site_service: GuardRoomService, camera_id: int, department: str) -> dict:
+    camera = site_service.get_camera(camera_id)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="摄像头不存在")
+    _require_site_visible(site_service, int(camera["site_id"]), department)
+    return camera
 
 # 功能：从环境变量 AUTH_CORS_ORIGINS 读取允许的 CORS 源列表；输入与输出详见下方说明
 # 参数：无。
@@ -485,43 +461,23 @@ def create_app(
         """
         return {"status": "ok", "ready": True, "port": int(os.getenv("API_PORT", "7862"))}
 
-    # ── 保安室/摄像头路由 ────────────────────────────────────────────────
-
-    # 功能：返回保安行为规范检测下的保安室/监控区域列表；输入与输出详见下方说明
-    # 参数：
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`site_service.list_sites`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @app.get("/api/sites")
-    def list_sites(department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def list_sites(department: str, _user: dict = Depends(get_current_user)):
         """返回保安行为规范检测下的保安室/监控区域列表。"""
         scope = _department_scope(department, _user)
-        return {"items": site_service.list_sites(include_cameras=True, department=scope or None)}
+        return {"items": site_service.list_sites(include_cameras=True, department=scope)}
 
-    # 功能：新增保安室/监控区域（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `payload`（SiteCreateRequest）：接口或事件携带的业务数据
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_service.create_site`、`HTTPException`、`str`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/sites")
     def create_site(payload: SiteCreateRequest, _user: dict = Depends(require_admin)):
         """新增保安室/监控区域（需 admin）。
 
-        新增保安室只需要名称，默认配置从当前 guard_room 配置模板复制；
+        新增保安室必须明确名称和所属事业部，默认配置从当前配置模板复制；
         RTSP 地址在该保安室下继续通过摄像头接口添加。
         """
         try:
             return site_service.create_site(
                 payload.name,
-                department=require_department(payload.department),
+                department=_department_scope(payload.department, _user),
                 enabled=payload.enabled,
                 description=payload.description,
                 sort_order=payload.sort_order,
@@ -529,18 +485,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 功能：返回单个保安室详情，包含该保安室下的摄像头列表和配置；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_service.get_site`、`HTTPException`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}")
-    def get_site(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回单个保安室详情，包含该保安室下的摄像头列表和配置。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -549,19 +495,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="保安室不存在")
         return site
 
-    # 功能：更新保安室基础信息（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `payload`（SiteUpdateRequest）：接口或事件携带的业务数据
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.put('/api/sites/{site_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`payload.model_dump`、`site_service.update_site`、`HTTPException`、`str`、`site.get`、`site_runtime_manager.start`、`site_runtime_manager.stop`、`app.put`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     @app.put("/api/sites/{site_id}")
-    def update_site(site_id: int, payload: SiteUpdateRequest, _user: dict = Depends(require_admin)):
+    def update_site(site_id: int, payload: SiteUpdateRequest, department: str, _user: dict = Depends(require_admin)):
         """更新保安室基础信息（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         values = payload.model_dump(exclude_unset=True)
         try:
             site = site_service.update_site(site_id, values)
@@ -580,18 +518,11 @@ def create_app(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         return site
 
-    # 功能：删除保安室及其摄像头/配置（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.delete('/api/sites/{site_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`getattr`、`callable`、`remove_runtime`、`site_service.delete_site`、`HTTPException`、`app.delete`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.delete("/api/sites/{site_id}")
-    def delete_site(site_id: int, _user: dict = Depends(require_admin)):
+    def delete_site(site_id: int, department: str, _user: dict = Depends(require_admin)):
         """删除保安室及其摄像头/配置（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         remove_runtime = getattr(site_runtime_manager, "remove", None)
         if callable(remove_runtime):
             remove_runtime(site_id)
@@ -599,18 +530,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="保安室不存在")
         return {"success": True}
 
-    # 功能：返回保安室独立配置；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/config')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_service.get_site_config`、`HTTPException`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/config")
-    def get_site_config(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_config(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回保安室独立配置。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -619,37 +540,19 @@ def create_app(
             raise HTTPException(status_code=404, detail="保安室配置不存在")
         return cfg_payload
 
-    # 功能：局部更新保安室独立配置（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `payload`（ConfigUpdateRequest）：接口或事件携带的业务数据
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites/{site_id}/config')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`payload.model_dump`、`site_service.update_site_config`、`HTTPException`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/sites/{site_id}/config")
-    def update_site_config(site_id: int, payload: ConfigUpdateRequest, _user: dict = Depends(require_admin)):
+    def update_site_config(site_id: int, payload: ConfigUpdateRequest, department: str, _user: dict = Depends(require_admin)):
         """局部更新保安室独立配置（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         patch = payload.model_dump(exclude_unset=True)
         cfg_payload = site_service.update_site_config(site_id, patch)
         if cfg_payload is None:
             raise HTTPException(status_code=404, detail="保安室不存在")
         return {"success": True, "config": cfg_payload}
 
-    # 功能：返回指定保安室的独立运行状态；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/status')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_status`、`HTTPException`、`str`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/status")
-    def get_site_status(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_status(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室的独立运行状态。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -658,69 +561,38 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：启动指定保安室的检测运行时（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites/{site_id}/control/start')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_runtime_manager.start`、`HTTPException`、`str`、`app.post`。
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源；校验或执行失败时会主动抛出异常。
     @app.post("/api/sites/{site_id}/control/start")
-    def start_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+    def start_site_runtime(site_id: int, department: str, _user: dict = Depends(require_admin)):
         """启动指定保安室的检测运行时（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return site_runtime_manager.start(site_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 功能：停止指定保安室的检测运行时（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites/{site_id}/control/stop')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_runtime_manager.stop`、`HTTPException`、`str`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/sites/{site_id}/control/stop")
-    def stop_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+    def stop_site_runtime(site_id: int, department: str, _user: dict = Depends(require_admin)):
         """停止指定保安室的检测运行时（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return site_runtime_manager.stop(site_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：重启指定保安室的检测运行时（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites/{site_id}/control/restart')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_runtime_manager.restart`、`HTTPException`、`str`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/sites/{site_id}/control/restart")
-    def restart_site_runtime(site_id: int, _user: dict = Depends(require_admin)):
+    def restart_site_runtime(site_id: int, department: str, _user: dict = Depends(require_admin)):
         """重启指定保安室的检测运行时（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             return site_runtime_manager.restart(site_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 功能：返回指定保安室拼接后的最新 JPEG 帧；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/frame.jpg')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`Response`、`site_runtime_manager.get_latest_frame`、`HTTPException`、`str`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/frame.jpg")
-    def site_frame_jpg(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def site_frame_jpg(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室拼接后的最新 JPEG 帧。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -729,19 +601,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：返回指定保安室下单路摄像头的最新 JPEG 帧，用于按摄像头绘制 ROI；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `camera_id`（str）：摄像头唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/cameras/{camera_id}/frame.jpg')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`Response`、`site_runtime_manager.get_camera_frame`、`HTTPException`、`str`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/cameras/{camera_id}/frame.jpg")
-    def site_camera_frame_jpg(site_id: int, camera_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def site_camera_frame_jpg(site_id: int, camera_id: str, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室下单路摄像头的最新 JPEG 帧，用于按摄像头绘制 ROI。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -753,18 +614,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：返回指定保安室的 MJPEG 拼接视频流；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/stream.mjpg')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_state`、`HTTPException`、`str`、`StreamingResponse`、`gen`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/stream.mjpg")
-    def site_mjpeg_stream(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def site_mjpeg_stream(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室的 MJPEG 拼接视频流。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -773,13 +624,6 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        # 功能：实现 `gen` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：无。
-        # 返回：None；仅执行处理流程，不返回业务数据。
-        # 调用关系：
-        #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-        #   - 内部调用：`object`、`time.sleep`、`state_for_site.get_latest_frame`。
-        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
         def gen():
             boundary = b"--frame\r\n"
             last_update_ts = object()
@@ -798,19 +642,8 @@ def create_app(
 
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
-    # 功能：返回指定保安室最近报警；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `50`
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/alarms')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_alarms`、`HTTPException`、`str`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/alarms")
-    def get_site_alarms(site_id: int, limit: int = 50, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_alarms(site_id: int, department: str, limit: int = 50, _user: dict = Depends(get_current_user)):
         """返回指定保安室最近报警。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -819,20 +652,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：返回指定保安室报警快照；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `alarm_id`（str）：`alarm_id` 对应业务对象的唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/alarms/{alarm_id}/image')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_alarm`、`HTTPException`、`str`、`alarm.get`、`Path`、`path.exists`、`FileResponse`
-    #          等共 11 个调用。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/alarms/{alarm_id}/image")
-    def get_site_alarm_image(site_id: int, alarm_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_alarm_image(site_id: int, alarm_id: str, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警快照。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -850,20 +671,8 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"截图文件已被清理或移动: {image_path}")
         return FileResponse(str(path), media_type="image/jpeg")
 
-    # 功能：返回指定保安室报警视频；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `alarm_id`（str）：`alarm_id` 对应业务对象的唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/alarms/{alarm_id}/video')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_alarm`、`HTTPException`、`str`、`alarm.get`、`Path`、`path.exists`、`ensure_browser_compatible_mp4`
-    #          等共 13 个调用。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/alarms/{alarm_id}/video")
-    def get_site_alarm_video(site_id: int, alarm_id: str, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_alarm_video(site_id: int, alarm_id: str, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警视频。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -886,18 +695,8 @@ def create_app(
             raise HTTPException(status_code=500, detail="报警视频暂时无法播放") from exc
         return FileResponse(str(compatible_path), media_type="video/mp4")
 
-    # 功能：返回指定保安室报警统计；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/statistics')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_runtime_manager.get_statistics`、`HTTPException`、`str`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/statistics")
-    def get_site_statistics(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def get_site_statistics(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室报警统计。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -906,18 +705,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # 功能：返回指定保安室下的摄像头列表；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `department`（Optional[str]）：业务部门名称或标识；默认值为 `None`
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/sites/{site_id}/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`_department_scope`、`_require_site_visible`、`site_service.get_site`、`HTTPException`、`site_service.list_cameras`、`app.get`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.get("/api/sites/{site_id}/cameras")
-    def list_site_cameras(site_id: int, department: Optional[str] = None, _user: dict = Depends(get_current_user)):
+    def list_site_cameras(site_id: int, department: str, _user: dict = Depends(get_current_user)):
         """返回指定保安室下的摄像头列表。"""
         scope = _department_scope(department, _user)
         _require_site_visible(site_service, site_id, scope)
@@ -925,19 +714,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="保安室不存在")
         return {"items": site_service.list_cameras(site_id)}
 
-    # 功能：在指定保安室下新增摄像头（需 admin），每个保安室最多 9 路；输入与输出详见下方说明
-    # 参数：
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `payload`（CameraCreateRequest）：接口或事件携带的业务数据
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/sites/{site_id}/cameras')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_service.create_camera`、`restart_enabled_site`、`str`、`HTTPException`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.post("/api/sites/{site_id}/cameras")
-    def create_site_camera(site_id: int, payload: CameraCreateRequest, _user: dict = Depends(require_admin)):
+    def create_site_camera(site_id: int, payload: CameraCreateRequest, department: str, _user: dict = Depends(require_admin)):
         """在指定保安室下新增摄像头（需 admin），每个保安室最多 9 路。"""
+        scope = _department_scope(department, _user)
+        _require_site_visible(site_service, site_id, scope)
         try:
             camera = site_service.create_camera(
                 site_id,
@@ -953,19 +734,11 @@ def create_app(
             status_code = 404 if "保安室不存在" in message else 400
             raise HTTPException(status_code=status_code, detail=message) from exc
 
-    # 功能：更新保安室摄像头（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `camera_id`（int）：摄像头唯一标识
-    #   - `payload`（CameraUpdateRequest）：接口或事件携带的业务数据
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.put('/api/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_service.update_camera`、`payload.model_dump`、`HTTPException`、`str`、`restart_enabled_site`、`int`、`app.put`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.put("/api/cameras/{camera_id}")
-    def update_site_camera(camera_id: int, payload: CameraUpdateRequest, _user: dict = Depends(require_admin)):
+    def update_site_camera(camera_id: int, payload: CameraUpdateRequest, department: str, _user: dict = Depends(require_admin)):
         """更新保安室摄像头（需 admin）。"""
+        scope = _department_scope(department, _user)
+        _require_camera_visible(site_service, camera_id, scope)
         try:
             camera = site_service.update_camera(camera_id, payload.model_dump(exclude_unset=True))
         except ValueError as exc:
@@ -975,21 +748,11 @@ def create_app(
         restart_enabled_site(int(camera["site_id"]))
         return camera
 
-    # 功能：删除保安室摄像头（需 admin）；输入与输出详见下方说明
-    # 参数：
-    #   - `camera_id`（int）：摄像头唯一标识
-    #   - `_user`（dict）：`_user` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.delete('/api/cameras/{camera_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`site_service.get_camera`、`HTTPException`、`site_service.delete_camera`、`restart_enabled_site`、`int`、`app.delete`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
     @app.delete("/api/cameras/{camera_id}")
-    def delete_site_camera(camera_id: int, _user: dict = Depends(require_admin)):
+    def delete_site_camera(camera_id: int, department: str, _user: dict = Depends(require_admin)):
         """删除保安室摄像头（需 admin）。"""
-        camera = site_service.get_camera(camera_id)
-        if camera is None:
-            raise HTTPException(status_code=404, detail="摄像头不存在")
+        scope = _department_scope(department, _user)
+        camera = _require_camera_visible(site_service, camera_id, scope)
         if not site_service.delete_camera(camera_id):
             raise HTTPException(status_code=404, detail="摄像头不存在")
         restart_enabled_site(int(camera["site_id"]))

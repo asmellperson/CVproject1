@@ -60,33 +60,18 @@ def _camera_departments_for_user(user: dict) -> list[str]:
     ))
 
 
-def camera_read_department(user: dict, requested_department: str | None) -> str | None:
-    """返回当前用户可读取的部门过滤值。
-    参数：
-        user：当前登录用户账号
-        requested_department: 前端请求携带的部门（访问前端的部门）
-    """
-    if requested_department is not None:
-        try:
-            require_department(requested_department)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # 管理员不按部门过滤，管理员可以查看所有摄像头
-    if user.get("role") == "admin":
-        return requested_department
-    # 普通用户先获取自己的授权部门
-    departments = _camera_departments_for_user(user)
-    # 用户没有权限，返回403
-    if user.get("role") != "viewer" or not departments:
+def camera_read_department(user: dict, requested_department: str) -> str:
+    """摄像头列表必须明确事业部，并在查询前校验授权。"""
+    try:
+        department = require_department(requested_department)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if user.get("role") != "admin" and (
+        user.get("role") != "viewer" or department not in _camera_departments_for_user(user)
+    ):
         raise HTTPException(status_code=403, detail="camera department permission required")
-    if requested_department is not None:
-        # 防止用户可以查看未授权的事业部
-        if requested_department not in departments:
-            raise HTTPException(status_code=403, detail="camera department permission required")
-        return requested_department
-    
-    # 前端没有携带需要查看的部门时，如果user本身可查看的部门只有一个，就返回这个部门，如果有多个就返回None
-    return departments[0] if len(departments) == 1 else None    
+    return department
+
 
 def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, Any]:
     """ 根据用户身份，决定返回给前端的摄像头信息里要不要包含RTSP地址"""
@@ -145,22 +130,15 @@ def get_camera_for_user(camera_config_manager, key: str, user: dict) -> dict[str
 
 @router.get("")
 def list_cameras(
-    department: str | None = Query(None, description="可选按部门过滤"),           # 前端可以选择传部门也可以不传
+    department: str = Query(..., description="正式事业部编码"),
     user: dict = Depends(get_current_user),
     camera_config_manager=Depends(get_camera_config_manager),
 ) -> list[dict[str, Any]]:
-    """
-    获取摄像头列表API
-    """
-    # 做用户权限过滤和敏感字段过滤
-    return camera_list_response_for_user(
-        # 从数据库查询部门所有的摄像头
-        camera_config_manager.list_cameras(
-            # 判断用户可以查看的部门
-            department=camera_read_department(user, department)      
-        ),
-        user,
-    )
+    """仅返回请求指定且当前用户有权访问的事业部摄像头。"""
+    scope = camera_read_department(user, department)
+    cameras = camera_config_manager.list_cameras(department=scope)
+    return camera_list_response_for_user(cameras, user)
+
 
 @router.post("", status_code=status.HTTP_201_CREATED)      # HTTP给201  Created表示新的摄像头创建成功了
 def create_camera(

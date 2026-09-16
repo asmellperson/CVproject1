@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 import cv2
 import numpy as np
 import yaml
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -668,30 +668,27 @@ def create_app(
         finally:
             service.shutdown()
 
-    def authorize_department(request: Request, user: dict = Depends(get_current_user)) -> None:
+    def authorize_department(department: str, request: Request, user: dict = Depends(get_current_user)) -> None:
         # 子应用直接访问时也校验归属，不能只依赖统一网关的权限过滤。
-        department = request.path_params.get("department")
-        if department is not None:
-            try:
-                require_department(department)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            require_department(department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if user.get("role") == "admin":
             return
         departments = user.get("departments")
         if (
             user.get("role") != "viewer"
             or not isinstance(departments, list)
-            or department is None
             or department not in departments
             or request.method not in {"GET", "HEAD"}
             or request.url.path.rstrip("/").endswith("/credentials")
         ):
             raise HTTPException(status_code=403, detail="无权访问该事业部安检资源")
 
-    app = FastAPI(
-        title="Security VLM Inspection",
-        lifespan=lifespan,
+    app = FastAPI(title="Security VLM Inspection", lifespan=lifespan)
+    department_router = APIRouter(
+        prefix="/api/departments/{department}",
         dependencies=[Depends(authorize_department)],
     )
     # 允许跨域请求，便于前端开发
@@ -728,13 +725,13 @@ def create_app(
                 service._frame_hubs.pop(key, None)
 
     # 所有检测接口都要求显式事业部上下文。
-    @app.get("/api/departments/{department}/cameras")
+    @department_router.get("/cameras")
     async def department_cameras(department: str):
         department = department_or_400(department)
         state = await run_blocking(service.get_state, department)
         return JSONResponse({"department": department, "cameras": state["cameras"]})
 
-    @app.post("/api/departments/{department}/cameras")
+    @department_router.post("/cameras")
     async def department_create_camera(department: str, req: CameraCreateRequest):
         department = department_or_400(department)
         registry = service.workspace(department).registry
@@ -744,12 +741,12 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({"ok": True, "camera": registry.public(camera)}, status_code=201)
 
-    @app.get("/api/departments/{department}/cameras/{camera_id}")
+    @department_router.get("/cameras/{camera_id}")
     async def department_get_camera(department: str, camera_id: str):
         department_camera(department, camera_id)
         return JSONResponse({"camera": await run_blocking(service.get_camera_state, camera_id, department)})
 
-    @app.put("/api/departments/{department}/cameras/{camera_id}")
+    @department_router.put("/cameras/{camera_id}")
     async def department_update_camera(department: str, camera_id: str, req: CameraUpdateRequest):
         department_camera(department, camera_id)
         status = await run_blocking(service.runtime_manager.status, department, camera_id)
@@ -762,7 +759,7 @@ def create_app(
         invalidate_frame_hubs(department, camera_id)
         return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
 
-    @app.delete("/api/departments/{department}/cameras/{camera_id}")
+    @department_router.delete("/cameras/{camera_id}")
     async def department_delete_camera(department: str, camera_id: str):
         department_camera(department, camera_id)
         try:
@@ -771,12 +768,12 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return JSONResponse({"ok": True, "camera": service.workspace(department).registry.public(camera)})
 
-    @app.get("/api/departments/{department}/cameras/{camera_id}/credentials")
+    @department_router.get("/cameras/{camera_id}/credentials")
     async def department_credentials(department: str, camera_id: str):
         camera = department_camera(department, camera_id)
         return JSONResponse({"camera": {key: camera[key] for key in ("camera_id", "name", "rtsp_url")}})
 
-    @app.post("/api/departments/{department}/cameras/test")
+    @department_router.post("/cameras/test")
     async def department_test_camera(department: str, req: CameraTestRequest):
         department_or_400(department)
         try:
@@ -785,7 +782,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="无法连接摄像头或读取视频信息") from exc
         return JSONResponse({"ok": True, **details})
 
-    @app.post("/api/departments/{department}/cameras/{camera_id}/control/{action}")
+    @department_router.post("/cameras/{camera_id}/control/{action}")
     async def department_camera_control(department: str, camera_id: str, action: str):
         department_camera(department, camera_id)
         if action not in {"start", "stop", "restart"}:
@@ -794,7 +791,7 @@ def create_app(
         invalidate_frame_hubs(department, camera_id)
         return JSONResponse(result, status_code=200 if result["ok"] else 500)
 
-    @app.post("/api/departments/{department}/cameras/control/{action}")
+    @department_router.post("/cameras/control/{action}")
     async def department_all_control(department: str, action: str):
         department_or_400(department)
         if action not in {"start-all", "stop-all"}:
@@ -804,14 +801,14 @@ def create_app(
         result = await run_blocking(method, department)
         return JSONResponse(result, status_code=200 if result["ok"] else 207)
 
-    @app.get("/api/departments/{department}/cameras/{camera_id}/rois")
+    @department_router.get("/cameras/{camera_id}/rois")
     async def department_get_rois(department: str, camera_id: str):
         department_camera(department, camera_id)
         rois = await run_blocking(service.load_rois, camera_id, department)
         return JSONResponse({"department": department, "camera_id": camera_id, "staff_rois": rois, "available_slots": list(rois)})
 
-    @app.put("/api/departments/{department}/cameras/{camera_id}/rois")
-    @app.post("/api/departments/{department}/cameras/{camera_id}/rois")
+    @department_router.put("/cameras/{camera_id}/rois")
+    @department_router.post("/cameras/{camera_id}/rois")
     async def department_save_rois(department: str, camera_id: str, req: ROIRequest):
         department_camera(department, camera_id)
         try:
@@ -828,12 +825,12 @@ def create_app(
             "available_slots": list(rois),
         })
 
-    @app.get("/api/departments/{department}/health")
+    @department_router.get("/health")
     async def department_state(department: str):
         department = department_or_400(department)
         return JSONResponse(await run_blocking(service.get_state, department))
 
-    @app.get("/api/departments/{department}/history")
+    @department_router.get("/history")
     async def department_history(department: str, limit: int = 100, camera_id: str | None = None):
         department = department_or_400(department)
         state = await run_blocking(service.get_state, department)
@@ -857,19 +854,8 @@ def create_app(
     # ---- 数据接口 ----
     @app.get("/health")
     async def health():
-        """平台健康端点只返回各事业部运行摘要。"""
-        summaries = {}
-        for department in DEPARTMENTS:
-            state = await run_blocking(service.get_state, department)
-            cameras = state["cameras"]
-            summaries[department] = {
-                "department": department,
-                "running": state["running"],
-                "camera_count": len(cameras),
-                "online_camera_count": sum(bool(camera["running"]) for camera in cameras),
-                "vlm": state["vlm"],
-            }
-        return JSONResponse({"ok": True, "departments": summaries})
+        """服务探针只报告进程可响应，不读取事业部工作区或运行数据。"""
+        return {"status": "ok", "ready": True}
 
     # ---- MJPEG 流生成器 ----
     async def _mjpeg(
@@ -949,9 +935,7 @@ def create_app(
                 print(f"[mjpeg] {camera_id}/{kind} error: {e}", flush=True)
                 await asyncio.sleep(0.1)
 
-    @app.get(
-        "/api/departments/{department}/video/{camera_id}/{kind}"
-    )
+    @department_router.get("/video/{camera_id}/{kind}")
     async def department_camera_video(
         department: str,
         camera_id: str,
@@ -965,4 +949,5 @@ def create_app(
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
+    app.include_router(department_router)
     return app

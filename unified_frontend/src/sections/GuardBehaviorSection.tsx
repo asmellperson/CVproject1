@@ -71,7 +71,7 @@ export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) 
   const handleDeleteSite = async (siteId: number) => {
     setSiteError('')
     try {
-      await deleteGuardRoomSite(siteId)
+      await deleteGuardRoomSite(siteId, department)
       await loadSites()
     } catch (error) {
       setSiteError(error instanceof Error ? error.message : String(error))
