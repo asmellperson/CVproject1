@@ -8,6 +8,7 @@ from AiVision.alarms.dispatcher import AlarmRequest
 from AiVision.features.registry import all_specs
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.alarms.records.orm import AiAlarmEvent
+from AiVision.alarms.types import VIOLATION_TYPE_META
 from AiVision.api.routes.logistics_channels import _channel_alarm_query, _alarm_dict
 from AiVision.tests.test_violation_writer import writer_db
 
@@ -52,6 +53,21 @@ def test_new_alarm_identity_is_required(writer_db, missing):
     for method in (writer.enqueue, writer.save_now):
         with pytest.raises(TypeError):
             method(frame=np.zeros((4, 4, 3), np.uint8), camera_no="camera", **values)
+
+
+def test_recognition_alarm_identity_is_accepted_at_all_write_boundaries(writer_db):
+    writer, factory, _ = writer_db
+    values = dict(violation_type=7, feature_name="recognize_face", department="electronics_electrician")
+    assert request(**values).violation_type == 7
+    with factory.begin() as session:
+        session.add(AiAlarmEvent(image_path="recognition.png", **values))
+    result = writer.save_now(frame=np.zeros((4, 4, 3), np.uint8), camera_no="camera", **values)
+    assert result and result.id
+    writer.enqueue(frame=np.zeros((4, 4, 3), np.uint8), camera_no="camera", **values)
+    assert not writer._queue.empty()
+    for violation_type in [0, max(VIOLATION_TYPE_META) + 1, True, 7.0, "7"]:
+        with pytest.raises(ValueError):
+            request(**(values | {"violation_type": violation_type}))
 
 
 def test_orm_revalidates_identity_before_insert(writer_db):

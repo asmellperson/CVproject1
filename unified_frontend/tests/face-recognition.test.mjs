@@ -52,6 +52,11 @@ const cameraApi = {
   isAiVisionFeatureEnabled: (camera, feature) => Boolean(camera.functions[feature]),
 }
 const faceApi = { FACE_FEATURE: 'recognize_face', FACE_DEPARTMENT: 'electronics_electrician' }
+const recognitionAlarm = {
+  sql: { enable: false, parm: {} },
+  wechat: { enable: true, parm: { user: 'test-user|second-user' } },
+  horn: { enable: true, parm: { horn_id: 2, horn_event_id: 7 } },
+}
 const camera = (id, enabled = true, feature = true) => ({
   id: String(id), camera_id: id, shm_name: `camera_${id}`, name: `摄像头${id}`, enabled,
   functions: { recognize_face: feature },
@@ -61,6 +66,9 @@ const sharedUi = {
   '@/components/ui/button': ui, '@/components/ui/card': ui, '@/components/ui/label': ui,
   '@/components/ui/select': ui, '@/components/ui/badge': ui,
   '@/components/monitor/ResizableMonitorLayout': { ResizableMonitorLayout: wrapper },
+  '@/components/AlarmPushConfig': { WechatAlarmSettings: 'WechatAlarmSettings' },
+  '@/components/horn/HornAlarmBinding': { HornAlarmBinding: 'HornAlarmBinding' },
+  '@/components/horn/HornDeviceManager': { HornDeviceManager: 'HornDeviceManager' },
   '@/lib/aivision': cameraApi,
 }
 
@@ -251,8 +259,8 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
   const target = new EventTarget()
   globalThis.window = target
   let pool = [camera(1), camera(2), camera(3, false, false)]
-  const values = { roi_pos: [], detection_threshold: .37, similarity_threshold: .81, cap_interval: .5, record_cooldown_seconds: 30, record_enabled: true }
-  const configs = new Map(pool.map((item) => [item.shm_name, { enable: item.functions.recognize_face, value: { ...values } }]))
+  const values = { roi_pos: [[0, 0], [1, 0], [1, 1]], detection_threshold: .37, similarity_threshold: .81, cap_interval: .5, record_cooldown_seconds: 30, record_enabled: true, alarm_interval: 5 }
+  const configs = new Map(pool.map((item) => [item.shm_name, { enable: item.functions.recognize_face, value: { ...values }, alarm: structuredClone(recognitionAlarm) }]))
   const listCalls = [], configCalls = [], saves = []
   let added = 0, removed = 0
   const addListener = target.addEventListener.bind(target), removeListener = target.removeEventListener.bind(target)
@@ -289,16 +297,40 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
     await state.save(); state = await harness.flush()
     assert.equal(saves[0].config.value.detection_threshold, .62)
     assert.equal(saves[0].config.value.similarity_threshold, .81)
+    assert.deepEqual(saves[0].config.alarm, recognitionAlarm)
+    assert.deepEqual(saves[0].config.value.roi_pos, values.roi_pos)
     assert.equal(state.form.detectionThreshold, '0.62')
     assert.equal(listCalls.length, 2)
     assert.deepEqual(configCalls, ['camera_1', 'camera_1'])
+    state.setAlarm({ ...state.config.alarm,
+      wechat: { enable: true, parm: { user: 'updated-user' } },
+      horn: { enable: true, parm: { horn_id: 3, horn_event_id: 12 } },
+    })
+    state.setForm((form) => ({ ...form, alarmInterval: '15' }))
+    state = await harness.flush()
+    await state.save(); state = await harness.flush()
+    assert.deepEqual(saves[1].config.value, { ...saves[0].config.value, alarm_interval: 15 })
+    assert.deepEqual(state.config, saves[1].config)
+    assert.equal(state.config.alarm.wechat.parm.user, 'updated-user')
+    assert.deepEqual(state.config.alarm.horn, { enable: true, parm: { horn_id: 3, horn_event_id: 12 } })
+    state.setHornError('已绑定的喇叭设备不存在')
+    state = await harness.flush(); await state.save(); state = await harness.flush()
+    assert.match(state.message, /不存在/)
+    assert.equal(saves.length, 2)
+    state.setHornError(null)
+    for (const invalid of ['', '0', '-1', 'NaN']) {
+      state.setForm((form) => ({ ...form, alarmInterval: invalid }))
+      state = await harness.flush(); await state.save(); state = await harness.flush()
+      assert.equal(saves.length, 2)
+    }
+    state.setForm((form) => ({ ...form, alarmInterval: '15' }))
     for (const invalid of ['', '-0.01', '1.01']) {
       state.setForm((form) => ({ ...form, detectionThreshold: invalid }))
       state = await harness.flush(); await state.save(); state = await harness.flush()
-      assert.equal(saves.length, 1)
+      assert.equal(saves.length, 2)
     }
     await assert.rejects(state.setCameraEnabled('camera_3', true), /摄像头已停用/)
-    assert.equal(saves.length, 1)
+    assert.equal(saves.length, 2)
     await state.setCameraEnabled('camera_1', false); state = await harness.flush()
     assert.equal(state.cameraKey, 'camera_2')
     await state.setCameraEnabled('camera_2', false); state = await harness.flush()
@@ -306,7 +338,7 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
     assert.equal(state.canSave, false)
     assert.equal(state.form.detectionThreshold, '')
     // 复用同一事件处理新建、加入与复制后的列表和配置刷新。
-    pool.push(camera(4)); configs.set('camera_4', { enable: true, value: { ...values, detection_threshold: .24 } })
+    pool.push(camera(4)); configs.set('camera_4', { enable: true, value: { ...values, detection_threshold: .24 }, alarm: structuredClone(recognitionAlarm) })
     target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
     assert.equal(state.cameraKey, 'camera_4')
     assert.equal(state.form.detectionThreshold, '0.24')
@@ -328,7 +360,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
       const events = new EventTarget()
       globalThis.window = events
       const pool = [camera(1), camera(2, true, targetEnabled)]
-      const original = { roi_pos: [], detection_threshold: .35, similarity_threshold: .8, cap_interval: .5, record_cooldown_seconds: 30, record_enabled: true }
+      const original = { roi_pos: [], detection_threshold: .35, similarity_threshold: .8, cap_interval: .5, record_cooldown_seconds: 30, record_enabled: true, alarm_interval: 5 }
       const copied = { ...original, roi_pos: [[0, 0], [1, 0], [1, 1]], detection_threshold: .62, similarity_threshold: .77 }
       let deferList = false, releaseList, releaseConfig
       const reads = []
@@ -344,7 +376,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
             getAiVisionFeatureConfig: async (_feature, key) => {
               reads.push(key)
               if (key === 'camera_2') await new Promise((resolve) => { releaseConfig = resolve })
-              return { config: { enable: key === 'camera_1' || targetEnabled, value: key === 'camera_1' ? original : copied } }
+              return { config: { enable: key === 'camera_1' || targetEnabled, value: key === 'camera_1' ? original : copied, alarm: structuredClone(recognitionAlarm) } }
             },
           },
         })
@@ -428,16 +460,38 @@ test('摄像头管理显示停用状态、禁止加入，并在复制时保留�
   }
 })
 
-test('识别参数控件使用 detection_threshold 对应值及 0～1 / 0.01 边界', async () => {
+test('六个配置页签复用企微与喇叭组件，参数边界及只读权限保持一致', async () => {
+  let readonly = false, changedAlarm
+  const state = {
+    cameras: [camera(1)], cameraKey: 'camera_1', form: { detectionThreshold: '.37', alarmInterval: '5' },
+    config: { enable: true, value: {}, alarm: recognitionAlarm },
+    setAlarm: (alarm) => { changedAlarm = alarm },
+  }
   const { RecognitionConfigView } = await compile('src/components/face_recognition/RecognitionConfigView.tsx', {
-    ...sharedUi, '@/components/detection/DetectionConfigUi': ui, '@/components/ui/input': { Input: 'input' },
+    ...sharedUi, '@/components/detection/DetectionConfigUi': { ...ui, DetectionConfigTab: 'DetectionConfigTab', DetectionSaveBar: 'DetectionSaveBar', DetectionConfigCardHeader: wrapper, DetectionConfigCardContent: wrapper, DetectionConfigTabsList: wrapper }, '@/components/ui/input': { Input: 'input' },
     '@/components/ui/switch': ui, '@/components/ui/tabs': ui, '@/components/FeatureCameraManager': ui, './api': faceApi,
-    './useRecognitionConfig': { useRecognitionConfig: () => ({ cameras: [], form: { detectionThreshold: '.37' }, disabled: false }) },
+    './useRecognitionConfig': { useRecognitionConfig: () => ({ ...state, disabled: readonly, canSave: !readonly }) },
   })
   const tree = RecognitionConfigView()
   const field = elements(tree, (node) => node.props?.id === 'identity-detectionThreshold')[0]
   assert.equal(field.props.value, '.37')
   assert.deepEqual([field.props.min, field.props.max, field.props.step], ['0', '1', '0.01'])
+  assert.deepEqual(elements(tree, (node) => node.type === 'DetectionConfigTab').map((node) => node.props.children), ['摄像头', '识别参数', 'ROI 配置', '模型配置', '报警推送', '喇叭配置'])
+  const wechat = elements(tree, (node) => node.type === 'WechatAlarmSettings')[0]
+  const horn = elements(tree, (node) => node.type === 'HornAlarmBinding')[0]
+  assert.deepEqual(wechat.props.value, recognitionAlarm.wechat)
+  wechat.props.onChange({ enable: false, parm: { user: 'new-user' } })
+  assert.deepEqual(changedAlarm.horn, recognitionAlarm.horn)
+  assert.equal(changedAlarm.wechat.parm.user, 'new-user')
+  horn.props.onChange({ enable: false, parm: { horn_id: 3, horn_event_id: 12 } })
+  assert.deepEqual(changedAlarm.wechat, recognitionAlarm.wechat)
+  assert.deepEqual(changedAlarm.horn.parm, { horn_id: 3, horn_event_id: 12 })
+  assert.equal(elements(tree, (node) => node.type === 'HornDeviceManager').length, 1)
+  readonly = true
+  const readonlyTree = RecognitionConfigView()
+  for (const type of ['WechatAlarmSettings', 'HornAlarmBinding', 'DetectionSaveBar']) {
+    assert.ok(elements(readonlyTree, (node) => node.type === type).every((node) => node.props.disabled))
+  }
 })
 
 test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL 并复用平台大图预览', async () => {

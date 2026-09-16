@@ -135,6 +135,12 @@ test('AlarmPushConfig changes horn without modifying WeChat/SQL and blocks inval
   const render = () => state.render(() => view.AlarmPushConfig({ alarm, onChange: (next) => { changed = next }, onSave: () => { saved++ } }))
   component(render(), 'HornAlarmBinding').props.onChange(binding(2, 11))
   assert.deepEqual(plain(changed), { ...alarm, horn: binding(2, 11) })
+  const wechatProps = nodes(render()).find((node) => node?.type === view.WechatAlarmSettings).props
+  const wechatView = () => state.render(() => view.WechatAlarmSettings(wechatProps))
+  component(wechatView(), 'Switch').props.onCheckedChange(false)
+  assert.deepEqual(plain(changed), { ...alarm, wechat: { ...alarm.wechat, enable: false } })
+  component(wechatView(), 'Input').props.onChange({ target: { value: 'new-user|second-user' } })
+  assert.deepEqual(plain(changed), { ...alarm, wechat: { enable: true, parm: { user: 'new-user|second-user' } } })
   component(render(), 'HornAlarmBinding').props.onValidationChange('invalid')
   assert.equal(component(render(), 'DetectionSaveBar').props.disabled, true)
   component(render(), 'DetectionSaveBar').props.onSave()

@@ -1,6 +1,6 @@
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
-import type { FeatureAlarmConfig } from '@/lib/alarm-config'
+import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
@@ -90,7 +90,7 @@ export type AiVisionModelPathSaveResult = {
 export type AiVisionFeatureConfig = {
   enable: boolean
   value: Record<string, unknown>
-  alarm?: unknown
+  alarm?: NormalizedFeatureAlarmConfig
 }
 
 export type AiVisionLogisticsSinglePersonStatus = {
@@ -325,7 +325,7 @@ export async function getAiVisionFeatureConfig(feature: string, cameraKey: strin
 }
 
 export async function saveAiVisionFeatureConfig(feature: string, cameraKey: string, config: AiVisionFeatureConfig) {
-  const horn = (config.alarm as FeatureAlarmConfig | undefined)?.horn
+  const horn = config.alarm?.horn
   const hornError = horn && validateHornBinding(horn)
   if (hornError) throw new Error(hornError)
   const response = await fetch(`/api/features/${encodeURIComponent(feature)}/configs/${encodeURIComponent(cameraKey)}`, {

@@ -458,15 +458,26 @@ def test_consumer_owns_record_worker_lifecycle(library, monkeypatch):
     assert calls[-2:] == ["writer start", "writer stop"]
 
 
-def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment):
+@pytest.mark.parametrize("matched", [False, True])
+def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment, monkeypatch, matched):
+    from AiVision.features._shared import consumer as consumer_module
+
+    dispatcher = Mock()
+    monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
     consumer.config_cache[7] = {
         "shm_name": "camera_7", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
+        "wechat_enable": True, "wechat_user": "test-user", "horn_enable": True,
+        "horn_id": 1, "horn_event_id": 7, "alarm_interval": 5,
     }
     consumer.frame_cache[7] = np.zeros((120, 200, 3), dtype=np.uint8)
     consumer._masks[7] = (None, 10, 100, 20, 150)
-    detections = [dict(bbox=[0, 0, 30, 40], matched=False, person_id=None, person_name="未知人员",
-                       similarity=.2, type="face_identity") for _ in range(3)]
+    if matched:
+        for person_id in range(1, 4):
+            add_person(library, person_id, source=str(person_id))
+    detections = [dict(bbox=[0, 0, 30, 40], matched=matched, person_id=person_id if matched else None,
+                       person_name=f"测试人员{person_id}" if matched else "未知人员",
+                       similarity=.9 if matched else .2, type="face_identity") for person_id in range(1, 4)]
     consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": detections})
     result = consumer._process(consumer.frame_cache[7], 7)
     assert result[0] is False
@@ -474,6 +485,8 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"conf": .35, "similarity_threshold": .7}
     assert "timeout" not in consumer.dispatch_inference_sync.call_args.kwargs
     annotated = consumer.post_process(7, result)
+    consumer._handle_alarm(7, result, annotated)
+    dispatcher.maybe_dispatch.assert_not_called()
     consumer.stop()
     assert annotated.shape == (120, 200, 3)
     assert np.any(annotated != consumer.frame_cache[7])
@@ -493,14 +506,27 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     assert consumer.get_monitor_status("camera_7")["detections"] == []
 
 
-def test_electronics_feature_config_and_alarm_rejection():
+def test_electronics_feature_config_uses_registered_alarm_schema():
+    from AiVision.alarms.types import VIOLATION_TYPE_META
+    from AiVision.alarms.notifications.wechat import _EVENT_DISPLAY
+    from AiVision.features._shared.alarm_schema import AlarmConfigSchema
+
     assert SPEC.departments == ("electronics_electrician",)
     assert SPEC.required_models == ("insightface",)
     assert SPEC.resolve_camera_department(None) == "electronics_electrician"
     with pytest.raises(ValueError):
         SPEC.resolve_camera_department("research_institute")
-    with pytest.raises(ValueError):
-        FaceRecognitionConfigSchema.model_validate({"alarm": {"sql": {"enable": True}}})
+    config = FaceRecognitionConfigSchema.model_validate({"alarm": {
+        "wechat": {"enable": True, "parm": {"user": "test-user|second-user"}},
+        "horn": {"enable": True, "parm": {"horn_id": 1, "horn_event_id": 7}},
+    }})
+    assert isinstance(config.alarm, AlarmConfigSchema)
+    assert config.alarm.wechat.enable and config.alarm.wechat.parm.user == "test-user|second-user"
+    assert config.alarm.horn.enable and config.alarm.horn.parm.horn_id == 1
+    assert config.alarm.horn.parm.horn_event_id == 7
+    assert SPEC.violation_type == 7
+    assert VIOLATION_TYPE_META[SPEC.violation_type] == {"event_type": "recognize_face", "label": "人脸身份识别"}
+    assert _EVENT_DISPLAY[SPEC.name] == "人脸身份识别"
 
 
 def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatch):
@@ -562,26 +588,42 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
     from auth.auth import get_current_user, require_admin
     from AiVision.api.routes.features import create_features_router
     from AiVision.features._shared import config_manager
+    from AiVision.features._shared import consumer as consumer_module
+    from AiVision.core import cache as cache_module
+    from AiVision.features import registry
+    from AiVision.alarms.dispatcher import AlarmDispatcher
 
     monkeypatch.setattr(config_manager, "get_session", library.factory)
-    monkeypatch.setattr(config_manager, "config_cache", Mock())
-    events = Mock()
+    monkeypatch.setattr(cache_module, "get_session", library.factory)
+    monkeypatch.setattr(registry, "all_specs", lambda: {SPEC.name: SPEC})
+    cache = cache_module.ConfigCache()
+    monkeypatch.setattr(config_manager, "config_cache", cache)
+    monkeypatch.setattr(consumer_module, "config_cache", cache)
+    consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
+    events = Mock(publish=Mock(side_effect=lambda event: consumer.update_config(event.camera_id)))
     monkeypatch.setattr(config_manager, "config_event_bus", events)
     with library.factory.begin() as session:
         session.add(AiCameraConfig(id=1, name="测试", shm_name="test_camera", url="test-camera",
                                    department="electronics_electrician"))
+        session.add(AiHornConfig(id=1, name="测试喇叭", url="http://horn.test", username="test", password="test-only", enable=True))
     app = FastAPI()
     app.include_router(create_features_router(config_manager.FeatureConfigManager()))
     app.dependency_overrides[require_admin] = lambda: {"role": "admin"}
     app.dependency_overrides[get_current_user] = lambda: {"role": "admin"}
     path = "/api/features/recognize_face/configs/test_camera"
     with TestClient(app) as client:
+        config = client.get(path).json()["config"]
+        config["value"].update(detection_threshold=threshold, roi_pos=[[0, 0], [1, 0], [1, 1]])
+        config["alarm"]["wechat"] = {"enable": True, "parm": {"user": "test-user|second-user"}}
+        config["alarm"]["horn"] = {"enable": True, "parm": {"horn_id": 1, "horn_event_id": 7}}
         for enabled in [True, False, False, True]:
-            response = client.put(path, json={"enable": enabled, "value": {"detection_threshold": threshold}})
+            config["enable"] = enabled
+            response = client.put(path, json=config)
             assert response.status_code == 200, response.text
             saved = client.get(path).json()["config"]
             assert saved["enable"] is enabled
             assert saved["value"]["detection_threshold"] == threshold
+            assert saved == config == response.json()["config"]
         assert [call.args[0].change_type for call in events.publish.call_args_list] == [
             "recognize_face_config_updated", "recognize_face_enabled",
             "recognize_face_config_updated", "recognize_face_disabled",
@@ -591,6 +633,49 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
         for invalid in [-.01, 1.01]:
             assert client.put(path, json={"value": {"detection_threshold": invalid}}).status_code == 400
         assert client.get(path).json()["config"]["value"]["detection_threshold"] == threshold
+
+        config["value"]["similarity_threshold"] = .91
+        response = client.put(path, json=config)
+        assert response.status_code == 200, response.text
+        assert client.get(path).json()["config"] == config
+        value = dict(config["value"])
+        config["alarm"]["wechat"]["parm"]["user"] = "updated-user"
+        config["alarm"]["horn"]["parm"]["horn_event_id"] = 12
+        response = client.put(path, json=config)
+        assert response.status_code == 200, response.text
+        assert client.get(path).json()["config"] == config
+        assert response.json()["config"]["value"] == value
+        runtime_config = consumer.config_cache[1]
+        assert runtime_config["wechat_enable"] is True and runtime_config["wechat_user"] == "updated-user"
+        assert runtime_config["horn_enable"] is True and runtime_config["horn_id"] == 1
+        assert runtime_config["horn_event_id"] == 12
+        assert runtime_config["roi_pos"] == value["roi_pos"]
+
+        # 只在测试中注入正式判定，确认继承的分发链路已能接收类型 7。
+        dispatcher = AlarmDispatcher()
+        dispatcher.horn_runtime_manager = Mock()
+        dispatcher.wechat = Mock()
+        dispatcher.violation_writer = Mock(save_now=Mock(return_value={"id": 10}))
+        monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
+        consumer._handle_alarm(1, (True, {}), np.zeros((4, 4, 3), np.uint8))
+        dispatcher.horn_runtime_manager.enqueue_play.assert_called_once_with(1, 12)
+        request, user, record = dispatcher._wechat_queue.get_nowait()
+        assert (request.violation_type, request.feature_name, user, record["id"]) == (7, "recognize_face", "updated-user", 10)
+
+        published = events.publish.call_count
+        for horn_id, event_id in [(None, 12), (9999, 12), (1, None), (1, 0), (1, -1), (1, True), (1, "12"), (1, 2147483648)]:
+            invalid = {**config, "alarm": {**config["alarm"], "horn": {
+                "enable": True, "parm": {"horn_id": horn_id, "horn_event_id": event_id},
+            }}}
+            response = client.put(path, json=invalid)
+            assert response.status_code == 400, response.text
+            assert client.get(path).json()["config"] == config
+            assert events.publish.call_count == published
+        with library.factory.begin() as session:
+            session.get(AiHornConfig, 1).enable = False
+        assert client.put(path, json=config).status_code == 400
+        assert events.publish.call_count == published
+        assert client.get(path).json()["config"] == config
 
 
 def test_recognition_uses_consumer_result_frame_and_existing_camera_jpeg_api(library, monkeypatch):

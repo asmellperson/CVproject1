@@ -5,10 +5,10 @@ import {
   type AiVisionCamera, type AiVisionFeatureConfig,
 } from '@/lib/aivision'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
+import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { FACE_FEATURE } from './api'
 
-const EMPTY_CONFIG: AiVisionFeatureConfig = { enable: false, value: {} }
-const EMPTY_FORM = { roi: '[]', detectionThreshold: '', threshold: '', interval: '0.5', cooldown: '30', recordEnabled: true }
+const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
 
 export function useRecognitionConfig() {
   const { isAdmin } = useAuth()
@@ -16,7 +16,8 @@ export function useRecognitionConfig() {
   const [cameraKey, setCameraKey] = useState('')
   const [configRevision, setConfigRevision] = useState(0)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [config, setConfig] = useState(EMPTY_CONFIG)
+  const [config, setConfig] = useState<AiVisionFeatureConfig | null>(null)
+  const [hornError, setHornError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -44,7 +45,8 @@ export function useRecognitionConfig() {
     const request = ++requestRef.current
     configLoadRef.current = { key, revision: cameraRequestRef.current }
     setLoadedKey('')
-    setConfig(EMPTY_CONFIG)
+    setConfig(null)
+    setHornError(null)
     setForm(EMPTY_FORM)
     setLoading(Boolean(key))
     if (!key) {
@@ -57,10 +59,10 @@ export function useRecognitionConfig() {
       const value = payload.config.value
       setConfig(payload.config)
       setForm({
-        roi: JSON.stringify(value.roi_pos ?? []), threshold: String(value.similarity_threshold),
+        roi: JSON.stringify(value.roi_pos), threshold: String(value.similarity_threshold),
         detectionThreshold: String(value.detection_threshold),
-        interval: String(value.cap_interval ?? 0.5), cooldown: String(value.record_cooldown_seconds ?? 30),
-        recordEnabled: value.record_enabled !== false,
+        interval: String(value.cap_interval), cooldown: String(value.record_cooldown_seconds),
+        recordEnabled: Boolean(value.record_enabled), alarmInterval: String(value.alarm_interval),
       })
       setLoadedKey(key)
       setMessage('当前摄像头配置已加载。')
@@ -130,19 +132,28 @@ export function useRecognitionConfig() {
     }
   }
 
+  const setAlarm = (alarm: NormalizedFeatureAlarmConfig) => {
+    setConfig((current) => current && ({ ...current, alarm }))
+  }
+
   const save = async () => {
-    if (!isAdmin || !cameraKey || loadedKey !== cameraKey || loading || cameraLoading || saving) return
+    if (!isAdmin || !config?.alarm || !cameraKey || loadedKey !== cameraKey || loading || cameraLoading || saving) return
     const key = cameraKey
     try {
       const detectionThreshold = Number(form.detectionThreshold)
       const threshold = Number(form.threshold), interval = Number(form.interval), cooldown = Number(form.cooldown)
+      const alarmInterval = Number(form.alarmInterval)
       if (![detectionThreshold, threshold, interval, cooldown].every(Number.isFinite) || !form.detectionThreshold.trim() || detectionThreshold < 0 || detectionThreshold > 1 || !form.threshold.trim() || threshold < 0 || threshold > 1 || interval < 0.1 || interval > 1 || cooldown < 1) {
         throw new Error('人脸检测置信度、相似度应在 0～1，采集间隔应在 0.1～1 秒，记录冷却至少 1 秒。')
       }
+      if (!form.alarmInterval.trim() || !Number.isFinite(alarmInterval) || alarmInterval <= 0) {
+        throw new Error('报警间隔必须大于 0 秒。')
+      }
+      if (hornError) throw new Error(hornError)
       const roi = parseNormalizedRoi(form.roi)
       setSaving(true)
       await saveAiVisionFeatureConfig(FACE_FEATURE, key, {
-        ...config, value: { ...config.value, roi_pos: roi, detection_threshold: detectionThreshold, similarity_threshold: threshold, cap_interval: interval, record_cooldown_seconds: cooldown, record_enabled: form.recordEnabled },
+        ...config, value: { ...config.value, roi_pos: roi, detection_threshold: detectionThreshold, similarity_threshold: threshold, cap_interval: interval, record_cooldown_seconds: cooldown, record_enabled: form.recordEnabled, alarm_interval: alarmInterval },
       })
       if (mountedRef.current && selectedRef.current === key) {
         setMessage('人脸身份识别配置已保存。')
@@ -154,9 +165,9 @@ export function useRecognitionConfig() {
     }
   }
   return {
-    cameras, cameraKey, form, setForm, message, loading, cameraLoading, saving,
+    cameras, cameraKey, form, setForm, config, setAlarm, hornError, setHornError, message, loading, cameraLoading, saving,
     disabled: !isAdmin || loading || cameraLoading || saving,
-    canSave: isAdmin && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
+    canSave: isAdmin && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
     selectCamera, loadConfig, setCameraEnabled, save,
   }
 }

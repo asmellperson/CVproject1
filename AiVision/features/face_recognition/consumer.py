@@ -53,7 +53,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
                 "similarity_threshold": value.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD),
             },
         )
-        # 身份识别结果永远不触发现有报警分发器。
+        # 正式人员权限判断接入前不触发业务报警；后续沿用基类的统一分发链路。
         return False, response
 
     def post_process(self, camera_id, result):

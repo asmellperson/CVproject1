@@ -1,5 +1,5 @@
 """
-当前 1～6 告警类型的规范定义。
+正式告警类型注册表。
 
 orm.py存的是0，1，2...，  不是具体的检测功能，types.py的意义是将1对应成区域入侵，2对应成大门开关等
 
@@ -15,7 +15,7 @@ class AlarmTypeMeta(TypedDict):
     label: str                         # 比如手机检测
 
 
-# 告警编号1，2，3，4，5，6对应的告警说明
+# 告警编号对应的事件类型与展示名称；合法编号以本注册表为准。
 VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     1: {"event_type": "blocks", "label": "区域入侵"},
     2: {"event_type": "detect_door", "label": "大门开关"},
@@ -23,6 +23,7 @@ VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     4: {"event_type": "detect_face", "label": "人脸逗留检测"},
     5: {"event_type": "detect_human", "label": "人员违规逗留检测"},
     6: {"event_type": "detect_logistics_single_person", "label": "物流通道单人检测"},
+    7: {"event_type": "recognize_face", "label": "人脸身份识别"},
 }
 
 # 未知类型的默认显示信息

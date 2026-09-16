@@ -166,7 +166,7 @@ def test_event_dict_skips_oversized_camera_ids_without_response_failure():
     assert item.offending_camera_ids == [upper_bound]
 
 
-@pytest.mark.parametrize("unsupported_type", [7, 8, 9, 10])
+@pytest.mark.parametrize("unsupported_type", [max(alarms.VIOLATION_TYPE_META) + offset for offset in range(1, 5)])
 def test_queries_do_not_recover_missing_ownership_from_old_types(unsupported_type):
     row = _channel_row(violation_type=unsupported_type, feature_name=None, department=None,
         event_metadata={"feature_name": "detect_human", "department": "haoda_company"})
@@ -184,7 +184,8 @@ def test_alarm_event_orm_renaming_keeps_historical_table_mapping():
 
 
 def test_backend_alarm_type_metadata_has_no_presentation_color():
-    assert set(alarms._TYPE_META) == {1, 2, 3, 4, 5, 6}
+    assert alarms._TYPE_META is alarms.VIOLATION_TYPE_META
+    assert alarms._TYPE_META[7] == {"event_type": "recognize_face", "label": "人脸身份识别"}
     assert all("color" not in meta for meta in alarms._TYPE_META.values())
 
 

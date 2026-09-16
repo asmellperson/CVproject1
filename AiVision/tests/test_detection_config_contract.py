@@ -100,7 +100,7 @@ def test_removed_fields_rejected_without_write(api, feature, field):
     {"alarm": {"horn": {"parm": {"unknown": 1}}}},
     {"alarm": {"wechat": {"parm": {"unknown": 1}}}},
 ])
-@pytest.mark.parametrize("feature", [name for name in all_specs() if name != "recognize_face"])
+@pytest.mark.parametrize("feature", list(all_specs()))
 def test_undefined_fields_at_every_level(feature, payload):
     with pytest.raises(ValidationError):
         get_spec(feature).config_schema.model_validate(payload)
@@ -196,17 +196,13 @@ def test_door_requires_both_local_thresholds_and_zero_first_alarm():
     assert instance._should_alarm(1, (True, {}), instance.config_cache[1]) is True
 
 
-def test_common_alarm_schema_and_recognition_independent_constraint():
+def test_camera_alarm_features_use_common_schema():
     defaults = AlarmConfigSchema().model_dump()
     for name, spec in all_specs().items():
         if name == "detect_logistics_single_person":
             assert "alarm" not in spec.config_schema.model_fields
             with pytest.raises(ValidationError):
                 spec.config_schema(alarm=defaults)
-        elif name == "recognize_face":
-            for channel in ["sql", "horn", "wechat"]:
-                with pytest.raises(ValidationError):
-                    spec.config_schema(alarm={channel: {"enable": True}})
         else:
             assert spec.config_schema.model_fields["alarm"].annotation is AlarmConfigSchema
             assert spec.config_schema().model_dump()["alarm"] == defaults

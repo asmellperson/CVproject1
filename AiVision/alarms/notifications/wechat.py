@@ -45,6 +45,7 @@ from AiVision.core.settings import settings
 _EVENT_DISPLAY = {
     "blocks":        "区域入侵",
     "detect_face":   "人脸逗留",
+    "recognize_face": "人脸身份识别",
     "detect_phone":  "手机违规",
     "detect_door":   "大门状态",
     "detect_human":  "人员违规逗留检测",

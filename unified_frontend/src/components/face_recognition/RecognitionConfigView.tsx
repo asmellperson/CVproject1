@@ -1,6 +1,9 @@
 import { lazy, Suspense } from 'react'
-import { Box, Camera, MousePointer2, SlidersHorizontal } from 'lucide-react'
+import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, Volume2 } from 'lucide-react'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
+import { WechatAlarmSettings } from '@/components/AlarmPushConfig'
+import { HornAlarmBinding } from '@/components/horn/HornAlarmBinding'
+import { HornDeviceManager } from '@/components/horn/HornDeviceManager'
 import {
   DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader,
   DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar,
@@ -21,13 +24,17 @@ const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig'
 export function RecognitionConfigView() {
   const state = useRecognitionConfig()
   const featureCameras = state.cameras.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE) || camera.shm_name === state.cameraKey)
+  const alarm = state.config?.alarm
+  const cameraName = featureCameras.find((camera) => camera.shm_name === state.cameraKey)?.name
   return (
     <Tabs defaultValue="camera" className="space-y-6">
-      <DetectionConfigTabsList className="lg:grid-cols-4">
+      <DetectionConfigTabsList className="lg:grid-cols-6">
         <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
         <DetectionConfigTab value="params" icon={SlidersHorizontal}>识别参数</DetectionConfigTab>
         <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
         <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
+        <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
+        <DetectionConfigTab value="horns" icon={Volume2}>喇叭配置</DetectionConfigTab>
       </DetectionConfigTabsList>
       <TabsContent value="camera" className="space-y-4">
         <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={FACE_DEPARTMENT}
@@ -67,6 +74,32 @@ export function RecognitionConfigView() {
         <Suspense fallback={<p>正在加载 ROI 编辑器…</p>}><AiVisionRoiEditor title="人脸身份识别 ROI 绘制" cameraKey={state.cameraKey} roiJson={state.form.roi} disabled={!state.canSave} saving={state.saving} message={state.message} onChange={(roi) => state.setForm((form) => ({ ...form, roi }))} onSave={state.save} /></Suspense>
       </TabsContent>
       <TabsContent value="model"><Suspense fallback={<p>正在加载模型配置…</p>}><AiVisionModelConfig requiredModels={['insightface']} /></Suspense></TabsContent>
+      <TabsContent value="alarm" className="space-y-6">
+        <Card className={DETECTION_CONFIG_CARD_CLASS}>
+          <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警推送" description={cameraName ? `${cameraName} · 人脸身份识别企业微信报警` : '请先添加并选择摄像头。'} />
+          <DetectionConfigCardContent className="space-y-4">
+            {alarm ? <WechatAlarmSettings value={alarm.wechat} disabled={!state.canSave}
+              onChange={(wechat) => state.setAlarm({ ...alarm, wechat })} /> : null}
+            <div className="space-y-2">
+              <Label htmlFor="identity-alarm-interval">报警间隔（秒）</Label>
+              <Input id="identity-alarm-interval" type="number" min={0.1} step={0.1} value={state.form.alarmInterval} disabled={!state.canSave}
+                onChange={(event) => state.setForm((form) => ({ ...form, alarmInterval: event.target.value }))} />
+            </div>
+          </DetectionConfigCardContent>
+        </Card>
+        <DetectionSaveBar message={state.message} loading={state.loading} saving={state.saving} disabled={!state.canSave || Boolean(state.hornError)} onReload={() => state.loadConfig(state.cameraKey)} onSave={state.save} />
+      </TabsContent>
+      <TabsContent value="horns" className="space-y-6">
+        <Card className={DETECTION_CONFIG_CARD_CLASS}>
+          <DetectionConfigCardHeader icon={Volume2} tone="violet" title="当前摄像头喇叭绑定" description={cameraName ? `${cameraName} · 人脸身份识别喇叭报警` : '请先添加并选择摄像头。'} />
+          <DetectionConfigCardContent>
+            {alarm ? <HornAlarmBinding value={alarm.horn} disabled={!state.canSave}
+              onChange={(horn) => state.setAlarm({ ...alarm, horn })} onValidationChange={state.setHornError} /> : null}
+          </DetectionConfigCardContent>
+        </Card>
+        <DetectionSaveBar message={state.message} loading={state.loading} saving={state.saving} disabled={!state.canSave || Boolean(state.hornError)} onReload={() => state.loadConfig(state.cameraKey)} onSave={state.save} />
+        <HornDeviceManager />
+      </TabsContent>
     </Tabs>
   )
 }
