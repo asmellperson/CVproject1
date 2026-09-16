@@ -1,4 +1,4 @@
-"""识别参数与基础识别记录，不接入报警记录表。"""
+"""身份识别参数与识别记录；业务告警通道继承统一 Feature 配置。"""
 from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, JSON, String, TIMESTAMP, text
 
 from AiVision.core.db import Base
