@@ -214,3 +214,24 @@ def test_policy_migration_failure_restores_sqlite_source(policy_db, tmp_path, mo
         assert_table_matches(connection, camera_table)
         assert connection.execute(select(camera_table.c.IOU_THR).where(camera_table.c.camera_id == 1)).scalar_one() == .3
         assert connection.exec_driver_sql('PRAGMA foreign_keys').scalar_one() == 1
+
+
+@pytest.mark.parametrize('referenced_table, message', [
+    ('ai_camera_config_detect_logistics_single_person', '引用待缩减的摄像头配置表'),
+    ('ai_logistics_channel', '存在未声明的通道外键'),
+])
+def test_policy_sqlite_rejects_unexpected_incoming_foreign_keys(policy_db, tmp_path, referenced_table, message):
+    from AiVision.migrations import logistics_channel_policy_20260916 as policy
+    engine, channel_table, camera_table = policy_db
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            'CREATE TABLE policy_external_reference (id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, '
+            f'FOREIGN KEY (target_id) REFERENCES "{referenced_table}" (id))'
+        )
+    backup = tmp_path / 'blocked-foreign-key.json'
+    with pytest.raises(ValueError, match=message):
+        policy.migrate(engine, apply=True, backup=backup)
+    assert not backup.exists()
+    with engine.connect() as connection:
+        assert_table_matches(connection, channel_table)
+        assert_table_matches(connection, camera_table)

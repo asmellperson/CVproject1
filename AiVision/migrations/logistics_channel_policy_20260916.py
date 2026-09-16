@@ -83,12 +83,28 @@ def preflight(connection: Connection) -> dict:
         triggers = connection.execute(text("SELECT tbl_name FROM sqlite_master WHERE type='trigger'")).scalars()
     if {channel_table.name, camera_table.name}.intersection(triggers):
         raise ValueError("待迁移表存在触发器，必须先人工审查")
-    for name in inspector.get_table_names():
-        for foreign_key in inspector.get_foreign_keys(name):
-            if foreign_key["referred_table"] == camera_table.name:
-                raise ValueError(f"{name} 引用待缩减的摄像头配置表，必须先人工审查")
-            if foreign_key["referred_table"] == channel_table.name and name != LogisticsChannelCamera.__tablename__:
-                raise ValueError(f"{name} 存在未声明的通道外键，必须先人工审查")
+    if connection.dialect.name == "mysql":
+        # 锁表期间只读取外键元数据，避免 SHOW CREATE TABLE 访问未锁定的无关业务表。
+        incoming_foreign_keys = connection.execute(
+            text(
+                "SELECT DISTINCT TABLE_NAME, REFERENCED_TABLE_NAME "
+                "FROM information_schema.KEY_COLUMN_USAGE "
+                "WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_SCHEMA=DATABASE() "
+                "AND REFERENCED_TABLE_NAME IN (:camera_table, :channel_table)"
+            ),
+            {"camera_table": camera_table.name, "channel_table": channel_table.name},
+        ).all()
+    else:
+        incoming_foreign_keys = [
+            (name, foreign_key["referred_table"])
+            for name in inspector.get_table_names()
+            for foreign_key in inspector.get_foreign_keys(name)
+        ]
+    for name, referred_table in incoming_foreign_keys:
+        if referred_table == camera_table.name:
+            raise ValueError(f"{name} 引用待缩减的摄像头配置表，必须先人工审查")
+        if referred_table == channel_table.name and name != LogisticsChannelCamera.__tablename__:
+            raise ValueError(f"{name} 存在未声明的通道外键，必须先人工审查")
     channels = _rows(connection, channel_table)
     cameras = _rows(connection, camera_table)
     members = _rows(connection, LogisticsChannelCamera.__table__)

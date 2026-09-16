@@ -1,119 +1,256 @@
-"""可选 MySQL 8 实测：显式测试连接，每例创建并删除独立测试库。"""
+"""离线验证 MySQL 迁移分支；元数据与锁由 mock 提供，不连接真实 MySQL。"""
 import os
-import uuid
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
 
+import pymysql
 import pytest
-from sqlalchemy import create_engine, inspect, select, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import inspect
+from sqlalchemy.dialects.mysql import dialect as mysql_dialect
+from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy.sql.elements import TextClause
 
 from AiVision.core.schema import assert_table_matches
-from AiVision.features.logistics_channel.spec import SPEC
-from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
-from AiVision.migrations import logistics_feature_20260914 as migration
-from AiVision.cameras.orm import AiCameraConfig
-from AiVision.alarms.devices.orm import AiHornConfig
+from AiVision.features.logistics_channel.orm import LogisticsChannelCamera
+from AiVision.migrations import logistics_channel_policy_20260916 as policy
+from AiVision.tests.test_logistics_feature_migration import (
+    policy_db as policy_db,
+    source_db as source_db,
+)
 
-CHANNEL_TABLE, CONFIG_TABLE = migration.target_tables()
+UNRELATED_TABLES = (
+    "ai_camera_config_blocks",
+    "ai_camera_config_detect_face",
+    "ai_camera_config_detect_human",
+)
+
+
+class ReachedMigrationDDL(RuntimeError):
+    """在首次 DDL 前结束模拟，实际数据迁移由 SQLite 集成测试验证。"""
+
+
+def _require_offline_mysql_test() -> None:
+    url = os.environ.get("LOGISTICS_TEST_MYSQL_URL")
+    if url:
+        parsed = make_url(url)
+        if parsed.database or parsed.get_backend_name() != "mysql":
+            pytest.fail("测试连接必须为 MySQL 且不得指定已有数据库")
+        pytest.fail("离线 MySQL 测试不接受真实连接，请移除 LOGISTICS_TEST_MYSQL_URL")
+
+
+@pytest.fixture(autouse=True)
+def forbid_mysql_connections(monkeypatch):
+    blocked = Mock(side_effect=AssertionError("离线测试禁止连接真实 MySQL"))
+    monkeypatch.setattr(pymysql, "connect", blocked)
+    monkeypatch.setattr(pymysql.connections.Connection, "connect", blocked)
+    return blocked
 
 
 @pytest.fixture
-def mysql_source():
-    url = os.environ.get('LOGISTICS_TEST_MYSQL_URL')
-    if not url:
-        pytest.skip('需要显式 LOGISTICS_TEST_MYSQL_URL 指向隔离 MySQL 测试实例')
-    parsed = make_url(url)
-    if parsed.database or parsed.get_backend_name() != 'mysql':
-        pytest.fail('测试连接必须为 MySQL 且不得指定已有数据库；每例创建独立随机库')
-    database = 'test_logistics_' + uuid.uuid4().hex
-    admin = create_engine(parsed, hide_parameters=True)
-    with admin.begin() as connection:
-        connection.exec_driver_sql(f'CREATE DATABASE `{database}`')
-    engine = create_engine(parsed.set(database=database), hide_parameters=True)
-    try:
-        source = migration.source_table()
-        source.metadata.create_all(engine, tables=[source.metadata.tables[name] for name in (
-            AiCameraConfig.__tablename__, AiHornConfig.__tablename__, source.name,
-            LogisticsChannel.__tablename__, LogisticsChannelCamera.__tablename__,
-        )])
-        with engine.begin() as connection:
-            connection.execute(AiCameraConfig.__table__.insert(), dict(id=1, name='camera', shm_name='cam', url='test', department='general_electric'))
-            connection.execute(source.insert(), dict(id=1, camera_id=1, enable=True,
-                **SPEC.config_schema().value.model_dump(), CONF_THRESHOLD=.99,
-                empty_grace_seconds=99, multi_grace_seconds=88, alarm_interval=77,
-                sql_enable=True, horn_enable=False, wechat_enable=False))
-            connection.execute(CHANNEL_TABLE.insert(), dict(id=1, name='channel', feature_name=SPEC.name,
-                department='general_electric', confidence_threshold=0, empty_grace_seconds=0,
-                sql_enable=True, wechat_enable=True, wechat_user='keep-value'))
-            connection.execute(LogisticsChannelCamera.__table__.insert(), dict(id=1, channel_id=1, camera_id=1))
-            connection.exec_driver_sql(f'ALTER TABLE `{source.name}` AUTO_INCREMENT=50')
-        yield engine, source
-    finally:
-        engine.dispose()
-        with admin.begin() as connection:
-            connection.exec_driver_sql(f'DROP DATABASE `{database}`')
-        admin.dispose()
+def mysql_source(policy_db, monkeypatch):
+    _require_offline_mysql_test()
+    sqlite_engine, channel_table, camera_table = policy_db
+    with sqlite_engine.begin() as sqlite_connection:
+        for name in UNRELATED_TABLES:
+            sqlite_connection.exec_driver_sql(f'CREATE TABLE "{name}" (id INTEGER PRIMARY KEY)')
+    with sqlite_engine.connect() as sqlite_connection:
+        sqlite_inspector = inspect(sqlite_connection)
+        member_fk = (LogisticsChannelCamera.__tablename__, channel_table.name)
+        state = SimpleNamespace(
+            locked=False,
+            locks={},
+            statements=[],
+            accesses=[],
+            incoming={False: [member_fk], True: [member_fk]},
+            storage_engine="InnoDB",
+            sql_mode="STRICT_TRANS_TABLES",
+            triggers=[],
+        )
+        connection = MagicMock(spec=Connection)
+        connection.dialect = mysql_dialect()
+        connection.dialect.server_version_info = (8, 0, 44)
+        connection.__enter__.return_value = connection
+        engine = MagicMock(spec=Engine)
+        engine.connect.return_value = connection
+
+        def record_access(name):
+            state.accesses.append((state.locked, name))
+            if state.locked and name not in state.locks:
+                raise AssertionError(f"锁表后访问了未锁定表：{name}")
+
+        def table_names():
+            if state.locked:
+                raise AssertionError("锁表后不得遍历全部业务表")
+            return sqlite_inspector.get_table_names()
+
+        def foreign_keys(name):
+            record_access(name)
+            return sqlite_inspector.get_foreign_keys(name)
+
+        inspector = Mock()
+        inspector.get_table_names.side_effect = table_names
+        inspector.get_foreign_keys.side_effect = foreign_keys
+
+        def check_schema(candidate, table):
+            assert candidate is connection
+            record_access(table.name)
+            assert_table_matches(sqlite_connection, table)
+
+        def execute(statement, parameters=None):
+            sql = str(statement)
+            state.statements.append((state.locked, sql, parameters))
+            if isinstance(statement, TextClause):
+                if "information_schema.KEY_COLUMN_USAGE" in sql:
+                    assert "TABLE_SCHEMA=DATABASE()" in sql
+                    assert "REFERENCED_TABLE_SCHEMA=DATABASE()" in sql
+                    assert "REFERENCED_TABLE_NAME IN (:camera_table, :channel_table)" in sql
+                    assert parameters == {
+                        "camera_table": camera_table.name,
+                        "channel_table": channel_table.name,
+                    }
+                    return Mock(all=Mock(return_value=list(state.incoming[state.locked])))
+                if "information_schema.TABLES" in sql:
+                    record_access(parameters["name"])
+                    return Mock(scalar_one=Mock(return_value=state.storage_engine))
+                if "information_schema.TRIGGERS" in sql:
+                    return Mock(scalars=Mock(return_value=tuple(state.triggers)))
+                raise AssertionError(f"未声明的元数据查询：{sql}")
+            assert statement.is_select, "模拟连接只允许读取 SQLite 测试数据"
+            for table in statement.get_final_froms():
+                record_access(table.name)
+            return sqlite_connection.execute(statement, parameters or {})
+
+        def exec_driver_sql(sql):
+            state.statements.append((state.locked, sql, None))
+            if sql == "SELECT @@SESSION.sql_mode":
+                return Mock(scalar_one=Mock(return_value=state.sql_mode))
+            if sql == "SET SESSION lock_wait_timeout=15":
+                return None
+            if sql.startswith("LOCK TABLES "):
+                assert not state.locked
+                state.locks = dict(
+                    item.strip().replace("`", "").split()
+                    for item in sql.removeprefix("LOCK TABLES ").split(",")
+                )
+                state.locked = True
+                return None
+            if sql == "UNLOCK TABLES":
+                assert state.locked
+                state.locked = False
+                return None
+            if sql.startswith("ALTER TABLE "):
+                assert state.locked
+                record_access(sql.split()[2])
+                raise ReachedMigrationDDL(sql)
+            raise AssertionError(f"未声明的 MySQL 操作：{sql}")
+
+        connection.execute.side_effect = execute
+        connection.exec_driver_sql.side_effect = exec_driver_sql
+        monkeypatch.setattr(policy, "inspect", lambda candidate: inspector if candidate is connection else inspect(candidate))
+        monkeypatch.setattr(policy, "assert_table_matches", check_schema)
+        yield SimpleNamespace(
+            engine=engine,
+            connection=connection,
+            inspector=inspector,
+            state=state,
+            sqlite_connection=sqlite_connection,
+            camera_table=camera_table,
+            channel_table=channel_table,
+        )
 
 
-def test_mysql_alter_preserves_tables_values_and_auto_increment(mysql_source):
-    engine, source = mysql_source
-    with engine.connect() as connection:
-        unchanged = {table: [dict(row) for row in connection.execute(select(table)).mappings()]
-                     for table in (CHANNEL_TABLE, LogisticsChannelCamera.__table__)}
-    assert migration.migrate(engine) == 1
-    assert migration.migrate(engine, apply=True) == 1
-    with engine.connect() as connection:
-        for table in (CONFIG_TABLE, CHANNEL_TABLE, LogisticsChannelCamera.__table__):
-            assert_table_matches(connection, table)
-        row = connection.execute(select(CONFIG_TABLE)).mappings().one()
-        assert not migration.REMOVED_COLUMNS.intersection(row)
-        for table, expected in unchanged.items():
-            assert [dict(row) for row in connection.execute(select(table)).mappings()] == expected
-        next_id = connection.execute(text('SELECT AUTO_INCREMENT FROM information_schema.TABLES '
-            'WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=:name'), {'name': source.name}).scalar_one()
-        assert next_id == 50
-    with pytest.raises(ValueError, match='列不一致'):
-        migration.migrate(engine, apply=True)
+def test_mysql_policy_checks_metadata_under_locks_before_ddl(mysql_source, tmp_path, forbid_mysql_connections):
+    source = mysql_source
+    backup = tmp_path / "policy.json"
+    with pytest.raises(ReachedMigrationDDL, match="ALTER TABLE ai_logistics_channel ADD COLUMN"):
+        policy.migrate(source.engine, apply=True, backup=backup)
+
+    metadata_queries = [
+        (locked, sql) for locked, sql, _ in source.state.statements
+        if "information_schema.KEY_COLUMN_USAGE" in sql
+    ]
+    assert [locked for locked, _ in metadata_queries] == [False, True]
+    assert source.state.locks == {
+        "ai_logistics_channel": "WRITE",
+        "ai_camera_config_detect_logistics_single_person": "WRITE",
+        "ai_logistics_channel_camera": "READ",
+        "ai_camera_config": "READ",
+    }
+    assert {name for locked, name in source.state.accesses if locked} == set(source.state.locks)
+    assert not set(UNRELATED_TABLES).intersection(name for _, name in source.state.accesses)
+    assert not any(name in sql for _, sql, _ in source.state.statements for name in UNRELATED_TABLES)
+    source.inspector.get_table_names.assert_not_called()
+    source.inspector.get_foreign_keys.assert_not_called()
+    assert source.state.locked is False
+    assert source.state.statements[-1][1] == "UNLOCK TABLES"
+    assert backup.exists() and backup.stat().st_mode & 0o777 == 0o600
+    source.connection.commit.assert_called_once()
+    forbid_mysql_connections.assert_not_called()
 
 
-@pytest.mark.parametrize('assignment', ['IOU_THR=1.1', 'cap_interval=0', 'enable=2'])
-def test_mysql_bad_values_abort_before_alter(mysql_source, assignment):
-    engine, source = mysql_source
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'UPDATE `{source.name}` SET {assignment}')
+@pytest.mark.parametrize("locked_phase", [False, True])
+@pytest.mark.parametrize("referenced_table,message", [
+    ("ai_camera_config_detect_logistics_single_person", "引用待缩减的摄像头配置表"),
+    ("ai_logistics_channel", "存在未声明的通道外键"),
+])
+def test_mysql_policy_rejects_unexpected_incoming_foreign_keys(
+    mysql_source, tmp_path, referenced_table, message, locked_phase,
+):
+    source = mysql_source
+    source.state.incoming[locked_phase].append(("external_feature_reference", referenced_table))
+    backup = tmp_path / "blocked.json"
+    with pytest.raises(ValueError, match=message):
+        policy.migrate(source.engine, apply=True, backup=backup)
+    assert not any(sql.startswith("ALTER TABLE ") for _, sql, _ in source.state.statements)
+    assert not any(name == "external_feature_reference" for _, name in source.state.accesses)
+    assert source.state.locked is False
+    assert backup.exists() is locked_phase
+    if locked_phase:
+        assert source.state.statements[-1][1] == "UNLOCK TABLES"
+
+
+@pytest.mark.parametrize("assignment", ["IOU_THR=1.1", "cap_interval=0", "enable=2"])
+def test_mysql_bad_values_abort_before_alter(mysql_source, tmp_path, assignment):
+    source = mysql_source
+    source.sqlite_connection.exec_driver_sql(
+        f'UPDATE "{source.camera_table.name}" SET {assignment}'
+    )
+    backup = tmp_path / "invalid-values.json"
     with pytest.raises(ValueError):
-        migration.migrate(engine, apply=True)
-    assert migration.REMOVED_COLUMNS <= {column['name'] for column in inspect(engine).get_columns(source.name)}
+        policy.migrate(source.engine, apply=True, backup=backup)
+    assert not backup.exists()
+    assert not any(sql.startswith(("LOCK TABLES ", "ALTER TABLE ")) for _, sql, _ in source.state.statements)
 
 
-def test_mysql_aspect_assignment_preserves_timestamp(mysql_source):
-    engine, source = mysql_source
-    with engine.begin() as connection:
-        connection.execute(source.update().values(ASPECT_RATIO_RANGE=None, enable=False))
-        before = connection.execute(select(source)).mappings().one()
-    changes = {'1': {'expected': {'ASPECT_RATIO_RANGE': None, 'enable': False},
-                     'values': {'ASPECT_RATIO_RANGE': [0, 10]}}}
-    migration.migrate(engine, value_changes=changes, apply=True)
-    with engine.connect() as connection:
-        row = connection.execute(select(CONFIG_TABLE)).mappings().one()
-        assert row['updated_at'] == before['updated_at']
-        assert row['ASPECT_RATIO_RANGE'] == [0, 10] and row['enable'] is False
+@pytest.mark.parametrize("condition,message", [
+    ("old_version", "需要 MySQL 8.0.16"),
+    ("non_strict", "必须启用严格 SQL 模式"),
+    ("non_innodb", "必须为 InnoDB"),
+    ("trigger", "存在触发器"),
+])
+def test_mysql_policy_keeps_preflight_safety_checks(mysql_source, condition, message):
+    source = mysql_source
+    if condition == "old_version":
+        source.connection.dialect.server_version_info = (8, 0, 15)
+    elif condition == "non_strict":
+        source.state.sql_mode = "NO_ENGINE_SUBSTITUTION"
+    elif condition == "non_innodb":
+        source.state.storage_engine = "MyISAM"
+    else:
+        source.state.triggers = [source.camera_table.name]
+    with pytest.raises(ValueError, match=message):
+        policy.preflight(source.connection)
+    assert not any(sql.startswith("ALTER TABLE ") for _, sql, _ in source.state.statements)
 
 
-def test_mysql_channel_policy_migration_removes_camera_strategy_and_keeps_values(mysql_source, tmp_path):
-    from AiVision.migrations import logistics_channel_policy_20260916 as policy
-    engine, _ = mysql_source
-    migration.migrate(engine, apply=True)
-    channel_table, camera_table = policy.source_tables()
-    with engine.begin() as connection:
-        connection.execute(camera_table.update().values(IOU_THR=.61, MIN_BOX_AREA=17, ASPECT_RATIO_RANGE=[.2, 3.4], cap_interval=.7))
-        before = connection.execute(select(channel_table)).mappings().one()
-    assert policy.migrate(engine, apply=True, backup=tmp_path / 'mysql-policy.json')['applied'] is True
-    with engine.connect() as connection:
-        for table in (LogisticsChannel.__table__, SPEC.orm_class.__table__, LogisticsChannelCamera.__table__):
-            assert_table_matches(connection, table)
-        row = connection.execute(select(LogisticsChannel.__table__)).mappings().one()
-        assert row['updated_at'] == before['updated_at']
-        assert row['model_iou_threshold'] == pytest.approx(.61)
-        assert row['min_box_area'] == 17 and row['cap_interval'] == pytest.approx(.7)
-        assert row['min_aspect_ratio'] == pytest.approx(.2) and row['max_aspect_ratio'] == pytest.approx(3.4)
-        assert not set(policy.REMOVED_FIELDS) & {column['name'] for column in inspect(connection).get_columns(camera_table.name)}
+@pytest.mark.parametrize("url,message", [
+    ("mysql+pymysql://test@127.0.0.1/aivision", "不得指定已有数据库"),
+    ("mysql+pymysql://test@127.0.0.1/test_logistics", "不得指定已有数据库"),
+    ("sqlite:///:memory:", "测试连接必须为 MySQL"),
+    ("mysql+pymysql://test@127.0.0.1", "离线 MySQL 测试不接受真实连接"),
+])
+def test_mysql_test_connection_guard_rejects_database_urls(monkeypatch, forbid_mysql_connections, url, message):
+    monkeypatch.setenv("LOGISTICS_TEST_MYSQL_URL", url)
+    with pytest.raises(pytest.fail.Exception, match=message):
+        _require_offline_mysql_test()
+    forbid_mysql_connections.assert_not_called()
