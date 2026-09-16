@@ -481,6 +481,8 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
             ])
     detections = [dict(bbox=[0, 0, 30, 40], matched=matched, person_id=person_id if matched else None,
                        person_name=f"测试人员{person_id}" if matched else "未知人员",
+                       job_no=f"JOB-{person_id}" if matched else None,
+                       person_code=f"CODE-{person_id}" if matched else None, org_index_code="ORG-A" if matched else None,
                        similarity=.9 if matched else .2, type="face_identity") for person_id in range(1, 4)]
     consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": detections})
     result = consumer._process(consumer.frame_cache[7], 7)
@@ -498,6 +500,18 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
         request = dispatcher.maybe_dispatch.call_args.args[0]
         assert request.violation_type == 7
         assert request.alarm_config["wechat"]["enable"] and request.alarm_config["horn"]["enable"]
+        assert request.subject_type == ("face_person" if matched else "unknown_face")
+        assert request.subject_id == ("1" if matched else "")
+        assert request.subject_name == detections[0]["person_name"]
+        assert request.reason == reason
+        assert request.metadata["offending_detections"] == detections
+        assert request.metadata["matched"] is matched and request.metadata["is_allowed"] is False
+        assert request.metadata["similarity"] == detections[0]["similarity"]
+        if matched:
+            for key in ("person_id", "person_name", "job_no", "person_code", "org_index_code"):
+                assert request.metadata[key] == detections[0][key]
+        else:
+            assert "person_id" not in request.metadata
     consumer.stop()
     assert annotated.shape == (120, 200, 3)
     assert np.any(annotated != consumer.frame_cache[7])
@@ -721,16 +735,29 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
         assert runtime_config["horn_event_id"] == 12
         assert runtime_config["roi_pos"] == value["roi_pos"]
 
-        # 只在测试中注入正式判定，确认继承的分发链路已能接收类型 7。
+        # 注入正式未授权判定，确认统一链路同时传递人员主体和本帧全部违规信息。
         dispatcher = AlarmDispatcher()
         dispatcher.horn_runtime_manager = Mock()
         dispatcher.wechat = Mock()
         dispatcher.violation_writer = Mock(save_now=Mock(return_value={"id": 10}))
         monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
-        consumer._handle_alarm(1, (True, {}), np.zeros((4, 4, 3), np.uint8))
+        unknown = {"matched": False, "is_allowed": False, "person_id": None, "person_name": "未知人员", "similarity": .2}
+        unauthorized = {"matched": True, "is_allowed": False, "person_id": 17, "person_name": "测试人员17",
+                        "job_no": "JOB-17", "person_code": "CODE-17", "org_index_code": "ORG-A", "similarity": .9}
+        allowed = {**unauthorized, "person_id": 18, "is_allowed": True}
+        consumer._handle_alarm(1, (True, {"detections": [unknown, allowed, unauthorized]}), np.zeros((4, 4, 3), np.uint8))
         dispatcher.horn_runtime_manager.enqueue_play.assert_called_once_with(1, 12)
         request, user, record = dispatcher._wechat_queue.get_nowait()
         assert (request.violation_type, request.feature_name, user, record["id"]) == (7, "recognize_face", "updated-user", 10)
+        assert (request.subject_type, request.subject_id, request.subject_name, request.reason) == ("face_person", "17", "测试人员17", "unauthorized")
+        written = dispatcher.violation_writer.save_now.call_args.kwargs
+        assert written["subject_id"] == "17" and written["reason"] == "unauthorized"
+        assert written["event_metadata"]["offending_detections"] == [unknown, unauthorized]
+        consumer._handle_alarm(1, (True, {"detections": [unknown]}), np.zeros((4, 4, 3), np.uint8))
+        written = dispatcher.violation_writer.save_now.call_args.kwargs
+        assert written["subject_type"] == "unknown_face" and written["subject_id"] == ""
+        assert written["subject_name"] == "未知人员" and written["reason"] == "unknown"
+        assert written["event_metadata"] == {"similarity": .2, "matched": False, "is_allowed": False, "offending_detections": [unknown]}
 
         published = events.publish.call_count
         for horn_id, event_id in [(None, 12), (9999, 12), (1, None), (1, 0), (1, -1), (1, True), (1, "12"), (1, 2147483648)]:

@@ -73,6 +73,7 @@ def main() -> int:
     load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
     try:
         from AiVision.core.db import Base, get_engine
+        from AiVision.core.schema import assert_table_matches
         from AiVision.core.settings import settings
         from AiVision.inference.model_paths import load_model_paths
         from AiVision.inference.workers.face_recognizer import InsightFaceRecognizer
@@ -81,10 +82,18 @@ def main() -> int:
 
         if not settings.db.enable:
             raise PersonSyncError("SQL_ENABLE=false，未生成特征")
+        # 模型加载和人员查询前核验两张正式表，不做补列或迁移。
+        engine = get_engine()
+        tables = [FacePerson.__table__, FaceEmbedding.__table__]
+        Base.metadata.create_all(engine, tables=tables)
+        with engine.connect() as connection:
+            try:
+                for table in tables:
+                    assert_table_matches(connection, table)
+            except ValueError as exc:
+                raise PersonSyncError(str(exc)) from exc
         model_path = load_model_paths().get("insightface", "")
         recognizer = InsightFaceRecognizer(model_path)
-        # 只注册/创建本功能两张正式表，不做补列或迁移。
-        Base.metadata.create_all(get_engine(), tables=[FacePerson.__table__, FaceEmbedding.__table__])
         with ExitStack() as stack:
             persons = {}
             for source in HIKVISION_SOURCES:

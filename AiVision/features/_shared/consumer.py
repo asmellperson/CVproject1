@@ -2,10 +2,11 @@
 features/_shared/consumer.py
 功能基类 — 业务逻辑处理框架。
 
-继承本类的子类只需实现 3 个方法:
+子类实现业务推理和可视化，并可按需扩展告警:
     _process(roi, camera_id) → (is_alarm, msg_dict)
     post_process(camera_id, result) → annotated_frame
     (可选) _should_alarm(...) — 仅 detect_door 需要(双阶段告警)
+    (可选) _alarm_context(...) — 提供告警主体、原因和业务元数据
 
 通用部分(帧读取、ROI 裁剪、相似帧跳过、告警分发)由本类提供:
     stop/start、配置热更新、Camera启停/删除状态
@@ -61,6 +62,7 @@ class BaseFunctionConsumer(ABC):
     扩展点:
         _should_alarm()       : 默认判定 result 中有 True 即告警，
                                 detect_door 等双阶段场景可重写此方法。
+        _alarm_context()      : 默认使用 AlarmRequest 的摄像头主体；子类可提供业务主体及元数据。
         _process_static_frames(): 默认返回 False（帧差类功能依赖画面变化），
                                   YOLO 逗留检测类功能重写为 True 以持续累积时间。
 
@@ -504,9 +506,14 @@ class BaseFunctionConsumer(ABC):
                 alarm_config=alarm_config,
                 camera_key=cam_key,
                 department=department,
+                **self._alarm_context(camera_id, result),
             ),
             alarm_interval=cfg["alarm_interval"],
         )
+
+    def _alarm_context(self, camera_id: int, result: tuple) -> dict:
+        """仅在确定报警后调用；子类可返回 subject_type/id/name、reason 和 metadata。"""
+        return {}
 
     def _should_alarm(self, camera_id: int, result: tuple, cfg: dict) -> bool:
         """当前摄像头唯一 ROI 的判定；冷却由 AlarmDispatcher 处理。"""

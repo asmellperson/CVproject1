@@ -2,7 +2,7 @@
 
 
 def bootstrap_database():
-    """创建全新表并只读核验功能配置表；历史结构必须先离线迁移。"""
+    """创建全新表并只读核验正式配置和业务表；历史结构必须先离线迁移。"""
     from AiVision.core.db import Base, get_engine
     from AiVision.core.logger import logger
     from AiVision.features.registry import all_specs
@@ -11,7 +11,7 @@ def bootstrap_database():
     from AiVision.cameras import orm as _camera_orm  # noqa: F401
     from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
     from AiVision.alarms.records import orm as _violation_orm  # noqa: F401
-    from AiVision.features.face_recognition.library import orm as _face_library_orm  # noqa: F401
+    from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson
     from AiVision.core.schema import assert_table_matches
 
     specs = all_specs()  # 注册表及其他业务 ORM 必须在创建表之前完成导入。
@@ -20,6 +20,6 @@ def bootstrap_database():
     with engine.connect() as connection:
         for spec in specs.values():
             assert_table_matches(connection, spec.orm_class.__table__)
-        for model in (LogisticsChannel, LogisticsChannelCamera):
+        for model in (LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding):
             assert_table_matches(connection, model.__table__)
-    logger.info("[DB] 功能配置结构核验通过")
+    logger.info("[DB] 功能配置和业务表结构核验通过")

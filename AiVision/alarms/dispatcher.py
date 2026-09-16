@@ -303,7 +303,7 @@ class AlarmDispatcher:
             "department": req.department,      # 单部门历史字段
             "camera_no": (req.camera_key or req.camera_name) if subject_type == "camera" else None,   # 不强行填camera_no
             "subject_type": subject_type,
-            "subject_id": req.subject_id or str(req.camera_id),
+            "subject_id": (req.subject_id or str(req.camera_id)) if subject_type == "camera" else req.subject_id,
             "subject_name": req.subject_name or req.camera_name,
             "reason": req.reason,
             "event_metadata": req.metadata,                       # 额外业务信息

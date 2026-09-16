@@ -67,6 +67,25 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             detection["is_allowed"] = bool(detection["matched"] and detection["person_id"] in self._allowed_person_ids)
         return any(not detection["is_allowed"] for detection in response["detections"]), response
 
+    def _alarm_context(self, camera_id: int, result: tuple) -> dict:
+        offending = [detection.copy() for detection in result[1]["detections"] if not detection["is_allowed"]]
+        # 主主体优先取检测顺序中的首个已识别未授权人员；全为未知人员时取首个。
+        primary = next((detection for detection in offending if detection["matched"]), offending[0])
+        matched = primary["matched"]
+        metadata = {key: primary[key] for key in ("similarity", "matched", "is_allowed")}
+        if matched:
+            metadata.update({key: primary[key] for key in (
+                "person_id", "person_name", "job_no", "person_code", "org_index_code",
+            )})
+        metadata["offending_detections"] = offending
+        return {
+            "subject_type": "face_person" if matched else "unknown_face",
+            "subject_id": str(primary["person_id"]) if matched else "",
+            "subject_name": primary["person_name"] if matched else "未知人员",
+            "reason": "unauthorized" if matched else "unknown",
+            "metadata": metadata,
+        }
+
     def post_process(self, camera_id, result):
         alarm, response = result
         frame = self._annotated_frame(camera_id)

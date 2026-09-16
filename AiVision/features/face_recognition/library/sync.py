@@ -97,6 +97,7 @@ def main() -> int:
     load_dotenv(dotenv_path=_ENV_FILE, override=False)
     try:
         from AiVision.core.db import get_engine
+        from AiVision.core.schema import assert_table_matches
         from AiVision.core.settings import settings
         from .orm import FacePerson
         from .service import FaceLibraryService
@@ -104,8 +105,14 @@ def main() -> int:
         if not settings.db.enable:
             logger.error("[FaceLibrary] SQL_ENABLE=false，未执行同步")
             return 1
-        # ORM 导入即注册到现有 Base；只创建本任务的新表，不检查或修改其他表。
-        FacePerson.__table__.create(bind=get_engine(), checkfirst=True)
+        # 仅创建和核验同步实际使用的正式人员表，不修改已有表结构。
+        engine = get_engine()
+        FacePerson.__table__.create(bind=engine, checkfirst=True)
+        with engine.connect() as connection:
+            try:
+                assert_table_matches(connection, FacePerson.__table__)
+            except ValueError as exc:
+                raise PersonSyncError(str(exc)) from exc
     except Exception as exc:
         logger.error(f"[FaceLibrary] 数据库初始化失败：{_error_summary(exc)}")
         return 1
