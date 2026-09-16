@@ -17,6 +17,7 @@ features/_shared/consumer.py
     前端结果帧缓存: AlarmRequest构造与告警分发
 """
 from __future__ import annotations
+from AiVision.departments.department_registry import require_department
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -469,11 +470,10 @@ class BaseFunctionConsumer(ABC):
         cam_key = cfg.get("shm_name", "")
         cam_name = cfg.get("name") or cam_key
         department = cfg.get("department")
-        if not department and len(self.spec.departments) == 1:
-            # 摄像头未限制部门时，使用当前 Feature 明确声明的唯一归属，不按告警编号推导。
-            department = self.spec.departments[0]
-        if not department or department not in self.spec.departments:
-            logger.error(f"[{self.feature_name}] 无法确定告警归属，跳过告警 camera_id={camera_id} department={department!r}")
+        try:
+            require_department(department)
+        except ValueError:
+            logger.error(f"[{self.feature_name}] 摄像头所属事业部/公司无效，跳过业务告警 camera_id={camera_id} department={department!r}")
             return
 
         # 将 ORM 扁平字段重组为 AlarmDispatcher 期望的嵌套结构

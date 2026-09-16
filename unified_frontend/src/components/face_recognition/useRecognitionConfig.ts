@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/auth/useAuth'
 import {
@@ -80,7 +81,7 @@ export function useFacePersons() {
   return { isAdmin, query, setQuery, result, loading, savingId, error, message, loadPersons, setPersonAllowed }
 }
 
-export function useRecognitionConfig() {
+export function useRecognitionConfig(department: DepartmentId) {
   const { isAdmin } = useAuth()
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraKey, setCameraKey] = useState('')
@@ -149,7 +150,7 @@ export function useRecognitionConfig() {
     setLoadedKey('')
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       if (!mountedRef.current || request !== cameraRequestRef.current) return
       setCameras(items)
       camerasRef.current = items
@@ -158,13 +159,13 @@ export function useRecognitionConfig() {
       const viewingInactive = selectedInactiveRef.current === selectedRef.current && items.some((camera) => camera.shm_name === selectedRef.current)
       if (!viewingInactive && !enabled.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(enabled[0]?.shm_name || '')
       setConfigRevision((value) => value + 1)
-      if (!selectedRef.current) setMessage('当前功能未添加摄像头，请先添加摄像头。')
+      if (!selectedRef.current) setMessage(items.length ? '当前功能未添加摄像头，请先添加摄像头。' : '当前事业部暂未配置摄像头')
     } catch (error) {
       if (mountedRef.current && request === cameraRequestRef.current) setMessage(`摄像头读取失败：${String(error)}`)
     } finally {
       if (mountedRef.current && request === cameraRequestRef.current) setCameraLoading(false)
     }
-  }, [selectCamera])
+  }, [department, selectCamera])
 
   useEffect(() => {
     mountedRef.current = true

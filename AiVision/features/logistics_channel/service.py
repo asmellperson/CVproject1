@@ -9,6 +9,7 @@
     修改成功红通知Runtime刷新
 """
 from __future__ import annotations
+from AiVision.departments.department_registry import require_department
 
 from dataclasses import dataclass
 from typing import Any
@@ -158,7 +159,7 @@ class LogisticsChannelService(MembershipTransaction):
         """新建一个物流通道"""
         # 物流通道名不能为空
         feature_name = require_logistics_feature(feature_name)
-        department = self._require_department(feature_name, department)
+        department = require_department(department)
         normalized_name = (name or "").strip()
         if not normalized_name:
             raise ValueError("通道名称不能为空")
@@ -748,13 +749,6 @@ class LogisticsChannelService(MembershipTransaction):
         ))
         self._set_feature_enabled(session, feature_name, camera.id, True)
         session.flush()
-
-    @staticmethod
-    def _require_department(feature_name: str, department: str) -> str:
-        spec = all_specs()[feature_name]
-        if not isinstance(department, str) or not department.strip():
-            raise ValueError("department 必填")
-        return spec.resolve_camera_department(department)
 
     @staticmethod
     def _require_camera_department(camera: AiCameraConfig, channel: LogisticsChannel) -> None:

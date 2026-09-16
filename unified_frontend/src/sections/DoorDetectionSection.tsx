@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -109,7 +110,7 @@ async function requestDoorConfig(shmName: string, config?: DoorConfig) {
   }
 }
 
-export function DoorDetectionSection() {
+export function DoorDetectionSection({ department }: { department: DepartmentId }) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [doorConfig, setDoorConfig] = useState<DoorConfig | null>(null)
@@ -159,18 +160,18 @@ export function DoorDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_door'))
       const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
-        setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
+        setMessage('当前事业部暂未配置摄像头')
         return
       }
       if (!nextCamera) {
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前大门开关检测未添加摄像头，请先添加摄像头。')
+        setMessage('当前大门开关异常检测未添加摄像头，请先添加摄像头。')
         return
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
@@ -188,24 +189,27 @@ export function DoorDetectionSection() {
       loadCameras()
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
-    return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+    return () => {
+      configRequestRef.current += 1
+      window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    }
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
 
   const addCameraToFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在添加摄像头并启用大门开关检测...')
+    setMessage('正在添加摄像头并启用大门开关异常检测...')
     try {
       const payload = await requestDoorConfig(cameraName)
       await requestDoorConfig(cameraName, { ...payload.detect_door, enable: true })
       await refreshCameraList()
       await loadConfig(cameraName)
-      setMessage(`添加成功：${cameraName} 已启用大门开关检测。`)
+      setMessage(`添加成功：${cameraName} 已启用大门开关异常检测。`)
     } catch (error) {
       setMessage(`添加失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -215,7 +219,7 @@ export function DoorDetectionSection() {
 
   const removeCameraFromFeature = async (cameraName: string) => {
     setCameraAction(true)
-    setMessage('正在停用该摄像头的大门开关检测...')
+    setMessage('正在停用该摄像头的大门开关异常检测...')
     try {
       const payload = await requestDoorConfig(cameraName)
       await requestDoorConfig(cameraName, { ...payload.detect_door, enable: false })
@@ -227,7 +231,7 @@ export function DoorDetectionSection() {
         setDoorConfig(null)
         setForm({ ...defaultForm, cameraName: '' })
       }
-      setMessage(`停用成功：${cameraName} 已关闭大门开关检测。`)
+      setMessage(`停用成功：${cameraName} 已关闭大门开关异常检测。`)
     } catch (error) {
       setMessage(`停用失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -362,13 +366,13 @@ export function DoorDetectionSection() {
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
-          title="大门开关检测"
+          title="大门开关异常检测"
           subtitle="大门状态异常监控面板"
-          departmentLabel="公共能力"
+          departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="大门开关检测监控" feature="detect_door" presentation="feature-dashboard" />
+          <AiVisionMonitor title="大门开关异常检测监控" feature="detect_door" department={department} presentation="feature-dashboard" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
@@ -386,7 +390,7 @@ export function DoorDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_door"
-                department="general_electric"
+                department={department}
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

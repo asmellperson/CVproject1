@@ -119,8 +119,8 @@ test('opts the four pages into the approved shell while preserving configuration
   const expected = [
     ['IntrusionDetectionSection.tsx', '区域入侵检测', '警戒区域实时监控面板'],
     ['FaceDetectionSection.tsx', '人脸逗留检测', '当前可见目标逗留超时后保持告警状态，通知按告警间隔冷却'],
-    ['PhoneDetectionSection.tsx', '手机识别检测', '手机使用识别监控面板'],
-    ['DoorDetectionSection.tsx', '大门开关检测', '大门状态异常监控面板'],
+    ['PhoneDetectionSection.tsx', '手机使用检测', '手机使用识别监控面板'],
+    ['DoorDetectionSection.tsx', '大门开关异常检测', '大门状态异常监控面板'],
   ]
   for (const [file, title, subtitle] of expected) {
     const source = await read(`src/sections/${file}`)

@@ -58,8 +58,7 @@ def specs():
             "__tablename__": legacy_table, "__table__": Base.metadata.tables[legacy_table],
             **{column.name: column for column in Base.metadata.tables[legacy_table].columns},
         })
-    registry[legacy_name] = replace(registry["detect_human"], name=legacy_name, orm_class=_legacy_human_orm,
-                                    departments=("haoda_company",))
+    registry[legacy_name] = replace(registry["detect_human"], name=legacy_name, orm_class=_legacy_human_orm)
     if not set(REMOVED) <= set(registry):
         raise ValueError("检测模块注册不完整，停止迁移")
     return {name: registry[name] for name in REMOVED}

@@ -1,6 +1,8 @@
 """合并后的事件类型、统计与报警处置均按事业部授权。"""
 import importlib
 from datetime import datetime
+from auth.alarm_permissions import DETECTION_EVENT_TYPES
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 from fastapi import HTTPException
 import pytest
@@ -13,16 +15,17 @@ def alarm(number, department):
             "violation_type": 5, "department": department, "created_at": datetime.now().isoformat()}
 
 
-@pytest.mark.parametrize("department", ["general_electric", "haoda_company"])
-def test_shared_type_permissions_and_statistics_never_mix_departments(department):
-    rows = [backend._normalize_aivision_alarm(alarm(1, "general_electric")),
-            backend._normalize_aivision_alarm(alarm(2, "haoda_company")),
-            backend._normalize_aivision_alarm(alarm(3, None))]
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+@pytest.mark.parametrize("event_type", sorted(DETECTION_EVENT_TYPES))
+def test_every_event_is_accessible_only_within_authorized_department(department, event_type):
+    rows = [{**alarm(index, scope), "feature_name": event_type, "event_type": event_type}
+            for index, scope in enumerate([*DEPARTMENT_SPECS, None, "unknown"])]
     user = {"role": "viewer", "departments": [department]}
-    visible = backend._filter_alarms(rows, user=user, event_types={"detect_human"})
+    visible = backend._filter_alarms(rows, user=user, event_types={event_type})
     assert [row["department"] for row in visible] == [department]
     stats = backend._build_alarm_statistics(visible, days=1)
     assert stats["summary"]["total"] == 1
+    assert backend._allowed_event_types_for_user(user) == DETECTION_EVENT_TYPES
 
 
 def test_disposition_read_and_write_require_alarm_ownership(monkeypatch, tmp_path):

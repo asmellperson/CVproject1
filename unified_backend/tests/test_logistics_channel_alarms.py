@@ -2,34 +2,21 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 from datetime import datetime
+from auth.alarm_permissions import DETECTION_EVENT_TYPES
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import pytest
 
 
 from unified_backend.app import (
     ALARM_TYPE_META,
-    DEPARTMENT_EVENT_TYPES,
     _build_alarm_statistics,
     _filter_alarms,
     _normalize_aivision_alarm,
 )
 
 
-LOGISTICS_FEATURES = (
-    ("detect_logistics_single_person", "general_electric"),
-    (
-        "detect_logistics_single_person",
-        "electronics_electrician",
-    ),
-    (
-        "detect_logistics_single_person",
-        "electrical_components",
-    ),
-    (
-        "detect_logistics_single_person",
-        "precious_metal_recycling",
-    ),
-)
+LOGISTICS_FEATURES = [("detect_logistics_single_person", department) for department in DEPARTMENT_SPECS]
 
 
 # 功能：实现 `_channel_alarm` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
@@ -277,7 +264,7 @@ def test_all_logistics_alarm_features_have_type_and_department_mapping(
     assert normalized["event_type"] == "detect_logistics_single_person"
     assert normalized["feature_name"] == feature_name
     assert normalized["department"] == department
-    assert "detect_logistics_single_person" in DEPARTMENT_EVENT_TYPES[department]
+    assert "detect_logistics_single_person" in DETECTION_EVENT_TYPES
 
 
 # 功能：验证 `test_statistics_group_channel_alarms_by_channel_subject` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明

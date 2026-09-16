@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, RefreshCw, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,7 +34,7 @@ import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMo
 type AiVisionMonitorProps = {
   title: string
   feature: string
-  department?: string
+  department: DepartmentId
   presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity'
 }
 
@@ -94,7 +95,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       const nextCamera = selectedStillEnabled ? currentCamera : featureCameras[0] ? getAiVisionCameraKey(featureCameras[0]) : ''
       selectedCameraRef.current = nextCamera
       setSelectedCamera(nextCamera)
-      setMessage(nextCamera ? '正在读取实时画面...' : '当前功能未添加摄像头，请先在配置管理中添加。')
+      setMessage(nextCamera ? '正在读取实时画面...' : items.length ? '当前功能未添加摄像头，请先在配置管理中添加。' : '当前事业部暂未配置摄像头')
     } catch (error) {
       setMessage(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -256,6 +257,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
 
   if (presentation === 'face-identity') {
     return <FaceRecognitionMonitorView
+        department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
       frameConnected={Boolean(frameSrc)} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}

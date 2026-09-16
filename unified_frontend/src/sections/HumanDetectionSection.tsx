@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -102,17 +103,9 @@ function toForm(shmName: string, config: HumanConfig) {
   }
 }
 
-export type HumanDetectionSectionProps = {
-  department?: 'general_electric' | 'haoda_company'
-  title?: string
-  departmentLabel?: string
-}
-
-export function HumanDetectionSection({
-  department = 'general_electric',
-  title = '人员违规逗留检测',
-  departmentLabel = '通用电气事业部',
-}: HumanDetectionSectionProps = {}) {
+export function HumanDetectionSection({ department }: { department: DepartmentId }) {
+  const title = '人员违规逗留检测'
+  const departmentLabel = DEPARTMENT_LABELS[department]
   const feature = 'detect_human'
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
@@ -174,7 +167,7 @@ export function HumanDetectionSection({
       if (items.length === 0) {
         selectedCameraRef.current = ''
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
+        setMessage('当前事业部暂未配置摄像头')
         return
       }
       if (!nextCamera) {
@@ -199,8 +192,11 @@ export function HumanDetectionSection({
       loadCameras()
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
-    return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+    return () => {
+      configRequestRef.current += 1
+      window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    }
+  }, [department])
 
   const refreshCameraList = async () => {
     const items = await getAiVisionCameras(department)

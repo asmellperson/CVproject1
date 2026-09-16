@@ -14,5 +14,4 @@ SPEC = FeatureSpec(
     config_schema=DoorConfigSchema,        # 由哪个类校验配置参数
     required_models=(),                    # 不依赖模型推理
     violation_type=2,                      # 报警记录使用的违规类型编号
-    departments=("general_electric",),     # 支持的业务部门：通用电气
 )

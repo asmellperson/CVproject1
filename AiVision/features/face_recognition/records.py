@@ -206,16 +206,18 @@ class RecognitionMediaReferences:
             ).distinct().all()}
 
 
-def get_recognition_image(record_id: int) -> Path | None:
+def get_recognition_image(record_id: int, *, departments: list[str] | None = None) -> Path | None:
     from AiVision.cameras.orm import AiCameraConfig
 
     with get_session() as session:
-        image_path = session.scalar(select(FaceRecognitionRecord.image_path).join(
+        statement = select(FaceRecognitionRecord.image_path).join(
             AiCameraConfig, AiCameraConfig.id == FaceRecognitionRecord.camera_id,
         ).where(
             FaceRecognitionRecord.id == record_id,
-            AiCameraConfig.department == "electronics_electrician",
-        ))
+        )
+        if departments is not None:
+            statement = statement.where(AiCameraConfig.department.in_(departments))
+        image_path = session.scalar(statement)
     if not image_path:
         return None
     path = Path(image_path).resolve()
@@ -223,10 +225,12 @@ def get_recognition_image(record_id: int) -> Path | None:
     return path if path.is_relative_to(root) and path.is_file() else None
 
 
-def list_recognition_records(camera_id: int | None, page: int, page_size: int) -> RecognitionRecordPage:
+def list_recognition_records(camera_id: int | None, page: int, page_size: int, *, department: str) -> RecognitionRecordPage:
     from AiVision.cameras.orm import AiCameraConfig
 
-    filters = [AiCameraConfig.department == "electronics_electrician"]
+    from AiVision.departments.department_registry import require_department
+
+    filters = [AiCameraConfig.department == require_department(department)]
     if camera_id is not None:
         filters.append(FaceRecognitionRecord.camera_id == camera_id)
     with get_session() as session:

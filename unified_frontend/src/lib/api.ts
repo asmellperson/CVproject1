@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import type {
   AppConfigPayload,
   BackendStatus,
@@ -302,8 +303,8 @@ function withQuery(path: string, params: Record<string, string | number | undefi
   return `${path}${path.includes('?') ? `&${query.slice(1)}` : query}`
 }
 
-export const getAlarms = async (limit = 100, eventTypes?: readonly string[] | null): Promise<AlarmEvent[]> => {
-  const data = await apiGet<AlarmEvent[] | AlarmsResponse>(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`)
+export const getAlarms = async (limit = 100, eventTypes?: readonly string[] | null, department?: DepartmentId): Promise<AlarmEvent[]> => {
+  const data = await apiGet<AlarmEvent[] | AlarmsResponse>(withQuery(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`, { department }))
   return Array.isArray(data) ? data : (data?.items || [])
 }
 

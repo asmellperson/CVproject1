@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -92,7 +93,7 @@ async function requestBlocksConfig(shmName: string, config?: BlocksConfig) {
   }
 }
 
-export function IntrusionDetectionSection() {
+export function IntrusionDetectionSection({ department }: { department: DepartmentId }) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [blocks, setBlocks] = useState<BlocksConfig | null>(null)
@@ -142,13 +143,13 @@ export function IntrusionDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'blocks'))
       const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
-        setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
+        setMessage('当前事业部暂未配置摄像头')
         return
       }
       if (!nextCamera) {
@@ -171,11 +172,14 @@ export function IntrusionDetectionSection() {
       loadCameras()
     }
     window.addEventListener('aivision:cameras-changed', refreshCameras)
-    return () => window.removeEventListener('aivision:cameras-changed', refreshCameras)
-  }, [])
+    return () => {
+      configRequestRef.current += 1
+      window.removeEventListener('aivision:cameras-changed', refreshCameras)
+    }
+  }, [department])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -313,11 +317,11 @@ export function IntrusionDetectionSection() {
         <DetectionPageHeader
           title="区域入侵检测"
           subtitle="警戒区域实时监控面板"
-          departmentLabel="福达新材院"
+          departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="区域入侵检测监控" feature="blocks" presentation="feature-dashboard" />
+          <AiVisionMonitor title="区域入侵检测监控" feature="blocks" department={department} presentation="feature-dashboard" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
@@ -335,7 +339,7 @@ export function IntrusionDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="blocks"
-                department="research_institute"
+                department={department}
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

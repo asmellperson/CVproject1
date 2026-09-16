@@ -19,5 +19,3 @@ def validate_alarm_identity(violation_type: int, feature_name: str, department: 
         raise ValueError(f"新告警 feature_name 未注册: {feature_name}")
     if violation_type != spec.violation_type:
         raise ValueError(f"告警类型与 FeatureSpec 不一致: {feature_name}")
-    if department not in spec.departments:
-        raise ValueError(f"告警部门不属于当前 Feature: {feature_name}/{department}")

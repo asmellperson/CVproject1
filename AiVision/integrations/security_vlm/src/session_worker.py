@@ -29,7 +29,7 @@ import numpy as np
 import yaml
 
 from AiVision.integrations.security_vlm.src.frame_hub import FrameHubReader, ResultStore, framehub_wait_timeout
-from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 from AiVision.integrations.security_vlm.src.roi_geometry import (
     bbox_belongs_to_normalized_roi,
     normalize_roi_points,
@@ -445,7 +445,7 @@ class PairSessionManager:
         s = cfg["session"]
         data_cfg = cfg.get("data", {}) or {}
         self.department = require_department(
-            data_cfg.get("department", SECURITY_DEPARTMENTS[0])
+            data_cfg.get("department", DEPARTMENTS[0])
         )
         self.camera_id = str(data_cfg.get("video_id", "stream") or "stream")
         self.camera_name = str(

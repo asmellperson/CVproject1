@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
-import { departmentPermissions, filterNavGroupsByPermission, getUserDepartments } from '@/auth/permissions'
+import { DEPARTMENTS, DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
@@ -15,7 +15,8 @@ import { getStatistics } from '@/lib/api'
 
 interface SidebarProps {
   currentPage: string
-  onPageChange: (page: string) => void
+  currentDepartment: DepartmentId | null
+  onPageChange: (page: string, department?: DepartmentId) => void
   collapsed: boolean
   onToggleCollapsed: () => void
   width: number
@@ -34,6 +35,7 @@ interface SidebarProps {
 
 export function Sidebar({
   currentPage,
+  currentDepartment,
   onPageChange,
   collapsed,
   onToggleCollapsed,
@@ -51,7 +53,7 @@ export function Sidebar({
   systemRunning = true,
 }: SidebarProps) {
   const compact = !isMobile && collapsed
-  const { user, isAdmin, logout, changePassword } = useAuth()
+  const { user, logout, changePassword } = useAuth()
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -60,10 +62,10 @@ export function Sidebar({
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [todayAlarmCount, setTodayAlarmCount] = useState<number | null>(null)
   const visibleNavGroups = useMemo(
-    () => buildSidebarNavGroups(user, isAdmin),
-    [isAdmin, user],
+    () => buildSidebarNavGroups(user),
+    [user],
   )
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(adminModuleGroups.map((group) => group.id).concat('shared')))
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(DEPARTMENTS))
 
   useEffect(() => {
     let active = true
@@ -88,9 +90,9 @@ export function Sidebar({
   const activeChildGroupId = useMemo(
     () => visibleNavGroups
       .flatMap((group) => group.children || [])
-      .find((child) => child.items.some((item) => item.id === currentPage))
+      .find((child) => child.department === currentDepartment && child.items.some((item) => item.id === currentPage))
       ?.id,
-    [currentPage, visibleNavGroups],
+    [currentPage, currentDepartment, visibleNavGroups],
   )
 
   const resetPasswordForm = () => {
@@ -243,8 +245,8 @@ export function Sidebar({
                         key={item.id}
                         item={item}
                         compact={compact}
-                        active={currentPage === item.id}
-                        onClick={() => onPageChange(item.id)}
+                        active={currentPage === item.id && currentDepartment === child.department}
+                        onClick={() => onPageChange(item.id, child.department)}
                         tone={childMeta.tone}
                         nested={!compact}
                       />
@@ -494,44 +496,6 @@ function SidebarResizeHandle({
   )
 }
 
-const adminModuleGroups = [
-  {
-    id: 'general_electric',
-    label: '通用电气事业部',
-    pages: departmentPermissions.general_electric.pages,
-  },
-  {
-    id: 'electronics_electrician',
-    label: '电子电工事业部',
-    pages: departmentPermissions.electronics_electrician.pages,
-  },
-  {
-    id: 'electrical_components',
-    label: '电气部件事业部',
-    pages: departmentPermissions.electrical_components.pages,
-  },
-  {
-    id: 'precious_metal_recycling',
-    label: '伟达公司',
-    pages: departmentPermissions.precious_metal_recycling.pages,
-  },
-  {
-    id: 'haoda_company',
-    label: '皓达公司',
-    pages: departmentPermissions.haoda_company.pages,
-  },
-  {
-    id: 'fulida_company',
-    label: '福力达公司',
-    pages: [],
-  },
-  {
-    id: 'research_institute',
-    label: '福达新材院',
-    pages: departmentPermissions.research_institute.pages,
-  },
-]
-
 type NavTone = 'cyan' | 'yellow' | 'purple' | 'gold' | 'green' | 'blue' | 'red' | 'magenta' | 'teal' | 'orange'
 
 const navToneRgb: Record<NavTone, string> = {
@@ -557,7 +521,6 @@ const sidebarChildMeta: Record<string, { tone: NavTone; icon: typeof Building2 }
   electrical_components: { tone: 'purple', icon: Cpu },
   precious_metal_recycling: { tone: 'gold', icon: Gem },
   haoda_company: { tone: 'magenta', icon: Building2 },
-  fulida_company: { tone: 'teal', icon: Building2 },
   research_institute: { tone: 'green', icon: FlaskConical },
   shared: { tone: 'blue', icon: PackageOpen },
 }
@@ -576,37 +539,15 @@ function itemTone(itemId: string): NavTone {
   return 'blue'
 }
 
-function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0], isAdmin: boolean): NavGroup[] {
+export function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByPermission>[0]): NavGroup[] {
   const visibleGroups = filterNavGroupsByPermission(user, navGroups)
-  const userDepartments = new Set<string>(getUserDepartments(user))
-  const shouldGroupByDepartment = isAdmin || userDepartments.size > 1 || userDepartments.has('all')
-  if (!shouldGroupByDepartment) return visibleGroups
-
-  const modules = visibleGroups.find((group) => group.id === 'modules')
-  if (!modules) return visibleGroups
-
-  const moduleItemsById = new Map(modules.items.map((item) => [item.id, item]))
-  const groupedIds = new Set<string>()
-  const visibleModuleGroups = isAdmin || userDepartments.has('all')
-    ? adminModuleGroups
-    : adminModuleGroups.filter((group) => userDepartments.has(group.id))
-  const children = visibleModuleGroups.map((group) => {
-    const items = group.pages.flatMap((pageId) => {
-      const item = moduleItemsById.get(pageId)
-      if (!item) return []
-      groupedIds.add(item.id)
-      return [item]
-    })
-    return { id: group.id, label: group.label, items }
-  })
-  const sharedItems = modules.items.filter((item) => !groupedIds.has(item.id))
-  if (sharedItems.length) {
-    children.push({ id: 'shared', label: '公共能力', items: sharedItems })
-  }
-
-  return visibleGroups.map((group) => (
-    group.id === 'modules' ? { ...group, items: [], children } : group
-  ))
+  return visibleGroups.map((group) => group.id === 'modules' ? {
+    ...group,
+    items: [],
+    children: getAccessibleDepartments(user).map((department) => ({
+      id: department, department, label: DEPARTMENT_LABELS[department], items: group.items,
+    })),
+  } : group)
 }
 
 function SidebarNavButton({

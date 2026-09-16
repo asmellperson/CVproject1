@@ -1,7 +1,7 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { LogisticsChannelSection } from '@/components/logistics_single_person/LogisticsChannelSection'
-import type { LogisticsDepartment } from '@/components/logistics_single_person/types'
 
-export function LogisticsSinglePersonDetectionSection({ department }: { department: LogisticsDepartment }) {
+export function LogisticsSinglePersonDetectionSection({ department }: { department: DepartmentId }) {
   return (
     <LogisticsChannelSection
       key={department}

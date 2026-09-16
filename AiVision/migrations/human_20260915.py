@@ -3,6 +3,7 @@
 要求停止全部写入并先做独立数据库备份。事务只修改行，旧表由独立命令移除。
 """
 from __future__ import annotations
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import argparse
 from copy import deepcopy
@@ -177,7 +178,7 @@ def preflight(connection):
                 raise ValueError(f"{table_name} id={row['id']}: 孤立或重复摄像头关联")
             index[camera_id] = row
             if not _is_default(row, connection.dialect.name):
-                departments = {"haoda_company"} if table_name == SOURCE else set(SPEC.departments)
+                departments = {"haoda_company"} if table_name == SOURCE else set(DEPARTMENT_SPECS)
                 if cameras[camera_id]["department"] not in departments:
                     raise ValueError(
                         f"{table_name} camera_id={camera_id}: 非默认配置与当前事业部归属不一致；"
@@ -241,7 +242,7 @@ def preflight(connection):
             raise ValueError(f"alarm_id={row['id']}: 含未处理的历史 metadata 引用")
         if _contains_old(row["feature_name"]):
             raise ValueError(f"alarm_id={row['id']}: 含未处理的功能标识")
-        if row["feature_name"] == NEW and (row["violation_type"] != 5 or row["department"] not in SPEC.departments):
+        if row["feature_name"] == NEW and (row["violation_type"] != 5 or row["department"] not in DEPARTMENT_SPECS):
             raise ValueError(f"alarm_id={row['id']}: 人员逗留报警归属或类型无效")
     for row in after.get(LINKS, []):
         if row["feature_name"] == OLD:
@@ -314,7 +315,7 @@ def check_auth_database(path: Path | None):
         if columns != expected:
             raise ValueError("认证库权限结构不是预期的完整 auth_users；先核实实际部署版本")
         counts = {"admin": 0, "viewer": 0}
-        department_counts = {department: 0 for department in SPEC.departments}
+        department_counts = {department: 0 for department in DEPARTMENT_SPECS}
         users = connection.execute("SELECT role, department, departments, enabled, auth_version FROM auth_users").fetchall()
         for role, legacy_department, encoded, enabled, version in users:
             try:

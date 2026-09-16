@@ -16,7 +16,7 @@ from AiVision.integrations.security_vlm.src.department_workspace import (
     DepartmentWorkspaceManager,
     migrate_general_electric,
 )
-from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 
 
 # 功能：更新或保存 `_write_json` 对应的部门逻辑；输入由参数提供，处理结果见返回值说明
@@ -177,16 +177,16 @@ def _process_migrate(
 #   - 内部调用：`require_department`、`pytest.raises`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_requires_known_non_empty_department():
-    for department in SECURITY_DEPARTMENTS:
+    for department in DEPARTMENTS:
         assert require_department(department) == department
 
-    with pytest.raises(ValueError, match="事业部"):
+    with pytest.raises(ValueError, match="department"):
         require_department("")
-    with pytest.raises(ValueError, match="事业部"):
+    with pytest.raises(ValueError, match="department"):
         require_department("unknown")
 
 
-# 功能：验证 `test_manager_creates_four_isolated_empty_workspaces` 对应的部门逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：验证 `test_manager_creates_all_registered_isolated_empty_workspaces` 对应的部门逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -195,24 +195,24 @@ def test_requires_known_non_empty_department():
 #   - 内部调用：`DepartmentWorkspaceManager`、`manager.get`、`len`、`workspace.data_dir.is_dir`、`workspace.runtime_dir.is_dir`、`workspace.roi_dir.is_dir`、`workspace.camera_runtime_dir.is_dir`、`workspace.archive_dir.is_dir`、`workspace.results_dir.is_dir`、`workspace.registry.path.is_file`
 #          等共 13 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_manager_creates_four_isolated_empty_workspaces(tmp_path):
+def test_manager_creates_all_registered_isolated_empty_workspaces(tmp_path):
     manager = DepartmentWorkspaceManager(
         tmp_path / "data",
         tmp_path / "runtime",
     )
 
-    workspaces = [manager.get(department) for department in SECURITY_DEPARTMENTS]
+    workspaces = [manager.get(department) for department in DEPARTMENTS]
 
-    assert len({workspace.data_dir for workspace in workspaces}) == 4
-    assert len({workspace.runtime_dir for workspace in workspaces}) == 4
-    assert len({workspace.registry.path for workspace in workspaces}) == 4
-    assert len({workspace.roi_dir for workspace in workspaces}) == 4
-    assert len({workspace.camera_runtime_dir for workspace in workspaces}) == 4
-    assert len({workspace.archive_dir for workspace in workspaces}) == 4
-    assert len({workspace.results_dir for workspace in workspaces}) == 4
+    assert len({workspace.data_dir for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.runtime_dir for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.registry.path for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.roi_dir for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.camera_runtime_dir for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.archive_dir for workspace in workspaces}) == len(DEPARTMENTS)
+    assert len({workspace.results_dir for workspace in workspaces}) == len(DEPARTMENTS)
 
     for workspace in workspaces:
-        assert workspace.department in SECURITY_DEPARTMENTS
+        assert workspace.department in DEPARTMENTS
         assert workspace.data_dir.is_dir()
         assert workspace.runtime_dir.is_dir()
         assert workspace.roi_dir.is_dir()
@@ -310,7 +310,7 @@ def test_legacy_data_migrates_only_to_general_electric_and_is_idempotent(tmp_pat
     assert not (general.runtime_dir / "session_pending.json").exists()
     assert not any((general.runtime_dir / name).exists() for name in persistent_names)
 
-    for department in SECURITY_DEPARTMENTS:
+    for department in DEPARTMENTS:
         if department != "general_electric":
             assert manager.get(department).registry.list() == []
 

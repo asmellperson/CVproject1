@@ -87,7 +87,7 @@ test('keeps cameras in one scroller with a responsive two-column grid and hover 
   assert.match(cameraList, /camera\.featureLabels\.map/)
   assert.match(cameraList, /onClick=\{\(\) => openEditCameraDialog\(camera\.aiVisionCamera!\)\}/)
   assert.match(cameraList, /setCameraToDelete\(camera\.aiVisionCamera!\)/)
-  assert.match(cameraList, /onClick=\{\(\) => onNavigate\(camera\.pageId!\)\}/)
+  assert.match(cameraList, /onClick=\{\(\) => onNavigate\(camera\.pageId!, department\)\}/)
 })
 
 test('aggregates every camera source including logistics and routes overview creation to the selected backend', () => {
@@ -123,7 +123,7 @@ test('compresses global exception push into a wrapping horizontal bar', () => {
 })
 
 test('renders the five latest alarms as a severity timeline with navigation', () => {
-  const alarmHelpers = homeSection.slice(homeSection.indexOf('const criticalAlarmTypes'), homeSection.indexOf('function departmentLabel'))
+  const alarmHelpers = homeSection.slice(homeSection.indexOf('const criticalAlarmTypes'), homeSection.indexOf('function cameraSourceLabel'))
   const timeline = homeSection.slice(homeSection.indexOf('最近异常'), homeSection.indexOf('运行状态看板'))
 
   assert.match(homeSection, /recentAlarms: AlarmEvent\[\]/)
@@ -143,12 +143,12 @@ test('renders the five latest alarms as a severity timeline with navigation', ()
   assert.match(timeline, /getAlarmLocation\(alarm\)/)
   assert.match(timeline, /严重报警/)
   assert.match(timeline, /查看全部报警/)
-  assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms'\)\}/)
+  assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms', department\)\}/)
 })
 
 test('removes the bottom feature entry cards from the overview', () => {
   assert.doesNotMatch(homeSection, /ModuleEntryCard/)
   assert.doesNotMatch(homeSection, /进入功能/)
   assert.match(homeSection, /const moduleEntries =/)
-  assert.match(homeSection, /getVisibleStatusCards\(visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded\)/)
+  assert.match(homeSection, /getVisibleStatusCards\(visibleModuleEntries, mergedAiVisionCameras, aiVisionCamerasLoaded \|\| logisticsCamerasLoaded\)/)
 })

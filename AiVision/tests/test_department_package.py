@@ -73,33 +73,22 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
                 assert sum(getattr(loaded, "__file__", None) == module.__file__ for loaded in list(sys.modules.values())) == 1
             assert departments.DEPARTMENT_SPECS is service.DEPARTMENT_SPECS is user_store.DEPARTMENT_SPECS is registry.DEPARTMENT_SPECS
             assert departments.DepartmentSpec is service.DepartmentSpec is registry.DepartmentSpec
-            assert departments.require_department is features.require_department is config_manager.require_department is validation.require_department is registry.require_department
+            assert departments.require_department is config_manager.require_department is validation.require_department is registry.require_department
             assert departments.__all__ == ["DEPARTMENT_SPECS", "DepartmentSpec", "require_department"]
             assert registry.DepartmentSpec.__module__ == "AiVision.departments.department_registry"
             assert service.DepartmentService.__module__ == "AiVision.departments.service"
             assert departments_api.DepartmentService is service.DepartmentService
             assert deps.get_department_service() is service.department_service
-            assert service.all_specs is features.all_specs and service.get_spec is features.get_spec
+            assert service.all_specs is features.all_specs
             assert [spec.name for spec in service.department_service.list_departments()] == [
                 "general_electric", "research_institute", "electronics_electrician",
                 "electrical_components", "precious_metal_recycling", "haoda_company",
             ]
             assert user_store.ALLOWED_VIEWER_DEPARTMENTS == registry.DEPARTMENT_SPECS.keys()
-            expected_membership = {
-                "blocks": ("research_institute",),
-                "detect_door": ("general_electric",),
-                "detect_face": ("research_institute",),
-                "detect_human": ("general_electric", "haoda_company"),
-                "detect_logistics_single_person": (
-                    "general_electric", "electronics_electrician", "electrical_components", "precious_metal_recycling",
-                ),
-                "detect_phone": ("general_electric", "research_institute"),
-                "recognize_face": ("electronics_electrician",),
-            }
-            assert {name: spec.departments for name, spec in features.all_specs().items()} == expected_membership
-            for department in expected_membership["detect_human"]:
+            for department in registry.DEPARTMENT_SPECS:
+                assert {item["name"] for item in service.department_service.get_features_by_department(department)} == set(features.all_specs())
                 validation.validate_alarm_identity(5, "detect_human", department)
-            for department in (None, "", "unknown", "research_institute"):
+            for department in (None, "", "unknown", "all"):
                 try:
                     validation.validate_alarm_identity(5, "detect_human", department)
                 except ValueError:

@@ -9,6 +9,9 @@ from auth.auth import get_current_user
 from AiVision.api.deps import get_current_orchestrator
 from AiVision.api.routes import alarms, runtime
 from AiVision.features.registry import all_specs
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+
+DEPARTMENTS = tuple(DEPARTMENT_SPECS)
 from AiVision.features.person_dwell.spec import SPEC
 from AiVision.features.person_dwell.consumer import HumanConsumer
 from AiVision.features.person_dwell.schema import HumanConfigSchema
@@ -18,13 +21,13 @@ from test_feature_department_enable import department_api, create_camera, save
 from test_horn_backend import backend
 
 
-def test_one_registered_human_feature_supports_both_departments():
+def test_one_registered_human_feature_supports_all_departments():
     human_specs = [spec for spec in all_specs().values() if spec.consumer_cls is HumanConsumer]
     assert human_specs == [SPEC]
     assert SPEC.name == "detect_human"
     assert SPEC.config_schema is HumanConfigSchema
     assert SPEC.orm_class.__tablename__ == "ai_camera_config_detect_human"
-    assert SPEC.departments == ("general_electric", "haoda_company")
+    assert "departments" not in SPEC.__dataclass_fields__
 
 
 def test_unowned_human_camera_does_not_grant_either_department_access():
@@ -35,18 +38,18 @@ def test_unowned_human_camera_does_not_grant_either_department_access():
 def human_api(department_api, monkeypatch):
     api = department_api
     api.cameras = []
-    for number, department in enumerate(SPEC.departments, 1):
+    for number, department in enumerate(DEPARTMENTS, 1):
         camera = create_camera(api, name=department, shm_name=department, department=department)
         response = save(api, SPEC.name, True, camera=department, value={
-            "MAX_TIME": float(number * 10), "cap_interval": number * .2,
-            "roi_pos": [[0., 0.], [number * .4, 0.], [number * .4, .8]],
+            "MAX_TIME": float(number * 10), "cap_interval": 0.2 + number * .1,
+            "roi_pos": [[0., 0.], [0.1 + number * .1, 0.], [0.1 + number * .1, .8]],
             "alarm_interval": float(number * 20),
         }, alarm={"sql": {"enable": True}})
         assert response.status_code == 200, response.text
         api.cameras.append(camera)
     status = {
         "started": True, "running_models": ["yolo_human"], "running_consumers": [SPEC.name],
-        "running_cameras": list(SPEC.departments),
+        "running_cameras": list(DEPARTMENTS),
         "inference": {"workers": {"private": "global totals"}, "consumers": {SPEC.name: {
             "totals": {"ok": 33}, "targets": [
                 {"camera_id": camera["camera_id"], "counts": {"ok": number * 11}}
@@ -63,7 +66,7 @@ def human_api(department_api, monkeypatch):
     engine = api.factory.kw["bind"]
     AiAlarmEvent.__table__.create(engine)
     with api.factory.begin() as session:
-        for number, department in enumerate(SPEC.departments, 1):
+        for number, department in enumerate(DEPARTMENTS, 1):
             session.add(AiAlarmEvent(id=number, violation_type=5, feature_name=SPEC.name, department=department,
                                     camera_no=department, subject_type="camera", subject_id=department,
                                     subject_name=department, image_path="missing.png", create_time=datetime.now()))
@@ -73,10 +76,10 @@ def human_api(department_api, monkeypatch):
     return api
 
 
-@pytest.mark.parametrize("department", SPEC.departments)
+@pytest.mark.parametrize("department", DEPARTMENTS)
 def test_config_status_frame_alarm_and_statistics_are_scoped(human_api, department, monkeypatch):
     api = human_api
-    other = next(d for d in SPEC.departments if d != department)
+    other = next(d for d in DEPARTMENTS if d != department)
     api.app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": [department]}
     for key, expected in ((department, 200), (other, 403)):
         for path in (f"/api/features/detect_human/configs/{key}",
@@ -100,7 +103,7 @@ def test_config_status_frame_alarm_and_statistics_are_scoped(human_api, departme
     assert stats["summary"]["total"] == 1
     assert stats["by_type"] == [{"event_type": "detect_human", "name": SPEC.display_name, "value": 1}]
     assert api.client.get(f"/api/alarms?department={other}").status_code == 403
-    other_id = SPEC.departments.index(other) + 1
+    other_id = DEPARTMENTS.index(other) + 1
     assert api.client.get(f"/api/alarms/{other_id}").status_code == 403
     for resource in ("image", "video"):
         assert api.client.get(f"/api/alarms/{other_id}/{resource}").status_code == 403
@@ -113,14 +116,14 @@ def test_config_status_frame_alarm_and_statistics_are_scoped(human_api, departme
 def test_admin_config_and_enable_changes_only_affect_selected_camera(human_api):
     api = human_api
     before = api.client.get("/api/features/detect_human/configs/haoda_company").json()
-    first, second = [camera["camera_id"] for camera in api.cameras]
+    first, second = [camera["camera_id"] for camera in api.cameras[:2]]
     assert api.cache.get_function_config(first, SPEC.name)["MAX_TIME"] == 10
     assert api.cache.get_function_config(second, SPEC.name)["MAX_TIME"] == 20
     assert save(api, SPEC.name, False, camera="general_electric").status_code == 200
     assert api.client.get("/api/features/detect_human/configs/haoda_company").json() == before
     assert api.cache.get_function_config(second, SPEC.name)["enable"] is True
-    assert api.client.patch("/api/cameras/haoda_company", json={"department": "research_institute"}).status_code == 400
-    assert api.client.get("/api/alarms/statistics/summary?feature=detect_human").json()["summary"]["total"] == 2
+    assert api.client.patch("/api/cameras/haoda_company", json={"department": "research_institute"}).status_code == 200
+    assert api.client.get("/api/alarms/statistics/summary?feature=detect_human").json()["summary"]["total"] == len(DEPARTMENTS)
 
 
 def test_shared_human_requires_explicit_department_even_for_preexisting_enable(department_api):
@@ -233,7 +236,7 @@ def test_notification_link_revokes_after_department_or_key_change(human_evidence
     assert api.client.get(url).status_code == 403
 
 
-@pytest.mark.parametrize("alarm_id,department", [(1, "general_electric"), (2, "haoda_company")])
+@pytest.mark.parametrize("alarm_id,department", [(1, "general_electric"), (6, "haoda_company")])
 def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evidence, monkeypatch, alarm_id, department):
     from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
     from AiVision.alarms.notifications.wechat import WeChatNotifier

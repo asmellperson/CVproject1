@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useState } from 'react'
 import { Camera, Copy, Plus, Power, PowerOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -23,7 +24,7 @@ import type { LogisticsCameraCreateInput } from '@/components/logistics_single_p
 type FeatureCameraManagerProps = {
   cameras: AiVisionCamera[]
   feature: string
-  department: string
+  department: DepartmentId
   currentCameraName: string
   disabled?: boolean
 
@@ -37,7 +38,7 @@ type FeatureCameraManagerProps = {
 }
 
 export function FeatureCameraManager({
-  cameras,
+  cameras: sourceCameras,
   feature,
   department,
   currentCameraName,
@@ -47,6 +48,7 @@ export function FeatureCameraManager({
   onRemoveCamera,
   onConfigCopied,
 }: FeatureCameraManagerProps) {
+  const cameras = useMemo(() => sourceCameras.filter((camera) => camera.department === department), [sourceCameras, department])
   const [workingCamera, setWorkingCamera] = useState('')
   const [selectedExistingCamera, setSelectedExistingCamera] = useState('')
   const [copySourceCamera, setCopySourceCamera] = useState('')
@@ -111,7 +113,7 @@ export function FeatureCameraManager({
   const handleCopyConfig = async () => {
     const source = copySourceCamera.trim()
     const target = copyTargetCamera.trim()
-    if (!source || !target || source === target) {
+    if (!source || !target || source === target || !cameras.some((camera) => camera.shm_name === source) || !cameras.some((camera) => camera.shm_name === target)) {
       setCopyError('请选择不同的源摄像头和目标摄像头。')
       return
     }
@@ -166,7 +168,7 @@ export function FeatureCameraManager({
           </div>
           <div className="overflow-hidden rounded-xl border border-[#E2E7F2] bg-white dark:border-slate-800 dark:bg-slate-900/80">
             {enabledCameras.length === 0 ? (
-              <div className="px-4 py-5 text-sm text-slate-500">当前功能还没有加入摄像头。</div>
+              <div className="px-4 py-5 text-sm text-slate-500">{cameras.length ? '当前功能还没有加入摄像头。' : '当前事业部暂未配置摄像头'}</div>
             ) : (
               enabledCameras.map((camera) => {
                 const active = camera.shm_name === currentCameraName
@@ -204,7 +206,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">从已有摄像头加入当前功能</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">从平台全局摄像头池选择；已有明确归属时，加入当前功能不会修改摄像头的所属事业部或公司。停用摄像头需先在平台启用。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">从当前事业部摄像头选择；已有明确归属时，加入当前功能不会修改摄像头的所属事业部或公司。停用摄像头需先在平台启用。</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Select

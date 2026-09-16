@@ -26,7 +26,6 @@ from time import sleep
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from AiVision.core.db import session_scope, get_session     # 查数据库，写数据库
@@ -35,7 +34,6 @@ from AiVision.core.cache import config_cache         # 摄像头配置改完后�
 from AiVision.core.logger import logger
 from AiVision.features.registry import all_specs
 from AiVision.departments.department_registry import require_department
-from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURE_NAME
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
 # 数据库写入时碰到1205/1213要稍微等一下会进行重启并且重试3次，1205：Lock wait timeout等数据库锁超时。1213：Deadlock数据库死锁。
@@ -43,45 +41,10 @@ _MYSQL_RETRYABLE_LOCK_ERRORS = frozenset({1205, 1213})
 _MAX_WRITE_ATTEMPTS = 3
 _WRITE_RETRY_BACKOFF_SECONDS = 0.02
 
-def camera_access_departments(
-    camera: dict,
-    specs: dict | None = None,
-) -> set[str]:
-    """判断当前摄像头应该被哪些事业部看到"""
-    # 返回的是多个部门的集合
-    explicit_department = str(camera.get("department") or "").strip()
-    if explicit_department:
-        return {explicit_department}
-    # 这个摄像头分别开了哪些功能
-    functions = camera.get("functions")
-    # 如果是字典，只取enable=True的Feature
-    if isinstance(functions, dict):
-        enabled_features = {
-            str(feature_name)
-            for feature_name, enabled in functions.items()
-            if enabled
-        }
-    
-    elif isinstance(functions, (list, tuple, set)):
-        enabled_features = {str(feature_name) for feature_name in functions}
-    else:
-        enabled_features = set()
-    
-    # 把启用的Feature对应部门全部收集起来
-    feature_specs = specs if specs is not None else all_specs()
-    departments: set[str] = set()
-    for feature_name in enabled_features:
-        # 共用功能不能用来推断空归属摄像头的可见范围。
-        if feature_name in {LOGISTICS_FEATURE_NAME, "detect_human"}:
-            continue
-        spec = feature_specs.get(feature_name)
-        if spec is None:
-            continue
-        for department in getattr(spec, "departments", ()):
-            normalized = str(department or "").strip()
-            if normalized:
-                departments.add(normalized)
-    return departments
+def camera_access_departments(camera: dict) -> set[str]:
+    """摄像头归属只由显式 department 决定；未分配摄像头对 viewer 不可见。"""
+    department = camera.get("department")
+    return {department} if department else set()
 
 def _load_function_states(session, camera_ids: list[int], specs: dict) -> dict[int, dict[str, bool]]:
     """批量查出每台摄像头分别开启了哪些Feature。"""
@@ -133,11 +96,8 @@ class CameraConfigManager:
         try:
             query = session.query(AiCameraConfig)
             if department:
-                query = query.filter(or_(
-                    AiCameraConfig.department == department,
-                    AiCameraConfig.department.is_(None),
-                    AiCameraConfig.department == "",
-                ))
+                require_department(department)
+                query = query.filter(AiCameraConfig.department == department)
             cameras = query.order_by(AiCameraConfig.id).all()
             specs = all_specs()
             function_states = _load_function_states(
@@ -149,11 +109,6 @@ class CameraConfigManager:
                 self._to_dict(cam, function_states[cam.id])
                 for cam in cameras
             ]
-            if department:
-                items = [
-                    camera for camera in items
-                    if department in camera_access_departments(camera, specs)
-                ]
             return items
         finally:
             session.close()
@@ -205,7 +160,7 @@ class CameraConfigManager:
 
         values = dict(payload)
         # 但是新建的摄像头只能选一个部门
-        values["department"] = spec.resolve_camera_department(values.get("department"))
+        values["department"] = require_department(values.get("department"))
 
         def create_record(session):
             # create_camera_record会同时给所有功能建默认配置
@@ -350,16 +305,11 @@ class CameraConfigManager:
             # 修改字段
             for field in ("name", "url", "fps", "max_restart", "department"):
                 if field in payload:
-                    if field == "department" and payload[field] is not None and payload[field] != "":
+                    if field == "department":
                         require_department(payload[field])
                     setattr(cam, field, payload[field])
             if "enabled" in payload:
                 cam.enable = bool(payload["enabled"])
-            if "department" in payload:
-                human = all_specs()["detect_human"]
-                human_config = session.query(human.orm_class).filter_by(camera_id=cam.id).with_for_update().first()
-                if human_config is not None and human_config.enable:
-                    human.resolve_camera_department(cam.department)
             # 把update发给数据库，但session_scope还没退出，所以事务还没正式commit
             session.flush()
             # 记录修改后的配置

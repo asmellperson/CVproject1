@@ -23,16 +23,16 @@ const wrapper = ({ children }) => React.createElement('div', null, children)
 const icons = new Proxy({}, { get: () => () => React.createElement('svg') })
 const ui = new Proxy({}, { get: () => wrapper })
 
-test('人脸身份识别只列在电子电工事业部，原有报警权限不变', async () => {
+test('所有正式事业部可以进入人脸身份识别及查询识别报警', async () => {
   const permissions = await compile('src/auth/permissions.ts')
   const electronic = { role: 'viewer', departments: ['electronics_electrician'] }
   assert.equal(permissions.hasPageAccess(electronic, 'face-recognition'), true)
-  for (const department of ['research_institute', 'general_electric', 'electrical_components']) {
-    assert.equal(permissions.hasPageAccess({ role: 'viewer', departments: [department] }, 'face-recognition'), false)
+  for (const department of permissions.DEPARTMENTS) {
+    assert.equal(permissions.hasPageAccess({ role: 'viewer', departments: [department] }, 'face-recognition'), true)
   }
   assert.equal(permissions.hasPageAccess({ role: 'admin' }, 'face-recognition'), true)
   assert.equal(permissions.hasPageAccess(null, 'face-recognition'), false)
-  assert.equal(permissions.getAccessibleAlarmEventTypes(electronic).includes('recognize_face'), false)
+  assert.equal(permissions.getAccessibleAlarmEventTypes(electronic).includes('recognize_face'), true)
 })
 
 test('顶部页签按实时监控、识别记录、配置管理排列，原有页面仍然只有两个页签', async () => {
@@ -51,7 +51,7 @@ const cameraApi = {
   getAiVisionCameraKey: (camera) => camera.shm_name,
   isAiVisionFeatureEnabled: (camera, feature) => Boolean(camera.functions[feature]),
 }
-const faceApi = { FACE_FEATURE: 'recognize_face', FACE_DEPARTMENT: 'electronics_electrician' }
+const faceApi = { FACE_FEATURE: 'recognize_face' }
 const recognitionAlarm = {
   sql: { enable: false, parm: {} },
   wechat: { enable: true, parm: { user: 'test-user|second-user' } },
@@ -59,7 +59,7 @@ const recognitionAlarm = {
 }
 const camera = (id, enabled = true, feature = true) => ({
   id: String(id), camera_id: id, shm_name: `camera_${id}`, name: `摄像头${id}`, enabled,
-  functions: { recognize_face: feature },
+  department: 'electronics_electrician', functions: { recognize_face: feature },
 })
 const sharedUi = {
   'lucide-react': icons,
@@ -156,7 +156,7 @@ test('四张统一状态卡展示人数、身份和工号；视频失败不停�
       useFaceRecognitionStatus: (...args) => { polls.push(args); return { status, error } },
     },
   })
-  const props = { cameras: [camera(1), camera(2), camera(3, true, false)], selectedCamera: 'camera_1', loading: false,
+  const props = { department: 'electronics_electrician', cameras: [camera(1), camera(2), camera(3, true, false)], selectedCamera: 'camera_1', loading: false,
     message: '画面读取失败', frameConnected: false, frameContent: React.createElement('img', { src: '/frame.jpg', alt: '后端标注帧' }) }
   let html = renderToStaticMarkup(React.createElement(FaceRecognitionMonitorView, props))
   for (const text of ['摄像头状态', '在线', '摄像头1', '启用摄像头', '2 路', '当前检测人脸', '3 人', '允许 1 / 未授权 1 / 未知 1', '允许人员', '未授权人员报警',
@@ -198,9 +198,9 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
   try {
     const signal = new AbortController().signal
     await api.getFaceRecognitionStatus('camera / 一', signal)
-    await api.getRecognitionRecords(2, '7', signal)
+    await api.getRecognitionRecords('haoda_company', 2, '7', signal)
     assert.equal(calls[0][0], `/aivision/api/features/recognize_face/cameras/${encodeURIComponent('camera / 一')}/status`)
-    assert.equal(calls[1][0], '/aivision/api/face-recognition/records?page=2&page_size=20&camera_id=7')
+    assert.equal(calls[1][0], '/aivision/api/face-recognition/records?department=haoda_company&page=2&page_size=20&camera_id=7')
     assert.equal(calls[0][1].credentials, 'include')
     assert.equal(calls[0][1].signal, signal)
     await api.getFacePersons({ page: 2, page_size: 10, keyword: '姓名', source: 'two', is_active: false, is_allowed: false }, signal)
@@ -212,7 +212,7 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
     assert.equal(calls[3][1].credentials, 'include')
     assert.deepEqual(JSON.parse(calls[3][1].body), { is_allowed: true })
     globalThis.fetch = async () => ({ ok: false, status: 403 })
-    await assert.rejects(api.getRecognitionRecords(1, ''), /HTTP 403/)
+    await assert.rejects(api.getRecognitionRecords('haoda_company', 1, ''), /HTTP 403/)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -298,8 +298,8 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
         },
       },
     })
-    let state = await harness.mount(useRecognitionConfig)
-    assert.deepEqual(listCalls, [[]])
+    let state = await harness.mount(() => useRecognitionConfig('electronics_electrician'))
+    assert.deepEqual(listCalls, [['electronics_electrician']])
     assert.deepEqual(configCalls, ['camera_1'])
     assert.equal(state.cameras.length, 3)
     assert.equal(state.form.detectionThreshold, '0.37')
@@ -393,7 +393,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
             },
           },
         })
-        let state = await harness.mount(useRecognitionConfig)
+        let state = await harness.mount(() => useRecognitionConfig('electronics_electrician'))
         const { RecognitionConfigView } = await compile('src/components/face_recognition/RecognitionConfigView.tsx', {
           ...sharedUi, '@/components/detection/DetectionConfigUi': ui, '@/components/ui/input': ui,
           '@/components/ui/switch': ui, '@/components/ui/tabs': ui, '@/components/FeatureCameraManager': ui, './api': faceApi,
@@ -403,7 +403,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
         deferList = slowList
         events.dispatchEvent(new Event('aivision:cameras-changed'))
         if (!slowList) state = await harness.flush()
-        const callback = elements(RecognitionConfigView(), (node) => Boolean(node.props?.onConfigCopied))[0].props.onConfigCopied
+        const callback = elements(RecognitionConfigView({ department: 'electronics_electrician' }), (node) => Boolean(node.props?.onConfigCopied))[0].props.onConfigCopied
         const pending = callback('camera_2')
         state = await harness.flush()
         assert.equal(state.cameraKey, 'camera_2')
@@ -419,7 +419,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
         assert.equal(state.form.roi, JSON.stringify(copied.roi_pos))
         assert.equal(reads.filter((key) => key === 'camera_2').length, 1)
         assert.equal(pool[1].functions.recognize_face, targetEnabled)
-        assert.equal(elements(RecognitionConfigView(), (node) => node.props?.value === 'camera_2').length > 0, true)
+        assert.equal(elements(RecognitionConfigView({ department: 'electronics_electrician' }), (node) => node.props?.value === 'camera_2').length > 0, true)
       } finally {
         harness.dispose(); globalThis.window = previousWindow
       }
@@ -485,7 +485,7 @@ test('七个配置页签复用企微与喇叭组件，参数边界及只读权�
     '@/components/ui/switch': ui, '@/components/ui/tabs': ui, '@/components/FeatureCameraManager': ui, './api': faceApi,
     './useRecognitionConfig': { useRecognitionConfig: () => ({ ...state, disabled: readonly, canSave: !readonly }) },
   })
-  const tree = RecognitionConfigView()
+  const tree = RecognitionConfigView({ department: 'electronics_electrician' })
   const field = elements(tree, (node) => node.props?.id === 'identity-detectionThreshold')[0]
   assert.equal(field.props.value, '.37')
   assert.deepEqual([field.props.min, field.props.max, field.props.step], ['0', '1', '0.01'])
@@ -501,7 +501,7 @@ test('七个配置页签复用企微与喇叭组件，参数边界及只读权�
   assert.deepEqual(changedAlarm.horn.parm, { horn_id: 3, horn_event_id: 12 })
   assert.equal(elements(tree, (node) => node.type === 'HornDeviceManager').length, 1)
   readonly = true
-  const readonlyTree = RecognitionConfigView()
+  const readonlyTree = RecognitionConfigView({ department: 'electronics_electrician' })
   for (const type of ['WechatAlarmSettings', 'HornAlarmBinding', 'DetectionSaveBar']) {
     assert.ok(elements(readonlyTree, (node) => node.type === type).every((node) => node.props.disabled))
   }
@@ -555,7 +555,7 @@ test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL
       items: [{ id: 1, camera_id: 1, person_name: '测试甲', similarity: .9, recognized_at: '2026-09-01T10:00:00Z', image_url: '/api/face-recognition/records/1/image' }] }) },
   })
   try {
-    let tree = await harness.mount(RecognitionRecordsView)
+    let tree = await harness.mount(() => RecognitionRecordsView({ department: 'electronics_electrician' }))
     assert.deepEqual(requests, [['electronics_electrician']])
     const html = renderToStaticMarkup(tree)
     assert.ok(html.includes('摄像头1') && !html.includes('摄像头2'))

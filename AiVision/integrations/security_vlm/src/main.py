@@ -61,7 +61,7 @@ from AiVision.integrations.security_vlm.src.department_workspace import (
     DepartmentWorkspaceManager,
     GENERAL_ELECTRIC,
 )
-from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 
 
 LOGGER = logging.getLogger(__name__)
@@ -1659,7 +1659,7 @@ def create_app(
             GENERAL_ELECTRIC,
         )
         summaries = {}
-        for department in SECURITY_DEPARTMENTS:
+        for department in DEPARTMENTS:
             state = (
                 general_state
                 if department == GENERAL_ELECTRIC

@@ -736,7 +736,7 @@ def test_total_runtime_limit_and_duplicate_start_idempotency(tmp_path):
 def test_manager_rejects_unknown_department_and_unsafe_camera_id(tmp_path):
     manager, _events, _clock = make_manager(tmp_path, [])
 
-    with pytest.raises(ValueError, match="事业部"):
+    with pytest.raises(ValueError, match="department"):
         manager.start("unknown", "camera-a")
     for camera_id in (".", "..", "../camera-a"):
         with pytest.raises(ValueError, match="camera_id"):

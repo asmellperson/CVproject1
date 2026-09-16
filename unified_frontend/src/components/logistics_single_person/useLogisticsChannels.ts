@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 
 import { useSerialPoll } from '@/hooks/use-serial-poll'
@@ -30,7 +31,6 @@ import type {
   LogisticsChannelReason,
   LogisticsChannelRuntimeStatus,
   LogisticsChannelStatistics,
-  LogisticsDepartment,
   LogisticsFeatureName,
 } from './types'
 
@@ -52,7 +52,7 @@ function isToday(value: string | null, now = new Date()) {
     && date.getDate() === now.getDate()
 }
 
-export function useLogisticsChannels(feature: LogisticsFeatureName, department: LogisticsDepartment, enabled = true) {
+export function useLogisticsChannels(feature: LogisticsFeatureName, department: DepartmentId, enabled = true) {
   const [channels, setChannels] = useState<LogisticsChannel[]>([])
   const [selectedChannelDetail, setSelectedChannelDetail] = useState<LogisticsChannelDetail | null>(null)
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)

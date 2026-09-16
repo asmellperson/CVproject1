@@ -2,10 +2,6 @@ export const LOGISTICS_FEATURES = [
   'detect_logistics_single_person',
 ] as const
 
-export const LOGISTICS_DEPARTMENTS = ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling'] as const
-
-export type LogisticsDepartment = (typeof LOGISTICS_DEPARTMENTS)[number]
-
 export type LogisticsFeatureName = (typeof LOGISTICS_FEATURES)[number]
 
 export type LogisticsChannelReason =

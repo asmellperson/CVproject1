@@ -1,3 +1,4 @@
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 # 文件说明：包含接口访问的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -201,11 +202,11 @@ def test_site_api_routes_create_site_and_camera(tmp_path):
     get_site = _route_endpoint(app, "/api/sites/{site_id}", "GET")
     create_camera = _route_endpoint(app, "/api/sites/{site_id}/cameras", "POST")
 
-    site = create_site(SiteCreateRequest(name="一厂区南门保安室"), _user={"role": "admin"})
+    site = create_site(SiteCreateRequest(name="一厂区南门保安室", department="general_electric"), _user={"role": "admin"})
     assert site["name"] == "一厂区南门保安室"
     assert site["camera_count"] == 0
 
-    listed = list_sites()
+    listed = list_sites(_user={"role": "admin"})
     assert [item["name"] for item in listed["items"]] == ["一厂区南门保安室"]
 
     camera = create_camera(
@@ -215,7 +216,7 @@ def test_site_api_routes_create_site_and_camera(tmp_path):
     )
     assert camera["sort_order"] == 1
 
-    detail = get_site(site["id"])
+    detail = get_site(site["id"], _user={"role": "admin"})
     assert detail["cameras"][0]["name"] == "门口左侧"
 
 
@@ -233,30 +234,27 @@ def test_site_api_routes_scope_sites_by_department(tmp_path):
     create_site = _route_endpoint(app, "/api/sites", "POST")
     list_sites = _route_endpoint(app, "/api/sites", "GET")
 
-    create_site(
-        SiteCreateRequest(name="通用电气保安室", department="general_electric"),
-        _user={"role": "admin", "departments": ["all"]},
-    )
-    create_site(
-        SiteCreateRequest(name="电子电工保安室", department="electronics_electrician"),
-        _user={"role": "admin", "departments": ["all"]},
-    )
-
-    assert [item["name"] for item in list_sites(department="general_electric")["items"]] == ["通用电气保安室"]
-    assert [item["name"] for item in list_sites(department="electronics_electrician")["items"]] == ["电子电工保安室"]
-
-    multi_department_viewer = {
-        "role": "viewer",
-        "department": "general_electric",
-        "departments": ["general_electric", "electronics_electrician"],
+    sites = {
+        department: create_site(SiteCreateRequest(name="保安室", department=department), _user={"role": "admin"})
+        for department in DEPARTMENT_SPECS
     }
-    assert [item["name"] for item in list_sites(
-        department="electronics_electrician",
-        _user=multi_department_viewer,
-    )["items"]] == ["电子电工保安室"]
-    with pytest.raises(HTTPException) as caught:
-        list_sites(department="electrical_components", _user=multi_department_viewer)
-    assert caught.value.status_code == 403
+    get_site = _route_endpoint(app, "/api/sites/{site_id}", "GET")
+    for department, site in sites.items():
+        viewer = {"role": "viewer", "departments": [department]}
+        assert [row["id"] for row in list_sites(department=department, _user=viewer)["items"]] == [site["id"]]
+        assert get_site(site["id"], department=department, _user=viewer)["department"] == department
+        foreign = next(row for other, row in sites.items() if other != department)
+        with pytest.raises(HTTPException) as caught:
+            get_site(foreign["id"], department=department, _user=viewer)
+        assert caught.value.status_code == 404
+        with pytest.raises(HTTPException) as caught:
+            list_sites(department=foreign["department"], _user=viewer)
+        assert caught.value.status_code == 403
+    assert len(list_sites(_user={"role": "viewer", "departments": ["all"]})["items"]) == len(DEPARTMENT_SPECS)
+    for departments in ([], ["unknown"]):
+        with pytest.raises(HTTPException) as caught:
+            list_sites(_user={"role": "viewer", "departments": departments})
+        assert caught.value.status_code == 403
 
 
 # 功能：验证 `test_site_api_routes_update_and_delete_camera` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -276,7 +274,7 @@ def test_site_api_routes_update_and_delete_camera(tmp_path):
     delete_camera = _route_endpoint(app, "/api/cameras/{camera_id}", "DELETE")
     get_site = _route_endpoint(app, "/api/sites/{site_id}", "GET")
 
-    site = create_site(SiteCreateRequest(name="二厂区值班室"), _user={"role": "admin"})
+    site = create_site(SiteCreateRequest(name="二厂区值班室", department="general_electric"), _user={"role": "admin"})
     camera = create_camera(
         site["id"],
         CameraCreateRequest(name="旧名称", rtsp_url="rtsp://old"),
@@ -293,7 +291,7 @@ def test_site_api_routes_update_and_delete_camera(tmp_path):
     assert updated["enabled"] is False
 
     assert delete_camera(camera["id"], _user={"role": "admin"}) == {"success": True}
-    assert get_site(site["id"])["cameras"] == []
+    assert get_site(site["id"], _user={"role": "admin"})["cameras"] == []
 
 
 # 功能：验证 `test_site_api_routes_expose_runtime_controls_and_read_models` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -326,11 +324,11 @@ def test_site_api_routes_expose_runtime_controls_and_read_models(tmp_path):
     assert stop(7, _user={"role": "admin"})["running"] is False
     assert restart(7, _user={"role": "admin"})["restarted"] is True
     assert manager.restarted == [7]
-    assert status(7)["site_name"] == "测试保安室"
-    assert frame(7).body == b"jpeg-bytes"
-    assert camera_frame(7, "cam2").body == b"7:cam2:jpeg"
-    assert alarms(7)["items"][0]["site_id"] == 7
-    assert statistics(7)["summary"]["total"] == 0
+    assert status(7, _user={"role": "admin"})["site_name"] == "测试保安室"
+    assert frame(7, _user={"role": "admin"}).body == b"jpeg-bytes"
+    assert camera_frame(7, "cam2", _user={"role": "admin"}).body == b"7:cam2:jpeg"
+    assert alarms(7, _user={"role": "admin"})["items"][0]["site_id"] == 7
+    assert statistics(7, _user={"role": "admin"})["summary"]["total"] == 0
 
 
 # 功能：验证 `test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites` 对应的接口访问逻辑；输入由参数提供，处理结果见返回值说明
@@ -346,8 +344,8 @@ def test_app_lifespan_starts_enabled_sites_and_preserves_disabled_sites(tmp_path
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_lifespan.db'}")
     service = GuardRoomService()
     service.ensure_schema()
-    enabled = service.create_site("默认开启")
-    disabled = service.create_site("手动关闭", enabled=False)
+    enabled = service.create_site("默认开启", department="general_electric")
+    disabled = service.create_site("手动关闭", enabled=False, department="general_electric")
     service.create_camera(enabled["id"], name="入口", rtsp_url="rtsp://enabled")
     service.create_camera(disabled["id"], name="入口", rtsp_url="rtsp://disabled")
     manager = FakeRuntimeManager()
@@ -386,7 +384,7 @@ def test_first_enabled_camera_starts_an_enabled_site_after_app_startup(tmp_path)
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room_api_first_camera.db'}")
     service = GuardRoomService()
     service.ensure_schema()
-    site = service.create_site("待添加摄像头")
+    site = service.create_site("待添加摄像头", department="general_electric")
     manager = FakeRuntimeManager()
     app = create_app(
         str(Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"),

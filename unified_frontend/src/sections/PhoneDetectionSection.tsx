@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -113,7 +114,7 @@ async function requestPhoneConfig(shmName: string, config?: PhoneConfig) {
   }
 }
 
-export function PhoneDetectionSection() {
+export function PhoneDetectionSection({ department }: { department: DepartmentId }) {
   const { isAdmin } = useAuth()
   const [form, setForm] = useState(defaultForm)
   const [phoneConfig, setPhoneConfig] = useState<PhoneConfig | null>(null)
@@ -163,13 +164,13 @@ export function PhoneDetectionSection() {
   const loadCameras = async () => {
     setCameraLoading(true)
     try {
-      const items = await getAiVisionCameras()
+      const items = await getAiVisionCameras(department)
       setCameras(items)
       const enabledCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, 'detect_phone'))
       const enabledCamera = enabledCameras.find((camera) => camera.shm_name === selectedCameraRef.current) || enabledCameras[0]
       const nextCamera = enabledCamera?.shm_name || ''
       if (items.length === 0) {
-        setMessage('未获取到可用摄像头，请先在 AiVision 中配置。')
+        setMessage('当前事业部暂未配置摄像头')
         return
       }
       if (!nextCamera) {
@@ -197,7 +198,7 @@ export function PhoneDetectionSection() {
   }, [])
 
   const refreshCameraList = async () => {
-    const items = await getAiVisionCameras()
+    const items = await getAiVisionCameras(department)
     setCameras(items)
     return items
   }
@@ -368,13 +369,13 @@ export function PhoneDetectionSection() {
     <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
       <Tabs defaultValue="monitor" className="space-y-5">
         <DetectionPageHeader
-          title="手机识别检测"
+          title="手机使用检测"
           subtitle="手机使用识别监控面板"
-          departmentLabel="福达新材院"
+          departmentLabel={DEPARTMENT_LABELS[department]}
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="手机识别检测监控" feature="detect_phone" presentation="feature-dashboard" />
+          <AiVisionMonitor title="手机使用检测监控" feature="detect_phone" department={department} presentation="feature-dashboard" />
         </TabsContent>
 
         <TabsContent value="config" className="mt-0 space-y-6">
@@ -392,7 +393,7 @@ export function PhoneDetectionSection() {
               <FeatureCameraManager
                 cameras={cameras}
                 feature="detect_phone"
-                department="research_institute"
+                department={department}
                 currentCameraName={form.cameraName}
                 disabled={!isAdmin || cameraLoading || loading || saving || cameraAction}
                 onSelectCamera={(cameraName) => {

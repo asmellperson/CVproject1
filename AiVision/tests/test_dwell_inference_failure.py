@@ -33,7 +33,7 @@ def scene(request, monkeypatch):
     for camera_id in [1, 2]:
         consumer.config_cache[camera_id] = {
             **deepcopy(config), "shm_name": f"camera-{camera_id}",
-            "name": f"camera-{camera_id}", "department": spec.departments[(camera_id - 1) % len(spec.departments)],
+            "name": f"camera-{camera_id}", "department": "haoda_company",
         }
         consumer.frame_cache[camera_id] = frame
         consumer._get_roi(camera_id, frame)

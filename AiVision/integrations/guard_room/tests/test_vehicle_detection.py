@@ -28,7 +28,7 @@ def test_site_config_persists_vehicle_detector_model_from_db(tmp_path):
     site = service.create_site(
         "车辆检测保安室",
         config={"models": {"vehicle_detector_model": "models/yolo11n.pt"}},
-    )
+    department="general_electric")
     cfg = service.build_app_config(site["id"])
 
     assert isinstance(cfg, AppConfig)
@@ -59,7 +59,7 @@ def test_site_config_persists_vehicle_camera_and_roi_from_db(tmp_path):
                 "vehicle_reassociate_seconds": 12,
             },
         },
-    )
+    department="general_electric")
     cfg = service.build_app_config(site["id"])
 
     assert cfg.runtime.vehicle_camera_id == "cam2"

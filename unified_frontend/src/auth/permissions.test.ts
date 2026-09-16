@@ -1,189 +1,32 @@
 import {
-  alarmEventTypesByPage,
-  departmentPermissions,
-  getUserDepartment,
-  getUserDepartments,
-  getAccessibleAlarmEventTypes,
-  hasPageAccess,
-  type PageId,
+  DEPARTMENTS, DETECTION_PAGE_IDS, DETECTION_EVENT_TYPES, alarmEventTypesByPage,
+  getUserDepartments, getAccessibleDepartments, getAccessibleAlarmEventTypes, hasPageAccess, resolveDepartment,
 } from './permissions'
 
-const userManagementPage: PageId = 'user-management'
-const adminUser = {
-  employee_id: 'admin',
-  name: '管理员',
-  role: 'admin',
-  departments: ['all'],
+const viewer = (departments: string[]) => ({ employee_id: 'viewer', name: '查看者', role: 'viewer', departments })
+const admin = { ...viewer([]), role: 'admin' }
+if (DETECTION_PAGE_IDS.length !== 9 || new Set(DETECTION_PAGE_IDS).size !== 9) throw new Error('canonical detection pages must be unique')
+for (const department of DEPARTMENTS) {
+  const user = viewer([department])
+  for (const page of DETECTION_PAGE_IDS) {
+    if (!hasPageAccess(user, page)) throw new Error(`${department} must access ${page}`)
+  }
+  if (getAccessibleDepartments(user).join() !== department) throw new Error('viewer department scope leaked')
+  if (getAccessibleAlarmEventTypes(user)?.join() !== DETECTION_EVENT_TYPES.join()) throw new Error('all departments need all event types')
+  for (const requested of DEPARTMENTS) {
+    if (resolveDepartment(user, requested) !== department) throw new Error('unauthorized URL must fall back to first authorized department')
+    if (resolveDepartment(admin, requested) !== requested) throw new Error('admin must access every department')
+    if (resolveDepartment(viewer(['all']), requested) !== requested) throw new Error('all must access every department')
+  }
+  if (hasPageAccess(user, 'user-management')) throw new Error('viewer must not manage users')
 }
-
-const ownerUser = {
-  ...adminUser,
-  capabilities: { view_access_audit: true },
+for (const departments of [[], ['unknown']]) {
+  if (DETECTION_PAGE_IDS.some((page) => hasPageAccess(viewer(departments), page))) throw new Error('unassigned viewer must not access detection data')
+  if (resolveDepartment(viewer(departments), 'general_electric') !== null) throw new Error('unassigned viewer must have no department context')
 }
-
-if (!hasPageAccess(adminUser, userManagementPage)) {
-  throw new Error('expected administrators to access user management')
-}
-
-if (hasPageAccess(adminUser, 'access-audit')) {
-  throw new Error('expected ordinary administrators to be isolated from access audit')
-}
-
-if (!hasPageAccess(ownerUser, 'access-audit')) {
-  throw new Error('expected platform owner capability to grant access audit')
-}
-
-const electronicsUser = {
-  employee_id: 'u1',
-  name: '电子电工用户',
-  role: 'viewer',
-  departments: ['electronics_electrician'],
-}
-
-if (getUserDepartment(electronicsUser) !== 'electronics_electrician') {
-  throw new Error('expected electronics_electrician department to normalize')
-}
-
-if (!hasPageAccess(electronicsUser, 'guard-behavior-electronics-electrician')) {
-  throw new Error('expected electronics department to access its guard behavior page')
-}
-
-if (hasPageAccess(electronicsUser, 'guard-behavior-general-electric')) {
-  throw new Error('expected electronics department to be isolated from general electric guard behavior page')
-}
-
-if (hasPageAccess(electronicsUser, userManagementPage)) {
-  throw new Error('expected viewers to be isolated from user management')
-}
-
-if (!departmentPermissions.electronics_electrician.pages.includes('guard-behavior-electronics-electrician')) {
-  throw new Error('expected electronics department permissions to include its guard behavior page')
-}
-
-if (!hasPageAccess(electronicsUser, 'security-vlm-electronics-electrician')) {
-  throw new Error('expected electronics department to access its security VLM page')
-}
-
-if (hasPageAccess(electronicsUser, 'security-vlm-general-electric')) {
-  throw new Error('expected electronics department to be isolated from general electric security VLM page')
-}
-
-if (alarmEventTypesByPage['guard-behavior-electronics-electrician']?.join(',') !== 'guard_absent,guard_phone_use,guard_prone_sleep') {
-  throw new Error('expected electronics guard page to map to guard alarm event types')
-}
-
-const multiDepartmentUser = {
-  employee_id: 'leader-1',
-  name: '跨事业部负责人',
-  role: 'viewer',
-  departments: ['general_electric', 'electronics_electrician'],
-}
-
-if (getUserDepartments(multiDepartmentUser).join(',') !== 'general_electric,electronics_electrician') {
-  throw new Error('expected all assigned departments to normalize')
-}
-
-if (!hasPageAccess(multiDepartmentUser, 'human-detection')) {
-  throw new Error('expected multi-department user to access the general electric page')
-}
-
-if (!hasPageAccess(multiDepartmentUser, 'guard-behavior-electronics-electrician')) {
-  throw new Error('expected multi-department user to access the electronics page')
-}
-
-if (hasPageAccess(multiDepartmentUser, 'face-detection')) {
-  throw new Error('expected multi-department user to remain isolated from unassigned departments')
-}
-
-const multiDepartmentAlarmTypes = getAccessibleAlarmEventTypes(multiDepartmentUser) ?? []
-if (!multiDepartmentAlarmTypes.includes('detect_human') || !multiDepartmentAlarmTypes.includes('detect_logistics_single_person')) {
-  throw new Error('expected alarm permissions to be the union of assigned departments')
-}
-
-const electricalComponentsUser = {
-  employee_id: 'u2',
-  name: '电气部件用户',
-  role: 'viewer',
-  departments: ['electrical_components'],
-}
-
-const preciousMetalRecyclingUser = {
-  employee_id: 'u3',
-  name: '伟达公司用户',
-  role: 'viewer',
-  departments: ['precious_metal_recycling'],
-}
-
-const weidaAliasUser = {
-  employee_id: 'u4',
-  name: '伟达公司别名用户',
-  role: 'viewer',
-  departments: ['伟达公司'],
-}
-
-if (getUserDepartment(electricalComponentsUser) !== 'electrical_components') {
-  throw new Error('expected electrical_components department to normalize')
-}
-
-if (getUserDepartment(preciousMetalRecyclingUser) !== 'precious_metal_recycling') {
-  throw new Error('expected precious_metal_recycling department to normalize')
-}
-
-if (getUserDepartment(weidaAliasUser) !== 'precious_metal_recycling') {
-  throw new Error('expected 伟达公司 alias to normalize')
-}
-
-if (!hasPageAccess(electricalComponentsUser, 'logistics-single-person-electrical-components')) {
-  throw new Error('expected electrical components department to access its logistics single person page')
-}
-
-if (!hasPageAccess(electricalComponentsUser, 'security-vlm-electrical-components')) {
-  throw new Error('expected electrical components department to access its security VLM page')
-}
-
-if (!hasPageAccess(preciousMetalRecyclingUser, 'security-vlm-precious-metal-recycling')) {
-  throw new Error('expected precious metal recycling department to access its security VLM page')
-}
-
-if (!hasPageAccess(preciousMetalRecyclingUser, 'logistics-single-person-precious-metal-recycling')) {
-  throw new Error('expected precious metal recycling department to access its logistics single person page')
-}
-
-if (hasPageAccess({ ...electricalComponentsUser, departments: ['research_institute'] }, 'logistics-single-person-electrical-components')) {
-  throw new Error('expected research institute to remain outside logistics departments')
-}
-
-if (hasPageAccess({ ...preciousMetalRecyclingUser, departments: ['haoda_company'] }, 'logistics-single-person-electrical-components')) {
-  throw new Error('expected haoda company to remain outside logistics departments')
-}
-
-if (alarmEventTypesByPage['logistics-single-person-electrical-components']?.join(',') !== 'detect_logistics_single_person') {
-  throw new Error('expected electrical components logistics page to map to the canonical alarm event type')
-}
-
-if (alarmEventTypesByPage['logistics-single-person-precious-metal-recycling']?.join(',') !== 'detect_logistics_single_person') {
-  throw new Error('expected precious metal recycling logistics page to map to the canonical alarm event type')
-}
-
-const haodaUser = {
-  employee_id: 'u4',
-  name: '皓达公司用户',
-  role: 'viewer',
-  departments: ['haoda_company'],
-}
-
-if (getUserDepartment(haodaUser) !== 'haoda_company') {
-  throw new Error('expected haoda_company department to normalize')
-}
-
-if (!hasPageAccess(haodaUser, 'haoda-human-detection')) {
-  throw new Error('expected Haoda users to access their human dwell page')
-}
-
-if (hasPageAccess(haodaUser, 'human-detection')) {
-  throw new Error('expected Haoda users to be isolated from the general electric human dwell page')
-}
-
-if (alarmEventTypesByPage['haoda-human-detection']?.join(',') !== 'detect_human') {
-  throw new Error('expected Haoda human dwell page to map to the canonical alarm event type')
-}
+if (getUserDepartments(viewer(['unknown', 'general_electric', 'general_electric'])).join() !== 'general_electric') throw new Error('only unique registered departments are accepted')
+if (!hasPageAccess(admin, 'user-management')) throw new Error('admin must manage users')
+if (hasPageAccess(admin, 'access-audit')) throw new Error('access audit requires explicit capability')
+if (!hasPageAccess({ ...admin, capabilities: { view_access_audit: true } }, 'access-audit')) throw new Error('owner must access audit')
+if (hasPageAccess(admin, 'unknown-page')) throw new Error('unknown PageId must be rejected')
+if (alarmEventTypesByPage['face-recognition'].join() !== 'recognize_face') throw new Error('identity alarm type missing')

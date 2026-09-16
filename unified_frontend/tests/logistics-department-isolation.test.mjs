@@ -9,61 +9,51 @@ const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf
 const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText).toString('base64')}`
-const departments = ['general_electric', 'electronics_electrician', 'electrical_components', 'precious_metal_recycling']
-const pageFor = (department) => `logistics-single-person-${department.replaceAll('_', '-')}`
 const feature = 'detect_logistics_single_person'
 const permissionsUrl = moduleUrl(await read('auth/permissions.ts'))
-const { hasPageAccess, getAccessibleAlarmEventTypes } = await import(permissionsUrl)
+const { DEPARTMENTS: departments, DETECTION_PAGE_IDS, hasPageAccess, getAccessibleAlarmEventTypes } = await import(permissionsUrl)
 const iconsUrl = pathToFileURL(createRequire(import.meta.url).resolve('lucide-react')).href
 const navUrl = moduleUrl((await read('lib/nav.ts')).replaceAll("'lucide-react'", JSON.stringify(iconsUrl)))
 const sidebarSource = await read('components/Sidebar.tsx')
 const sidebarAst = ts.createSourceFile('Sidebar.tsx', sidebarSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 const groupSource = sidebarAst.statements.filter((node) => (
   ts.isFunctionDeclaration(node) && node.name?.text === 'buildSidebarNavGroups'
-) || (
-  ts.isVariableStatement(node) && node.declarationList.declarations.some((decl) => decl.name.getText(sidebarAst) === 'adminModuleGroups')
 )).map((node) => node.getText(sidebarAst)).join('\n')
 const { buildSidebarNavGroups } = await import(moduleUrl(`
-  import { departmentPermissions, filterNavGroupsByPermission, getUserDepartments } from '${permissionsUrl}'
+  import { DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments } from '${permissionsUrl}'
   import { navGroups } from '${navUrl}'
   ${groupSource}
-  export { buildSidebarNavGroups }
 `))
 const user = (assigned, role = 'viewer') => ({ employee_id: 'test', name: 'test', role, departments: assigned })
 
 for (const department of departments) {
-  test(`${department} sees only its own logistics entry and keeps the canonical alarm type`, () => {
+  test(`${department} has all nine abilities within its own department group`, () => {
     const viewer = user([department])
-    assert.deepEqual(departments.filter((item) => hasPageAccess(viewer, pageFor(item))), [department])
-    const modules = buildSidebarNavGroups(viewer, false).find((group) => group.id === 'modules')
-    assert.deepEqual(modules.items.filter((item) => item.id.startsWith('logistics-single-person')).map((item) => item.id), [pageFor(department)])
-    assert.deepEqual(getAccessibleAlarmEventTypes(viewer).filter((item) => item.startsWith(feature)), [feature])
+    assert.ok(DETECTION_PAGE_IDS.every((page) => hasPageAccess(viewer, page)))
+    const modules = buildSidebarNavGroups(viewer).find((group) => group.id === 'modules')
+    assert.deepEqual(modules.items, [])
+    assert.deepEqual(modules.children.map((group) => group.department), [department])
+    assert.deepEqual(modules.children[0].items.map((item) => item.id), DETECTION_PAGE_IDS)
+    assert.ok(getAccessibleAlarmEventTypes(viewer).includes(feature))
+    assert.ok(getAccessibleAlarmEventTypes(viewer).includes('recognize_face'))
   })
 }
-
 for (const [name, viewer, expected] of [
-  ['admin', user(['all'], 'admin'), departments],
-  ['all departments', user(['all']), departments],
-  ['multiple departments', user(departments.slice(0, 2)), departments.slice(0, 2)],
+  ['admin', user([], 'admin'), departments],
+  ['all', user(['all']), departments],
+  ['multiple', user(departments.slice(0, 2)), departments.slice(0, 2)],
 ]) {
-  test(`${name} gets logistics inside each authorized department, never shared abilities`, () => {
-    const modules = buildSidebarNavGroups(viewer, viewer.role === 'admin').find((group) => group.id === 'modules')
-    const logisticsGroups = modules.children.filter((group) => group.items.some((item) => item.id.startsWith('logistics-single-person')))
-    assert.deepEqual(logisticsGroups.map((group) => group.id), expected)
-    for (const group of logisticsGroups) {
-      assert.deepEqual(group.items.filter((item) => item.id.startsWith('logistics-single-person')).map((item) => item.id), [pageFor(group.id)])
-    }
-    assert.ok(!modules.children.find((group) => group.id === 'shared')?.items.some((item) => item.id.startsWith('logistics-single-person')))
+  test(`${name} repeats the same nine NavItems for authorized departments only`, () => {
+    const modules = buildSidebarNavGroups(viewer).find((group) => group.id === 'modules')
+    assert.deepEqual(modules.children.map((group) => group.department), expected)
+    for (const group of modules.children) assert.deepEqual(group.items.map((item) => item.id), DETECTION_PAGE_IDS)
   })
 }
-
-test('unassigned departments cannot open a logistics page', () => {
-  for (const assigned of [[], ['research_institute'], ['haoda_company']]) {
-    assert.ok(departments.every((department) => !hasPageAccess(user(assigned), pageFor(department))))
-  }
+test('viewer without a registered department cannot enter detection pages', () => {
+  for (const assigned of [[], ['unknown']]) assert.ok(DETECTION_PAGE_IDS.every((page) => !hasPageAccess(user(assigned), page)))
 })
 
-test('API list and inventory transmit the selected department; overview inventory remains authorized aggregate', async () => {
+test('API list and inventory transmit the selected department; overview uses the selected department', async () => {
   const stubUrl = moduleUrl(`
     export const apiGet = async (path, init) => ({ path, init })
     export const apiPost = apiGet, apiPut = apiGet, apiPatch = apiGet, apiDelete = apiGet, apiUrl = (path) => path
@@ -92,9 +82,11 @@ test('department switch rejects old list and detail results even when feature, i
 
 test('each route passes department to one shared page and resets the whole page on department change', async () => {
   const app = await read('App.tsx')
-  for (const department of departments) {
-    assert.ok(app.includes(`case '${pageFor(department)}':\n        return <LogisticsSinglePersonDetectionSection department="${department}" />`))
-  }
+  assert.equal((app.match(/case 'logistics-single-person':/g) || []).length, 1)
+  assert.match(app, /<LogisticsSinglePersonDetectionSection department=\{currentDepartment\}/)
+  assert.ok(app.includes('key={`${activePage}:${currentDepartment}`}'))
+  assert.match(sidebarSource, /currentPage === item.id && currentDepartment === child.department/)
+  assert.match(sidebarSource, /onPageChange\(item.id, child.department\)/)
   const section = await read('sections/LogisticsSinglePersonDetectionSection.tsx')
   assert.match(section, /key=\{department\}/)
   assert.match(section, /department=\{department\}/)
@@ -103,7 +95,7 @@ test('each route passes department to one shared page and resets the whole page 
   assert.match(config, /createLogisticsChannel\(feature, \{ name, department \}\)/)
   assert.doesNotMatch(config, /createDialog\.department|change-department/)
   const home = await read('sections/HomeSection.tsx')
-  assert.match(home, /logisticsPageByDepartment\[camera.department as LogisticsDepartment\]/)
+  assert.match(home, /onNavigate\(camera.pageId!, department\)/)
   assert.doesNotMatch(home, /logisticsPageByFeature/)
 })
 

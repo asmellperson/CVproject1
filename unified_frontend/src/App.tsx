@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
 import { Topbar } from '@/components/Topbar'
 import { HomeSection } from '@/sections/HomeSection'
@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { usePlatformStatus } from '@/hooks/use-platform-status'
 import { useAuth } from '@/auth/useAuth'
-import { hasPageAccess } from '@/auth/permissions'
+import { hasPageAccess, resolveDepartment, type DepartmentId } from '@/auth/permissions'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width-v2'
 const DEFAULT_SIDEBAR_WIDTH = 272
@@ -47,9 +47,6 @@ const FaceRecognitionSection = lazy(() =>
 )
 const HumanDetectionSection = lazy(() =>
   import('@/sections/HumanDetectionSection').then((module) => ({ default: module.HumanDetectionSection })),
-)
-const HaodaHumanDetectionSection = lazy(() =>
-  import('@/sections/HaodaHumanDetectionSection').then((module) => ({ default: module.HaodaHumanDetectionSection })),
 )
 const LogisticsSinglePersonDetectionSection = lazy(() =>
   import('@/sections/LogisticsSinglePersonDetectionSection').then((module) => ({ default: module.LogisticsSinglePersonDetectionSection })),
@@ -92,6 +89,8 @@ function App() {
   const { user } = useAuth()
   const platformStatus = usePlatformStatus()
   const [currentPage, setCurrentPage] = useState(getInitialPage)
+  const [requestedDepartment, setCurrentDepartment] = useState(() => new URLSearchParams(window.location.search).get('department'))
+  const currentDepartment = resolveDepartment(user, requestedDepartment)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
@@ -100,7 +99,25 @@ function App() {
   const isMobile = useIsMobile()
   const activePage = hasPageAccess(user, currentPage) ? currentPage : 'overview'
 
-  const handlePageChange = (page: string) => {
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', activePage)
+    if (currentDepartment) url.searchParams.set('department', currentDepartment)
+    else url.searchParams.delete('department')
+    window.history.replaceState(null, '', url)
+  }, [activePage, currentDepartment])
+
+  useEffect(() => {
+    const syncLocation = () => {
+      setCurrentPage(getInitialPage())
+      setCurrentDepartment(new URLSearchParams(window.location.search).get('department'))
+    }
+    window.addEventListener('popstate', syncLocation)
+    return () => window.removeEventListener('popstate', syncLocation)
+  }, [])
+
+  const handlePageChange = (page: string, department?: DepartmentId) => {
+    setCurrentDepartment(resolveDepartment(user, department ?? currentDepartment))
     setCurrentPage(hasPageAccess(user, page) ? page : 'overview')
     if (isMobile) setMobileSidebarOpen(false)
   }
@@ -116,46 +133,25 @@ function App() {
   const renderContent = () => {
     switch (activePage) {
       case 'overview':
-        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
-      case 'home':
-        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
-      case 'guard-behavior':
-        return <GuardBehaviorSection department="general_electric" />
-      case 'guard-behavior-general-electric':
-        return <GuardBehaviorSection department="general_electric" />
-      case 'guard-behavior-electronics-electrician':
-        return <GuardBehaviorSection department="electronics_electrician" />
-      case 'intrusion-detection':
-        return <IntrusionDetectionSection />
-      case 'door-detection':
-        return <DoorDetectionSection />
-      case 'face-detection':
-        return <FaceDetectionSection />
-      case 'face-recognition':
-        return <FaceRecognitionSection />
-      case 'human-detection':
-        return <HumanDetectionSection />
-      case 'haoda-human-detection':
-        return <HaodaHumanDetectionSection />
-      case 'logistics-single-person-general-electric':
-        return <LogisticsSinglePersonDetectionSection department="general_electric" />
-      case 'logistics-single-person-electronics-electrician':
-        return <LogisticsSinglePersonDetectionSection department="electronics_electrician" />
-      case 'logistics-single-person-electrical-components':
-        return <LogisticsSinglePersonDetectionSection department="electrical_components" />
-      case 'logistics-single-person-precious-metal-recycling':
-        return <LogisticsSinglePersonDetectionSection department="precious_metal_recycling" />
-      case 'phone-detection':
-        return <PhoneDetectionSection />
+        return currentDepartment ? <HomeSection department={currentDepartment} onNavigate={handlePageChange} platformStatus={platformStatus} /> : <p>当前账号未授权事业部</p>
       case 'security-vlm':
-      case 'security-vlm-general-electric':
-        return <SecurityVlmSection department="general_electric" />
-      case 'security-vlm-electronics-electrician':
-        return <SecurityVlmSection department="electronics_electrician" />
-      case 'security-vlm-electrical-components':
-        return <SecurityVlmSection department="electrical_components" />
-      case 'security-vlm-precious-metal-recycling':
-        return <SecurityVlmSection department="precious_metal_recycling" />
+        return currentDepartment && <SecurityVlmSection department={currentDepartment} />
+      case 'guard-behavior':
+        return currentDepartment && <GuardBehaviorSection department={currentDepartment} />
+      case 'intrusion-detection':
+        return currentDepartment && <IntrusionDetectionSection department={currentDepartment} />
+      case 'door-detection':
+        return currentDepartment && <DoorDetectionSection department={currentDepartment} />
+      case 'face-detection':
+        return currentDepartment && <FaceDetectionSection department={currentDepartment} />
+      case 'face-recognition':
+        return currentDepartment && <FaceRecognitionSection department={currentDepartment} />
+      case 'human-detection':
+        return currentDepartment && <HumanDetectionSection department={currentDepartment} />
+      case 'logistics-single-person':
+        return currentDepartment && <LogisticsSinglePersonDetectionSection department={currentDepartment} />
+      case 'phone-detection':
+        return currentDepartment && <PhoneDetectionSection department={currentDepartment} />
       case 'alarms':
         return <AlarmsSection initialAlarmId={initialAlarmId} />
       case 'statistics':
@@ -165,7 +161,7 @@ function App() {
       case 'access-audit':
         return <AccessAuditSection />
       default:
-        return <HomeSection onNavigate={handlePageChange} platformStatus={platformStatus} />
+        return currentDepartment && <HomeSection department={currentDepartment} onNavigate={handlePageChange} platformStatus={platformStatus} />
     }
   }
 
@@ -178,6 +174,7 @@ function App() {
 
       <Sidebar
         currentPage={activePage}
+        currentDepartment={currentDepartment}
         onPageChange={handlePageChange}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
@@ -225,7 +222,7 @@ function App() {
         <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
         <main id="app-main-content" className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           <div className="w-full min-w-0">
-            <Suspense fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
+            <Suspense key={`${activePage}:${currentDepartment}`} fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
           </div>
         </main>
       </div>

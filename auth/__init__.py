@@ -172,7 +172,7 @@ auth/：统一登录认证、用户存储与角色授权
 
     用户 departments：这个用户可以查看哪些事业部，可以选择多个固定部门。
     Camera.department：这台摄像头的单个归属部门，由 AiVision 摄像头配置模块负责。
-    FeatureSpec.departments：这项检测功能允许属于哪些部门，由 Feature 定义负责。
+    FeatureSpec：只定义平台检测能力；全部正式事业部共用完整功能。
     DEPARTMENT_SPECS：固定部门编码与显示名称的唯一注册表；本包只引用其编码白名单。
     管理员的 ["all"] 是授权标记，不是可创建的新事业部，也不能写成 Camera 的归属。
     修改用户可查看部门不会移动摄像头、启停 Feature，或改写已有告警的 department。

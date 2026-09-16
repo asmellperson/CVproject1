@@ -1,3 +1,5 @@
+import pytest
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 # 文件说明：包含业务服务的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -23,7 +25,7 @@ def test_site_service_creates_site_cameras_and_app_config(tmp_path):
     service = GuardRoomService()
     service.ensure_schema()
 
-    site = service.create_site("一厂区南门保安室")
+    site = service.create_site("一厂区南门保安室", department="general_electric")
     assert site["name"] == "一厂区南门保安室"
 
     first = service.create_camera(site["id"], name="门口左侧", rtsp_url="rtsp://camera-1")
@@ -54,7 +56,7 @@ def test_site_service_limits_site_to_nine_cameras(tmp_path):
     configure_for_tests(f"sqlite:///{tmp_path / 'guard_room.db'}")
     service = GuardRoomService()
     service.ensure_schema()
-    site = service.create_site("二厂区值班室")
+    site = service.create_site("二厂区值班室", department="general_electric")
 
     for idx in range(1, 10):
         service.create_camera(site["id"], name=f"摄像头{idx}", rtsp_url=f"rtsp://camera-{idx}")
@@ -76,13 +78,13 @@ def test_site_service_scopes_sites_by_department(tmp_path):
     service = GuardRoomService()
     service.ensure_schema()
 
-    ge_site = service.create_site("南门保安室", department="general_electric")
-    electronics_site = service.create_site("南门保安室", department="electronics_electrician")
-
-    assert ge_site["department"] == "general_electric"
-    assert electronics_site["department"] == "electronics_electrician"
-    assert [site["id"] for site in service.list_sites(department="general_electric")] == [ge_site["id"]]
-    assert [site["id"] for site in service.list_sites(department="electronics_electrician")] == [electronics_site["id"]]
+    sites = {department: service.create_site("南门保安室", department=department) for department in DEPARTMENT_SPECS}
+    for department, site in sites.items():
+        assert site["department"] == department
+        assert [row["id"] for row in service.list_sites(department=department)] == [site["id"]]
+    for department in (None, "", "unknown"):
+        with pytest.raises(ValueError):
+            service.create_site("未归属", department=department)
 
 
 # 功能：验证 `test_site_service_replaces_orphan_config_when_sqlite_reuses_site_id` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
@@ -99,7 +101,7 @@ def test_site_service_replaces_orphan_config_when_sqlite_reuses_site_id(tmp_path
     service = GuardRoomService()
     service.ensure_schema()
 
-    first_site = service.create_site("临时保安室")
+    first_site = service.create_site("临时保安室", department="general_electric")
     first_config = service.get_site_config(first_site["id"])
     assert first_config is not None
     service.delete_site(first_site["id"])

@@ -138,7 +138,7 @@ def test_department_fair_queue_concurrent_semantics_and_counts(tmp_path):
     assert task_q.qsize() == 0
     assert task_q.empty() is True
     assert vlm_worker.queued_department_counts(task_q) == {
-        department: 0 for department in vlm_worker.SECURITY_DEPARTMENTS
+        department: 0 for department in vlm_worker.DEPARTMENTS
     }
     with pytest.raises(queue.Empty):
         task_q.get(timeout=0.01)

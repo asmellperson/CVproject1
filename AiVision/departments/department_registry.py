@@ -1,6 +1,6 @@
 """固定事业部目录；增删或改名只在开发阶段修改此注册表。
 
-功能归属由各功能的 FeatureSpec.departments 声明，此处不维护功能映射。
+功能属于平台；此目录只定义数据归属和访问范围。
 """
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
 """七项内置功能的唯一注册入口；包路径与持久化业务标识分离。"""
-from AiVision.departments.department_registry import require_department
 from ._shared.spec import FeatureSpec
 from .intrusion.spec import SPEC as intrusion_spec
 from .door_state.spec import SPEC as door_state_spec
@@ -26,8 +25,6 @@ def _build_registry(specs: tuple[FeatureSpec, ...]) -> dict[str, FeatureSpec]:
     for spec in specs:
         if spec.name in registry:
             raise ValueError(f"重复的 FeatureSpec.name: {spec.name!r}")
-        for department in spec.departments:
-            require_department(department)
         registry[spec.name] = spec
     return registry
 

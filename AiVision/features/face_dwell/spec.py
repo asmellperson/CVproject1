@@ -12,5 +12,4 @@ SPEC = FeatureSpec(
     config_schema=FaceConfigSchema,
     required_models=("insightface_detection",),
     violation_type=4,
-    departments=("research_institute",),
 )

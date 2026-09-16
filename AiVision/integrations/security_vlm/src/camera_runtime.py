@@ -19,7 +19,7 @@ from typing import Callable
 import yaml
 
 from AiVision.integrations.security_vlm.src.camera_registry import validate_camera_id
-from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 from AiVision.integrations.security_vlm.src.frame_hub import reset_frame_hub
 
 _WORKER_MODULES = (
@@ -330,7 +330,7 @@ class CameraRuntimeManager:
         self.vlm_last_error = ""
         self._lock = threading.RLock()
         self._department_gates = {
-            department: threading.RLock() for department in SECURITY_DEPARTMENTS
+            department: threading.RLock() for department in DEPARTMENTS
         }
         self._shutting_down = False
         self._monitor_interval_sec = max(0.1, float(monitor_interval_sec))
@@ -679,7 +679,7 @@ class CameraRuntimeManager:
     def reconcile(self) -> None:
         """检测意外退出，并按有界退避重启完整摄像头进程组。"""
         now = self.clock()
-        for department in SECURITY_DEPARTMENTS:
+        for department in DEPARTMENTS:
             process_groups = []
             with self._department_gates[department]:
                 with self._lock:

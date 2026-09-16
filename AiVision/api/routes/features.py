@@ -31,7 +31,6 @@ class FeatureMetaResponse(BaseModel):
     violation_type: int                     # 违规数量
     default_config: dict
     config_schema: dict                     # 这个功能有哪些可配置参数
-    departments: list[str] = []             # 部门
 
 class FeaturesListResponse(BaseModel):
     """所有功能"""
@@ -51,7 +50,7 @@ class FeatureCameraCreateRequest(BaseModel):
     shm_name: str | None = Field(None, min_length=1)
     fps: int = Field(5, gt=0)
     enabled: bool = True                            # 新增加的摄像头直接开启当前功能
-    department: str | None = None
+    department: str = Field(..., min_length=1)
 
 def _require_spec(feature: str) -> FeatureSpec:
     """找功能并保证他存在"""
@@ -93,7 +92,6 @@ def create_features_router(
 
     def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
         """将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化。"""
-        departments = list(spec.departments)
         # 返回FeatureMetaResponse
         return FeatureMetaResponse(
             name=spec.name,
@@ -102,7 +100,6 @@ def create_features_router(
             violation_type=spec.violation_type,
             config_schema=spec.config_schema.model_json_schema(),
             default_config=spec.config_schema().model_dump(),
-            departments=departments,
         )
 
     @router.get("", response_model=FeaturesListResponse)
@@ -151,7 +148,7 @@ def create_features_router(
         """
         spec = _require_spec(feature)
         # 物流通道为多摄像头、部门隔离资源。viewer 必须走物流通道的成员配置
-        # 端点，后者同时校验 feature 部门和成员归属；这里禁止绕过归属校验。
+        # 端点，后者同时校验通道部门和成员归属；这里禁止绕过归属校验。
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
         if feature in LOGISTICS_FEATURES and user.get("role") != "admin":
             raise HTTPException(

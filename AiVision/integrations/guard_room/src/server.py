@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 
+from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_compatible_mp4
 
 from auth.auth import (
@@ -117,7 +118,7 @@ class SiteCreateRequest(BaseModel):
     """新增保安室/监控区域请求体。"""
 
     name: str
-    department: Optional[str] = None
+    department: str
     enabled: bool = True
     description: Optional[str] = None
     sort_order: Optional[int] = None
@@ -187,63 +188,23 @@ class CameraUpdateRequest(BaseModel):
 # 工厂函数
 # ---------------------------------------------------------------------------
 
-DEPARTMENT_ALIASES = {
-    "ge": "general_electric",
-    "general-electric": "general_electric",
-    "general electric": "general_electric",
-    "electronics-electrician": "electronics_electrician",
-    "electronics electrician": "electronics_electrician",
-}
-
-
-# 功能：转换或规范化 `_normalize_department` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（object）：待转换、校验或写入的值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`str(value or '').strip`、`str`、`DEPARTMENT_ALIASES.get`、`department.lower`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _normalize_department(value: object) -> str:
-    department = str(value or "").strip()
-    if not department:
-        return ""
-    return DEPARTMENT_ALIASES.get(department, DEPARTMENT_ALIASES.get(department.lower(), department))
-
-
-# 功能：实现 `_department_scope` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `requested_department`（str | None）：`requested_department` 对应的业务输入值
-#   - `user`（object）：当前用户或待处理用户对象
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`AiVision/integrations/guard_room/src/server.py` 的 `create_app::list_sites`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_config`
-#         调用本符号；`AiVision/integrations/guard_room/src/server.py` 的 `create_app::get_site_status` 调用本符号；另有 8 处静态调用
-#   - 内部调用：`_normalize_department`、`isinstance`、`str(user.get('role') or '').strip().lower`、`user.get`、`append`、`HTTPException`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _department_scope(requested_department: str | None, user: object) -> str:
-    requested = _normalize_department(requested_department)
+    requested = None
+    if requested_department is not None:
+        try:
+            requested = require_department(requested_department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not isinstance(user, dict):
-        return requested
-
-    role = str(user.get("role") or "").strip().lower()
-    if role == "admin":
-        return requested
-
-    raw_departments = user.get("departments")
-    candidates = raw_departments if isinstance(raw_departments, list) else []
-    user_departments: list[str] = []
-    for candidate in candidates:
-        department = _normalize_department(candidate)
-        if department and department not in user_departments:
-            user_departments.append(department)
-    if not user_departments or "all" in user_departments:
-        return requested
-    if requested and requested not in user_departments:
+        raise HTTPException(status_code=403, detail="事业部权限不足")
+    role = user.get("role")
+    candidates = user.get("departments") or []
+    if role == "admin" or (role == "viewer" and "all" in candidates):
+        return requested or ""
+    departments = [d for d in candidates if d in DEPARTMENT_SPECS]
+    if role != "viewer" or not departments or (requested and requested not in departments):
         raise HTTPException(status_code=403, detail="无权访问该部门保安室")
-    return requested or user_departments[0]
+    return requested or departments[0]
 
 
 # 功能：实现 `_require_site_visible` 对应的服务端逻辑；输入由参数提供，处理结果见返回值说明
@@ -612,7 +573,7 @@ def create_app(
         try:
             return site_service.create_site(
                 payload.name,
-                department=payload.department,
+                department=require_department(payload.department),
                 enabled=payload.enabled,
                 description=payload.description,
                 sort_order=payload.sort_order,

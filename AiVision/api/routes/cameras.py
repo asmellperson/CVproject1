@@ -17,6 +17,7 @@ from AiVision.api.deps import get_camera_config_manager, get_current_orchestrato
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from AiVision.cameras.config_manager import camera_access_departments
+from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 
 # 摄像头API路由基础定义
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -58,7 +59,7 @@ def _camera_departments_for_user(user: dict) -> list[str]:
         department = str(candidate or "").strip()               # 去空格
         if department and department not in departments:        # 去空值+去重复
             departments.append(department)
-    return departments                                          # 返回这个用户允许访问的事业部列表
+    return list(DEPARTMENT_SPECS) if "all" in departments else [d for d in departments if d in DEPARTMENT_SPECS]
 
 
 def camera_read_department(user: dict, requested_department: str | None) -> str | None:
@@ -67,13 +68,18 @@ def camera_read_department(user: dict, requested_department: str | None) -> str 
         user：当前登录用户账号
         requested_department: 前端请求携带的部门（访问前端的部门）
     """
+    if requested_department is not None:
+        try:
+            require_department(requested_department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 管理员不按部门过滤，管理员可以查看所有摄像头
     if user.get("role") == "admin":
         return requested_department
     # 普通用户先获取自己的授权部门
     departments = _camera_departments_for_user(user)
     # 用户没有权限，返回403
-    if not departments:
+    if user.get("role") != "viewer" or not departments:
         raise HTTPException(status_code=403, detail="camera department permission required")
     if requested_department is not None:
         # 防止用户可以查看未授权的事业部

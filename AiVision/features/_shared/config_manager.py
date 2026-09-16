@@ -12,7 +12,7 @@ from AiVision.features._shared.spec import FeatureSpec
 from AiVision.features._shared.orm import FeatureConfigBase
 from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig, get_camera_by_key
-from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+from AiVision.departments.department_registry import require_department
 
 class FeatureConfigManager:
     """所有功能配置的 CRUD 入口。
@@ -81,7 +81,7 @@ class FeatureConfigManager:
             if camera is None:
                 return None
 
-            # 把这台摄像头锁住，避免并发请求按旧的空部门分别补齐。
+            # 锁住摄像头，保证启用期间事业部归属有效。
             session.refresh(camera, with_for_update=True)
             cfg = (
                 session.query(spec.orm_class)
@@ -92,9 +92,11 @@ class FeatureConfigManager:
             # 保存前先记住旧的enable，功能发生启停变化需要发detect_human_enabled.如果只是修改阈值，只发config_updated
             old_enable = bool(cfg.enable) if cfg is not None else False
             new_enable = bool(payload.get("enable", False))
-            # 当前准备启用，之前没有启用，而且不是物流功能，执行camera department校验
-            if new_enable and (not old_enable or spec.name == "detect_human") and spec.name not in LOGISTICS_FEATURES:
-                camera.department = spec.resolve_camera_department(camera.department)
+            if new_enable:
+                try:
+                    require_department(camera.department)
+                except ValueError as exc:
+                    raise ValueError("摄像头必须先设置所属事业部/公司") from exc
             # 配置不存在就创建
             if cfg is None:
                 cfg = spec.orm_class(camera_id=camera.id)

@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
 import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
@@ -36,7 +37,6 @@ export type AiVisionFeatureMeta = {
   violation_type: number
   default_config: AiVisionFeatureConfig
   config_schema: Record<string, unknown>
-  departments: string[]
 }
 
 export type CreateAiVisionCameraPayload = {
@@ -48,8 +48,9 @@ export type CreateAiVisionCameraPayload = {
   department?: string | null
 }
 
-export type CreateAiVisionFeatureCameraPayload = Omit<CreateAiVisionCameraPayload, 'shm_name'> & {
+export type CreateAiVisionFeatureCameraPayload = Omit<CreateAiVisionCameraPayload, 'shm_name' | 'department'> & {
   shm_name?: string
+  department: DepartmentId
 }
 
 export type UpdateAiVisionCameraPayload = Partial<Pick<CreateAiVisionCameraPayload, 'name' | 'url' | 'fps' | 'enabled' | 'department'>>

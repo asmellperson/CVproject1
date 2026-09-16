@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/auth/useAuth'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
@@ -9,7 +10,7 @@ import { createGuardRoomSite, deleteGuardRoomSite, getGuardRoomSites } from '@/l
 import type { GuardRoomSite } from '@/types'
 
 type GuardBehaviorSectionProps = {
-  department?: string
+  department: DepartmentId
 }
 
 export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) {
@@ -18,9 +19,7 @@ export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) 
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null)
   const [loadingSites, setLoadingSites] = useState(true)
   const [siteError, setSiteError] = useState('')
-  const detectionTitle = department === 'electronics_electrician'
-    ? '电子电工保安行为规范'
-    : '通用电气保安行为规范'
+  const detectionTitle = '保安行为规范检测'
 
   const selectedSite = useMemo(
     () => sites.find((site) => site.id === selectedSiteId) || null,
@@ -86,7 +85,7 @@ export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) 
         <DetectionPageHeader
           title={detectionTitle}
           subtitle="行为分析监控面板"
-          departmentLabel={department === 'electronics_electrician' ? '电子电工事业部' : '通用电气事业部'}
+          departmentLabel={DEPARTMENT_LABELS[department]}
           runtimeControl={(
             <GuardRoomRuntimeControl
               site={selectedSite}
@@ -98,6 +97,7 @@ export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) 
         />
 
         <TabsContent value="monitor" className="mt-0 space-y-5">
+          {!loadingSites && !siteError && !sites.some((site) => site.cameras.length) && <p>当前事业部暂未配置摄像头</p>}
           <MonitorSection
             site={selectedSite}
             sites={sites}

@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import { toFeatureAlarm, toLogisticsAlarm } from './alarmBinding'
@@ -44,7 +45,6 @@ import type {
   LogisticsChannel,
   LogisticsChannelConfig,
   LogisticsChannelDetail,
-  LogisticsDepartment,
   LogisticsFeatureName,
 } from './types'
 import {
@@ -64,7 +64,7 @@ import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 
 type Props = {
   feature: LogisticsFeatureName
-  department: LogisticsDepartment
+  department: DepartmentId
   channels: LogisticsChannel[]
   selectedChannelId: number | null
   selectedChannelDetail: LogisticsChannelDetail | null

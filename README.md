@@ -494,7 +494,7 @@ AiVision/departments/
 └── service.py                   # DepartmentService、department_service，只读查询
 ```
 
-[事业部包说明](AiVision/departments/__init__.py) 明确区分固定定义与功能归属：六个事业部的标识、名称和顺序仍由唯一的 `DEPARTMENT_SPECS` 定义，功能支持范围仍由各自的 `FeatureSpec.departments` 声明。包入口保留 `DEPARTMENT_SPECS`、`DepartmentSpec`、`require_department` 的既有公开导出，不增加查询服务或 Feature 的集中导入，也不创建数据库连接、发送请求或启动任务。
+[事业部包说明](AiVision/departments/__init__.py) 明确区分平台功能与数据归属：六个事业部的标识、名称和顺序由唯一的 `DEPARTMENT_SPECS` 定义，所有正式事业部共享全部 Feature；摄像头、站点、物流通道、工作区和告警按事业部隔离。包入口保留 `DEPARTMENT_SPECS`、`DepartmentSpec`、`require_department` 的既有公开导出，不增加查询服务或 Feature 的集中导入，也不创建数据库连接、发送请求或启动任务。
 
 事业部 API、延迟依赖注入、摄像头配置、Feature 注册、告警身份校验、认证用户存储、现有人员逗留离线脚本和测试引用均已更新。`get_department_service()` 仍在调用时导入服务；告警身份校验仍在执行校验时导入 Feature 注册表。查询服务与各调用方共享同一份事业部定义，没有复制注册表。人员逗留继续支持通用电气和皓达，物流成员约束、登录用户的事业部授权、管理权限及告警证据访问规则保持原状。
 

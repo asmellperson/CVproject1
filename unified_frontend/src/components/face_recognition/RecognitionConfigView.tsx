@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { lazy, Suspense, useState } from 'react'
 import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, UserCheck, Volume2 } from 'lucide-react'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
@@ -17,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { isAiVisionFeatureEnabled } from '@/lib/aivision'
-import { FACE_DEPARTMENT, FACE_FEATURE, type FacePerson } from './api'
+import { FACE_FEATURE, type FacePerson } from './api'
 import { useFacePersons, useRecognitionConfig } from './useRecognitionConfig'
 
 const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })))
@@ -96,8 +97,8 @@ function FacePersonPermissions() {
   )
 }
 
-export function RecognitionConfigView() {
-  const state = useRecognitionConfig()
+export function RecognitionConfigView({ department }: { department: DepartmentId }) {
+  const state = useRecognitionConfig(department)
   const featureCameras = state.cameras.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE) || camera.shm_name === state.cameraKey)
   const alarm = state.config?.alarm
   const cameraName = featureCameras.find((camera) => camera.shm_name === state.cameraKey)?.name
@@ -113,7 +114,7 @@ export function RecognitionConfigView() {
         <DetectionConfigTab value="persons" icon={UserCheck}>人员权限</DetectionConfigTab>
       </DetectionConfigTabsList>
       <TabsContent value="camera" className="space-y-4">
-        <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={FACE_DEPARTMENT}
+        <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={department}
           currentCameraName={state.cameraKey} disabled={state.disabled} onSelectCamera={state.selectCamera}
           onAddCamera={(key) => state.setCameraEnabled(key, true)} onRemoveCamera={(key) => state.setCameraEnabled(key, false)}
           onConfigCopied={(key) => {

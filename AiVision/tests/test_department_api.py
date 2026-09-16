@@ -68,24 +68,24 @@ def test_department_catalog_keeps_query_contract_without_database(client_without
     ]
 
 
-def test_feature_queries_share_spec_departments_without_database(client_without_database):
+def test_feature_queries_return_platform_catalog_without_department_metadata(client_without_database):
     client = client_without_database
     response = client.get("/api/features")
     assert response.status_code == 200
     items = {item["name"]: item for item in response.json()["features"]}
     for name, spec in all_specs().items():
-        assert items[name]["departments"] == list(spec.departments)
+        assert "departments" not in items[name]
         response = client.get(f"/api/features/{name}")
         assert response.status_code == 200
-        assert response.json()["departments"] == list(spec.departments)
+        assert "departments" not in response.json()
     for department in DEPARTMENT_SPECS:
         response = client.get(f"/api/departments/{department}/features")
         assert response.status_code == 200
         assert response.json() == [
             {"name": spec.name, "display_name": spec.display_name}
-            for spec in all_specs().values() if department in spec.departments
+            for spec in all_specs().values()
         ]
-    assert client.get("/api/departments/unknown/features").json() == []
+    assert client.get("/api/departments/unknown/features").status_code == 400
 
 
 def test_department_catalog_requires_login(client_without_database):

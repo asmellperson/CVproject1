@@ -131,8 +131,8 @@ def trigger_feature(dispatcher, monkeypatch, *, horn_id=1, task=7, enabled=True,
     monkeypatch.setattr(consumer_module, 'alarm_dispatcher', dispatcher)
     consumer = SimpleNamespace(config_cache={camera_id: {'horn_enable': enabled, 'horn_id': horn_id,
         'horn_event_id': task, 'sql_enable': True, 'wechat_enable': True, 'wechat_user': 'test-user',
-        'shm_name': f'cam_{camera_id}', 'alarm_interval': 0, 'department': get_spec(feature).departments[0]}}, _should_alarm=lambda *args: True,
-        feature_name=feature, spec=get_spec(feature), frame_cache={})
+        'shm_name': f'cam_{camera_id}', 'alarm_interval': 0, 'department': 'haoda_company'}}, _should_alarm=lambda *args: True,
+        feature_name=feature, spec=get_spec(feature), frame_cache={}, _alarm_context=lambda *_: {})
     BaseFunctionConsumer._handle_alarm(consumer, camera_id, [{'alarm_flag': True}], np.zeros((8, 8, 3), np.uint8))
 
 

@@ -1,3 +1,4 @@
+import type { DepartmentId } from '../auth/permissions'
 import type { ComponentProps } from 'react'
 import type { getPlatformStatus, PlatformStatus } from '../lib/api'
 import type { HomeSection } from '../sections/HomeSection'
@@ -12,7 +13,8 @@ type Equal<Left, Right> =
 type AssertTrue<Value extends true> = Value
 
 type ExpectedHomeSectionProps = {
-  onNavigate: (page: string) => void
+  department: DepartmentId
+  onNavigate: (page: string, department: DepartmentId) => void
   platformStatus: PlatformStatus | null
 }
 

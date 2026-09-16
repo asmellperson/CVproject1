@@ -263,8 +263,8 @@ def test_camera_reads_are_scoped_by_department(monkeypatch):
             app.dependency_overrides[cameras_module.get_current_user] = lambda: research_viewer
             for prefix in ("/api/cameras",):
                 research_cameras = await client.get(prefix)
-                assert [item["camera_id"] for item in research_cameras.json()] == [5]
-                assert (await client.get(f"{prefix}/camera_5")).status_code == 200
+                assert research_cameras.json() == []
+                assert (await client.get(f"{prefix}/camera_5")).status_code == 403
                 assert (await client.get(f"{prefix}/camera_4")).status_code == 403
 
             admin = {"role": "admin", "departments": []}

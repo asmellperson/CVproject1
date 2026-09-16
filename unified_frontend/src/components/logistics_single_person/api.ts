@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUrl } from '@/lib/api'
 import type {
   CreateLogisticsChannelPayload,
@@ -11,7 +12,6 @@ import type {
   LogisticsChannelOkResponse,
   LogisticsChannelRuntimeStatus,
   LogisticsChannelStatistics,
-  LogisticsDepartment,
   LogisticsFeatureName,
   UpdateLogisticsChannelPayload,
 } from './types'
@@ -26,7 +26,7 @@ export type LogisticsChannelQueryInvalidation = {
 export const logisticsChannelQueryKeys = {
   all: ['logistics-channels'] as const,
   feature: (feature: LogisticsFeatureName) => ['logistics-channels', feature] as const,
-  list: (feature: LogisticsFeatureName, department: LogisticsDepartment) =>
+  list: (feature: LogisticsFeatureName, department: DepartmentId) =>
     ['logistics-channels', feature, department] as const,
   detail: (feature: LogisticsFeatureName, channelId: number) =>
     ['logistics-channels', feature, channelId] as const,
@@ -56,7 +56,7 @@ const logisticsChannelPath = (feature: LogisticsFeatureName, channelId?: number)
     : `${featurePath}/${encodeURIComponent(String(channelId))}`
 }
 
-export const getLogisticsCameraInventory = (department?: LogisticsDepartment) =>
+export const getLogisticsCameraInventory = (department?: DepartmentId) =>
   apiGet<LogisticsCameraInventoryResponse>(
     `/logistics-channels/inventory${department ? `?department=${encodeURIComponent(department)}` : ''}`,
   )
@@ -80,7 +80,7 @@ function invalidateAfter<T>(
 
 export const listLogisticsChannels = (
   feature: LogisticsFeatureName,
-  department: LogisticsDepartment,
+  department: DepartmentId,
   init?: RequestInit,
 ) => apiGet<LogisticsChannelListResponse>(
   `${logisticsChannelPath(feature)}?department=${encodeURIComponent(department)}`, init,

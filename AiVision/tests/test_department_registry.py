@@ -45,34 +45,19 @@ def test_registry_rejects_unregistered_departments(name):
         require_department(name)
 
 
-def test_feature_membership_has_one_source_and_empty_means_empty(monkeypatch):
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_every_department_has_all_platform_features(department):
     service = DepartmentService()
-    original = features.get_spec("detect_phone")
-    assert set(original.departments) <= DEPARTMENT_SPECS.keys()
-    monkeypatch.setitem(features._REGISTRY, original.name, replace(original, departments=()))
-    assert service.get_departments_by_feature(original.name) == []
-    assert service.get_departments_by_feature("unknown") == []
-    for department in DEPARTMENT_SPECS:
-        assert original.name not in {item["name"] for item in service.get_features_by_department(department)}
-    monkeypatch.setitem(features._REGISTRY, original.name, replace(original, departments=("haoda_company",)))
-    assert service.get_departments_by_feature(original.name) == ["haoda_company"]
-    assert original.name in {item["name"] for item in service.get_features_by_department("haoda_company")}
-
-
-def test_all_feature_departments_are_registered_and_logistics_uses_specs(monkeypatch):
-    specs = features.all_specs()
-    for spec in specs.values():
-        assert set(spec.departments) <= DEPARTMENT_SPECS.keys()
+    assert {item["name"] for item in service.get_features_by_department(department)} == set(features.all_specs())
+    for spec in features.all_specs().values():
+        assert "departments" not in spec.__dataclass_fields__
     assert LOGISTICS_FEATURES == {"detect_logistics_single_person"}
-    assert specs["detect_logistics_single_person"].departments == (
-        "general_electric", "electronics_electrician", "electrical_components", "precious_metal_recycling",
-    )
 
 
-def test_feature_registry_rejects_unknown_department():
-    spec = replace(features.get_spec("detect_phone"), departments=("unknown",))
+@pytest.mark.parametrize("department", [None, "", "all", "unknown"])
+def test_feature_catalog_requires_registered_department(department):
     with pytest.raises(ValueError, match="unknown department"):
-        features._build_registry((spec,))
+        DepartmentService().get_features_by_department(department)
 
 
 def test_feature_registry_rejects_duplicate_names_without_changing_registered_specs():
@@ -101,7 +86,7 @@ def test_schema_verification_leaves_historical_department_tables_untouched(monke
         with engine.connect() as connection:
             assert connection.execute(text("SELECT * FROM ai_department")).all() == [("legacy", "旧部门")]
             assert connection.execute(text("SELECT * FROM ai_feature_department")).all() == [("detect_phone", "legacy")]
-        assert "legacy" not in DepartmentService().get_departments_by_feature("detect_phone")
+        assert "legacy" not in {item.name for item in DepartmentService().list_departments()}
     finally:
         engine.dispose()
 

@@ -1,3 +1,5 @@
+import pytest
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 # 文件说明：包含运行时的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -93,8 +95,8 @@ def _service(tmp_path):
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_runtime_manager_starts_and_stops_one_site_without_affecting_another(tmp_path):
     service = _service(tmp_path)
-    site_a = service.create_site("一厂区南门保安室")
-    site_b = service.create_site("二厂区值班室")
+    site_a = service.create_site("一厂区南门保安室", department="general_electric")
+    site_b = service.create_site("二厂区值班室", department="haoda_company")
     for site in (site_a, site_b):
         service.update_site_config(site["id"], {"wechat": {"enable": False}})
         service.create_camera(site["id"], name="左侧", rtsp_url=f"rtsp://{site['id']}-1")
@@ -125,7 +127,7 @@ def test_runtime_manager_starts_and_stops_one_site_without_affecting_another(tmp
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
 def test_runtime_manager_shutdown_preserves_desired_enabled_state(tmp_path):
     service = _service(tmp_path)
-    site = service.create_site("默认开启保安室")
+    site = service.create_site("默认开启保安室", department="general_electric")
     service.update_site_config(site["id"], {"wechat": {"enable": False}})
     service.create_camera(site["id"], name="入口", rtsp_url="rtsp://camera-1")
     manager = GuardRoomRuntimeManager(service, runtime_cls=FakeRuntime)
@@ -145,9 +147,10 @@ def test_runtime_manager_shutdown_preserves_desired_enabled_state(tmp_path):
 #   - 内部调用：`_service`、`service.create_site`、`service.update_site_config`、`service.create_camera`、`GuardRoomRuntimeManager`、`manager.start`、`manager.get_state`、`state.add_alarm`、`AlarmEvent`、`manager.get_status`
 #          等共 13 个调用。
 # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def test_runtime_manager_enriches_status_frame_and_alarms_with_site_metadata(tmp_path):
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_runtime_manager_enriches_status_frame_and_alarms_with_site_metadata(tmp_path, department):
     service = _service(tmp_path)
-    site = service.create_site("仓库岗亭")
+    site = service.create_site("仓库岗亭", department=department)
     service.update_site_config(site["id"], {"wechat": {"enable": False}})
     service.create_camera(site["id"], name="左侧", rtsp_url="rtsp://camera-1")
     service.create_camera(site["id"], name="右侧", rtsp_url="rtsp://camera-2")
@@ -173,3 +176,7 @@ def test_runtime_manager_enriches_status_frame_and_alarms_with_site_metadata(tmp
     assert status["last_alarm"]["site_id"] == site["id"]
     assert manager.get_latest_frame(site["id"]).startswith(b"\xff\xd8")
     assert manager.get_alarms(site["id"], limit=10)[0]["site_name"] == "仓库岗亭"
+
+    assert status["department"] == department
+    assert status["last_alarm"]["department"] == department
+    assert manager.get_alarms(site["id"])[0]["department"] == department

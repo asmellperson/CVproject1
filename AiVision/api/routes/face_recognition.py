@@ -1,11 +1,11 @@
-"""电子电工事业部的人脸识别记录与人员通行权限接口。"""
+"""按摄像头事业部隔离的识别记录与平台统一人员权限接口。"""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.routes.cameras import camera_read_department
+from AiVision.api.routes.cameras import camera_read_department, _camera_departments_for_user
 from AiVision.features.face_recognition.records import get_recognition_image, list_recognition_records
 from AiVision.features.face_recognition.library.service import FaceLibraryService
 from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage, FacePersonUpdate, RecognitionRecordPage
@@ -23,7 +23,7 @@ def get_persons(
     is_allowed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
-    camera_read_department(user, "electronics_electrician")
+    camera_read_department(user, None)
     return FaceLibraryService().list_persons(
         page=page, page_size=page_size, keyword=keyword,
         source=source, is_active=is_active, is_allowed=is_allowed,
@@ -40,19 +40,21 @@ def update_person(person_id: int, payload: FacePersonUpdate, _user: dict = Depen
 
 @router.get("/records", response_model=RecognitionRecordPage)
 def get_records(
+    department: str = Query(...),
     camera_id: int | None = Query(None, ge=1),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     user: dict = Depends(get_current_user),
 ):
-    camera_read_department(user, "electronics_electrician")
-    return list_recognition_records(camera_id, page, page_size)
+    camera_read_department(user, department)
+    return list_recognition_records(camera_id, page, page_size, department=department)
 
 
 @router.get("/records/{record_id}/image")
 def get_record_image(record_id: int, user: dict = Depends(get_current_user)):
-    camera_read_department(user, "electronics_electrician")
-    path = get_recognition_image(record_id)
+    camera_read_department(user, None)
+    departments = None if user.get("role") == "admin" else _camera_departments_for_user(user)
+    path = get_recognition_image(record_id, departments=departments)
     if path is None:
         raise HTTPException(status_code=404, detail="recognition image not found")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, no-store"})

@@ -1,3 +1,5 @@
+import pytest
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 # 文件说明：包含`test_guard_room_sites` 模块的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -162,7 +164,7 @@ def test_multi_department_viewer_receives_union_of_scoped_permissions():
         viewer,
         "GET",
         "/security-vlm/api/history",
-    ) is True
+    ) is False
 
 
 # 功能：验证 `test_security_vlm_alarm_sources_are_department_scoped` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -179,12 +181,7 @@ def test_security_vlm_alarm_sources_are_department_scoped():
     assert _security_vlm_departments_for_user(viewer) == [
         "electrical_components"
     ]
-    assert _security_vlm_departments_for_user(admin) == [
-        "general_electric",
-        "electronics_electrician",
-        "electrical_components",
-        "precious_metal_recycling",
-    ]
+    assert _security_vlm_departments_for_user(admin) == list(DEPARTMENT_SPECS)
     alarm = _normalize_security_vlm_alarm(
         {
             "session_id": "same-session",
@@ -239,6 +236,7 @@ def test_normalize_guard_alarm_keeps_site_metadata_and_site_asset_urls():
     alarm = {
         "id": "abc",
         "site_id": 7,
+        "department": "haoda_company",
         "site_name": "一厂区南门保安室",
         "event_type": "absent",
         "reason": "离岗",
@@ -256,8 +254,10 @@ def test_normalize_guard_alarm_keeps_site_metadata_and_site_asset_urls():
     assert normalized["subject_name"] == "一厂区南门保安室"
     assert normalized["camera_no"] is None
     assert normalized["camera_name"] is None
-    assert normalized["image_url"] == "/api/sites/7/alarms/abc/image"
-    assert normalized["video_url"] == "/api/sites/7/alarms/abc/video"
+    assert normalized["image_url"] == "/api/sites/7/alarms/abc/image?department=haoda_company"
+    assert normalized["video_url"] == "/api/sites/7/alarms/abc/video?department=haoda_company"
+
+    assert normalized["department"] == "haoda_company"
 
 
 # 功能：验证 `test_guard_site_runtime_summary_counts_running_site_cameras` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -342,3 +342,46 @@ def test_guard_alarm_paths_can_scope_site_endpoints_by_department():
         "/api/sites/1/alarms?limit=100&department=electronics_electrician",
         "/api/sites/2/alarms?limit=100&department=electronics_electrician",
     ]
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_security_and_guard_accept_all_registered_departments(department):
+    viewer = {"role": "viewer", "departments": [department]}
+    assert _security_vlm_departments_for_user(viewer) == [department]
+    assert _guard_departments_for_user(viewer) == [department]
+    for requested in DEPARTMENT_SPECS:
+        assert _can_access_security_vlm(viewer, "GET", f"/security-vlm/api/departments/{requested}/cameras") is (requested == department)
+
+
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_overview_alarms_query_department_before_limiting(monkeypatch, department):
+    import importlib
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    backend = importlib.import_module("unified_backend.app")
+    calls = []
+    foreign = next(value for value in DEPARTMENT_SPECS if value != department)
+    def upstream(base, path, request):
+        calls.append((base, path))
+        if base == "ai":
+            return {"items": [
+                {"id": 1, "feature_name": "recognize_face", "violation_type": 7,
+                 "department": department, "created_at": "2026-09-01"},
+                {"id": 2, "feature_name": "recognize_face", "violation_type": 7,
+                 "department": foreign, "created_at": "2026-09-02"},
+            ]}
+        return {}
+    monkeypatch.setattr(backend, "_get_upstream_json", upstream)
+    args = dict(request=None, user={"role": "viewer", "departments": [department]},
+                guard_room_url="guard", aivision_url="ai", security_vlm_url="security",
+                disposition_store=SimpleNamespace(get_many=lambda ids: {}), limit=1)
+    rows = backend._collect_alarms(**args, department=department)
+    assert len(rows) == 1 and rows[0]["department"] == department
+    assert ("ai", f"/api/alarms?limit=100&department={department}") in calls
+    assert ("guard", f"/api/sites?department={department}") in calls
+    assert ("security", f"/api/departments/{department}/history?limit=100") in calls
+    calls.clear()
+    with pytest.raises(HTTPException) as caught:
+        backend._collect_alarms(**args, department=foreign)
+    assert caught.value.status_code == 403
+    assert calls == []

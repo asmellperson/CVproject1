@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type
 
+from AiVision.departments.department_registry import require_department
+
 from .config import AppConfig, resolve_runtime_paths
 from .runtime import GuardRoomRuntime
 from .service import GuardRoomService
@@ -43,25 +45,11 @@ class SiteAppState(AppState):
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`super().__init__`、`super`、`int`。
     # 副作用/注意事项：会更新当前实例的运行状态。
-    def __init__(self, cfg: AppConfig, config_path: str | Path, *, site_id: int, site_name: str):
+    def __init__(self, cfg: AppConfig, config_path: str | Path, *, site_id: int, site_name: str, department: str):
         super().__init__(cfg, config_path=config_path)
         self.site_id = int(site_id)
         self.site_name = site_name
-
-    # 功能：更新或保存 `set_site` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `self`（未显式标注）：当前类实例
-    #   - `site_id`（int）：保安室站点唯一标识
-    #   - `site_name`（str）：`site_name` 对应的业务输入值
-    # 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`int`。
-    # 副作用/注意事项：会更新当前实例的运行状态。
-    def set_site(self, site_id: int, site_name: str) -> None:
-        with self._lock:
-            self.site_id = int(site_id)
-            self.site_name = site_name
+        self.department = require_department(department)
 
     # 功能：读取或查询 `get_status` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -75,6 +63,7 @@ class SiteAppState(AppState):
         payload = super().get_status()
         payload["site_id"] = self.site_id
         payload["site_name"] = self.site_name
+        payload["department"] = self.department
         if payload.get("last_alarm"):
             payload["last_alarm"] = self._with_site(payload["last_alarm"])
         return payload
@@ -93,9 +82,11 @@ class SiteAppState(AppState):
         with self._lock:
             payload["site_id"] = self.site_id
             payload["site_name"] = self.site_name
+            payload["department"] = self.department
             if self.last_alarm is not None:
                 self.last_alarm["site_id"] = self.site_id
                 self.last_alarm["site_name"] = self.site_name
+                self.last_alarm["department"] = self.department
         return payload
 
     # 功能：读取或查询 `get_alarms` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
@@ -135,6 +126,7 @@ class SiteAppState(AppState):
         payload = super().get_statistics()
         payload["site_id"] = self.site_id
         payload["site_name"] = self.site_name
+        payload["department"] = self.department
         return payload
 
     # 功能：实现 `_with_site` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
@@ -153,6 +145,7 @@ class SiteAppState(AppState):
             **item,
             "site_id": item.get("site_id", self.site_id),
             "site_name": item.get("site_name", self.site_name),
+            "department": self.department,
         }
 
 
@@ -441,7 +434,7 @@ class GuardRoomRuntimeManager:
             self.service.project_root,
         )
         config_path = f"db://guard_room_site/{site_id}"
-        state = SiteAppState(cfg, config_path=config_path, site_id=site_id, site_name=site["name"])
+        state = SiteAppState(cfg, config_path=config_path, site_id=site_id, site_name=site["name"], department=site["department"])
 
         wechat_notifier = None
         if cfg.wechat.enable:

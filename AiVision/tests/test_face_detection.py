@@ -245,7 +245,7 @@ def test_dwell_time_loss_updates_and_alarm_cooldown_at_different_rates(monkeypat
                                  latest_frames={}, is_camera_active=lambda _: True)
     consumer.config_cache[1] = {
         **SPEC.config_schema(value={"MAX_TIME": 2.0, "MAX_LOST": 2, "alarm_interval": 3.0}).value.model_dump(),
-        "shm_name": "mock-face", "name": "mock-face", "department": SPEC.departments[0], "sql_enable": True,
+        "shm_name": "mock-face", "name": "mock-face", "department": "haoda_company", "sql_enable": True,
     }
     frame = np.zeros((120, 240, 3), np.uint8)
     boxes = [{"bbox": [10, 10, 30, 40], "type": "face", "confidence": .9, "class_id": 0}]

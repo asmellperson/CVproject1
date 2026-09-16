@@ -54,6 +54,7 @@ test('counts a loaded logistics camera inventory by feature', async () => {
   assert.deepEqual(counts.detect_logistics_single_person, {
     cameraCount: 2,
     enabledCameraCount: 1,
+    onlineCameraCount: 0,
   })
 })
 
@@ -150,9 +151,9 @@ test('home overview aggregates every camera source and exposes partial failures'
   assert.match(source, /getLoadedAiVisionFeatureCounts\([\s\S]*?mergedAiVisionCameras[\s\S]*?aiVisionCamerasLoaded \|\| logisticsCamerasLoaded/)
   assert.match(source, /const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null/)
   assert.match(source, /cameraStatusReady \? `\$\{cameraInventorySummary\.cameraOnline\}\/\$\{cameraInventorySummary\.cameraTotal\}` : '加载中'/)
-  assert.match(source, /Promise\.allSettled\(\[[\s\S]*?getAiVisionCameras\(\)[\s\S]*?guardRequest[\s\S]*?getLogisticsCameraInventory\(\)/)
-  assert.match(source, /visibleGuardDepartments\.map\(\(itemDepartment\) => getGuardRoomSites\(itemDepartment\)\)/)
-  assert.match(source, /cameras: \(await getSecurityVlmCameras\(itemDepartment\)\)\.cameras/)
+  assert.match(source, /Promise\.allSettled\(\[[\s\S]*?getAiVisionCameras\(department\)[\s\S]*?guardRequest[\s\S]*?getLogisticsCameraInventory\(department\)/)
+  assert.match(source, /getGuardRoomSites\(department\)/)
+  assert.match(source, /getSecurityVlmCameras\(department\)/)
   assert.match(source, /setCameraInventoryPartial\([\s\S]*?securityResults\.some\(\(result\) => result\.status === 'rejected'\)/)
   assert.match(source, /setCameraInventoryLoaded\(true\)/)
   assert.match(source, /window\.addEventListener\(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory\)/)

@@ -106,12 +106,9 @@ export function getLoadedAiVisionFeatureCounts(
     counts[feature] = {
       cameraCount: featureCameras.length,
       enabledCameraCount: featureCameras.filter((camera) => camera.enabled).length,
-      ...(department && feature === 'detect_human'
-        ? { onlineCameraCount: featureCameras.filter((camera) => camera.enabled && camera.runtimeOnline === true).length }
-        : {}),
-      ...(department && feature === 'detect_logistics_single_person'
-        ? { onlineCameraCount: featureCameras.filter((camera) => camera.logisticsOnline === true).length }
-        : {}),
+      onlineCameraCount: featureCameras.filter((camera) => camera.enabled && (
+        feature === 'detect_logistics_single_person' ? camera.logisticsOnline === true : camera.runtimeOnline === true
+      )).length,
     }
     return counts
   }, {})

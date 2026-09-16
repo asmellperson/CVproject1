@@ -1,7 +1,7 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { AIVISION_URL } from '@/lib/aivision'
 
 export const FACE_FEATURE = 'recognize_face'
-export const FACE_DEPARTMENT = 'electronics_electrician'
 
 export type FaceIdentity = {
   bbox: [number, number, number, number]
@@ -75,8 +75,8 @@ export function getFaceRecognitionStatus(cameraKey: string, signal: AbortSignal)
   )
 }
 
-export function getRecognitionRecords(page: number, cameraId: string, signal?: AbortSignal) {
-  const params = new URLSearchParams({ page: String(page), page_size: '20' })
+export function getRecognitionRecords(department: DepartmentId, page: number, cameraId: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ department, page: String(page), page_size: '20' })
   if (cameraId) params.set('camera_id', cameraId)
   return requestRecognition<RecognitionRecordPage>(`face-recognition/records?${params}`, { signal })
 }

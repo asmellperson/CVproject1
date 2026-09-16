@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from auth.auth import get_current_user
 from AiVision.api.deps import get_department_service
@@ -29,4 +29,7 @@ def get_department_features(
     dept_service: DepartmentService = Depends(get_department_service),
 ):
     """获取部门下的功能列表。"""
-    return dept_service.get_features_by_department(name)
+    try:
+        return dept_service.get_features_by_department(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

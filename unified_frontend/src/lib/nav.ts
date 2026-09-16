@@ -14,9 +14,10 @@ import {
   UsersRound,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import type { DepartmentId, PageId } from '@/auth/permissions'
 
 export type NavItem = {
-  id: string
+  id: PageId
   label: string
   icon: LucideIcon
   description?: string
@@ -27,7 +28,20 @@ export type NavGroup = {
   label: string
   items: NavItem[]
   children?: NavGroup[]
+  department?: DepartmentId
 }
+
+export const detectionNavItems: NavItem[] = [
+  { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
+  { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
+  { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
+  { id: 'door-detection', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
+  { id: 'face-detection', label: '人脸逗留检测', icon: ScanFace, description: '人脸逗留检测监控与配置入口' },
+  { id: 'face-recognition', label: '人脸身份识别', icon: ScanFace, description: '人脸身份识别、识别记录与配置' },
+  { id: 'human-detection', label: '人员违规逗留检测', icon: Clock3, description: '人员违规逗留检测监控与配置入口' },
+  { id: 'logistics-single-person', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
+  { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
+]
 
 export const navGroups: NavGroup[] = [
   {
@@ -40,26 +54,7 @@ export const navGroups: NavGroup[] = [
   {
     id: 'modules',
     label: '能力中心',
-    items: [
-      { id: 'security-vlm-general-electric', label: '安检流程规范检测', icon: ShieldAlert, description: '通用电气安检流程规范监控与 ROI 配置' },
-      { id: 'security-vlm-electronics-electrician', label: '安检流程规范检测', icon: ShieldAlert, description: '电子电工安检流程规范监控与 ROI 配置' },
-      { id: 'security-vlm-electrical-components', label: '安检流程规范检测', icon: ShieldAlert, description: '电气部件安检流程规范监控与 ROI 配置' },
-      { id: 'security-vlm-precious-metal-recycling', label: '安检流程规范检测', icon: ShieldAlert, description: '伟达公司安检流程规范监控与 ROI 配置' },
-      { id: 'guard-behavior-general-electric', label: '保安行为规范检测', icon: ShieldCheck, description: '通用电气保安行为规范监控与配置' },
-      { id: 'guard-behavior-electronics-electrician', label: '保安行为规范检测', icon: ShieldCheck, description: '电子电工保安行为规范监控与配置' },
-      { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },
-      { id: 'door-detection', label: '大门开关异常检测', icon: DoorOpen, description: '大门开关状态监控与配置入口' },
-      { id: 'face-detection', label: '人脸逗留检测', icon: ScanFace, description: '人脸逗留检测监控与配置入口' },
-      { id: 'face-recognition', label: '人脸身份识别', icon: ScanFace, description: '电子电工人脸身份识别、识别记录与配置' },
-      { id: 'human-detection', label: '人员违规逗留检测', icon: Clock3, description: '人员违规逗留检测监控与配置入口' },
-      { id: 'haoda-human-detection', label: '人员违规逗留检测', icon: Clock3, description: '皓达公司人员违规逗留检测监控与配置入口' },
-      { id: 'logistics-single-person-general-electric', label: '物流通道单人检测', icon: UsersRound, description: '通用电气物流通道单人监控与配置入口' },
-      { id: 'logistics-single-person-electronics-electrician', label: '物流通道单人检测', icon: UsersRound, description: '电子电工物流通道单人监控与配置入口' },
-      { id: 'logistics-single-person-electrical-components', label: '物流通道单人检测', icon: UsersRound, description: '电气部件物流通道单人监控与配置入口' },
-      { id: 'logistics-single-person-precious-metal-recycling', label: '物流通道单人检测', icon: UsersRound, description: '伟达公司物流通道单人监控与配置入口' },
-      { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
-
-    ],
+    items: detectionNavItems,
   },
   {
     id: 'data',

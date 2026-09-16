@@ -11,7 +11,6 @@ const hook = await read('src/components/human_dwell/useHumanDwellMonitor.ts').ca
 const view = await read('src/components/human_dwell/HumanDwellMonitorView.tsx').catch(() => '')
 const monitor = await read('src/components/AiVisionMonitor.tsx')
 const page = await read('src/sections/HumanDetectionSection.tsx')
-const haodaPage = await read('src/sections/HaodaHumanDetectionSection.tsx')
 const home = await read('src/sections/HomeSection.tsx')
 const alarms = await read('src/sections/AlarmsSection.tsx')
 const statistics = await read('src/sections/StatisticsSection.tsx')
@@ -79,7 +78,7 @@ test('preserves frame lifecycle and configuration behavior', () => {
 })
 
 test('uses the personnel violation dwell name across user-facing views', () => {
-  for (const source of [nav, home, page, haodaPage, view, alarms, statistics]) {
+  for (const source of [nav, page, view, alarms, statistics]) {
     assert.match(source, /人员违规逗留检测/)
     assert.doesNotMatch(source, /人体逗留|人员逗留检测/)
   }
@@ -87,17 +86,14 @@ test('uses the personnel violation dwell name across user-facing views', () => {
 
 test('uses the shared feature with department-scoped camera selection', () => {
   assert.match(page, /const feature = 'detect_human'/)
-  assert.match(haodaPage, /department="haoda_company"/)
-  assert.doesNotMatch(haodaPage, /cameraDepartment=/)
-  assert.match(haodaPage, /departmentLabel="皓达公司"/)
   assert.match(page, /getAiVisionCameras\(department\)/)
   assert.match(page, /isAiVisionFeatureEnabled\(camera, feature\)/)
-  assert.match(cameraManager, /从平台全局摄像头池选择/)
+  assert.match(cameraManager, /从当前事业部摄像头选择/)
   assert.match(cameraManager, /加入当前功能不会修改摄像头的所属事业部或公司/)
   assert.match(cameraManager, /createAiVisionFeatureCamera\(feature, \{[\s\S]*?department,[\s\S]*?enabled: true/)
-  assert.match(nav, /id: 'haoda-human-detection'/)
-  assert.match(sidebar, /pages: departmentPermissions\.haoda_company\.pages/)
-  assert.match(app, /case 'haoda-human-detection'/)
+  assert.match(nav, /id: 'human-detection'/)
+  assert.match(sidebar, /getAccessibleDepartments\(user\)/)
+  assert.match(app, /<HumanDetectionSection department=\{currentDepartment\}/)
 })
 
 test('keeps the selected camera when ROI save emits a camera refresh event', () => {

@@ -4,6 +4,7 @@
 执行前必须备份并停止配置写入与检测；--apply 才删除废弃列。
 """
 from __future__ import annotations
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import argparse
 import json
@@ -145,7 +146,7 @@ def preflight(connection, *, value_changes=None):
     for source in _read_rows(connection, LogisticsChannel.__table__):
         row = _validated_row(source, LogisticsChannel)
         channel = LogisticsChannel(**row)
-        if channel.feature_name != SPEC.name or channel.department not in SPEC.departments:
+        if channel.feature_name != SPEC.name or channel.department not in DEPARTMENT_SPECS:
             raise ValueError(f"通道 id={channel.id}: 功能或事业部不合法")
         LogisticsChannelCreate(name=channel.name, department=channel.department)
         LogisticsChannelConfigResponse.model_validate(channel)

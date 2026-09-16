@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useState } from 'react'
 import { History, RefreshCw } from 'lucide-react'
 import { ImagePreviewDialog } from '@/components/ImagePreviewDialog'
@@ -5,15 +6,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
-import { FACE_DEPARTMENT, FACE_FEATURE, getRecognitionRecords, recognitionImageUrl, type RecognitionRecord, type RecognitionRecordPage } from './api'
+import { FACE_FEATURE, getRecognitionRecords, recognitionImageUrl, type RecognitionRecord, type RecognitionRecordPage } from './api'
 
-export function RecognitionRecordsView() {
+export function RecognitionRecordsView({ department }: { department: DepartmentId }) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [cameraId, setCameraId] = useState('')
   const [previewRecord, setPreviewRecord] = useState<RecognitionRecord | null>(null)
   const [page, setPage] = useState(1)
   const [revision, setRevision] = useState(0)
-  const queryKey = `${cameraId}:${page}:${revision}`
+  const queryKey = `${department}:${cameraId}:${page}:${revision}`
   const [responseState, setResponseState] = useState<{ key: string; result: RecognitionRecordPage | null; error: string } | null>(null)
   const [cameraError, setCameraError] = useState('')
   const loading = responseState?.key !== queryKey
@@ -21,7 +22,7 @@ export function RecognitionRecordsView() {
   const error = loading ? '' : responseState.error
   useEffect(() => {
     let cancelled = false
-    getAiVisionCameras(FACE_DEPARTMENT).then((items) => {
+    getAiVisionCameras(department).then((items) => {
       if (!cancelled) {
         const featureCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
         setCameras(featureCameras)
@@ -32,16 +33,16 @@ export function RecognitionRecordsView() {
       if (!cancelled) setCameraError(`摄像头列表读取失败：${String(reason)}`)
     })
     return () => { cancelled = true }
-  }, [revision])
+  }, [department, revision])
   useEffect(() => {
     const controller = new AbortController()
-    getRecognitionRecords(page, cameraId, controller.signal).then((value) => {
+    getRecognitionRecords(department, page, cameraId, controller.signal).then((value) => {
       if (!controller.signal.aborted) setResponseState({ key: queryKey, result: value, error: '' })
     }).catch((reason) => {
       if (!controller.signal.aborted) setResponseState({ key: queryKey, result: null, error: reason instanceof Error ? reason.message : String(reason) })
     })
     return () => controller.abort()
-  }, [page, cameraId, queryKey])
+  }, [department, page, cameraId, queryKey])
   return (
     <Card className="rounded-2xl border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <CardHeader className="flex flex-wrap items-center justify-between gap-3 sm:flex-row">

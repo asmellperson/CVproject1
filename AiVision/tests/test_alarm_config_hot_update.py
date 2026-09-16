@@ -408,7 +408,7 @@ def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_defaul
     assert len(calls) == 2
 
 
-def test_camera_department_reaches_alarm_without_changing_feature_scope(monkeypatch):
+def test_camera_department_reaches_alarm_from_camera_ownership(monkeypatch):
     from AiVision.core.cache import ConfigCache
     from AiVision.cameras.orm import AiCameraConfig
 
@@ -416,12 +416,12 @@ def test_camera_department_reaches_alarm_without_changing_feature_scope(monkeypa
     camera = AiCameraConfig(id=7, name="camera", shm_name="camera_7", enable=True, department="research_institute")
     cache._camera_cache[7] = cache._orm_to_dict(camera)
     cfg = cache._enrich_function_config({
-        "camera_id": 7, "enable": True, "departments": ["research", "general"], "alarm_interval": 5.0,
+        "camera_id": 7, "enable": True, "alarm_interval": 5.0,
         "sql_enable": True,
     })
-    assert cfg["departments"] == ["research", "general"]
+    assert cfg["department"] == "research_institute"
     consumer = DummyConsumer(
-        spec=SimpleNamespace(name="blocks", violation_type=1, departments=("research_institute",)),
+        spec=SimpleNamespace(name="blocks", violation_type=1),
         infer_dict={}, result_queue=None, latest_frames={}, is_camera_active=lambda _key: True,
     )
     consumer.config_cache[7] = cfg

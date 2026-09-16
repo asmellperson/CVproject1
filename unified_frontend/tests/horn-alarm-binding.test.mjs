@@ -229,7 +229,7 @@ for (const [name, configKey] of [['Face', 'detect_face'], ['Human', 'detect_huma
 
 test('shared binding reaches existing feature pages and logistics, while guard/VLM only expose device management', async () => {
   for (const name of ['Face', 'Human', 'Phone', 'Door', 'Intrusion']) assert.match(sources[`sections/${name}DetectionSection.tsx`], /<AlarmPushConfig/)
-  assert.match(await source('sections/HaodaHumanDetectionSection.tsx'), /<HumanDetectionSection/)
+  assert.match(await source('App.tsx'), /<HumanDetectionSection department=\{currentDepartment\}/)
   const logistics = await source('components/logistics_single_person/LogisticsChannelConfigView.tsx')
   assert.match(logistics, /alarm=\{toFeatureAlarm\(config.alarm\)\}/)
   assert.match(logistics, /alarm: toLogisticsAlarm\(alarm\)/)

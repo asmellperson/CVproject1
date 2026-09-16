@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from AiVision.api.routes import logistics_channels as api
-from AiVision.features.registry import all_specs
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURE_NAME as FEATURE
 from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
@@ -17,14 +17,14 @@ from AiVision.tests.test_logistics_channel_service import service_db, _seed_came
 
 def test_names_are_unique_within_department_and_department_cannot_be_patched(service_db):
     service = service_db.service
-    for department in all_specs()[FEATURE].departments:
+    for department in DEPARTMENT_SPECS:
         channel = service.create_channel(FEATURE, "一号通道", department)
         assert channel["department"] == department
         with pytest.raises(ValueError, match="已存在"):
             service.create_channel(FEATURE, "一号通道", department)
     with pytest.raises(ValueError, match="department"):
         service.update_channel_and_config(FEATURE, channel["id"], {"department": "general_electric"}, None)
-    assert len(service.list_channels(FEATURE)["items"]) == 4
+    assert len(service.list_channels(FEATURE)["items"]) == len(DEPARTMENT_SPECS)
     assert len(service.list_channels(FEATURE, departments=["electrical_components"])["items"]) == 1
     assert service.list_channels(FEATURE, departments=[])["items"] == []
 
@@ -47,7 +47,7 @@ def test_inventory_filters_both_channels_and_cameras_in_database(service_db):
 
 def test_empty_camera_department_does_not_gain_all_logistics_departments(service_db):
     _seed_camera(service_db, "未归属物流相机", department=None, enabled_features=(FEATURE,))
-    for department in all_specs()[FEATURE].departments:
+    for department in DEPARTMENT_SPECS:
         assert service_db.camera_config_manager.list_cameras(department) == []
 
 
@@ -127,7 +127,7 @@ def test_department_page_filters_channels_and_inventory_before_response(service_
     service = service_db.service
     channels = {}
     cameras = {}
-    for department in all_specs()[FEATURE].departments:
+    for department in DEPARTMENT_SPECS:
         channels[department] = service.create_channel(FEATURE, "同名通道", department)
         cameras[department] = _seed_camera(service_db, department, department=department)
         service.add_existing_camera(FEATURE, channels[department]["id"], cameras[department])
@@ -161,7 +161,7 @@ def test_department_page_filters_channels_and_inventory_before_response(service_
     (["general_electric", "electronics_electrician"], "electrical_components", 403),
     ([], "general_electric", 403),
     (["all"], "all", 400),
-    (["all"], "research_institute", 400),
+    (["all"], "unknown", 400),
     (["all"], "", 400),
 ])
 def test_department_query_cannot_bypass_permissions(resource, departments, requested, expected):

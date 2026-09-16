@@ -1,5 +1,6 @@
 """物流通道 CRUD、成员、运行状态和拼接画面 API。"""
 from __future__ import annotations
+from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 
 import datetime as dt
 from typing import Annotated, Any
@@ -18,7 +19,6 @@ from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.core.db import get_session
 from AiVision.features.registry import all_specs
 from AiVision.features.logistics_channel.constants import (
-    LOGISTICS_FEATURE_NAME,
     LOGISTICS_FEATURES,                                 # # 系统哪些功能属于物流通道类功能                             
 )
 from AiVision.features.logistics_channel.schema import (
@@ -48,7 +48,9 @@ def _accessible_departments(user: dict) -> tuple[str, ...] | None:
     candidates = raw_departments if isinstance(raw_departments, list) else []
     # 部门数据清洗：去空字符串、去空格，自动去重
     departments = {str(value or "").strip() for value in candidates if str(value or "").strip()}
-    return None if "all" in departments else tuple(sorted(departments))
+    if user.get("role") != "viewer":
+        return ()
+    return tuple(DEPARTMENT_SPECS) if "all" in departments else tuple(sorted(departments.intersection(DEPARTMENT_SPECS)))
 
 
 def _require_feature_access(feature: str) -> str:
@@ -63,8 +65,10 @@ def _query_departments(user: dict, department: str | None) -> tuple[str, ...] | 
     accessible = _accessible_departments(user)
     if department is None:
         return accessible
-    if department not in all_specs()[LOGISTICS_FEATURE_NAME].departments:
-        raise HTTPException(status_code=400, detail="invalid logistics department")
+    try:
+        require_department(department)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if accessible is not None and department not in accessible:
         raise HTTPException(status_code=403, detail="department permission required")
     return (department,)

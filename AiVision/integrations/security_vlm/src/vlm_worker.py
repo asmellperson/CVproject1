@@ -50,7 +50,7 @@ import cv2
 import numpy as np
 import yaml
 
-from AiVision.integrations.security_vlm.src.departments import SECURITY_DEPARTMENTS, require_department
+from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
 from AiVision.integrations.security_vlm.src.camera_registry import validate_camera_id
 from AiVision.integrations.security_vlm.src.frame_hub import ResultStore
 
@@ -228,13 +228,13 @@ class DepartmentFairTaskQueue:
         self.maxsize = 0
         self._condition = threading.Condition()
         self._queues: dict[str, dict[str, deque]] = {
-            department: {} for department in SECURITY_DEPARTMENTS
+            department: {} for department in DEPARTMENTS
         }
         self._camera_order: dict[str, list[str]] = {
-            department: [] for department in SECURITY_DEPARTMENTS
+            department: [] for department in DEPARTMENTS
         }
         self._last_camera: dict[str, str | None] = {
-            department: None for department in SECURITY_DEPARTMENTS
+            department: None for department in DEPARTMENTS
         }
         self._department_cursor = 0
         self._qsize = 0
@@ -350,10 +350,10 @@ class DepartmentFairTaskQueue:
     #   - 内部调用：`len`、`range`、`any`、`self._queues[department].values`。
     # 副作用/注意事项：会更新当前实例的运行状态；校验或执行失败时会主动抛出异常。
     def _select_department(self) -> str:
-        department_count = len(SECURITY_DEPARTMENTS)
+        department_count = len(DEPARTMENTS)
         for offset in range(department_count):
             index = (self._department_cursor + offset) % department_count
-            department = SECURITY_DEPARTMENTS[index]
+            department = DEPARTMENTS[index]
             if any(self._queues[department].values()):
                 self._department_cursor = (index + 1) % department_count
                 return department
@@ -530,7 +530,7 @@ class DepartmentFairTaskQueue:
 def payload_department(payload: dict) -> str:
     """兼容旧 pending；缺少事业部时归入通用电气。"""
     return require_department(
-        payload.get("department", SECURITY_DEPARTMENTS[0])
+        payload.get("department", DEPARTMENTS[0])
     )
 
 
@@ -552,7 +552,7 @@ def pending_directory_origin(pending_dir: Path) -> tuple[str, bool]:
     department_dir = cameras_dir.parent
     if department_dir.parent.name == "departments":
         return require_department(department_dir.name), True
-    return SECURITY_DEPARTMENTS[0], False
+    return DEPARTMENTS[0], False
 
 
 # 功能：从持久化 processing 路径恢复任务来源事业部；输入与输出详见下方说明
@@ -572,7 +572,7 @@ def processing_directory_origin(processing_dir: Path) -> tuple[str, bool]:
     department_dir = path.parent.parent
     if department_dir.parent.name == "departments":
         return require_department(department_dir.name), True
-    return SECURITY_DEPARTMENTS[0], False
+    return DEPARTMENTS[0], False
 
 
 # 功能：以 processing 路径为准校验 payload 事业部，兼容旧全局任务；输入与输出详见下方说明
@@ -754,10 +754,10 @@ def normalize_pending_payload(
             if (
                 "department" in payload
                 and require_department(payload["department"])
-                != SECURITY_DEPARTMENTS[0]
+                != DEPARTMENTS[0]
             ):
                 raise ValueError("旧版 pending 任务只能归属 general_electric")
-            department = SECURITY_DEPARTMENTS[0]
+            department = DEPARTMENTS[0]
         else:
             if "department" not in payload:
                 raise ValueError("新版 pending payload 缺少 department")
@@ -1158,7 +1158,7 @@ class VLMJudge:
     #   - `roi_name`（str）：`roi_name` 对应的业务输入值
     #   - `roi_box`（List[float]）：`roi_box` 对应的业务输入值
     #   - `keyframes`（List[np.ndarray]）：`keyframes` 对应的业务输入值
-    #   - `department`（str）：业务部门名称或标识；默认值为 `SECURITY_DEPARTMENTS[0]`
+    #   - `department`（str）：业务部门名称或标识；默认值为 `DEPARTMENTS[0]`
     # 返回：Dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `PendingTaskProcessor::_process_locked`
@@ -1173,7 +1173,7 @@ class VLMJudge:
         roi_box: List[float],
         keyframes: List[np.ndarray],
         *,
-        department: str = SECURITY_DEPARTMENTS[0],
+        department: str = DEPARTMENTS[0],
     ) -> Dict[str, Any]:
         """
         返回 dict:
@@ -1404,7 +1404,7 @@ class DepartmentPendingScanner(threading.Thread):
         self.seen: set[str] = set()
         self._department_cursor = 0
         self._last_scanned_camera: dict[str, str | None] = {
-            department: None for department in SECURITY_DEPARTMENTS
+            department: None for department in DEPARTMENTS
         }
         self._source_cursors: dict[tuple[str, str], bool] = {}
         self._stop_event = threading.Event()
@@ -1419,7 +1419,7 @@ class DepartmentPendingScanner(threading.Thread):
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     def pending_dirs(self) -> list[Path]:
         directories = []
-        for department in SECURITY_DEPARTMENTS:
+        for department in DEPARTMENTS:
             cameras_dir = self.departments_root / department / "cameras"
             directories.extend(
                 path
@@ -1445,7 +1445,7 @@ class DepartmentPendingScanner(threading.Thread):
     def processing_dirs(self) -> list[Path]:
         directories = [
             self.departments_root / department / "global" / "processing"
-            for department in SECURITY_DEPARTMENTS
+            for department in DEPARTMENTS
         ]
         if self.legacy_camera_root is not None:
             directories.append(
@@ -1506,7 +1506,7 @@ class DepartmentPendingScanner(threading.Thread):
         for department_dir in self.departments_root.iterdir():
             if (
                 not department_dir.is_dir()
-                or department_dir.name in SECURITY_DEPARTMENTS
+                or department_dir.name in DEPARTMENTS
             ):
                 continue
             reason = ValueError(
@@ -1585,7 +1585,7 @@ class DepartmentPendingScanner(threading.Thread):
             for path in sorted(processing_dir.glob("*.pkl"))
             if self._identity(path) not in self.seen
         )
-        if department == SECURITY_DEPARTMENTS[0] and self.legacy_camera_root is not None:
+        if department == DEPARTMENTS[0] and self.legacy_camera_root is not None:
             legacy_processing = (
                 self.legacy_camera_root.parent / "global" / "processing"
             )
@@ -1638,7 +1638,7 @@ class DepartmentPendingScanner(threading.Thread):
             if path.is_dir() and any(path.glob("*.pkl"))
         ]
         if (
-            department == SECURITY_DEPARTMENTS[0]
+            department == DEPARTMENTS[0]
             and self.legacy_camera_root is not None
         ):
             directories.extend(
@@ -1812,12 +1812,12 @@ class DepartmentPendingScanner(threading.Thread):
             return
         self._cleanup_unknown_departments()
         self.seen.intersection_update(self._all_existing_paths())
-        offset = self._department_cursor % len(SECURITY_DEPARTMENTS)
+        offset = self._department_cursor % len(DEPARTMENTS)
         departments = (
-            list(SECURITY_DEPARTMENTS[offset:])
-            + list(SECURITY_DEPARTMENTS[:offset])
+            list(DEPARTMENTS[offset:])
+            + list(DEPARTMENTS[:offset])
         )
-        self._department_cursor = (offset + 1) % len(SECURITY_DEPARTMENTS)
+        self._department_cursor = (offset + 1) % len(DEPARTMENTS)
         for department in departments:
             if self._stop_event.is_set():
                 return
@@ -2268,7 +2268,7 @@ class DepartmentResultStores:
         self.data_root = Path(data_root).resolve()
         self._stores = {
             department: ResultStore(self.results_dir(department))
-            for department in SECURITY_DEPARTMENTS
+            for department in DEPARTMENTS
         }
         self.budget_store = ResultStore(self.data_root / "_shared")
 
@@ -2692,7 +2692,7 @@ class DepartmentAccumulators:
                 max_history=max_history,
                 budget_snapshot=budget_snapshot,
             )
-            for department in SECURITY_DEPARTMENTS
+            for department in DEPARTMENTS
         }
 
     # 功能：读取或查询 `get` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
@@ -3239,7 +3239,7 @@ def shutdown_task_workers(
 def queued_department_counts(task_q: queue.Queue) -> dict[str, int]:
     if isinstance(task_q, DepartmentFairTaskQueue):
         return task_q.department_counts()
-    counts = {department: 0 for department in SECURITY_DEPARTMENTS}
+    counts = {department: 0 for department in DEPARTMENTS}
     with task_q.mutex:
         for item in task_q.queue:
             if isinstance(item, PendingTask):
@@ -3302,7 +3302,7 @@ def main():
     runtime_dir = paths.runtime_dir
     stores = DepartmentResultStores(paths.data_root)
     # 旧固定 API 在 Task5 前只读取 GE 分区；该别名不参与其他事业部写入。
-    store = stores.get(SECURITY_DEPARTMENTS[0])
+    store = stores.get(DEPARTMENTS[0])
 
     vlm_cfg = cfg["vlm"]
     out_cfg = cfg["output"]
@@ -3437,7 +3437,7 @@ def main():
     # 副作用/注意事项：可能创建、写入、移动或删除本地文件。
     def write_statuses(ok: bool, message: str) -> None:
         queue_sizes = queued_department_counts(task_q)
-        for department in SECURITY_DEPARTMENTS:
+        for department in DEPARTMENTS:
             stores.get(department).write(status_key, {
                 "ok": ok,
                 "department": department,

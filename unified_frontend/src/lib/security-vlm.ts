@@ -1,3 +1,4 @@
+import type { DepartmentId } from '@/auth/permissions'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 
 function readError(response: Response) {
@@ -48,14 +49,7 @@ const securityVlmPut = <T>(path: string, body?: unknown, init?: RequestInit) =>
 const securityVlmDelete = <T>(path: string, init?: RequestInit) =>
   securityVlmRequest<T>('DELETE', path, undefined, init)
 
-export const SECURITY_VLM_DEPARTMENTS = [
-  'general_electric',
-  'electronics_electrician',
-  'electrical_components',
-  'precious_metal_recycling',
-] as const
-
-export type SecurityVlmDepartment = typeof SECURITY_VLM_DEPARTMENTS[number]
+export type SecurityVlmDepartment = DepartmentId
 
 const departmentApi = (department: SecurityVlmDepartment) =>
   `/api/departments/${encodeURIComponent(department)}`

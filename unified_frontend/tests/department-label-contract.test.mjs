@@ -2,93 +2,31 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const frontendRoot = new URL('../', import.meta.url)
-const read = (path) => readFile(new URL(path, frontendRoot), 'utf8')
-const [sidebar, home, users, audit, intrusion, face, phone, human, haodaHuman, door, securityVlm, alarms, statistics, logistics, nav, permissions] = await Promise.all([
-  read('src/components/Sidebar.tsx'),
-  read('src/sections/HomeSection.tsx'),
-  read('src/sections/UserManagementSection.tsx'),
-  read('src/sections/AccessAuditSection.tsx'),
-  read('src/sections/IntrusionDetectionSection.tsx'),
-  read('src/sections/FaceDetectionSection.tsx'),
-  read('src/sections/PhoneDetectionSection.tsx'),
-  read('src/sections/HumanDetectionSection.tsx'),
-  read('src/sections/HaodaHumanDetectionSection.tsx'),
-  read('src/sections/DoorDetectionSection.tsx'),
-  read('src/sections/SecurityVlmSection.tsx'),
-  read('src/sections/AlarmsSection.tsx'),
-  read('src/sections/StatisticsSection.tsx'),
-  read('src/components/logistics_single_person/LogisticsChannelSection.tsx'),
-  read('src/lib/nav.ts'),
-  read('src/auth/permissions.ts'),
-])
+const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')
 
-test('uses the current materials institute name throughout active frontend views', () => {
-  for (const source of [sidebar, intrusion, face, phone]) {
-    assert.match(source, /福达新材院/)
-    assert.doesNotMatch(source, /人工智能研究院/)
+test('all detection page labels derive from the shared department catalog', async () => {
+  const permissions = await read('auth/permissions.ts')
+  for (const label of ['通用电气', '福达新材院', '电子电工', '电气部件事业部', '伟达公司', '皓达公司']) assert.ok(permissions.includes(label))
+  for (const name of ['IntrusionDetection', 'DoorDetection', 'FaceDetection', 'FaceRecognition', 'PhoneDetection', 'HumanDetection', 'SecurityVlm', 'GuardBehavior']) {
+    const source = await read(`sections/${name}Section.tsx`)
+    assert.match(source, /DEPARTMENT_LABELS\[department\]/)
+    assert.doesNotMatch(source, /departmentLabel="|department === 'electronics_electrician'/)
   }
+  const logistics = await read('components/logistics_single_person/LogisticsChannelSection.tsx')
+  assert.match(logistics, /DEPARTMENT_LABELS\[department\]/)
 })
 
-test('uses the current Weida company name throughout active frontend views', () => {
-  for (const source of [sidebar, securityVlm]) {
-    assert.match(source, /伟达公司/)
-    assert.doesNotMatch(source, /贵金属回收/)
-  }
-  for (const source of [alarms, statistics]) {
-    assert.doesNotMatch(source, /伟达公司|贵金属回收/)
-    assert.match(source, /物流通道单人/)
-  }
-  assert.match(logistics, /useDepartmentCatalog/)
-  assert.match(logistics, /labels\[department\]/)
-  assert.doesNotMatch(logistics, /FEATURE_DEPARTMENT_LABELS/)
-  assert.equal((nav.match(/id: 'logistics-single-person[^']*'/g) ?? []).length, 4)
-  assert.doesNotMatch(permissions, /title: '物流通道单人检测（贵金属回收）'/)
+test('sidebar reuses one capability list for all authorized departments', async () => {
+  const source = await read('components/Sidebar.tsx')
+  assert.match(source, /getAccessibleDepartments\(user\).map/)
+  assert.match(source, /label: DEPARTMENT_LABELS\[department\], items: group.items/)
+  const nav = await read('lib/nav.ts')
+  assert.equal((nav.match(/id: 'logistics-single-person'/g) || []).length, 1)
+  assert.match(nav, /items: detectionNavItems/)
 })
 
-test('keeps the requested first-level company directories in sidebar order', () => {
-  const groupConfig = sidebar.match(/const adminModuleGroups = \[[\s\S]*?\n\]/)?.[0] ?? ''
-  const labels = [
-    '通用电气事业部',
-    '电子电工事业部',
-    '电气部件事业部',
-    '伟达公司',
-    '皓达公司',
-    '福力达公司',
-    '福达新材院',
-  ]
-
-  assert.notEqual(groupConfig, '', 'expected sidebar department group configuration')
-  for (const label of labels) assert.match(groupConfig, new RegExp(`label: '${label}'`))
-  assert.doesNotMatch(groupConfig, /label: '贵金属回收事业部'/)
-  assert.deepEqual(
-    labels.map((label) => groupConfig.indexOf(`label: '${label}'`)),
-    labels.map((label) => groupConfig.indexOf(`label: '${label}'`)).toSorted((left, right) => left - right),
-  )
-})
-
-test('groups capability navigation by assigned department for multi-department viewers', () => {
-  assert.match(sidebar, /getUserDepartments/)
-  assert.match(sidebar, /const userDepartments = new Set<string>\(getUserDepartments\(user\)\)/)
-  assert.match(sidebar, /const shouldGroupByDepartment = isAdmin \|\| userDepartments\.size > 1/)
-  assert.match(sidebar, /if \(!shouldGroupByDepartment\) return visibleGroups/)
-  assert.match(sidebar, /adminModuleGroups\.filter\(\(group\) => userDepartments\.has\(group\.id\)\)/)
-})
-
-test('shows human dwell and door detection under their actual navigation owners', () => {
-  assert.match(human, /departmentLabel = '通用电气事业部'/)
-  assert.match(haodaHuman, /departmentLabel="皓达公司"/)
-  assert.match(door, /departmentLabel="公共能力"/)
-  assert.doesNotMatch(human, /人工智能研究院|福达新材院/)
-  assert.doesNotMatch(door, /人工智能研究院|福达新材院/)
-})
-
-
-test('department selection and labels use the shared API catalog', () => {
-  for (const source of [home, users, audit]) {
-    assert.match(source, /useDepartmentCatalog/)
-    assert.doesNotMatch(source, /const (?:departments|departmentOptions):.*?= \[/)
-    assert.doesNotMatch(source, /const departmentLabels:.*?= \{/)
-    assert.doesNotMatch(source, /value: 'research_institute', label:/)
+test('department selection uses the formal department API catalog', async () => {
+  for (const name of ['HomeSection', 'UserManagementSection', 'AccessAuditSection']) {
+    assert.match(await read(`sections/${name}.tsx`), /useDepartmentCatalog/)
   }
 })

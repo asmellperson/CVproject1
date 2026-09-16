@@ -329,7 +329,7 @@ test('each detection configuration uses the single public horn container', async
     assert.doesNotMatch(content, /<HornDeviceManager\b/, path)
     if (!path.includes('SecurityVlm')) assert.match(content, /报警推送/, path)
   }
-  assert.match(await source('sections/HaodaHumanDetectionSection.tsx'), /<HumanDetectionSection/)
+  assert.match(await source('App.tsx'), /<HumanDetectionSection department=\{currentDepartment\}/)
   for (const suffix of ['']) {
     assert.match(await source(`sections/LogisticsSinglePerson${suffix}DetectionSection.tsx`), /<LogisticsChannelSection/)
   }

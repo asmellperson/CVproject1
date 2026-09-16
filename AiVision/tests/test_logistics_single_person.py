@@ -163,7 +163,7 @@ def test_logistics_consumer_owns_detection_implementation(consumer_class):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_logistics_feature_supports_precious_metal_department():
     assert LOGISTICS_SPEC.display_name == "物流通道单人检测"
-    assert "precious_metal_recycling" in LOGISTICS_SPEC.departments
+    assert "departments" not in LOGISTICS_SPEC.__dataclass_fields__
 
 
 # 功能：验证 `test_all_logistics_consumers_publish_details_without_camera_alarm` 对应的`test_logistics_single_person`

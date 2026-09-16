@@ -1,3 +1,4 @@
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 # 文件说明：包含业务服务的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
@@ -389,13 +390,9 @@ def test_camera_list_requires_explicit_human_department_and_preserves_other_feat
         for camera in service_db.camera_config_manager.list_cameras("haoda_company")
     }
 
-    assert general_names == {"human-general_electric", "legacy-shared"}
+    assert general_names == {"human-general_electric"}
     assert haoda_names == {"human-haoda_company"}
-    assert research_names == {
-        "legacy-research",
-        "legacy-shared",
-        "explicit-research",
-    }
+    assert research_names == {"explicit-research"}
     # 未归属记录仍可通过未过滤清单维护，但不会因此补填或扩大可见事业部。
     unassigned = next(
         camera for camera in service_db.camera_config_manager.list_cameras()
@@ -1690,11 +1687,12 @@ def test_camera_delete_feature_failure_rolls_back_entire_transaction(service_db)
     assert service_db.notifications == []
 
 
-@pytest.mark.parametrize("department", ["general_electric", "haoda_company"])
-def test_create_human_camera_with_explicit_department_enables_only_target_atomically(service_db, department):
-    """两个正式事业部均须明确选择，提交后仅启用人员逗留并发布各一次事件。"""
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+@pytest.mark.parametrize("feature", [name for name in all_specs() if name != "detect_logistics_single_person"])
+def test_create_feature_camera_enables_only_target_atomically(service_db, department, feature):
+    """所有正式事业部均可创建任意普通功能摄像头，且只启用当前功能。"""
     result = service_db.camera_config_manager.create_camera_for_feature(
-        "detect_human",
+        feature,
         {
             "name": "人员逗留新增相机",
             "url": "rtsp://example/human",
@@ -1704,9 +1702,9 @@ def test_create_human_camera_with_explicit_department_enables_only_target_atomic
     )
 
     assert result["department"] == department
-    assert result["functions"]["detect_human"] is True
+    assert result["functions"][feature] is True
     assert all(
-        enabled is (feature_name == "detect_human")
+        enabled is (feature_name == feature)
         for feature_name, enabled in result["functions"].items()
     )
     event_types = [
@@ -1715,15 +1713,15 @@ def test_create_human_camera_with_explicit_department_enables_only_target_atomic
         if item[0] == "event"
     ]
     assert event_types.count("camera_added") == 1
-    assert event_types.count("detect_human_enabled") == 1
+    assert event_types.count(f"{feature}_enabled") == 1
 
 
-@pytest.mark.parametrize("department", [None, "", "research_institute"])
+@pytest.mark.parametrize("department", [None, "", "unknown"])
 def test_create_human_camera_rejects_missing_or_mismatched_department_without_writes(service_db, department):
     payload = {"name": "未合法选择事业部", "url": "rtsp://example/human"}
     if department is not None:
         payload["department"] = department
-    message = "department 必须属于当前功能" if department else "department 是必填项"
+    message = "unknown department"
     with pytest.raises(ValueError, match=message):
         service_db.camera_config_manager.create_camera_for_feature("detect_human", payload)
 
@@ -1743,7 +1741,7 @@ def test_create_human_camera_rejects_missing_or_mismatched_department_without_wr
 #   - 内部调用：`pytest.raises`、`service_db.camera_config_manager.create_camera_for_feature`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def test_camera_config_manager_create_camera_for_feature_requires_valid_department(service_db):
-    with pytest.raises(ValueError, match="department 是必填项"):
+    with pytest.raises(ValueError, match="unknown department"):
         service_db.camera_config_manager.create_camera_for_feature(
             "detect_phone",
             {
@@ -1752,13 +1750,13 @@ def test_camera_config_manager_create_camera_for_feature_requires_valid_departme
             },
         )
 
-    with pytest.raises(ValueError, match="department 必须属于当前功能"):
+    with pytest.raises(ValueError, match="unknown department"):
         service_db.camera_config_manager.create_camera_for_feature(
             "detect_face",
             {
                 "name": "事业部不匹配",
                 "url": "rtsp://example/wrong-department",
-                "department": "general_electric",
+                "department": "unknown",
             },
         )
 
@@ -2450,12 +2448,13 @@ def test_camera_create_and_update_can_select_every_registered_department(service
         assert updated["department"] == "research_institute"
 
 
-def test_camera_without_explicit_department_keeps_legacy_feature_fallback(service_db):
+def test_camera_without_department_is_not_visible_regardless_of_enabled_features(service_db):
     from AiVision.cameras.config_manager import camera_access_departments
-
     manager = service_db.camera_config_manager
-    camera = manager.create_camera_for_feature("detect_phone", {
-        "name": "legacy-phone", "url": "rtsp://example/phone", "department": "research_institute",
-    })
-    updated = manager.update_camera(camera["shm_name"], {"department": None})
-    assert camera_access_departments(updated) == set(all_specs()["detect_phone"].departments)
+    camera = manager.create_camera({"name": "unassigned", "url": "rtsp://example/unassigned"})
+    with service_db.factory.begin() as session:
+        for spec in all_specs().values():
+            session.query(spec.orm_class).filter_by(camera_id=camera["camera_id"]).one().enable = True
+    assert camera_access_departments(manager.get_camera(camera["shm_name"])) == set()
+    for department in DEPARTMENT_SPECS:
+        assert manager.list_cameras(department) == []

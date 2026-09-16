@@ -1,3 +1,4 @@
+import { DEPARTMENT_LABELS } from '@/auth/permissions'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -162,13 +163,6 @@ function rectangleToPolygon(values: [number, number, number, number]) {
 
 function formatRoi(points: SecurityVlmRoiPolygon) {
   return points.map(([x, y]) => `(${x}, ${y})`).join(', ')
-}
-
-const DEPARTMENT_LABELS: Record<SecurityVlmDepartment, string> = {
-  general_electric: '通用电气事业部',
-  electronics_electrician: '电子电工事业部',
-  electrical_components: '电气部件事业部',
-  precious_metal_recycling: '伟达公司',
 }
 
 export function SecurityVlmSection({
@@ -725,6 +719,8 @@ export function SecurityVlmSection({
             />
           )}
         />
+
+        {health !== null && cameras.length === 0 && <p>当前事业部暂未配置摄像头</p>}
 
         {activeTab === 'dashboard' && (
           <div className="flex flex-wrap items-center justify-end gap-2">

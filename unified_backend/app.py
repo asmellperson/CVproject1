@@ -52,7 +52,8 @@ from auth.auth import (
     update_auth_user,
     verify_login,
 )
-from auth.alarm_permissions import DEPARTMENT_EVENT_TYPES, allowed_alarm_event_types
+from auth.alarm_permissions import allowed_alarm_event_types
+from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from unified_backend.alarm_dispositions import AlarmDispositionStore, DispositionStoreBusy
 from unified_backend.disposition_queries import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DispositionPage, DispositionQueries,
@@ -192,6 +193,7 @@ def _raise_user_management_http_error(exc: UserStoreError) -> None:
 
 
 ALARM_TYPE_META: dict[str, dict[str, str]] = {
+    "recognize_face": {"name": "人脸身份识别"},
     "blocks": {"name": "区域入侵"},
     "detect_door": {"name": "大门开关"},
     "detect_phone": {"name": "手机检测"},
@@ -215,12 +217,7 @@ GUARD_EVENT_META: dict[str, dict[str, str]] = {
 }
 
 
-SECURITY_VLM_DEPARTMENTS = (
-    "general_electric",
-    "electronics_electrician",
-    "electrical_components",
-    "precious_metal_recycling",
-)
+
 
 _MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
 
@@ -552,6 +549,11 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     if site_id is not None:
         image_url = f"/api/sites/{site_id}/alarms/{source_id}/image"
         video_url = f"/api/sites/{site_id}/alarms/{source_id}/video" if alarm.get("video_status") == "ready" else None
+        department = alarm.get("department")
+        if department in DEPARTMENT_SPECS:
+            image_url += f"?department={department}"
+            if video_url:
+                video_url += f"?department={department}"
     return {
         **alarm,
         "id": normalized_id,
@@ -759,7 +761,7 @@ def _normalize_security_vlm_alarm(
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `_filter_alarms` 调用本符号
 #   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`set`、`_departments_for_user`、`DEPARTMENT_EVENT_TYPES.get`。
+#          '').strip`、`str`、`user.get`、`set`、`_departments_for_user`、`DEPARTMENT_SPECS`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
     return allowed_alarm_event_types(user, _departments_for_user(user))
@@ -772,7 +774,7 @@ def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
 #   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`_departments_for_user`、`guard_event_types.isdisjoint`、`DEPARTMENT_EVENT_TYPES.get`、`set`。
+#          '').strip`、`str`、`user.get`、`_departments_for_user`、`guard_event_types.isdisjoint`、`DEPARTMENT_SPECS`、`set`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
     role = str(user.get("role") or "").strip().lower()
@@ -783,14 +785,7 @@ def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
     departments = _departments_for_user(user)
     if "all" in departments:
         return None
-    guard_event_types = {"guard_absent", "guard_phone_use", "guard_prone_sleep"}
-    return [
-        department
-        for department in departments
-        if not guard_event_types.isdisjoint(
-            DEPARTMENT_EVENT_TYPES.get(department, set())
-        )
-    ]
+    return [department for department in departments if department in DEPARTMENT_SPECS]
 
 
 # 功能：检查或判断 `_can_mutate_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -823,11 +818,11 @@ def _security_vlm_departments_for_user(
     role = str(user.get("role") or "").strip().lower()
     departments = _departments_for_user(user)
     if role == "admin" or "all" in departments:
-        return list(SECURITY_VLM_DEPARTMENTS)
+        return list(DEPARTMENT_SPECS)
     if role == "viewer":
         return [
             department
-            for department in SECURITY_VLM_DEPARTMENTS
+            for department in DEPARTMENT_SPECS
             if department in departments
         ]
     return []
@@ -861,16 +856,13 @@ def _can_access_security_vlm(
     if role != "viewer":
         return False
 
-    departments = _departments_for_user(user)
-    if "all" in departments:
-        return True
+    departments = _security_vlm_departments_for_user(user)
     prefix = "/security-vlm/api/departments/"
     if normalized_path.startswith(prefix):
         requested = normalized_path[len(prefix):].split("/", 1)[0]
-        return requested in departments and requested in SECURITY_VLM_DEPARTMENTS
+        return requested in departments and requested in DEPARTMENT_SPECS
 
-    # 旧接口只代表通用电气，保留通用电气 viewer 的只读兼容。
-    return "general_electric" in departments
+    return False
 
 
 # 功能：转换或规范化 `_parse_event_types` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -910,12 +902,12 @@ def _filter_alarms(
         alarms = [alarm for alarm in alarms if alarm.get("event_type") in allowed]
     role = str(user.get("role") or "").strip().lower()
     departments = set(_departments_for_user(user))
-    if role == "viewer" and "all" not in departments:
+    if role == "viewer":
+        departments = set(DEPARTMENT_SPECS) if "all" in departments else departments.intersection(DEPARTMENT_SPECS)
         alarms = [
             alarm
             for alarm in alarms
-            if (not alarm.get("department") and alarm.get("event_type") != "detect_human")
-            or _normalize_department(alarm.get("department")) in departments
+            if alarm.get("department") in departments
         ]
     if event_types is not None:
         alarms = [
@@ -974,59 +966,39 @@ def _collect_alarms(
     disposition_store: AlarmDispositionStore,
     limit: int,
     event_types: set[str] | None = None,
+    department: str | None = None,
 ) -> list[dict[str, Any]]:
+    if department is not None:
+        try:
+            department = require_department(department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if department not in _security_vlm_departments_for_user(user):
+            raise HTTPException(status_code=403, detail="department permission required")
     upstream_limit = max(limit, 100)
     alarms: list[dict[str, Any]] = []
 
-    ai_payload = _get_upstream_json(aivision_url, f"/api/alarms?limit={upstream_limit}", request)
+    ai_path = f"/api/alarms?limit={upstream_limit}"
+    if department is not None:
+        ai_path += f"&department={department}"
+    ai_payload = _get_upstream_json(aivision_url, ai_path, request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
 
-    guard_departments = _guard_departments_for_user(user)
-    if guard_departments is None:
+    guard_departments = [department] if department else (_guard_departments_for_user(user) or [])
+    if department is None and _guard_departments_for_user(user) is None:
+        guard_departments = list(DEPARTMENT_SPECS)
+    for guard_department in guard_departments:
         guard_sites_payload = _get_upstream_json(
-            guard_room_url,
-            "/api/sites",
-            request,
+            guard_room_url, f"/api/sites?department={guard_department}", request,
         )
-        guard_paths = _guard_alarm_paths(guard_sites_payload, upstream_limit)
-        if guard_paths:
-            for path in guard_paths:
-                guard_payload = _get_upstream_json(guard_room_url, path, request)
-                alarms.extend(
-                    _normalize_guard_alarm(item)
-                    for item in _items_from_payload(guard_payload)
-                )
-        else:
-            guard_payload = _get_upstream_json(
-                guard_room_url,
-                f"/api/alarms?limit={upstream_limit}",
-                request,
-            )
-            alarms.extend(
-                _normalize_guard_alarm(item)
-                for item in _items_from_payload(guard_payload)
-            )
-    else:
-        for guard_department in guard_departments:
-            guard_sites_payload = _get_upstream_json(
-                guard_room_url,
-                f"/api/sites?department={guard_department}",
-                request,
-            )
-            for path in _guard_alarm_paths(
-                guard_sites_payload,
-                upstream_limit,
-                department=guard_department,
-            ):
-                guard_payload = _get_upstream_json(guard_room_url, path, request)
-                alarms.extend(
-                    _normalize_guard_alarm(item)
-                    for item in _items_from_payload(guard_payload)
-                )
+        for path in _guard_alarm_paths(guard_sites_payload, upstream_limit, department=guard_department):
+            guard_payload = _get_upstream_json(guard_room_url, path, request)
+            alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
 
-    for department in _security_vlm_departments_for_user(user):
+    security_departments = [department] if department else _security_vlm_departments_for_user(user)
+    for security_department in security_departments:
         vlm_path = (
-            f"/api/departments/{department}/history"
+            f"/api/departments/{security_department}/history"
             f"?limit={upstream_limit}"
         )
         vlm_payload = _get_upstream_json(
@@ -1036,11 +1008,13 @@ def _collect_alarms(
         )
         if isinstance(vlm_payload, dict):
             for item in _items_from_payload(vlm_payload.get("history")):
-                alarm = _normalize_security_vlm_alarm(item, department)
+                alarm = _normalize_security_vlm_alarm(item, security_department)
                 if alarm:
                     alarms.append(alarm)
 
     scoped = _filter_alarms(alarms, user=user, event_types=event_types)
+    if department is not None:
+        scoped = [alarm for alarm in scoped if alarm.get("department") == department]
     selected = sorted(scoped, key=_alarm_sort_key, reverse=True)[:limit]
     try:
         disposition_map = disposition_store.get_many(str(alarm["id"]) for alarm in selected)
@@ -2028,6 +2002,7 @@ def create_app() -> FastAPI:
         limit: int = Query(200, ge=1, le=1000),
         event_types: str | None = Query(None),
         user: dict = Depends(get_current_user),
+        department: str | None = None,
     ):
         return {
             "items": _collect_alarms(
@@ -2039,6 +2014,7 @@ def create_app() -> FastAPI:
                 disposition_store=disposition_store,
                 limit=limit,
                 event_types=_parse_event_types(event_types),
+                department=department,
             )
         }
 

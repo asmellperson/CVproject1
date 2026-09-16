@@ -223,33 +223,13 @@ export const navGroups: NavGroup[] = [
 
 ### `src/auth/permissions.ts`
 
-这里控制不同角色、不同部门能看哪些页面。
+这里定义平台统一事业部目录、九项检测页面和数据访问范围。
 
-重点代码：
-
-```ts
-export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
-  const normalizedPageId = normalizePageId(pageId)
-  if (!normalizedPageId) return false
-  const role = getUserRole(user)
-  if (normalizedPageId === 'overview') return true
-  if (role === 'admin') return true
-  if (!user || role !== 'viewer') return false
-
-  const department = getUserDepartment(user)
-  if (!department) return false
-  if (department === 'all') return true
-
-  return departmentPermissions[department]?.pages.includes(normalizedPageId) ?? false
-}
-```
-
-含义：
-
-- 首页 `overview` 所有人都能看。
-- `admin` 管理员所有页面都能看。
-- `viewer` 普通用户按部门权限看。
-- 部门权限由 `departmentPermissions` 决定。
+- `DEPARTMENTS`、`DEPARTMENT_LABELS`：正式事业部及展示名称。
+- `DETECTION_PAGE_IDS`：全平台共用的九项检测能力。
+- Viewer 有合法授权事业部即可进入全部检测页面；Admin / `all` 可选择全部正式事业部。
+- 导航同时携带 `page` 和 `department`，未授权事业部由 `resolveDepartment()` 回退到首个合法授权事业部。
+- 摄像头、配置和告警依所属事业部隔离，功能不维护部门白名单。
 
 ### `src/lib/api.ts`
 
@@ -336,9 +316,9 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
 
 ### `src/auth/permissions.ts`
 
-- `departmentPermissions`：部门可访问页面。
+- `getAccessibleDepartments()`：当前账号可访问的事业部。
 - `hasPageAccess()`：判断当前用户是否能进入某个页面。
-- `getAccessibleAlarmEventTypes()`：报警和统计页按部门过滤事件类型。
+- `getAccessibleAlarmEventTypes()`：返回全平台检测事件类型；告警数据按事业部过滤。
 
 ## 前端新手建议先看哪些
 

@@ -3,6 +3,7 @@
 
 """Service layer for Guard Room sites, cameras, and per-site config."""
 from __future__ import annotations
+from AiVision.departments.department_registry import require_department
 
 from copy import deepcopy
 from dataclasses import fields
@@ -704,7 +705,7 @@ class GuardRoomService:
     ) -> dict[str, Any]:
         payload = {
             "id": site.id,
-            "department": site.department or DEFAULT_DEPARTMENT,
+            "department": site.department,
             "name": site.name,
             "enabled": bool(site.enabled),
             "sort_order": site.sort_order,
@@ -804,19 +805,10 @@ class GuardRoomService:
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @staticmethod
     def _normalize_department(department: str | None, *, required: bool = True) -> str:
-        text_value = str(department or "").strip()
-        if not text_value:
-            if required:
-                return DEFAULT_DEPARTMENT
+        """所有站点归属使用平台正式事业部目录。"""
+        if not required and department is None:
             return ""
-        aliases = {
-            "ge": "general_electric",
-            "general-electric": "general_electric",
-            "general electric": "general_electric",
-            "electronics-electrician": "electronics_electrician",
-            "electronics electrician": "electronics_electrician",
-        }
-        return aliases.get(text_value, aliases.get(text_value.lower(), text_value))
+        return require_department(department)
 
     # 功能：检查或判断 `_ensure_department_schema` 对应的业务服务逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：无。

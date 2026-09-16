@@ -1,4 +1,7 @@
-import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
+import { useEffect, useState } from 'react'
+import { getAiVisionCameras } from '@/lib/aivision'
+import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
@@ -7,17 +10,44 @@ import { LogisticsChannelConfigView } from './LogisticsChannelConfigView'
 import { LogisticsChannelMonitorView } from './LogisticsChannelMonitorView'
 import { LogisticsChannelRuntimeControl } from './LogisticsChannelRuntimeControl'
 import { useLogisticsChannels, useLogisticsChannelStatus } from './useLogisticsChannels'
-import type { LogisticsDepartment, LogisticsFeatureName } from './types'
+import type { LogisticsFeatureName } from './types'
 
 export type LogisticsChannelSectionProps = {
   feature: LogisticsFeatureName
-  department: LogisticsDepartment
+  department: DepartmentId
   title: string
 }
 
 export function LogisticsChannelSection({ feature, department, title }: LogisticsChannelSectionProps) {
   const { isAdmin } = useAuth()
-  const { labels } = useDepartmentCatalog()
+  const [cameraCount, setCameraCount] = useState<number | null>(null)
+  const [cameraError, setCameraError] = useState('')
+  useEffect(() => {
+    let generation = 0
+    let active = true
+    const refresh = async () => {
+      const request = ++generation
+      try {
+        const cameras = await getAiVisionCameras(department)
+        if (active && request === generation) {
+          setCameraCount(cameras.length)
+          setCameraError('')
+        }
+      } catch (error) {
+        if (active && request === generation) {
+          setCameraCount(null)
+          setCameraError(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+    setCameraCount(null)
+    void refresh()
+    window.addEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
+    return () => {
+      active = false
+      window.removeEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refresh)
+    }
+  }, [department])
   const channelQuery = useLogisticsChannels(feature, department)
   const runtimeQuery = useLogisticsChannelStatus(feature, channelQuery.selectedChannelId)
 
@@ -35,7 +65,7 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
         <DetectionPageHeader
           title={title.replace(/监控与配置$/, '')}
           subtitle="物流通道单人检测监控面板"
-          departmentLabel={labels[department] ?? department}
+          departmentLabel={DEPARTMENT_LABELS[department]}
           runtimeControl={(
             <LogisticsChannelRuntimeControl
               feature={feature}
@@ -47,6 +77,8 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
           )}
         />
         <TabsContent value="monitor" className="mt-0">
+          {cameraCount === 0 && <p>当前事业部暂未配置摄像头</p>}
+          {cameraError && <p role="alert">{cameraError}</p>}
           <LogisticsChannelMonitorView
             feature={feature}
             title={title}

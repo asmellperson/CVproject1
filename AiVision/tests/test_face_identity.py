@@ -466,7 +466,7 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
     monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
     consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
     consumer.config_cache[7] = {
-        "shm_name": "camera_7", "name": "测试摄像头7", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
+        "shm_name": "camera_7", "name": "测试摄像头7", "department": "haoda_company", "cap_interval": .5, "similarity_threshold": .7, "detection_threshold": .35,
         "wechat_enable": True, "wechat_user": "test-user", "horn_enable": True,
         "horn_id": 1, "horn_event_id": 7, "alarm_interval": 5,
     }
@@ -577,7 +577,7 @@ def test_person_api_requires_view_access_and_admin_for_permission_changes(librar
         assert not {"embedding", "embedding_dim"} & original.keys()
         assert client.patch("/api/face-recognition/persons/1", json={"is_allowed": True}).status_code == 403
         app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["research_institute"]}
-        assert client.get("/api/face-recognition/persons").status_code == 403
+        assert client.get("/api/face-recognition/persons").status_code == 200
         app.dependency_overrides[get_current_user] = lambda: {"role": "admin"}
         for payload in ({}, {"is_allowed": "true"}, {"is_allowed": True, "is_active": False}, {"is_allowed": True, "person_name": "修改"}):
             assert client.patch("/api/face-recognition/persons/1", json=payload).status_code == 422
@@ -591,16 +591,13 @@ def test_person_api_requires_view_access_and_admin_for_permission_changes(librar
             assert client.get(f"/api/face-recognition/persons?{query}").status_code == 422
 
 
-def test_electronics_feature_config_uses_registered_alarm_schema():
+def test_identity_feature_uses_platform_alarm_schema():
     from AiVision.alarms.types import VIOLATION_TYPE_META
     from AiVision.alarms.notifications.wechat import _EVENT_DISPLAY
     from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 
-    assert SPEC.departments == ("electronics_electrician",)
+    assert "departments" not in SPEC.__dataclass_fields__
     assert SPEC.required_models == ("insightface",)
-    assert SPEC.resolve_camera_department(None) == "electronics_electrician"
-    with pytest.raises(ValueError):
-        SPEC.resolve_camera_department("research_institute")
     config = FaceRecognitionConfigSchema.model_validate({"alarm": {
         "wechat": {"enable": True, "parm": {"user": "test-user|second-user"}},
         "horn": {"enable": True, "parm": {"horn_id": 1, "horn_event_id": 7}},
@@ -648,7 +645,7 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["electronics_electrician"]}
     with TestClient(app) as client:
-        response = client.get("/api/face-recognition/records?page_size=1")
+        response = client.get("/api/face-recognition/records?department=electronics_electrician&page_size=1")
         assert response.status_code == 200
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["camera_id"] == 1
@@ -660,12 +657,15 @@ def test_record_api_has_department_scope_pagination_and_auth(library):
         assert image.content == image_path.read_bytes()
         assert client.get("/api/face-recognition/records/2/image").status_code == 404
         assert client.get("/api/face-recognition/records/999/image").status_code == 404
-        assert client.get("/api/face-recognition/records?camera_id=2").json()["total"] == 0
-        assert client.get("/api/face-recognition/records?page=2").json()["items"] == []
-        assert client.get("/api/face-recognition/records?page_size=101").status_code == 422
+        assert client.get("/api/face-recognition/records?department=electronics_electrician&camera_id=2").json()["total"] == 0
+        assert client.get("/api/face-recognition/records?department=electronics_electrician&page=2").json()["items"] == []
+        assert client.get("/api/face-recognition/records?department=electronics_electrician&page_size=101").status_code == 422
         app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["research_institute"]}
-        assert client.get("/api/face-recognition/records").status_code == 403
-        assert client.get(item["image_url"]).status_code == 403
+        assert client.get("/api/face-recognition/records?department=electronics_electrician").status_code == 403
+        response = client.get("/api/face-recognition/records?department=research_institute")
+        assert response.status_code == 200
+        assert [row["camera_id"] for row in response.json()["items"]] == [2]
+        assert client.get(item["image_url"]).status_code == 404
 
 
 @pytest.mark.parametrize("threshold", [0.0, .37, 1.0])

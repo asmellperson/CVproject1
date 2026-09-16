@@ -29,28 +29,15 @@ test('ordinary AiVision configuration can create and immediately bind a camera',
   assert.match(api, /updateAiVisionCamera[\s\S]*?method: 'PATCH'/)
 })
 
-test('each ordinary AiVision page supplies its business department to camera creation', async () => {
-  const expectedDepartments = new Map([
-    ['src/sections/IntrusionDetectionSection.tsx', 'research_institute'],
-    ['src/sections/DoorDetectionSection.tsx', 'general_electric'],
-    ['src/sections/FaceDetectionSection.tsx', 'research_institute'],
-    ['src/sections/PhoneDetectionSection.tsx', 'research_institute'],
-  ])
-
-  for (const [path, department] of expectedDepartments) {
-    const source = await readFrontendSource(path)
-    assert.match(source, /<FeatureCameraManager/)
-    assert.match(source, new RegExp(`department="${department}"`))
+test('all ordinary pages scope camera lists, monitors and creation to the selected department', async () => {
+  for (const name of ['IntrusionDetection', 'DoorDetection', 'FaceDetection', 'PhoneDetection', 'HumanDetection']) {
+    const source = await readFrontendSource(`src/sections/${name}Section.tsx`)
+    assert.match(source, /department: DepartmentId/)
+    assert.match(source, /getAiVisionCameras\(department\)/)
+    assert.doesNotMatch(source, /getAiVisionCameras\(\)/)
+    assert.match(source, /<FeatureCameraManager[\s\S]*?department=\{department\}/)
+    assert.match(source, /<AiVisionMonitor[^>]*department=\{department\}/)
   }
-
-  const [human, haodaHuman] = await Promise.all([
-    readFrontendSource('src/sections/HumanDetectionSection.tsx'),
-    readFrontendSource('src/sections/HaodaHumanDetectionSection.tsx'),
-  ])
-  assert.match(human, /<FeatureCameraManager/)
-  assert.match(human, /department = 'general_electric'/)
-  assert.match(human, /department=\{department\}/)
-  assert.match(haodaHuman, /department="haoda_company"/)
 })
 
 test('guard and security configuration pages keep their camera creation entrypoints', async () => {
