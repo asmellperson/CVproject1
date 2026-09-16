@@ -11,5 +11,6 @@ SPEC = FeatureSpec(
     orm_class=FaceRecognitionConfig,
     config_schema=FaceRecognitionConfigSchema,
     required_models=("insightface",),
+    violation_type=7,
     departments=("electronics_electrician",),
 )
