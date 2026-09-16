@@ -6,9 +6,79 @@ import {
 } from '@/lib/aivision'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { FACE_FEATURE } from './api'
+import { FACE_FEATURE, getFacePersons, updateFacePerson, type FacePersonPage } from './api'
 
 const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
+
+export function useFacePersons() {
+  const { isAdmin } = useAuth()
+  const [query, setQuery] = useState<Parameters<typeof getFacePersons>[0]>({ page: 1, page_size: 20 })
+  const [result, setResult] = useState<FacePersonPage | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [savingId, setSavingId] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const requestRef = useRef<AbortController | null>(null)
+  const mutationRef = useRef<AbortController | null>(null)
+
+  const loadPersons = useCallback(async () => {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
+    setLoading(true)
+    setError('')
+    setMessage('')
+    try {
+      const page = await getFacePersons(query, controller.signal)
+      if (controller.signal.aborted) return false
+      const lastPage = Math.max(1, Math.ceil(page.total / page.page_size))
+      if (query.page > lastPage) {
+        setQuery((current) => ({ ...current, page: lastPage }))
+        return false
+      }
+      setResult(page)
+      return true
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setResult(null)
+        setError(`人员列表读取失败：${String(cause)}`)
+      }
+      return false
+    } finally {
+      if (!controller.signal.aborted) setLoading(false)
+    }
+  }, [query])
+
+  useEffect(() => {
+    void loadPersons()
+    return () => { requestRef.current?.abort() }
+  }, [loadPersons])
+
+  useEffect(() => () => { mutationRef.current?.abort() }, [])
+
+  const setPersonAllowed = async (personId: number, isAllowed: boolean) => {
+    if (!isAdmin || mutationRef.current || loading) return
+    const controller = new AbortController()
+    mutationRef.current = controller
+    setSavingId(personId)
+    setError('')
+    setMessage('')
+    try {
+      await updateFacePerson(personId, isAllowed, controller.signal)
+      if (controller.signal.aborted) return
+      if (await loadPersons()) setMessage('通行权限已保存，人员状态已重新读取。')
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(`通行权限保存失败：${String(cause)}`)
+    } finally {
+      if (!controller.signal.aborted) {
+        mutationRef.current = null
+        setSavingId(null)
+      }
+    }
+  }
+
+  return { isAdmin, query, setQuery, result, loading, savingId, error, message, loadPersons, setPersonAllowed }
+}
 
 export function useRecognitionConfig() {
   const { isAdmin } = useAuth()

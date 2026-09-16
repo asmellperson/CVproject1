@@ -72,6 +72,7 @@ def test_insert_preserves_independent_codes_and_raw_picture_fields(library):
     assert stored.pic_uri == uri
     assert stored.server_index_code == "image-server"
     assert stored.is_active is True
+    assert stored.is_allowed is False
     assert all(value is not None for value in (stored.created_at, stored.updated_at, stored.last_synced_at))
 
 
@@ -107,18 +108,46 @@ def test_identical_snapshot_emits_no_updates_and_keeps_timestamps(library):
     assert stored.created_at == stored.updated_at == stored.last_synced_at == timestamp
 
 
+@pytest.mark.parametrize("field", ["personName", "jobNo", "personCode", "personId", "orgIndexCode"])
+def test_person_queries_filter_and_paginate_in_sql_without_embeddings(library, field):
+    values = {"personId": "person-a", field: "needle%_"}
+    library.service.apply_snapshot("one", [HikvisionPerson.model_validate(values), person("person-b")])
+    library.service.apply_snapshot("two", [person("needle%_")])
+    match = library.service.list_persons(source="one", keyword="needle%_").items[0]
+    library.service.update_person_allowed(match.id, True)
+    library.statements.clear()
+    result = library.service.list_persons(
+        source="one", keyword="needle%_", is_active=True, is_allowed=True, page=1, page_size=1,
+    )
+    assert result.total == 1 and [item.id for item in result.items] == [match.id]
+    assert not {"embedding", "embedding_dim"} & result.items[0].model_dump().keys()
+    assert any("LIMIT" in statement.upper() and "OFFSET" in statement.upper() for statement in library.statements)
+    assert library.service.list_persons(source="one", page=2, page_size=1).items[0].hik_person_id == "person-b"
+    assert library.service.list_persons(source="one", is_allowed=False).total == 1
+    assert library.service.update_person_allowed(match.id, False).is_allowed is False
+    assert library.service.get_allowed_person_ids() == set()
+    assert library.service.update_person_allowed(999, True) is None
+
+
 def test_missing_person_is_deactivated_only_for_completed_source(library):
     library.service.apply_snapshot("one", [person(), person("person-b")])
     library.service.apply_snapshot("two", [person("person-b")])
+    stored_id = library.service.get_person("one", "person-b").id
+    assert library.service.update_person_allowed(stored_id, True).is_allowed is True
+    assert library.service.get_allowed_person_ids() == {stored_id}
     counts = sync.sync_source("one", remote(page(1, 1, [person()])), library.service, page_size=1)
     assert counts == SyncCounts(total=1, unchanged=1, deactivated=1)
     assert library.service.get_person("one", "person-a").is_active is True
     assert library.service.get_person("one", "person-b").is_active is False
+    assert library.service.get_person("one", "person-b").is_allowed is True
+    assert library.service.get_allowed_person_ids() == set()
     assert library.service.get_person("two", "person-b").is_active is True
-    assert len(library.service.list_persons("one", is_active=False)) == 1
+    assert library.service.list_persons(source="one", is_active=False).total == 1
     assert library.service.apply_snapshot("one", [person()]).deactivated == 0
     assert library.service.apply_snapshot("one", [person(), person("person-b")]).updated == 1
     assert library.service.get_person("one", "person-b").is_active is True
+    assert library.service.get_person("one", "person-b").is_allowed is True
+    assert library.service.get_allowed_person_ids() == {stored_id}
 
 
 @pytest.mark.parametrize("source", ["one", "two"])
@@ -131,7 +160,7 @@ def test_empty_snapshot_with_active_person_is_rejected_without_writes(library, s
             stored.created_at = stored.updated_at = stored.last_synced_at = timestamp
     before = [
         {column.name: getattr(stored, column.name) for column in FacePerson.__table__.columns}
-        for stored in library.service.list_persons(source)
+        for stored in library.service.list_persons(source=source).items
     ]
     library.statements.clear()
     with pytest.raises(sync.PersonSyncError, match="完整分页总数为 0"):
@@ -139,7 +168,7 @@ def test_empty_snapshot_with_active_person_is_rejected_without_writes(library, s
     assert not any(sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in library.statements)
     after = [
         {column.name: getattr(stored, column.name) for column in FacePerson.__table__.columns}
-        for stored in library.service.list_persons(source)
+        for stored in library.service.list_persons(source=source).items
     ]
     assert after == before
 
@@ -157,7 +186,7 @@ def test_first_empty_sync_succeeds_even_if_other_source_has_active_people(librar
     library.statements.clear()
     assert sync.sync_source(source, remote(page(1, 0, [])), library.service, page_size=1) == SyncCounts(total=0)
     assert not any(sql.lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE")) for sql in library.statements)
-    assert library.service.list_persons(source) == []
+    assert library.service.list_persons(source=source).items == []
     assert library.service.get_person(other_source, "person-a").is_active is True
 
 
@@ -198,7 +227,7 @@ def test_mid_pagination_failure_does_not_change_or_deactivate_any_person(library
         sync.sync_source("one", api, library.service, page_size=1)
     assert library.statements == []
     assert library.service.get_person("one", "person-a").person_name == "保持姓名"
-    assert all(stored.is_active for stored in library.service.list_persons("one"))
+    assert all(stored.is_active for stored in library.service.list_persons(source="one").items)
 
 
 @pytest.mark.parametrize("pages", [

@@ -6,6 +6,7 @@ MODEL_NAME = "buffalo_l"
 EMBEDDING_DIM = 512
 # 模型实现与特征库内部参数，不作为环境变量或每摄像头配置。
 INDEX_REFRESH_SECONDS = 60.0
+AUTHORIZATION_REFRESH_SECONDS = 2.0
 RECOGNITION_MODEL_FILE = "w600k_r50.onnx"
 MODEL_FILES = (
     "1k3d68.onnx", "2d106det.onnx", DETECTION_MODEL_FILE, "genderage.onnx", RECOGNITION_MODEL_FILE,

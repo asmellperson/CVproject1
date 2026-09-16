@@ -32,6 +32,7 @@ CREATE TABLE ai_face_person (
 	pic_uri TEXT COMMENT '原始 personPhoto.picUri',
 	server_index_code VARCHAR(64) COMMENT '原始 personPhoto.serverIndexCode',
 	is_active BOOL NOT NULL COMMENT '最近完整同步中是否存在',
+	is_allowed BOOL NOT NULL COMMENT '是否允许通行' DEFAULT 0,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_synced_at TIMESTAMP NOT NULL COMMENT '最近一次实际写入同步时间',

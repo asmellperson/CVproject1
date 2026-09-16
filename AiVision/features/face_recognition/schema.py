@@ -1,5 +1,6 @@
 """身份识别配置和查询返回模型。"""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -28,6 +29,36 @@ class FaceRecognitionConfigSchema(BaseModel):
     enable: bool = False
     value: FaceRecognitionValue = Field(default_factory=FaceRecognitionValue)
     alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)
+
+
+class FacePersonItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    hik_source: Literal["one", "two"]
+    hik_person_id: str
+    person_name: str | None
+    job_no: str | None
+    person_code: str | None
+    org_index_code: str | None
+    server_index_code: str | None
+    pic_uri: str | None
+    is_active: bool
+    is_allowed: bool
+    created_at: datetime
+    updated_at: datetime
+    last_synced_at: datetime
+
+
+class FacePersonPage(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[FacePersonItem]
+
+
+class FacePersonUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    is_allowed: bool
 
 
 class RecognitionRecordItem(BaseModel):

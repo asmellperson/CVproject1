@@ -21,6 +21,9 @@ class FacePerson(Base):
     pic_uri = Column(Text, nullable=True, comment="原始 personPhoto.picUri")
     server_index_code = Column(String(64), nullable=True, comment="原始 personPhoto.serverIndexCode")
     is_active = Column(Boolean, nullable=False, default=True, comment="最近完整同步中是否存在")
+    is_allowed = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"), comment="是否允许通行",
+    )
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"),

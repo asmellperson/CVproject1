@@ -7,7 +7,7 @@ export const FACE_STATUS_FRESH_MS = 2000
 
 export function freshFaceDetections(status: FaceRecognitionStatus | null | undefined, now = Date.now()) {
   const updatedAt = status?.updated_at ? Date.parse(status.updated_at) : NaN
-  return status?.online && status.reason === 'normal' && Number.isFinite(updatedAt)
+  return status?.online && status.count !== null && Number.isFinite(updatedAt)
     && now - updatedAt <= FACE_STATUS_FRESH_MS ? status.detections : []
 }
 

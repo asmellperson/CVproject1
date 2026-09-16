@@ -458,8 +458,8 @@ def test_consumer_owns_record_worker_lifecycle(library, monkeypatch):
     assert calls[-2:] == ["writer start", "writer stop"]
 
 
-@pytest.mark.parametrize("matched", [False, True])
-def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(library, removed_face_environment, monkeypatch, matched):
+@pytest.mark.parametrize("matched, allowed, reason", [(False, False, "unknown"), (True, False, "unauthorized"), (True, True, "normal")])
+def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(library, removed_face_environment, monkeypatch, matched, allowed, reason):
     from AiVision.features._shared import consumer as consumer_module
 
     dispatcher = Mock()
@@ -473,20 +473,31 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     consumer.frame_cache[7] = np.zeros((120, 200, 3), dtype=np.uint8)
     consumer._masks[7] = (None, 10, 100, 20, 150)
     if matched:
-        for person_id in range(1, 4):
-            add_person(library, person_id, source=str(person_id))
+        with library.factory.begin() as session:
+            session.add_all([
+                FacePerson(id=person_id, hik_source="one", hik_person_id=f"person-{person_id}",
+                           is_allowed=allowed, last_synced_at=datetime.now())
+                for person_id in range(1, 4)
+            ])
     detections = [dict(bbox=[0, 0, 30, 40], matched=matched, person_id=person_id if matched else None,
                        person_name=f"测试人员{person_id}" if matched else "未知人员",
                        similarity=.9 if matched else .2, type="face_identity") for person_id in range(1, 4)]
     consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": detections})
     result = consumer._process(consumer.frame_cache[7], 7)
-    assert result[0] is False
+    assert result[0] is (not allowed)
+    assert all(detection["is_allowed"] is allowed for detection in result[1]["detections"])
     assert consumer.dispatch_inference_sync.call_args.args[1] == "insightface"
     assert consumer.dispatch_inference_sync.call_args.kwargs["task_meta"] == {"conf": .35, "similarity_threshold": .7}
     assert "timeout" not in consumer.dispatch_inference_sync.call_args.kwargs
     annotated = consumer.post_process(7, result)
     consumer._handle_alarm(7, result, annotated)
-    dispatcher.maybe_dispatch.assert_not_called()
+    if allowed:
+        dispatcher.maybe_dispatch.assert_not_called()
+    else:
+        dispatcher.maybe_dispatch.assert_called_once()
+        request = dispatcher.maybe_dispatch.call_args.args[0]
+        assert request.violation_type == 7
+        assert request.alarm_config["wechat"]["enable"] and request.alarm_config["horn"]["enable"]
     consumer.stop()
     assert annotated.shape == (120, 200, 3)
     assert np.any(annotated != consumer.frame_cache[7])
@@ -496,7 +507,8 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
         assert len({row.image_path for row in saved}) == 1
         np.testing.assert_array_equal(cv2.imread(saved[0].image_path), annotated)
     snapshot = consumer.get_monitor_status("camera_7")
-    assert snapshot["count"] == 3 and snapshot["alarm"] is False
+    assert snapshot["count"] == 3 and snapshot["alarm"] is (not allowed)
+    assert snapshot["reason"] == reason
     assert snapshot["detections"][0]["bbox"] == [20, 10, 50, 50]
     assert snapshot["frame_width"] == 200
     assert consumer._should_process_now(7, consumer.config_cache[7])
@@ -504,6 +516,64 @@ def test_consumer_dispatches_insightface_offsets_all_faces_and_never_alarms(libr
     assert not consumer._should_process_now(7, consumer.config_cache[7])
     consumer.post_process(7, (False, {"status": "timeout", "detections": []}))
     assert consumer.get_monitor_status("camera_7")["detections"] == []
+
+
+def test_consumer_refreshes_only_allowed_ids_and_handles_mixed_and_empty_frames(monkeypatch):
+    from AiVision.features.face_recognition import consumer as consumer_module
+    from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
+
+    now = [100.0]
+    monkeypatch.setattr(consumer_module.time, "monotonic", lambda: now[0])
+    consumer = FaceRecognitionConsumer(SPEC, {}, queue.Queue(), {}, lambda _: True)
+    consumer.config_cache[7] = {}
+    consumer.config_cache[8] = {}
+    consumer.library = Mock(get_allowed_person_ids=Mock(return_value={1}))
+    consumer.dispatch_inference_sync = Mock(return_value={"status": "ok", "detections": [
+        {"matched": True, "person_id": 1}, {"matched": True, "person_id": 2}, {"matched": False, "person_id": None},
+    ]})
+    assert consumer._process(None, 7)[0] is True
+    result = consumer._process(None, 8)
+    assert [face["is_allowed"] for face in result[1]["detections"]] == [True, False, False]
+    consumer.library.get_allowed_person_ids.assert_called_once()
+    consumer.library.get_allowed_person_ids.return_value = {2}
+    now[0] += AUTHORIZATION_REFRESH_SECONDS
+    result = consumer._process(None, 7)
+    assert [face["is_allowed"] for face in result[1]["detections"]] == [False, True, False]
+    assert consumer.library.get_allowed_person_ids.call_count == 2
+    consumer.dispatch_inference_sync.return_value = {"status": "ok", "detections": []}
+    assert consumer._process(None, 7)[0] is False
+    consumer.dispatch_inference_sync.return_value = {"status": "timeout", "detections": []}
+    assert consumer._process(None, 7)[0] is False
+
+
+def test_person_api_requires_view_access_and_admin_for_permission_changes(library):
+    from auth.auth import get_current_user
+    from AiVision.api.routes.face_recognition import router
+
+    add_person(library)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["electronics_electrician"]}
+    with TestClient(app) as client:
+        response = client.get("/api/face-recognition/persons?source=one&is_active=true&is_allowed=false&keyword=JOB&page_size=1")
+        assert response.status_code == 200 and response.json()["total"] == 1
+        original = response.json()["items"][0]
+        assert original["is_allowed"] is False
+        assert not {"embedding", "embedding_dim"} & original.keys()
+        assert client.patch("/api/face-recognition/persons/1", json={"is_allowed": True}).status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": ["research_institute"]}
+        assert client.get("/api/face-recognition/persons").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: {"role": "admin"}
+        for payload in ({}, {"is_allowed": "true"}, {"is_allowed": True, "is_active": False}, {"is_allowed": True, "person_name": "修改"}):
+            assert client.patch("/api/face-recognition/persons/1", json=payload).status_code == 422
+        saved = client.patch("/api/face-recognition/persons/1", json={"is_allowed": True})
+        assert saved.status_code == 200 and saved.json()["is_allowed"] is True
+        assert saved.json()["person_name"] == original["person_name"]
+        assert saved.json()["last_synced_at"] == original["last_synced_at"]
+        assert client.get("/api/face-recognition/persons?is_allowed=true").json()["items"] == [saved.json()]
+        assert client.patch("/api/face-recognition/persons/999", json={"is_allowed": True}).status_code == 404
+        for query in ("page=0", "page_size=101", "source=invalid"):
+            assert client.get(f"/api/face-recognition/persons?{query}").status_code == 422
 
 
 def test_electronics_feature_config_uses_registered_alarm_schema():

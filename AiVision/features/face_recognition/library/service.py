@@ -4,10 +4,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from AiVision.connectors.hikvision import HikvisionPerson
 from AiVision.core.db import get_session, session_scope
+from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage
 
 from . import HIKVISION_SOURCES, PersonSyncError
 from .constants import EMBEDDING_DIM
@@ -73,13 +74,50 @@ class FaceLibraryService:
         with get_session() as session:
             return session.query(FacePerson).filter_by(hik_source=source, hik_person_id=person_id).one_or_none()
 
-    def list_persons(self, source: str, *, is_active: bool | None = None) -> list[FacePerson]:
-        self._require_source(source)
+    def list_persons(
+        self, *, page: int = 1, page_size: int = 20, keyword: str | None = None,
+        source: str | None = None, is_active: bool | None = None, is_allowed: bool | None = None,
+    ) -> FacePersonPage:
+        if page < 1 or not 1 <= page_size <= 100:
+            raise ValueError("页码必须大于零，每页数量须为 1～100")
+        if source is not None:
+            self._require_source(source)
         with get_session() as session:
-            query = session.query(FacePerson).filter_by(hik_source=source)
+            query = session.query(FacePerson)
+            if source is not None:
+                query = query.filter_by(hik_source=source)
             if is_active is not None:
                 query = query.filter_by(is_active=is_active)
-            return query.order_by(FacePerson.id).all()
+            if is_allowed is not None:
+                query = query.filter_by(is_allowed=is_allowed)
+            if keyword and keyword.strip():
+                query = query.filter(or_(*(column.icontains(keyword.strip(), autoescape=True) for column in (
+                    FacePerson.person_name, FacePerson.job_no, FacePerson.person_code,
+                    FacePerson.hik_person_id, FacePerson.org_index_code,
+                ))))
+            total = query.count()
+            persons = query.order_by(FacePerson.id).offset((page - 1) * page_size).limit(page_size).all()
+            return FacePersonPage(
+                total=total, page=page, page_size=page_size,
+                items=[FacePersonItem.model_validate(person) for person in persons],
+            )
+
+    def update_person_allowed(self, person_id: int, is_allowed: bool) -> FacePersonItem | None:
+        with session_scope() as session:
+            person = session.get(FacePerson, person_id, with_for_update=True)
+            if person is None:
+                return None
+            person.is_allowed = is_allowed
+        # 提交后重新读取数据库状态，响应包含实际保存值和时间戳。
+        with get_session() as session:
+            person = session.get(FacePerson, person_id)
+            return FacePersonItem.model_validate(person) if person is not None else None
+
+    def get_allowed_person_ids(self) -> set[int]:
+        with get_session() as session:
+            return set(session.scalars(select(FacePerson.id).where(
+                FacePerson.is_active.is_(True), FacePerson.is_allowed.is_(True),
+            )))
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:
         """调用方必须已完整获取该来源所有页；异常时整批回滚。
@@ -103,6 +141,7 @@ class FaceLibraryService:
             synced_at = session.scalar(select(func.current_timestamp()))
             for person in persons:
                 photo = person.person_photo
+                # 同步仅覆盖来源字段；本地 is_allowed 在停用、重新激活和重同步时均保留。
                 values = {
                     "person_name": person.person_name,
                     "person_code": person.person_code,

@@ -65,6 +65,7 @@ const sharedUi = {
   'lucide-react': icons,
   '@/components/ui/button': ui, '@/components/ui/card': ui, '@/components/ui/label': ui,
   '@/components/ui/select': ui, '@/components/ui/badge': ui,
+  '@/components/ui/table': ui,
   '@/components/monitor/ResizableMonitorLayout': { ResizableMonitorLayout: wrapper },
   '@/components/AlarmPushConfig': { WechatAlarmSettings: 'WechatAlarmSettings' },
   '@/components/horn/HornAlarmBinding': { HornAlarmBinding: 'HornAlarmBinding' },
@@ -138,11 +139,11 @@ const { StatCard } = await compile('src/components/feature_dashboard/FeatureDash
 
 test('四张统一状态卡展示人数、身份和工号；视频失败不停止识别，过期或离线立即清空', async () => {
   const valid = {
-    online: true, reason: 'normal', updated_at: new Date().toISOString(), count: 3,
+    online: true, alarm: true, reason: 'unauthorized', updated_at: new Date().toISOString(), count: 3,
     detections: [
-      { bbox: [10, 20, 100, 150], matched: true, person_id: 1, person_name: '测试甲', job_no: 'J001', similarity: .88 },
-      { bbox: [200, 20, 300, 150], matched: true, person_id: 2, person_name: '测试乙', job_no: 'J002', similarity: .91 },
-      { bbox: [400, 20, 500, 150], matched: false, person_id: null, person_name: '未知人员', similarity: .42 },
+      { bbox: [10, 20, 100, 150], matched: true, is_allowed: true, person_id: 1, person_name: '测试甲', job_no: 'J001', similarity: .88 },
+      { bbox: [200, 20, 300, 150], matched: true, is_allowed: false, person_id: 2, person_name: '测试乙', job_no: 'J002', similarity: .91 },
+      { bbox: [400, 20, 500, 150], matched: false, is_allowed: false, person_id: null, person_name: '未知人员', similarity: .42 },
     ],
   }
   let status = valid, error = ''
@@ -158,18 +159,22 @@ test('四张统一状态卡展示人数、身份和工号；视频失败不停�
   const props = { cameras: [camera(1), camera(2), camera(3, true, false)], selectedCamera: 'camera_1', loading: false,
     message: '画面读取失败', frameConnected: false, frameContent: React.createElement('img', { src: '/frame.jpg', alt: '后端标注帧' }) }
   let html = renderToStaticMarkup(React.createElement(FaceRecognitionMonitorView, props))
-  for (const text of ['摄像头状态', '在线', '摄像头1', '启用摄像头', '2 路', '当前检测人脸', '3 人', '已识别 2 / 未知 1',
+  for (const text of ['摄像头状态', '在线', '摄像头1', '启用摄像头', '2 路', '当前检测人脸', '3 人', '允许 1 / 未授权 1 / 未知 1', '允许人员', '未授权人员报警',
     '测试甲', '测试乙', '未知人员', 'J001', 'J002', '88.0%', '91.0%', '42.0%', '/frame.jpg']) assert.ok(html.includes(text), text)
   assert.equal((html.match(/<article /g) || []).length, 4)
   assert.equal((html.match(/<rect |<text |<svg[^>]*viewBox/g) || []).length, 0)
   assert.deepEqual(polls.at(-1), ['camera_1', true])
-  for (const change of [{ online: false }, { reason: 'unknown' }, { detections: [] },
+  for (const change of [{ online: false }, { reason: 'unknown', count: null }, { detections: [] },
     { updated_at: new Date(Date.now() - 3000).toISOString() }, { updated_at: null }]) {
     status = { ...valid, ...change }
     html = renderToStaticMarkup(React.createElement(FaceRecognitionMonitorView, props))
     assert.equal(html.includes('测试甲'), false)
-    assert.ok(html.includes('0 人') && html.includes('已识别 0 / 未知 0'))
+    assert.ok(html.includes('0 人') && html.includes('允许 0 / 未授权 0 / 未知 0'))
+    assert.equal(html.includes('未授权人员报警'), false)
   }
+  status = { ...valid, reason: 'unknown', count: 1, detections: [valid.detections[2]] }
+  html = renderToStaticMarkup(React.createElement(FaceRecognitionMonitorView, props))
+  assert.ok(html.includes('报警：当前画面存在未知人员'))
   status = valid
   html = renderToStaticMarkup(React.createElement(FaceRecognitionMonitorView, { ...props, cameras: [camera(1, false)] }))
   assert.ok(html.includes('离线') && html.includes('摄像头已停用'))
@@ -198,6 +203,14 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
     assert.equal(calls[1][0], '/aivision/api/face-recognition/records?page=2&page_size=20&camera_id=7')
     assert.equal(calls[0][1].credentials, 'include')
     assert.equal(calls[0][1].signal, signal)
+    await api.getFacePersons({ page: 2, page_size: 10, keyword: '姓名', source: 'two', is_active: false, is_allowed: false }, signal)
+    const params = new URL(calls[2][0], 'http://localhost').searchParams
+    assert.deepEqual(Object.fromEntries(params), { page: '2', page_size: '10', keyword: '姓名', source: 'two', is_active: 'false', is_allowed: 'false' })
+    await api.updateFacePerson(7, true, signal)
+    assert.equal(calls[3][0], '/aivision/api/face-recognition/persons/7')
+    assert.equal(calls[3][1].method, 'PATCH')
+    assert.equal(calls[3][1].credentials, 'include')
+    assert.deepEqual(JSON.parse(calls[3][1].body), { is_allowed: true })
     globalThis.fetch = async () => ({ ok: false, status: 403 })
     await assert.rejects(api.getRecognitionRecords(1, ''), /HTTP 403/)
   } finally {
@@ -460,7 +473,7 @@ test('摄像头管理显示停用状态、禁止加入，并在复制时保留�
   }
 })
 
-test('六个配置页签复用企微与喇叭组件，参数边界及只读权限保持一致', async () => {
+test('七个配置页签复用企微与喇叭组件，参数边界及只读权限保持一致', async () => {
   let readonly = false, changedAlarm
   const state = {
     cameras: [camera(1)], cameraKey: 'camera_1', form: { detectionThreshold: '.37', alarmInterval: '5' },
@@ -476,7 +489,7 @@ test('六个配置页签复用企微与喇叭组件，参数边界及只读权�
   const field = elements(tree, (node) => node.props?.id === 'identity-detectionThreshold')[0]
   assert.equal(field.props.value, '.37')
   assert.deepEqual([field.props.min, field.props.max, field.props.step], ['0', '1', '0.01'])
-  assert.deepEqual(elements(tree, (node) => node.type === 'DetectionConfigTab').map((node) => node.props.children), ['摄像头', '识别参数', 'ROI 配置', '模型配置', '报警推送', '喇叭配置'])
+  assert.deepEqual(elements(tree, (node) => node.type === 'DetectionConfigTab').map((node) => node.props.children), ['摄像头', '识别参数', 'ROI 配置', '模型配置', '报警推送', '喇叭配置', '人员权限'])
   const wechat = elements(tree, (node) => node.type === 'WechatAlarmSettings')[0]
   const horn = elements(tree, (node) => node.type === 'HornAlarmBinding')[0]
   assert.deepEqual(wechat.props.value, recognitionAlarm.wechat)
@@ -492,6 +505,42 @@ test('六个配置页签复用企微与喇叭组件，参数边界及只读权�
   for (const type of ['WechatAlarmSettings', 'HornAlarmBinding', 'DetectionSaveBar']) {
     assert.ok(elements(readonlyTree, (node) => node.type === type).every((node) => node.props.disabled))
   }
+})
+
+test('人员权限保存等待后端并重新读取状态，查看用户不能修改', async () => {
+  const harness = hookHarness()
+  let isAdmin = true, finishSave, readCalls = 0
+  const writes = []
+  let page = { total: 1, page: 1, page_size: 20, items: [{ id: 1, is_allowed: false }] }
+  const { useFacePersons } = await compile('src/components/face_recognition/useRecognitionConfig.ts', {
+    react: harness.hooks, '@/auth/useAuth': { useAuth: () => ({ isAdmin }) },
+    '@/components/AiVisionRoiEditor.geometry': { parseNormalizedRoi: JSON.parse }, '@/lib/aivision': cameraApi,
+    './api': {
+      ...faceApi,
+      getFacePersons: async () => { readCalls++; return structuredClone(page) },
+      updateFacePerson: (...args) => { writes.push(args); return new Promise((resolve) => { finishSave = resolve }) },
+    },
+  })
+  try {
+    let state = await harness.mount(useFacePersons)
+    assert.equal(readCalls, 1)
+    const pending = state.setPersonAllowed(1, true)
+    state = await harness.flush()
+    assert.equal(state.result.items[0].is_allowed, false)
+    assert.equal(state.savingId, 1)
+    page.items[0].is_allowed = true
+    finishSave(page.items[0])
+    await pending
+    state = await harness.flush()
+    assert.equal(readCalls, 2)
+    assert.equal(state.result.items[0].is_allowed, true)
+    assert.equal(state.savingId, null)
+    assert.ok(state.message.includes('重新读取'))
+    isAdmin = false; harness.rerender()
+    state = await harness.flush()
+    await state.setPersonAllowed(1, false)
+    assert.equal(writes.length, 1)
+  } finally { harness.dispose() }
 })
 
 test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL 并复用平台大图预览', async () => {
