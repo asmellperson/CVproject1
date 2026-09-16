@@ -64,6 +64,12 @@ const AlarmsSection = lazy(() => import('@/sections/AlarmsSection').then((module
 const StatisticsSection = lazy(() =>
   import('@/sections/StatisticsSection').then((module) => ({ default: module.StatisticsSection })),
 )
+const AlarmPushManagementSection = lazy(() =>
+  import('@/sections/AlarmPushManagementSection').then((module) => ({ default: module.AlarmPushManagementSection })),
+)
+const HornConfigSection = lazy(() =>
+  import('@/sections/HornConfigSection').then((module) => ({ default: module.HornConfigSection })),
+)
 const UserManagementSection = lazy(() =>
   import('@/sections/UserManagementSection').then((module) => ({ default: module.UserManagementSection })),
 )
@@ -160,6 +166,10 @@ function App() {
         return <AlarmsSection initialAlarmId={initialAlarmId} />
       case 'statistics':
         return <StatisticsSection />
+      case 'alarm-push-config':
+        return <AlarmPushManagementSection />
+      case 'horn-config':
+        return <HornConfigSection />
       case 'user-management':
         return <UserManagementSection />
       case 'access-audit':
