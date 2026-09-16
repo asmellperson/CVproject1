@@ -4,10 +4,18 @@ from typing import Generic, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from AiVision.features._shared.alarm_schema import Params, SqlAlarmParams, HornAlarmParams, WechatAlarmParams
+from AiVision.features._shared.alarm_schema import (
+    AlarmChannel,
+    HornAlarmParams,
+    Params,
+    SqlAlarmParams,
+    WechatAlarmParams,
+)
 from AiVision.features._shared.roi import NormalizedRoi
 from AiVision.features.face_recognition.library.constants import (
-    DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
+    DEFAULT_CAPTURE_INTERVAL,
+    DEFAULT_DETECTION_THRESHOLD,
+    DEFAULT_RECORD_COOLDOWN_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
 )
 
@@ -24,26 +32,37 @@ class FaceRecognitionValue(BaseModel):
 
 
 class DisabledAlarmChannel(BaseModel, Generic[Params]):
+    """身份识别仍使用独立识别记录，因此暂不开放手工 SQL 告警开关。"""
+
     model_config = ConfigDict(extra="forbid", strict=True)
     enable: Literal[False] = False
     parm: Params = Field(default_factory=dict, validate_default=True)
 
 
-class DisabledRecognitionAlarm(BaseModel):
+class FaceRecognitionAlarm(BaseModel):
+    """身份识别报警通道。
+
+    企业微信与喇叭复用普通 Feature 的统一报警契约；SQL 通道保持关闭。
+    企业微信开启时统一 AlarmDispatcher 仍会为图文卡片自动持久化告警记录。
+    """
+
     model_config = ConfigDict(extra="forbid", strict=True)
     sql: DisabledAlarmChannel[SqlAlarmParams] = Field(
-        default_factory=lambda: DisabledAlarmChannel(parm=SqlAlarmParams()))
-    horn: DisabledAlarmChannel[HornAlarmParams] = Field(
-        default_factory=lambda: DisabledAlarmChannel(parm=HornAlarmParams()))
-    wechat: DisabledAlarmChannel[WechatAlarmParams] = Field(
-        default_factory=lambda: DisabledAlarmChannel(parm=WechatAlarmParams()))
+        default_factory=lambda: DisabledAlarmChannel(parm=SqlAlarmParams())
+    )
+    horn: AlarmChannel[HornAlarmParams] = Field(
+        default_factory=lambda: AlarmChannel(parm=HornAlarmParams())
+    )
+    wechat: AlarmChannel[WechatAlarmParams] = Field(
+        default_factory=lambda: AlarmChannel(parm=WechatAlarmParams())
+    )
 
 
 class FaceRecognitionConfigSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enable: bool = False
     value: FaceRecognitionValue = Field(default_factory=FaceRecognitionValue)
-    alarm: DisabledRecognitionAlarm = Field(default_factory=DisabledRecognitionAlarm)
+    alarm: FaceRecognitionAlarm = Field(default_factory=FaceRecognitionAlarm)
 
 
 class RecognitionRecordItem(BaseModel):

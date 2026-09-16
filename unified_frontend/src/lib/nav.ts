@@ -12,6 +12,7 @@ import {
   Smartphone,
   UserCog,
   UsersRound,
+  Volume2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -58,7 +59,6 @@ export const navGroups: NavGroup[] = [
       { id: 'logistics-single-person-electrical-components', label: '物流通道单人检测', icon: UsersRound, description: '电气部件物流通道单人监控与配置入口' },
       { id: 'logistics-single-person-precious-metal-recycling', label: '物流通道单人检测', icon: UsersRound, description: '伟达公司物流通道单人监控与配置入口' },
       { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
-
     ],
   },
   {
@@ -67,6 +67,14 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'alarms', label: '报警记录', icon: Bell, description: '告警事件列表' },
       { id: 'statistics', label: '统计分析', icon: BarChart3, description: '指标与趋势' },
+    ],
+  },
+  {
+    id: 'config',
+    label: '配置管理',
+    items: [
+      { id: 'alarm-push-config', label: '报警推送配置', icon: Bell, description: '统一配置检测功能的企业微信与喇叭报警绑定' },
+      { id: 'horn-config', label: '喇叭配置', icon: Volume2, description: '维护全局 IP 喇叭设备与连接参数' },
     ],
   },
   {

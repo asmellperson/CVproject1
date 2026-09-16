@@ -5,7 +5,7 @@ from .types import VIOLATION_TYPE_META
 
 def validate_alarm_identity(violation_type: int, feature_name: str, department: str) -> None:
     if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
-        raise ValueError("新告警 violation_type 必须是 1～6 的整数")
+        raise ValueError("新告警 violation_type 必须是已注册的整数编号")
     if not isinstance(feature_name, str) or not feature_name.strip() or feature_name != feature_name.strip():
         raise ValueError("新告警必须明确提供 feature_name")
     if not isinstance(department, str) or not department.strip() or department != department.strip():
