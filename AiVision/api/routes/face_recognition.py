@@ -23,7 +23,6 @@ def get_persons(
     is_allowed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
-    camera_read_department(user, None)
     return FaceLibraryService().list_persons(
         page=page, page_size=page_size, keyword=keyword,
         source=source, is_active=is_active, is_allowed=is_allowed,
@@ -52,7 +51,6 @@ def get_records(
 
 @router.get("/records/{record_id}/image")
 def get_record_image(record_id: int, user: dict = Depends(get_current_user)):
-    camera_read_department(user, None)
     departments = None if user.get("role") == "admin" else _camera_departments_for_user(user)
     path = get_recognition_image(record_id, departments=departments)
     if path is None:

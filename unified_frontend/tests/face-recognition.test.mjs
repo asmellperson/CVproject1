@@ -218,6 +218,25 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
   }
 })
 
+test('API 错误优先显示后端 detail，无法读取时保留 HTTP 状态', async (t) => {
+  const api = await compile('src/components/face_recognition/api.ts', { '@/lib/aivision': { AIVISION_URL: '/aivision/' } })
+  const fetch = t.mock.method(globalThis, 'fetch')
+  fetch.mock.mockImplementation(async () => new Response(JSON.stringify({ detail: '必须显式指定正式事业部' }), { status: 400 }))
+  await assert.rejects(api.getFacePersons({ page: 1, page_size: 20 }), {
+    message: '请求失败（HTTP 400）：必须显式指定正式事业部',
+  })
+  fetch.mock.mockImplementation(async () => new Response(JSON.stringify({ detail: 'admin permission required' }), { status: 403 }))
+  await assert.rejects(api.updateFacePerson(7, true), {
+    message: '请求失败（HTTP 403）：admin permission required',
+  })
+  for (const body of ['not JSON', '', 'null', '{}', '{"detail":""}', '{"detail":"  "}', '{"detail":null}', '{"detail":{}}']) {
+    fetch.mock.mockImplementation(async () => new Response(body, { status: 500 }))
+    await assert.rejects(api.getFacePersons({ page: 1, page_size: 20 }), {
+      message: '请求失败（HTTP 500）',
+    })
+  }
+})
+
 test('status 使用单个串行轮询，请求挂起时按更新时间清空，切换和失败不残留结果', async () => {
   const harness = hookHarness()
   let poll, options, key = 'camera_1', enabled = true

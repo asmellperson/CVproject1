@@ -562,7 +562,44 @@ def test_consumer_refreshes_only_allowed_ids_and_handles_mixed_and_empty_frames(
     assert consumer._process(None, 7)[0] is False
 
 
-def test_person_api_requires_view_access_and_admin_for_permission_changes(library):
+@pytest.mark.parametrize("user", [{"role": "admin"}, {"role": "viewer", "departments": []}])
+@pytest.mark.parametrize("query, expected_ids", [
+    ({}, [1, 2]),
+    ({"keyword": "JOB-1"}, [1]),
+    ({"is_active": "true"}, [1]),
+    ({"is_active": "false"}, [2]),
+    ({"is_allowed": "true"}, [2]),
+    ({"is_allowed": "false"}, [1]),
+    ({"is_active": "true", "is_allowed": "false"}, [1]),
+])
+def test_person_api_is_global_without_department(library, user, query, expected_ids):
+    from auth.auth import get_current_user
+    from AiVision.api.routes.face_recognition import router
+
+    add_person(library)
+    add_person(library, person_id=2, source="two", active=False)
+    library.service.update_person_allowed(2, True)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: user
+    with TestClient(app) as client:
+        response = client.get("/api/face-recognition/persons", params=query)
+        assert response.status_code == 200
+        assert response.json()["total"] == len(expected_ids)
+        assert [item["id"] for item in response.json()["items"]] == expected_ids
+
+
+@pytest.mark.parametrize("path", ["persons", "records/1/image"])
+def test_global_persons_and_record_images_still_require_login(path):
+    from AiVision.api.routes.face_recognition import router
+
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        assert client.get(f"/api/face-recognition/{path}").status_code == 401
+
+
+def test_person_api_requires_login_and_admin_for_permission_changes(library):
     from auth.auth import get_current_user
     from AiVision.api.routes.face_recognition import router
 
@@ -669,6 +706,35 @@ def test_record_api_has_department_scope_pagination_and_auth(library, department
         assert response.status_code == 200
         assert [row["camera_id"] for row in response.json()["items"]] == [2]
         assert client.get(item["image_url"]).status_code == 404
+        assert client.get("/api/face-recognition/records/2/image").status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": [department, other_department]}
+        for record_id in (1, 2):
+            assert client.get(f"/api/face-recognition/records/{record_id}/image").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: {"role": "viewer", "departments": []}
+        for record_id in (1, 2):
+            assert client.get(f"/api/face-recognition/records/{record_id}/image").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: {"role": "admin"}
+        for record_id in (1, 2):
+            assert client.get(f"/api/face-recognition/records/{record_id}/image").status_code == 200
+
+
+@pytest.mark.parametrize("user", [
+    {"role": "admin"}, {"role": "viewer", "departments": ["electronics_electrician"]},
+])
+@pytest.mark.parametrize("query, status", [({}, 422), ({"department": ""}, 400), ({"department": "all"}, 400)])
+def test_record_api_still_requires_explicit_formal_department(user, query, status):
+    from auth.auth import get_current_user
+    from AiVision.api.routes.face_recognition import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: user
+    with TestClient(app) as client:
+        response = client.get("/api/face-recognition/records", params=query)
+        assert response.status_code == status
+        if status == 422:
+            assert response.json()["detail"][0]["loc"] == ["query", "department"]
 
 
 @pytest.mark.parametrize("threshold", [0.0, .37, 1.0])

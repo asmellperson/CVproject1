@@ -65,7 +65,16 @@ async function requestRecognition<T>(path: string, options: RequestInit = {}): P
     ...options, credentials: 'include', cache: 'no-store',
   })
   if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
-  if (!response.ok) throw new Error(`请求失败（HTTP ${response.status}）`)
+  if (!response.ok) {
+    let message = `请求失败（HTTP ${response.status}）`
+    try {
+      const payload = await response.json() as { detail?: unknown } | null
+      if (typeof payload?.detail === 'string' && payload.detail.trim()) message += `：${payload.detail}`
+    } catch {
+      // 响应不是有效 JSON 时保留 HTTP 状态信息。
+    }
+    throw new Error(message)
+  }
   return response.json() as Promise<T>
 }
 
