@@ -200,6 +200,7 @@ def test_slow_device_cannot_block_sql_or_wechat(runtime):
     dispatcher.wechat = object()
     dispatcher.violation_writer = SimpleNamespace(save_now=lambda **kwargs: writes.append(kwargs) or SimpleNamespace(id=1))
     request = AlarmRequest(feature_name="blocks", department='research_institute', camera_id=1, camera_name="camera",
+        cooldown_subject_type="camera", cooldown_subject_id="1",
         frame=np.zeros((2, 2, 3), dtype=np.uint8), violation_type=1,
         alarm_config={"horn": {"enable": True, "parm": {"horn_id": 1, "horn_event_id": 1}},
                       "sql": {"enable": True}, "wechat": {"enable": True, "parm": {"user": "tester"}}})

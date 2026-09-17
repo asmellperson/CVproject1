@@ -367,6 +367,7 @@ def test_dispatcher_saves_record_before_wechat_card():
     dispatcher._execute(
         AlarmRequest(
             feature_name="blocks", department='research_institute',
+            cooldown_subject_type="camera", cooldown_subject_id="7",
             camera_id=7,
             camera_name="后大门",
             frame=frame,
@@ -401,6 +402,7 @@ def test_dispatcher_persists_card_record_when_sql_is_disabled():
     dispatcher._execute(
         AlarmRequest(
             feature_name="detect_human", department='general_electric',
+            cooldown_subject_type="camera", cooldown_subject_id="7",
             camera_id=7,
             camera_name="后大门",
             frame=frame,
@@ -460,6 +462,7 @@ def test_dispatcher_keeps_async_writer_when_wechat_disabled():
     dispatcher._execute(
         AlarmRequest(
             feature_name="blocks", department='research_institute',
+            cooldown_subject_type="camera", cooldown_subject_id="7",
             camera_id=7,
             camera_name="后大门",
             frame=frame,

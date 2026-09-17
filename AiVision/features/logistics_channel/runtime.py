@@ -102,9 +102,7 @@ class LogisticsChannelRuntime:
             else float(stale_seconds)
         )
         self._wall_time_provider = wall_time_provider or (lambda: datetime.now().astimezone())
-        self._violation_type_provider = violation_type_provider or (
-            lambda feature_name: all_specs()[feature_name].violation_type
-        )
+        self._violation_type_provider = violation_type_provider or self._single_alarm_type
         self._clock_provider = clock_provider or time.time
         self._compositor = compositor or compose_channel_frame
         self._evidence_recorder = evidence_recorder
@@ -777,6 +775,8 @@ class LogisticsChannelRuntime:
             alarm_config=alarm_config,
             camera_key=self._evidence_key(channel),
             department=channel.department,
+            cooldown_subject_type="logistics_channel",
+            cooldown_subject_id=str(channel.channel_id),
             subject_type="logistics_channel",
             subject_id=str(channel.channel_id),
             subject_name=channel.name,
@@ -829,10 +829,16 @@ class LogisticsChannelRuntime:
         self._frames.clear()
         self._snapshots.clear()
 
+    @staticmethod
+    def _single_alarm_type(feature_name: str) -> int:
+        """物流单人检测只声明一个报警类型。"""
+        (violation_type,) = all_specs()[feature_name].alarm_types
+        return violation_type
+
     def _reset_cooldown(self, channel: _ChannelConfig) -> None:
-        reset = getattr(self._dispatcher, "reset_subject_cooldown", None)
-        if callable(reset):
-            reset("logistics_channel", str(channel.channel_id), channel.feature_name)
+        self._dispatcher.reset_subject_cooldown(
+            "logistics_channel", str(channel.channel_id), self._violation_type_provider(channel.feature_name)
+        )
 
     @staticmethod
     def _copy_status(value: dict | None) -> dict | None:

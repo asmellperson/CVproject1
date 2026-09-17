@@ -23,7 +23,7 @@ LOGISTICS_FEATURE_NAMES = ("detect_logistics_single_person",)
 
 def test_logistics_features_share_canonical_violation_type():
     specs = all_specs()
-    assert {specs[name].violation_type for name in LOGISTICS_FEATURE_NAMES} == {6}
+    assert {specs[name].alarm_types for name in LOGISTICS_FEATURE_NAMES} == {(6,)}
 
 
 # 功能：定义 `RuntimeSpy` 类，封装`test_logistics_single_person` 模块相关的状态、约束与操作

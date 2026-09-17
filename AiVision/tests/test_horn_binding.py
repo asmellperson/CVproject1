@@ -1,6 +1,6 @@
 """检测绑定的真实 API/事务与播放路由回归；不访问现场设备。"""
 import logging
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -133,6 +133,7 @@ def trigger_feature(dispatcher, monkeypatch, *, horn_id=1, task=7, enabled=True,
         'horn_event_id': task, 'sql_enable': True, 'wechat_enable': True, 'wechat_user': 'test-user',
         'shm_name': f'cam_{camera_id}', 'alarm_interval': 0, 'department': 'haoda_company'}}, _should_alarm=lambda *args: True,
         feature_name=feature, spec=get_spec(feature), frame_cache={}, _alarm_context=lambda *_: {})
+    consumer._alarm_violation_type = MethodType(BaseFunctionConsumer._alarm_violation_type, consumer)
     BaseFunctionConsumer._handle_alarm(consumer, camera_id, [{'alarm_flag': True}], np.zeros((8, 8, 3), np.uint8))
 
 

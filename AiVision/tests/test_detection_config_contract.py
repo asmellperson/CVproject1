@@ -60,6 +60,17 @@ def test_defaults_read_save_echo_and_cache(api, feature):
             assert runtime[key] == value
 
 
+def test_feature_metadata_preserves_single_alarm_response(api):
+    response = api.client.get("/api/features")
+    assert response.status_code == 200
+    expected_types = {"blocks": 1, "detect_door": 2, "detect_phone": 3, "detect_face": 4,
+                      "detect_human": 5, "detect_logistics_single_person": 6, "recognize_face": 7}
+    for meta in response.json()["features"]:
+        assert meta["violation_type"] == expected_types[meta["name"]]
+        assert set(meta) == {"name", "display_name", "required_models", "violation_type", "default_config", "config_schema"}
+        assert api.client.get(f"/api/features/{meta['name']}").json() == meta
+
+
 @pytest.mark.parametrize("feature", list(all_specs()))
 def test_orm_defaults_match_complete_schema_defaults(api, feature):
     spec = get_spec(feature)

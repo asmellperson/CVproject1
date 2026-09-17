@@ -11,5 +11,5 @@ SPEC = FeatureSpec(
     orm_class=FaceConfigORM,
     config_schema=FaceConfigSchema,
     required_models=("insightface_detection",),
-    violation_type=4,
+    alarm_types=(4,),
 )

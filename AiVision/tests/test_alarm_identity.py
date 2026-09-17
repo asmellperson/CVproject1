@@ -1,15 +1,18 @@
 """当前告警的正式字段约束、生产入口归属和查询隔离。"""
-from types import SimpleNamespace
+from dataclasses import replace
+from types import MethodType, SimpleNamespace
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import numpy as np
 import pytest
 
-from AiVision.alarms.dispatcher import AlarmRequest
+from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
 from AiVision.features.registry import all_specs
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.alarms.records.orm import AiAlarmEvent
 from AiVision.alarms.types import VIOLATION_TYPE_META
+from AiVision.alarms.validation import validate_alarm_identity
+from AiVision.features import registry
 from AiVision.api.routes.logistics_channels import _channel_alarm_query, _alarm_dict
 from AiVision.tests.test_violation_writer import writer_db
 
@@ -19,7 +22,8 @@ def identity():
 
 
 def request(**values):
-    return AlarmRequest(camera_id=1, camera_name="camera", frame=np.zeros((4, 4, 3), np.uint8), alarm_config={}, **values)
+    return AlarmRequest(camera_id=1, camera_name="camera", frame=np.zeros((4, 4, 3), np.uint8), alarm_config={},
+                        cooldown_subject_type="camera", cooldown_subject_id="1", **values)
 
 
 @pytest.mark.parametrize("changes", [
@@ -84,7 +88,7 @@ def test_orm_revalidates_identity_before_insert(writer_db):
         assert session.query(AiAlarmEvent).count() == 0
 
 
-@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if spec.violation_type > 0 and not spec.name.startswith("detect_logistics")], ids=lambda spec: spec.name)
+@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics")], ids=lambda spec: spec.name)
 def test_regular_features_skip_camera_without_department(monkeypatch, spec):
     import AiVision.features._shared.consumer as module
     captured = []
@@ -115,9 +119,85 @@ def test_all_features_use_camera_explicit_department(monkeypatch, department, sp
     monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
         config_cache={1: {**spec.config_schema().value.model_dump(), "department": department}}, _should_alarm=lambda *_: True, _alarm_context=lambda *_: {})
+    consumer._alarm_violation_type = MethodType(BaseFunctionConsumer._alarm_violation_type, consumer)
     BaseFunctionConsumer._handle_alarm(consumer, 1, [], np.zeros((4, 4, 3), np.uint8))
     assert len(captured) == 1
     assert captured[0].department == department
+    assert captured[0].violation_type == spec.alarm_types[0]
+    assert (captured[0].cooldown_subject_type, captured[0].cooldown_subject_id) == ("camera", "1")
+
+
+@pytest.mark.parametrize("violation_type", [1, 2])
+def test_composite_feature_identity_is_accepted_at_all_write_boundaries(monkeypatch, writer_db, violation_type):
+    spec = replace(all_specs()["blocks"], name="composite", alarm_types=(1, 2))
+    monkeypatch.setattr(registry, "_REGISTRY", registry._build_registry((spec,)))
+    writer, factory, _ = writer_db
+    values = identity() | {"feature_name": spec.name, "violation_type": violation_type}
+    validate_alarm_identity(**values)
+    assert request(**values).violation_type == violation_type
+    with factory.begin() as session:
+        session.add(AiAlarmEvent(image_path="composite.png", **values))
+    assert writer.save_now(frame=np.zeros((4, 4, 3), np.uint8), camera_no="camera", **values).id
+    writer.enqueue(frame=np.zeros((4, 4, 3), np.uint8), camera_no="camera", **values)
+    assert not writer._queue.empty()
+    with pytest.raises(ValueError, match="FeatureSpec"):
+        validate_alarm_identity(**(values | {"violation_type": 3}))
+
+
+@pytest.mark.parametrize("spec", all_specs().values(), ids=lambda spec: spec.name)
+def test_alarm_identity_requires_feature_ownership(spec):
+    (alarm_type,) = spec.alarm_types
+    validate_alarm_identity(alarm_type, spec.name, "research_institute")
+    other_type = next(value for value in VIOLATION_TYPE_META if value not in spec.alarm_types)
+    with pytest.raises(ValueError, match="FeatureSpec"):
+        validate_alarm_identity(other_type, spec.name, "research_institute")
+
+
+@pytest.mark.parametrize("alarm_types", [(), (1, 2)])
+def test_consumer_requires_explicit_alarm_type_selection(monkeypatch, alarm_types):
+    import AiVision.features._shared.consumer as module
+    spec = replace(all_specs()["blocks"], name="composite", alarm_types=alarm_types)
+    consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
+        config_cache={1: {"department": "research_institute", "alarm_interval": 5}},
+        _should_alarm=lambda *_: True, _alarm_context=lambda *_: {})
+    consumer._alarm_violation_type = MethodType(BaseFunctionConsumer._alarm_violation_type, consumer)
+    captured = []
+    monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
+    with pytest.raises(RuntimeError, match="复合 Feature 必须覆盖"):
+        BaseFunctionConsumer._handle_alarm(consumer, 1, (True, {}), np.zeros((4, 4, 3), np.uint8))
+    assert not captured
+
+
+def test_composite_consumer_selects_type_from_event(monkeypatch):
+    import AiVision.features._shared.consumer as module
+    spec = replace(all_specs()["blocks"], name="composite", alarm_types=(1, 2))
+    monkeypatch.setattr(registry, "_REGISTRY", registry._build_registry((spec,)))
+    consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
+        config_cache={1: {"department": "research_institute", "alarm_interval": 5}},
+        _should_alarm=lambda *_: True, _alarm_context=lambda *_: {})
+    consumer._alarm_violation_type = lambda camera_id, result, cfg: result[1]["alarm_type"]
+    captured = []
+    monkeypatch.setattr(module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: captured.append(req))
+    for alarm_type in spec.alarm_types:
+        BaseFunctionConsumer._handle_alarm(consumer, 1, (True, {"alarm_type": alarm_type}), np.zeros((4, 4, 3), np.uint8))
+    assert [req.violation_type for req in captured] == [1, 2]
+
+
+@pytest.mark.parametrize("subject_type,subject_id,subject_name", [
+    ("face_person", "17", "测试人员"), ("unknown_face", "", "未知人员"),
+])
+def test_face_business_subject_persists_independently_from_camera_cooldown(
+    writer_db, subject_type, subject_id, subject_name,
+):
+    writer, factory, _ = writer_db
+    req = request(violation_type=7, feature_name="recognize_face", department="research_institute",
+                  subject_type=subject_type, subject_id=subject_id, subject_name=subject_name)
+    assert AlarmDispatcher._cooldown_key(req) == ("camera", "1", 7)
+    record = AlarmDispatcher._write_violation(writer.save_now, req)
+    with factory() as session:
+        row = session.get(AiAlarmEvent, record.id)
+        assert (row.subject_type, row.subject_id, row.subject_name) == (subject_type, subject_id, subject_name)
+        assert row.violation_type == 7
 
 
 def test_channel_queries_use_feature_field_and_never_type_inference(writer_db):

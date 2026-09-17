@@ -1,5 +1,5 @@
 """已有摄像头启用普通 Feature 的部门校验及事务、缓存、告警回归。"""
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import numpy as np
@@ -169,6 +169,7 @@ def test_every_feature_uses_camera_department_without_changing_it(department_api
     monkeypatch.setattr(consumer_module.alarm_dispatcher, "maybe_dispatch", lambda req, **_: requests.append(req))
     consumer = SimpleNamespace(feature_name=spec.name, spec=spec, frame_cache={},
         config_cache={camera["camera_id"]: cfg}, _should_alarm=lambda *_: True, _alarm_context=lambda *_: {})
+    consumer._alarm_violation_type = MethodType(BaseFunctionConsumer._alarm_violation_type, consumer)
     BaseFunctionConsumer._handle_alarm(consumer, camera["camera_id"], [], np.zeros((4, 4, 3), np.uint8))
     assert len(requests) == 1
     assert (requests[0].department, requests[0].feature_name) == (department, spec.name)

@@ -13,5 +13,5 @@ SPEC = FeatureSpec(
     orm_class=DoorConfigORM,               # 由哪个类映射数据库配置表
     config_schema=DoorConfigSchema,        # 由哪个类校验配置参数
     required_models=(),                    # 不依赖模型推理
-    violation_type=2,                      # 报警记录使用的违规类型编号
+    alarm_types=(2,),                      # 功能可触发的正式告警类型
 )

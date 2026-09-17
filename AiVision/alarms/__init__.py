@@ -26,16 +26,19 @@
         alarm_config 携带 horn、wechat、sql 各自的 enable / parm。
         subject_type、subject_id、subject_name 支持摄像头或物流通道这样的不同主体；
             物流使用 subject_type="logistics_channel"，不能把通道 ID 当成摄像头主键。
+        cooldown_subject_type、cooldown_subject_id 是调用方明确提供的冷却主体；
+            与记录主体独立，人脸报警记录人员信息，但仍由 Camera 冷却。
         department、reason、metadata 携带归属、异常原因和通道成员等附加信息。
 
     AlarmDispatcher / alarm_dispatcher：分发器类与进程内全局单例。
         configure()：由 Orchestrator 注入 HornRuntimeManager、WeChatNotifier、
             violation_writer、evidence_recorder，并启动微信后台发送线程。
-        maybe_dispatch(request, alarm_interval)：按主体和 Feature 检查业务冷却，
+        maybe_dispatch(request, alarm_interval)：按冷却主体和报警类型检查业务冷却，
             冷却通过后调用 _execute()；返回 True 表示已进入分发，不保证每个通道成功。
-        _cooldown_key()：使用 (subject_type, subject_id, feature_name)，
-            普通摄像头未单独传 subject_id 时回退到 camera_id 的字符串。
-        reset_cooldown() / reset_subject_cooldown()：配置变化等情况下清理对应冷却。
+        _cooldown_key()：只使用 (cooldown_subject_type, cooldown_subject_id, violation_type)，
+            不从业务主体或摄像头字段推导冷却身份。
+        reset_cooldown(camera_id, violation_type) / reset_subject_cooldown(
+            cooldown_subject_type, cooldown_subject_id, violation_type)：精确清理对应冷却。
         stop()：通知微信发送线程退出并限时等待；设备运行管理器由 Orchestrator 另行停止。
 
     _execute() 的实际顺序与判断：

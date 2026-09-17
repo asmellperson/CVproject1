@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
 from AiVision.alarms.notifications.wechat import WeChatNotifier
 from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
-from AiVision.alarms.validation import validate_alarm_identity
+from AiVision.alarms.validation import validate_alarm_identity, validate_cooldown_identity
 
 
 @dataclass
@@ -34,7 +34,7 @@ class AlarmRequest:
 
     字段说明:
         feature_name   : 触发告警的功能名称。
-        camera_id      : 摄像头数字 ID，作为冷却表的 key 之一。
+        camera_id      : 告警来源摄像头数字 ID。
         camera_name    : 摄像头展示名称，写入告警消息与数据库。
         frame          : 违规帧的 BGR 图像（np.ndarray），用于截图保存与微信推图。
         violation_type : 违规类型编号，对应数据库中的枚举值。
@@ -52,7 +52,10 @@ class AlarmRequest:
     alarm_config: dict
     camera_key: str = ""
     department: str = field(kw_only=True)
-    # ====== 为了支持物流通道 ========
+    # 冷却作用域必须明确提供，不从业务主体或摄像头推导。
+    cooldown_subject_type: str = field(kw_only=True)
+    cooldown_subject_id: str = field(kw_only=True)
+    # 报警记录的业务主体，用于持久化和检索。
     subject_type: str = "camera"
     subject_id: str = ""                               
     subject_name: str = ""
@@ -61,13 +64,14 @@ class AlarmRequest:
 
     def __post_init__(self) -> None:
         validate_alarm_identity(self.violation_type, self.feature_name, self.department)
+        validate_cooldown_identity(self.cooldown_subject_type, self.cooldown_subject_id, self.violation_type)
 
 class AlarmDispatcher:
     """
     全局告警分发器（单例）。
 
     职责:
-        1. 冷却控制  — 同一摄像头 × 功能维度，在 alarm_interval 秒内只触发一次。
+        1. 冷却控制  — 同一冷却主体 × 报警类型，在 alarm_interval 秒内只触发一次。
         2. 通道分发  — 按 alarm_config 中各通道的 enable 开关，分别调用
                        喇叭 / 微信 / SQL 三条告警链路。
         3. 异步解耦  — 微信发送通过内部队列 + 守护线程异步执行，
@@ -91,7 +95,7 @@ class AlarmDispatcher:
         self._wechat_lifecycle_lock = threading.Lock()
         self._wechat_started = False  # 防止 configure() 被重复调用时二次启动线程
         # 告警冷却表
-        self._last_alarm: dict[tuple[str, str, str], float] = {}
+        self._last_alarm: dict[tuple[str, str, int], float] = {}
         self._lock = threading.Lock()
 
     def configure(
@@ -142,18 +146,18 @@ class AlarmDispatcher:
         alarm_interval: float = 5.0,
     ) -> bool:
         """
-        收到违规生成cooldown key查看上次报警事件，还在五秒人冷却不报警，超过五秒冷却时间就更新时间并且推送报警
+        按明确的冷却主体和报警类型判断是否分发。
         冷却逻辑:
-            摄像头报警（包括人脸）按 camera_id × feature_name，物流通道按 channel_id × feature_name；
+            冷却主体类型、主体标识和 violation_type 共同确定唯一冷却范围；
             若距上次触发不足 alarm_interval 秒，静默丢弃并返回 False。
         Args:
             request        : 封装本次违规信息的 AlarmRequest 对象。
-            alarm_interval : 同一摄像头×功能的告警冷却秒数，默认 5 秒。
+            alarm_interval : 同一冷却主体与报警类型的冷却秒数，默认 5 秒。
         Returns:
             True  — 冷却已过，告警已提交各通道执行。
             False — 仍在冷却期，本次告警被静默丢弃。
         """
-        # 给这个告警生成一个冷却标识（生成谁发生了告警、这个对象是谁什么检测功能等）
+        # 校验调用方提供的冷却身份，再占用冷却状态。
         key = self._cooldown_key(request)
         now = time.time()
 
@@ -166,30 +170,26 @@ class AlarmDispatcher:
         self._execute(request)
         return True
 
-    def reset_cooldown(self, camera_id: int, feature_name: str) -> None:
-        """清除指定摄像头和功能的告警冷却状态。
-        reset_cooldown:针对摄像头报警（包括人脸）
-        reset_subject_cooldown:camera、logistics_channel等都能用
-        """
-        self.reset_subject_cooldown("camera", str(camera_id), feature_name)
+    def reset_cooldown(self, camera_id: int, violation_type: int) -> None:
+        """清除指定摄像头与报警类型的冷却状态。"""
+        self.reset_subject_cooldown("camera", str(camera_id), violation_type)
 
     def reset_subject_cooldown(
         self,
-        subject_type: str,
-        subject_id: str,
-        feature_name: str,
+        cooldown_subject_type: str,
+        cooldown_subject_id: str,
+        violation_type: int,
     ) -> None:
-        """清除摄像头或通道主体的告警冷却状态。"""
+        """清除指定冷却主体与报警类型的状态，不使用 SQL 业务主体。"""
+        validate_cooldown_identity(cooldown_subject_type, cooldown_subject_id, violation_type)
         with self._lock:
-            # 从字典里删除这个key
-            self._last_alarm.pop((subject_type, str(subject_id), feature_name), None)
+            self._last_alarm.pop((cooldown_subject_type, cooldown_subject_id, violation_type), None)
 
     @staticmethod
-    def _cooldown_key(request: AlarmRequest) -> tuple[str, str, str]:
-        """按配置所属的摄像头或物流通道冷却，人员主体不改变摄像头冷却范围。"""
-        if request.subject_type == "logistics_channel":
-            return "logistics_channel", request.subject_id, request.feature_name
-        return "camera", str(request.camera_id), request.feature_name
+    def _cooldown_key(request: AlarmRequest) -> tuple[str, str, int]:
+        """仅使用显式冷却身份，业务主体不参与冷却范围推导。"""
+        validate_cooldown_identity(request.cooldown_subject_type, request.cooldown_subject_id, request.violation_type)
+        return request.cooldown_subject_type, request.cooldown_subject_id, request.violation_type
 
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #

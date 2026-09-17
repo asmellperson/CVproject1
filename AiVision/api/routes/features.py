@@ -92,12 +92,14 @@ def create_features_router(
 
     def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
         """将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化。"""
+        # 当前元数据接口只表达单报警功能，不能替复合功能选择类型。
+        (violation_type,) = spec.alarm_types
         # 返回FeatureMetaResponse
         return FeatureMetaResponse(
             name=spec.name,
             display_name=spec.display_name,
             required_models=list(spec.required_models),
-            violation_type=spec.violation_type,
+            violation_type=violation_type,
             config_schema=spec.config_schema.model_json_schema(),
             default_config=spec.config_schema().model_dump(),
         )

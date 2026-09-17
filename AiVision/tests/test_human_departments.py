@@ -256,6 +256,7 @@ def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evid
         return SimpleNamespace(status_code=200, json=lambda: {"errcode": 0})
     monkeypatch.setattr("AiVision.alarms.notifications.wechat.requests.post", post)
     request = AlarmRequest(feature_name="detect_human", department=department, camera_id=alarm_id,
+                           cooldown_subject_type="camera", cooldown_subject_id=str(alarm_id),
                            camera_name="test-camera", frame=np.zeros((8, 8, 3)), violation_type=5, alarm_config={})
     dispatcher._wechat_queue.put((request, "test-recipient", SimpleNamespace(id=alarm_id)))
     dispatcher._wechat_loop()

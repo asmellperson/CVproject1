@@ -64,6 +64,7 @@ class BaseFunctionConsumer(ABC):
         _should_alarm()       : 默认判定 result 中有 True 即告警，
                                 detect_door 等双阶段场景可重写此方法。
         _alarm_context()      : 默认使用 AlarmRequest 的摄像头主体；子类可提供业务主体及元数据。
+        _alarm_violation_type(): 单报警功能使用唯一类型；复合功能必须明确选择本次报警类型。
         _process_static_frames(): 默认返回 False（帧差类功能依赖画面变化），
                                   YOLO 逗留检测类功能重写为 True 以持续累积时间。
 
@@ -177,7 +178,8 @@ class BaseFunctionConsumer(ABC):
                 # 覆盖Consumer自己的旧快照（热更新，不重启Consumer)
                 self.config_cache[camera_id] = cfg
                 # 清掉旧告警冷却状态
-                alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
+                for violation_type in self.spec.alarm_types:
+                    alarm_dispatcher.reset_cooldown(camera_id, violation_type)
             else:
                 # 未绑定该功能的摄像头不能因参数热更新重新进入 Consumer 主循环。
                 self.update_status(camera_id, False)
@@ -217,7 +219,8 @@ class BaseFunctionConsumer(ABC):
             camera_key = cfg.get("shm_name") or shm_name
             self.update_status(camera_id, False)
             self._clear_camera_state(camera_id, camera_key)                   # 这台camera在这个Consumer内所有痕迹全部清掉
-            alarm_dispatcher.reset_cooldown(camera_id, self.feature_name)
+            for violation_type in self.spec.alarm_types:
+                alarm_dispatcher.reset_cooldown(camera_id, violation_type)
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         """
@@ -504,14 +507,26 @@ class BaseFunctionConsumer(ABC):
                 camera_name=cam_name,
                 # frame 优先用带标注帧，fallback 到原始帧缓存
                 frame=frame if frame is not None else self.frame_cache.get(camera_id),
-                violation_type=self.spec.violation_type,
+                violation_type=self._alarm_violation_type(camera_id, result, cfg),
                 alarm_config=alarm_config,
                 camera_key=cam_key,
                 department=department,
+                cooldown_subject_type="camera",
+                cooldown_subject_id=str(camera_id),
                 **self._alarm_context(camera_id, result),
             ),
             alarm_interval=cfg["alarm_interval"],
         )
+
+    def _alarm_violation_type(self, camera_id: int, result: tuple, cfg: dict) -> int:
+        """单报警功能直接使用唯一类型，复合功能必须明确选择本次报警类型。"""
+        if len(self.spec.alarm_types) != 1:
+            raise RuntimeError(
+                f"[{self.feature_name}] alarm_types 数量不是 1，复合 Feature 必须覆盖 "
+                "_alarm_violation_type 明确选择报警类型"
+            )
+        (violation_type,) = self.spec.alarm_types
+        return violation_type
 
     def _alarm_context(self, camera_id: int, result: tuple) -> dict:
         """仅在确定报警后调用；子类可返回 subject_type/id/name、reason 和 metadata。"""

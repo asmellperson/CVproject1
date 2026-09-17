@@ -56,7 +56,7 @@ class FrameChangeConsumer(BaseFunctionConsumer):
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _consumer() -> FrameChangeConsumer:
     return FrameChangeConsumer(
-        spec=SimpleNamespace(name="frame-change-test"),
+        spec=SimpleNamespace(name="frame-change-test", alarm_types=(1,)),
         infer_dict={},
         result_queue=None,
         latest_frames={},
@@ -197,7 +197,7 @@ def test_remove_camera_clears_owned_state_without_touching_other_cameras(kind):
     classes = {"base": FrameChangeConsumer, "door": DoorConsumer, "dwell": HumanConsumer, "logistics": LogisticsSinglePersonConsumer}
     kwargs = {"logistics_runtime": SimpleNamespace()} if kind == "logistics" else {}
     consumer = classes[kind](
-        spec=SimpleNamespace(name="delete-test"), infer_dict={}, result_queue=None,
+        spec=SimpleNamespace(name="delete-test", alarm_types=(1,)), infer_dict={}, result_queue=None,
         latest_frames={}, is_camera_active=lambda _name: True, **kwargs,
     )
     consumer.config_cache = {7: {"shm_name": "deleted"}, 8: {"shm_name": "kept"}}
@@ -275,7 +275,7 @@ def test_door_overlay_does_not_modify_global_camera_frame(monkeypatch):
     original = np.zeros((16, 16, 3), np.uint8)
     original.setflags(write=False)
     consumer = DoorConsumer(
-        spec=SimpleNamespace(name="door"), infer_dict={}, result_queue=None,
+        spec=SimpleNamespace(name="door", alarm_types=(2,)), infer_dict={}, result_queue=None,
         latest_frames={"door": original}, is_camera_active=lambda _name: True,
     )
     consumer.config_cache[7] = {"roi_pos": []}

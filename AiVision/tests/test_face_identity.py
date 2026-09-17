@@ -503,6 +503,7 @@ def test_consumer_dispatches_insightface_and_alarms_only_for_disallowed_faces(li
         assert request.alarm_config["wechat"]["enable"] and request.alarm_config["horn"]["enable"]
         assert request.subject_type == ("face_person" if matched else "unknown_face")
         assert request.subject_id == ("1" if matched else "")
+        assert (request.cooldown_subject_type, request.cooldown_subject_id) == ("camera", "7")
         assert request.subject_name == detections[0]["person_name"]
         assert request.reason == reason
         assert request.metadata["offending_detections"] == detections
@@ -644,8 +645,8 @@ def test_identity_feature_uses_platform_alarm_schema():
     assert config.alarm.wechat.enable and config.alarm.wechat.parm.user == "test-user|second-user"
     assert config.alarm.horn.enable and config.alarm.horn.parm.horn_id == 1
     assert config.alarm.horn.parm.horn_event_id == 7
-    assert SPEC.violation_type == 7
-    assert VIOLATION_TYPE_META[SPEC.violation_type] == {"event_type": "recognize_face", "label": "人脸身份识别"}
+    assert SPEC.alarm_types == (7,)
+    assert VIOLATION_TYPE_META[7] == {"event_type": "recognize_face", "label": "人脸身份识别"}
     assert _EVENT_DISPLAY[SPEC.name] == "人脸身份识别"
 
 
@@ -821,6 +822,7 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
         request, user, record = dispatcher._wechat_queue.get_nowait()
         assert (request.violation_type, request.feature_name, user, record["id"]) == (7, "recognize_face", "updated-user", 10)
         assert (request.subject_type, request.subject_id, request.subject_name, request.reason) == ("face_person", "17", "测试人员17", "unauthorized")
+        assert dispatcher._cooldown_key(request) == ("camera", "1", 7)
         written = dispatcher.violation_writer.save_now.call_args.kwargs
         assert written["subject_id"] == "17" and written["reason"] == "unauthorized"
         assert written["event_metadata"]["offending_detections"] == [unknown, unauthorized]
@@ -828,11 +830,14 @@ def test_recognition_config_api_preserves_threshold_and_feature_switch(library, 
         assert (event["camera_no"], event["camera_name"], event["subject_name"]) == ("test_camera", "测试", "测试人员17")
         consumer._handle_alarm(1, (True, {"detections": [unknown]}), np.zeros((4, 4, 3), np.uint8))
         dispatcher.violation_writer.save_now.assert_called_once()
-        dispatcher.reset_cooldown(1, "recognize_face")
+        dispatcher.reset_cooldown(1, 7)
         consumer._handle_alarm(1, (True, {"detections": [unknown]}), np.zeros((4, 4, 3), np.uint8))
         written = dispatcher.violation_writer.save_now.call_args.kwargs
         assert written["subject_type"] == "unknown_face" and written["subject_id"] == ""
         assert written["subject_name"] == "未知人员" and written["reason"] == "unknown"
+        unknown_request, _, _ = dispatcher._wechat_queue.get_nowait()
+        assert unknown_request.subject_id == ""
+        assert dispatcher._cooldown_key(unknown_request) == ("camera", "1", 7)
         assert written["event_metadata"] == {"similarity": .2, "matched": False, "is_allowed": False,
                                              "offending_detections": [unknown], "camera_name": "测试"}
         event = _event_dict(SimpleNamespace(id=11, image_path="snapshot.png", **written))

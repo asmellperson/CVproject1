@@ -11,5 +11,5 @@ SPEC = FeatureSpec(
     orm_class=HumanConfigORM,
     config_schema=HumanConfigSchema,
     required_models=("yolo_human",),
-    violation_type=5,
+    alarm_types=(5,),
 )

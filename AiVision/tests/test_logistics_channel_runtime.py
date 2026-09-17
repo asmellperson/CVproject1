@@ -122,16 +122,16 @@ class FakeDispatcher:
     # 功能：实现 `reset_subject_cooldown` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
     #   - `self`（未显式标注）：当前类实例
-    #   - `subject_type`（未显式标注）：`subject_type` 对应的业务输入值
-    #   - `subject_id`（未显式标注）：`subject_id` 对应业务对象的唯一标识
-    #   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
+    #   - `cooldown_subject_type`：冷却主体类型
+    #   - `cooldown_subject_id`：冷却主体标识
+    #   - `violation_type`：正式报警类型
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`self.reset_calls.append`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def reset_subject_cooldown(self, subject_type, subject_id, feature_name):
-        self.reset_calls.append((subject_type, subject_id, feature_name))
+    def reset_subject_cooldown(self, cooldown_subject_type, cooldown_subject_id, violation_type):
+        self.reset_calls.append((cooldown_subject_type, cooldown_subject_id, violation_type))
 
 
 # 功能：实现 `channel` 对应的运行时逻辑；输入由参数提供，处理结果见返回值说明
@@ -254,7 +254,6 @@ def build_runtime(
         stale_seconds=5.0,
         wall_time_provider=wall_time
         or (lambda: datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc).astimezone()),
-        violation_type_provider=lambda _feature_name: 6,
         compositor=compositor,
         start_background=start_background,
         clock_provider=clock,
@@ -588,6 +587,8 @@ def test_dispatch_request_uses_channel_subject_mosaic_and_complete_metadata():
     runtime.evaluate(FEATURE, 3, now=101.0)
 
     request, interval = dispatcher.requests[0]
+    assert request.violation_type == 6
+    assert (request.cooldown_subject_type, request.cooldown_subject_id) == ("logistics_channel", "3")
     assert request.subject_type == "logistics_channel"
     assert request.subject_id == "3"
     assert request.subject_name == "物流通道-3"
@@ -694,6 +695,7 @@ def test_refresh_clears_timing_snapshot_and_incident_state():
 
     runtime.refresh_channel(FEATURE, 3)
 
+    assert dispatcher.reset_calls == [("logistics_channel", "3", 6)]
     assert runtime.get_channel_status(FEATURE, 3) is None
     assert runtime.evaluate(FEATURE, 3, now=107.0).reason == "unknown"
     assert len(dispatcher.requests) == 1

@@ -23,7 +23,7 @@ class FeatureSpec:
     orm_class: Type[DeclarativeBase]            # 配置哪张ORM表
     config_schema: Type[BaseModel]              # 配置由哪个Schema校验
     required_models: tuple[str, ...] = field(default_factory=tuple)     # 需要哪个模型
-    violation_type: int = 0                     # 告警类型是多少
+    alarm_types: tuple[int, ...] = field(default_factory=tuple)         # 功能可触发的正式告警类型
     def __repr__(self) -> str:
         models = list(self.required_models) or "无"
         return f"<FeatureSpec name={self.name!r} display={self.display_name!r} models={models}>"

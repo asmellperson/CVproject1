@@ -10,6 +10,6 @@ SPEC = FeatureSpec(
     consumer_cls=FaceRecognitionConsumer,
     orm_class=FaceRecognitionConfig,
     config_schema=FaceRecognitionConfigSchema,
-    violation_type=7,
+    alarm_types=(7,),
     required_models=("insightface",),
 )

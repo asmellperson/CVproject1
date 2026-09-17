@@ -11,5 +11,5 @@ SPEC = FeatureSpec(
     orm_class=BlocksConfigORM,
     config_schema=BlocksConfigSchema,
     required_models=("yolo_human",),
-    violation_type=1,
+    alarm_types=(1,),
 )

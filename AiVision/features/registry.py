@@ -1,4 +1,6 @@
 """七项内置功能的唯一注册入口；包路径与持久化业务标识分离。"""
+from AiVision.alarms.types import VIOLATION_TYPE_META
+
 from ._shared.spec import FeatureSpec
 from .intrusion.spec import SPEC as intrusion_spec
 from .door_state.spec import SPEC as door_state_spec
@@ -22,9 +24,24 @@ _BUILTIN_SPECS = (
 
 def _build_registry(specs: tuple[FeatureSpec, ...]) -> dict[str, FeatureSpec]:
     registry = {}
+    alarm_owners: dict[int, str] = {}
     for spec in specs:
         if spec.name in registry:
             raise ValueError(f"重复的 FeatureSpec.name: {spec.name!r}")
+        if not isinstance(spec.alarm_types, tuple):
+            raise ValueError(f"FeatureSpec.alarm_types 必须是 tuple: {spec.name!r}")
+        seen: set[int] = set()
+        for alarm_type in spec.alarm_types:
+            if type(alarm_type) is not int or alarm_type <= 0:
+                raise ValueError(f"FeatureSpec.alarm_types 必须是正整数，且不允许 bool: {spec.name!r}")
+            if alarm_type in seen:
+                raise ValueError(f"FeatureSpec.alarm_types 内有重复报警类型: {spec.name!r}, {alarm_type}")
+            if alarm_type not in VIOLATION_TYPE_META:
+                raise ValueError(f"FeatureSpec.alarm_types 包含未注册报警类型: {spec.name!r}, {alarm_type}")
+            if alarm_type in alarm_owners:
+                raise ValueError(f"报警类型 {alarm_type} 已归属 Feature {alarm_owners[alarm_type]!r}，不能重复归属 {spec.name!r}")
+            seen.add(alarm_type)
+            alarm_owners[alarm_type] = spec.name
         registry[spec.name] = spec
     return registry
 

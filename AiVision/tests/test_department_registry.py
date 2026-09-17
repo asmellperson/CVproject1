@@ -69,6 +69,47 @@ def test_feature_registry_rejects_duplicate_names_without_changing_registered_sp
     assert features.all_specs() == before
 
 
+def test_feature_specs_declare_canonical_alarm_types():
+    assert {name: spec.alarm_types for name, spec in features.all_specs().items()} == {
+        "blocks": (1,), "detect_door": (2,), "detect_phone": (3,), "detect_face": (4,),
+        "detect_human": (5,), "detect_logistics_single_person": (6,), "recognize_face": (7,),
+    }
+    for spec in features.all_specs().values():
+        assert isinstance(spec.alarm_types, tuple)
+        assert all(type(value) is int for value in spec.alarm_types)
+        assert "violation_type" not in spec.__dataclass_fields__
+        assert not hasattr(spec, "violation_type")
+    assert replace(features.get_spec("blocks"), alarm_types=()).alarm_types == ()
+
+
+@pytest.mark.parametrize("alarm_types,message", [
+    ([1], "必须是 tuple"), ({1}, "必须是 tuple"), (None, "必须是 tuple"),
+    ((1, 1), "重复报警类型"), ((0,), "正整数"), ((-1,), "正整数"),
+    ((True,), "正整数"), ((False,), "正整数"), ((1.0,), "正整数"),
+    (("1",), "正整数"), ((None,), "正整数"), ((8,), "未注册报警类型"),
+])
+def test_feature_registry_rejects_invalid_alarm_types(alarm_types, message):
+    before = features.all_specs()
+    spec = replace(before["blocks"], alarm_types=alarm_types)
+    with pytest.raises(ValueError, match=message):
+        features._build_registry((spec,))
+    assert features.all_specs() == before
+
+
+def test_feature_registry_rejects_shared_alarm_type():
+    before = features.all_specs()
+    spec = before["blocks"]
+    duplicate = replace(spec, name="another_feature")
+    with pytest.raises(ValueError, match="不能重复归属"):
+        features._build_registry((spec, duplicate))
+    assert features.all_specs() == before
+
+
+def test_feature_registry_accepts_multiple_distinct_registered_alarm_types():
+    spec = replace(features.get_spec("blocks"), name="composite", alarm_types=(1, 2))
+    assert features._build_registry((spec,)) == {spec.name: spec}
+
+
 def test_schema_verification_leaves_historical_department_tables_untouched(monkeypatch):
     from AiVision.runtime.bootstrap import bootstrap_database
 

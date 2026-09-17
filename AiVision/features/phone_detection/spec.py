@@ -11,5 +11,5 @@ SPEC = FeatureSpec(
     orm_class=PhoneConfigORM,
     config_schema=PhoneConfigSchema,
     required_models=("yolo_phone",),
-    violation_type=3,
+    alarm_types=(3,),
 )

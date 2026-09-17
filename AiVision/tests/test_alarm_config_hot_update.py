@@ -1,9 +1,11 @@
 # 文件说明：包含告警、配置的自动化测试、测试夹具与断言辅助代码。
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 import AiVision.features._shared.consumer as consumer_module
 from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
@@ -98,14 +100,134 @@ class FakeAlarmDispatcher:
     # 参数：
     #   - `self`（未显式标注）：当前类实例
     #   - `camera_id`（int）：摄像头唯一标识
-    #   - `feature_name`（str）：`feature_name` 对应的业务输入值
+    #   - `violation_type`（int）：正式报警类型
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
     #   - 内部调用：`self.reset_calls.append`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    def reset_cooldown(self, camera_id: int, feature_name: str):
-        self.reset_calls.append((camera_id, feature_name))
+    def reset_cooldown(self, camera_id: int, violation_type: int):
+        self.reset_calls.append((camera_id, violation_type))
+
+
+def cooldown_request(**changes):
+    values = dict(
+        feature_name="blocks", violation_type=1, department="research_institute",
+        camera_id=7, camera_name="camera", frame=np.zeros((2, 2, 3), np.uint8), alarm_config={},
+        cooldown_subject_type="camera", cooldown_subject_id="7",
+    )
+    return AlarmRequest(**(values | changes))
+
+
+@pytest.fixture
+def cooldown_dispatcher(monkeypatch):
+    dispatcher = AlarmDispatcher()
+    dispatched = []
+    monkeypatch.setattr(dispatcher, "_execute", dispatched.append)
+    monkeypatch.setattr("AiVision.alarms.dispatcher.time.time", lambda: 100.0)
+    return dispatcher, dispatched
+
+
+@pytest.mark.parametrize("scope_type", ["camera", "logistics_channel", "test_site"])
+def test_cooldown_isolates_alarm_types_and_explicit_scopes(monkeypatch, cooldown_dispatcher, scope_type):
+    from AiVision.features import registry
+    spec = replace(registry.get_spec("blocks"), name="composite", alarm_types=(1, 2))
+    monkeypatch.setattr(registry, "_REGISTRY", registry._build_registry((spec,)))
+    dispatcher, dispatched = cooldown_dispatcher
+    first = cooldown_request(feature_name=spec.name, cooldown_subject_type=scope_type,
+                             subject_type="face_person", subject_id="same-person")
+    other_type = replace(first, violation_type=2)
+    other_id = replace(first, cooldown_subject_id="8")
+    other_scope = replace(first, cooldown_subject_type="other_scope")
+    for req in (first, other_type, other_id, other_scope):
+        assert dispatcher.maybe_dispatch(req, alarm_interval=5)
+        assert not dispatcher.maybe_dispatch(req, alarm_interval=5)
+    assert len(dispatched) == 4
+    monkeypatch.setattr("AiVision.alarms.dispatcher.time.time", lambda: 105.0)
+    assert dispatcher.maybe_dispatch(first, alarm_interval=5)
+
+
+def test_cooldown_does_not_infer_scope_from_business_subject_or_camera(cooldown_dispatcher):
+    dispatcher, dispatched = cooldown_dispatcher
+    first = cooldown_request(subject_type="face_person", subject_id="17")
+    assert dispatcher.maybe_dispatch(first)
+    unknown = replace(first, subject_type="unknown_face", subject_id="", camera_id=999)
+    assert dispatcher._cooldown_key(unknown) == ("camera", "7", 1)
+    assert not dispatcher.maybe_dispatch(unknown)
+    assert dispatcher.maybe_dispatch(replace(first, cooldown_subject_id="8"))
+    assert len(dispatched) == 2
+
+
+@pytest.mark.parametrize("field", ["cooldown_subject_type", "cooldown_subject_id"])
+@pytest.mark.parametrize("value", [None, "", " ", " camera ", 7, True, [], {}])
+def test_invalid_cooldown_scope_is_rejected_without_inference(cooldown_dispatcher, field, value):
+    dispatcher, dispatched = cooldown_dispatcher
+    with pytest.raises(ValueError, match=field):
+        cooldown_request(**{field: value})
+    req = cooldown_request()
+    setattr(req, field, value)
+    with pytest.raises(ValueError, match=field):
+        dispatcher.maybe_dispatch(req)
+    with pytest.raises(ValueError, match=field):
+        dispatcher.reset_subject_cooldown(req.cooldown_subject_type, req.cooldown_subject_id, 1)
+    assert not dispatched and not dispatcher._last_alarm
+
+
+@pytest.mark.parametrize("field", ["cooldown_subject_type", "cooldown_subject_id"])
+def test_cooldown_scope_is_required(field):
+    values = vars(cooldown_request()).copy()
+    del values[field]
+    with pytest.raises(TypeError, match=field):
+        AlarmRequest(**values)
+
+
+@pytest.mark.parametrize("scope_type", ["camera", "logistics_channel", "test_site"])
+def test_reset_clears_only_requested_scope_and_alarm_type(cooldown_dispatcher, scope_type):
+    dispatcher, dispatched = cooldown_dispatcher
+    first = cooldown_request(cooldown_subject_type=scope_type)
+    other_type = replace(first, violation_type=2, feature_name="detect_door")
+    other_id = replace(first, cooldown_subject_id="8")
+    other_scope = replace(first, cooldown_subject_type="other_scope")
+    for req in (first, other_type, other_id, other_scope):
+        assert dispatcher.maybe_dispatch(req)
+    if scope_type == "camera":
+        dispatcher.reset_cooldown(7, 1)
+    else:
+        dispatcher.reset_subject_cooldown(scope_type, "7", 1)
+    assert dispatcher.maybe_dispatch(first)
+    for req in (other_type, other_id, other_scope):
+        assert not dispatcher.maybe_dispatch(req)
+    assert len(dispatched) == 5
+
+
+@pytest.mark.parametrize("value", ["blocks", True, 1.0, 0, 8])
+def test_reset_requires_formal_alarm_type(cooldown_dispatcher, value):
+    dispatcher, _ = cooldown_dispatcher
+    assert dispatcher.maybe_dispatch(cooldown_request())
+    with pytest.raises(ValueError, match="violation_type"):
+        dispatcher.reset_cooldown(7, value)
+    with pytest.raises(ValueError, match="violation_type"):
+        dispatcher.reset_subject_cooldown("camera", "7", value)
+    assert not dispatcher.maybe_dispatch(cooldown_request())
+
+
+@pytest.mark.parametrize("action", ["update_config", "remove_camera"])
+@pytest.mark.parametrize("alarm_types", [(1,), (1, 2)])
+def test_consumer_resets_only_its_declared_alarm_types(monkeypatch, cooldown_dispatcher, action, alarm_types):
+    from AiVision.features.registry import get_spec
+    dispatcher, _ = cooldown_dispatcher
+    monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(consumer_module.config_cache, "get_function_config",
+                        lambda *_: {"enable": True, "shm_name": "camera"})
+    consumer = DummyConsumer(spec=replace(get_spec("blocks"), alarm_types=alarm_types),
+        infer_dict={}, result_queue=None, latest_frames={}, is_camera_active=lambda _: True)
+    requests = [cooldown_request(), cooldown_request(feature_name="detect_door", violation_type=2),
+                cooldown_request(feature_name="detect_phone", violation_type=3)]
+    for req in requests:
+        assert dispatcher.maybe_dispatch(req)
+    getattr(consumer, action)(7)
+    for req in requests:
+        assert dispatcher.maybe_dispatch(req) is (req.violation_type in alarm_types)
 
 
 # 功能：验证 `test_update_config_resets_alarm_cooldown` 对应的告警、配置逻辑；输入由参数提供，处理结果见返回值说明
@@ -122,7 +244,7 @@ def test_update_config_resets_alarm_cooldown(monkeypatch):
     monkeypatch.setattr(consumer_module, "alarm_dispatcher", dispatcher)
 
     consumer = DummyConsumer(
-        spec=SimpleNamespace(name="detect_test"),
+        spec=SimpleNamespace(name="detect_test", alarm_types=(1,)),
         infer_dict={},
         result_queue=None,
         latest_frames={},
@@ -132,7 +254,7 @@ def test_update_config_resets_alarm_cooldown(monkeypatch):
     consumer.update_config(7)
 
     assert consumer.config_cache[7]["wechat_user"] == "zhangsan"
-    assert dispatcher.reset_calls == [(7, "detect_test")]
+    assert dispatcher.reset_calls == [(7, 1)]
 
 
 def test_update_config_does_not_readd_disabled_camera(monkeypatch):
@@ -149,7 +271,7 @@ def test_update_config_does_not_readd_disabled_camera(monkeypatch):
     )
 
     consumer = DummyConsumer(
-        spec=SimpleNamespace(name="detect_test"),
+        spec=SimpleNamespace(name="detect_test", alarm_types=(1,)),
         infer_dict={},
         result_queue=None,
         latest_frames={},
@@ -202,6 +324,8 @@ def test_dispatcher_cooldown_uses_logistics_channel_subject(monkeypatch):
             alarm_config={},
             department="general_electric",
             subject_type="logistics_channel",
+            cooldown_subject_type="logistics_channel",
+            cooldown_subject_id="3",
             subject_id="3",
             subject_name="物流通道一",
         )
@@ -211,7 +335,7 @@ def test_dispatcher_cooldown_uses_logistics_channel_subject(monkeypatch):
     dispatcher.reset_subject_cooldown(
         "logistics_channel",
         "3",
-        "detect_logistics_single_person",
+        6,
     )
     assert dispatcher.maybe_dispatch(request(11), alarm_interval=5.0) is True
     assert len(executed) == 2
@@ -259,6 +383,8 @@ def test_dispatcher_forwards_subject_metadata_to_violation_writer():
             alarm_config={},
             department="general_electric",
             subject_type="logistics_channel",
+            cooldown_subject_type="logistics_channel",
+            cooldown_subject_id="3",
             subject_id="3",
             subject_name="物流通道一",
             reason="empty",
@@ -335,6 +461,7 @@ def test_dispatcher_attaches_pending_shared_evidence_video():
     dispatcher._execute(
         AlarmRequest(
             feature_name="blocks", department='research_institute',
+            cooldown_subject_type="camera", cooldown_subject_id="7",
             camera_id=7,
             camera_name="后大门",
             frame=np.zeros((2, 2, 3), np.uint8),
@@ -391,6 +518,7 @@ def test_dispatcher_respects_explicit_sql_channel_switch_and_keeps_legacy_defaul
     def request(alarm_config):
         return AlarmRequest(
             feature_name="detect_logistics_single_person", department='general_electric',
+            cooldown_subject_type="logistics_channel", cooldown_subject_id="3",
             camera_id=3,
             camera_name="物流通道一",
             frame=np.zeros((2, 2, 3), np.uint8),
@@ -421,7 +549,7 @@ def test_camera_department_reaches_alarm_from_camera_ownership(monkeypatch):
     })
     assert cfg["department"] == "research_institute"
     consumer = DummyConsumer(
-        spec=SimpleNamespace(name="blocks", violation_type=1),
+        spec=SimpleNamespace(name="blocks", alarm_types=(1,)),
         infer_dict={}, result_queue=None, latest_frames={}, is_camera_active=lambda _key: True,
     )
     consumer.config_cache[7] = cfg

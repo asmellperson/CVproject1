@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
     "AiVision.api.routes.alarms", "AiVision.api.app", "AiVision.runtime.orchestrator",
     "AiVision.features._shared.consumer", "AiVision.features.logistics_channel.runtime",
     "AiVision.alarms.records.service",
+    "AiVision.features.registry",
 ])
 def test_fresh_alarm_imports_share_implementations_without_external_actions(entry, tmp_path):
     program = textwrap.dedent("""
