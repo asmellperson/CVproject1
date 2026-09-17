@@ -32,6 +32,7 @@ def isolated_environment(tmp_path):
     "AiVision.inference.model_registry", "AiVision.inference.runtime_manager",
     "AiVision.inference.workers.face_recognizer", "AiVision.features",
     "AiVision.runtime.orchestrator", "AiVision.features.face_recognition.library.embedding",
+    "AiVision.inference.result_router",
 ])
 def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_path):
     program = textwrap.dedent("""
@@ -40,12 +41,16 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
         from pathlib import Path
         import pickle
         import sys
+        import threading
         import sqlalchemy
 
         def forbid_database(*args, **kwargs):
             raise AssertionError("imports must not connect to a database")
 
         sqlalchemy.create_engine = forbid_database
+        def forbid_thread(*args, **kwargs):
+            raise AssertionError("imports must not start background threads")
+        threading.Thread.start = forbid_thread
         importlib.import_module(sys.argv[1])
         import AiVision.inference as inference
         from AiVision.inference import model_paths

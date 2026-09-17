@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,6 +17,8 @@ from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
+    INFERENCE_ERROR_ROUTER_FAILED,
+    INFERENCE_ERROR_ROUTER_STOPPED,
     INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,
     INFERENCE_STATUS_DROPPED,
@@ -22,6 +26,7 @@ from AiVision.inference.contracts import (
     INFERENCE_STATUS_OK,
     INFERENCE_STATUS_TIMEOUT,
     INFERENCE_STATUS_UNAVAILABLE,
+    build_inference_result,
 )
 
 
@@ -179,23 +184,38 @@ def test_loading_error_reaches_parent_and_never_reports_ready():
     assert not worker.is_alive()
 
 
-# 功能：实现 `_consumer` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `infer_dict`（dict）：`infer_dict` 对应的业务输入值
-#   - `result_queue`（queue.Queue | None）：`result_queue` 对应的业务输入值；默认值为 `None`
-# 返回：OutcomeConsumer；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`OutcomeConsumer`、`SimpleNamespace`、`queue.Queue`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _consumer(infer_dict: dict, result_queue: queue.Queue | None = None) -> OutcomeConsumer:
-    return OutcomeConsumer(
-        spec=SimpleNamespace(name="outcome-test"),
-        infer_dict=infer_dict,
-        result_queue=result_queue or queue.Queue(),
-        latest_frames={},
-        is_camera_active=lambda _name: True,
-    )
+@pytest.fixture
+def consumer_factory(monkeypatch):
+    consumers = []
+
+    def create(infer_dict, result_queue=None, *, start=True):
+        consumer = OutcomeConsumer(
+            spec=SimpleNamespace(name="outcome-test"),
+            infer_dict=infer_dict,
+            result_queue=result_queue if result_queue is not None else queue.Queue(),
+            latest_frames={},
+            is_camera_active=lambda _name: True,
+        )
+        monkeypatch.setattr(consumer, "_load_initial_configs", lambda: None)
+        consumers.append(consumer)
+        if start:
+            consumer.start()
+        return consumer
+
+    yield create
+    for consumer in consumers:
+        consumer.stop()
+
+
+def _reply_on_submit(monkeypatch, inbox, outbox, make_results):
+    put = inbox.put
+
+    def submit(task, *, timeout):
+        put(task, timeout=timeout)
+        for result in make_results(task):
+            outbox.put(result)
+
+    monkeypatch.setattr(inbox, "put", submit)
 
 
 # 功能：实现 `_task` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
@@ -246,8 +266,8 @@ def test_worker_distinguishes_success_from_model_error():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_dispatch_reports_model_unavailable_for_camera_roi():
-    consumer = _consumer({})
+def test_dispatch_reports_model_unavailable_for_camera_roi(consumer_factory):
+    consumer = consumer_factory({})
 
     results = consumer.dispatch_inference_sync(
         7,
@@ -267,10 +287,10 @@ def test_dispatch_reports_model_unavailable_for_camera_roi():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`queue.Queue`、`infer_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_dispatch_reports_queue_full_without_losing_roi_identity():
+def test_dispatch_reports_queue_full_without_losing_roi_identity(consumer_factory):
     infer_queue = queue.Queue(maxsize=1)
     infer_queue.put({"occupied": True})
-    consumer = _consumer({"test-model": infer_queue})
+    consumer = consumer_factory({"test-model": infer_queue})
 
     results = consumer.dispatch_inference_sync(
         7,
@@ -282,6 +302,7 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
     assert results["status"] == INFERENCE_STATUS_DROPPED
     assert results["error_code"] == INFERENCE_ERROR_QUEUE_FULL
     assert results["detections"] == []
+    assert consumer.result_router.snapshot()["pending_count"] == 0
 
 
 # 功能：验证 `test_dispatch_keeps_partial_result_roi_and_marks_other_roi_timeout` 对应的模型推理逻辑；输入由参数提供，处理结果见返回值说明
@@ -292,20 +313,21 @@ def test_dispatch_reports_queue_full_without_losing_roi_identity():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`monkeypatch.setattr`、`queue.Queue`、`result_queue.put`、`_consumer`、`consumer.dispatch_inference_sync`、`np.zeros`、`range`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch):
-    monkeypatch.setattr("AiVision.features._shared.consumer.time.monotonic_ns", lambda: 123)
+def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch, consumer_factory):
     infer_queue, result_queue = queue.Queue(), queue.Queue()
-    task = _task()
-    result_queue.put({**task, "request_id": "stale", "detections": [{"type": "wrong"}]})
-    result_queue.put({**task, "status": INFERENCE_STATUS_OK, "detections": [{"type": "person"}]})
-    consumer = _consumer({"test-model": infer_queue}, result_queue)
+    _reply_on_submit(monkeypatch, infer_queue, result_queue, lambda task: [
+        build_inference_result({**task, "request_id": "stale"}, status=INFERENCE_STATUS_OK),
+        build_inference_result(task, status=INFERENCE_STATUS_OK, detections=[{"type": "person"}]),
+    ])
+    consumer = consumer_factory({"test-model": infer_queue}, result_queue)
     roi = np.zeros((4, 4, 3), dtype=np.uint8)
-    result = consumer.dispatch_inference_sync(7, "test-model", roi, timeout=0.01)
+    result = consumer.dispatch_inference_sync(7, "test-model", roi, timeout=2)
     assert result["status"] == INFERENCE_STATUS_OK
     assert result["detections"] == [{"type": "person"}]
     assert consumer.inference_outcome_counts == {INFERENCE_STATUS_OK: 1}
     assert infer_queue.qsize() == 1
     assert infer_queue.get_nowait()["frame"] is roi
+    assert consumer.result_router.snapshot()["orphan_count"] == 1
 
 
 @pytest.mark.parametrize("payload", [
@@ -314,19 +336,18 @@ def test_dispatch_ignores_stale_request_then_accepts_current_result(monkeypatch)
     {"status": INFERENCE_STATUS_OK, "detections": None},
     {"status": INFERENCE_STATUS_OK, "detections": {}},
 ])
-def test_dispatch_rejects_incomplete_results_instead_of_defaulting_to_success(monkeypatch, payload):
-    monkeypatch.setattr("AiVision.features._shared.consumer.time.monotonic_ns", lambda: 123)
+def test_dispatch_rejects_incomplete_results_instead_of_defaulting_to_success(monkeypatch, payload, consumer_factory):
     infer_queue, result_queue = queue.Queue(), queue.Queue()
-    result_queue.put({**_task(), **payload})
-    consumer = _consumer({"test-model": infer_queue}, result_queue)
-    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=.01)
+    _reply_on_submit(monkeypatch, infer_queue, result_queue, lambda task: [{**task, **payload}])
+    consumer = consumer_factory({"test-model": infer_queue}, result_queue)
+    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=2)
     assert result["status"] == INFERENCE_STATUS_ERROR
     assert result["error_code"] == INFERENCE_ERROR_INVALID_RESULT
     assert consumer.inference_outcome_counts == {INFERENCE_STATUS_ERROR: 1}
 
 
-def test_dispatch_reports_timeout_for_missing_current_camera_result():
-    consumer = _consumer({"test-model": queue.Queue()})
+def test_dispatch_reports_timeout_for_missing_current_camera_result(consumer_factory):
+    consumer = consumer_factory({"test-model": queue.Queue()})
     result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3), np.uint8), timeout=0)
     assert result["status"] == INFERENCE_STATUS_TIMEOUT
     assert result["error_code"] == INFERENCE_ERROR_TIMEOUT
@@ -341,7 +362,7 @@ def test_dispatch_reports_timeout_for_missing_current_camera_result():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`monkeypatch.setattr`、`_consumer`、`queue.Queue`、`alerts.append`、`range`、`consumer.dispatch_inference_sync`、`np.zeros`、`consumer.inference_status`、`len`、`consumer._record_inference_outcomes`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
+def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch, consumer_factory):
     monkeypatch.setattr(
         "AiVision.features._shared.consumer.settings.runtime.inference_alert_consecutive_failures",
         2,
@@ -350,7 +371,7 @@ def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
         "AiVision.features._shared.consumer.settings.runtime.inference_alert_cooldown_seconds",
         300.0,
     )
-    consumer = _consumer({"test-model": queue.Queue()})
+    consumer = consumer_factory({"test-model": queue.Queue()})
     consumer.config_cache[7] = {"name": "东门摄像头"}
     alerts = []
     monkeypatch.setattr(
@@ -391,3 +412,295 @@ def test_consecutive_failures_emit_one_alert_and_are_exposed(monkeypatch):
         outcomes=[{"status": INFERENCE_STATUS_OK}],
     )
     assert consumer.inference_status()["targets"][0]["consecutive_failures"] == 0
+
+
+def test_result_can_arrive_before_task_submission_returns(monkeypatch, consumer_factory):
+    inbox, outbox = queue.Queue(), queue.Queue()
+    consumer = consumer_factory({"test-model": inbox}, outbox)
+    registered = []
+    register = consumer.result_router.register
+
+    def capture_registration(task):
+        pending = register(task)
+        registered.append(pending)
+        return pending
+
+    def submit(task, *, timeout):
+        [pending] = registered
+        assert pending.identity["request_id"] == task["request_id"]
+        outbox.put(build_inference_result(task, status=INFERENCE_STATUS_OK))
+        assert pending.event.wait(2)
+
+    monkeypatch.setattr(consumer.result_router, "register", capture_registration)
+    monkeypatch.setattr(inbox, "put", submit)
+    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=2)
+    assert result["status"] == INFERENCE_STATUS_OK
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+@pytest.mark.parametrize("calls,return_order", [
+    ([(1, "a"), (2, "a")], [1, 0]),
+    ([(1, "a"), (2, "a"), (3, "a")], [2, 0, 1]),
+    ([(7, "a"), (7, "a")], [1, 0]),
+    ([(7, "a"), (7, "b")], [1, 0]),
+])
+def test_concurrent_dispatch_routes_out_of_order_results(consumer_factory, calls, return_order):
+    class ObservedQueue(queue.Queue):
+        def __init__(self):
+            super().__init__()
+            self.readers = set()
+
+        def get(self, *args, **kwargs):
+            self.readers.add(threading.current_thread())
+            return super().get(*args, **kwargs)
+
+    inputs = {model: queue.Queue() for _, model in calls}
+    outputs = ObservedQueue()
+    consumer = consumer_factory(inputs, outputs)
+    tasks, futures = [], []
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        for camera_id, model_name in calls:
+            futures.append(pool.submit(
+                consumer.dispatch_inference_sync, camera_id, model_name, np.zeros((4, 4, 3)), timeout=5,
+            ))
+            tasks.append(inputs[model_name].get(timeout=2))
+        assert consumer.result_router.snapshot()["pending_count"] == len(calls)
+        assert len({task["request_id"] for task in tasks}) == len(calls)
+        for index in return_order:
+            outputs.put(build_inference_result(
+                tasks[index], status=INFERENCE_STATUS_OK, detections=[{"request": tasks[index]["request_id"]}],
+            ))
+        for task, future in zip(tasks, futures):
+            result = future.result(timeout=2)
+            for key in ("request_id", "function_name", "camera_id", "roi_id", "model_name"):
+                assert result[key] == task[key]
+            assert result["status"] == INFERENCE_STATUS_OK
+            assert result["detections"] == [{"request": task["request_id"]}]
+    assert outputs.readers == {consumer.result_router._thread}
+    assert consumer.inference_outcome_counts == {INFERENCE_STATUS_OK: len(calls)}
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+def test_late_and_unidentifiable_results_do_not_pollute_next_request(consumer_factory):
+    inbox, outbox = queue.Queue(), queue.Queue()
+    consumer = consumer_factory({"test-model": inbox}, outbox)
+    expired = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=0)
+    old_task = inbox.get(timeout=2)
+    assert expired["status"] == INFERENCE_STATUS_TIMEOUT
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(consumer.dispatch_inference_sync, 7, "test-model", np.zeros((4, 4, 3)), timeout=5)
+        new_task = inbox.get(timeout=2)
+        assert old_task["request_id"] != new_task["request_id"]
+        for orphan in (None, {}, {"request_id": []}, build_inference_result(old_task, status=INFERENCE_STATUS_OK)):
+            outbox.put(orphan)
+        outbox.put(build_inference_result(new_task, status=INFERENCE_STATUS_OK, detections=[{"type": "current"}]))
+        result = future.result(timeout=2)
+    assert result["request_id"] == new_task["request_id"]
+    assert result["detections"] == [{"type": "current"}]
+    assert consumer.result_router.snapshot()["orphan_count"] == 4
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("camera_id", 99), ("function_name", "other-feature"), ("roi_id", 1), ("model_name", "other-model"),
+    ("camera_id", None), ("roi_id", False),
+])
+def test_matching_request_with_invalid_identity_fails_immediately(
+    monkeypatch, consumer_factory, caplog, field, value,
+):
+    inbox, outbox = queue.Queue(), queue.Queue()
+    consumer = consumer_factory({"test-model": inbox}, outbox)
+    _reply_on_submit(monkeypatch, inbox, outbox, lambda task: [
+        {**build_inference_result(task, status=INFERENCE_STATUS_OK), field: value},
+    ])
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(consumer.dispatch_inference_sync, 7, "test-model", np.zeros((4, 4, 3)), timeout=5)
+        result = future.result(timeout=2)
+    assert result["status"] == INFERENCE_STATUS_ERROR
+    assert result["error_code"] == INFERENCE_ERROR_INVALID_RESULT
+    assert result["camera_id"] == 7 and result["function_name"] == consumer.feature_name
+    assert result["roi_id"] == 0 and result["model_name"] == "test-model"
+    assert field in result["error_message"]
+    assert "推理结果身份不匹配" in caplog.text
+    assert consumer.result_router.snapshot()["invalid_count"] == 1
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+    assert consumer.inference_outcome_counts == {INFERENCE_STATUS_ERROR: 1}
+
+
+def test_submit_exception_always_unregisters_request(monkeypatch, consumer_factory):
+    inbox = queue.Queue()
+    consumer = consumer_factory({"test-model": inbox})
+
+    def fail(*args, **kwargs):
+        raise OSError("input queue closed")
+
+    monkeypatch.setattr(inbox, "put", fail)
+    with pytest.raises(OSError, match="input queue closed"):
+        consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)))
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+def test_duplicate_result_cannot_overwrite_completed_request(monkeypatch, consumer_factory):
+    inbox, outbox = queue.Queue(), queue.Queue()
+    consumer = consumer_factory({"test-model": inbox}, outbox)
+    _reply_on_submit(monkeypatch, inbox, outbox, lambda task: [
+        build_inference_result(task, status=INFERENCE_STATUS_ERROR, error_code=INFERENCE_ERROR_MODEL,
+                               error_message="model failed"),
+        build_inference_result(task, status=INFERENCE_STATUS_OK, detections=[{"type": "duplicate"}]),
+    ])
+    result = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)), timeout=2)
+    assert result["status"] == INFERENCE_STATUS_ERROR
+    assert result["error_code"] == INFERENCE_ERROR_MODEL
+    assert result["error_message"] == "model failed"
+    assert result["detections"] == []
+    assert consumer.inference_outcome_counts == {INFERENCE_STATUS_ERROR: 1}
+
+
+def test_consumer_router_receives_real_worker_process_results(consumer_factory):
+    import multiprocessing as mp
+
+    inputs = {model: mp.Queue() for model in ("a", "b")}
+    outbox = mp.Queue()
+    worker = ProcessOutcomeWorker(
+        infer_queues=inputs, result_queues={"outcome-test": outbox},
+        model_name="test-router-process", model_path="/unused-test.pt",
+    )
+    consumer = None
+    try:
+        worker.start()
+        assert worker._ready_event.wait(5)
+        consumer = consumer_factory(inputs, outbox)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {model: pool.submit(
+                consumer.dispatch_inference_sync, 7, model, np.zeros((4, 4, 3)), timeout=5,
+            ) for model in inputs}
+            results = [future.result(timeout=5) for future in futures.values()]
+        assert len({result["request_id"] for result in results}) == 2
+        for result, model in zip(results, inputs):
+            assert result["status"] == INFERENCE_STATUS_OK and result["model_name"] == model
+            assert result["detections"] == [{"type": model, "confidence": 0.9}]
+        assert consumer.result_router.snapshot()["pending_count"] == 0
+    finally:
+        if consumer is not None:
+            consumer.stop()
+        worker.stop()
+        for channel in (*inputs.values(), outbox):
+            channel.close()
+            channel.join_thread()
+
+
+def test_stop_wakes_all_pending_requests_and_closes_submission(consumer_factory):
+    inbox = queue.Queue()
+    consumer = consumer_factory({"test-model": inbox})
+    reader, processor = consumer.result_router._thread, consumer._thread
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(
+            consumer.dispatch_inference_sync, camera, "test-model", np.zeros((4, 4, 3)), timeout=5,
+        ) for camera in (1, 2, 3)]
+        for _ in futures:
+            inbox.get(timeout=2)
+        consumer.stop()
+        for future in futures:
+            result = future.result(timeout=2)
+            assert result["status"] == INFERENCE_STATUS_UNAVAILABLE
+            assert result["error_code"] == INFERENCE_ERROR_ROUTER_STOPPED
+    assert not reader.is_alive() and not processor.is_alive()
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+    stopped = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)))
+    assert stopped["error_code"] == INFERENCE_ERROR_ROUTER_STOPPED
+    assert inbox.empty()
+
+
+def test_consumer_and_router_lifecycle_is_explicit_and_repeatable(consumer_factory):
+    inbox = queue.Queue()
+    consumer = consumer_factory({"test-model": inbox}, start=False)
+    assert consumer._thread is None and consumer.result_router._thread is None
+    before_start = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)))
+    assert before_start["error_code"] == INFERENCE_ERROR_ROUTER_STOPPED
+    assert inbox.empty()
+    consumer.stop()
+    for _ in range(3):
+        consumer.start()
+        reader, processor = consumer.result_router._thread, consumer._thread
+        consumer.start()
+        consumer.result_router.start()
+        assert consumer.result_router._thread is reader and reader.is_alive()
+        assert consumer._thread is processor and processor.is_alive()
+        consumer.stop()
+        consumer.stop()
+        assert not reader.is_alive() and not processor.is_alive()
+        assert consumer.result_router.snapshot()["state"] == "stopped"
+
+
+@pytest.mark.parametrize("thread_prefix", ["consumer-", "inference-results-"])
+def test_start_failure_does_not_leave_a_result_reader(monkeypatch, consumer_factory, thread_prefix):
+    consumer = consumer_factory({}, start=False)
+    start = threading.Thread.start
+    threads = []
+
+    def fail_start(thread):
+        threads.append(thread)
+        if thread.name.startswith(thread_prefix):
+            raise RuntimeError("cannot start thread")
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    with pytest.raises(RuntimeError, match="cannot start thread"):
+        consumer.start()
+    assert consumer.running is False
+    assert not any(thread.is_alive() for thread in threads)
+
+
+def test_router_rejects_duplicate_request_registration(consumer_factory):
+    consumer = consumer_factory({})
+    router = consumer.result_router
+    pending = router.register(_task())
+    try:
+        with pytest.raises(ValueError, match="重复注册"):
+            router.register(_task())
+        assert router.snapshot()["pending_count"] == 1
+        consumer.result_queue.put(build_inference_result(_task(), status=INFERENCE_STATUS_OK))
+        assert router.wait(pending, 2)["status"] == INFERENCE_STATUS_OK
+    finally:
+        router.unregister(pending)
+
+
+@pytest.mark.parametrize("failure_type", [OSError, EOFError])
+def test_reader_failure_wakes_waiters_and_notifies_runtime(monkeypatch, consumer_factory, failure_type):
+    class BrokenQueue(queue.Queue):
+        def get(self, *args, **kwargs):
+            super().get(*args, **kwargs)
+            raise failure_type("result queue closed")
+
+    inbox, outbox = queue.Queue(), BrokenQueue()
+    consumer = consumer_factory({"test-model": inbox}, outbox)
+    notified = threading.Event()
+    alerts = []
+
+    def notify(event_type, detail):
+        alerts.append((event_type, detail))
+        notified.set()
+
+    monkeypatch.setattr(consumer, "_notify_runtime_alert", notify)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(
+            consumer.dispatch_inference_sync, camera, "test-model", np.zeros((4, 4, 3)), timeout=5,
+        ) for camera in (1, 2)]
+        for _ in futures:
+            inbox.get(timeout=2)
+        outbox.put("fail reader")
+        for future in futures:
+            result = future.result(timeout=2)
+            assert result["status"] == INFERENCE_STATUS_ERROR
+            assert result["error_code"] == INFERENCE_ERROR_ROUTER_FAILED
+            assert "result queue closed" in result["error_message"]
+    assert notified.wait(2)
+    assert len(alerts) == 1 and alerts[0][0] == "推理结果路由异常"
+    snapshot = consumer.result_router.snapshot()
+    assert snapshot["state"] == "failed" and snapshot["pending_count"] == 0
+    assert "result queue closed" in snapshot["last_error"]
+    subsequent = consumer.dispatch_inference_sync(7, "test-model", np.zeros((4, 4, 3)))
+    assert subsequent["error_code"] == INFERENCE_ERROR_ROUTER_FAILED
+    assert inbox.empty()

@@ -20,6 +20,7 @@ from __future__ import annotations
 from AiVision.departments.department_registry import require_department
 import threading
 import time
+from uuid import uuid4
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Callable, Optional
@@ -36,21 +37,21 @@ from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
-    INFERENCE_ERROR_TIMEOUT,
     INFERENCE_ERROR_UNAVAILABLE,
     INFERENCE_FAILURE_STATUSES,
     INFERENCE_STATUS_DROPPED,
     INFERENCE_STATUS_ERROR,
     INFERENCE_STATUS_OK,
-    INFERENCE_STATUS_TIMEOUT,
     INFERENCE_STATUS_UNAVAILABLE,
     build_inference_result,
 )
+from AiVision.inference.result_router import InferenceResultRouter
 
 # 帧差计算不是每个摄像头都比，是每隔4个像素采样一次，降低计算量
 _FRAME_CHANGE_SAMPLE_STEP = 4
 # 高斯模糊核。比较两帧之前先模糊，减少噪点导致的假变化
 _FRAME_CHANGE_BLUR_KERNEL = (5, 5)
+_CONSUMER_STOP_TIMEOUT_SECONDS = 5.0
 
 class BaseFunctionConsumer(ABC):
     """
@@ -71,7 +72,7 @@ class BaseFunctionConsumer(ABC):
     生命周期:
         Orchestrator 调用 start() → 内部加载配置并启动守护线程 _run()。
         配置变更时 Orchestrator 调用 update_config() / update_status() 热更新。
-        进程退出时调用 stop()，守护线程随主进程自动回收。
+        stop() 关闭推理投递、唤醒等待者，并等待结果路由与处理线程退出。
     """
     ROI_COLOR = (238, 211, 34)
 
@@ -91,6 +92,13 @@ class BaseFunctionConsumer(ABC):
         self.latest_frames = latest_frames
         self.is_camera_active = is_camera_active
         self.runtime_alert_handler = runtime_alert_handler                # Runtime监控监控（两种告警处理：业务告警核系统运行异常）
+        self.result_router = InferenceResultRouter(
+            result_queue, self.feature_name,
+            on_failure=lambda detail: self._notify_runtime_alert("推理结果路由异常", detail),
+        )
+        self._lifecycle_lock = threading.Lock()
+        # 只串行化注册和短时投递，等待结果不持锁；停止也通过此门控关闭投递。
+        self._inference_submission_lock = threading.Lock()
         self.inference_outcome_counts: dict[str, int] = defaultdict(int)  # 整个功能各种推理结果累计多少次
         # key是(model_name, camera_id)，统计当前摄像头调用模型的结果
         self._inference_outcome_counts_by_target: dict[tuple[str, int], dict[str, int]] = defaultdict(
@@ -136,19 +144,38 @@ class BaseFunctionConsumer(ABC):
 
         启动前先加载初始配置，确保主循环第一帧就能正常处理。
         """
-        if self.running:
-            return
-        self._load_initial_configs()
-        self.running = True
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self.running:
+                return
+            if self._thread is not None and self._thread.is_alive():
+                raise RuntimeError("Consumer 上一处理线程尚未退出，不能重复启动")
+            self._load_initial_configs()
+            with self._inference_submission_lock:
+                self.result_router.start()
+                self.running = True
+                self._thread = threading.Thread(target=self._run, name=f"consumer-{self.feature_name}", daemon=True)
+                try:
+                    self._thread.start()
+                except Exception:
+                    self.running = False
+                    self._thread = None
+                    self.result_router.stop()
+                    raise
         logger.info(
             f"[{self.feature_name}] Consumer 已启动，监控 {len(self.config_cache)} 个摄像头"
         )
 
     def stop(self):
-        """通知主循环退出；守护线程会随主进程自动回收，无需 join。"""
-        self.running = False
+        """先关闭投递并唤醒推理等待者，再回收处理线程。"""
+        with self._lifecycle_lock:
+            with self._inference_submission_lock:
+                self.running = False
+                self.result_router.stop()
+            if self._thread is not None:
+                self._thread.join(timeout=_CONSUMER_STOP_TIMEOUT_SECONDS)
+                if self._thread.is_alive():
+                    raise RuntimeError("Consumer 处理线程停止超时")
+                self._thread = None
         logger.info(f"[{self.feature_name}] Consumer 已停止")
 
     def _load_initial_configs(self):
@@ -266,6 +293,8 @@ class BaseFunctionConsumer(ABC):
             try:
                 # 遍历所有的摄像头
                 for cam_id in list(self.config_cache.keys()):
+                    if not self.running:
+                        break
                     with self._camera_state_lock:
                         cfg = self.config_cache.get(cam_id, {})
                         cam_name = cfg.get("shm_name")
@@ -634,10 +663,10 @@ class BaseFunctionConsumer(ABC):
         task_meta: Optional[dict] = None,
         timeout: float = 0.8,
     ) -> dict:
-        """投递当前摄像头唯一 ROI，按 request_id 匹配结果并保留失败状态。"""
+        """启动后投递当前摄像头唯一 ROI，通过结果路由器等待本请求的结果。"""
         import queue as _q
 
-        request_id = f"{self.feature_name}:{camera_id}:{time.monotonic_ns()}"
+        request_id = f"{self.feature_name}:{camera_id}:{uuid4().hex}"
         task = {
             **(task_meta or {}),
             "roi_id": 0,
@@ -654,42 +683,33 @@ class BaseFunctionConsumer(ABC):
                 error_message=f"模型未注册: {model_name}",
             )
         else:
+            pending = None
             try:
-                # 0.02s 超时：队列满时快速失败，不阻塞主循环。
-                self.infer_dict[model_name].put(task, timeout=0.02)
-            except _q.Full:
-                result = build_inference_result(
-                    task, status=INFERENCE_STATUS_DROPPED,
-                    error_code=INFERENCE_ERROR_QUEUE_FULL, error_message="模型推理队列已满",
-                )
-            else:
-                deadline = time.monotonic() + timeout
-                result = build_inference_result(
-                    task, status=INFERENCE_STATUS_TIMEOUT,
-                    error_code=INFERENCE_ERROR_TIMEOUT,
-                    error_message=f"等待推理结果超时: {timeout:.3f}s",
-                )
-                while time.monotonic() < deadline:
-                    try:
-                        outcome = self.result_queue.get(timeout=min(0.1, max(0.0, deadline - time.monotonic())))
-                    except _q.Empty:
-                        continue
-                    if (
-                        outcome.get("camera_id") == camera_id
-                        and outcome.get("function_name") == self.feature_name
-                        and outcome.get("request_id") == request_id
-                        and outcome.get("roi_id") == 0
-                    ):
-                        result = dict(outcome)
-                        if (
-                            result.get("status") not in (INFERENCE_STATUS_OK, *INFERENCE_FAILURE_STATUSES)
-                            or not isinstance(result.get("detections"), list)
-                        ):
+                result = None
+                with self._inference_submission_lock:
+                    pending = self.result_router.register(task)
+                    if not pending.event.is_set():
+                        try:
+                            # 必须先注册再投递，结果可能在 put 返回前到达。
+                            self.infer_dict[model_name].put(task, timeout=0.02)
+                        except _q.Full:
                             result = build_inference_result(
-                                task, status=INFERENCE_STATUS_ERROR,
-                                error_code=INFERENCE_ERROR_INVALID_RESULT,
-                                error_message="推理结果必须包含明确的 status 和 detections 列表",
+                                task, status=INFERENCE_STATUS_DROPPED,
+                                error_code=INFERENCE_ERROR_QUEUE_FULL, error_message="模型推理队列已满",
                             )
-                        break
+                if result is None:
+                    result = self.result_router.wait(pending, timeout)
+                if (
+                    result.get("status") not in (INFERENCE_STATUS_OK, *INFERENCE_FAILURE_STATUSES)
+                    or not isinstance(result.get("detections"), list)
+                ):
+                    result = build_inference_result(
+                        task, status=INFERENCE_STATUS_ERROR,
+                        error_code=INFERENCE_ERROR_INVALID_RESULT,
+                        error_message="推理结果必须包含明确的 status 和 detections 列表",
+                    )
+            finally:
+                if pending is not None:
+                    self.result_router.unregister(pending)
         self._record_inference_outcomes(camera_id=camera_id, model_name=model_name, outcomes=[result])
         return result

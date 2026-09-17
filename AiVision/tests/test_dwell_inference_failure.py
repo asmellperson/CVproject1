@@ -187,14 +187,19 @@ def test_unexpected_dispatch_exception_pauses_instead_of_exposing_old_alarm(scen
 
 
 @pytest.mark.parametrize("available", [False, True])
-def test_real_dispatch_unavailable_and_timeout_remain_failures_after_recovery(scene, available):
+def test_real_dispatch_unavailable_and_timeout_remain_failures_after_recovery(scene, available, monkeypatch):
     scene.step(100)
     scene.step(104)
     mock_dispatch = scene.consumer.dispatch_inference_sync
     if available:
         scene.consumer.infer_dict[scene.consumer.spec.required_models[0]] = queue.Queue()
     scene.consumer.dispatch_inference_sync = partial(scene.real_dispatch, timeout=.002)
-    _, snapshot, _ = scene.step(120)
+    monkeypatch.setattr(scene.consumer, "_load_initial_configs", lambda: None)
+    scene.consumer.start()
+    try:
+        _, snapshot, _ = scene.step(120)
+    finally:
+        scene.consumer.stop()
     assert snapshot["count"] is None and snapshot["reason"] == "unknown"
     assert scene.consumer.inference_outcome_counts["timeout" if available else "unavailable"] == 1
     assert scene.consumer._trackers[1].tracks[1].lost == 0

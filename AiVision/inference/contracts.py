@@ -29,6 +29,9 @@ INFERENCE_ERROR_QUEUE_FULL: Final = "infer_queue_full"
 INFERENCE_ERROR_TIMEOUT: Final = "inference_timeout"
 INFERENCE_ERROR_UNAVAILABLE: Final = "model_unavailable"
 INFERENCE_ERROR_INVALID_RESULT: Final = "invalid_inference_result"
+# 主进程结果路由不可用，与模型执行失败分开记录。
+INFERENCE_ERROR_ROUTER_STOPPED: Final = "inference_router_stopped"
+INFERENCE_ERROR_ROUTER_FAILED: Final = "inference_router_failed"
 
 def build_inference_result(
     task: dict,
