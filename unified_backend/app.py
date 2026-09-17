@@ -1234,14 +1234,10 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "unified_backend", "port": int(os.getenv("UNIFIED_BACKEND_PORT", "5000"))}
 
     @app.get("/api/overview", response_model=OverviewStatus)
-    def overview(request: Request, department: str):
-        try:
-            department = require_department(department)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if department not in _security_vlm_departments_for_user(request.state.user):
-            raise HTTPException(status_code=403, detail="无权访问该事业部")
-        return build_overview(request, department, aivision_url, guard_room_url,
+    def overview(request: Request):
+        user = request.state.user
+        departments = list(DEPARTMENT_SPECS) if user.get("role") == "admin" else _departments_for_user(user)
+        return build_overview(request, departments, aivision_url, guard_room_url,
                               security_vlm_url, _get_json_concurrently)
 
     # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明

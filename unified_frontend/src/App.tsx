@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useOverview } from '@/hooks/use-overview'
 import { useAuth } from '@/auth/useAuth'
-import { getAccessibleDepartments, isDetectionPage, resolveDepartment, resolvePage, type DepartmentId } from '@/auth/permissions'
+import { isDetectionPage, resolveDepartment, resolvePage, type DepartmentId } from '@/auth/permissions'
 import type { AuthUser } from '@/auth/auth-context'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width-v2'
@@ -79,8 +79,8 @@ function initializeNavigation(user: AuthUser | null, page: string, requestedDepa
   const nextPage = resolvePage(user, page, requestedDepartment)
   return {
     page: nextPage,
-    // 仅总览初始化选择首个授权事业部；检测导航必须提供有效上下文。
-    department: nextPage === 'overview' && !department ? getAccessibleDepartments(user)[0] ?? null : department,
+    // 总览属于平台，不能继承检测页面的事业部上下文。
+    department: nextPage === 'overview' ? null : department,
   }
 }
 
@@ -102,15 +102,15 @@ function App() {
     user, getInitialPage(), new URLSearchParams(window.location.search).get('department'),
   ))
   const currentPage = navigation.page
-  const currentDepartment = resolveDepartment(user, navigation.department)
-  const overviewState = useOverview(currentDepartment)
+  const activePage = resolvePage(user, currentPage, navigation.department)
+  const currentDepartment = activePage === 'overview' ? null : resolveDepartment(user, navigation.department)
+  const overviewState = useOverview(user)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
   const [sidebarResizing, setSidebarResizing] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const isMobile = useIsMobile()
-  const activePage = resolvePage(user, currentPage, navigation.department)
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -118,7 +118,7 @@ function App() {
     if (currentDepartment) url.searchParams.set('department', currentDepartment)
     else url.searchParams.delete('department')
     window.history.replaceState(null, '', url)
-  }, [activePage, currentDepartment])
+  }, [activePage, currentDepartment, navigation])
 
   useEffect(() => {
     const syncLocation = () => {
@@ -131,7 +131,7 @@ function App() {
   }, [user])
 
   const handlePageChange = (page: string, department?: DepartmentId) => {
-    const requestedDepartment = isDetectionPage(page) ? department : department ?? currentDepartment
+    const requestedDepartment = page === 'overview' ? null : isDetectionPage(page) ? department : department ?? currentDepartment
     setNavigation(initializeNavigation(user, page, requestedDepartment))
     if (isMobile) setMobileSidebarOpen(false)
   }
@@ -147,7 +147,7 @@ function App() {
   const renderContent = () => {
     switch (activePage) {
       case 'overview':
-        return currentDepartment ? <HomeSection department={currentDepartment} onNavigate={handlePageChange} overviewState={overviewState} /> : <p>当前账号未授权事业部</p>
+        return <HomeSection onNavigate={handlePageChange} overviewState={overviewState} />
       case 'security-vlm':
         return currentDepartment && <SecurityVlmSection department={currentDepartment} />
       case 'guard-behavior':
@@ -175,7 +175,7 @@ function App() {
       case 'access-audit':
         return <AccessAuditSection />
       default:
-        return currentDepartment && <HomeSection department={currentDepartment} onNavigate={handlePageChange} overviewState={overviewState} />
+        return <HomeSection onNavigate={handlePageChange} overviewState={overviewState} />
     }
   }
 

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DepartmentId } from '../auth/permissions'
+import type { AuthUser } from '../auth/auth-context'
 import { getOverview, OVERVIEW_POLL_INTERVAL_MS, OVERVIEW_REQUEST_TIMEOUT_MS, type OverviewStatus } from '../lib/api'
 import { useSerialPoll } from './use-serial-poll'
 import { PLATFORM_CAMERAS_CHANGED_EVENT } from '../lib/camera-events'
 import { PLATFORM_RUNTIME_CHANGED_EVENT } from '../lib/runtime-events'
 
-export function useOverview(department: DepartmentId | null) {
-  const [result, setResult] = useState<{ department: DepartmentId; data: OverviewStatus | null; error: string } | null>(null)
+export function useOverview(user: AuthUser | null) {
+  const scope = user ? JSON.stringify([user.employee_id, user.role, [...user.departments].sort()]) : null
+  const [result, setResult] = useState<{ scope: string; data: OverviewStatus | null; error: string } | null>(null)
   const [revision, setRevision] = useState(0)
-  const context = `${department}:${revision}`
+  const context = `${scope}:${revision}`
   const current = useRef({ key: context })
   if (current.current.key !== context) current.current = { key: context }
   const requestContext = current.current
@@ -27,24 +28,23 @@ export function useOverview(department: DepartmentId | null) {
   }, [])
 
   useSerialPoll(async (signal) => {
-    if (!department) return
+    if (!scope) return
     try {
-      const data = await getOverview(department, { signal })
+      const data = await getOverview({ signal })
       if (!mounted.current || signal.aborted || current.current !== requestContext) return
-      if (data.department !== department) throw new Error('总览返回的事业部不匹配')
-      setResult({ department, data, error: data.inventory_complete ? '' : `摄像头清单加载不完整：${Object.values(data.inventory_errors).join('；')}` })
+      setResult({ scope, data, error: data.inventory_complete ? '' : `摄像头清单加载不完整：${Object.values(data.inventory_errors).join('；')}` })
     } catch (error) {
-      if (mounted.current && current.current === requestContext) setResult({ department, data: null, error: `摄像头清单加载失败：${String(error)}` })
+      if (mounted.current && current.current === requestContext) setResult({ scope, data: null, error: `摄像头清单加载失败：${String(error)}` })
     }
   }, {
-    enabled: department !== null,
+    enabled: scope !== null,
     intervalMs: OVERVIEW_POLL_INTERVAL_MS,
     timeoutMs: OVERVIEW_REQUEST_TIMEOUT_MS,
     restartKey: context,
   })
 
-  const scoped = result?.department === department ? result : null
-  return { data: scoped?.data ?? null, error: scoped?.error ?? '', loading: department !== null && !scoped, refresh }
+  const scoped = result?.scope === scope ? result : null
+  return { data: scoped?.data ?? null, error: scoped?.error ?? '', loading: scope !== null && !scoped, refresh }
 }
 
 export type OverviewState = ReturnType<typeof useOverview>

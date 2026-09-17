@@ -142,7 +142,7 @@ test('renders the five latest alarms as a severity timeline with navigation', ()
   assert.match(timeline, /getAlarmLocation\(alarm\)/)
   assert.match(timeline, /严重报警/)
   assert.match(timeline, /查看全部报警/)
-  assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms', department\)\}/)
+  assert.match(timeline, /onClick=\{\(\) => onNavigate\('alarms'\)\}/)
 })
 
 test('removes the bottom feature entry cards from the overview', () => {

@@ -173,7 +173,8 @@ export type OverviewCamera = {
 }
 
 export type OverviewStatus = {
-  department: DepartmentId
+  departments: DepartmentId[]
+  department_summaries: Partial<Record<DepartmentId, OverviewStatus['summary']>>
   ok: boolean
   level: 'healthy' | 'degraded' | 'down'
   generated_at: number
@@ -195,7 +196,7 @@ export type OverviewStatus = {
 
 export const OVERVIEW_POLL_INTERVAL_MS = 30_000
 export const OVERVIEW_REQUEST_TIMEOUT_MS = 8_000
-export const getOverview = (department: DepartmentId, init?: RequestInit) => apiGet<OverviewStatus>(`/overview?department=${department}`, init)
+export const getOverview = (init?: RequestInit) => apiGet<OverviewStatus>('/overview', init)
 
 export type AlarmEvent = {
   id: string

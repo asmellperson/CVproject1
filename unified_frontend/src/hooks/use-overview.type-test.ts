@@ -1,4 +1,5 @@
 import type { DepartmentId } from '../auth/permissions'
+import type { AuthUser } from '../auth/auth-context'
 import type { ComponentProps } from 'react'
 import type { getOverview, OverviewStatus } from '../lib/api'
 import type { HomeSection } from '../sections/HomeSection'
@@ -13,15 +14,14 @@ type Equal<Left, Right> =
 type AssertTrue<Value extends true> = Value
 
 type ExpectedHomeSectionProps = {
-  department: DepartmentId
-  onNavigate: (page: string, department: DepartmentId) => void
+  onNavigate: (page: string, department?: DepartmentId) => void
   overviewState: ReturnType<typeof useOverview>
 }
 
 export type UseOverviewStatusContractAssertions = [
-  AssertTrue<Equal<Parameters<typeof getOverview>, [department: DepartmentId, init?: RequestInit]>>,
+  AssertTrue<Equal<Parameters<typeof getOverview>, [init?: RequestInit]>>,
   AssertTrue<Equal<ReturnType<typeof getOverview>, Promise<OverviewStatus>>>,
-  AssertTrue<Equal<Parameters<typeof useOverview>, [department: DepartmentId | null]>>,
+  AssertTrue<Equal<Parameters<typeof useOverview>, [user: AuthUser | null]>>,
   AssertTrue<Equal<ReturnType<typeof useOverview>, import('./use-overview').OverviewState>>,
   AssertTrue<Equal<ComponentProps<typeof HomeSection>, ExpectedHomeSectionProps>>,
 ]

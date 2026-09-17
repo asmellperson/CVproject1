@@ -53,7 +53,7 @@ test('viewer without a registered department cannot enter detection pages', () =
   for (const assigned of [[], ['unknown']]) assert.ok(DETECTION_PAGE_IDS.every((page) => !hasPageAccess(user(assigned), page)))
 })
 
-test('API list and inventory transmit the selected department; overview uses the selected department', async () => {
+test('物流列表与清单继续传递明确的事业部', async () => {
   const stubUrl = moduleUrl(`
     export const apiGet = async (path, init) => ({ path, init })
     export const apiPost = apiGet, apiPut = apiGet, apiPatch = apiGet, apiDelete = apiGet, apiUrl = (path) => path
@@ -99,7 +99,7 @@ test('each route passes department to one shared page and resets the whole page 
   assert.doesNotMatch(home, /logisticsPageByFeature/)
 })
 
-test('总览直接展示后端的事业部摄像头和能力统计', async () => {
+test('总览直接展示后端授权范围内的摄像头和能力统计', async () => {
   const home = await read('sections/HomeSection.tsx')
   assert.match(home, /overviewStatus\?\.capabilities/)
   assert.match(home, /overviewStatus\?\.cameras/)

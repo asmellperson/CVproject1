@@ -1,4 +1,4 @@
-"""按事业部聚合平台总览，物流成员只补充物理摄像头的能力信息。"""
+"""按登录用户授权范围聚合平台总览，物流成员只补充物理摄像头的能力信息。"""
 from collections.abc import Callable
 from time import time
 from typing import Literal
@@ -68,8 +68,7 @@ class OverviewSummary(BaseModel):
     camera_offline: int
 
 
-class OverviewStatus(BaseModel):
-    department: str
+class _OverviewScope(BaseModel):
     generated_at: float
     ok: bool
     level: Literal["healthy", "degraded", "down"]
@@ -82,16 +81,13 @@ class OverviewStatus(BaseModel):
     guard_room_sites: list[dict]
 
 
-def build_overview(request: Request, department: str, aivision_url: str,
-                   guard_room_url: str, security_vlm_url: str, read_many: ReadMany) -> OverviewStatus:
-    upstream = read_many({
-        "ai_status": (aivision_url, "/api/runtime/status", request),
-        "ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
-        "features": (aivision_url, "/api/features", request),
-        "logistics": (aivision_url, f"/api/logistics-channels/inventory?department={department}", request),
-        "guard_sites": (guard_room_url, f"/api/sites?department={department}", request),
-        "vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
-    })
+class OverviewStatus(_OverviewScope):
+    departments: list[str]
+    department_summaries: dict[str, OverviewSummary]
+
+
+def _build_department_overview(department: str, upstream: dict[str, UpstreamResult],
+                               site_results: dict[str, UpstreamResult]) -> _OverviewScope:
     errors = {}
 
     def payload(key: str, expected: type):
@@ -108,10 +104,6 @@ def build_overview(request: Request, department: str, aivision_url: str,
     guard_sites = payload("guard_sites", dict)
     vlm_state = payload("vlm_state", dict)
     sites = [site for site in guard_sites.get("items", []) if site.get("department") == department]
-    site_results = read_many({
-        str(site["id"]): (guard_room_url, f"/api/sites/{site['id']}/status?department={department}", request)
-        for site in sites
-    })
     services = {}
     for source, key in (("aivision", "ai_status"), ("guard_room", "guard_sites"), ("security_vlm", "vlm_state")):
         ok, _value, latency, error = upstream[key]
@@ -192,8 +184,8 @@ def build_overview(request: Request, department: str, aivision_url: str,
         service.running = any(capability.source == source and capability.running for capability in capabilities)
     all_online = all(service.online for service in services.values()) and not errors
     camera_online = sum(camera.online for camera in cameras)
-    return OverviewStatus(
-        department=department, generated_at=time(), ok=all_online,
+    return _OverviewScope(
+        generated_at=time(), ok=all_online,
         level="healthy" if all_online else "degraded" if any(s.online for s in services.values()) else "down",
         inventory_complete=not errors, inventory_errors=errors,
         summary=OverviewSummary(
@@ -202,4 +194,76 @@ def build_overview(request: Request, department: str, aivision_url: str,
             camera_online=camera_online, camera_offline=len(cameras) - camera_online,
         ), capabilities=capabilities, cameras=cameras, services=services,
         guard_room_sites=[{"id": site["id"], "name": site["name"], "department": department} for site in sites],
+    )
+
+
+def build_overview(request: Request, departments: list[str], aivision_url: str,
+                   guard_room_url: str, security_vlm_url: str, read_many: ReadMany) -> OverviewStatus:
+    # 公共状态只读取一次，各事业部清单并发获取，避免随授权范围串行增加等待时间。
+    calls = {
+        "ai_status": (aivision_url, "/api/runtime/status", request),
+        "features": (aivision_url, "/api/features", request),
+    } if departments else {}
+    for department in departments:
+        calls.update({
+            f"{department}:ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
+            f"{department}:logistics": (aivision_url, f"/api/logistics-channels/inventory?department={department}", request),
+            f"{department}:guard_sites": (guard_room_url, f"/api/sites?department={department}", request),
+            f"{department}:vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
+        })
+    upstream = read_many(calls) if calls else {}
+    site_calls = {}
+    for department in departments:
+        ok, payload, _latency, _error = upstream[f"{department}:guard_sites"]
+        if ok and isinstance(payload, dict):
+            for site in payload.get("items", []):
+                if site.get("department") == department:
+                    site_calls[str(site["id"])] = (
+                        guard_room_url, f"/api/sites/{site['id']}/status?department={department}", request,
+                    )
+    site_results = read_many(site_calls) if site_calls else {}
+    scopes = {}
+    for department in departments:
+        scope_upstream = {key: upstream[key] for key in ("ai_status", "features")}
+        scope_upstream.update({
+            key: upstream[f"{department}:{key}"]
+            for key in ("ai_cameras", "logistics", "guard_sites", "vlm_state")
+        })
+        scopes[department] = _build_department_overview(department, scope_upstream, site_results)
+
+    cameras = [camera for scope in scopes.values() for camera in scope.cameras]
+    errors = {f"{department}:{key}": error for department, scope in scopes.items()
+              for key, error in scope.inventory_errors.items()}
+    services = {}
+    for source in ("aivision", "guard_room", "security_vlm"):
+        items = [scope.services[source] for scope in scopes.values()]
+        services[source] = OverviewServiceStatus(
+            online=any(item.online for item in items), running=any(item.running for item in items),
+            model_ready=any(item.model_ready for item in items),
+            camera_count=sum(item.camera_count for item in items),
+            online_camera_count=sum(item.online_camera_count for item in items),
+            latency_ms=max((item.latency_ms for item in items if item.latency_ms is not None), default=None),
+            error="；".join(dict.fromkeys(item.error for item in items if item.error)) or None,
+        )
+    capabilities = []
+    for index, (page, name, source, _feature) in enumerate(CAPABILITIES):
+        items = [scope.capabilities[index] for scope in scopes.values()]
+        capabilities.append(OverviewCapability(
+            id=page, name=name, source=source, camera_count=sum(item.camera_count for item in items),
+            online_camera_count=sum(item.online_camera_count for item in items),
+            running=any(item.running for item in items), model_ready=any(item.model_ready for item in items),
+        ))
+    all_online = bool(scopes) and all(scope.ok for scope in scopes.values())
+    camera_online = sum(camera.online for camera in cameras)
+    return OverviewStatus(
+        departments=departments, department_summaries={department: scope.summary for department, scope in scopes.items()},
+        generated_at=time(), ok=all_online,
+        level="healthy" if all_online else "degraded" if any(s.online for s in services.values()) else "down",
+        inventory_complete=not errors, inventory_errors=errors,
+        summary=OverviewSummary(
+            capability_total=len(capabilities), capability_online=sum(services[c.source].online for c in capabilities),
+            capability_running=sum(c.running for c in capabilities), camera_total=len(cameras),
+            camera_online=camera_online, camera_offline=len(cameras) - camera_online,
+        ), capabilities=capabilities, cameras=cameras, services=services,
+        guard_room_sites=[site for scope in scopes.values() for site in scope.guard_room_sites],
     )

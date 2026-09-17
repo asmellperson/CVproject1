@@ -36,7 +36,7 @@ import { useAuth } from '@/auth/useAuth'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   getAccessibleAlarmEventTypes,
-  DEPARTMENT_LABELS, isDepartment,
+  isDepartment,
   type DepartmentId,
 } from '@/auth/permissions'
 import {
@@ -64,8 +64,7 @@ import { detectionNavItems } from '@/lib/nav'
 import type { OverviewState as OverviewRequest } from '@/hooks/use-overview'
 
 interface HomeSectionProps {
-  department: DepartmentId
-  onNavigate: (page: string, department: DepartmentId) => void
+  onNavigate: (page: string, department?: DepartmentId) => void
   overviewState: OverviewRequest
 }
 
@@ -146,10 +145,10 @@ function makeAiVisionShmName(alias: string) {
   return `${base || 'camera'}_${Date.now().toString(36)}`
 }
 
-export function HomeSection({ department, onNavigate, overviewState }: HomeSectionProps) {
+export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
-  const [alarmOverview, setAlarmOverview] = useState<{ department: DepartmentId; data: OverviewState } | null>(null)
-  const overview = alarmOverview?.department === department ? alarmOverview.data : defaultOverview
+  const [alarmOverview, setAlarmOverview] = useState<{ user: typeof user; data: OverviewState } | null>(null)
+  const overview = alarmOverview?.user === user ? alarmOverview.data : defaultOverview
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
   const [exceptionRepeatIntervalMinutes, setExceptionRepeatIntervalMinutes] = useState(60)
@@ -178,9 +177,6 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
     reload: reloadDepartments,
   } = useDepartmentCatalog(Boolean(user))
   const departmentsUnavailable = departmentsLoading || Boolean(departmentsError)
-  const cameraSourceDepartments: Record<CameraSource, DepartmentId[]> = useMemo(() => ({
-    aivision: [department], guard_room: [department], security_vlm: [department],
-  }), [department])
   const cameraDepartmentLabel = (name?: string | null) => name ? departmentLabels[name] || name : '未分配事业部'
   const overviewStatus = overviewState.data
   const platformCameras = overviewStatus?.cameras ?? []
@@ -254,14 +250,14 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
     }
   }
 
-  const allowedCameraDepartments = cameraSourceDepartments[cameraSource]
+  const allowedCameraDepartments = overviewStatus?.departments ?? []
   const guardSiteOptions = guardRoomSites.filter((site) => site.department === cameraDepartment)
 
   useEffect(() => {
     setCameraDialogOpen(false)
     setCameraToEdit(null)
     setCameraToDelete(null)
-  }, [department])
+  }, [user])
 
   const resetCameraForm = () => {
     setCameraName('')
@@ -275,15 +271,14 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
     setCameraDialogMode('create')
     resetCameraForm()
     setCameraSource('aivision')
-    setCameraDepartment(departmentOptions.some((item) => item.value === department) ? department : '')
+    setCameraDepartment('')
     if (departmentsError) reloadDepartments()
     setCameraGuardSiteId('')
     setCameraDialogOpen(true)
   }
 
   const handleCameraSourceChange = (source: CameraSource) => {
-    const departments = cameraSourceDepartments[source]
-    const nextDepartment = isDepartment(cameraDepartment) && departments.includes(cameraDepartment)
+    const nextDepartment = isDepartment(cameraDepartment) && allowedCameraDepartments.includes(cameraDepartment)
       ? cameraDepartment
       : ''
     setCameraSource(source)
@@ -407,13 +402,13 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
     let cancelled = false
 
     async function loadOverview() {
-      const alarms = await getAlarms(100, accessibleAlarmEventTypes, department)
+      const alarms = await getAlarms(100, accessibleAlarmEventTypes)
 
       if (cancelled) return
       const allowedAlarmTypes = accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null
-      const alarmItems = alarms.filter((alarm) => alarm.department === department && (!allowedAlarmTypes || allowedAlarmTypes.has(alarm.event_type)))
+      const alarmItems = alarms.filter((alarm) => !allowedAlarmTypes || allowedAlarmTypes.has(alarm.event_type))
 
-      setAlarmOverview({ department, data: {
+      setAlarmOverview({ user, data: {
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
         recentAlarms: alarmItems.slice(0, 5),
@@ -422,13 +417,13 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
 
     void loadOverview().catch(() => {
       if (!cancelled) {
-        setAlarmOverview({ department, data: defaultOverview })
+        setAlarmOverview({ user, data: defaultOverview })
       }
     })
 
     const timer = window.setInterval(() => {
       void loadOverview().catch(() => {
-        if (!cancelled) setAlarmOverview({ department, data: defaultOverview })
+        if (!cancelled) setAlarmOverview({ user, data: defaultOverview })
       })
     }, 10000)
 
@@ -436,7 +431,7 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [accessibleAlarmEventTypes, department])
+  }, [accessibleAlarmEventTypes, user])
 
   return (
     <>
@@ -452,9 +447,6 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
           <OverviewMascot />
           <div className="relative z-[3] flex min-h-[240px] items-center justify-center px-3 py-5 text-center sm:min-h-[280px] sm:px-10 sm:py-7 lg:px-14 2xl:min-h-[380px] 2xl:px-20 2xl:py-10">
             <div className="relative z-[3] flex -translate-y-3 flex-col items-center justify-center sm:-translate-y-4">
-              <Badge className="mb-4 w-fit border border-blue-200 bg-white/78 px-3 py-1 text-sm font-semibold text-[#09265a] shadow-none hover:bg-white/78 dark:border-blue-900/70 dark:bg-slate-950/70 dark:text-blue-100 dark:hover:bg-slate-950/70">
-                {DEPARTMENT_LABELS[department]}
-              </Badge>
               <h2 className="whitespace-nowrap text-[clamp(1rem,4.5vw,3rem)] font-black tracking-[0] text-[#061d45] drop-shadow-[0_10px_22px_rgba(255,255,255,0.65)] dark:text-white dark:drop-shadow-[0_10px_22px_rgba(0,0,0,0.55)] 2xl:text-6xl">
                 福达 AI 视觉安全监管平台
               </h2>
@@ -471,7 +463,7 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
                 </div>
                 <div>
                   <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">平台汇总</h3>
-                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">事业部总览每 30 秒刷新</p>
+                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">平台总览每 30 秒刷新</p>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -646,7 +638,7 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
 
               <button
                 type="button"
-                onClick={() => onNavigate('alarms', department)}
+                onClick={() => onNavigate('alarms')}
                 className="mt-5 flex w-full items-center justify-between border-t border-slate-200 pt-4 text-sm font-bold text-[#09265a] transition hover:text-blue-600 dark:border-slate-800 dark:text-blue-300 dark:hover:text-blue-200"
               >
                 <span>查看全部报警</span>
@@ -731,7 +723,6 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
                     key={card.id}
                     service={overviewStatus?.services[card.source]}
                     capability={card}
-                    onNavigate={() => onNavigate(card.id, department)}
                   />
                 ))}
               </div>
@@ -752,16 +743,13 @@ export function HomeSection({ department, onNavigate, overviewState }: HomeSecti
                   </div>
                 </div>
               </div>
-              <Badge className="border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-bold text-[#09265a] shadow-none hover:bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-100 dark:hover:bg-blue-950/50">
-                {DEPARTMENT_LABELS[department]}
-              </Badge>
             </div>
 
             <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
               <MetricTile
                 title="模块覆盖"
                 value={visibleStatusCards.length}
-                detail="当前事业部固定九个检测能力"
+                detail="每个事业部固定九个检测能力"
                 icon={<CircleDotDashed className="h-5 w-5" />}
                 tone="blue"
               />
@@ -1012,8 +1000,7 @@ function StatusBadge({ level }: { level: string }) {
   return <Badge className={cn('px-3 py-1.5 text-sm font-bold shadow-none hover:bg-current/0', className)}>{label}</Badge>
 }
 
-function ServiceStatusCard({ service, capability, onNavigate }: {
-  onNavigate: () => void
+function ServiceStatusCard({ service, capability }: {
   service?: OverviewServiceStatus
   capability: OverviewCapability
 }) {
@@ -1034,7 +1021,7 @@ function ServiceStatusCard({ service, capability, onNavigate }: {
   })
 
   return (
-    <button type="button" onClick={onNavigate} className="w-full rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-left shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
+    <div className="w-full rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-left shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-[#071d3d] dark:text-slate-100">{displayName}</div>
@@ -1068,7 +1055,7 @@ function ServiceStatusCard({ service, capability, onNavigate }: {
           </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 

@@ -35,7 +35,7 @@ test('department selection uses the formal department API catalog', async () => 
 })
 
 
-test('detection URLs need explicit authorized departments; only overview initializes a default', async () => {
+test('检测页必须显式指定授权事业部，总览不选择默认事业部', async () => {
   const permissions = await read('auth/permissions.ts')
   const source = await read('App.tsx')
   const compile = (value) => ts.transpileModule(value, {
@@ -64,9 +64,16 @@ test('detection URLs need explicit authorized departments; only overview initial
         const navigation = context.initializeNavigation(user, url.searchParams.get('page'), url.searchParams.get('department'))
         const allowed = catalog.exports.getAccessibleDepartments(user).includes(requested)
         assert.equal(navigation.page, allowed ? page : 'overview')
-        assert.equal(navigation.department, allowed ? requested : departments[0])
+        assert.equal(navigation.department, allowed ? requested : null)
         assert.equal(catalog.exports.resolveDepartment(user, requested), allowed ? requested : null)
       }
+    }
+  }
+  for (const user of users) {
+    for (const requested of [null, ...departments]) {
+      const overview = context.initializeNavigation(user, 'overview', requested)
+      assert.equal(overview.page, 'overview')
+      assert.equal(overview.department, null)
     }
   }
   const unassigned = context.initializeNavigation({ role: 'viewer', departments: [] }, 'face-recognition', null)

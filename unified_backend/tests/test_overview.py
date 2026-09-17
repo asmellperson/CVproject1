@@ -68,76 +68,135 @@ def client_for(monkeypatch, tmp_path, user):
     return TestClient(app_module.create_app())
 
 
+def mock_overview_sources(monkeypatch):
+    departments = list(DEPARTMENT_SPECS)
+    calls = []
+
+    def read(requests):
+        results = {}
+        for key, (_base, path, _request) in requests.items():
+            calls.append(path)
+            if key == "ai_status":
+                payload = {"running_cameras": [f"camera_{i}" for i in range(7)],
+                           "running_consumers": ["recognize_face"], "running_models": ["insightface"]}
+            elif key == "features":
+                payload = {"features": [{"name": "recognize_face", "required_models": ["insightface"]},
+                                        {"name": "blocks", "required_models": ["yolo_human"]}]}
+            elif key.isdigit():
+                payload = {"running": True}
+            else:
+                department, resource = key.split(":", 1)
+                index = departments.index(department)
+                other = departments[(index + 1) % len(departments)]
+                camera = {"id": str(index), "camera_id": index, "name": f"测试{index}",
+                          "shm_name": f"camera_{index}", "department": department, "enabled": True,
+                          "sort_order": index, "functions": {"recognize_face": True}}
+                if resource == "ai_cameras":
+                    payload = [camera, {**camera, "camera_id": 100 + index, "department": other}]
+                elif resource == "logistics":
+                    payload = {"items": [{"camera_id": index, "department": department, "online": True, "memberships": [
+                        {"feature_name": "detect_logistics_single_person", "channel_id": index,
+                         "channel_name": "测试通道", "enabled": True, "online": True},
+                    ]}]}
+                elif resource == "guard_sites":
+                    site = {"id": index, "name": "本部", "department": department, "enabled": True,
+                            "cameras": [{"id": index, "name": "保安", "enabled": True}]}
+                    payload = {"items": [site, {**site, "id": 100 + index, "department": other}]}
+                elif resource == "vlm_state":
+                    payload = {"vlm": {"ok": True}, "cameras": [
+                        {"camera_id": "scanner", "name": "安检", "running": True},
+                        {"camera_id": "other", "name": "其他", "department": other, "running": True},
+                    ]}
+                else:
+                    pytest.fail(f"意外的上游资源：{resource}")
+            results[key] = (True, payload, 1.0, None)
+        return results
+
+    monkeypatch.setattr(app_module, "_get_json_concurrently", read)
+    return calls
+
+
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
 @pytest.mark.parametrize("role", ["admin", "viewer"])
-def test_overview_scopes_inventory_and_keeps_nine_capabilities(monkeypatch, tmp_path, department, role):
-    other = next(item for item in DEPARTMENT_SPECS if item != department)
-    calls = []
-    def camera(identifier, scope):
-        return {"id": str(identifier), "camera_id": identifier, "name": f"测试{identifier}",
-                "shm_name": f"camera_{identifier}", "department": scope, "enabled": True,
-                "sort_order": identifier, "functions": {"recognize_face": True}}
-    payloads = {
-        "ai_status": {"running_cameras": ["camera_1", "camera_2"], "running_consumers": ["recognize_face"], "running_models": ["insightface"]},
-        "ai_cameras": [camera(1, department), camera(2, other)],
-        "logistics": {"items": [{"camera_id": 1, "department": department, "online": True, "memberships": [
-            {"feature_name": "detect_logistics_single_person", "channel_id": 8, "channel_name": "测试通道", "enabled": True, "online": True},
-        ]}]},
-        "guard_sites": {"items": [
-            {"id": 10, "name": "本部", "department": department, "enabled": True, "cameras": [{"id": 5, "name": "保安", "enabled": True}]},
-            {"id": 20, "name": "其他", "department": other, "enabled": True, "cameras": [{"id": 6, "name": "其他", "enabled": True}]},
-        ]},
-        "10": {"running": True},
-        "vlm_state": {"vlm": {"ok": True}, "cameras": [{"camera_id": "scanner", "name": "安检", "running": True}]},
-        "features": {"features": [{"name": "recognize_face", "required_models": ["insightface"]}, {"name": "blocks", "required_models": ["yolo_human"]}]},
-    }
-    def read(requests):
-        calls.extend(path for _base, path, _request in requests.values())
-        return {key: (True, payloads[key], 1.0, None) for key in requests}
-    monkeypatch.setattr(app_module, "_get_json_concurrently", read)
+def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tmp_path, department, role):
+    calls = mock_overview_sources(monkeypatch)
+    allowed = list(DEPARTMENT_SPECS) if role == "admin" else [department]
     client = client_for(monkeypatch, tmp_path, {"role": role, "departments": [department]})
-    response = client.get(f"/api/overview?department={department}")
+    response = client.get("/api/overview")
     assert response.status_code == 200
     result = response.json()
+    assert result["departments"] == allowed
+    assert "department" not in result
     assert len(result["capabilities"]) == result["summary"]["capability_total"] == 9
-    assert len(result["cameras"]) == result["summary"]["camera_total"] == 3
-    assert {camera["department"] for camera in result["cameras"]} == {department}
-    assert result["cameras"][0]["capabilities"] == ["face-recognition", "logistics-single-person"]
-    assert result["cameras"][0]["logistics_memberships"][0]["channel_id"] == 8
+    assert len(result["cameras"]) == result["summary"]["camera_total"] == 3 * len(allowed)
+    assert {camera["department"] for camera in result["cameras"]} == set(allowed)
+    assert len({camera["key"] for camera in result["cameras"]}) == len(result["cameras"])
+    for camera in result["cameras"]:
+        if camera["source"] == "aivision":
+            assert camera["capabilities"] == ["face-recognition", "logistics-single-person"]
+            assert len(camera["logistics_memberships"]) == 1
+    for summary in result["department_summaries"].values():
+        assert summary["capability_total"] == 9
+        assert summary["camera_total"] == 3
     assert result["inventory_complete"] is True
     capabilities = {item["id"]: item for item in result["capabilities"]}
     assert capabilities["face-recognition"]["model_ready"] is True
     assert capabilities["intrusion-detection"]["model_ready"] is False
-    assert not any("/sites/20/" in path for path in calls)
-    assert f"/api/departments/{department}/health" in calls
-    assert result["guard_room_sites"] == [{"id": 10, "name": "本部", "department": department}]
-    if role == "viewer":
-        assert client.get(f"/api/overview?department={other}").status_code == 403
+    assert calls.count("/api/runtime/status") == calls.count("/api/features") == 1
+    assert not any("/sites/10" in path for path in calls)
+    for scoped_department in DEPARTMENT_SPECS:
+        assert (f"/api/departments/{scoped_department}/health" in calls) == (scoped_department in allowed)
 
 
-@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
-def test_empty_department_still_has_nine_capabilities(monkeypatch, tmp_path, department):
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_browser_department_parameter_cannot_change_overview_scope(monkeypatch, tmp_path, role):
+    mock_overview_sources(monkeypatch)
+    assigned = ["electronics_electrician", "research_institute"]
+    client = client_for(monkeypatch, tmp_path, {"role": role, "departments": assigned})
+    baseline = client.get("/api/overview").json()
+    for previous_department in [*DEPARTMENT_SPECS, "all", "unknown"]:
+        result = client.get("/api/overview", params={"department": previous_department}).json()
+        for key in ("departments", "department_summaries", "summary", "cameras", "capabilities"):
+            assert result[key] == baseline[key]
+    assert baseline["departments"] == (list(DEPARTMENT_SPECS) if role == "admin" else assigned)
+
+
+@pytest.mark.parametrize("assigned", [[], ["all", "unknown"], ["electronics_electrician", "all", "electronics_electrician"]])
+def test_viewer_overview_only_reads_explicit_formal_departments(monkeypatch, tmp_path, assigned):
+    calls = mock_overview_sources(monkeypatch)
+    allowed = ["electronics_electrician"] if "electronics_electrician" in assigned else []
+    client = client_for(monkeypatch, tmp_path, {"role": "viewer", "departments": assigned})
+    result = client.get("/api/overview").json()
+    assert result["departments"] == allowed
+    assert {camera["department"] for camera in result["cameras"]} == set(allowed)
+    assert len(result["capabilities"]) == 9
+    if not allowed:
+        assert calls == []
+
+
+def test_empty_platform_still_has_nine_capabilities_per_department(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "_get_json_concurrently", lambda requests: {
-        key: (True, [] if key == "ai_cameras" else {}, 1.0, None) for key in requests
+        key: (True, [] if key.endswith(":ai_cameras") else {}, 1.0, None) for key in requests
     })
     client = client_for(monkeypatch, tmp_path, {"role": "admin"})
-    data = client.get(f"/api/overview?department={department}").json()
+    data = client.get("/api/overview").json()
+    assert data["departments"] == list(DEPARTMENT_SPECS)
     assert len(data["capabilities"]) == 9
     assert all(c["camera_count"] == 0 and c["running"] is False for c in data["capabilities"])
+    assert all(summary["capability_total"] == 9 for summary in data["department_summaries"].values())
     assert data["cameras"] == []
 
 
-def test_overview_requires_formal_department_and_reports_upstream_failures(monkeypatch, tmp_path):
+def test_overview_reports_scoped_upstream_failures(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "_get_json_concurrently", lambda requests: {
         key: (False, None, None, "测试上游不可用") for key in requests
     })
     client = client_for(monkeypatch, tmp_path, {"role": "admin"})
-    assert client.get("/api/overview").status_code == 422
-    for invalid in ("", "ge", "all", "通用电气", "unknown"):
-        assert client.get("/api/overview", params={"department": invalid}).status_code == 400
-    data = client.get("/api/overview?department=electronics_electrician").json()
+    response = client.get("/api/overview")
+    assert response.status_code == 200
+    data = response.json()
     assert data["inventory_complete"] is False
-    assert data["inventory_errors"]["ai_cameras"] == "测试上游不可用"
+    assert data["inventory_errors"]["electronics_electrician:ai_cameras"] == "测试上游不可用"
     assert len(data["capabilities"]) == 9
 
 
