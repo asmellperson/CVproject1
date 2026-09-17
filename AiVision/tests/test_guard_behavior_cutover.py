@@ -16,8 +16,6 @@ def dataset(tmp_path):
     database = tmp_path / "data.sqlite"
     old_root = tmp_path / "guard"
     (old_root / "src").mkdir(parents=True)
-    # 复制字段声明文本用于 AST 审计，不执行旧目录代码。
-    (old_root / "src/config.py").write_text((migration.OLD_ROOT / "src/config.py").read_text())
     guard_yaml = old_root / "config.yaml"
     guard_yaml.write_text("{}")
     model_paths = tmp_path / "models.yaml"
@@ -87,13 +85,11 @@ def test_preflight_is_repeatable_read_only_and_redacts_credentials(dataset):
 
 
 @pytest.mark.parametrize("statement,expected", [
-    ("UPDATE ai_camera_config SET url='rtsp://different'", "camera_unmatched"),
     ("INSERT INTO ai_camera_config SELECT 101,department,'另一路',url,enable,fps FROM ai_camera_config", "camera_ambiguous"),
     ("UPDATE ai_camera_config SET department='electronics_electrician'", "camera_department_conflict"),
     ("INSERT INTO ai_guard_behavior_site VALUES(2,'general_electric','南门')", "site_name_conflict"),
     ("INSERT INTO ai_guard_behavior_site_camera VALUES(2,2,100)", "existing_membership"),
     ("UPDATE guard_room_site SET department='unknown'", "invalid_site"),
-    ("DROP TABLE ai_guard_behavior_site_policy", "missing_tables"),
 ])
 def test_ambiguous_or_conflicting_resources_are_blockers(dataset, statement, expected):
     dataset.execute(statement)
@@ -104,7 +100,7 @@ def test_same_name_does_not_replace_exact_rtsp_match(dataset):
     dataset.execute("UPDATE ai_camera_config SET name='旧名称', url='rtsp://other'")
     result = dataset.run()
     assert result["sites"][0]["cameras"][0]["camera_id"] is None
-    assert {"camera_name_conflict", "camera_unmatched"} <= codes(result)
+    assert "camera_name_conflict" in codes(result)
 
 
 def test_vehicle_slot_uses_enabled_order_not_old_primary_key(dataset):
@@ -137,7 +133,7 @@ def test_pixel_roi_conversion_requires_explicit_valid_dimensions():
 
 
 def test_all_old_fields_have_dispositions_and_frame_stride_is_not_seconds(dataset):
-    catalog = migration.field_catalog(dataset.root / "src/config.py")
+    catalog = migration.field_catalog()
     dataset.update("video", {"process_every_n_frames": 37})
     result = dataset.run()
     dispositions = {item["field"]: item for item in result["field_dispositions"]}
@@ -168,7 +164,7 @@ def test_model_gaps_and_vehicle_activation_change_are_visible(dataset):
     dataset.update("models", {"vehicle_detector_model": ""})
     result = dataset.run()
     assert len([item for item in result["blockers"] if item["code"] == "model_path_missing_or_invalid"]) == 4
-    assert "vehicle_activation_change" in codes(result)
+    assert any(item["action"] == "use_global_vehicle_model" for item in result["planned_actions"])
 
 
 def test_history_is_counted_once_never_migrated_or_deleted(dataset):
@@ -182,16 +178,19 @@ def test_history_is_counted_once_never_migrated_or_deleted(dataset):
     assert result["history"]["count"] == 2
     assert len(result["history"]["files"]) == 1
     assert history.read_bytes() == before
-    assert "protected_files_in_deleted_tree" in codes(result)
+    assert any(item["action"] == "archive_runtime_assets" for item in result["planned_actions"])
     history.write_text("broken")
     result = dataset.run()
     assert not result["history"]["complete"] and "history_unreadable" in codes(result)
 
 
-def test_cli_has_no_apply_or_delete_entrypoint():
-    with pytest.raises(SystemExit) as exc:
-        migration.main(["--apply"])
-    assert exc.value.code == 2
+def test_first_migration_plans_schema_and_camera_creation(dataset):
+    dataset.execute("DROP TABLE ai_guard_behavior_site_policy")
+    dataset.execute("DELETE FROM ai_camera_config")
+    result = dataset.run()
+    assert result["result"] == "PRECHECK PASS"
+    assert {row["action"] for row in result["planned_actions"]} >= {"planned_schema_creation", "planned_camera_creation"}
+    assert result["sites"][0]["policy"]["vehicle_inspection_enabled"] is True
 
 
 def test_unknown_history_table_is_not_silently_discarded(dataset):
@@ -211,8 +210,80 @@ def test_missing_sqlite_source_is_not_created(tmp_path):
 def test_no_global_cutover_or_old_runtime_import():
     from AiVision.features.registry import all_specs
     from AiVision.alarms.types import VIOLATION_TYPE_META
-    assert "guard_behavior" not in all_specs()
-    assert set(VIOLATION_TYPE_META) == set(range(1, 8))
+    assert "guard_behavior" in all_specs()
+    assert set(VIOLATION_TYPE_META) == set(range(1, 12))
     source = Path(migration.__file__).read_text()
     assert "from AiVision.integrations.guard_room" not in source
     assert "import AiVision.integrations.guard_room" not in source
+
+
+@pytest.fixture
+def writable_migration(dataset):
+    from AiVision.migrations import guard_behavior_cutover_data as data
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.alarms.devices.orm import AiHornConfig
+    engine = create_engine(f"sqlite:///{dataset.database}")
+    with engine.begin() as c:
+        for name in reversed(migration.NEW_TABLES):
+            c.exec_driver_sql(f"DROP TABLE {name}")
+        c.exec_driver_sql("DROP TABLE ai_camera_config")
+    AiCameraConfig.__table__.create(engine)
+    AiHornConfig.__table__.create(engine)
+    with migration.read_only_connection(engine.url) as c:
+        plan = migration.preflight(c, c, old_root=dataset.root, model_config=dataset.models,
+                                   guard_config=dataset.root / 'config.yaml', env={})
+        assert plan['blockers_total'] == 0
+        snapshot = {'source': data.table_rows(c, migration.OLD_TABLES), 'plan': plan, 'physical_camera_count': 0}
+    yield engine, snapshot
+    engine.dispose()
+
+
+def test_atomic_migration_exact_defaults_and_idempotence(writable_migration):
+    from AiVision.migrations import guard_behavior_cutover_data as data
+    from sqlalchemy import inspect
+    engine, snapshot = writable_migration
+    data.create_schema(engine)
+    before = set(inspect(engine).get_table_names())
+    result = data.migrate_data(engine, snapshot)
+    assert list(result['counts'].values()) == [1, 1, 1, 1, 4]
+    assert result == data.migrate_data(engine, snapshot)
+    assert set(inspect(engine).get_table_names()) == before
+    with engine.begin() as c:
+        c.exec_driver_sql('UPDATE ai_guard_behavior_site_policy SET phone_seconds=42')
+    with pytest.raises(ValueError, match='SitePolicy'):
+        data.migrate_data(engine, snapshot)
+
+
+def test_data_failure_rolls_back_all_new_rows(writable_migration, monkeypatch):
+    from AiVision.migrations import guard_behavior_cutover_data as data
+    engine, snapshot = writable_migration
+    data.create_schema(engine)
+    def fail(*args):
+        raise ValueError('synthetic verification failure')
+    monkeypatch.setattr(data, 'verify_data', fail)
+    with pytest.raises(ValueError, match='synthetic'):
+        data.migrate_data(engine, snapshot)
+    with engine.connect() as c:
+        for name in (*migration.NEW_TABLES, 'ai_camera_config'):
+            assert c.exec_driver_sql(f'SELECT COUNT(*) FROM {name}').scalar() == 0
+
+
+def test_backup_failure_prevents_manifest_and_archive_is_repeatable(tmp_path, monkeypatch):
+    from AiVision.migrations import guard_behavior_cutover_storage as storage
+    directory = tmp_path / 'backup'
+    def fail(*args):
+        raise ValueError('backup failed')
+    monkeypatch.setattr(storage, 'backup_database', fail)
+    with pytest.raises(ValueError, match='backup failed'):
+        storage.create_backup(directory, source_url='sqlite:///source', target_url='sqlite:///target',
+                              model_config=tmp_path / 'model.yaml', old_root=tmp_path / 'old', snapshot={})
+    assert not (directory / 'backup.json').exists()
+    old = tmp_path / 'old'
+    (old / 'outputs').mkdir(parents=True)
+    (old / 'outputs/alarm_events.json').write_text('[{"event_type":"absent"}]')
+    inventory = storage.asset_inventory(old)
+    archive = tmp_path / 'archive'
+    storage.archive_assets(old, archive, inventory)
+    storage.archive_assets(old, archive, inventory)
+    assert json.loads((archive / 'outputs/alarm_events.json').read_text()) == [{'event_type': 'absent'}]
+    assert not (old / 'outputs/alarm_events.json').exists()

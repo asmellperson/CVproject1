@@ -380,7 +380,7 @@ def test_alarm_list_reads_only_returned_dispositions(tmp_path, monkeypatch):
              "feature_name": "detect_human", "department": "general_electric" if n % 2 else "haoda_company",
              "created_at": "2020-01-01"} for n in range(1, 101)]
     monkeypatch.setattr(backend, "_get_upstream_json", lambda url, *_args: {"items": rows} if url == "ai" else {})
-    result = backend._collect_alarms(request=REQUEST, user=VIEWER, guard_room_url="guard", aivision_url="ai",
+    result = backend._collect_alarms(request=REQUEST, user=VIEWER, aivision_url="ai",
                                     security_vlm_url="security", disposition_store=SimpleNamespace(get_many=get_many), limit=7)
     assert len(result) == len(read_ids) == 7
     assert all(row["department"] == "general_electric" and row["disposition_status"] == "pending" for row in result)
@@ -389,7 +389,7 @@ def test_alarm_list_reads_only_returned_dispositions(tmp_path, monkeypatch):
 
 def test_other_sources_and_admin_orphan_permissions_are_unchanged(tmp_path):
     async def scenario():
-        ids = ["aivision:99999", "guard_room:1", "security_vlm:general_electric:1"]
+        ids = ["aivision:99999", "removed_source:1", "security_vlm:general_electric:1"]
         store = seed_store(tmp_path, ids)
         service = DispositionQueries("http://aivision", transport=httpx.MockTransport(
             lambda _request: httpx.Response(200, json={"allowed_ids": []})))

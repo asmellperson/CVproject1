@@ -150,15 +150,15 @@ def test_data_package_import_does_not_register_feature_alarm_types_or_start_mode
         from AiVision.features.registry import all_specs
         from AiVision.alarms.types import VIOLATION_TYPE_META
         from AiVision.inference.runtime_manager import InferenceRuntimeManager
-        assert 'guard_behavior' not in all_specs()
-        assert set(VIOLATION_TYPE_META) == set(range(1, 8))
+        assert 'guard_behavior' in all_specs()
+        assert set(VIOLATION_TYPE_META) == set(range(1, 12))
         assert SPEC.name == 'guard_behavior' and SPEC.alarm_types == (8, 9, 10, 11)
         assert SPEC.required_models == ('yolo_guard_person_phone', 'guard_uniform')
         assert SPEC.optional_models == ('yolo_guard_pose', 'yolo_vehicle')
         manager = InferenceRuntimeManager()
         future = {'guard_uniform', 'yolo_guard_pose', 'yolo_guard_person_phone', 'yolo_vehicle'}
-        assert not manager._required_model_names().intersection(future)
-        assert not manager._declared_model_names().intersection(future)
+        assert manager._required_model_names().intersection(future) == {'guard_uniform', 'yolo_guard_person_phone'}
+        assert future <= manager._declared_model_names()
         assert not manager._workers and not db._engine and not db._session_factory
         assert service.GuardBehaviorService()
     """)

@@ -77,10 +77,9 @@ type OverviewState = {
 
 type AlarmSeverity = 'critical' | 'warning' | 'normal'
 
-type CameraSource = 'aivision' | 'guard_room' | 'security_vlm'
-type CreateCameraSource = Exclude<CameraSource, 'guard_room'>
+type CameraSource = 'aivision' | 'security_vlm'
 
-const cameraSourceOptions: Array<{ value: CreateCameraSource; label: string }> = [
+const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
   { value: 'aivision', label: 'AiVision 通用检测' },
   { value: 'security_vlm', label: '安检流程规范检测' },
 ]
@@ -97,6 +96,7 @@ const warningAlarmTypes = new Set([
   'detect_phone',
   'guard_phone_use',
   'guard_prone_sleep',
+  'guard_vehicle_inspection_missing',
   'security_vlm_non_compliant',
   'security_vlm_error',
 ])
@@ -132,7 +132,6 @@ function getAlarmLocation(alarm: AlarmEvent) {
 }
 
 function cameraSourceLabel(source: CameraSource) {
-  if (source === 'guard_room') return '保安行为规范检测'
   return cameraSourceOptions.find((item) => item.value === source)?.label || source
 }
 
@@ -159,7 +158,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
   const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
-  const [cameraSource, setCameraSource] = useState<CreateCameraSource>('aivision')
+  const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
   const [cameraDepartment, setCameraDepartment] = useState('')
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
@@ -273,7 +272,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
     setCameraDialogOpen(true)
   }
 
-  const handleCameraSourceChange = (source: CreateCameraSource) => {
+  const handleCameraSourceChange = (source: CameraSource) => {
     const nextDepartment = isDepartment(cameraDepartment) && allowedCameraDepartments.includes(cameraDepartment)
       ? cameraDepartment
       : ''
@@ -778,7 +777,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                   <Label htmlFor="overview-camera-source">目标能力</Label>
                   <Select
                     value={cameraSource}
-                    onValueChange={(value) => handleCameraSourceChange(value as CreateCameraSource)}
+                    onValueChange={(value) => handleCameraSourceChange(value as CameraSource)}
                     disabled={Boolean(cameraActionKey)}
                   >
                     <SelectTrigger id="overview-camera-source">

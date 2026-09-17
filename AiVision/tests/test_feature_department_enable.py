@@ -19,7 +19,7 @@ from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from test_horn_backend import backend as backend
 
 
-ORDINARY_FEATURES = [spec for spec in all_specs().values() if spec.name not in LOGISTICS_FEATURES]
+ORDINARY_FEATURES = [spec for spec in all_specs().values() if spec.name not in LOGISTICS_FEATURES and spec.name != "guard_behavior"]
 
 
 @pytest.fixture

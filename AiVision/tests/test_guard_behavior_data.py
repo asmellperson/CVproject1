@@ -452,3 +452,27 @@ def test_new_guard_table_schema_drift_is_rejected(data_db):
         connection.execute(text("ALTER TABLE ai_guard_behavior_site ADD COLUMN unexpected INTEGER"))
         with pytest.raises(ValueError, match="列不一致"):
             assert_table_matches(connection, GuardBehaviorSite.__table__)
+
+
+def test_bound_physical_camera_cannot_be_deleted_or_move_department(data_db, monkeypatch):
+    from AiVision.cameras import config_manager as module
+    service = data_db.service
+    site = service.create_site('protected', DEPARTMENT)['id']
+    camera = data_db.camera()
+    service.add_camera(site, camera)
+    manager = module.CameraConfigManager()
+    # 本用例关注 Guard 绑定保护，排序锁的数据库行为由 Camera 专项测试覆盖。
+    monkeypatch.setattr(manager, '_lock_department_cameras', lambda session, _: session.query(AiCameraConfig).all())
+    with pytest.raises(ValueError, match='先解除绑定'):
+        manager.update_camera(camera, {'department': OTHER_DEPARTMENT})
+    with pytest.raises(ValueError, match='先解除绑定'):
+        manager.delete_camera(camera)
+    with data_db.factory() as session:
+        assert session.get(AiCameraConfig, camera).department == DEPARTMENT
+    service.remove_camera(site, camera)
+    monkeypatch.setattr(module, 'all_specs', lambda: {'guard_behavior': SimpleNamespace(orm_class=GuardBehaviorCameraConfig)})
+    monkeypatch.setattr(module.config_cache, 'refresh_camera', lambda _: None)
+    monkeypatch.setattr(module.config_event_bus, 'publish', lambda _: None)
+    assert manager.delete_camera(camera)
+    with data_db.factory() as session:
+        assert session.get(AiCameraConfig, camera) is None

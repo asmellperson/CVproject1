@@ -80,6 +80,7 @@ def test_unused_model_path_is_saved_without_starting_active_runtime_model(client
     http, service, _ = client
     manager = InferenceRuntimeManager()
     manager._active = True
+    monkeypatch.setattr(manager, "_declared_model_names", lambda: set())
     service.list_models = manager.list_models
     service.update_model_path = manager.update_model_path
     monkeypatch.setattr(manager, "_reload_affected", lambda *_: pytest.fail("unused model reloaded"))

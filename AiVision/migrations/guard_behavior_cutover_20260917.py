@@ -1,8 +1,7 @@
-"""Guard 最终切换预检：默认只读，不包含 apply、建表或删除入口。"""
+"""Guard 一次性正式迁移；默认只读，写入前必须停机并完成备份。"""
 from __future__ import annotations
 
 import argparse
-import ast
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -89,6 +88,7 @@ PUBLIC_FIELDS = {
 @dataclass
 class PrecheckReport:
     blockers: list[dict] = field(default_factory=list)
+    planned_actions: list[dict] = field(default_factory=list)
     sites: list[dict] = field(default_factory=list)
     models: list[dict] = field(default_factory=list)
     history: dict = field(default_factory=dict)
@@ -107,6 +107,7 @@ class PrecheckReport:
             "sites": self.sites, "models": self.models, "history": self.history,
             "storage": self.storage, "field_dispositions": self.field_dispositions,
             "blockers_total": len(self.blockers), "blockers": self.blockers,
+            "planned_actions": self.planned_actions,
         }
 
 
@@ -158,8 +159,11 @@ def read_only_connection(url):
 def read_tables(connection, names: tuple[str, ...], report: PrecheckReport, label: str) -> dict:
     existing = set(inspect(connection).get_table_names())
     missing = sorted(set(names) - existing)
-    if missing:
-        report.block("missing_tables", f"{label}缺少表；本次不创建", tables=missing)
+    required_missing = sorted(set(missing) - set(NEW_TABLES))
+    if required_missing:
+        report.block("missing_tables", f"{label}缺少源表或物理 Camera 表", tables=required_missing)
+    if set(missing) & set(NEW_TABLES):
+        report.planned_actions.append({"action": "planned_schema_creation", "tables": sorted(set(missing) & set(NEW_TABLES))})
     rows = {}
     for name in names:
         rows[name] = []
@@ -170,11 +174,97 @@ def read_tables(connection, names: tuple[str, ...], report: PrecheckReport, labe
     return rows
 
 
-def field_catalog(config_source: Path) -> dict[str, list[str]]:
-    # 只解析声明，不 import 旧模块，避免旧运行时或数据库初始化副作用。
-    classes = {node.name: node for node in ast.parse(config_source.read_text()).body if isinstance(node, ast.ClassDef)}
-    return {section: [node.target.id for node in classes[name].body if isinstance(node, ast.AnnAssign)]
-            for section, name in SECTIONS.items()}
+# 固定迁移源版本的字段清单；旧目录删除后仍能独立核验备份。
+FIELD_CATALOG = {'video': ['source',
+           'source_cam1',
+           'source_cam2',
+           'source_cam3',
+           'process_every_n_frames',
+           'output_dir',
+           'save_annotated_video',
+           'annotated_video_fps',
+           'reconnect_seconds',
+           'jpeg_quality',
+           'camera_buffer_size',
+           'alarm_media_retention_days',
+           'alarm_media_max_gb',
+           'alarm_media_cleanup_interval_minutes',
+           'source_cam4',
+           'source_cam5',
+           'source_cam6',
+           'source_cam7',
+           'source_cam8',
+           'source_cam9'],
+ 'models': ['detector_model',
+            'vehicle_detector_model',
+            'uniform_cls_model',
+            'pose_model_task',
+            'detector_conf',
+            'phone_conf',
+            'vehicle_conf',
+            'detector_iou',
+            'detector_imgsz',
+            'vehicle_imgsz',
+            'phone_crop_imgsz',
+            'phone_full_frame_imgsz',
+            'pose_imgsz',
+            'use_half',
+            'tracker',
+            'device',
+            'uniform_cls_imgsz',
+            'uniform_cls_conf'],
+ 'room': ['frame_width', 'frame_height'],
+ 'rules': ['absent_seconds',
+           'phone_seconds',
+           'prone_sleep_seconds',
+           'vehicle_occlusion_seconds',
+           'phone_near_person_px',
+           'phone_near_head_px',
+           'vehicle_near_px',
+           'vehicle_roi',
+           'vehicle_exit_direction',
+           'vehicle_direction_min_delta_ratio',
+           'vehicle_reassociate_seconds',
+           'static_motion_threshold',
+           'prone_head_down_ratio_threshold',
+           'prone_bbox_height_ratio_threshold',
+           'prone_consecutive_frames',
+           'state_ttl_seconds',
+           'phone_window_seconds',
+           'phone_min_hits_in_window',
+           'phone_grace_seconds',
+           'guard_hold_seconds',
+           'dual_sync_seconds',
+           'absent_alarm_seconds',
+           'alarm_cooldown_absent',
+           'alarm_cooldown_phone',
+           'alarm_cooldown_prone_sleep',
+           'alarm_cooldown_vehicle_unattended'],
+ 'classes': ['person', 'play_phone', 'vehicle_bicycle', 'vehicle_car', 'vehicle_motorcycle'],
+ 'runtime': ['show_window',
+             'debug',
+             'draw_debug',
+             'max_alarm_history',
+             'infer_max_workers',
+             'share_phone_detector',
+             'share_pose_estimator',
+             'phone_detect_mode',
+             'enable_vehicle_unattended',
+             'vehicle_camera_id'],
+ 'wechat': ['enable',
+            'corpid',
+            'corpsecret',
+            'agentid',
+            'alarm_user',
+            'camera_name',
+            'clip_seconds',
+            'enable_phone',
+            'enable_absent',
+            'enable_prone_sleep']}
+
+
+def field_catalog() -> dict[str, list[str]]:
+    return {key: list(values) for key, values in FIELD_CATALOG.items()}
 
 
 def dispositions(catalog: dict[str, list[str]], report: PrecheckReport) -> None:
@@ -237,6 +327,10 @@ def plan_cameras(site: dict, cameras: list[dict], target: dict, report: Precheck
         report.block("camera_limit", "Site Camera 超过 9 路", site_id=site["id"])
     for camera in cameras:
         raw_url = camera["rtsp_url"]
+        source_key = (site["department"], raw_url)
+        if source_key in claimed:
+            report.block("camera_source_duplicated", "旧成员重复引用同一事业部 RTSP", old_camera_id=camera["id"])
+        claimed[source_key] = camera["id"]
         candidates = [row for row in target["ai_camera_config"]
                       if row["department"] == site["department"] and row["url"] == raw_url]
         item = {"old_camera_id": camera["id"], "name": camera["name"], "enabled": bool(camera["enabled"]),
@@ -245,10 +339,13 @@ def plan_cameras(site: dict, cameras: list[dict], target: dict, report: Precheck
                 "candidate_ids": [row["id"] for row in candidates], "camera_id": None}
         if not raw_url or not raw_url.startswith("rtsp://"):
             report.block("invalid_camera_source", "Camera 不是明确 RTSP 源", camera_id=camera["id"])
-        if len(candidates) != 1:
-            item["action"] = "需要创建/人工确认" if not candidates else "多重匹配，禁止猜测"
-            report.block("camera_unmatched" if not candidates else "camera_ambiguous", item["action"],
-                         site_id=site["id"], old_camera_id=camera["id"], candidates=item["candidate_ids"])
+        if not candidates:
+            item["action"] = "planned_camera_creation"
+            report.planned_actions.append({"action": item["action"], "old_camera_id": camera["id"]})
+        elif len(candidates) > 1:
+            item["action"] = "多重匹配，禁止猜测"
+            report.block("camera_ambiguous", item["action"], site_id=site["id"],
+                         old_camera_id=camera["id"], candidates=item["candidate_ids"])
         else:
             found = candidates[0]
             item.update(action="复用", camera_id=found["id"], platform_name=found["name"],
@@ -274,7 +371,7 @@ def plan_cameras(site: dict, cameras: list[dict], target: dict, report: Precheck
 
 def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, report: PrecheckReport, env: dict) -> dict:
     from pydantic import ValidationError
-    from AiVision.features.guard_behavior.schema import GuardBehaviorSitePolicySchema, GuardBehaviorRuntimeAlarmPolicy
+    from AiVision.features.guard_behavior.schema import GuardBehaviorSitePolicySchema, GuardBehaviorSitePolicyUpdate, GuardBehaviorRuntimeAlarmPolicy
     sections = {}
     for section in SECTIONS:
         raw = config.get(f"{section}_json")
@@ -301,8 +398,8 @@ def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, re
     vehicle_member = slot_map.get(selected) if isinstance(selected, str) else None
     if policy["vehicle_inspection_enabled"]:
         if not sections["models"].get("vehicle_detector_model"):
-            report.block("vehicle_activation_change", "旧车辆规则开关开启但未配置车辆模型；新公共模型就绪会改变实际检测行为，需确认", site_id=site["id"])
-        if vehicle_member is None or vehicle_member["camera_id"] is None:
+            report.planned_actions.append({"action": "use_global_vehicle_model", "site_id": site["id"]})
+        if vehicle_member is None or (vehicle_member["camera_id"] is None and vehicle_member.get("action") != "planned_camera_creation"):
             report.block("vehicle_camera_unresolved", "车辆 Camera 槽位无法映射至平台 ID", site_id=site["id"], old_slot=selected)
         else:
             policy["vehicle_camera_id"] = vehicle_member["camera_id"]
@@ -313,12 +410,13 @@ def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, re
            "dimensions": {key: sections["room"].get(key) for key in ("frame_width", "frame_height")}}
     try:
         roi["normalized"], roi["conversion"] = convert_roi(roi["original"], sections["room"])
-        if roi["original"] and (vehicle_member is None or vehicle_member["camera_id"] is None):
+        if roi["original"] and (vehicle_member is None or (vehicle_member["camera_id"] is None and vehicle_member.get("action") != "planned_camera_creation")):
             report.block("roi_camera_unresolved", "非空 ROI 无法归属至明确平台 Camera", site_id=site["id"])
     except ValueError:
         report.block("invalid_roi", "ROI 格式、面积、范围或像素宽高无效，禁止猜测转换", site_id=site["id"])
     try:
-        GuardBehaviorSitePolicySchema.model_validate(policy)
+        schema = GuardBehaviorSitePolicyUpdate if vehicle_member and vehicle_member.get("action") == "planned_camera_creation" else GuardBehaviorSitePolicySchema
+        schema.model_validate(policy)
     except ValidationError as exc:
         report.block("invalid_policy", "迁移策略不满足新 Schema", site_id=site["id"],
                      fields=[".".join(map(str, error["loc"])) or "vehicle_camera_id/vehicle_inspection_enabled" for error in exc.errors()])
@@ -359,7 +457,7 @@ def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, re
             "wechat_credentials_match_global": credential_checks, "sections": sections}
 
 
-def inspect_models(plans: list[dict], model_config: Path, old_root: Path, report: PrecheckReport) -> None:
+def inspect_models(plans: list[dict], model_config: Path, old_root: Path, report: PrecheckReport, model_paths: dict | None = None) -> None:
     from AiVision.inference.model_paths import _read_document, validate_model_path
     try:
         source, _ = _read_document(model_config)
@@ -368,7 +466,9 @@ def inspect_models(plans: list[dict], model_config: Path, old_root: Path, report
         report.block("model_config_invalid", "公共模型路径配置不可读或格式错误")
         models = {}
     for old, (name, model_type) in MODEL_FIELDS.items():
-        value = models.get(name, {}).get("path", "")
+        value = (model_paths or {}).get(name, models.get(name, {}).get("path", ""))
+        if model_paths and name in model_paths:
+            report.planned_actions.append({"action": "configure_global_model", "name": name, "path": value})
         item = {"name": name, "new_path": value, "valid": False, "old_paths": []}
         for plan in plans:
             raw = plan["sections"]["models"].get(old, "")
@@ -427,10 +527,10 @@ def inspect_history(plans: list[dict], old_root: Path, yaml_config: dict, report
                                         "protected_files": protected,
                                         "condition": "先确认备份及历史/权重归档，verify 成功后才可删除；本次不执行"}
     if protected:
-        report.block("protected_files_in_deleted_tree", "待删除目录仍含历史、证据或模型等非源码资产，必须先确认保留位置", count=len(protected))
+        report.planned_actions.append({"action": "archive_runtime_assets", "count": len(protected)})
 
 
-def preflight(source, target_connection, *, old_root: Path, model_config: Path, guard_config: Path, env: dict) -> dict:
+def preflight(source, target_connection, *, old_root: Path, model_config: Path, guard_config: Path, env: dict, model_paths: dict | None = None) -> dict:
     from pydantic import ValidationError
     from AiVision.features.guard_behavior.schema import GuardBehaviorSiteCreate
     report = PrecheckReport()
@@ -440,7 +540,7 @@ def preflight(source, target_connection, *, old_root: Path, model_config: Path, 
     report.storage.update(old_database_location=database_location(source.engine.url),
                           target_database_location=database_location(target_connection.engine.url),
                           guard_yaml=str(guard_config), model_paths_yaml=str(model_config))
-    catalog = field_catalog(old_root / "src/config.py")
+    catalog = field_catalog()
     # source_cam4..9 是旧 Service 动态写入的扩展槽位，也纳入逐字段处置。
     for index in range(1, 10):
         key = f"source_cam{index}"
@@ -479,17 +579,107 @@ def preflight(source, target_connection, *, old_root: Path, model_config: Path, 
         for row in old[name]:
             if row["site_id"] not in site_ids:
                 report.block("orphan_row", "旧表含无所属 Site 的记录", table=name, id=row["id"])
-    inspect_models(plans, model_config, old_root, report)
+    inspect_models(plans, model_config, old_root, report, model_paths)
     inspect_history(plans, old_root, yaml_config, report)
     return report.payload()
 
 
+def execute_cutover(args, values, source_url, target_url, model_config, guard_config):
+    from sqlalchemy.orm import Session
+    from .guard_behavior_cutover_storage import (
+        archive_assets, asset_inventory, create_backup, require_stopped, write_json,
+    )
+    from .guard_behavior_cutover_data import (
+        assert_source, create_schema, migrate_data, table_rows, verify_archive, verify_data,
+    )
+    from AiVision.inference.model_paths import save_model_path, validate_model_path
+
+    model_paths = dict(args.model_path or [])
+    allowed_models = {name: kind for name, kind in MODEL_FIELDS.values()}
+    for name, path in model_paths.items():
+        if name not in allowed_models:
+            raise ValueError("只允许设置本次切换的四个逻辑模型")
+        validate_model_path(path, model_type=allowed_models[name])
+    data_root = Path(values["DATA_PATH"])
+    directory = data_root / "migration_backups" / REVISION
+    archive = data_root / "legacy_guard_room_archive" / "20260917"
+    snapshot = None
+    if args.apply or args.verify:
+        require_stopped()
+        if (directory / "backup.json").exists():
+            snapshot = create_backup(directory, source_url=source_url, target_url=target_url,
+                                     model_config=model_config, old_root=OLD_ROOT, snapshot={})
+    if snapshot is None:
+        with read_only_connection(source_url) as source, read_only_connection(target_url) as target:
+            plan = preflight(source, target, old_root=OLD_ROOT, model_config=model_config,
+                             guard_config=guard_config, env=values, model_paths=model_paths)
+            if not args.apply and not args.verify:
+                return plan
+            if plan["blockers_total"]:
+                return plan
+            snapshot = {"source": table_rows(source, OLD_TABLES), "plan": plan,
+                        "physical_camera_count": len(table_rows(target, ("ai_camera_config",))["ai_camera_config"]),
+                        "old_root": str(OLD_ROOT), "assets": asset_inventory(OLD_ROOT),
+                        "models": {row["name"]: row["new_path"] for row in plan["models"]}}
+        if args.verify:
+            raise ValueError("尚无完整迁移备份，不能 verify")
+        snapshot = create_backup(directory, source_url=source_url, target_url=target_url,
+                                 model_config=model_config, old_root=OLD_ROOT, snapshot=snapshot)
+    engine = create_engine(target_url, echo=False)
+    try:
+        with read_only_connection(source_url) as source:
+            assert_source(source, snapshot, allow_retired=args.verify or (directory / "retired.json").exists())
+        if args.apply:
+            require_stopped()
+            for name, path in snapshot["models"].items():
+                save_model_path(name, path)
+            create_schema(engine)
+            result = migrate_data(engine, snapshot)
+            archive_assets(OLD_ROOT, archive, snapshot["assets"])
+        else:
+            with Session(engine) as session:
+                result = verify_data(session, snapshot)
+        history_count = verify_archive(snapshot, archive)
+        report = PrecheckReport()
+        inspect_models([], model_config, OLD_ROOT, report)
+        if report.blockers or {row["name"]: row["new_path"] for row in report.models} != snapshot["models"]:
+            raise ValueError("正式模型配置与迁移快照不一致")
+        result.update(result="APPLY PASS" if args.apply else "VERIFY PASS", history_count=history_count,
+                      backup=str(directory), archive=str(archive), blockers_total=0)
+        if args.retire:
+            # 清理必须再次完成全部核验；DDL 顺序与数据迁移事务明确分离。
+            require_stopped()
+            source_engine = create_engine(source_url, echo=False)
+            try:
+                with source_engine.connect() as connection:
+                    assert_source(connection, snapshot, allow_retired=True)
+                for name in reversed(OLD_TABLES):
+                    with source_engine.begin() as connection:
+                        if inspect(connection).has_table(name):
+                            Table(name, MetaData(), autoload_with=connection).drop(connection)
+            finally:
+                source_engine.dispose()
+            result["retired_tables"] = list(OLD_TABLES)
+        record = directory / ("retired.json" if args.retire else "applied.json" if args.apply else "verified.json")
+        if not record.exists():
+            write_json(record, result)
+        return result
+    finally:
+        engine.dispose()
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preflight", action="store_true", help="默认动作；仅生成计划")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--preflight", action="store_true", help="默认只读计划")
+    mode.add_argument("--apply", action="store_true", help="停机备份后执行数据迁移和资产归档")
+    mode.add_argument("--verify", action="store_true", help="逐字段核验迁移及归档")
+    parser.add_argument("--retire", action="store_true", help="仅与 --verify 合用，核验成功后删除三张旧表")
+    parser.add_argument("--model-path", action="append", nargs=2, metavar=("NAME", "PATH"))
     parser.add_argument("--env-file", type=Path, default=ROOT / "AiVision/.env")
     args = parser.parse_args(argv)
-    # 与 AiVision.main 相同的环境优先级，但不启动主程序或修改配置文件。
+    if args.retire and not args.verify:
+        parser.error("--retire 必须与 --verify 一起使用")
     values = {**dotenv_values(args.env_file), **os.environ}
     for key, value in values.items():
         if value is not None:
@@ -505,21 +695,14 @@ def main(argv=None) -> int:
         if not model_config.is_absolute():
             model_config = ROOT / "AiVision" / model_config
         guard_config = Path(values.get("GUARD_ROOM_CONFIG_PATH", OLD_ROOT / "config/config.yaml"))
-        with read_only_connection(source_url) as source:
-            if make_url(source_url) == make_url(target_url):
-                result = preflight(source, source, old_root=OLD_ROOT, model_config=model_config,
-                                   guard_config=guard_config, env=values)
-            else:
-                with read_only_connection(target_url) as target:
-                    result = preflight(source, target, old_root=OLD_ROOT, model_config=model_config,
-                                       guard_config=guard_config, env=values)
+        result = execute_cutover(args, values, source_url, target_url, model_config, guard_config)
         print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
         return int(bool(result["blockers_total"]))
     except Exception as exc:
-        # 原始 DB 异常可能包含连接凭据或 SQL 参数，禁止直接打印。
-        print(json.dumps({"result": "PRECHECK BLOCKED", "blockers_total": 1,
-                          "blockers": [{"code": "preflight_read_failed", "error_type": type(exc).__name__}],
-                          "history": {"count": None, "complete": False}, "read_only": True}, ensure_ascii=False))
+        # 数据库异常可能含 RTSP 或凭据；只输出类型。主动校验错误只含固定业务说明。
+        print(json.dumps({"result": "BLOCKED", "blockers_total": 1,
+                          "error_type": type(exc).__name__,
+                          "detail": str(exc) if type(exc) is ValueError else "执行失败，未继续切换"}, ensure_ascii=False))
         return 1
 
 

@@ -65,7 +65,7 @@ def test_wechat_has_no_separate_alarm_display_registry():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`WeChatNotifier`、`monkeypatch.setattr`、`posts.append`、`FakeResponse`、`notifier.send`、`len`。
 # 副作用/注意事项：可能发起网络请求或发送外部消息。
-@pytest.mark.parametrize("violation_type", range(1, 8))
+@pytest.mark.parametrize("violation_type", range(1, 12))
 def test_wechat_alarm_uses_single_news_card(monkeypatch, violation_type):
     posts = []
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
@@ -96,7 +96,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch, violation_type):
     assert article["picurl"] == "https://aicv.fudar.com/api/alarms/42/image"
 
 
-@pytest.mark.parametrize("violation_type", [0, 8, True, 1.0, "1", None])
+@pytest.mark.parametrize("violation_type", [0, 12, True, 1.0, "1", None])
 def test_wechat_rejects_unregistered_or_non_integer_alarm_types(monkeypatch, violation_type):
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
     monkeypatch.setattr(notifier, "_get_token", lambda: pytest.fail("不应请求企业微信 token"))

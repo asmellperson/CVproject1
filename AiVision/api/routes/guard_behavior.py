@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, Field
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service
+from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_guard_behavior_orchestrator
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.features.guard_behavior.schema import (
@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/guard-behavior", tags=["guard-behavior"])
 ResourceId = Annotated[int, Path(gt=0)]
 Service = Annotated[object, Depends(get_guard_behavior_service)]
 Runtime = Annotated[object, Depends(get_guard_behavior_runtime)]
+Orchestrator = Annotated[object, Depends(get_guard_behavior_orchestrator)]
 ADMIN = [Depends(require_admin)]
 
 
@@ -81,10 +82,10 @@ def _site_access(site_id: ResourceId, service: Service, user: dict = Depends(get
 Site = Annotated[dict, Depends(_site_access)]
 
 
-def _reload(runtime, site_id: int) -> None:
-    if runtime is not None:
+def _reload(orchestrator, site_id: int, camera_ids=()) -> None:
+    if orchestrator is not None:
         try:
-            runtime.reload_site(site_id)
+            orchestrator.refresh_guard_site(site_id, camera_ids)
         except (ValueError, RuntimeError) as exc:
             # 数据已提交，不能把刷新失败伪装成保存失败或自动重复写入。
             raise HTTPException(503, "配置已保存，但运行时刷新失败，请重新读取配置") from exc
@@ -106,10 +107,10 @@ def list_sites(service: Service, user: dict = Depends(get_current_user), departm
 
 
 @router.post("/sites", response_model=GuardBehaviorSiteResponse, status_code=201, dependencies=ADMIN)
-def create_site(payload: GuardBehaviorSiteCreate, service: Service, runtime: Runtime):
+def create_site(payload: GuardBehaviorSiteCreate, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         site = service.create_site(**payload.model_dump())
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return site
 
 
@@ -119,18 +120,19 @@ def get_site(site: Site):
 
 
 @router.patch("/sites/{site_id}", response_model=GuardBehaviorSiteResponse, dependencies=ADMIN)
-def update_site(site: Site, payload: GuardBehaviorSiteUpdate, service: Service, runtime: Runtime):
+def update_site(site: Site, payload: GuardBehaviorSiteUpdate, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.update_site(site["id"], payload.model_dump(exclude_unset=True))
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 
 @router.delete("/sites/{site_id}", response_model=OkResponse, dependencies=ADMIN)
-def delete_site(site: Site, service: Service, runtime: Runtime):
+def delete_site(site: Site, service: Service, orchestrator: Orchestrator):
     with _service_errors():
+        camera_ids = [member["camera_id"] for member in service.list_site_cameras(site["id"])]
         service.delete_site(site["id"])
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"], camera_ids)
     return OkResponse()
 
 
@@ -142,36 +144,36 @@ def list_cameras(site: Site, service: Service):
 
 @router.post("/sites/{site_id}/cameras", response_model=GuardBehaviorMemberResponse,
              status_code=201, dependencies=ADMIN)
-def add_camera(site: Site, payload: GuardBehaviorMemberCreate, service: Service, runtime: Runtime):
+def add_camera(site: Site, payload: GuardBehaviorMemberCreate, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.add_camera(site["id"], payload.camera_id)
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 
 @router.put("/sites/{site_id}/cameras/order", response_model=OkResponse, dependencies=ADMIN)
-def reorder_cameras(site: Site, payload: GuardBehaviorMemberOrder, service: Service, runtime: Runtime):
+def reorder_cameras(site: Site, payload: GuardBehaviorMemberOrder, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         service.reorder_cameras(site["id"], payload.camera_ids)
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return OkResponse()
 
 
 @router.put("/sites/{site_id}/cameras/{camera_id}/enabled", response_model=GuardBehaviorMemberResponse,
             dependencies=ADMIN)
 def set_camera_enabled(site: Site, camera_id: ResourceId, payload: GuardBehaviorMemberEnabledUpdate,
-                       service: Service, runtime: Runtime):
+                       service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.set_camera_enabled(site["id"], camera_id, payload.enabled)
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 
 @router.delete("/sites/{site_id}/cameras/{camera_id}", response_model=OkResponse, dependencies=ADMIN)
-def remove_camera(site: Site, camera_id: ResourceId, service: Service, runtime: Runtime):
+def remove_camera(site: Site, camera_id: ResourceId, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         service.remove_camera(site["id"], camera_id)
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"], (camera_id,))
     return OkResponse()
 
 
@@ -182,10 +184,10 @@ def get_policy(site: Site, service: Service):
 
 
 @router.patch("/sites/{site_id}/policy", response_model=GuardBehaviorSitePolicyResponse, dependencies=ADMIN)
-def update_policy(site: Site, payload: GuardBehaviorSitePolicyUpdate, service: Service, runtime: Runtime):
+def update_policy(site: Site, payload: GuardBehaviorSitePolicyUpdate, service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.update_policy(site["id"], payload.model_dump(exclude_unset=True))
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 
@@ -198,10 +200,10 @@ def get_roi(site: Site, camera_id: ResourceId, service: Service):
 @router.put("/sites/{site_id}/cameras/{camera_id}/roi", response_model=GuardBehaviorCameraRoiResponse,
             dependencies=ADMIN)
 def update_roi(site: Site, camera_id: ResourceId, payload: GuardBehaviorCameraRoiUpdate,
-               service: Service, runtime: Runtime):
+               service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.update_camera_roi(site["id"], camera_id, payload.model_dump())
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 
@@ -214,10 +216,10 @@ def list_alarm_policies(site: Site, service: Service):
 @router.patch("/sites/{site_id}/alarm-policies/{violation_type}",
               response_model=GuardBehaviorAlarmPolicyResponse, dependencies=ADMIN)
 def update_alarm_policy(site: Site, violation_type: int, payload: GuardBehaviorAlarmPolicyUpdate,
-                        service: Service, runtime: Runtime):
+                        service: Service, orchestrator: Orchestrator):
     with _service_errors():
         result = service.update_alarm_policy(site["id"], violation_type, payload.model_dump(exclude_unset=True))
-    _reload(runtime, site["id"])
+    _reload(orchestrator, site["id"])
     return result
 
 

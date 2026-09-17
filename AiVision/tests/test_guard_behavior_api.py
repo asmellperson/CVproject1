@@ -27,6 +27,8 @@ def client(data_db, monkeypatch):  # noqa: F811
         get_site_frame=Mock(return_value=None)))
     app.dependency_overrides[api.get_current_user] = lambda: state.user
     app.dependency_overrides[api.get_guard_behavior_service] = lambda: data_db.service
+    state.orchestrator = SimpleNamespace(refresh_guard_site=Mock())
+    app.dependency_overrides[api.get_guard_behavior_orchestrator] = lambda: state.orchestrator
     app.dependency_overrides[api.get_guard_behavior_runtime] = lambda: state.runtime
 
     def request(method, path, payload=None):
@@ -49,7 +51,7 @@ def test_site_crud_and_every_configuration_mutation_reload(client):
     created = response.json()
     assert created["enabled"] is False and created["sort_order"] == 3
     assert len(c.db.service.list_alarm_policies(created["id"])) == 4
-    c.runtime.reload_site.assert_called_once_with(created["id"])
+    c.orchestrator.refresh_guard_site.assert_called_once_with(created["id"], ())
     mutations = [
         ("PATCH", f"/sites/{c.site}", {"name": "南门更新", "sort_order": 2}),
         ("POST", f"/sites/{c.site}/cameras", {"camera_id": c.camera}),
@@ -62,10 +64,13 @@ def test_site_crud_and_every_configuration_mutation_reload(client):
         ("DELETE", f"/sites/{c.site}", None),
     ]
     for method, path, payload in mutations:
-        c.runtime.reload_site.reset_mock()
+        c.orchestrator.refresh_guard_site.reset_mock()
         response = c.request(method, path, payload)
         assert response.status_code in (200, 201), response.text
-        c.runtime.reload_site.assert_called_once_with(c.site)
+        c.orchestrator.refresh_guard_site.assert_called_once()
+        assert c.orchestrator.refresh_guard_site.call_args.args[0] == c.site
+        if method == "DELETE" and "/cameras/" in path:
+            assert c.orchestrator.refresh_guard_site.call_args.args[1] == (c.camera,)
 
 
 READ_PATHS = ("", "/cameras", "/policy", "/cameras/{camera}/roi", "/alarm-policies", "/status", "/frame.jpg")
@@ -97,7 +102,7 @@ def test_read_permission_is_scoped_by_site_department(client, suffix):
 def test_all_writes_require_admin(client, method, suffix, payload):
     client.user = {"role": "viewer", "departments": [DEPARTMENT]}
     assert client.request(method, suffix.format(site=client.site), payload).status_code == 403
-    client.runtime.reload_site.assert_not_called()
+    client.orchestrator.refresh_guard_site.assert_not_called()
 
 
 def test_site_list_filters_departments_and_rejects_unauthorized_query(client):
@@ -156,7 +161,7 @@ def test_live_status_and_jpeg_use_injected_runtime(client):
 
 
 def test_reload_failure_does_not_claim_transaction_was_rolled_back(client):
-    client.runtime.reload_site.side_effect = RuntimeError("refresh failed")
+    client.orchestrator.refresh_guard_site.side_effect = RuntimeError("refresh failed")
     response = client.request("PATCH", f"/sites/{client.site}", {"name": "已保存"})
     assert response.status_code == 503 and "配置已保存" in response.json()["detail"]
     assert client.db.service.get_site(client.site)["name"] == "已保存"
@@ -217,13 +222,74 @@ def test_orchestrator_constructs_before_configure_and_stops_before_evidence(monk
     assert not obj.guard_behavior_runtime.running
 
 
-def test_application_registers_native_router_without_registering_feature():
+def test_application_registers_native_router_and_guard_feature():
     from AiVision.api.app import app
     from AiVision.features.registry import all_specs
     from AiVision.alarms.types import VIOLATION_TYPE_META
     from AiVision.inference.runtime_manager import InferenceRuntimeManager
     assert any(route.path == "/api/guard-behavior/sites" for route in app.routes)
-    assert "guard_behavior" not in all_specs()
-    assert set(VIOLATION_TYPE_META) == set(range(1, 8))
-    assert not {"yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle"}.intersection(
+    assert "guard_behavior" in all_specs()
+    assert set(VIOLATION_TYPE_META) == set(range(1, 12))
+    assert {"yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle"} <= (
         InferenceRuntimeManager()._declared_model_names())
+
+
+def test_orchestrator_injects_one_service_and_snapshot_sink(monkeypatch):
+    from dataclasses import replace
+    from AiVision.features.guard_behavior.spec import SPEC
+    from AiVision.runtime import orchestrator as module
+    captured = {}
+    class Consumer:
+        running = False
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+        def start(self):
+            self.running = True
+    service, runtime = Mock(), Mock()
+    manager = Mock()
+    manager.list_running.return_value = list(SPEC.required_models)
+    manager.result_queues = {SPEC.name: None}
+    monkeypatch.setattr(module, 'inference_runtime_manager', manager)
+    instance = object.__new__(module.Orchestrator)
+    instance.consumers = {}
+    instance.guard_behavior_service, instance.guard_behavior_runtime = service, runtime
+    instance._start_consumer(SPEC.name, replace(SPEC, consumer_cls=Consumer))
+    assert captured['guard_config_provider'] is service
+    assert captured['model_running_provider'] == manager.is_model_running
+    snapshot, frame = object(), object()
+    captured['snapshot_sink'](snapshot, frame)
+    runtime.update_camera_snapshot.assert_called_once_with(snapshot, frame)
+
+
+def test_guard_refresh_covers_site_members_and_removed_camera(data_db, monkeypatch):
+    from AiVision.runtime import orchestrator as module
+    from AiVision.core.events import ConfigChangeEvent
+    site = data_db.service.create_site('refresh', DEPARTMENT)['id']
+    camera = data_db.camera()
+    data_db.service.add_camera(site, camera)
+    consumer, runtime = Mock(), Mock()
+    instance = object.__new__(module.Orchestrator)
+    instance.guard_behavior_service = data_db.service
+    instance.guard_behavior_runtime = runtime
+    instance.consumers = {'guard_behavior': consumer}
+    instance._started = True
+    instance._sync_camera_process_state = Mock()
+    instance.logistics_channel_runtime = Mock()
+    instance._restart_or_stop_camera = Mock()
+    monkeypatch.setattr(module, 'config_cache', Mock())
+    monkeypatch.setattr(module, 'camera_config_manager', Mock(get_camera=Mock(return_value={'shm_name': 'guard-camera'})))
+    instance.refresh_guard_site(site)
+    consumer.reload_camera_config.assert_called_once_with(camera)
+    module.config_cache.refresh_function.assert_called_once_with(camera, 'guard_behavior')
+    instance._sync_camera_process_state.assert_called_once_with('guard-camera')
+    runtime.reload_site.assert_called_once_with(site)
+    consumer.reset_mock()
+    instance._handle_runtime_config_change(ConfigChangeEvent(
+        change_type='camera_updated', camera_id=camera, camera_name='guard-camera',
+        old_value={'fps': 5, 'url': 'a', 'enabled': True}, new_value={'fps': 10, 'url': 'b', 'enabled': False}))
+    consumer.reload_camera_config.assert_called_once_with(camera)
+    instance._restart_or_stop_camera.assert_called_once_with('guard-camera')
+    data_db.service.remove_camera(site, camera)
+    consumer.reset_mock()
+    instance.refresh_guard_site(site, (camera,))
+    consumer.reload_camera_config.assert_called_once_with(camera)

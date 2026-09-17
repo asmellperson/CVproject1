@@ -149,7 +149,6 @@ auth/：统一登录认证、用户存储与角色授权
     AiVision/api/app.py：认证中间件调用 get_current_user_from_request()；
         受保护的 API 路由再按需要使用 get_current_user() / require_admin() 和部门范围校验。
         哪些健康检查或公开资源可免登录，由应用中间件自己的公开路径规则决定。
-    AiVision/integrations/guard_room/src/server.py：直接使用本包的登录、Cookie、改密和认证函数。
         不要再按旧说明去寻找服务内部单独维护的 auth.py 实现。
     多个服务共享身份时，需要读取同一份用户数据库并使用一致的 JWT 签名密钥；
         仅仅导入同一个 Python 包，不代表不同进程的 AUTH_USERS_DB / AUTH_SECRET 自动一致。

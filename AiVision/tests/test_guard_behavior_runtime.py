@@ -504,41 +504,26 @@ def test_constructor_still_rejects_different_already_configured_evidence():
                                  evidence_recorder=FakeEvidence())
 
 
-def test_unregistered_guard_request_still_fails_formal_alarm_validation(runtime):
+def test_registered_guard_request_passes_formal_alarm_validation(runtime):
     config = site_config(count=1)
     policies = tuple(policy.model_copy(update={"sql_enable": True}) for policy in config.alarm_policies)
     runtime.configs[1] = config.model_copy(update={"alarm_policies": policies})
     runtime.instance.reload_site(1)
     runtime.push(snapshot(phone=LocalRuleDecision("alarm", "异常", .9)))
-    with pytest.raises(ValueError, match="正式报警类型"):
-        runtime.instance.evaluate_after_camera_update(1)
-    assert not runtime.requests
+    runtime.instance.evaluate_after_camera_update(1)
+    assert len(runtime.requests) == 1
+    assert runtime.requests[0][0].violation_type == 9
     from AiVision.features.registry import all_specs
     from AiVision.alarms.types import VIOLATION_TYPE_META
-    assert "guard_behavior" not in all_specs()
-    assert set(VIOLATION_TYPE_META) == set(range(1, 8))
+    assert "guard_behavior" in all_specs()
+    assert set(VIOLATION_TYPE_META) == set(range(1, 12))
 
 
 @pytest.fixture
-def isolated_alarm_catalog(monkeypatch):
-    from AiVision.alarms import validation
-    from AiVision.alarms.types import VIOLATION_TYPE_META
-    from AiVision.features import registry
-    from AiVision.features.guard_behavior.spec import SPEC
-
-    original_get_spec = registry.get_spec
-    # 仅替换测试中校验器读到的视图；全局目录仍只有已上线的 Feature 和 1～7。
-    monkeypatch.setattr(validation, "VIOLATION_TYPE_META", {
-        **VIOLATION_TYPE_META,
-        **{kind: {"event_type": event, "label": label} for kind, event, label in (
-            (8, "guard_absent", "保安离岗"), (9, "guard_phone_use", "保安使用手机"),
-            (10, "guard_prone_sleep", "保安趴睡"), (11, "guard_vehicle_inspection_missing", "车辆出厂未检查"),
-        )},
-    })
-    monkeypatch.setattr(registry, "get_spec", lambda name: SPEC if name == SPEC.name else original_get_spec(name))
-    yield
-    assert "guard_behavior" not in registry.all_specs()
-    assert set(VIOLATION_TYPE_META) == set(range(1, 8))
+def formal_alarm_catalog():
+    from AiVision.alarms.validation import validate_alarm_identity
+    for kind in (8, 9, 10, 11):
+        validate_alarm_identity(violation_type=kind, feature_name="guard_behavior", department="general_electric")
 
 
 def enable_alarm_channels(runtime, config):
@@ -550,7 +535,7 @@ def enable_alarm_channels(runtime, config):
     runtime.instance.reload_site(1)
 
 
-@pytest.mark.usefixtures("isolated_alarm_catalog")
+@pytest.mark.usefixtures("formal_alarm_catalog")
 @pytest.mark.parametrize(("rule", "violation_type"), [("phone", 9), ("prone", 10)])
 def test_multiple_positive_cameras_create_one_formal_site_request(runtime, rule, violation_type):
     from AiVision.alarms.dispatcher import AlarmRequest
@@ -578,7 +563,7 @@ def test_multiple_positive_cameras_create_one_formal_site_request(runtime, rule,
     }
 
 
-@pytest.mark.usefixtures("isolated_alarm_catalog")
+@pytest.mark.usefixtures("formal_alarm_catalog")
 def test_absence_alarm_uses_site_composite_for_screenshot_and_common_clip(runtime):
     enable_alarm_channels(runtime, site_config(absent_alarm_seconds=2.))
     runtime.push(snapshot(1), 30)
@@ -595,7 +580,7 @@ def test_absence_alarm_uses_site_composite_for_screenshot_and_common_clip(runtim
     assert [item["camera_id"] for item in request.metadata["offending_cameras"]] == [1, 2]
 
 
-@pytest.mark.usefixtures("isolated_alarm_catalog")
+@pytest.mark.usefixtures("formal_alarm_catalog")
 def test_four_guard_alarm_types_have_independent_site_cooldowns(runtime, monkeypatch):
     from AiVision.alarms.dispatcher import AlarmDispatcher
 
@@ -671,7 +656,7 @@ def test_vehicle_unknown_interval_cancels_evidence_and_prevents_negative_alarm(r
     assert not runtime.requests and not runtime.evidence.episodes
 
 
-@pytest.mark.usefixtures("isolated_alarm_catalog")
+@pytest.mark.usefixtures("formal_alarm_catalog")
 def test_dispatch_failure_cannot_leak_evidence_of_an_already_closed_episode(runtime, monkeypatch):
     enable_alarm_channels(runtime, site_config(count=1, vehicle_inspection_enabled=True, vehicle_camera_id=1,
                                              vehicle_reassociate_seconds=0.))

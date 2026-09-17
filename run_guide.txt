@@ -64,7 +64,7 @@ npm ci
 以下真实配置、密钥和运行数据不提交到 Git，新服务器需要从当前生产环境安全复制：
 
 - AiVision/.env：MySQL 等 AiVision 配置；
-- AiVision/integrations/guard_room/config/config.yaml：如生产使用自定义 Guard 配置；
+- AiVision/config/model_paths.yaml：含 Guard 模型在内的平台共享模型路径；
 - AiVision/integrations/security_vlm/configs/config.yaml：Security VLM 配置；
 - runtime/auth/auth_users.db：当前用户、角色、部门、密码哈希和登录版本；
 - scripts/auth_secret：如需保持现有登录态；

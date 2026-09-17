@@ -482,6 +482,42 @@ def test_unconfirmed_tracks_remain_visible_without_shared_temporal_identity(cons
     assert consumer.process()[1].persons[0].track_id == 1
 
 
+def test_consumer_snapshot_reaches_site_runtime_and_formal_dispatcher(consumer, monkeypatch):
+    from AiVision.alarms.dispatcher import AlarmDispatcher
+    from AiVision.features.guard_behavior.runtime import GuardBehaviorSiteRuntime
+    from test_guard_behavior_runtime import FakeEvidence, site_config
+
+    config = site_config(absent_alarm_seconds=1.)
+    config = config.model_copy(update={"alarm_policies": tuple(
+        policy.model_copy(update={"sql_enable": True}) for policy in config.alarm_policies)})
+    evidence, dispatcher, requests = FakeEvidence(), AlarmDispatcher(), []
+    dispatcher.evidence_recorder = evidence
+    monkeypatch.setattr(dispatcher, "_execute", requests.append)
+    monkeypatch.setattr(module, "time", lambda: consumer.now[0])
+    runtime = GuardBehaviorSiteRuntime(
+        service=SimpleNamespace(list_runtime_site_configs=lambda: [config]),
+        dispatcher=dispatcher, evidence_recorder=evidence,
+        clock=lambda: consumer.now[0], start_background=False,
+    )
+    runtime.start()
+    consumer.consumer.snapshot_sink = runtime.update_camera_snapshot
+    try:
+        consumer.process(1)
+        consumer.process(2)
+        assert runtime.evaluate_after_camera_update(1).absence.state == "pending"
+        assert not requests
+        consumer.now[0] += 1.
+        assert runtime.evaluate_after_camera_update(1).absence.state == "alarm"
+        assert len(requests) == 1
+        request = requests[0]
+        assert request.violation_type == 8 and request.feature_name == "guard_behavior"
+        assert request.subject_type == request.cooldown_subject_type == "guard_behavior_site"
+        assert request.evidence.source_key == "guard_behavior/site/1"
+    finally:
+        consumer.consumer.snapshot_sink = None
+        runtime.stop()
+
+
 def test_missing_packaged_tracker_configuration_fails_explicitly(monkeypatch, tmp_path):
     import ultralytics
     from AiVision.features.guard_behavior.tracking import CameraByteTracker

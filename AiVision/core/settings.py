@@ -190,11 +190,6 @@ _AIVISION_ROOT = Path(__file__).resolve().parents[1]
 
 class ManagedVisualServiceSettings(BaseSettings):
     """由 AiVision 同一进程承载的扩展视觉能力配置。"""
-    # 两个复杂视觉检测任务的各自配置文件的目录
-    guard_room_config_path: Path = Field(
-        _AIVISION_ROOT / "integrations" / "guard_room" / "config" / "config.yaml",
-        alias="GUARD_ROOM_CONFIG_PATH",
-    )
     security_vlm_config_path: Path = Field(
         _AIVISION_ROOT / "integrations" / "security_vlm" / "configs" / "config.yaml",
         alias="SECURITY_VLM_CONFIG_PATH",

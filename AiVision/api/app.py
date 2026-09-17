@@ -6,7 +6,7 @@ FastAPI 实例、CORS、中间件和路由注册。
         3、lifespan（）：FastAPI启动/关闭时管理视觉子服务
         4、auth_middleware():所有/api/请求统一做登录认证
         5、unhandled_exception_handler():全局未处理异常兜底
-        6、include_router/mount:注册普通API+挂载两个复杂视觉子应用
+        6、include_router/mount:注册普通API+挂载Security VLM 子应用
     app = create_app():创建一个全局FastAPI实例
 """
 from __future__ import annotations
@@ -104,17 +104,16 @@ def create_app(
     managed_visual_services: ManagedVisualServices | None = None,
 ) -> FastAPI:
     visual_services = managed_visual_services or ManagedVisualServices(                           # 创建视觉服务管理器
-        guard_room_config_path=settings.visual_services.guard_room_config_path,
         security_vlm_config_path=settings.visual_services.security_vlm_config_path,
     )
     """
     创建并组装整个AiVision FastAPI应用
-        Guard_Room/Security VLM生命周期
+        Security VLM生命周期
         CORS
         登录认证中间件
         全局异常处理
         所有API Router
-        两个复杂视觉子应用
+        Security VLM 子应用
     """
 
     @asynccontextmanager
@@ -195,11 +194,6 @@ def create_app(
     app.include_router(guard_behavior_router)
 
     # mount（）：把一个完整的ASGI应用挂进当前FastAPI
-    app.mount(
-        "/api/integrations/guard-room",
-        visual_services.guard_room,
-        name="guard-room",
-    )
     app.mount(
         "/api/integrations/security-vlm",
         visual_services.security_vlm,

@@ -45,7 +45,7 @@ def api(monkeypatch):
     engine.dispose()
 
 
-@pytest.mark.parametrize("feature", [name for name in all_specs() if name not in LOGISTICS_FEATURES])
+@pytest.mark.parametrize("feature", [name for name in all_specs() if name not in LOGISTICS_FEATURES and name != "guard_behavior"])
 def test_defaults_read_save_echo_and_cache(api, feature):
     spec = get_spec(feature)
     path = f"/api/features/{feature}/configs/test"
@@ -66,13 +66,14 @@ def test_defaults_read_save_echo_and_cache(api, feature):
 def test_feature_metadata_returns_structured_alarm_types(api):
     response = api.client.get("/api/features")
     assert response.status_code == 200
-    expected_types = {"blocks": 1, "detect_door": 2, "detect_phone": 3, "detect_face": 4,
-                      "detect_human": 5, "detect_logistics_single_person": 6, "recognize_face": 7}
+    expected_types = {"blocks": (1,), "detect_door": (2,), "detect_phone": (3,), "detect_face": (4,),
+                      "detect_human": (5,), "detect_logistics_single_person": (6,), "recognize_face": (7,),
+                      "guard_behavior": (8, 9, 10, 11)}
     features = response.json()["features"]
     assert {meta["name"] for meta in features} == expected_types.keys()
     for meta in features:
-        alarm_type = expected_types[meta["name"]]
-        assert meta["alarm_types"] == [{"violation_type": alarm_type, **VIOLATION_TYPE_META[alarm_type]}]
+        assert meta["alarm_types"] == [{"violation_type": alarm_type, **VIOLATION_TYPE_META[alarm_type]}
+                                       for alarm_type in expected_types[meta["name"]]]
         assert set(meta) == {"name", "display_name", "required_models", "alarm_types", "default_config", "config_schema"}
         assert api.client.get(f"/api/features/{meta['name']}").json() == meta
 
@@ -237,7 +238,7 @@ def test_door_requires_both_local_thresholds_and_zero_first_alarm():
 def test_camera_alarm_features_use_common_schema():
     defaults = AlarmConfigSchema().model_dump()
     for name, spec in all_specs().items():
-        if name == "detect_logistics_single_person":
+        if name in {"detect_logistics_single_person", "guard_behavior"}:
             assert "alarm" not in spec.config_schema.model_fields
             with pytest.raises(ValidationError):
                 spec.config_schema(alarm=defaults)
@@ -247,3 +248,9 @@ def test_camera_alarm_features_use_common_schema():
     first = AlarmConfigSchema()
     first.wechat.parm.user = "changed"
     assert AlarmConfigSchema().wechat.parm.user == ""
+
+
+def test_guard_feature_config_cannot_bypass_site_membership(api):
+    response = api.client.put('/api/features/guard_behavior/configs/test', json={'enable': True, 'value': {'vehicle_roi_pos': []}})
+    assert response.status_code == 400
+    assert '成员' in response.json()['detail']

@@ -26,6 +26,7 @@ Orchestrator = importlib.import_module("AiVision.runtime.orchestrator").Orchestr
 def _orchestrator_without_init():
     orchestrator = object.__new__(Orchestrator)
     orchestrator.consumers = {}
+    orchestrator.guard_behavior_service = SimpleNamespace(get_runtime_camera_config=lambda _: None)
     orchestrator.logistics_channel_runtime = SimpleNamespace(
         refresh_channel=lambda *_args: None,
         refresh_camera=lambda *_args: None,

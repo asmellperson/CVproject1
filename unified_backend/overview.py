@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 CAPABILITIES = (
     ("security-vlm", "安检流程规范检测", "security_vlm", None),
-    ("guard-behavior", "保安行为规范检测", "guard_room", None),
+    ("guard-behavior", "保安行为规范检测", "aivision", "guard_behavior"),
     ("intrusion-detection", "区域入侵检测", "aivision", "blocks"),
     ("door-detection", "大门开关异常检测", "aivision", "detect_door"),
     ("face-detection", "人脸逗留检测", "aivision", "detect_face"),
@@ -25,7 +25,7 @@ ReadMany = Callable[[dict[str, tuple[str, str, Request | None]]], dict[str, Upst
 
 class OverviewCamera(BaseModel):
     key: str
-    source: Literal["aivision", "guard_room", "security_vlm"]
+    source: Literal["aivision", "security_vlm"]
     camera_id: int | str
     name: str
     department: str
@@ -78,7 +78,7 @@ class _OverviewScope(BaseModel):
     capabilities: list[OverviewCapability]
     cameras: list[OverviewCamera]
     services: dict[str, OverviewServiceStatus]
-    guard_room_sites: list[dict]
+    guard_behavior_sites: list[dict]
 
 
 class OverviewStatus(_OverviewScope):
@@ -101,11 +101,11 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
     ai_cameras = payload("ai_cameras", list)
     feature_meta = {item["name"]: item for item in payload("features", dict).get("features", [])}
     logistics = payload("logistics", dict)
-    guard_sites = payload("guard_sites", dict)
+    guard_sites = payload("guard_sites", list)
     vlm_state = payload("vlm_state", dict)
-    sites = [site for site in guard_sites.get("items", []) if site.get("department") == department]
+    sites = [site for site in guard_sites if site.get("department") == department]
     services = {}
-    for source, key in (("aivision", "ai_status"), ("guard_room", "guard_sites"), ("security_vlm", "vlm_state")):
+    for source, key in (("aivision", "ai_status"), ("security_vlm", "vlm_state")):
         ok, _value, latency, error = upstream[key]
         services[source] = OverviewServiceStatus(online=ok, latency_ms=latency, error=errors.get(key) or error)
     services["aivision"].model_ready = bool(ai_status.get("running_models"))
@@ -127,7 +127,9 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
             capabilities.append("logistics-single-person")
         enabled = bool(camera.get("enabled"))
         physical_online = enabled and camera["shm_name"] in running_cameras
-        active = [FEATURE_PAGES[name] for name in features if physical_online and name in running_features]
+        # Guard 是否参与检测以 Site/member 状态为准，Consumer 存活不能代替成员可用性。
+        active = [FEATURE_PAGES[name] for name in features
+                  if physical_online and name in running_features and name != "guard_behavior"]
         if enabled and member.get("online") and "logistics-single-person" not in active:
             active.append("logistics-single-person")
         cameras.append(OverviewCamera(
@@ -137,23 +139,29 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
             capabilities=capabilities, running_capabilities=active,
             logistics_memberships=links, aivision_camera=camera,
         ))
+    physical = {camera.camera_id: camera for camera in cameras}
     for site in sites:
-        ok, state, _latency, error = site_results[str(site["id"])]
-        state = state if ok and isinstance(state, dict) else {}
-        if not ok:
+        ok, state, _latency, error = site_results[f"{site['id']}:status"]
+        members_ok, members, _latency, member_error = site_results[f"{site['id']}:cameras"]
+        if not ok or not isinstance(state, dict):
             errors[f"guard_site:{site['id']}"] = error or "保安室状态读取失败"
-            services["guard_room"].error = "部分保安室状态读取失败"
-        running = bool(state.get("running")) and not state.get("error")
-        services["guard_room"].model_ready |= running
-        for camera in site.get("cameras", []):
-            enabled = bool(site.get("enabled")) and bool(camera.get("enabled"))
-            online = enabled and running
-            cameras.append(OverviewCamera(
-                key=f"guard_room:{site['id']}:{camera['id']}", source="guard_room", camera_id=camera["id"],
-                name=camera["name"], identifier=f"保安室：{site['name']}", site_id=site["id"],
-                department=department, enabled=enabled, online=online,
-                capabilities=["guard-behavior"], running_capabilities=["guard-behavior"] if online else [],
-            ))
+            state = {}
+        if not members_ok or not isinstance(members, list):
+            errors[f"guard_members:{site['id']}"] = member_error or "保安室成员读取失败"
+            continue
+        for member in members:
+            camera = physical.get(member["camera_id"])
+            if camera is None:
+                errors[f"guard_camera:{member['camera_id']}"] = "保安室成员不在物理摄像头清单中"
+                continue
+            camera.site_id = site["id"]
+            if "guard-behavior" not in camera.capabilities:
+                camera.capabilities.append("guard-behavior")
+            camera.running_capabilities = [name for name in camera.running_capabilities if name != "guard-behavior"]
+            ready = state.get("camera_states", {}).get(str(camera.camera_id)) == "READY"
+            if (camera.enabled and site.get("enabled") and member.get("member_enabled")
+                    and state.get("running") and ready):
+                camera.running_capabilities.append("guard-behavior")
     for camera in vlm_state.get("cameras", []):
         # 安检摄像头来自当前事业部工作区，拒绝上游显式返回的其他事业部数据。
         if camera.get("department", department) != department:
@@ -193,12 +201,12 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
             capability_running=sum(c.running for c in capabilities), camera_total=len(cameras),
             camera_online=camera_online, camera_offline=len(cameras) - camera_online,
         ), capabilities=capabilities, cameras=cameras, services=services,
-        guard_room_sites=[{"id": site["id"], "name": site["name"], "department": department} for site in sites],
+        guard_behavior_sites=[{"id": site["id"], "name": site["name"], "department": department} for site in sites],
     )
 
 
 def build_overview(request: Request, departments: list[str], aivision_url: str,
-                   guard_room_url: str, security_vlm_url: str, read_many: ReadMany) -> OverviewStatus:
+                   security_vlm_url: str, read_many: ReadMany) -> OverviewStatus:
     # 公共状态只读取一次，各事业部清单并发获取，避免随授权范围串行增加等待时间。
     calls = {
         "ai_status": (aivision_url, "/api/runtime/status", request),
@@ -208,19 +216,20 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
         calls.update({
             f"{department}:ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
             f"{department}:logistics": (aivision_url, f"/api/logistics-channels/inventory?department={department}", request),
-            f"{department}:guard_sites": (guard_room_url, f"/api/sites?department={department}", request),
+            f"{department}:guard_sites": (aivision_url, f"/api/guard-behavior/sites?department={department}", request),
             f"{department}:vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
         })
     upstream = read_many(calls) if calls else {}
     site_calls = {}
     for department in departments:
         ok, payload, _latency, _error = upstream[f"{department}:guard_sites"]
-        if ok and isinstance(payload, dict):
-            for site in payload.get("items", []):
+        if ok and isinstance(payload, list):
+            for site in payload:
                 if site.get("department") == department:
-                    site_calls[str(site["id"])] = (
-                        guard_room_url, f"/api/sites/{site['id']}/status?department={department}", request,
-                    )
+                    for resource in ("status", "cameras"):
+                        site_calls[f"{site['id']}:{resource}"] = (
+                            aivision_url, f"/api/guard-behavior/sites/{site['id']}/{resource}", request,
+                        )
     site_results = read_many(site_calls) if site_calls else {}
     scopes = {}
     for department in departments:
@@ -235,7 +244,7 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
     errors = {f"{department}:{key}": error for department, scope in scopes.items()
               for key, error in scope.inventory_errors.items()}
     services = {}
-    for source in ("aivision", "guard_room", "security_vlm"):
+    for source in ("aivision", "security_vlm"):
         items = [scope.services[source] for scope in scopes.values()]
         services[source] = OverviewServiceStatus(
             online=any(item.online for item in items), running=any(item.running for item in items),
@@ -265,5 +274,5 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
             capability_running=sum(c.running for c in capabilities), camera_total=len(cameras),
             camera_online=camera_online, camera_offline=len(cameras) - camera_online,
         ), capabilities=capabilities, cameras=cameras, services=services,
-        guard_room_sites=[site for scope in scopes.values() for site in scope.guard_room_sites],
+        guard_behavior_sites=[site for scope in scopes.values() for site in scope.guard_behavior_sites],
     )

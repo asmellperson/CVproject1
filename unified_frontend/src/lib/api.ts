@@ -139,7 +139,7 @@ export type OverviewServiceStatus = {
 export type OverviewCapability = {
   id: string
   name: string
-  source: 'aivision' | 'guard_room' | 'security_vlm'
+  source: 'aivision' | 'security_vlm'
   camera_count: number
   online_camera_count: number
   running: boolean
@@ -181,7 +181,7 @@ export type OverviewStatus = {
   capabilities: OverviewCapability[]
   cameras: OverviewCamera[]
   services: Record<OverviewCapability['source'], OverviewServiceStatus>
-  guard_room_sites: Array<{ id: number; name: string; department: DepartmentId }>
+  guard_behavior_sites: Array<{ id: number; name: string; department: DepartmentId }>
 }
 
 export const OVERVIEW_POLL_INTERVAL_MS = 30_000
@@ -190,7 +190,7 @@ export const getOverview = (init?: RequestInit) => apiGet<OverviewStatus>('/over
 
 export type AlarmEvent = {
   id: string
-  source?: 'aivision' | 'guard_room' | 'security_vlm'
+  source?: 'aivision' | 'security_vlm'
   source_id?: string
   site_id?: number
   site_name?: string

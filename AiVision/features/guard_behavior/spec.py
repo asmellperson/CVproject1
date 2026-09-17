@@ -1,4 +1,4 @@
-"""待正式切换时注册的 Feature 契约；当前不进入全局 registry。"""
+"""保安行为检测的正式 Feature 契约。"""
 from AiVision.features._shared.spec import FeatureSpec
 from .constants import GUARD_ALARM_TYPES
 from .consumer import GuardBehaviorConsumer

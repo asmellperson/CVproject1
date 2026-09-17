@@ -47,6 +47,7 @@ type TrendRow = {
   guard_absent?: number
   guard_phone_use?: number
   guard_prone_sleep?: number
+  guard_vehicle_inspection_missing?: number
   security_vlm_non_compliant?: number
   security_vlm_error?: number
 }
@@ -85,6 +86,7 @@ const TYPE_META: TypeBucket[] = [
   { event_type: 'guard_absent', name: '保安离岗', value: 0, color: '#dc2626' },
   { event_type: 'guard_phone_use', name: '保安玩手机', value: 0, color: '#ea580c' },
   { event_type: 'guard_prone_sleep', name: '保安趴睡', value: 0, color: '#ca8a04' },
+  { event_type: 'guard_vehicle_inspection_missing', name: '车辆出厂检查异常', value: 0, color: '#be123c' },
   { event_type: 'security_vlm_non_compliant', name: '安检流程不规范', value: 0, color: '#0891b2' },
   { event_type: 'security_vlm_error', name: '安检判定错误', value: 0, color: '#d97706' },
 ]
@@ -117,6 +119,7 @@ function normalizeTrendRow(value: unknown, labelKey: 'day' | 'time'): TrendRow {
     guard_absent: toNumber(row?.guard_absent),
     guard_phone_use: toNumber(row?.guard_phone_use),
     guard_prone_sleep: toNumber(row?.guard_prone_sleep),
+    guard_vehicle_inspection_missing: toNumber(row?.guard_vehicle_inspection_missing),
     security_vlm_non_compliant: toNumber(row?.security_vlm_non_compliant),
     security_vlm_error: toNumber(row?.security_vlm_error),
   }

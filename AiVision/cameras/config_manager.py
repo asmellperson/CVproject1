@@ -159,6 +159,8 @@ class CameraConfigManager:
     def create_camera_for_feature(self, feature_name: str, payload: dict) -> dict:
         """在具体功能页面里新增摄像头，新增后直接启用这个功能。"""
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+        if feature_name == "guard_behavior":
+            raise ValueError("保安室只能通过成员接口绑定已有摄像头")
         # 物流通道不走这里
         if feature_name in LOGISTICS_FEATURES:
             raise ValueError("物流通道摄像头必须通过通道接口新建并绑定")
@@ -378,6 +380,7 @@ class CameraConfigManager:
                 if cam.department != previous_department:
                     raise CameraOrderConflict("摄像头归属已变化，请重新加载")
                 if department != cam.department:
+                    self._require_guard_unbound(session, cam.id)
                     membership = (
                         session.query(LogisticsChannelCamera.id)
                         .filter(LogisticsChannelCamera.camera_id == cam.id)
@@ -421,12 +424,21 @@ class CameraConfigManager:
         # 最后再重新查一次，最终返回数据库里的完整状态以及功能状态
         return self.get_camera(cam_shm)
 
+    @staticmethod
+    def _require_guard_unbound(session, camera_id: int) -> None:
+        from AiVision.features.guard_behavior.orm import GuardBehaviorSiteCamera
+        member = session.query(GuardBehaviorSiteCamera.id).filter_by(camera_id=camera_id).with_for_update().first()
+        if member is not None:
+            raise ValueError("摄像头已绑定保安室，请先解除绑定后再删除或修改事业部")
+
     def delete_camera(self, key: str) -> bool:
         """删除一台摄像头"""
         with session_scope() as session:
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return False
+            session.refresh(cam, with_for_update=True)
+            self._require_guard_unbound(session, cam.id)
             cam_id, cam_shm = cam.id, cam.shm_name
             for spec in all_specs().values():
                 session.query(spec.orm_class).filter_by(camera_id=cam_id).delete(

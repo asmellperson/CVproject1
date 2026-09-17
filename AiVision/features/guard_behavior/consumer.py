@@ -174,7 +174,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         return time() - self._last_process_at.get(camera_id, 0.) >= self._processing_interval_seconds(camera_id, cfg)
 
     def _handle_alarm(self, camera_id, result, frame):
-        """本阶段局部状态不产生业务告警。"""
+        """单摄只发布 Snapshot，由 SiteRuntime 统一决定业务告警。"""
         return None
 
     def _infer(self, camera_id, model, frame, meta, states, parse):

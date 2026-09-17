@@ -204,17 +204,9 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "guard_absent": {"name": "保安离岗"},
     "guard_phone_use": {"name": "保安玩手机"},
     "guard_prone_sleep": {"name": "保安趴睡"},
+    "guard_vehicle_inspection_missing": {"name": "车辆出厂检查异常"},
     "security_vlm_non_compliant": {"name": "安检流程不规范"},
     "security_vlm_error": {"name": "安检判定错误"},
-}
-
-
-
-
-GUARD_EVENT_META: dict[str, dict[str, str]] = {
-    "absent": {"event_type": "guard_absent", "event_label": "保安离岗"},
-    "phone_use": {"event_type": "guard_phone_use", "event_label": "保安玩手机"},
-    "prone_sleep": {"event_type": "guard_prone_sleep", "event_label": "保安趴睡"},
 }
 
 
@@ -257,7 +249,7 @@ def _env_url(name: str, default: str) -> str:
 #   - 内部调用：`ValueError`、`aivision_url.rstrip`。
 # 副作用/注意事项：校验或执行失败时会主动抛出异常。
 def _visual_service_url(aivision_url: str, service: str) -> str:
-    if service not in {"guard-room", "security-vlm"}:
+    if service != "security-vlm":
         raise ValueError(f"unknown visual service: {service}")
     return (
         f"{aivision_url.rstrip('/')}"
@@ -448,52 +440,6 @@ def _items_from_payload(payload: object) -> list[dict[str, Any]]:
     else:
         rows = []
     return [row for row in rows if isinstance(row, dict)]
-
-
-# 功能：转换或规范化 `_normalize_guard_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`str`、`alarm.get`、`str(alarm.get('site_name') or '').strip`、`GUARD_EVENT_META.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
-    source_id = str(alarm.get("id") or "")
-    site_id = alarm.get("site_id")
-    site_name = str(alarm.get("site_name") or "").strip()
-    raw_type = str(alarm.get("event_type") or "")
-    meta = GUARD_EVENT_META.get(raw_type) or {
-        "event_type": f"guard_{raw_type}" if raw_type else "guard_alarm",
-        "event_label": "保安行为",
-    }
-    camera_name = site_name or str(alarm.get("camera_name") or "保安行为规范检测")
-    department = require_department(alarm.get("department"))
-    if not isinstance(site_id, int):
-        raise ValueError("保安报警必须明确所属站点")
-    normalized_id = f"guard:{site_id}:{source_id}"
-    image_url = f"/api/guard-room/sites/{site_id}/alarms/{source_id}/image?department={department}"
-    video_url = (
-        f"/api/guard-room/sites/{site_id}/alarms/{source_id}/video?department={department}"
-        if alarm.get("video_status") == "ready" else None
-    )
-    return {
-        **alarm,
-        "id": normalized_id,
-        "source": "guard_room",
-        "source_id": source_id,
-        "site_id": site_id,
-        "site_name": site_name or None,
-        "event_type": meta["event_type"],
-        "event_label": meta["event_label"],
-        "subject_type": "guard_room_site",
-        "subject_id": str(site_id),
-        "subject_name": camera_name,
-        "camera_no": alarm.get("camera_no"),
-        "camera_name": alarm.get("camera_name"),
-        "image_url": image_url,
-        "video_url": video_url,
-    }
 
 
 # 功能：转换或规范化 `_normalize_aivision_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -690,25 +636,6 @@ def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
     return allowed_alarm_event_types(user, _departments_for_user(user))
 
 
-# 功能：实现 `_guard_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-# 返回：list[str] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`_departments_for_user`、`guard_event_types.isdisjoint`、`DEPARTMENT_SPECS`、`set`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _guard_departments_for_user(user: dict[str, Any]) -> list[str] | None:
-    role = str(user.get("role") or "").strip().lower()
-    if role == "admin":
-        return None
-    if role != "viewer":
-        return []
-    departments = _departments_for_user(user)
-    return [department for department in departments if department in DEPARTMENT_SPECS]
-
-
 # 功能：检查或判断 `_can_mutate_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `user`（dict[str, Any]）：当前用户或待处理用户对象
@@ -864,7 +791,6 @@ def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, A
 # 参数：
 #   - `request`（Request）：当前 HTTP 请求及上下文
 #   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-#   - `guard_room_url`（str）：`guard_room_url` 对应的业务输入值
 #   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
 #   - `security_vlm_url`（str）：`security_vlm_url` 对应的业务输入值
 #   - `disposition_store`（AlarmDispositionStore）：`disposition_store` 对应的业务输入值
@@ -874,14 +800,12 @@ def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, A
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `create_app::unified_alarms` 调用本符号；`unified_backend/app.py` 的 `create_app::unified_statistics`
 #         调用本符号
-#   - 内部调用：`max`、`_get_upstream_json`、`alarms.extend`、`_normalize_aivision_alarm`、`_items_from_payload`、`_guard_departments_for_user`、`_guard_alarm_paths`、`_normalize_guard_alarm`、`_security_vlm_departments_for_user`、`isinstance`
 #          等共 19 个调用。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _collect_alarms(
     *,
     request: Request,
     user: dict[str, Any],
-    guard_room_url: str,
     aivision_url: str,
     security_vlm_url: str,
     disposition_store: AlarmDispositionStore,
@@ -904,17 +828,6 @@ def _collect_alarms(
         ai_path += f"&department={department}"
     ai_payload = _get_upstream_json(aivision_url, ai_path, request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
-
-    guard_departments = [department] if department else (_guard_departments_for_user(user) or [])
-    if department is None and _guard_departments_for_user(user) is None:
-        guard_departments = list(DEPARTMENT_SPECS)
-    for guard_department in guard_departments:
-        guard_sites_payload = _get_upstream_json(
-            guard_room_url, f"/api/sites?department={guard_department}", request,
-        )
-        for path in _guard_alarm_paths(guard_sites_payload, upstream_limit, department=guard_department):
-            guard_payload = _get_upstream_json(guard_room_url, path, request)
-            alarms.extend(_normalize_guard_alarm(item) for item in _items_from_payload(guard_payload))
 
     security_departments = [department] if department else _security_vlm_departments_for_user(user)
     for security_department in security_departments:
@@ -1041,37 +954,6 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
 
 
 
-# 功能：实现 `_guard_site_items` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `payload`（object）：接口或事件携带的业务数据
-# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_count_guard_site_cameras` 调用本符号；`unified_backend/app.py` 的 `_guard_site_runtime_summary`
-#         调用本符号；`unified_backend/app.py` 的 `_guard_alarm_paths` 调用本符号；`unified_backend/app.py` 的 `create_app::overview` 调用本符号
-#   - 内部调用：`isinstance`、`payload.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _guard_site_items(payload: object) -> list[dict[str, Any]]:
-    if isinstance(payload, dict):
-        rows = payload.get("items") or []
-    elif isinstance(payload, list):
-        rows = payload
-    else:
-        rows = []
-    return [row for row in rows if isinstance(row, dict)]
-
-
-def _guard_alarm_paths(sites_payload: object, limit: int, department: str) -> list[str]:
-    department = require_department(department)
-    paths: list[str] = []
-    for site in _guard_site_items(sites_payload):
-        try:
-            site_id = int(site.get("id"))
-        except (TypeError, ValueError):
-            continue
-        paths.append(f"/api/sites/{site_id}/alarms?limit={limit}&department={department}")
-    return paths
-
-
 # 读取请求体以及发送上游HTTP，都属于I/O操作，因此使用异步函数来处理请求转发，避免阻塞事件循环，提高并发性能。
 # 功能：实现 `_proxy` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
@@ -1117,7 +999,6 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app() -> FastAPI:
     aivision_url = _env_url("UNIFIED_AIVISION_URL", "http://127.0.0.1:7862")
-    guard_room_url = _visual_service_url(aivision_url, "guard-room")
     security_vlm_url = _visual_service_url(aivision_url, "security-vlm")
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
@@ -1217,7 +1098,6 @@ def create_app() -> FastAPI:
         return {
             "name": "fuda-unified-backend",
             "ok": True,
-            "guard_room": guard_room_url,
             "aivision": aivision_url,
             "security_vlm": security_vlm_url,
         }
@@ -1237,7 +1117,7 @@ def create_app() -> FastAPI:
     def overview(request: Request):
         user = request.state.user
         departments = list(DEPARTMENT_SPECS) if user.get("role") == "admin" else _departments_for_user(user)
-        return build_overview(request, departments, aivision_url, guard_room_url,
+        return build_overview(request, departments, aivision_url,
                               security_vlm_url, _get_json_concurrently)
 
     # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1516,7 +1396,6 @@ def create_app() -> FastAPI:
             "items": _collect_alarms(
                 request=request,
                 user=user,
-                guard_room_url=guard_room_url,
                 aivision_url=aivision_url,
                 security_vlm_url=security_vlm_url,
                 disposition_store=disposition_store,
@@ -1547,7 +1426,6 @@ def create_app() -> FastAPI:
         alarms = _collect_alarms(
             request=request,
             user=user,
-            guard_room_url=guard_room_url,
             aivision_url=aivision_url,
             security_vlm_url=security_vlm_url,
             disposition_store=disposition_store,
@@ -1555,12 +1433,6 @@ def create_app() -> FastAPI:
             event_types=_parse_event_types(event_types),
         )
         return _build_alarm_statistics(alarms, days=days)
-
-    @app.api_route("/api/guard-room/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_guard_room(path: str, request: Request):
-        if path.split("/", 1)[0] not in {"sites", "cameras"}:
-            raise HTTPException(status_code=404, detail="Not Found")
-        return await _proxy(request, guard_room_url, f"/api/{path}")
 
     @app.api_route("/api/security-vlm/departments/{department}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_security_vlm(department: str, path: str, request: Request):

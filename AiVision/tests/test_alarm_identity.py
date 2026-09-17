@@ -88,7 +88,7 @@ def test_orm_revalidates_identity_before_insert(writer_db):
         assert session.query(AiAlarmEvent).count() == 0
 
 
-@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics")], ids=lambda spec: spec.name)
+@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics") and len(spec.alarm_types) == 1], ids=lambda spec: spec.name)
 def test_regular_features_skip_camera_without_department(monkeypatch, spec):
     import AiVision.features._shared.consumer as module
     captured = []
@@ -112,7 +112,7 @@ def test_ambiguous_camera_department_is_not_guessed(monkeypatch):
 
 
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
-@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics")], ids=lambda spec: spec.name)
+@pytest.mark.parametrize("spec", [spec for spec in all_specs().values() if not spec.name.startswith("detect_logistics") and len(spec.alarm_types) == 1], ids=lambda spec: spec.name)
 def test_all_features_use_camera_explicit_department(monkeypatch, department, spec):
     import AiVision.features._shared.consumer as module
     captured = []
@@ -146,8 +146,8 @@ def test_composite_feature_identity_is_accepted_at_all_write_boundaries(monkeypa
 
 @pytest.mark.parametrize("spec", all_specs().values(), ids=lambda spec: spec.name)
 def test_alarm_identity_requires_feature_ownership(spec):
-    (alarm_type,) = spec.alarm_types
-    validate_alarm_identity(alarm_type, spec.name, "research_institute")
+    for alarm_type in spec.alarm_types:
+        validate_alarm_identity(alarm_type, spec.name, "research_institute")
     other_type = next(value for value in VIOLATION_TYPE_META if value not in spec.alarm_types)
     with pytest.raises(ValueError, match="FeatureSpec"):
         validate_alarm_identity(other_type, spec.name, "research_institute")
@@ -218,3 +218,18 @@ def test_channel_queries_use_feature_field_and_never_type_inference(writer_db):
         session.execute(text("UPDATE ai_violation_image SET feature_name = NULL WHERE feature_name = :feature"), {"feature": specs[0].name})
         session.commit()
         assert _channel_alarm_query(session, specs[0].name, 1).count() == 0
+
+
+@pytest.mark.parametrize('violation_type', (8, 9, 10, 11))
+def test_guard_site_identity_enters_shared_writer(writer_db, violation_type):
+    writer, factory, _ = writer_db
+    values = dict(violation_type=violation_type, feature_name='guard_behavior', department='general_electric',
+                  subject_type='guard_behavior_site', subject_id='1', subject_name='南门保安室')
+    req = AlarmRequest(camera_id=63, camera_name='南门', frame=np.zeros((4, 4, 3), np.uint8),
+                       alarm_config={}, cooldown_subject_type='guard_behavior_site', cooldown_subject_id='1', **values)
+    assert AlarmDispatcher()._cooldown_key(req) == ('guard_behavior_site', '1', violation_type)
+    row = writer.save_now(frame=req.frame, camera_no='camera_63', **values)
+    with factory() as session:
+        record = session.get(AiAlarmEvent, row.id)
+        assert record.violation_type == violation_type
+        assert record.subject_type == 'guard_behavior_site' and record.subject_id == '1'

@@ -260,6 +260,8 @@ def fixed_runtime(tmp_path, monkeypatch):
     from AiVision.inference import model_paths
     from AiVision.inference.model_registry import MODEL_SPECS
 
+    registered = {name: spec for name, spec in manager_module.all_specs().items() if name != "guard_behavior"}
+    monkeypatch.setattr(manager_module, "all_specs", lambda: registered)
     config = tmp_path / "model_paths.yaml"
     shared = tmp_path / "shared.pt"
     face = tmp_path / "det_10g.onnx"
@@ -576,7 +578,7 @@ def test_feature_model_names_deduplicate_required_and_optional():
     from dataclasses import replace
     from AiVision.features.registry import all_specs
 
-    assert all(spec.optional_models == () for spec in all_specs().values())
+    assert all(spec.optional_models == () for spec in all_specs().values() if spec.name != "guard_behavior")
     spec = replace(all_specs()["blocks"], required_models=("core",), optional_models=("optional", "core"))
     assert spec.model_names == ("core", "optional")
 
@@ -625,3 +627,19 @@ def test_optional_model_load_failure_does_not_stop_core(fixed_runtime, monkeypat
     assert manager.is_model_running("yolo_human")
     assert not manager.is_model_running("yolo_vehicle")
     assert manager._worker_states["yolo_vehicle"].last_failure
+
+
+def test_registered_guard_models_start_through_shared_runtime(fixed_runtime, monkeypatch):
+    from AiVision.features.registry import all_specs
+    manager, _, shared, _ = fixed_runtime
+    manager.stop_all()
+    for name in ('yolo_guard_person_phone', 'guard_uniform', 'yolo_guard_pose', 'yolo_vehicle'):
+        manager.update_model_path(name, str(shared))
+    monkeypatch.setattr(manager_module, 'all_specs', all_specs)
+    manager.start_all()
+    guard = all_specs()['guard_behavior']
+    assert set(guard.model_names) <= set(manager.list_running())
+    owner = manager._model_owners['yolo_human']
+    assert manager._model_owners['yolo_phone'] == manager._model_owners['yolo_guard_person_phone'] == owner
+    assert set(guard.optional_models) <= manager._declared_model_names()
+    assert not set(guard.optional_models).intersection(manager._required_model_names())

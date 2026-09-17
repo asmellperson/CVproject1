@@ -14,6 +14,7 @@ import {
   Download,
   Eye,
   Smartphone,
+  Truck,
   UserRound,
   AlertTriangle,
   Radar,
@@ -51,7 +52,7 @@ function alarmSubjectName(alarm: AlarmEvent) {
 
 function alarmSubjectTypeLabel(subjectType?: string) {
   if (subjectType === 'logistics_channel') return '物流通道'
-  if (subjectType === 'guard_room_site') return '保安室'
+  if (subjectType === 'guard_behavior_site') return '保安室'
   if (subjectType === 'camera') return '摄像头'
   return '告警主体'
 }
@@ -200,6 +201,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         { eventType: 'guard_absent', label: '保安离岗', icon: <ShieldCheck className="w-6 h-6 text-red-700" />, valueClassName: 'text-red-700' },
         { eventType: 'guard_phone_use', label: '保安玩手机', icon: <Smartphone className="w-6 h-6 text-orange-700" />, valueClassName: 'text-orange-700' },
         { eventType: 'guard_prone_sleep', label: '保安趴睡', icon: <UserRound className="w-6 h-6 text-yellow-600" />, valueClassName: 'text-yellow-600' },
+        { eventType: 'guard_vehicle_inspection_missing', label: '车辆出厂检查异常', icon: <Truck className="w-6 h-6 text-rose-700" />, valueClassName: 'text-rose-700' },
         { eventType: 'security_vlm_non_compliant', label: '安检不规范', icon: <ShieldAlert className="w-6 h-6 text-cyan-700" />, valueClassName: 'text-cyan-700' },
         { eventType: 'security_vlm_error', label: '安检判定错误', icon: <AlertTriangle className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
       ].filter((item) => !allowedAlarmTypes || allowedAlarmTypes.has(item.eventType)),
@@ -226,6 +228,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         return <Badge className="bg-orange-700">保安玩手机</Badge>
       case 'guard_prone_sleep':
         return <Badge className="bg-yellow-600">保安趴睡</Badge>
+      case 'guard_vehicle_inspection_missing':
+        return <Badge className="bg-rose-700">车辆出厂检查异常</Badge>
       case 'security_vlm_non_compliant':
         return <Badge className="bg-cyan-700">安检流程不规范</Badge>
       case 'security_vlm_error':

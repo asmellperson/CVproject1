@@ -31,7 +31,7 @@ export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'a
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'security-vlm': ['security_vlm_non_compliant', 'security_vlm_error'],
-  'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep'],
+  'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep', 'guard_vehicle_inspection_missing'],
   'intrusion-detection': ['blocks'], 'door-detection': ['detect_door'],
   'face-detection': ['detect_face'], 'face-recognition': ['recognize_face'],
   'human-detection': ['detect_human'], 'logistics-single-person': ['detect_logistics_single_person'],

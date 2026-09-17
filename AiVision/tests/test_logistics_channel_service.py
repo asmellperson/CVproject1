@@ -28,6 +28,7 @@ from AiVision.features.logistics_channel.constants import (
     require_logistics_feature,
 )
 from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.guard_behavior.orm import GuardBehaviorSite, GuardBehaviorSiteCamera
 from AiVision.features.logistics_channel.service import LogisticsChannelService
 import AiVision.features.logistics_channel.membership_transaction as transaction_module
 from AiVision.features.logistics_channel.schema import (
@@ -106,6 +107,7 @@ def service_db(monkeypatch):
         *(spec.orm_class.__table__ for spec in all_specs().values()),
         LogisticsChannel.__table__,
         LogisticsChannelCamera.__table__,
+        GuardBehaviorSite.__table__, GuardBehaviorSiteCamera.__table__,
     ]
     Base.metadata.create_all(engine, tables=tables)
 
@@ -1688,7 +1690,7 @@ def test_camera_delete_feature_failure_rolls_back_entire_transaction(service_db)
 
 
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
-@pytest.mark.parametrize("feature", [name for name in all_specs() if name != "detect_logistics_single_person"])
+@pytest.mark.parametrize("feature", [name for name in all_specs() if name not in {"detect_logistics_single_person", "guard_behavior"}])
 def test_create_feature_camera_enables_only_target_atomically(service_db, department, feature):
     """所有正式事业部均可创建任意普通功能摄像头，且只启用当前功能。"""
     result = service_db.camera_config_manager.create_camera_for_feature(

@@ -92,8 +92,9 @@ class Orchestrator:
         )
 
         # 仅创建 Site 聚合层；Consumer 与模型仍由正式 Feature registry 决定。
+        self.guard_behavior_service = GuardBehaviorService()
         self.guard_behavior_runtime = GuardBehaviorSiteRuntime(
-            service=GuardBehaviorService(), dispatcher=alarm_dispatcher,
+            service=self.guard_behavior_service, dispatcher=alarm_dispatcher,
             evidence_recorder=alarm_evidence_recorder,
         )
 
@@ -331,6 +332,12 @@ class Orchestrator:
         # 5、物流通道特殊处理
         if name in LOGISTICS_FEATURES:
             consumer_kwargs["logistics_runtime"] = self.logistics_channel_runtime # 关键词参数加上logistics_runtime
+        if name == "guard_behavior":
+            consumer_kwargs.update(
+                guard_config_provider=self.guard_behavior_service,
+                model_running_provider=inference_runtime_manager.is_model_running,
+                snapshot_sink=self.guard_behavior_runtime.update_camera_snapshot,
+            )
         # 创建各检测功能的consumer
         consumer = spec.consumer_cls(**consumer_kwargs)
         # 启动线程主要调用函数
@@ -384,6 +391,7 @@ class Orchestrator:
             # 如果物流通道也引用了这台摄像头，那么摄像头配置变了以后，物流模块也要刷新
             if cam_id is not None:
                 self.logistics_channel_runtime.refresh_camera_all(cam_id)# 让所有使用这台摄像头的物流通道重新读取它
+                self.refresh_guard_camera(cam_id)
             # 这次修改需不需要重启摄像头进程（rtsp流以及摄像头的禁用什么的需要重启或者关闭，名称什么的不需要）
             if self._camera_update_requires_restart(event):
                 self._restart_or_stop_camera(event.camera_name)
@@ -444,6 +452,32 @@ class Orchestrator:
                         return
                     consumer.update_config(cam_id)
                 return
+
+    def refresh_guard_site(self, site_id: int, camera_ids=()) -> None:
+        """一次刷新覆盖聚合与单摄状态；移除成员也必须清理旧的跟踪结果。"""
+        config = self.guard_behavior_service.get_runtime_site_config(site_id)
+        affected = set(camera_ids)
+        if config is not None:
+            affected.update(member.camera_id for member in config.members)
+        consumer = self.consumers.get("guard_behavior")
+        for camera_id in sorted(affected):
+            config_cache.refresh_camera(camera_id)
+            config_cache.refresh_function(camera_id, "guard_behavior")
+            if consumer is not None:
+                consumer.reload_camera_config(camera_id)
+        # 先等单摄旧处理结束，再清聚合快照，避免刷新期间旧结果重新进入 Site。
+        self.guard_behavior_runtime.reload_site(site_id)
+        for camera_id in sorted(affected):
+            camera = camera_config_manager.get_camera(camera_id)
+            if camera is not None and self._started:
+                self._sync_camera_process_state(camera["shm_name"])
+
+    def refresh_guard_camera(self, camera_id: int) -> None:
+        config = self.guard_behavior_service.get_runtime_camera_config(camera_id)
+        if config is not None:
+            self.refresh_guard_site(config.site_id, (camera_id,))
+        elif (consumer := self.consumers.get("guard_behavior")) is not None:
+            consumer.reload_camera_config(camera_id)
 
     # ---------- 摄像头辅助函数 ----------
 

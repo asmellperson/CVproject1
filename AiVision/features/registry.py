@@ -1,4 +1,4 @@
-"""七项内置功能的唯一注册入口；包路径与持久化业务标识分离。"""
+"""内置功能的唯一注册入口；包路径与持久化业务标识分离。"""
 from AiVision.alarms.types import VIOLATION_TYPE_META
 
 from ._shared.spec import FeatureSpec
@@ -9,6 +9,7 @@ from .person_dwell.spec import SPEC as person_dwell_spec
 from .logistics_channel.spec import SPEC as logistics_channel_spec
 from .phone_detection.spec import SPEC as phone_detection_spec
 from .face_recognition.spec import SPEC as face_recognition_spec
+from .guard_behavior.spec import SPEC as guard_behavior_spec
 
 # 保持原注册表的展示/遍历顺序；新增功能须在这里明确登记。
 _BUILTIN_SPECS = (
@@ -19,6 +20,7 @@ _BUILTIN_SPECS = (
     logistics_channel_spec,
     phone_detection_spec,
     face_recognition_spec,
+    guard_behavior_spec,
 )
 
 

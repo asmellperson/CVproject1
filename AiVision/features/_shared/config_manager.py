@@ -76,6 +76,8 @@ class FeatureConfigManager:
             }
         """
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
+        if spec.name == "guard_behavior":
+            raise ValueError("保安室摄像头配置仅通过成员和 ROI 接口修改")
         if spec.name in LOGISTICS_FEATURES:
             raise ValueError("物流摄像头仅通过通道 ROI 接口修改，Feature 生命周期由成员绑定维护")
         payload = spec.config_schema.model_validate(payload).model_dump()

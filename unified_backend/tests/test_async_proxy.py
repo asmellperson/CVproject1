@@ -477,10 +477,9 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
     # 返回：None；仅执行处理流程，不返回业务数据。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`routes['proxy_guard_room_api'].endpoint`、`routes['proxy_security_vlm'].endpoint`。
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def scenario():
-        await routes["proxy_guard_room"].endpoint("sites", request)
+        await routes["proxy_aivision_root_api"].endpoint("guard-behavior/sites", request)
         await routes["proxy_security_vlm"].endpoint(
             "general_electric", "history",
             request,
@@ -502,8 +501,8 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
     assert calls == [
         (
             request,
-            "http://aivision:7862/api/integrations/guard-room",
-            "/api/sites",
+            "http://aivision:7862",
+            "/api/guard-behavior/sites",
         ),
         (
             request,

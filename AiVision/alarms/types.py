@@ -24,6 +24,10 @@ VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     5: {"event_type": "detect_human", "label": "人员违规逗留检测"},
     6: {"event_type": "detect_logistics_single_person", "label": "物流通道单人检测"},
     7: {"event_type": "recognize_face", "label": "人脸身份识别"},
+    8: {"event_type": "guard_absent", "label": "保安离岗"},
+    9: {"event_type": "guard_phone_use", "label": "保安玩手机"},
+    10: {"event_type": "guard_prone_sleep", "label": "保安趴睡"},
+    11: {"event_type": "guard_vehicle_inspection_missing", "label": "车辆出厂检查异常"},
 }
 
 # 未知类型的默认显示信息

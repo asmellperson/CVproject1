@@ -19,6 +19,7 @@ from AiVision.alarms.devices.runtime_manager import HornRuntimeManager
 from AiVision.alarms.devices.service import HornService, HornInUseError
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
+from AiVision.features.guard_behavior.orm import GuardBehaviorSite, GuardBehaviorSiteCamera
 
 
 @pytest.fixture
@@ -33,6 +34,7 @@ def backend(tmp_path, monkeypatch):
         connection.execute("PRAGMA foreign_keys=ON")
 
     tables = [AiHornConfig.__table__, AiCameraConfig.__table__, AiSystemConfig.__table__, LogisticsChannel.__table__,
+              GuardBehaviorSite.__table__, GuardBehaviorSiteCamera.__table__,
               LogisticsChannelCamera.__table__, *(spec.orm_class.__table__ for spec in all_specs().values())]
     Base.metadata.create_all(engine, tables=tables)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

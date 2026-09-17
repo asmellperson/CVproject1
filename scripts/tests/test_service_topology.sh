@@ -67,18 +67,18 @@ done
   fail "start.sh must not retain the completed five-service migration path"
 [[ ! -e "$PROJECT_ROOT/scripts/migrate_visual_integrations.sh" ]] || \
   fail "completed five-service migration helper must be removed"
-[[ "$aivision_app" == *'app.mount('*"/api/integrations/guard-room"* ]] || \
-  fail "Guard Room must be mounted in AiVision"
+[[ "$aivision_app" != *"/api/integrations/guard-room"* ]] || \
+  fail "Guard must use native API"
 [[ "$aivision_app" == *'app.mount('*"/api/integrations/security-vlm"* ]] || \
   fail "Security VLM must be mounted in AiVision"
 [[ "$aivision_app" != *"VisualWorkerClient"* ]] || \
   fail "AiVision must not retain the HTTP worker relay"
-[[ "$managed_visual_services" == *"from AiVision.integrations.guard_room.src.server import create_app"* ]] || \
-  fail "Guard Room must be imported from inside AiVision"
+[[ "$managed_visual_services" != *"guard_room"* ]] || \
+  fail "only Security VLM remains managed"
 [[ "$managed_visual_services" == *"from AiVision.integrations.security_vlm.src.main import create_app"* ]] || \
   fail "Security VLM must be imported from inside AiVision"
-[[ -d "$PROJECT_ROOT/AiVision/integrations/guard_room" ]] || \
-  fail "Guard Room source tree must live under AiVision/integrations"
+[[ ! -e "$PROJECT_ROOT/AiVision/integrations/guard_room" ]] || \
+  fail "old Guard source tree must be removed"
 [[ -d "$PROJECT_ROOT/AiVision/integrations/security_vlm" ]] || \
   fail "Security VLM source tree must live under AiVision/integrations"
 [[ ! -e "$PROJECT_ROOT/guard_room" && ! -e "$PROJECT_ROOT/security_vlm" ]] || \

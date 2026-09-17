@@ -57,7 +57,7 @@ def test_fresh_import_orders_keep_feature_and_orm_registration(entry, tmp_path):
         configure_mappers()
         specs = features.all_specs()
         expected = {"blocks", "detect_door", "detect_face", "detect_human",
-                    "detect_logistics_single_person", "detect_phone", "recognize_face"}
+                    "detect_logistics_single_person", "detect_phone", "recognize_face", "guard_behavior"}
         assert set(specs) == expected
         assert Base.metadata.tables["ai_camera_config"] is AiCameraConfig.__table__
         assert AiCameraConfig.__module__ == "AiVision.cameras.orm"

@@ -31,7 +31,7 @@ from AiVision.core.db import Base
 from AiVision.features.logistics_channel.spec import SPEC
 expected = {{
     'blocks', 'detect_door', 'detect_face', 'detect_human',
-    'detect_logistics_single_person', 'detect_phone', 'recognize_face',
+    'detect_logistics_single_person', 'detect_phone', 'recognize_face', 'guard_behavior',
 }}
 specs = all_specs()
 assert set(specs) == expected, sorted(specs)
@@ -42,6 +42,7 @@ packages = {{
     'blocks': 'intrusion', 'detect_door': 'door_state', 'detect_face': 'face_dwell',
     'detect_human': 'person_dwell', 'detect_phone': 'phone_detection',
     'recognize_face': 'face_recognition', 'detect_logistics_single_person': 'logistics_channel',
+    'guard_behavior': 'guard_behavior',
 }}
 assert set(packages) == expected
 for name, package in packages.items():

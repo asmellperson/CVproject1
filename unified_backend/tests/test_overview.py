@@ -82,8 +82,10 @@ def mock_overview_sources(monkeypatch):
             elif key == "features":
                 payload = {"features": [{"name": "recognize_face", "required_models": ["insightface"]},
                                         {"name": "blocks", "required_models": ["yolo_human"]}]}
-            elif key.isdigit():
-                payload = {"running": True}
+            elif key.split(":")[0].isdigit():
+                index, resource = key.split(":")
+                payload = ({"running": True, "camera_states": {index: "READY"}} if resource == "status" else
+                           [{"camera_id": int(index), "member_enabled": True}])
             else:
                 department, resource = key.split(":", 1)
                 index = departments.index(department)
@@ -101,7 +103,7 @@ def mock_overview_sources(monkeypatch):
                 elif resource == "guard_sites":
                     site = {"id": index, "name": "本部", "department": department, "enabled": True,
                             "cameras": [{"id": index, "name": "保安", "enabled": True}]}
-                    payload = {"items": [site, {**site, "id": 100 + index, "department": other}]}
+                    payload = [site, {**site, "id": 100 + index, "department": other}]
                 elif resource == "vlm_state":
                     payload = {"vlm": {"ok": True}, "cameras": [
                         {"camera_id": "scanner", "name": "安检", "running": True},
@@ -116,6 +118,35 @@ def mock_overview_sources(monkeypatch):
     return calls
 
 
+@pytest.mark.parametrize("failed_resource", ["status", "cameras"])
+def test_guard_running_requires_native_site_evidence(monkeypatch, tmp_path, failed_resource):
+    mock_overview_sources(monkeypatch)
+    read = app_module._get_json_concurrently
+
+    def fail_guard_resource(requests):
+        results = read(requests)
+        for key, (_base, path, _request) in requests.items():
+            if key == "ai_status":
+                results[key][1]["running_consumers"].append("guard_behavior")
+            if key.endswith(":ai_cameras"):
+                for camera in results[key][1]:
+                    camera["functions"]["guard_behavior"] = True
+            if path.startswith("/api/guard-behavior/sites/") and path.endswith("/" + failed_resource):
+                results[key] = (False, None, None, "unavailable")
+        return results
+
+    monkeypatch.setattr(app_module, "_get_json_concurrently", fail_guard_resource)
+    department = next(iter(DEPARTMENT_SPECS))
+    client = client_for(monkeypatch, tmp_path, {"role": "viewer", "departments": [department]})
+    response = client.get("/api/overview")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["summary"]["camera_total"] == 2
+    assert not result["inventory_complete"]
+    guard = next(item for item in result["capabilities"] if item["id"] == "guard-behavior")
+    assert not guard["running"] and guard["online_camera_count"] == 0
+
+
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tmp_path, department, role):
@@ -128,16 +159,16 @@ def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tm
     assert result["departments"] == allowed
     assert "department" not in result
     assert len(result["capabilities"]) == result["summary"]["capability_total"] == 9
-    assert len(result["cameras"]) == result["summary"]["camera_total"] == 3 * len(allowed)
+    assert len(result["cameras"]) == result["summary"]["camera_total"] == 2 * len(allowed)
     assert {camera["department"] for camera in result["cameras"]} == set(allowed)
     assert len({camera["key"] for camera in result["cameras"]}) == len(result["cameras"])
     for camera in result["cameras"]:
         if camera["source"] == "aivision":
-            assert camera["capabilities"] == ["face-recognition", "logistics-single-person"]
+            assert camera["capabilities"] == ["face-recognition", "logistics-single-person", "guard-behavior"]
             assert len(camera["logistics_memberships"]) == 1
     for summary in result["department_summaries"].values():
         assert summary["capability_total"] == 9
-        assert summary["camera_total"] == 3
+        assert summary["camera_total"] == 2
     assert result["inventory_complete"] is True
     capabilities = {item["id"]: item for item in result["capabilities"]}
     assert capabilities["face-recognition"]["model_ready"] is True
@@ -176,7 +207,7 @@ def test_viewer_overview_only_reads_explicit_formal_departments(monkeypatch, tmp
 
 def test_empty_platform_still_has_nine_capabilities_per_department(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "_get_json_concurrently", lambda requests: {
-        key: (True, [] if key.endswith(":ai_cameras") else {}, 1.0, None) for key in requests
+        key: (True, [] if key.endswith((":ai_cameras", ":guard_sites")) else {}, 1.0, None) for key in requests
     })
     client = client_for(monkeypatch, tmp_path, {"role": "admin"})
     data = client.get("/api/overview").json()
@@ -201,6 +232,7 @@ def test_overview_reports_scoped_upstream_failures(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("path", [
+    "/api/guard-room/sites", "/api/guard-room/sites/1/control/start",
     "/api/platform/status", "/api/sites", "/api/sites/1/config",
     "/api/integrations/guard-room/api/sites", "/api/integrations/security-vlm/api/departments",
     "/security-vlm/api/departments/electronics_electrician/cameras", "/security-vlm/health",
@@ -215,18 +247,11 @@ def test_removed_external_routes_do_not_proxy(monkeypatch, tmp_path, path):
 
 
 @pytest.mark.parametrize("method, path, internal", [
-    ("GET", "/api/guard-room/sites", "/api/sites"),
-    ("POST", "/api/guard-room/sites", "/api/sites"),
-    ("GET", "/api/guard-room/sites/1/config", "/api/sites/1/config"),
-    ("POST", "/api/guard-room/sites/1/config", "/api/sites/1/config"),
-    ("GET", "/api/guard-room/sites/1/status", "/api/sites/1/status"),
-    ("POST", "/api/guard-room/sites/1/control/start", "/api/sites/1/control/start"),
-    ("POST", "/api/guard-room/sites/1/control/stop", "/api/sites/1/control/stop"),
-    ("POST", "/api/guard-room/sites/1/control/restart", "/api/sites/1/control/restart"),
-    ("GET", "/api/guard-room/sites/1/cameras/2/frame.jpg", "/api/sites/1/cameras/2/frame.jpg"),
-    ("POST", "/api/guard-room/sites/1/cameras", "/api/sites/1/cameras"),
-    ("PUT", "/api/guard-room/cameras/2", "/api/cameras/2"),
-    ("DELETE", "/api/guard-room/cameras/2", "/api/cameras/2"),
+    ("GET", "/api/guard-behavior/sites", "/api/guard-behavior/sites"),
+    ("POST", "/api/guard-behavior/sites", "/api/guard-behavior/sites"),
+    ("PATCH", "/api/guard-behavior/sites/1/policy", "/api/guard-behavior/sites/1/policy"),
+    ("GET", "/api/guard-behavior/sites/1/status", "/api/guard-behavior/sites/1/status"),
+    ("DELETE", "/api/guard-behavior/sites/1/cameras/2", "/api/guard-behavior/sites/1/cameras/2"),
     ("GET", "/api/face-recognition/persons", "/api/face-recognition/persons"),
 ])
 def test_formal_proxies_forward_method_path_and_query(monkeypatch, tmp_path, method, path, internal):

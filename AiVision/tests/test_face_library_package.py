@@ -69,7 +69,7 @@ stack.enter_context(patch('dotenv.load_dotenv', side_effect=forbid('dotenv load'
 importlib.import_module(sys.argv[1])
 import AiVision.features.registry as features
 specs = features.all_specs()
-assert set(specs) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face'}
+assert set(specs) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face', 'guard_behavior'}
 import AiVision.features.face_recognition.spec as face_spec
 from AiVision.features.face_recognition import consumer, orm as recognition_orm, records, schema
 from AiVision.features.face_recognition import library
@@ -183,7 +183,7 @@ assert settings.db.name == 'process-priority' and settings.db.user == 'test-only
 assert settings.db.enable is False
 assert Path(settings.storage.data_path) == Path(sys.argv[3]).parent / 'media'
 from AiVision.features.registry import all_specs
-assert set(all_specs()) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face'}
+assert set(all_specs()) == {'blocks', 'detect_door', 'detect_face', 'detect_human', 'detect_logistics_single_person', 'detect_phone', 'recognize_face', 'guard_behavior'}
 assert attempts == [], attempts
 """
     run_isolated(program, tmp_path, entry, REPO_ROOT, config, env=env, cwd=cwd)
@@ -205,14 +205,14 @@ def query(i):
     if i % 4 == 1:
         return features.get_spec('recognize_face')
     if i % 4 == 2:
-        assert len(features.list_orm_classes()) == 7
+        assert len(features.list_orm_classes()) == 8
         return features.get_spec('recognize_face')
 with ThreadPoolExecutor(max_workers=8) as executor:
     results = list(executor.map(query, range(8)))
 import AiVision.features.registry as features
 import AiVision.features.face_recognition.spec as face_spec
 assert all(item is face_spec.SPEC for item in results)
-assert len(features.all_specs()) == 7
+assert len(features.all_specs()) == 8
 assert attempts == [], attempts
 """
     run_isolated(program, tmp_path)

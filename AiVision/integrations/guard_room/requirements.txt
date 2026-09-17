@@ -1,2 +1,0 @@
-# Guard Room 已内嵌在 AiVision 进程，运行依赖以 AiVision 主环境为准。
--r ../../requirements.txt

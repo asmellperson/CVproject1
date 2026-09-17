@@ -96,7 +96,7 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
             assert pickle.loads(pickle.dumps(cls)) is cls
         assert set(all_specs()) == {
             "blocks", "detect_door", "detect_face", "detect_human",
-            "detect_logistics_single_person", "detect_phone", "recognize_face",
+            "detect_logistics_single_person", "detect_phone", "recognize_face", "guard_behavior",
         }
         # Check removed layout and loaded package hierarchy without resolving a retired import path.
         aivision_root = Path(importlib.util.find_spec("AiVision").origin).parent

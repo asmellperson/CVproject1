@@ -99,7 +99,7 @@ def test_fresh_imports_are_inert_and_share_device_registration(entry, tmp_path):
                         assert key.column.table is orm.AiHornConfig.__table__
             assert set(all_specs()) == {
                 "blocks", "detect_door", "detect_face", "detect_human",
-                "detect_logistics_single_person", "detect_phone", "recognize_face",
+                "detect_logistics_single_person", "detect_phone", "recognize_face", "guard_behavior",
             }
             assert deps.get_horn_service() is service.horn_service
             runtime = runtime_manager.horn_runtime_manager

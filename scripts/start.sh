@@ -788,10 +788,6 @@ precheck_one() {
         hint "请编辑: vi ${workdir}/.env"
         issues=$((issues + 1))
       fi
-      if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/guard_room/config/config.yaml" ]]; then
-        cfg "${name} 托管的 Guard Room 缺少配置文件 ${PROJECT_ROOT}/AiVision/integrations/guard_room/config/config.yaml"
-        issues=$((issues + 1))
-      fi
       if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml" ]]; then
         cfg "${name} 托管的 Security VLM 缺少配置文件 ${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml"
         issues=$((issues + 1))
