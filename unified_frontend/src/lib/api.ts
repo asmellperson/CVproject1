@@ -24,8 +24,7 @@ function toWsBase(base: string) {
   return base
 }
 
-const PUBLIC_ORIGIN = trimTrailingSlash((import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined) || '')
-const API_BASE = trimTrailingSlash((import.meta.env.VITE_API_BASE as string | undefined) || PUBLIC_ORIGIN)
+const API_BASE = trimTrailingSlash((import.meta.env.VITE_API_BASE as string | undefined) || '')
 const WS_BASE = trimTrailingSlash((import.meta.env.VITE_WS_BASE as string | undefined) || toWsBase(API_BASE))
 
 export const API_PREFIX = joinUrl(API_BASE, '/api')
@@ -137,62 +136,66 @@ export async function apiDelete<T>(path: string, init?: RequestInit): Promise<T>
 }
 
 
-export type PlatformServiceStatus = {
-  name: string
-  url: string
+export type OverviewServiceStatus = {
   online: boolean
-  running?: boolean
-  latency_ms?: number | null
-  error?: string | null
-  camera_count?: number
-  enabled_camera_count?: number
-  online_camera_count?: number
-  offline_camera_count?: number
-  last_frame_age_sec?: number | null
-  fps?: number | null
-  frame_count?: number | null
-  running_cameras?: string[]
-  running_models?: string[]
-  running_consumers?: string[]
-  feature_status?: Record<string, {
-    camera_count?: number
-    enabled_camera_count?: number
-    online_camera_count?: number
-    offline_camera_count?: number
-  }>
-  model_status?: {
-    loaded?: boolean
-    running_count?: number
-    pose_enabled?: boolean
-    vlm_ok?: boolean
-  }
-  worker_status?: Record<string, unknown>
-  stats?: Record<string, unknown>
+  running: boolean
+  error: string | null
+  latency_ms: number | null
+  camera_count: number
+  online_camera_count: number
+  model_ready: boolean
 }
 
-export type PlatformStatus = {
+export type OverviewCapability = {
+  id: string
+  name: string
+  source: 'aivision' | 'guard_room' | 'security_vlm'
+  camera_count: number
+  online_camera_count: number
+  running: boolean
+  model_ready: boolean
+}
+
+export type OverviewCamera = {
+  key: string
+  source: OverviewCapability['source']
+  camera_id: string | number
+  name: string
+  department: DepartmentId
+  identifier: string
+  enabled: boolean
+  online: boolean
+  capabilities: string[]
+  running_capabilities: string[]
+  logistics_memberships: import('@/components/logistics_single_person/types').LogisticsCameraInventoryMembership[]
+  aivision_camera: import('./aivision').AiVisionCamera | null
+  site_id: number | null
+}
+
+export type OverviewStatus = {
+  department: DepartmentId
   ok: boolean
-  level: 'healthy' | 'degraded' | 'down' | string
+  level: 'healthy' | 'degraded' | 'down'
   generated_at: number
+  inventory_complete: boolean
+  inventory_errors: Record<string, string>
   summary: {
-    service_total: number
-    service_online: number
-    service_running: number
+    capability_total: number
+    capability_online: number
+    capability_running: number
     camera_total: number
     camera_online: number
     camera_offline: number
-    model_loaded: Record<string, boolean>
   }
-  services: {
-    guard_room: PlatformServiceStatus
-    aivision: PlatformServiceStatus
-    security_vlm: PlatformServiceStatus
-  }
+  capabilities: OverviewCapability[]
+  cameras: OverviewCamera[]
+  services: Record<OverviewCapability['source'], OverviewServiceStatus>
+  guard_room_sites: Array<{ id: number; name: string; department: DepartmentId }>
 }
 
-export const PLATFORM_STATUS_POLL_INTERVAL_MS = 30_000
-export const PLATFORM_STATUS_REQUEST_TIMEOUT_MS = 8_000
-export const getPlatformStatus = (department: DepartmentId, init?: RequestInit) => apiGet<PlatformStatus>(`/platform/status?department=${department}`, init)
+export const OVERVIEW_POLL_INTERVAL_MS = 30_000
+export const OVERVIEW_REQUEST_TIMEOUT_MS = 8_000
+export const getOverview = (department: DepartmentId, init?: RequestInit) => apiGet<OverviewStatus>(`/overview?department=${department}`, init)
 
 export type AlarmEvent = {
   id: string
@@ -339,7 +342,7 @@ export type CreateGuardRoomCameraPayload = {
 export type UpdateGuardRoomCameraPayload = Partial<CreateGuardRoomCameraPayload>
 
 export const guardRoomSitesPath = (department: DepartmentId) =>
-  withQuery('/sites', { department })
+  withQuery('/guard-room/sites', { department })
 
 export const getGuardRoomSites = async (department: DepartmentId): Promise<GuardRoomSite[]> => {
   const data = await apiGet<GuardRoomSitesResponse>(guardRoomSitesPath(department))
@@ -347,66 +350,66 @@ export const getGuardRoomSites = async (department: DepartmentId): Promise<Guard
 }
 
 export const createGuardRoomSite = (payload: CreateGuardRoomSitePayload) =>
-  apiPost<GuardRoomSite>('/sites', payload)
+  apiPost<GuardRoomSite>('/guard-room/sites', payload)
 
 export const updateGuardRoomSite = (siteId: number, payload: UpdateGuardRoomSitePayload, department: DepartmentId) =>
-  apiPut<GuardRoomSite>(withQuery(`/sites/${siteId}`, { department }), payload)
+  apiPut<GuardRoomSite>(withQuery(`/guard-room/sites/${siteId}`, { department }), payload)
 
 export const deleteGuardRoomSite = (siteId: number, department: DepartmentId) =>
-  apiDelete<{ success: boolean }>(withQuery(`/sites/${siteId}`, { department }))
+  apiDelete<{ success: boolean }>(withQuery(`/guard-room/sites/${siteId}`, { department }))
 
 export const getGuardRoomSiteConfig = (siteId: number, department: DepartmentId) =>
-  apiGet<AppConfigPayload>(withQuery(`/sites/${siteId}/config`, { department }))
+  apiGet<AppConfigPayload>(withQuery(`/guard-room/sites/${siteId}/config`, { department }))
 
 export const saveGuardRoomSiteConfig = (siteId: number, payload: Partial<AppConfigPayload>, department: DepartmentId) =>
-  apiPost<{ success: boolean; config: AppConfigPayload }>(withQuery(`/sites/${siteId}/config`, { department }), payload)
+  apiPost<{ success: boolean; config: AppConfigPayload }>(withQuery(`/guard-room/sites/${siteId}/config`, { department }), payload)
 
 export const getGuardRoomSiteStatus = (siteId: number, department: DepartmentId) =>
-  apiGet<BackendStatus>(withQuery(`/sites/${siteId}/status`, { department }))
+  apiGet<BackendStatus>(withQuery(`/guard-room/sites/${siteId}/status`, { department }))
 
 export const startGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
-  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/start`, { department }))
+  const result = await apiPost<ControlResponse>(withQuery(`/guard-room/sites/${siteId}/control/start`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
 
 export const stopGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
-  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/stop`, { department }))
+  const result = await apiPost<ControlResponse>(withQuery(`/guard-room/sites/${siteId}/control/stop`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
 
 export const restartGuardRoomSiteRuntime = async (siteId: number, department: DepartmentId) => {
-  const result = await apiPost<ControlResponse>(withQuery(`/sites/${siteId}/control/restart`, { department }))
+  const result = await apiPost<ControlResponse>(withQuery(`/guard-room/sites/${siteId}/control/restart`, { department }))
   notifyPlatformRuntimeChanged()
   return result
 }
 
 export const getGuardRoomSiteCameras = async (siteId: number, department: DepartmentId): Promise<GuardRoomCamera[]> => {
-  const data = await apiGet<GuardRoomCamerasResponse>(withQuery(`/sites/${siteId}/cameras`, { department }))
+  const data = await apiGet<GuardRoomCamerasResponse>(withQuery(`/guard-room/sites/${siteId}/cameras`, { department }))
   return data.items || []
 }
 
 export const createGuardRoomSiteCamera = async (siteId: number, payload: CreateGuardRoomCameraPayload, department: DepartmentId) => {
-  const camera = await apiPost<GuardRoomCamera>(withQuery(`/sites/${siteId}/cameras`, { department }), payload)
+  const camera = await apiPost<GuardRoomCamera>(withQuery(`/guard-room/sites/${siteId}/cameras`, { department }), payload)
   notifyPlatformCamerasChanged()
   return camera
 }
 
 export const updateGuardRoomCamera = async (cameraId: number, payload: UpdateGuardRoomCameraPayload, department: DepartmentId) => {
-  const camera = await apiPut<GuardRoomCamera>(withQuery(`/integrations/guard-room/api/cameras/${cameraId}`, { department }), payload)
+  const camera = await apiPut<GuardRoomCamera>(withQuery(`/guard-room/cameras/${cameraId}`, { department }), payload)
   notifyPlatformCamerasChanged()
   return camera
 }
 
 export const deleteGuardRoomCamera = async (cameraId: number, department: DepartmentId) => {
-  const result = await apiDelete<{ success: boolean }>(withQuery(`/integrations/guard-room/api/cameras/${cameraId}`, { department }))
+  const result = await apiDelete<{ success: boolean }>(withQuery(`/guard-room/cameras/${cameraId}`, { department }))
   notifyPlatformCamerasChanged()
   return result
 }
 
 export const guardRoomSiteFrameUrl = (siteId: number, department: DepartmentId) =>
-  `${API_PREFIX}${withQuery(`/sites/${siteId}/frame.jpg`, { department })}`
+  `${API_PREFIX}${withQuery(`/guard-room/sites/${siteId}/frame.jpg`, { department })}`
 export const guardRoomSiteCameraFrameUrl = (siteId: number, cameraId: string, nonce: number | undefined, department: DepartmentId) => {
-  return `${API_PREFIX}${withQuery(`/sites/${siteId}/cameras/${encodeURIComponent(cameraId)}/frame.jpg`, { t: nonce, department })}`
+  return `${API_PREFIX}${withQuery(`/guard-room/sites/${siteId}/cameras/${encodeURIComponent(cameraId)}/frame.jpg`, { t: nonce, department })}`
 }

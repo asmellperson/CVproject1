@@ -68,16 +68,16 @@ def test_main_loads_env_before_importing_app_and_keeps_cli_priority(monkeypatch)
 
 def test_app_import_uses_status_worker_count_loaded_from_env(monkeypatch, tmp_path):
     env_file = tmp_path / ".env"
-    env_file.write_text("UNIFIED_STATUS_MAX_WORKERS=3\n", encoding="utf-8")
+    env_file.write_text("UNIFIED_OVERVIEW_MAX_WORKERS=3\n", encoding="utf-8")
     monkeypatch.setattr(run_server, "_ENV_FILE", env_file)
-    monkeypatch.delenv("UNIFIED_STATUS_MAX_WORKERS", raising=False)
+    monkeypatch.delenv("UNIFIED_OVERVIEW_MAX_WORKERS", raising=False)
     monkeypatch.delitem(sys.modules, "unified_backend.app", raising=False)
 
     run_server._load_env_file()
     app_module = importlib.import_module("unified_backend.app")
 
     try:
-        assert app_module._platform_status_max_workers() == 3
-        assert app_module._PLATFORM_STATUS_EXECUTOR._max_workers == 3
+        assert app_module._overview_max_workers() == 3
+        assert app_module._OVERVIEW_EXECUTOR._max_workers == 3
     finally:
-        app_module._PLATFORM_STATUS_EXECUTOR.shutdown(wait=True)
+        app_module._OVERVIEW_EXECUTOR.shutdown(wait=True)

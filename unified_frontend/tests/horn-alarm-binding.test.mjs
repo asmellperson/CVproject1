@@ -5,7 +5,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 
 const source = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')
-const paths = ['components/AiVisionRoiEditor.geometry.ts', 'lib/aivision.ts', 'lib/alarm-config.ts', 'lib/horn-alarm-binding.ts', 'components/horn/hornDeviceForm.ts',
+const paths = ['components/AiVisionRoiEditor.geometry.ts', 'lib/aivision.ts', 'lib/feature-cameras.ts', 'lib/alarm-config.ts', 'lib/horn-alarm-binding.ts', 'components/horn/hornDeviceForm.ts',
   'components/horn/HornAlarmBinding.tsx', 'components/horn/useHornCatalog.ts', 'components/AlarmPushConfig.tsx',
   'components/logistics_single_person/alarmBinding.ts',
   ...['Face', 'Human', 'Phone', 'Door', 'Intrusion'].map((name) => `sections/${name}DetectionSection.tsx`)]
@@ -14,6 +14,7 @@ function moduleOf(path, dependencies = {}, extra = '') {
   const context = { exports: {}, Error, Number, console,
     require(name) {
       if (name in dependencies) return dependencies[name]
+      if (name === '@/lib/feature-cameras') return moduleOf('lib/feature-cameras.ts')
       if (name === 'react/jsx-runtime') return { Fragment: 'Fragment', jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
       return new Proxy({}, { get: (_, key) => String(key) })
     },
@@ -186,7 +187,7 @@ for (const [name, configKey] of [['Face', 'detect_face'], ['Human', 'detect_huma
   test(`${name}: independent camera load/save, late responses ignored, failed load cannot save old binding`, async () => {
     const state = hooks(); const pending = new Map(); const writes = []; let defer = false
     const api = {
-      getAiVisionCameras: async () => [], isAiVisionFeatureEnabled: () => true,
+      getAiVisionCameras: async () => ['a', 'b', 'bad'].map((key, index) => ({ id: key, camera_id: index + 1, shm_name: key, name: key, department: 'fulida_company', enabled: true, functions: { [configKey]: true } })), isAiVisionFeatureEnabled: () => true,
       getAiVisionFeatureConfig: async (_feature, key) => {
         if (defer) return new Promise((resolve, reject) => pending.set(key, { resolve, reject }))
         return response(key)
@@ -204,6 +205,7 @@ for (const [name, configKey] of [['Face', 'detect_face'], ['Human', 'detect_huma
     }
     const render = () => state.render(() => view[`${name}DetectionSection`]({ department: 'fulida_company' }))
     const select = (key) => component(render(), 'FeatureCameraManager').props.onSelectCamera(key)
+    await component(render(), 'FeatureCameraManager').props.onCamerasChanged('a'); await settle()
     select('a'); await settle()
     assert.deepEqual(plain(component(render(), 'AlarmPushConfig').props.alarm.horn), binding())
     const alarm = component(render(), 'AlarmPushConfig').props.alarm
@@ -231,7 +233,7 @@ test('shared binding reaches existing feature pages and logistics, while guard/V
   for (const name of ['Face', 'Human', 'Phone', 'Door', 'Intrusion']) assert.match(sources[`sections/${name}DetectionSection.tsx`], /<AlarmPushConfig/)
   assert.match(await source('App.tsx'), /<HumanDetectionSection department=\{currentDepartment\}/)
   const logistics = await source('components/logistics_single_person/LogisticsChannelConfigView.tsx')
-  assert.match(logistics, /alarm=\{toFeatureAlarm\(config.alarm\)\}/)
+  assert.match(logistics, /alarm=\{toFeatureAlarm\(alarmDraft.alarm\)\}/)
   assert.match(logistics, /alarm: toLogisticsAlarm\(alarm\)/)
   for (const path of ['sections/ConfigSection.tsx', 'sections/SecurityVlmSection.tsx']) {
     const code = await source(path)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -35,7 +35,6 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/auth/useAuth'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
-  filterHomeModulesByPermission,
   getAccessibleAlarmEventTypes,
   DEPARTMENT_LABELS, isDepartment,
   type DepartmentId,
@@ -43,18 +42,15 @@ import {
 import {
   createGuardRoomSiteCamera,
   getAlarms,
-  getGuardRoomSites,
-  getGuardRoomSiteStatus,
   type AlarmEvent,
-  type PlatformServiceStatus,
-  type PlatformStatus,
+  type OverviewServiceStatus,
+  type OverviewCapability,
 } from '@/lib/api'
 import { getRecognitionAbilityText, getServiceStatusText } from './HomeSection.status'
 import {
   createAiVisionCamera,
   deleteAiVisionCamera,
   getAiVisionCameraKey,
-  getAiVisionCameras,
   getAiVisionExceptionAlertSettings,
   saveAiVisionExceptionAlertSettings,
   updateAiVisionCamera,
@@ -62,26 +58,15 @@ import {
 } from '@/lib/aivision'
 import {
   createSecurityVlmCamera,
-  getSecurityVlmCameras,
-  type SecurityVlmCamera,
   type SecurityVlmDepartment,
 } from '@/lib/security-vlm'
-import { PLATFORM_CAMERAS_CHANGED_EVENT } from '@/lib/camera-events'
-import type { GuardRoomCamera, GuardRoomSite } from '@/types'
-import { getLogisticsCameraInventory } from '@/components/logistics_single_person/api'
 import { detectionNavItems } from '@/lib/nav'
-import {
-  getCameraInventorySummary,
-  getLoadedAiVisionFeatureCounts,
-  mergeAiVisionAndLogisticsCameras,
-  type FeatureCameraCounts,
-  type OverviewAiVisionCamera,
-} from './homeCameraCounts'
+import type { OverviewState as OverviewRequest } from '@/hooks/use-overview'
 
 interface HomeSectionProps {
   department: DepartmentId
   onNavigate: (page: string, department: DepartmentId) => void
-  platformStatus: PlatformStatus | null
+  overviewState: OverviewRequest
 }
 
 const moduleEntries = detectionNavItems.map((item) => ({ id: item.id, title: item.label }))
@@ -96,61 +81,11 @@ type AlarmSeverity = 'critical' | 'warning' | 'normal'
 
 type CameraSource = 'aivision' | 'guard_room' | 'security_vlm'
 
-type SecurityCameraInventoryItem = {
-  department: SecurityVlmDepartment
-  camera: SecurityVlmCamera
-}
-
-type PlatformCameraInventoryItem = {
-  key: string
-  source: CameraSource
-  name: string
-  identifier: string
-  department?: DepartmentId | null
-  detail?: string
-  featureLabels: string[]
-  pageId?: string
-  aiVisionCamera?: OverviewAiVisionCamera
-  guardRoomCamera?: GuardRoomCamera
-  securityVlmCamera?: SecurityVlmCamera
-}
-
 const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
   { value: 'aivision', label: 'AiVision 通用检测' },
   { value: 'guard_room', label: '保安行为规范检测' },
   { value: 'security_vlm', label: '安检流程规范检测' },
 ]
-
-type ServiceKey = keyof PlatformStatus['services']
-
-type ModuleStatusSource = {
-  serviceKey: ServiceKey
-  featureKey?: string
-}
-
-const moduleStatusSources: Record<string, ModuleStatusSource> = {
-  'security-vlm': { serviceKey: 'security_vlm' },
-  'guard-behavior': { serviceKey: 'guard_room' },
-  'intrusion-detection': { serviceKey: 'aivision', featureKey: 'blocks' },
-  'door-detection': { serviceKey: 'aivision', featureKey: 'detect_door' },
-  'face-detection': { serviceKey: 'aivision', featureKey: 'detect_face' },
-  'face-recognition': { serviceKey: 'aivision', featureKey: 'recognize_face' },
-  'human-detection': { serviceKey: 'aivision', featureKey: 'detect_human' },
-  'logistics-single-person': { serviceKey: 'aivision', featureKey: 'detect_logistics_single_person' },
-  'phone-detection': { serviceKey: 'aivision', featureKey: 'detect_phone' },
-}
-
-type ModuleStatusCard = (typeof moduleEntries)[number] & ModuleStatusSource & { featureCounts?: FeatureCameraCounts }
-
-const aiVisionFeatureLabels: Record<string, string> = {
-  blocks: '区域入侵',
-  detect_door: '大门开关',
-  detect_face: '人脸逗留检测',
-  recognize_face: '人脸身份识别',
-  detect_human: '人员违规逗留检测',
-  detect_logistics_single_person: '物流单人',
-  detect_phone: '手机使用',
-}
 
 const defaultOverview: OverviewState = {
   todayAlarms: 0,
@@ -202,18 +137,6 @@ function cameraSourceLabel(source: CameraSource) {
   return cameraSourceOptions.find((item) => item.value === source)?.label || source
 }
 
-function getRunningConsumers(service?: PlatformServiceStatus) {
-  return Array.isArray(service?.running_consumers) ? service.running_consumers.map(String) : []
-}
-
-function getAiVisionCameraFeatureLabels(camera: OverviewAiVisionCamera) {
-  const functions = camera.functions
-  const enabledFeatures = Object.entries(functions)
-      .filter(([, enabled]) => Boolean(enabled))
-      .map(([feature]) => feature)
-  return enabledFeatures.map((feature) => aiVisionFeatureLabels[feature] || feature)
-}
-
 function makeAiVisionShmName(alias: string) {
   const base = alias
     .trim()
@@ -223,131 +146,10 @@ function makeAiVisionShmName(alias: string) {
   return `${base || 'camera'}_${Date.now().toString(36)}`
 }
 
-function getFeatureStatus(service?: PlatformServiceStatus, featureKey?: string) {
-  if (!featureKey) return undefined
-  return service?.feature_status?.[featureKey]
-}
-
-function getLocalFeatureCount(featureCounts: FeatureCameraCounts | undefined, featureKey?: string) {
-  if (!featureKey) return undefined
-  return featureCounts?.[featureKey]?.cameraCount
-}
-
-function getCapabilityCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
-  const localCount = getLocalFeatureCount(featureCounts, featureKey)
-  if (typeof localCount === 'number') return localCount
-  if (featureKey) return 0
-  const featureStatus = getFeatureStatus(service, featureKey)
-  return Number(featureStatus?.camera_count ?? service?.camera_count ?? 0)
-}
-
-function getCapabilityOnlineCameraCount(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
-  const localCount = getLocalFeatureCount(featureCounts, featureKey)
-  const localOnline = featureKey ? featureCounts?.[featureKey]?.onlineCameraCount : undefined
-  if (typeof localOnline === 'number') return localOnline
-  if (featureKey && typeof localCount !== 'number') return 0
-  const featureStatus = getFeatureStatus(service, featureKey)
-  if (typeof localCount === 'number') {
-    return Math.min(localCount, Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0))
-  }
-  return Number(featureStatus?.online_camera_count ?? service?.online_camera_count ?? 0)
-}
-
-function isCapabilityRunning(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
-  if (!service?.online || !service.running) return false
-  if (!featureKey) return Number(service.camera_count) > 0
-  if (featureCounts?.[featureKey]?.onlineCameraCount === 0) return false
-  const localCount = getLocalFeatureCount(featureCounts, featureKey)
-  if (typeof localCount !== 'number' || localCount <= 0) return false
-  const featureStatus = getFeatureStatus(service, featureKey)
-  if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
-  const runningConsumers = getRunningConsumers(service)
-  if (!runningConsumers.length) return true
-  return runningConsumers.includes(featureKey)
-}
-
-function isCapabilityModelReady(service?: PlatformServiceStatus, featureKey?: string, featureCounts?: FeatureCameraCounts) {
-  if (!featureKey) return Boolean(service?.model_status?.loaded)
-  const localCount = getLocalFeatureCount(featureCounts, featureKey)
-  if (typeof localCount !== 'number' || localCount <= 0) return false
-  const featureStatus = getFeatureStatus(service, featureKey)
-  if (featureStatus && Number(featureStatus.camera_count || 0) <= 0) return false
-  const runningConsumers = getRunningConsumers(service)
-  if (!runningConsumers.length) return Boolean(service?.model_status?.loaded || service?.running)
-  return runningConsumers.includes(featureKey)
-}
-
-function getStatusLevelForCards(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
-  if (!cards.length || !platformStatus) return 'down'
-  const services = cards.map((card) => platformStatus.services[card.serviceKey])
-  const onlineCount = services.filter((service) => service?.online).length
-  const runningCount = cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)).length
-  if (onlineCount === cards.length && runningCount === cards.length) return 'healthy'
-  if (onlineCount > 0) return 'degraded'
-  return 'down'
-}
-
-function getVisibleStatusCards(visibleEntries: typeof moduleEntries, cameras: OverviewAiVisionCamera[], loaded: boolean, department: DepartmentId): ModuleStatusCard[] {
-  const featureCounts = getLoadedAiVisionFeatureCounts(cameras, loaded, department)
-  return visibleEntries.flatMap((entry) => {
-    const source = moduleStatusSources[entry.id]
-    return source ? [{ ...entry, ...source, featureCounts: source.serviceKey === 'aivision' ? featureCounts : undefined }] : []
-  })
-}
-
-function getScopedStatusSummary(cards: ModuleStatusCard[], platformStatus: PlatformStatus | null, featureCounts?: FeatureCameraCounts) {
-  if (!platformStatus) {
-    return {
-      capabilityTotal: cards.length,
-      capabilityOnline: 0,
-      capabilityRunning: 0,
-      cameraTotal: 0,
-      cameraOnline: 0,
-      cameraOffline: 0,
-    }
-  }
-
-  const serviceCards = cards.filter((card) => !card.featureKey)
-  const featureCards = cards.filter((card) => card.featureKey)
-  const uniqueServices = Array.from(new Set(serviceCards.map((card) => card.serviceKey)))
-  const serviceCameraTotal = uniqueServices.reduce((total, serviceKey) => {
-    return total + Number(platformStatus.services[serviceKey]?.camera_count || 0)
-  }, 0)
-  const serviceCameraOnline = uniqueServices.reduce((total, serviceKey) => {
-    return total + Number(platformStatus.services[serviceKey]?.online_camera_count || 0)
-  }, 0)
-  const featureCameraTotal = featureCards.reduce((total, card) => {
-    return total + getCapabilityCameraCount(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)
-  }, 0)
-  const featureCameraOnline = featureCards.reduce((total, card) => {
-    return total + getCapabilityOnlineCameraCount(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)
-  }, 0)
-  const cameraTotal = serviceCameraTotal + featureCameraTotal
-  const cameraOnline = serviceCameraOnline + featureCameraOnline
-
-  return {
-    capabilityTotal: cards.length,
-    capabilityOnline: cards.filter((card) => platformStatus.services[card.serviceKey]?.online).length,
-    capabilityRunning: cards.filter((card) => isCapabilityRunning(platformStatus.services[card.serviceKey], card.featureKey, card.featureCounts ?? featureCounts)).length,
-    cameraTotal,
-    cameraOnline,
-    cameraOffline: Math.max(0, cameraTotal - cameraOnline),
-  }
-}
-
-export function HomeSection({ department, onNavigate, platformStatus: globalPlatformStatus }: HomeSectionProps) {
+export function HomeSection({ department, onNavigate, overviewState }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
-  const visibleModuleEntries = useMemo(() => filterHomeModulesByPermission(user, moduleEntries), [user])
-  const [overview, setOverview] = useState<OverviewState>(defaultOverview)
-  const [aiVisionCameras, setAiVisionCameras] = useState<AiVisionCamera[]>([])
-  const [aiVisionCamerasLoaded, setAiVisionCamerasLoaded] = useState(false)
-  const [logisticsCameras, setLogisticsCameras] = useState<Awaited<ReturnType<typeof getLogisticsCameraInventory>>['items']>([])
-  const [logisticsCamerasLoaded, setLogisticsCamerasLoaded] = useState(false)
-  const [guardOnlineCount, setGuardOnlineCount] = useState(0)
-  const [guardRoomSites, setGuardRoomSites] = useState<GuardRoomSite[]>([])
-  const [securityVlmCameras, setSecurityVlmCameras] = useState<SecurityCameraInventoryItem[]>([])
-  const [cameraInventoryLoaded, setCameraInventoryLoaded] = useState(false)
-  const [cameraInventoryPartial, setCameraInventoryPartial] = useState(false)
+  const [alarmOverview, setAlarmOverview] = useState<{ department: DepartmentId; data: OverviewState } | null>(null)
+  const overview = alarmOverview?.department === department ? alarmOverview.data : defaultOverview
   const [exceptionWechatEnabled, setExceptionWechatEnabled] = useState(false)
   const [exceptionWechatUser, setExceptionWechatUser] = useState('')
   const [exceptionRepeatIntervalMinutes, setExceptionRepeatIntervalMinutes] = useState(60)
@@ -357,7 +159,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
   const [exceptionSettingsError, setExceptionSettingsError] = useState('')
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
-  const [cameraToEdit, setCameraToEdit] = useState<OverviewAiVisionCamera | null>(null)
+  const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
   const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
   const [cameraDepartment, setCameraDepartment] = useState('')
   const [cameraGuardSiteId, setCameraGuardSiteId] = useState('')
@@ -366,7 +168,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
   const [cameraFps, setCameraFps] = useState('5')
   const [cameraFormError, setCameraFormError] = useState('')
   const [cameraActionKey, setCameraActionKey] = useState('')
-  const [cameraToDelete, setCameraToDelete] = useState<OverviewAiVisionCamera | null>(null)
+  const [cameraToDelete, setCameraToDelete] = useState<AiVisionCamera | null>(null)
   const [cameraDeleteError, setCameraDeleteError] = useState('')
   const {
     options: departmentOptions,
@@ -380,102 +182,27 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     aivision: [department], guard_room: [department], security_vlm: [department],
   }), [department])
   const cameraDepartmentLabel = (name?: string | null) => name ? departmentLabels[name] || name : '未分配事业部'
-  const platformStatus = useMemo<PlatformStatus | null>(() => {
-    if (!globalPlatformStatus) return null
-    const guardCount = guardRoomSites.reduce((sum, site) => sum + site.cameras.length, 0)
-    const securityCount = securityVlmCameras.length
-    const securityOnline = securityVlmCameras.filter(({ camera }) => camera.running).length
-    return { ...globalPlatformStatus, services: {
-      ...globalPlatformStatus.services,
-      guard_room: { ...globalPlatformStatus.services.guard_room, camera_count: guardCount, online_camera_count: guardOnlineCount, running: guardOnlineCount > 0 },
-      security_vlm: { ...globalPlatformStatus.services.security_vlm, camera_count: securityCount, online_camera_count: securityOnline, running: securityOnline > 0 },
-    } }
-  }, [globalPlatformStatus, guardRoomSites, guardOnlineCount, securityVlmCameras])
+  const overviewStatus = overviewState.data
+  const platformCameras = overviewStatus?.cameras ?? []
+  const guardRoomSites = overviewStatus?.guard_room_sites ?? []
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
-  const mergedAiVisionCameras = useMemo(
-    () => mergeAiVisionAndLogisticsCameras(aiVisionCameras, logisticsCameras).map((camera) => ({
-      ...camera,
-      runtimeOnline: platformStatus?.services.aivision.running_cameras?.includes(camera.shm_name) ?? false,
-    })),
-    [aiVisionCameras, logisticsCameras, platformStatus],
-  )
-  const aiVisionFeatureCounts = useMemo(
-    () => getLoadedAiVisionFeatureCounts(
-      mergedAiVisionCameras,
-      aiVisionCamerasLoaded || logisticsCamerasLoaded,
-      department,
-    ),
-    [aiVisionCamerasLoaded, logisticsCamerasLoaded, mergedAiVisionCameras, department],
-  )
-  const visibleStatusCards = useMemo(
-    () => getVisibleStatusCards(visibleModuleEntries, mergedAiVisionCameras, aiVisionCamerasLoaded || logisticsCamerasLoaded, department),
-    [visibleModuleEntries, mergedAiVisionCameras, logisticsCamerasLoaded, aiVisionCamerasLoaded, department],
-  )
-  const scopedStatusSummary = useMemo(() => getScopedStatusSummary(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
-  const platformCameras = useMemo<PlatformCameraInventoryItem[]>(() => {
-    const aiVisionItems = mergedAiVisionCameras.map((camera) => ({
-      key: `aivision:${getAiVisionCameraKey(camera)}`,
-      source: 'aivision' as const,
-      name: camera.name,
-      identifier: camera.shm_name,
-      department: camera.department,
-      detail: camera.inventoryOnly
-        ? `物流通道：${Array.from(new Set(
-          (camera.logisticsMemberships || []).map((membership) => membership.channel_name),
-        )).join('、')}`
-        : undefined,
-      featureLabels: getAiVisionCameraFeatureLabels(camera),
-      pageId: camera.inventoryOnly
-        ? 'logistics-single-person'
-        : undefined,
-      aiVisionCamera: camera.inventoryOnly ? undefined : camera,
-    }))
-    const guardItems = guardRoomSites.flatMap((site) => site.cameras.map((camera) => ({
-      key: `guard_room:${site.id}:${camera.id}`,
-      source: 'guard_room' as const,
-      name: camera.name,
-      identifier: `保安室：${site.name}`,
-      department: site.department,
-      detail: camera.enabled ? '已启用' : '已停用',
-      featureLabels: ['保安行为规范检测'],
-      pageId: 'guard-behavior',
-      guardRoomCamera: camera,
-    })))
-    const securityItems = securityVlmCameras.map(({ department: itemDepartment, camera }) => ({
-      key: `security_vlm:${itemDepartment}:${camera.camera_id}`,
-      source: 'security_vlm' as const,
-      name: camera.name,
-      identifier: camera.camera_id,
-      department: itemDepartment,
-      detail: camera.running ? '正在运行' : '未运行',
-      featureLabels: ['安检流程规范检测'],
-      pageId: 'security-vlm',
-      securityVlmCamera: camera,
-    }))
-    return [...aiVisionItems, ...guardItems, ...securityItems]
-  }, [guardRoomSites, mergedAiVisionCameras, securityVlmCameras])
-  const cameraInventorySummary = useMemo(() => {
-    const aiVisionSummary = getCameraInventorySummary(
-      mergedAiVisionCameras,
-      platformStatus?.services.aivision.running_cameras,
-      0,
-    )
-    const guardCameraTotal = guardRoomSites.reduce((total, site) => total + site.cameras.length, 0)
-    const guardCameraOnline = Math.min(
-      guardCameraTotal,
-      Math.max(0, Number(platformStatus?.services.guard_room.online_camera_count) || 0),
-    )
-    const securityCameraOnline = securityVlmCameras.filter(({ camera }) => camera.running).length
-    const cameraTotal = aiVisionSummary.cameraTotal + guardCameraTotal + securityVlmCameras.length
-    const cameraOnline = aiVisionSummary.cameraOnline + guardCameraOnline + securityCameraOnline
-    return {
-      cameraTotal,
-      cameraOnline,
-      cameraOffline: Math.max(0, cameraTotal - cameraOnline),
-    }
-  }, [guardRoomSites, mergedAiVisionCameras, platformStatus, securityVlmCameras])
-  const cameraStatusReady = cameraInventoryLoaded && platformStatus !== null
-  const scopedStatusLevel = useMemo(() => getStatusLevelForCards(visibleStatusCards, platformStatus, aiVisionFeatureCounts), [aiVisionFeatureCounts, platformStatus, visibleStatusCards])
+  const visibleStatusCards = overviewStatus?.capabilities ?? moduleEntries.map((entry) => ({
+    id: entry.id, name: entry.title, source: 'aivision' as const,
+    camera_count: 0, online_camera_count: 0, running: false, model_ready: false,
+  }))
+  const scopedStatusSummary = {
+    capabilityTotal: visibleStatusCards.length,
+    capabilityOnline: overviewStatus?.summary.capability_online ?? 0,
+    capabilityRunning: overviewStatus?.summary.capability_running ?? 0,
+    cameraTotal: overviewStatus?.summary.camera_total ?? 0,
+  }
+  const cameraInventorySummary = {
+    cameraTotal: overviewStatus?.summary.camera_total ?? 0,
+    cameraOnline: overviewStatus?.summary.camera_online ?? 0,
+    cameraOffline: overviewStatus?.summary.camera_offline ?? 0,
+  }
+  const cameraStatusReady = overviewStatus !== null && !overviewState.error
+  const scopedStatusLevel = overviewStatus?.level ?? 'down'
 
   useEffect(() => {
     if (!isAdmin) {
@@ -527,61 +254,14 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     }
   }
 
-  const loadCameraInventory = useCallback(async () => {
-    const guardRequest = getGuardRoomSites(department).then(async (sites) => {
-      const statuses = await Promise.allSettled(sites.map((site) => getGuardRoomSiteStatus(site.id, department)))
-      setGuardOnlineCount(sites.reduce((sum, site, index) => {
-        const result = statuses[index]
-        return sum + (result.status === 'fulfilled' && result.value.running && !result.value.error ? site.enabled_camera_count : 0)
-      }, 0))
-      return sites
-    })
-    const securityRequest = Promise.allSettled([
-      getSecurityVlmCameras(department).then((result) => ({ department, cameras: result.cameras })),
-    ])
-    const [[aiVisionResult, guardResult, logisticsResult], securityResults] = await Promise.all([
-      Promise.allSettled([
-        getAiVisionCameras(department),
-        guardRequest,
-        getLogisticsCameraInventory(department),
-      ]),
-      securityRequest,
-    ])
-
-    if (aiVisionResult.status === 'fulfilled') {
-      setAiVisionCameras(aiVisionResult.value)
-      setAiVisionCamerasLoaded(true)
-    } else {
-      setAiVisionCamerasLoaded(false)
-    }
-    if (logisticsResult.status === 'fulfilled') {
-      setLogisticsCameras(logisticsResult.value.items)
-      setLogisticsCamerasLoaded(true)
-    } else {
-      setLogisticsCamerasLoaded(false)
-    }
-    if (guardResult.status === 'fulfilled') {
-      setGuardRoomSites(guardResult.value)
-    }
-    setSecurityVlmCameras(securityResults.flatMap((result) => (
-      result.status === 'fulfilled'
-        ? result.value.cameras.map((camera) => ({
-          department: result.value.department,
-          camera,
-        }))
-        : []
-    )))
-    setCameraInventoryPartial(
-      aiVisionResult.status === 'rejected'
-      || guardResult.status === 'rejected'
-      || logisticsResult.status === 'rejected'
-      || securityResults.some((result) => result.status === 'rejected'),
-    )
-    setCameraInventoryLoaded(true)
-  }, [department])
-
   const allowedCameraDepartments = cameraSourceDepartments[cameraSource]
   const guardSiteOptions = guardRoomSites.filter((site) => site.department === cameraDepartment)
+
+  useEffect(() => {
+    setCameraDialogOpen(false)
+    setCameraToEdit(null)
+    setCameraToDelete(null)
+  }, [department])
 
   const resetCameraForm = () => {
     setCameraName('')
@@ -626,7 +306,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     setCameraFormError('')
   }
 
-  const openEditCameraDialog = (camera: OverviewAiVisionCamera) => {
+  const openEditCameraDialog = (camera: AiVisionCamera) => {
     setCameraDialogMode('edit')
     setCameraToEdit(camera)
     setCameraName(camera.name)
@@ -696,7 +376,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
           url,
         )
       }
-      await loadCameraInventory()
+      overviewState.refresh()
       setCameraDialogOpen(false)
       resetCameraForm()
     } catch (error) {
@@ -714,7 +394,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
     setCameraDeleteError('')
     try {
       await deleteAiVisionCamera(cameraKey)
-      await loadCameraInventory()
+      overviewState.refresh()
       setCameraToDelete(null)
     } catch (error) {
       setCameraDeleteError(`删除失败：${error instanceof Error ? error.message : String(error)}`)
@@ -722,19 +402,6 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
       setCameraActionKey('')
     }
   }
-
-  useEffect(() => {
-    void loadCameraInventory()
-    const refreshCameraInventory = () => {
-      void loadCameraInventory()
-    }
-    const timer = window.setInterval(refreshCameraInventory, 10000)
-    window.addEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener(PLATFORM_CAMERAS_CHANGED_EVENT, refreshCameraInventory)
-    }
-  }, [loadCameraInventory])
 
   useEffect(() => {
     let cancelled = false
@@ -746,22 +413,22 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
       const allowedAlarmTypes = accessibleAlarmEventTypes ? new Set(accessibleAlarmEventTypes) : null
       const alarmItems = alarms.filter((alarm) => alarm.department === department && (!allowedAlarmTypes || allowedAlarmTypes.has(alarm.event_type)))
 
-      setOverview({
+      setAlarmOverview({ department, data: {
         todayAlarms: alarmItems.filter((alarm) => isToday(alarm.created_at)).length,
         pendingAlarms: alarmItems.filter((alarm) => (alarm.disposition_status || 'pending') === 'pending').length,
         recentAlarms: alarmItems.slice(0, 5),
-      })
+      } })
     }
 
     void loadOverview().catch(() => {
       if (!cancelled) {
-        setOverview(defaultOverview)
+        setAlarmOverview({ department, data: defaultOverview })
       }
     })
 
     const timer = window.setInterval(() => {
       void loadOverview().catch(() => {
-        if (!cancelled) setOverview(defaultOverview)
+        if (!cancelled) setAlarmOverview({ department, data: defaultOverview })
       })
     }, 10000)
 
@@ -804,16 +471,16 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                 </div>
                 <div>
                   <h3 className="text-lg font-black tracking-[0] text-[#071d3d] dark:text-slate-100">平台汇总</h3>
-                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">平台状态 30 秒 · 摄像头 10 秒刷新</p>
+                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">事业部总览每 30 秒刷新</p>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
                 <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
-                <MiniStatusMetric label="摄像头在线" value={cameraStatusReady ? `${cameraInventorySummary.cameraOnline}/${cameraInventorySummary.cameraTotal}` : '加载中'} />
+                <MiniStatusMetric label="摄像头在线" value={cameraStatusReady ? `${cameraInventorySummary.cameraOnline}/${cameraInventorySummary.cameraTotal}` : overviewState.error ? '加载失败' : '加载中'} />
                 <MiniStatusMetric
                   label="摄像头离线"
-                  value={cameraStatusReady ? cameraInventorySummary.cameraOffline : '加载中'}
+                  value={cameraStatusReady ? cameraInventorySummary.cameraOffline : overviewState.error ? '加载失败' : '加载中'}
                   warn={cameraStatusReady && cameraInventorySummary.cameraOffline > 0}
                 />
               </div>
@@ -827,7 +494,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                     </div>
                     <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                       共 {platformCameras.length} 路；已汇总 AiVision、物流通道、保安行为和安检流程摄像头。
-                      {cameraInventoryPartial ? ' 部分来源暂不可用。' : ''}
+
                     </div>
                   </div>
                   {isAdmin ? (
@@ -843,7 +510,9 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                  {platformCameras.length === 0 ? (
+                  {overviewState.error ? <div role="alert" className="px-4 py-3 text-sm text-red-600 dark:text-red-400">{overviewState.error}</div> : null}
+                  {overviewState.loading ? <div role="status" className="px-4 py-6 text-sm text-slate-500">正在加载摄像头清单…</div> : null}
+                  {!overviewState.loading && !overviewState.error && platformCameras.length === 0 ? (
                     <div className="px-4 py-6 text-sm font-medium text-slate-500">暂无摄像头。</div>
                   ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2">
@@ -857,16 +526,16 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                                 <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
                                 <div className="mt-1 truncate text-xs font-medium text-slate-500">
                                   {cameraSourceLabel(camera.source)} · {cameraDepartmentLabel(camera.department)} · {camera.identifier}
-                                  {camera.detail ? ` · ${camera.detail}` : ''}
+                                  {camera.online ? ' · 在线' : ' · 离线'}
                                 </div>
                               </div>
-                              {isAdmin && camera.aiVisionCamera ? (
+                              {isAdmin && camera.aivision_camera ? (
                                 <div className="flex shrink-0 items-center gap-2 opacity-100 transition-opacity duration-200 [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     className="gap-1.5"
-                                    onClick={() => openEditCameraDialog(camera.aiVisionCamera!)}
+                                    onClick={() => openEditCameraDialog(camera.aivision_camera!)}
                                     disabled={Boolean(cameraActionKey)}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
@@ -877,7 +546,7 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                                     size="sm"
                                     className="gap-1.5"
                                     onClick={() => {
-                                      setCameraToDelete(camera.aiVisionCamera!)
+                                      setCameraToDelete(camera.aivision_camera!)
                                       setCameraDeleteError('')
                                     }}
                                     disabled={Boolean(cameraActionKey)}
@@ -886,12 +555,12 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                                     删除
                                   </Button>
                                 </div>
-                              ) : camera.pageId ? (
+                              ) : camera.capabilities[0] ? (
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   className="shrink-0 gap-1.5"
-                                  onClick={() => onNavigate(camera.pageId!, department)}
+                                  onClick={() => onNavigate(camera.capabilities[0], camera.department)}
                                 >
                                   <ArrowRight className="h-3.5 w-3.5" />
                                   配置
@@ -899,11 +568,11 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                               ) : null}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {camera.featureLabels.length ? (
-                                camera.featureLabels.map((label) => (
-                                  <Badge key={label} variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                    {label}
-                                  </Badge>
+                              {camera.capabilities.length ? (
+                                camera.capabilities.map((page) => (
+                                  <button key={page} type="button" onClick={() => onNavigate(page, camera.department)}><Badge variant="outline" className="bg-emerald-50 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    {visibleStatusCards.find((capability) => capability.id === page)?.name || page}
+                                  </Badge></button>
                                 ))
                               ) : (
                                 <span className="text-xs font-medium text-slate-400">暂未加入检测功能</span>
@@ -1060,11 +729,9 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
                 {visibleStatusCards.map((card) => (
                   <ServiceStatusCard
                     key={card.id}
-                    service={platformStatus?.services[card.serviceKey]}
-                    displayName={card.title}
+                    service={overviewStatus?.services[card.source]}
+                    capability={card}
                     onNavigate={() => onNavigate(card.id, department)}
-                    featureKey={card.featureKey}
-                    featureCounts={card.featureCounts ?? (card.serviceKey === 'aivision' ? aiVisionFeatureCounts : undefined)}
                   />
                 ))}
               </div>
@@ -1093,8 +760,8 @@ export function HomeSection({ department, onNavigate, platformStatus: globalPlat
             <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
               <MetricTile
                 title="模块覆盖"
-                value={visibleModuleEntries.length}
-                detail="按账号权限展示"
+                value={visibleStatusCards.length}
+                detail="当前事业部固定九个检测能力"
                 icon={<CircleDotDashed className="h-5 w-5" />}
                 tone="blue"
               />
@@ -1345,26 +1012,19 @@ function StatusBadge({ level }: { level: string }) {
   return <Badge className={cn('px-3 py-1.5 text-sm font-bold shadow-none hover:bg-current/0', className)}>{label}</Badge>
 }
 
-function ServiceStatusCard({
-  service,
-  displayName,
-  featureKey,
-  featureCounts,
-  onNavigate,
-}: {
+function ServiceStatusCard({ service, capability, onNavigate }: {
   onNavigate: () => void
-  service?: PlatformServiceStatus
-  displayName: string
-  featureKey?: string
-  featureCounts?: FeatureCameraCounts
+  service?: OverviewServiceStatus
+  capability: OverviewCapability
 }) {
   const online = Boolean(service?.online)
-  const running = isCapabilityRunning(service, featureKey, featureCounts)
+  const running = capability.running
   const hasError = Boolean(service?.error)
-  const modelLoaded = isCapabilityModelReady(service, featureKey, featureCounts)
-  const cameraCount = getCapabilityCameraCount(service, featureKey, featureCounts)
-  const onlineCameras = getCapabilityOnlineCameraCount(service, featureKey, featureCounts)
-  const frameAge = service?.last_frame_age_sec
+  const modelLoaded = capability.model_ready
+  const cameraCount = capability.camera_count
+  const onlineCameras = capability.online_camera_count
+  const displayName = capability.name
+  const featureKey = capability.id
   const statusText = getServiceStatusText({
     online,
     running,
@@ -1399,12 +1059,6 @@ function ServiceStatusCard({
           <div className="text-slate-500">识别能力</div>
           <div className={cn('mt-1 font-black', modelLoaded ? 'text-emerald-600' : 'text-amber-600')}>
             {getRecognitionAbilityText({ modelLoaded, running })}
-          </div>
-        </div>
-        <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
-          <div className="text-slate-500">画面更新</div>
-          <div className={cn('mt-1 font-black', frameAge && frameAge > 10 ? 'text-amber-600' : 'text-slate-900 dark:text-slate-100')}>
-            {typeof frameAge === 'number' ? `${frameAge}s` : '-'}
           </div>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">

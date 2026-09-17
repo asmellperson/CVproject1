@@ -130,6 +130,11 @@ async function mount(isAdmin = true) {
   const alarmEditor = async () => find(await h.flush(), (node) => node.type === 'AlarmPushConfig')[0].props
   return {
     channelWrites, roiWrites, rois,
+    async interval(value) {
+      const editor = await alarmEditor()
+      if (value !== undefined) { editor.onAlarmIntervalChange(value); await h.flush() }
+      return (await alarmEditor()).alarmInterval
+    },
     stored(id = selectedChannelId) { return structuredClone(storedChannels.get(id)) },
     async refresh() { refreshDetail(); await h.flush() },
     async selectChannel(id) { selectedChannelId = id; refreshDetail(); await h.flush() },
@@ -185,7 +190,7 @@ test('channel parameters save once and never write camera ROI or lifecycle state
   assert.equal(config.min_aspect_ratio, .2); assert.equal(config.max_aspect_ratio, 3.7)
   assert.deepEqual(Object.keys(config).sort(), [
     'detection_start', 'detection_end', 'confidence_threshold', 'model_iou_threshold', 'min_box_area',
-    'min_aspect_ratio', 'max_aspect_ratio', 'cap_interval', 'empty_grace_seconds', 'multi_grace_seconds', 'alarm_interval',
+    'min_aspect_ratio', 'max_aspect_ratio', 'cap_interval', 'empty_grace_seconds', 'multi_grace_seconds',
   ].sort())
   assert.equal((await page.input('logistics-channel-area')).value, '22')
 })
@@ -207,7 +212,7 @@ test('blocks invalid detection fields and channel names before sending a request
     ['logistics-channel-min-aspect', '4'], ['logistics-channel-interval', '0'],
     ['logistics-detection-start', '21:00'], ['logistics-detection-end', '08:00'], ['logistics-detection-start', ''],
     ['logistics-confidence-threshold', '-0.1'], ['logistics-confidence-threshold', 'NaN'],
-    ['logistics-empty-grace', '-1'], ['logistics-multi-grace', '-1'], ['logistics-alarm-interval', '0'],
+    ['logistics-empty-grace', '-1'], ['logistics-multi-grace', '-1'],
     ['logistics-channel-name', '  '], ['logistics-channel-name', 'x'.repeat(101)]]) {
     const page = await mount(); await page.input(id, value); await page.save()
     assert.equal(page.channelWrites.length, 0)
@@ -229,7 +234,7 @@ test('saving alarms preserves unsaved detection fields and name across the serve
   const alarm = { ...await page.alarm(), wechat: { enabled: true, user: '  alarm-user  ' } }
   await page.alarm(alarm)
   await page.saveAlarm()
-  assert.deepEqual(page.channelWrites, [{ config: { alarm } }])
+  assert.deepEqual(page.channelWrites, [{ config: { alarm, alarm_interval: 5 } }])
   assert.equal(page.stored().config.model_iou_threshold, before.config.model_iou_threshold)
   assert.equal(page.stored().name, before.name)
   assert.equal((await page.input('logistics-channel-iou')).value, '0.5')
@@ -250,11 +255,12 @@ test('saving detection fields preserves the alarm draft without submitting it', 
   await page.alarm(alarm)
   await page.input('logistics-detection-start', '09:30')
   await page.input('logistics-channel-iou', '0.5')
-  await page.input('logistics-alarm-interval', '12')
+  await page.interval('12')
   await page.save()
   assert.equal('alarm' in page.channelWrites[0].config, false)
   assert.equal(page.channelWrites[0].config.detection_start, '09:30:00')
-  assert.equal(page.stored().config.alarm_interval, 12)
+  assert.equal(page.stored().config.alarm_interval, 5)
+  assert.equal('alarm_interval' in page.channelWrites[0].config, false)
   assert.deepEqual(page.stored().config.alarm, savedAlarm)
   assert.deepEqual(await page.alarm(), alarm)
   await page.refresh()
@@ -289,7 +295,7 @@ test('unsaved invalid detection fields and name do not block alarm saving', asyn
   await page.save()
   assert.equal(page.channelWrites.length, 0)
   await page.saveAlarm()
-  assert.deepEqual(page.channelWrites, [{ config: { alarm } }])
+  assert.deepEqual(page.channelWrites, [{ config: { alarm, alarm_interval: 5 } }])
   assert.equal(page.stored().name, before.name)
   assert.deepEqual(page.stored().config, { ...before.config, alarm })
   assert.equal((await page.input('logistics-detection-start')).value, '21:00')
@@ -329,4 +335,14 @@ test('late saves cannot overwrite drafts after switching away and back to the sa
     if (tab === 'detection') assert.equal(page.stored().config.model_iou_threshold, .5)
     else assert.equal(page.stored().config.alarm.sql_enable, true)
   }
+})
+
+test('报警间隔校验只阻止报警保存，不阻止检测参数保存', async () => {
+  const page = await mount()
+  await page.interval('0')
+  await page.saveAlarm()
+  assert.equal(page.channelWrites.length, 0)
+  await page.save()
+  assert.equal(page.channelWrites.length, 1)
+  assert.equal('alarm_interval' in page.channelWrites[0].config, false)
 })

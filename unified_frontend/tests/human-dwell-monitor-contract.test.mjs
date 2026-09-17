@@ -99,8 +99,8 @@ test('uses the shared feature with department-scoped camera selection', () => {
 
 test('keeps the selected camera when ROI save emits a camera refresh event', () => {
   assert.match(page, /const selectedCameraRef = useRef\(''\)/)
-  assert.match(page, /items\.find\(\(camera\) => camera\.shm_name === selectedCameraRef\.current\)/)
-  assert.match(page, /\|\| items\[0\]/)
+  assert.match(page, /selectFeatureCamera\(items, 'detect_human', department, preferredCamera \?\? selectedCameraRef\.current\)/)
+  assert.doesNotMatch(page, /\|\| items\[0\]/)
   assert.match(page, /selectedCameraRef\.current = payload\.camera\.shm_name/)
   assert.match(page, /selectedCameraRef\.current = cameraName/)
 })

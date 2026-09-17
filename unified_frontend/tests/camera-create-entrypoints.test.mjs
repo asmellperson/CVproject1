@@ -19,7 +19,7 @@ test('ordinary AiVision configuration can create and immediately bind a camera',
 
   assert.match(manager, /createAiVisionFeatureCamera\(feature, \{/)
   assert.match(manager, /department,/)
-  assert.match(manager, /onSelectCamera\(camera\.shm_name\)/)
+  assert.match(manager, /onCamerasChanged\(camera\.shm_name\)/)
   assert.doesNotMatch(manager, /onAddCamera|onRemoveCamera|selectedExistingCamera|availableCameras|canAddSelectedCamera|handleEnableExisting/)
   assert.match(manager, /新建摄像头并加入当前功能/)
   assert.match(manager, /<LogisticsCameraCreateDialog/)
@@ -59,7 +59,7 @@ test('camera mutations from every backend notify the shared overview inventory',
     readFrontendSource('src/lib/aivision.ts'),
     readFrontendSource('src/lib/api.ts'),
     readFrontendSource('src/lib/security-vlm.ts'),
-    readFrontendSource('src/hooks/use-platform-status.ts'),
+    readFrontendSource('src/hooks/use-overview.ts'),
   ])
 
   for (const source of [aiVision, guardRoom, securityVlm]) {
@@ -67,7 +67,7 @@ test('camera mutations from every backend notify the shared overview inventory',
   }
   assert.match(aiVision, /\/api\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)
   assert.match(platformStatus, /PLATFORM_CAMERAS_CHANGED_EVENT/)
-  assert.match(platformStatus, /restartKey: `\$\{department\}:\$\{cameraRevision\}`/)
+  assert.match(platformStatus, /restartKey: context/)
 })
 
 
@@ -110,13 +110,13 @@ test('camera queries and Guard mutations transmit explicit department context', 
     await guard.updateGuardRoomCamera(23, { name: '更新名称' }, department)
     await guard.deleteGuardRoomCamera(23, department)
     const expected = [
-      ['GET', '/api/cameras'], ['GET', '/api/sites'],
-      ['PUT', '/api/sites/12'], ['DELETE', '/api/sites/12'],
-      ['POST', '/api/sites/12/config'], ['POST', '/api/sites/12/control/start'],
-      ['POST', '/api/sites/12/control/stop'], ['POST', '/api/sites/12/control/restart'],
-      ['POST', '/api/sites/12/cameras'],
-      ['PUT', '/api/integrations/guard-room/api/cameras/23'],
-      ['DELETE', '/api/integrations/guard-room/api/cameras/23'],
+      ['GET', '/api/cameras'], ['GET', '/api/guard-room/sites'],
+      ['PUT', '/api/guard-room/sites/12'], ['DELETE', '/api/guard-room/sites/12'],
+      ['POST', '/api/guard-room/sites/12/config'], ['POST', '/api/guard-room/sites/12/control/start'],
+      ['POST', '/api/guard-room/sites/12/control/stop'], ['POST', '/api/guard-room/sites/12/control/restart'],
+      ['POST', '/api/guard-room/sites/12/cameras'],
+      ['PUT', '/api/guard-room/cameras/23'],
+      ['DELETE', '/api/guard-room/cameras/23'],
     ]
     assert.equal(calls.length, expected.length)
     calls.forEach(({ url, options }, index) => {

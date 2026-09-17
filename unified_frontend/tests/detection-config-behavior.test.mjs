@@ -76,20 +76,27 @@ const configs = {
 async function mount(name, feature = `detect_${name.toLowerCase()}`, department = 'general_electric', enabled = true) {
   const h = harness()
   const writes = []
-  const cameraDepartments = []
+  const cameraDepartments = [], configReads = []
+  const camera = (key, active) => ({ id: key, camera_id: key === 'test' ? 1 : 2, sort_order: 0, department, enabled: true, name: key, shm_name: key, functions: { [feature]: active } })
+  let pool = [camera('test', enabled)]
   let config = { enable: enabled, value: structuredClone(configs[name]), alarm: structuredClone(alarm) }
-  const response = () => ({ camera: { id: 1, name: '测试摄像头', shm_name: 'test', enable: true }, feature, config })
+  const response = (key = 'test') => ({ camera: { id: 1, name: '测试摄像头', shm_name: key, enable: true }, feature, config })
   const api = {
-    getAiVisionCameras: async (requestedDepartment) => { cameraDepartments.push(requestedDepartment); return [{ id: '1', camera_id: 1, sort_order: 0, department, enabled: true, name: '测试摄像头', shm_name: 'test', functions: { [feature]: enabled } }] },
+    getAiVisionCameras: async (requestedDepartment) => { cameraDepartments.push(requestedDepartment); return structuredClone(pool) },
     isAiVisionFeatureEnabled: (camera, key) => Boolean(camera.functions[key]),
-    getAiVisionFeatureConfig: async () => response(),
+    getAiVisionFeatureConfig: async (_feature, key) => { configReads.push(key); return response(key) },
     saveAiVisionFeatureConfig: async (_feature, _key, next) => {
       assert.equal(_feature, feature)
       writes.push(structuredClone(next)); config = next; return response()
     },
   }
   const stub = new Proxy({}, { get: (_target, key) => `mock-${String(key)}` })
+  const helperModule = { exports: {} }
+  Function('exports', ts.transpileModule(await readFile(new URL('src/lib/feature-cameras.ts', root), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText)(helperModule.exports)
   const imports = {
+    '@/lib/feature-cameras': helperModule.exports,
     react: h.hooks,
     '@/auth/useAuth': { useAuth: () => ({ isAdmin: true }) },
     '@/lib/aivision': api,
@@ -107,7 +114,16 @@ async function mount(name, feature = `detect_${name.toLowerCase()}`, department 
   const component = module.exports[`${name}DetectionSection`]
   await h.mount(() => component({ department }))
   return {
-    writes, cameraDepartments,
+    writes, cameraDepartments, configReads, camera,
+    async tree() { return h.flush() },
+    async reload(items, preferred) {
+      pool = items
+      config.enable = true
+      const tree = await h.flush()
+      const manager = elements(tree, (node) => node.type === 'mock-FeatureCameraManager')[0]
+      await manager.props.onCamerasChanged(preferred)
+      return h.flush()
+    },
     async input(id, value) {
       const tree = await h.flush()
       const input = elements(tree, (node) => node.props?.id === id)[0]
@@ -185,8 +201,49 @@ test('停用 Feature 的摄像头仍可读取和保存参数，保存不会启�
   for (const name of ['Intrusion', 'Face', 'Human', 'Door', 'Phone']) {
     const page = await mount(name, name === 'Intrusion' ? 'blocks' : `detect_${name.toLowerCase()}`, 'fulida_company', false)
     await page.save()
-    assert.equal(page.writes.length, 1, name)
-    assert.equal(page.writes[0].enable, false, name)
+    assert.equal(page.writes.length, 0, name)
     assert.ok(page.cameraDepartments.every((department) => department === 'fulida_company'))
   }
 })
+
+for (const [name, feature] of [['Intrusion', 'blocks'], ['Door', 'detect_door'], ['Face', 'detect_face'], ['Human', 'detect_human'], ['Phone', 'detect_phone']]) {
+  test(`${feature} 的启停选择和所有配置入口只接受已启用摄像头`, async () => {
+    const page = await mount(name, feature)
+    const current = (tree) => elements(tree, (node) => node.type === 'mock-FeatureCameraManager')[0].props
+    const options = (tree) => elements(tree, (node) => node.type === 'mock-SelectItem').map((node) => node.props.value)
+    let tree = await page.reload([page.camera('test', true), page.camera('second', false)])
+    assert.equal(current(tree).cameras.length, 2)
+    assert.equal(current(tree).currentCameraName, 'test')
+    assert.equal(options(tree).includes('second'), false)
+    const reads = page.configReads.length
+    await current(tree).onSelectCamera('second')
+    tree = await page.tree()
+    assert.equal(page.configReads.length, reads)
+    assert.equal(current(tree).currentCameraName, '')
+    tree = await page.reload([page.camera('test', true), page.camera('second', true)], 'second')
+    assert.equal(current(tree).currentCameraName, 'second')
+    tree = await page.reload([page.camera('test', true), page.camera('second', false)], 'second')
+    assert.equal(current(tree).currentCameraName, 'test')
+    tree = await page.reload([page.camera('test', false), page.camera('second', false)])
+    assert.equal(current(tree).currentCameraName, '')
+    assert.equal(options(tree).includes('test'), false)
+    assert.equal(options(tree).includes('second'), false)
+    const gates = elements(tree, (node) => node.type === 'mock-FeatureConfigGate')
+    assert.ok(gates.length >= 3)
+    assert.ok(gates.every((node) => node.props.cameraKey === ''))
+    await page.save()
+    assert.deepEqual(page.writes, [])
+  })
+  test(`${feature} 报警间隔只绑定报警推送组件`, async () => {
+    const page = await mount(name, feature)
+    const tree = await page.tree()
+    const params = elements(tree, (node) => node.type === 'mock-TabsContent' && node.props.value === 'params')[0]
+    assert.equal(elements(params, (node) => node.type === 'mock-Input' && node.props.value === '7').length, 0)
+    const alarm = elements(tree, (node) => node.type === 'mock-TabsContent' && node.props.value === 'alarm')[0]
+    const push = elements(alarm, (node) => node.type === 'mock-AlarmPushConfig')[0]
+    assert.equal(push.props.alarmInterval, '7')
+    push.props.onAlarmIntervalChange('13')
+    await page.save()
+    assert.equal(page.writes[0].value.alarm_interval, 13)
+  })
+}

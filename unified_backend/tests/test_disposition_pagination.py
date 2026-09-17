@@ -242,7 +242,7 @@ def test_slow_authorization_has_bounded_concurrency_and_leaves_home_executor_fre
             result = await asyncio.wait_for(asyncio.to_thread(backend._get_json_concurrently,
                 {"status": ("http://aivision", "/api/runtime/status", None)}), .5)
             assert result["status"][1] == {"started": True}
-            assert threads and all(name.startswith("platform-status") for name in threads)
+            assert threads and all(name.startswith("overview") for name in threads)
             assert all(not task.done() for task in tasks)
         finally:
             release.set()

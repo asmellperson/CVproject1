@@ -5,7 +5,7 @@ import { HomeSection } from '@/sections/HomeSection'
 import { Toaster } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { usePlatformStatus } from '@/hooks/use-platform-status'
+import { useOverview } from '@/hooks/use-overview'
 import { useAuth } from '@/auth/useAuth'
 import { getAccessibleDepartments, isDetectionPage, resolveDepartment, resolvePage, type DepartmentId } from '@/auth/permissions'
 import type { AuthUser } from '@/auth/auth-context'
@@ -103,7 +103,7 @@ function App() {
   ))
   const currentPage = navigation.page
   const currentDepartment = resolveDepartment(user, navigation.department)
-  const platformStatus = usePlatformStatus(currentDepartment)
+  const overviewState = useOverview(currentDepartment)
   const [initialAlarmId] = useState(getInitialAlarmId)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
@@ -147,7 +147,7 @@ function App() {
   const renderContent = () => {
     switch (activePage) {
       case 'overview':
-        return currentDepartment ? <HomeSection department={currentDepartment} onNavigate={handlePageChange} platformStatus={platformStatus} /> : <p>当前账号未授权事业部</p>
+        return currentDepartment ? <HomeSection department={currentDepartment} onNavigate={handlePageChange} overviewState={overviewState} /> : <p>当前账号未授权事业部</p>
       case 'security-vlm':
         return currentDepartment && <SecurityVlmSection department={currentDepartment} />
       case 'guard-behavior':
@@ -175,7 +175,7 @@ function App() {
       case 'access-audit':
         return <AccessAuditSection />
       default:
-        return currentDepartment && <HomeSection department={currentDepartment} onNavigate={handlePageChange} platformStatus={platformStatus} />
+        return currentDepartment && <HomeSection department={currentDepartment} onNavigate={handlePageChange} overviewState={overviewState} />
     }
   }
 
@@ -210,8 +210,8 @@ function App() {
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
         isMobile={isMobile}
-        monitoringCount={platformStatus?.summary.camera_online ?? null}
-        systemRunning={platformStatus?.ok ?? true}
+        monitoringCount={overviewState.data?.summary.camera_online ?? null}
+        systemRunning={overviewState.data?.ok ?? true}
       />
 
       {isMobile && mobileSidebarOpen && (

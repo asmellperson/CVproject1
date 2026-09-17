@@ -131,7 +131,7 @@ test('opts the four pages into the approved shell while preserving configuration
     assert.match(source, /bg-\[#F3F5FA\]/)
     assert.match(source, /DetectionConfigTabs/)
     for (const binding of [
-      'loadConfig', 'loadCameras', 'saveConfig', 'addCameraToFeature', 'removeCameraFromFeature',
+      'loadConfig', 'loadCameras', 'saveConfig', 'getEnabledFeatureCameras', 'selectFeatureCamera',
       'FeatureCameraManager', 'AiVisionRoiEditor', 'AiVisionModelConfig', 'AlarmPushConfig',
     ]) assert.match(source, new RegExp(binding))
   }

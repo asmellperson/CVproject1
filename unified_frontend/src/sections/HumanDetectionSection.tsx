@@ -1,3 +1,5 @@
+import { getEnabledFeatureCameras, selectFeatureCamera, EMPTY_FEATURE_CAMERA_MESSAGE } from '@/lib/feature-cameras'
+import { FeatureConfigGate } from '@/components/detection/FeatureConfigGate'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
@@ -110,6 +112,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
   const [form, setForm] = useState(defaultForm)
   const [humanConfig, setHumanConfig] = useState<HumanConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
+  const enabledCameras = getEnabledFeatureCameras(cameras, 'detect_human', department)
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(false)
@@ -125,13 +128,15 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
   }
 
   const loadConfig = async (cameraName = form.cameraName, source: AiVisionCamera[] = cameras) => {
-    const shmName = cameraName.trim()
+    const shmName = getEnabledFeatureCameras(source, 'detect_human', department).some((camera) => camera.shm_name === cameraName.trim()) ? cameraName.trim() : ''
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
     setHumanConfig(null)
+    setForm({ ...defaultForm, cameraName: shmName })
     if (!shmName) {
-      setMessage('读取失败：请先选择摄像头。')
+      setLoading(false)
+      setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
       return
     }
 
@@ -154,32 +159,34 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
     }
   }
 
-  const loadCameras = async () => {
+  const loadCameras = async (preferredCamera?: string) => {
     const requestId = ++cameraListRequestRef.current
     setCameraLoading(true)
+    loadedCameraRef.current = ''
     try {
       const items = await getAiVisionCameras(department)
       if (requestId !== cameraListRequestRef.current) return
       setCameras(items)
-      const selectedCamera = items.find((camera) => camera.shm_name === selectedCameraRef.current) || items[0]
-      const nextCamera = selectedCamera?.shm_name || ''
-      if (items.length === 0) {
+      const nextCamera = selectFeatureCamera(items, 'detect_human', department, preferredCamera ?? selectedCameraRef.current)
+      if (!nextCamera) {
         selectedCameraRef.current = ''
         configRequestRef.current += 1
         loadedCameraRef.current = ''
         setLoading(false)
         setHumanConfig(null)
-        setForm((previous) => ({ ...previous, cameraName: '' }))
+        setForm(defaultForm)
         selectedCameraRef.current = ''
         setForm((prev) => ({ ...prev, cameraName: '' }))
-        setMessage('当前事业部暂未配置摄像头')
-        return
+        setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
+        return items
       }
       selectedCameraRef.current = nextCamera
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
       await loadConfig(nextCamera, items)
+      return items
     } catch (error) {
       if (requestId !== cameraListRequestRef.current) return
+      await loadConfig('')
       setMessage(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       if (requestId === cameraListRequestRef.current) setCameraLoading(false)
@@ -187,6 +194,11 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
   }
 
   useEffect(() => {
+    setCameras([])
+    setForm(defaultForm)
+    setHumanConfig(null)
+    selectedCameraRef.current = ''
+    loadedCameraRef.current = ''
     loadCameras()
     const refreshCameras = () => {
       loadCameras()
@@ -199,14 +211,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
     }
   }, [department])
 
-  const refreshCameraList = async () => {
-    const requestId = ++cameraListRequestRef.current
-    const items = await getAiVisionCameras(department)
-    if (requestId !== cameraListRequestRef.current) return items
-    setCameras(items)
-    setCameraLoading(false)
-    return items
-  }
+  const refreshCameraList = loadCameras
 
   const saveConfig = async () => {
     const shmName = form.cameraName.trim()
@@ -385,15 +390,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                   loadConfig(cameraName)
                 }}
                 onCamerasChanged={refreshCameraList}
-                onConfigCopied={(cameraName) => {
-                  selectedCameraRef.current = cameraName
-                  setForm((prev) => ({ ...prev, cameraName }))
-                  return loadConfig(cameraName)
-                }}
+                onConfigCopied={(cameraName) => loadCameras(cameraName).then(() => undefined)}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
                   title="人员违规逗留检测 ROI 绘制"
@@ -406,9 +409,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                   onSave={saveConfig}
                 />
               </Suspense>
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪、区域与过滤参数。" actions={<Badge variant="outline">AiVision {feature}</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
@@ -427,13 +434,13 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                         setForm((prev) => ({ ...prev, cameraName: value }))
                         loadConfig(value)
                       }}
-                      disabled={cameraLoading || loading || saving || cameras.length === 0}
+                      disabled={cameraLoading || loading || saving || enabledCameras.length === 0}
                     >
                       <SelectTrigger id="human-camera" className="w-full">
                         <SelectValue placeholder={cameraLoading ? '正在读取摄像头' : '选择摄像头'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {cameras.map((camera) => (
+                        {enabledCameras.map((camera) => (
                           <SelectItem key={camera.id} value={camera.shm_name}>
                             {camera.name}
                           </SelectItem>
@@ -541,16 +548,6 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="human-interval">告警间隔（秒）</Label>
-                    <Input
-                      id="human-interval"
-                      value={form.alarmInterval}
-                      onChange={(event) => setForm((prev) => ({ ...prev, alarmInterval: event.target.value }))}
-                      placeholder="5.0"
-                    />
-                  </div>
-
                 </div>
 
                 <div className="grid gap-5 md:grid-cols-3">
@@ -577,16 +574,26 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
               </DetectionConfigCardContent>
               </Card>
               <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={['yolo_human']} />
               </Suspense>
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
+
               <AlarmPushConfig
+                alarmInterval={form.alarmInterval}
+                onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={humanConfig?.alarm}
                 disabled={!humanConfig || !isAdmin || loading || saving || !form.cameraName}
                 saving={saving}
@@ -594,6 +601,8 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
                 onChange={(alarm) => setHumanConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
+
+              </FeatureConfigGate>
             </TabsContent>
           </DetectionConfigTabs>
         </TabsContent>

@@ -1,3 +1,4 @@
+import { splitChannelConfig } from './channelConfigDrafts'
 import type { DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
@@ -43,8 +44,7 @@ import {
 import type {
   LogisticsCameraRoiResponse,
   LogisticsChannel,
-  LogisticsChannelAlarmConfig,
-  LogisticsChannelConfig,
+  LogisticsChannelAlarmDraft,
   LogisticsChannelDetectionConfig,
   LogisticsChannelDetail,
   LogisticsFeatureName,
@@ -85,10 +85,6 @@ function detectionTimeSeconds(value: string): number | null {
   return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0) : null
 }
 
-function splitChannelConfig({ alarm, ...detection }: LogisticsChannelConfig) {
-  return { alarm, detection }
-}
-
 function messageOf(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason)
 }
@@ -115,7 +111,7 @@ export function LogisticsChannelConfigView({
   )
   const [channelName, setChannelName] = useState('')
   const [detectionConfigDraft, setDetectionConfigDraft] = useState<LogisticsChannelDetectionConfig | null>(null)
-  const [alarmDraft, setAlarmDraft] = useState<LogisticsChannelAlarmConfig | null>(null)
+  const [alarmDraft, setAlarmDraft] = useState<LogisticsChannelAlarmDraft | null>(null)
   const [existingCameraId, setExistingCameraId] = useState('')
   const [moveExisting, setMoveExisting] = useState(false)
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
@@ -349,9 +345,8 @@ export function LogisticsChannelConfigView({
       return
     }
     if (!Number.isFinite(detectionConfigDraft.empty_grace_seconds) || detectionConfigDraft.empty_grace_seconds < 0
-      || !Number.isFinite(detectionConfigDraft.multi_grace_seconds) || detectionConfigDraft.multi_grace_seconds < 0
-      || !Number.isFinite(detectionConfigDraft.alarm_interval) || detectionConfigDraft.alarm_interval <= 0) {
-      setMessage('无人、多人持续时间必须非负，告警间隔必须大于 0 秒。')
+      || !Number.isFinite(detectionConfigDraft.multi_grace_seconds) || detectionConfigDraft.multi_grace_seconds < 0) {
+      setMessage('无人、多人持续时间必须非负。')
       return
     }
     void run(async () => {
@@ -372,14 +367,18 @@ export function LogisticsChannelConfigView({
 
   const saveAlarmConfig = () => {
     if (!selectedChannelDetail || !alarmDraft || hydratedChannelSelection.current !== channelSelection) return
-    const hornError = validateHornBinding(toFeatureAlarm(alarmDraft).horn)
+    if (!Number.isFinite(alarmDraft.alarm_interval) || alarmDraft.alarm_interval <= 0) {
+      setMessage('报警间隔必须大于 0 秒。')
+      return
+    }
+    const hornError = validateHornBinding(toFeatureAlarm(alarmDraft.alarm).horn)
     if (hornError) { setMessage(hornError); return }
     void run(async () => {
       const saved = await updateLogisticsChannel(feature, selectedChannelDetail.id, {
-        config: { alarm: alarmDraft },
+        config: { ...alarmDraft },
       })
       if (currentChannelSelection.current === channelSelection) {
-        setAlarmDraft(saved.config.alarm)
+        setAlarmDraft(splitChannelConfig(saved.config).alarm)
       }
     }, '报警推送配置已保存。')
   }
@@ -646,7 +645,6 @@ export function LogisticsChannelConfigView({
                   <ConfigNumber label="画面处理间隔（秒，大于 0）" id="logistics-channel-interval" value={String(detectionConfigDraft.cap_interval)} min={0} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, cap_interval: Number(value) })} />
                   <ConfigNumber label="无人持续时间（秒）" id="logistics-empty-grace" value={String(detectionConfigDraft.empty_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, empty_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(detectionConfigDraft.multi_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="告警间隔（秒，大于 0）" id="logistics-alarm-interval" value={String(detectionConfigDraft.alarm_interval)} min={0} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, alarm_interval: Number(value) })} disabled={!isAdmin || busy} />
                 </DetectionConfigCardContent>
               </Card>
               <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存检测参数" />
@@ -654,11 +652,14 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
               <AlarmPushConfig
-                alarm={toFeatureAlarm(alarmDraft)}
+                showSql
+                alarmInterval={String(alarmDraft.alarm_interval)}
+                onAlarmIntervalChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_interval: Number(value) })}
+                alarm={toFeatureAlarm(alarmDraft.alarm)}
                 disabled={!isAdmin || busy}
                 saving={busy}
                 message={message}
-                onChange={(alarm) => setAlarmDraft(toLogisticsAlarm(alarm))}
+                onChange={(alarm) => setAlarmDraft({ ...alarmDraft, alarm: toLogisticsAlarm(alarm) })}
                 onSave={saveAlarmConfig}
               />
             </TabsContent>

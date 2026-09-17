@@ -8,12 +8,12 @@ function assertEndsWith(actual: string, expected: string) {
 
 assertEndsWith(
   guardRoomSiteCameraFrameUrl(12, 'cam2', 123, 'fulida_company'),
-  '/api/sites/12/cameras/cam2/frame.jpg?t=123&department=fulida_company',
+  '/api/guard-room/sites/12/cameras/cam2/frame.jpg?t=123&department=fulida_company',
 )
 
 assertEndsWith(
   guardRoomSiteCameraFrameUrl(12, 'cam 2', undefined, 'research_institute'),
-  '/api/sites/12/cameras/cam%202/frame.jpg?department=research_institute',
+  '/api/guard-room/sites/12/cameras/cam%202/frame.jpg?department=research_institute',
 )
 
 if (guardRoomSitesPath('electronics_electrician') !== '/sites?department=electronics_electrician') {

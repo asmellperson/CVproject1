@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Copy, Plus } from 'lucide-react'
@@ -33,7 +34,7 @@ type FeatureCameraManagerProps = {
 
   onSelectCamera: (shmName: string) => void
 
-  onCamerasChanged: () => Promise<unknown>
+  onCamerasChanged: (preferredCamera?: string) => Promise<unknown>
 
   onConfigCopied?: (targetShmName: string) => void | Promise<void>
 }
@@ -49,6 +50,7 @@ export function FeatureCameraManager({
   onConfigCopied,
 }: FeatureCameraManagerProps) {
   const cameras = useMemo(() => sourceCameras.filter((camera) => camera.department === department), [sourceCameras, department])
+  const enabledCameras = useMemo(() => getEnabledFeatureCameras(cameras, feature, department), [cameras, feature, department])
   const [workingCamera, setWorkingCamera] = useState('')
   const [copySourceCamera, setCopySourceCamera] = useState('')
   const [copyTargetCamera, setCopyTargetCamera] = useState('')
@@ -71,13 +73,13 @@ export function FeatureCameraManager({
   }, [department, feature])
 
   useEffect(() => {
-    if (copySourceCamera && !cameras.some((camera) => camera.shm_name === copySourceCamera)) {
+    if (copySourceCamera && !enabledCameras.some((camera) => camera.shm_name === copySourceCamera)) {
       setCopySourceCamera('')
     }
-    if (copyTargetCamera && !cameras.some((camera) => camera.shm_name === copyTargetCamera)) {
+    if (copyTargetCamera && !enabledCameras.some((camera) => camera.shm_name === copyTargetCamera)) {
       setCopyTargetCamera('')
     }
-  }, [cameras, copySourceCamera, copyTargetCamera])
+  }, [enabledCameras, copySourceCamera, copyTargetCamera])
 
   const handleToggle = async (camera: AiVisionCamera, enable: boolean) => {
     if (readOnly || busyRef.current) return
@@ -94,7 +96,8 @@ export function FeatureCameraManager({
       if (operation !== operationRef.current) return
       await saveAiVisionFeatureConfig(feature, camera.shm_name, { ...payload.config, enable })
       if (operation !== operationRef.current) return
-      await onCamerasChanged()
+      if (!enable && camera.shm_name === currentCameraName) onSelectCamera('')
+      await onCamerasChanged(enable ? camera.shm_name : currentCameraName)
       if (operation === operationRef.current) notifyPlatformCamerasChanged()
     } catch (error) {
       if (operation === operationRef.current) setOperationError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
@@ -141,7 +144,7 @@ export function FeatureCameraManager({
     const operation = operationRef.current
     const source = copySourceCamera.trim()
     const target = copyTargetCamera.trim()
-    if (!source || !target || source === target || !cameras.some((camera) => camera.shm_name === source) || !cameras.some((camera) => camera.shm_name === target)) {
+    if (!source || !target || source === target || !enabledCameras.some((camera) => camera.shm_name === source) || !enabledCameras.some((camera) => camera.shm_name === target)) {
       setOperationError('请选择不同的源摄像头和目标摄像头。')
       return
     }
@@ -154,6 +157,7 @@ export function FeatureCameraManager({
         getAiVisionFeatureConfig(feature, source), getAiVisionFeatureConfig(feature, target),
       ])
       if (operation !== operationRef.current) return
+      if (!sourceConfig.config.enable || !targetConfig.config.enable) throw new Error('源和目标摄像头必须启用当前检测')
       await saveAiVisionFeatureConfig(feature, target, {
         ...sourceConfig.config,
         enable: targetConfig.config.enable,
@@ -188,8 +192,7 @@ export function FeatureCameraManager({
         enabled: true,
       })
       if (operation !== operationRef.current) return
-      await onCamerasChanged()
-      if (operation === operationRef.current) onSelectCamera(camera.shm_name)
+      await onCamerasChanged(camera.shm_name)
     } finally {
       if (operation === operationRef.current) {
         busyRef.current = false
@@ -211,19 +214,19 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前事业部摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">检测停用时仍可预配置参数；摄像头顺序在本事业部各普通检测功能中统一。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">启用当前检测后才可配置参数；摄像头顺序在本事业部各普通检测功能中统一。</div>
           </div>
           {cameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">当前事业部暂未配置摄像头</div> : cameras.map((camera, index) => {
             const active = camera.shm_name === currentCameraName
             const enabled = isAiVisionFeatureEnabled(camera, feature)
             const blocked = !camera.enabled && !enabled
             return (
-              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
+              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${!enabled ? 'opacity-60' : ''} ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
-                <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
+                <button type="button" onClick={() => { if (enabled && !workingCamera) onSelectCamera(camera.shm_name) }} disabled={!enabled || Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
                   <div className="truncate text-sm font-semibold">{camera.name}</div>
                   <div className="truncate font-mono text-xs text-slate-500">{camera.shm_name}</div>
-                  {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
+                  {!enabled ? <span className="text-xs text-slate-500">未启用当前检测，启用后才可配置参数</span> : active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
                 </button>
                 <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
                 <Badge variant={enabled ? 'default' : 'secondary'}>{enabled ? '检测已启用' : '检测已停用'}</Badge>
@@ -262,13 +265,13 @@ export function FeatureCameraManager({
             <Select
               value={copySourceCamera}
               onValueChange={setCopySourceCamera}
-              disabled={readOnly || cameras.length === 0}
+              disabled={readOnly || enabledCameras.length === 0}
             >
               <SelectTrigger className="min-w-0 bg-white">
-                <SelectValue placeholder={cameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
+                <SelectValue placeholder={enabledCameras.length === 0 ? '暂无源摄像头' : '源摄像头'} />
               </SelectTrigger>
               <SelectContent>
-                {cameras.map((camera) => (
+                {enabledCameras.map((camera) => (
                   <SelectItem key={camera.id} value={camera.shm_name}>
                     {camera.name}
                   </SelectItem>
@@ -278,13 +281,13 @@ export function FeatureCameraManager({
             <Select
               value={copyTargetCamera}
               onValueChange={setCopyTargetCamera}
-              disabled={readOnly || cameras.length < 2}
+              disabled={readOnly || enabledCameras.length < 2}
             >
               <SelectTrigger className="min-w-0 bg-white">
-                <SelectValue placeholder={cameras.length < 2 ? '暂无目标摄像头' : '目标摄像头'} />
+                <SelectValue placeholder={enabledCameras.length < 2 ? '暂无目标摄像头' : '目标摄像头'} />
               </SelectTrigger>
               <SelectContent>
-                {cameras
+                {enabledCameras
                   .filter((camera) => camera.shm_name !== copySourceCamera)
                   .map((camera) => (
                     <SelectItem key={camera.id} value={camera.shm_name}>

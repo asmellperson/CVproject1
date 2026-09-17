@@ -1,3 +1,4 @@
+import { apiUrl } from '@/lib/api'
 import type { DepartmentId } from '@/auth/permissions'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 
@@ -19,7 +20,7 @@ async function securityVlmRequest<T>(
   body?: unknown,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`/security-vlm${path}`, {
+  const response = await fetch(apiUrl(`/security-vlm${path}`), {
     ...init,
     method,
     credentials: 'include',
@@ -52,7 +53,7 @@ const securityVlmDelete = <T>(path: string, init?: RequestInit) =>
 export type SecurityVlmDepartment = DepartmentId
 
 const departmentApi = (department: SecurityVlmDepartment) =>
-  `/api/departments/${encodeURIComponent(department)}`
+  `/departments/${encodeURIComponent(department)}`
 
 export type SecurityVlmWorkerStatus = {
   ok?: boolean
@@ -262,4 +263,4 @@ export const securityVlmCameraVideoUrl = (
   kind: 'original' | 'rule',
   nonce?: number,
 ) =>
-  `/security-vlm${departmentApi(department)}/video/${encodeURIComponent(cameraId)}/${kind}${nonce ? `?t=${nonce}` : ''}`
+  apiUrl(`/security-vlm${departmentApi(department)}/video/${encodeURIComponent(cameraId)}/${kind}${nonce ? `?t=${nonce}` : ''}`)

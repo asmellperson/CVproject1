@@ -15,6 +15,9 @@ import { cn } from '@/lib/utils'
 import { normalizeFeatureAlarmConfig, type FeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 
 type AlarmPushConfigProps = {
+  showSql?: boolean
+  alarmInterval?: string
+  onAlarmIntervalChange?: (value: string) => void
   alarm?: FeatureAlarmConfig
   disabled?: boolean
   saving?: boolean
@@ -65,9 +68,10 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
   )
 }
 
-export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, onSave }: AlarmPushConfigProps) {
+export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmIntervalChange, disabled, saving, message, onChange, onSave }: AlarmPushConfigProps) {
   const merged = normalizeFeatureAlarmConfig(alarm)
   const [hornError, setHornError] = useState<string | null>(null)
+  const intervalId = useId()
 
   return (
     <>
@@ -79,6 +83,16 @@ export function AlarmPushConfig({ alarm, disabled, saving, message, onChange, on
           description="维护当前检测配置的企业微信推送与喇叭告警。"
         />
         <DetectionConfigCardContent className="space-y-4">
+          {alarmInterval !== undefined && onAlarmIntervalChange ? <div className="space-y-2">
+            <Label htmlFor={intervalId}>报警间隔（秒）</Label>
+            <Input id={intervalId} type="number" min={0.1} step={0.1} value={alarmInterval}
+              disabled={disabled} onChange={(event) => onAlarmIntervalChange(event.target.value)} />
+          </div> : null}
+          {showSql ? <label className="flex items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
+            <span>写入报警记录</span>
+            <Switch checked={merged.sql.enable} disabled={disabled} aria-label="写入报警记录"
+              onCheckedChange={(enable) => onChange({ ...merged, sql: { ...merged.sql, enable } })} />
+          </label> : null}
           <HornAlarmBinding value={merged.horn} disabled={disabled}
             onChange={(horn) => onChange({ ...merged, horn })} onValidationChange={setHornError} />
           <WechatAlarmSettings value={merged.wechat} disabled={disabled}

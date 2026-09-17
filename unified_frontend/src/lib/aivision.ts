@@ -3,16 +3,6 @@ import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
 import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '')
-}
-
-const PUBLIC_ORIGIN = trimTrailingSlash((import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined) || '')
-
-export const AIVISION_URL =
-  (import.meta.env.VITE_AIVISION_URL as string | undefined) ||
-  (PUBLIC_ORIGIN ? `${PUBLIC_ORIGIN}/aivision/` : '/aivision/')
-
 export type AiVisionCamera = {
   id: string
   name: string

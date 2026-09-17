@@ -47,7 +47,7 @@ export type LogisticsChannelPatchApiAssertions = [
   AssertTrue<Equal<keyof LogisticsChannelDetectionConfig,
     | 'detection_start' | 'detection_end' | 'confidence_threshold'
     | 'model_iou_threshold' | 'min_box_area' | 'min_aspect_ratio' | 'max_aspect_ratio'
-    | 'cap_interval' | 'empty_grace_seconds' | 'multi_grace_seconds' | 'alarm_interval'
+    | 'cap_interval' | 'empty_grace_seconds' | 'multi_grace_seconds'
   >>,
   AssertTrue<Equal<
     Parameters<typeof updateLogisticsChannel>,

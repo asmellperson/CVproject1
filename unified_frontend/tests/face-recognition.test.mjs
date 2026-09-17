@@ -10,6 +10,9 @@ const require = createRequire(import.meta.url)
 const root = new URL('../', import.meta.url)
 
 async function compile(path, imports = {}) {
+  if (path !== 'src/lib/feature-cameras.ts') {
+    imports = { '@/lib/feature-cameras': await compile('src/lib/feature-cameras.ts'), '@/components/detection/FeatureConfigGate': { FeatureConfigGate: wrapper }, '@/lib/alarm-config': { normalizeFeatureAlarmConfig: (alarm) => alarm }, ...imports }
+  }
   const source = await readFile(new URL(path, root), 'utf8')
   const output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -67,7 +70,7 @@ const sharedUi = {
   '@/components/ui/select': ui, '@/components/ui/badge': ui,
   '@/components/ui/table': ui,
   '@/components/monitor/ResizableMonitorLayout': { ResizableMonitorLayout: wrapper },
-  '@/components/AlarmPushConfig': { WechatAlarmSettings: 'WechatAlarmSettings' },
+  '@/components/AlarmPushConfig': { AlarmPushConfig: 'AlarmPushConfig' },
   '@/components/horn/HornAlarmBinding': { HornAlarmBinding: 'HornAlarmBinding' },
   '@/components/horn/HornDeviceManager': { HornDeviceManager: 'HornDeviceManager' },
   '@/lib/aivision': cameraApi,
@@ -188,7 +191,7 @@ test('四张统一状态卡展示人数、身份和工号；视频失败不停�
 })
 
 test('API 请求携带登录凭据、摄像头过滤和取消信号', async () => {
-  const api = await compile('src/components/face_recognition/api.ts', { '@/lib/aivision': { AIVISION_URL: '/aivision/' } })
+  const api = await compile('src/components/face_recognition/api.ts', { '@/lib/api': { apiUrl: (path) => `/api/${path.replace(/^\//, '')}` } })
   const originalFetch = globalThis.fetch
   const calls = []
   globalThis.fetch = async (...args) => {
@@ -199,15 +202,15 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
     const signal = new AbortController().signal
     await api.getFaceRecognitionStatus('camera / 一', signal)
     await api.getRecognitionRecords('haoda_company', 2, '7', signal)
-    assert.equal(calls[0][0], `/aivision/api/features/recognize_face/cameras/${encodeURIComponent('camera / 一')}/status`)
-    assert.equal(calls[1][0], '/aivision/api/face-recognition/records?department=haoda_company&page=2&page_size=20&camera_id=7')
+    assert.equal(calls[0][0], `/api/features/recognize_face/cameras/${encodeURIComponent('camera / 一')}/status`)
+    assert.equal(calls[1][0], '/api/face-recognition/records?department=haoda_company&page=2&page_size=20&camera_id=7')
     assert.equal(calls[0][1].credentials, 'include')
     assert.equal(calls[0][1].signal, signal)
     await api.getFacePersons({ page: 2, page_size: 10, keyword: '姓名', source: 'two', is_active: false, is_allowed: false }, signal)
     const params = new URL(calls[2][0], 'http://localhost').searchParams
     assert.deepEqual(Object.fromEntries(params), { page: '2', page_size: '10', keyword: '姓名', source: 'two', is_active: 'false', is_allowed: 'false' })
     await api.updateFacePerson(7, true, signal)
-    assert.equal(calls[3][0], '/aivision/api/face-recognition/persons/7')
+    assert.equal(calls[3][0], '/api/face-recognition/persons/7')
     assert.equal(calls[3][1].method, 'PATCH')
     assert.equal(calls[3][1].credentials, 'include')
     assert.deepEqual(JSON.parse(calls[3][1].body), { is_allowed: true })
@@ -219,7 +222,7 @@ test('API 请求携带登录凭据、摄像头过滤和取消信号', async () =
 })
 
 test('API 错误优先显示后端 detail，无法读取时保留 HTTP 状态', async (t) => {
-  const api = await compile('src/components/face_recognition/api.ts', { '@/lib/aivision': { AIVISION_URL: '/aivision/' } })
+  const api = await compile('src/components/face_recognition/api.ts', { '@/lib/api': { apiUrl: (path) => `/api/${path.replace(/^\//, '')}` } })
   const fetch = t.mock.method(globalThis, 'fetch')
   fetch.mock.mockImplementation(async () => new Response(JSON.stringify({ detail: '必须显式指定正式事业部' }), { status: 400 }))
   await assert.rejects(api.getFacePersons({ page: 1, page_size: 20 }), {
@@ -364,17 +367,22 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
     configs.get('camera_1').enable = false
     pool[0].functions.recognize_face = false
     target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
-    assert.equal(state.cameraKey, 'camera_1')
-    assert.equal(state.config.enable, false)
-    assert.equal(state.canSave, true)
-    state.setForm((form) => ({ ...form, detectionThreshold: '0.44' }))
-    state = await harness.flush(); await state.save(); state = await harness.flush()
-    assert.equal(saves.at(-1).config.enable, false)
-    assert.equal(saves.at(-1).config.value.detection_threshold, .44)
-    // 停用摄像头保留编辑选择，新建后可以明确选中新摄像头。
+    assert.equal(state.cameraKey, 'camera_2')
+    assert.equal(state.config.enable, true)
+    state.selectCamera('camera_1'); state = await harness.flush()
+    assert.equal(state.cameraKey, 'camera_2')
+    pool[1].functions.recognize_face = false
+    target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
+    assert.equal(state.cameraKey, '')
+    assert.equal(state.config, null)
+    assert.equal(state.form.detectionThreshold, '')
+    assert.equal(state.canSave, false)
+    await state.save()
+    assert.equal(saves.length, 2)
+    // 新增已启用摄像头后，恢复为正式配置上下文。
     pool.push(camera(4)); configs.set('camera_4', { enable: true, value: { ...values, detection_threshold: .24 }, alarm: structuredClone(recognitionAlarm) })
     target.dispatchEvent(new Event('aivision:cameras-changed')); state = await harness.flush()
-    assert.equal(state.cameraKey, 'camera_1')
+    assert.equal(state.cameraKey, 'camera_4')
     state.selectCamera('camera_4'); state = await harness.flush()
     assert.equal(state.form.detectionThreshold, '0.24')
     configs.get('camera_4').value.detection_threshold = .73
@@ -387,8 +395,8 @@ test('配置读取全局池与真实检测阈值，保存后单事件刷新当�
   assert.equal(removed, 1)
 })
 
-test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新均保留停用目标且不重复读取', async () => {
-  for (const targetEnabled of [false, true]) {
+test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新均保留已启用目标且不重复读取', async () => {
+  for (const targetEnabled of [true]) {
     for (const slowList of [false, true]) {
       const harness = hookHarness()
       const previousWindow = globalThis.window
@@ -452,7 +460,7 @@ test('复制回调切换并读取目标真实参数与 ROI，快慢列表刷新�
 test('七个配置页签复用企微与喇叭组件，参数边界及只读权限保持一致', async () => {
   let readonly = false, changedAlarm
   const state = {
-    cameras: [camera(1)], cameraKey: 'camera_1', form: { detectionThreshold: '.37', alarmInterval: '5' },
+    cameras: [camera(1)], enabledCameras: [camera(1)], cameraKey: 'camera_1', form: { detectionThreshold: '.37', alarmInterval: '5' },
     config: { enable: true, value: {}, alarm: recognitionAlarm },
     setAlarm: (alarm) => { changedAlarm = alarm },
   }
@@ -465,11 +473,12 @@ test('七个配置页签复用企微与喇叭组件，参数边界及只读权�
   const field = elements(tree, (node) => node.props?.id === 'identity-detectionThreshold')[0]
   assert.equal(field.props.value, '.37')
   assert.deepEqual([field.props.min, field.props.max, field.props.step], ['0', '1', '0.01'])
-  assert.deepEqual(elements(tree, (node) => node.type === 'DetectionConfigTab').map((node) => node.props.children), ['摄像头', '识别参数', 'ROI 配置', '模型配置', '报警推送', '喇叭配置', '人员权限'])
-  const wechat = elements(tree, (node) => node.type === 'WechatAlarmSettings')[0]
+  assert.deepEqual(elements(tree, (node) => node.type === 'DetectionConfigTab').map((node) => node.props.children), ['摄像头', '识别参数', '人员权限', 'ROI 配置', '模型配置', '报警推送', '喇叭配置'])
+  const wechat = elements(tree, (node) => node.type === 'AlarmPushConfig')[0]
   const horn = elements(tree, (node) => node.type === 'HornAlarmBinding')[0]
-  assert.deepEqual(wechat.props.value, recognitionAlarm.wechat)
-  wechat.props.onChange({ enable: false, parm: { user: 'new-user' } })
+  assert.deepEqual(wechat.props.alarm, recognitionAlarm)
+  assert.equal(wechat.props.alarmInterval, '5')
+  wechat.props.onChange({ ...recognitionAlarm, wechat: { enable: false, parm: { user: 'new-user' } } })
   assert.deepEqual(changedAlarm.horn, recognitionAlarm.horn)
   assert.equal(changedAlarm.wechat.parm.user, 'new-user')
   horn.props.onChange({ enable: false, parm: { horn_id: 3, horn_event_id: 12 } })
@@ -478,7 +487,7 @@ test('七个配置页签复用企微与喇叭组件，参数边界及只读权�
   assert.equal(elements(tree, (node) => node.type === 'HornDeviceManager').length, 1)
   readonly = true
   const readonlyTree = RecognitionConfigView({ department: 'electronics_electrician' })
-  for (const type of ['WechatAlarmSettings', 'HornAlarmBinding', 'DetectionSaveBar']) {
+  for (const type of ['AlarmPushConfig', 'HornAlarmBinding', 'DetectionSaveBar']) {
     assert.ok(elements(readonlyTree, (node) => node.type === type).every((node) => node.props.disabled))
   }
 })
@@ -527,7 +536,7 @@ test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL
     ...sharedUi, react: harness.hooks,
     '@/components/ImagePreviewDialog': { ImagePreviewDialog: Preview },
     '@/lib/aivision': { ...cameraApi, getAiVisionCameras: async (...args) => { requests.push(args); return [camera(1), camera(2, true, false)] } },
-    './api': { ...faceApi, recognitionImageUrl: (path) => `/aivision${path}`, getRecognitionRecords: async () => ({ total: 1, page: 1, page_size: 20,
+    './api': { ...faceApi, recognitionImageUrl: (path) => path, getRecognitionRecords: async () => ({ total: 1, page: 1, page_size: 20,
       items: [{ id: 1, camera_id: 1, person_name: '测试甲', similarity: .9, recognized_at: '2026-09-01T10:00:00Z', image_url: '/api/face-recognition/records/1/image' }] }) },
   })
   try {
@@ -535,12 +544,12 @@ test('记录筛选只包含 recognize_face 摄像头，缩略图使用受控 URL
     assert.deepEqual(requests, [['electronics_electrician']])
     const html = renderToStaticMarkup(tree)
     assert.ok(html.includes('摄像头1') && !html.includes('摄像头2'))
-    assert.ok(html.includes('src="/aivision/api/face-recognition/records/1/image"'))
+    assert.ok(html.includes('src="/api/face-recognition/records/1/image"'))
     const button = elements(tree, (node) => node.props?.['aria-label'] === '放大查看识别截图')[0]
     button.props.onClick(); tree = await harness.flush()
     const preview = elements(tree, (node) => node.type === Preview)[0]
     assert.equal(preview.props.title, '识别截图')
-    assert.equal(preview.props.src, '/aivision/api/face-recognition/records/1/image')
+    assert.equal(preview.props.src, '/api/face-recognition/records/1/image')
     preview.props.onClose(); tree = await harness.flush()
     assert.equal(elements(tree, (node) => node.type === Preview).length, 0)
   } finally { harness.dispose() }
@@ -596,7 +605,7 @@ const control = (tree, label) => {
 }
 
 for (const feature of ['blocks', 'detect_door', 'detect_face', 'recognize_face', 'detect_human', 'detect_phone']) {
-  test(`${feature} 复用统一 Switch，物理关闭时可停用现有检测，停用行保留且可选`, async () => {
+  test(`${feature} 复用统一 Switch，物理关闭时可停用现有检测，停用行保留但不能选择`, async () => {
     const page = await mountCameraManager({ feature })
     try {
       let tree = page.tree
@@ -621,8 +630,8 @@ for (const feature of ['blocks', 'detect_door', 'detect_face', 'recognize_face',
       assert.equal(control(tree, '摄像头4：启用检测').disabled, true)
       assert.equal(elements(tree, (node) => Boolean(node.props?.onCheckedChange)).length, 4)
       const select = elements(tree, (node) => node.type === 'button' && node.props?.['aria-pressed'] === false)[0]
-      select.props.onClick()
-      assert.deepEqual(page.selections, ['camera_2'])
+      assert.equal(select.props.disabled, true)
+      assert.deepEqual(page.selections, [])
       const html = renderToStaticMarkup(tree)
       assert.ok(html.includes('当前正在编辑'))
       assert.equal(html.includes('从已有摄像头加入当前功能'), false)
@@ -677,7 +686,7 @@ test('Viewer 的 Switch 和排序按钮只读，直接调用回调也不能提�
   } finally { page.harness.dispose() }
 })
 
-test('复制当前功能配置保留停用目标开关、Camera 归属、物理开关及排序', async () => {
+test('复制当前功能配置拒绝停用目标且不改变摄像头状态', async () => {
   const page = await mountCameraManager()
   try {
     const before = page.stored()
@@ -686,8 +695,8 @@ test('复制当前功能配置保留停用目标开关、Camera 归属、物理�
     let tree = await page.harness.flush()
     const copy = elements(tree, (node) => node.props?.onClick && JSON.stringify(node.props.children).includes('复制配置'))[0]
     await copy.props.onClick(); tree = await page.harness.flush()
-    assert.deepEqual(page.writes, [{ key: 'camera_3', config: { enable: false, value: { threshold: .1 } } }])
-    assert.deepEqual(page.copied, ['camera_3'])
+    assert.deepEqual(page.writes, [])
+    assert.deepEqual(page.copied, [])
     assert.deepEqual(page.stored(), before)
     assert.deepEqual(page.orders, [])
     assert.equal(control(tree, '摄像头3：启用检测').disabled, true)

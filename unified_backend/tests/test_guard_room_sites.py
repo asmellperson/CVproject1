@@ -7,11 +7,8 @@ from unified_backend.app import (
     _allowed_event_types_for_user,
     _can_access_security_vlm,
     _can_mutate_security_vlm,
-    _count_guard_site_cameras,
     _guard_alarm_paths,
     _guard_departments_for_user,
-    _guard_site_runtime_summary,
-    _is_guard_room_api_path,
     _normalize_guard_alarm,
     _normalize_security_vlm_alarm,
     _security_vlm_departments_for_user,
@@ -20,16 +17,10 @@ from unified_backend.app import (
 )
 
 
-def test_guard_room_site_paths_are_selected_before_generic_aivision_proxy():
-    assert _is_guard_room_api_path("sites") is True
-    assert _is_guard_room_api_path("sites/7/frame.jpg") is True
-    assert _is_guard_room_api_path("cameras") is False
-    assert _is_guard_room_api_path("features/detect_human") is False
-    catch_all_routes = [
-        route for route in create_app().routes
-        if getattr(route, "path", None) == "/api/{path:path}"
-    ]
-    assert len(catch_all_routes) == 1
+def test_formal_resource_proxies_are_registered_before_aivision_proxy():
+    paths = [route.path for route in create_app().routes]
+    assert paths.index("/api/guard-room/{path:path}") < paths.index("/api/{path:path}")
+    assert paths.index("/api/security-vlm/departments/{department}/{path:path}") < paths.index("/api/{path:path}")
 
 
 # 功能：验证 `test_managed_visual_services_are_routed_to_aivision` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
@@ -78,7 +69,7 @@ def test_security_vlm_credentials_are_admin_only():
     viewer = {"role": "viewer", "departments": ["electronics_electrician"]}
     admin = {"role": "admin"}
     path = (
-        "/security-vlm/api/departments/electronics_electrician/"
+        "/api/security-vlm/departments/electronics_electrician/"
         "cameras/camera-a/credentials"
     )
 
@@ -88,7 +79,7 @@ def test_security_vlm_credentials_are_admin_only():
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/electronics_electrician/cameras",
+        "/api/security-vlm/departments/electronics_electrician/cameras",
     ) is True
 
 
@@ -105,22 +96,22 @@ def test_security_vlm_viewer_can_only_read_own_department():
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/electronics_electrician/history",
+        "/api/security-vlm/departments/electronics_electrician/history",
     ) is True
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/electrical_components/history",
+        "/api/security-vlm/departments/electrical_components/history",
     ) is False
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/history",
+        "/api/security-vlm/history",
     ) is False
     assert _can_access_security_vlm(
         viewer,
         "POST",
-        "/security-vlm/api/departments/electronics_electrician/cameras",
+        "/api/security-vlm/departments/electronics_electrician/cameras",
     ) is False
 
 
@@ -140,17 +131,17 @@ def test_multi_department_viewer_receives_union_of_scoped_permissions():
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/general_electric/history",
+        "/api/security-vlm/departments/general_electric/history",
     ) is True
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/electronics_electrician/history",
+        "/api/security-vlm/departments/electronics_electrician/history",
     ) is True
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/departments/electrical_components/history",
+        "/api/security-vlm/departments/electrical_components/history",
     ) is False
     assert _guard_departments_for_user(viewer) == [
         "general_electric",
@@ -163,7 +154,7 @@ def test_multi_department_viewer_receives_union_of_scoped_permissions():
     assert _can_access_security_vlm(
         viewer,
         "GET",
-        "/security-vlm/api/history",
+        "/api/security-vlm/history",
     ) is False
 
 
@@ -197,34 +188,6 @@ def test_security_vlm_alarm_sources_are_department_scoped():
     assert alarm["department"] == "electrical_components"
 
 
-# 功能：验证 `test_count_guard_site_cameras_counts_nested_site_cameras` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_count_guard_site_cameras`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_count_guard_site_cameras_counts_nested_site_cameras():
-    sites = {
-        "items": [
-            {
-                "id": 1,
-                "camera_count": 3,
-                "enabled_camera_count": 2,
-                "cameras": [{"id": 1}, {"id": 2}, {"id": 3}],
-            },
-            {
-                "id": 2,
-                "camera_count": 1,
-                "enabled_camera_count": 1,
-                "cameras": [{"id": 4}],
-            },
-        ]
-    }
-
-    assert _count_guard_site_cameras(sites) == (4, 3)
-
-
 # 功能：验证 `test_normalize_guard_alarm_keeps_site_metadata_and_site_asset_urls` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：None；仅执行处理流程，不返回业务数据。
@@ -254,62 +217,10 @@ def test_normalize_guard_alarm_keeps_site_metadata_and_site_asset_urls():
     assert normalized["subject_name"] == "一厂区南门保安室"
     assert normalized["camera_no"] is None
     assert normalized["camera_name"] is None
-    assert normalized["image_url"] == "/api/sites/7/alarms/abc/image?department=haoda_company"
-    assert normalized["video_url"] == "/api/sites/7/alarms/abc/video?department=haoda_company"
+    assert normalized["image_url"] == "/api/guard-room/sites/7/alarms/abc/image?department=haoda_company"
+    assert normalized["video_url"] == "/api/guard-room/sites/7/alarms/abc/video?department=haoda_company"
 
     assert normalized["department"] == "haoda_company"
-
-
-# 功能：验证 `test_guard_site_runtime_summary_counts_running_site_cameras` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_guard_site_runtime_summary`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_guard_site_runtime_summary_counts_running_site_cameras():
-    sites = {
-        "items": [
-            {"id": 1, "enabled_camera_count": 2},
-            {"id": 2, "enabled_camera_count": 3},
-        ]
-    }
-    statuses = {
-        1: {"running": True, "fps": 8.5, "frame_count": 10, "updated_at": "2026-06-12T10:00:00", "pose_enabled": True},
-        2: {"running": False, "fps": 0, "frame_count": 0, "updated_at": "2026-06-12T09:00:00", "pose_enabled": False},
-    }
-
-    summary = _guard_site_runtime_summary(sites, statuses)
-
-    assert summary["running"] is True
-    assert summary["running_sites"] == [1]
-    assert summary["online_camera_count"] == 2
-    assert summary["offline_camera_count"] == 3
-    assert summary["fps"] == 8.5
-    assert summary["frame_count"] == 10
-    assert summary["updated_at"] == "2026-06-12T10:00:00"
-    assert summary["pose_enabled"] is True
-
-
-# 功能：验证 `test_guard_site_runtime_summary_exposes_site_status_errors` 对应的`test_guard_room_sites` 模块逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_guard_site_runtime_summary`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_guard_site_runtime_summary_exposes_site_status_errors():
-    sites = {"items": [{"id": 1, "enabled_camera_count": 2}]}
-
-    summary = _guard_site_runtime_summary(
-        sites,
-        {},
-        status_errors={1: "401 Unauthorized"},
-    )
-
-    assert summary["running"] is False
-    assert summary["status_errors"] == {1: "401 Unauthorized"}
-    assert summary["status_error"] == "1 个保安室运行状态获取失败: 1: 401 Unauthorized"
 
 
 def test_guard_alarm_paths_requires_explicit_department():
@@ -344,7 +255,7 @@ def test_security_and_guard_accept_all_registered_departments(department):
     assert _security_vlm_departments_for_user(viewer) == [department]
     assert _guard_departments_for_user(viewer) == [department]
     for requested in DEPARTMENT_SPECS:
-        assert _can_access_security_vlm(viewer, "GET", f"/security-vlm/api/departments/{requested}/cameras") is (requested == department)
+        assert _can_access_security_vlm(viewer, "GET", f"/api/security-vlm/departments/{requested}/cameras") is (requested == department)
 
 
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
@@ -381,7 +292,7 @@ def test_overview_alarms_query_department_before_limiting(monkeypatch, departmen
     assert calls == []
 
 
-def test_security_service_probe_passes_proxy_without_business_authorization(tmp_path, monkeypatch):
+def test_removed_security_probe_does_not_bypass_business_authorization(tmp_path, monkeypatch):
     import asyncio
     import importlib
     import httpx
@@ -406,9 +317,8 @@ def test_security_service_probe_passes_proxy_without_business_authorization(tmp_
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/security-vlm/health")
-            assert response.status_code == 200
-            assert response.json() == {"status": "ok", "ready": True}
-            assert (await client.get("/security-vlm/api/departments/fulida_company/health")).status_code == 401
-        assert forwarded == ["/health"]
+            assert response.status_code == 404
+            assert (await client.get("/api/security-vlm/departments/fulida_company/health")).status_code == 401
+        assert forwarded == []
 
     asyncio.run(scenario())

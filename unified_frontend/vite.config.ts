@@ -22,18 +22,6 @@ export default defineConfig(({ mode }) => {
       port: devPort,
       strictPort: true,
       proxy: {
-        '/aivision': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-          ws: false,
-        },
-        '/security-vlm': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-          ws: false,
-        },
         '/api': {
           target: backendTarget,
           changeOrigin: true,

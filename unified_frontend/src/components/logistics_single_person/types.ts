@@ -47,7 +47,9 @@ export type LogisticsChannelConfig = {
   alarm: LogisticsChannelAlarmConfig
 }
 
-export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm'>
+export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
+
+export type LogisticsChannelAlarmDraft = Pick<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
 
 export type LogisticsChannelConfigPatch = Partial<LogisticsChannelConfig>
 

@@ -1,3 +1,5 @@
+import { getEnabledFeatureCameras, selectFeatureCamera, EMPTY_FEATURE_CAMERA_MESSAGE } from '@/lib/feature-cameras'
+import { FeatureConfigGate } from '@/components/detection/FeatureConfigGate'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
@@ -119,6 +121,7 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
   const [form, setForm] = useState(defaultForm)
   const [phoneConfig, setPhoneConfig] = useState<PhoneConfig | null>(null)
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
+  const enabledCameras = getEnabledFeatureCameras(cameras, 'detect_phone', department)
   const [message, setMessage] = useState('正在读取当前配置...')
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(false)
@@ -134,13 +137,15 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
   }
 
   const loadConfig = async (cameraName = form.cameraName, source: AiVisionCamera[] = cameras) => {
-    const shmName = cameraName.trim()
+    const shmName = getEnabledFeatureCameras(source, 'detect_phone', department).some((camera) => camera.shm_name === cameraName.trim()) ? cameraName.trim() : ''
     const requestId = ++configRequestRef.current
     loadedCameraRef.current = ''
     selectedCameraRef.current = shmName
     setPhoneConfig(null)
+    setForm({ ...defaultForm, cameraName: shmName })
     if (!shmName) {
-      setMessage('读取失败：请先选择摄像头。')
+      setLoading(false)
+      setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
       return
     }
 
@@ -161,29 +166,31 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
     }
   }
 
-  const loadCameras = async () => {
+  const loadCameras = async (preferredCamera?: string) => {
     const requestId = ++cameraListRequestRef.current
     setCameraLoading(true)
+    loadedCameraRef.current = ''
     try {
       const items = await getAiVisionCameras(department)
       if (requestId !== cameraListRequestRef.current) return
       setCameras(items)
-      const selectedCamera = items.find((camera) => camera.shm_name === selectedCameraRef.current) || items[0]
-      const nextCamera = selectedCamera?.shm_name || ''
-      if (items.length === 0) {
+      const nextCamera = selectFeatureCamera(items, 'detect_phone', department, preferredCamera ?? selectedCameraRef.current)
+      if (!nextCamera) {
         selectedCameraRef.current = ''
         configRequestRef.current += 1
         loadedCameraRef.current = ''
         setLoading(false)
         setPhoneConfig(null)
-        setForm((previous) => ({ ...previous, cameraName: '' }))
-        setMessage('当前事业部暂未配置摄像头')
-        return
+        setForm(defaultForm)
+        setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
+        return items
       }
       setForm((prev) => ({ ...prev, cameraName: nextCamera }))
       await loadConfig(nextCamera, items)
+      return items
     } catch (error) {
       if (requestId !== cameraListRequestRef.current) return
+      await loadConfig('')
       setMessage(`摄像头列表读取失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       if (requestId === cameraListRequestRef.current) setCameraLoading(false)
@@ -191,6 +198,11 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
   }
 
   useEffect(() => {
+    setCameras([])
+    setForm(defaultForm)
+    setPhoneConfig(null)
+    selectedCameraRef.current = ''
+    loadedCameraRef.current = ''
     loadCameras()
     const refreshCameras = () => {
       loadCameras()
@@ -203,14 +215,7 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
     }
   }, [department])
 
-  const refreshCameraList = async () => {
-    const requestId = ++cameraListRequestRef.current
-    const items = await getAiVisionCameras(department)
-    if (requestId !== cameraListRequestRef.current) return items
-    setCameras(items)
-    setCameraLoading(false)
-    return items
-  }
+  const refreshCameraList = loadCameras
 
   const saveConfig = async () => {
     const shmName = form.cameraName.trim()
@@ -371,14 +376,13 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
                   loadConfig(cameraName)
                 }}
                 onCamerasChanged={refreshCameraList}
-                onConfigCopied={(cameraName) => {
-                  setForm((prev) => ({ ...prev, cameraName }))
-                  return loadConfig(cameraName)
-                }}
+                onConfigCopied={(cameraName) => loadCameras(cameraName).then(() => undefined)}
               />
             </TabsContent>
 
             <TabsContent value="roi" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !phoneConfig || loading || saving}>
+
               <Suspense fallback={<LazyConfigFallback label="正在加载 ROI 编辑器..." />}>
                 <AiVisionRoiEditor
                   title="手机使用检测 ROI 绘制"
@@ -391,9 +395,13 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
                   onSave={saveConfig}
                 />
               </Suspense>
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="params" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !phoneConfig || loading || saving}>
+
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
               <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的手机检测、人员关联与确认参数。" actions={<Badge variant="outline">AiVision detect_phone</Badge>} />
               <DetectionConfigCardContent className="space-y-5">
@@ -411,13 +419,13 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
                         setForm((prev) => ({ ...prev, cameraName: value }))
                         loadConfig(value)
                       }}
-                      disabled={cameraLoading || loading || saving || cameras.length === 0}
+                      disabled={cameraLoading || loading || saving || enabledCameras.length === 0}
                     >
                       <SelectTrigger id="phone-camera" className="w-full">
                         <SelectValue placeholder={cameraLoading ? '正在读取摄像头' : '选择摄像头'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {cameras.map((camera) => (
+                        {enabledCameras.map((camera) => (
                           <SelectItem key={camera.id} value={camera.shm_name}>
                             {camera.name}
                           </SelectItem>
@@ -453,16 +461,6 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
                       value={form.iouThreshold}
                       onChange={(event) => setForm((prev) => ({ ...prev, iouThreshold: event.target.value }))}
                       placeholder="0.5"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="phone-interval">告警间隔（秒）</Label>
-                    <Input
-                      id="phone-interval"
-                      value={form.alarmInterval}
-                      onChange={(event) => setForm((prev) => ({ ...prev, alarmInterval: event.target.value }))}
-                      placeholder="5.0"
                     />
                   </div>
 
@@ -522,16 +520,26 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
               </DetectionConfigCardContent>
               </Card>
               <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={!isAdmin || !form.cameraName} onReload={() => loadConfig()} onSave={saveConfig} />
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="model" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !phoneConfig || loading || saving}>
+
               <Suspense fallback={<LazyConfigFallback label="正在加载模型配置..." />}>
                 <AiVisionModelConfig requiredModels={['yolo_phone']} />
               </Suspense>
+
+              </FeatureConfigGate>
             </TabsContent>
 
             <TabsContent value="alarm" className="space-y-6">
+              <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !phoneConfig || loading || saving}>
+
               <AlarmPushConfig
+                alarmInterval={form.alarmInterval}
+                onAlarmIntervalChange={(alarmInterval) => setForm((previous) => ({ ...previous, alarmInterval }))}
                 alarm={phoneConfig?.alarm}
                 disabled={!phoneConfig || !isAdmin || loading || saving || !form.cameraName}
                 saving={saving}
@@ -539,6 +547,8 @@ export function PhoneDetectionSection({ department }: { department: DepartmentId
                 onChange={(alarm) => setPhoneConfig((prev) => prev && ({ ...prev, alarm: normalizeFeatureAlarmConfig(alarm) }))}
                 onSave={saveConfig}
               />
+
+              </FeatureConfigGate>
             </TabsContent>
           </DetectionConfigTabs>
         </TabsContent>

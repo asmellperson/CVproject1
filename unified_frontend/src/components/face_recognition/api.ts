@@ -1,5 +1,5 @@
 import type { DepartmentId } from '@/auth/permissions'
-import { AIVISION_URL } from '@/lib/aivision'
+import { apiUrl } from '@/lib/api'
 
 export const FACE_FEATURE = 'recognize_face'
 
@@ -61,7 +61,7 @@ export type FacePerson = {
 export type FacePersonPage = { total: number; page: number; page_size: number; items: FacePerson[] }
 
 async function requestRecognition<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${AIVISION_URL.replace(/\/$/, '')}/api/${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...options, credentials: 'include', cache: 'no-store',
   })
   if (response.status === 401) window.dispatchEvent(new Event('aicv:unauthorized'))
@@ -114,5 +114,5 @@ export function updateFacePerson(personId: number, isAllowed: boolean, signal?: 
 }
 
 export function recognitionImageUrl(path: string) {
-  return `${AIVISION_URL.replace(/\/$/, '')}${path}`
+  return apiUrl(path.replace(/^\/api\//, ''))
 }

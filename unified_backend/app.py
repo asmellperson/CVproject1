@@ -54,6 +54,7 @@ from auth.auth import (
 )
 from auth.alarm_permissions import allowed_alarm_event_types
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from unified_backend.overview import OverviewStatus, build_overview
 from unified_backend.alarm_dispositions import AlarmDispositionStore, DispositionStoreBusy
 from unified_backend.disposition_queries import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DispositionPage, DispositionQueries,
@@ -77,30 +78,30 @@ from unified_backend.proxy import (
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_PLATFORM_STATUS_MAX_WORKERS = 16
+_DEFAULT_OVERVIEW_MAX_WORKERS = 16
 
 
-# 功能：实现 `_platform_status_max_workers` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
+# 功能：实现 `_overview_max_workers` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：无。
 # 返回：int；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`os.getenv`、`str`、`max`、`int`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _platform_status_max_workers() -> int:
+def _overview_max_workers() -> int:
     raw_value = os.getenv(
-        "UNIFIED_STATUS_MAX_WORKERS",
-        str(_DEFAULT_PLATFORM_STATUS_MAX_WORKERS),
+        "UNIFIED_OVERVIEW_MAX_WORKERS",
+        str(_DEFAULT_OVERVIEW_MAX_WORKERS),
     )
     try:
         return max(1, int(raw_value))
     except ValueError:
-        return _DEFAULT_PLATFORM_STATUS_MAX_WORKERS
+        return _DEFAULT_OVERVIEW_MAX_WORKERS
 
 
-_PLATFORM_STATUS_EXECUTOR = ThreadPoolExecutor(
-    max_workers=_platform_status_max_workers(),
-    thread_name_prefix="platform-status",
+_OVERVIEW_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_overview_max_workers(),
+    thread_name_prefix="overview",
 )
 
 
@@ -226,7 +227,7 @@ _MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Int
 # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `_get_json` 调用本符号；`unified_backend/app.py` 的 `_normalize_security_vlm_alarm`
-#         调用本符号；`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#         调用本符号；`unified_backend/app.py` 的 `create_app::overview` 调用本符号
 #   - 内部调用：`time.time`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _now() -> float:
@@ -262,12 +263,6 @@ def _visual_service_url(aivision_url: str, service: str) -> str:
         f"{aivision_url.rstrip('/')}"
         f"/api/integrations/{service}"
     )
-
-
-def _is_guard_room_api_path(path: str) -> bool:
-    """判断统一 `/api` 请求是否属于保安行为规范站点接口。"""
-    normalized = str(path or "").strip("/")
-    return normalized == "sites" or normalized.startswith("sites/")
 
 
 def _departments_for_user(user: dict[str, Any]) -> list[str]:
@@ -353,8 +348,8 @@ def _get_json(
 #   - `calls`（dict[str, tuple[str, str, Request | None]]）：`calls` 对应的业务输入值
 # 返回：dict[str, tuple[bool, dict | list | None, float | None, str | None]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：`list`、`_PLATFORM_STATUS_EXECUTOR.submit`、`future.result`、`dict`、`zip`。
+#   - 调用方：`unified_backend/app.py` 的 `create_app::overview` 调用本符号
+#   - 内部调用：`list`、`_OVERVIEW_EXECUTOR.submit`、`future.result`、`dict`、`zip`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _get_json_concurrently(
     calls: dict[str, tuple[str, str, Request | None]],
@@ -362,7 +357,7 @@ def _get_json_concurrently(
     """在平台状态专属的有界线程池中并发执行多个同步上游探测。"""
     keys = list(calls)
     futures = [
-        _PLATFORM_STATUS_EXECUTOR.submit(
+        _OVERVIEW_EXECUTOR.submit(
             _get_json,
             calls[key][0],
             calls[key][1],
@@ -396,25 +391,6 @@ def _get_upstream_json(base_url: str, path: str, request: Request, *, timeout: f
         if not response.ok:
             return None
         return response.json()
-    except Exception:
-        return None
-
-
-# 功能：转换或规范化 `_parse_iso_ts` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（object）：待转换、校验或写入的值
-# 返回：float | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：`isinstance`、`datetime.fromisoformat(value).timestamp`、`datetime.fromisoformat`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _parse_iso_ts(value: object) -> float | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        from datetime import datetime
-
-        return datetime.fromisoformat(value).timestamp()
     except Exception:
         return None
 
@@ -496,9 +472,9 @@ def _normalize_guard_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(site_id, int):
         raise ValueError("保安报警必须明确所属站点")
     normalized_id = f"guard:{site_id}:{source_id}"
-    image_url = f"/api/sites/{site_id}/alarms/{source_id}/image?department={department}"
+    image_url = f"/api/guard-room/sites/{site_id}/alarms/{source_id}/image?department={department}"
     video_url = (
-        f"/api/sites/{site_id}/alarms/{source_id}/video?department={department}"
+        f"/api/guard-room/sites/{site_id}/alarms/{source_id}/video?department={department}"
         if alarm.get("video_status") == "ready" else None
     )
     return {
@@ -802,7 +778,7 @@ def _can_access_security_vlm(
         return False
 
     departments = _security_vlm_departments_for_user(user)
-    prefix = "/security-vlm/api/departments/"
+    prefix = "/api/security-vlm/departments/"
     if normalized_path.startswith(prefix):
         requested = normalized_path[len(prefix):].split("/", 1)[0]
         return requested in departments and requested in DEPARTMENT_SPECS
@@ -1071,7 +1047,7 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
 # 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：`unified_backend/app.py` 的 `_count_guard_site_cameras` 调用本符号；`unified_backend/app.py` 的 `_guard_site_runtime_summary`
-#         调用本符号；`unified_backend/app.py` 的 `_guard_alarm_paths` 调用本符号；`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
+#         调用本符号；`unified_backend/app.py` 的 `_guard_alarm_paths` 调用本符号；`unified_backend/app.py` 的 `create_app::overview` 调用本符号
 #   - 内部调用：`isinstance`、`payload.get`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _guard_site_items(payload: object) -> list[dict[str, Any]]:
@@ -1082,105 +1058,6 @@ def _guard_site_items(payload: object) -> list[dict[str, Any]]:
     else:
         rows = []
     return [row for row in rows if isinstance(row, dict)]
-
-
-# 功能：实现 `_count_guard_site_cameras` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `payload`（object）：接口或事件携带的业务数据
-# 返回：tuple[int, int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_guard_site_runtime_summary` 调用本符号；`unified_backend/app.py` 的 `create_app::platform_status`
-#         调用本符号
-#   - 内部调用：`_guard_site_items`、`site.get`、`isinstance`、`len`、`int`、`sum`、`camera.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _count_guard_site_cameras(payload: object) -> tuple[int, int]:
-    camera_count = 0
-    enabled_camera_count = 0
-    for site in _guard_site_items(payload):
-        cameras = site.get("cameras")
-        if isinstance(cameras, list):
-            camera_count += len([camera for camera in cameras if isinstance(camera, dict)])
-            if site.get("enabled_camera_count") is not None:
-                enabled_camera_count += int(site.get("enabled_camera_count") or 0)
-            else:
-                enabled_camera_count += sum(1 for camera in cameras if isinstance(camera, dict) and camera.get("enabled", True))
-            continue
-        camera_count += int(site.get("camera_count") or 0)
-        enabled_camera_count += int(site.get("enabled_camera_count") or 0)
-    return camera_count, enabled_camera_count
-
-
-# 功能：转换或规范化 `_format_guard_site_status_error` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `status_errors`（dict[int, str]）：`status_errors` 对应的业务输入值
-# 返回：str | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_guard_site_runtime_summary` 调用本符号
-#   - 内部调用：`', '.join`、`sorted`、`status_errors.items`、`len`。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def _format_guard_site_status_error(status_errors: dict[int, str]) -> str | None:
-    if not status_errors:
-        return None
-    details = ", ".join(f"{site_id}: {error}" for site_id, error in sorted(status_errors.items()))
-    return f"{len(status_errors)} 个保安室运行状态获取失败: {details}"
-
-
-# 功能：实现 `_guard_site_runtime_summary` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `sites_payload`（object）：`sites_payload` 对应的业务输入值
-#   - `statuses`（dict[int, dict[str, Any]]）：`statuses` 对应的业务输入值
-#   - `status_errors`（dict[int, str] | None）：`status_errors` 对应的业务输入值；默认值为 `None`
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：`_guard_site_items`、`int`、`site.get`、`statuses.get`、`bool`、`status.get`、`running_sites.append`、`fps_values.append`、`float`、`isinstance`
-#          等共 15 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _guard_site_runtime_summary(
-    sites_payload: object,
-    statuses: dict[int, dict[str, Any]],
-    *,
-    status_errors: dict[int, str] | None = None,
-) -> dict[str, Any]:
-    items = _guard_site_items(sites_payload)
-    running_sites: list[int] = []
-    online_camera_count = 0
-    frame_count = 0
-    fps_values: list[float] = []
-    updated_at_values: list[str] = []
-    pose_enabled = False
-
-    for site in items:
-        try:
-            site_id = int(site.get("id"))
-        except (TypeError, ValueError):
-            continue
-        status = statuses.get(site_id) or {}
-        if not bool(status.get("running")):
-            continue
-        running_sites.append(site_id)
-        online_camera_count += int(site.get("enabled_camera_count") or 0)
-        frame_count += int(status.get("frame_count") or 0)
-        if status.get("fps") is not None:
-            fps_values.append(float(status.get("fps") or 0))
-        if isinstance(status.get("updated_at"), str):
-            updated_at_values.append(status["updated_at"])
-        pose_enabled = pose_enabled or bool(status.get("pose_enabled"))
-
-    _camera_count, enabled_camera_count = _count_guard_site_cameras(sites_payload)
-    status_errors = status_errors or {}
-    return {
-        "running": bool(running_sites),
-        "running_sites": running_sites,
-        "online_camera_count": online_camera_count,
-        "offline_camera_count": max(0, enabled_camera_count - online_camera_count),
-        "fps": round(max(fps_values), 2) if fps_values else None,
-        "frame_count": frame_count,
-        "updated_at": max(updated_at_values) if updated_at_values else None,
-        "pose_enabled": pose_enabled,
-        "status_errors": status_errors,
-        "status_error": _format_guard_site_status_error(status_errors),
-    }
 
 
 def _guard_alarm_paths(sites_payload: object, limit: int, department: str) -> list[str]:
@@ -1194,100 +1071,6 @@ def _guard_alarm_paths(sites_payload: object, limit: int, department: str) -> li
         paths.append(f"/api/sites/{site_id}/alarms?limit={limit}&department={department}")
     return paths
 
-
-# 功能：实现 `_camera_functions_enabled` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `camera`（dict）：摄像头配置或实体
-# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：`camera.get`、`isinstance`、`any`、`bool`、`functions.values`、`len`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _camera_functions_enabled(camera: dict) -> bool:
-    functions = camera.get("functions")
-    if isinstance(functions, dict):
-        return any(bool(value) for value in functions.values())
-    return False
-
-
-# 功能：实现 `_camera_feature_enabled` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `camera`（dict）：摄像头配置或实体
-#   - `feature`（str）：`feature` 对应的业务输入值
-# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_aivision_feature_status` 调用本符号
-#   - 内部调用：`camera.get`、`isinstance`、`bool`、`functions.get`、`str`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _camera_feature_enabled(camera: dict, feature: str) -> bool:
-    functions = camera.get("functions")
-    if isinstance(functions, dict):
-        return bool(functions.get(feature))
-    return False
-
-
-# 功能：实现 `_aivision_feature_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `cameras`（list[dict]）：`cameras` 对应的业务输入值
-#   - `running_cameras`（list）：`running_cameras` 对应的业务输入值
-# 返回：dict[str, dict[str, int]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：`str`、`_camera_feature_enabled`、`camera.get`、`sum`、`len`、`max`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _aivision_feature_status(cameras: list[dict], running_cameras: list) -> dict[str, dict[str, int]]:
-    running_camera_names = {str(item) for item in running_cameras}
-    from AiVision.features.registry import all_specs
-
-    feature_names = all_specs()
-    status: dict[str, dict[str, int]] = {}
-    for feature in feature_names:
-        configured_cameras = [
-            camera
-            for camera in cameras
-            if _camera_feature_enabled(camera, feature)
-        ]
-        enabled_cameras = [
-            camera
-            for camera in configured_cameras
-            if camera.get("enabled")
-        ]
-        online_count = sum(
-            1
-            for camera in enabled_cameras
-            if str(camera.get("shm_name") or camera.get("camera_no") or camera.get("name") or "") in running_camera_names
-        )
-        status[feature] = {
-            "camera_count": len(configured_cameras),
-            "enabled_camera_count": len(enabled_cameras),
-            "online_camera_count": online_count,
-            "offline_camera_count": max(0, len(configured_cameras) - online_count),
-        }
-    return status
-
-
-# 功能：实现 `_service_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `name`（str）：业务对象名称
-#   - `url`（str）：目标接口、媒体流或页面地址
-#   - `online`（bool）：`online` 对应的业务输入值
-#   - `latency_ms`（float | None）：`latency_ms` 对应的时间间隔或时长
-#   - `error`（str | None）：待报告、转换或判断的异常对象
-#   - `extra`（dict）：`extra` 对应的业务输入值
-# 返回：dict；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::platform_status` 调用本符号
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _service_status(name: str, url: str, online: bool, latency_ms: float | None, error: str | None, extra: dict) -> dict:
-    return {
-        "name": name,
-        "url": url,
-        "online": online,
-        "latency_ms": latency_ms,
-        "error": error,
-        **extra,
-    }
 
 # 读取请求体以及发送上游HTTP，都属于I/O操作，因此使用异步函数来处理请求转发，避免阻塞事件循环，提高并发性能。
 # 功能：实现 `_proxy` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1394,17 +1177,17 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
-        public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout", "/security-vlm/health"}
+        public_paths = {"/", "/api/health", "/api/auth/login", "/api/auth/logout"}
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
-        protected = path.startswith("/api/") or path.startswith("/security-vlm") or path.startswith("/aivision")
+        protected = path.startswith("/api/")
         if protected:
             try:
                 request.state.user = get_current_user_from_request(request)
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
             if (
-                path.startswith("/security-vlm")
+                path.startswith("/api/security-vlm/")
                 and not _can_access_security_vlm(
                     request.state.user,
                     request.method,
@@ -1450,188 +1233,16 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok", "service": "unified_backend", "port": int(os.getenv("UNIFIED_BACKEND_PORT", "5000"))}
 
-    # 功能：实现 `platform_status` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/platform/status')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`_now`、`_get_json_concurrently`、`_count_guard_site_cameras`、`_guard_site_items`、`int`、`site.get`、`site_ids.append`、`str`、`isinstance`、`_guard_site_runtime_summary`
-    #          等共 31 个调用。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/platform/status")
-    def platform_status(request: Request, department: str):
+    @app.get("/api/overview", response_model=OverviewStatus)
+    def overview(request: Request, department: str):
         try:
             department = require_department(department)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if department not in _security_vlm_departments_for_user(request.state.user):
             raise HTTPException(status_code=403, detail="无权访问该事业部")
-        now = _now()
-
-        upstream = _get_json_concurrently(
-            {
-                "guard_health": (guard_room_url, "/api/health", request),
-                "guard_sites": (guard_room_url, f"/api/sites?department={department}", request),
-                "ai_health": (aivision_url, "/api/runtime/health", None),
-                "ai_status": (aivision_url, "/api/runtime/status", request),
-                "ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
-                "vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
-            }
-        )
-        guard_health_ok, _guard_health, guard_latency, guard_health_error = upstream["guard_health"]
-        guard_sites_ok, guard_sites, _guard_sites_latency, _guard_sites_error = upstream["guard_sites"]
-        guard_camera_count, guard_enabled_camera_count = _count_guard_site_cameras(guard_sites) if guard_sites_ok else (0, 0)
-        guard_site_statuses: dict[int, dict[str, Any]] = {}
-        guard_site_status_errors: dict[int, str] = {}
-        if guard_sites_ok:
-            site_ids: list[int] = []
-            for site in _guard_site_items(guard_sites):
-                try:
-                    site_id = int(site.get("id"))
-                except (TypeError, ValueError):
-                    continue
-                site_ids.append(site_id)
-            site_results = _get_json_concurrently({
-                str(site_id): (
-                    guard_room_url,
-                    f"/api/sites/{site_id}/status?department={department}",
-                    request,
-                )
-                for site_id in site_ids
-            })
-            for site_id in site_ids:
-                _ok, site_status, _latency, _error = site_results[str(site_id)]
-                if _ok and isinstance(site_status, dict):
-                    guard_site_statuses[site_id] = site_status
-                else:
-                    guard_site_status_errors[site_id] = _error or "invalid response"
-        guard_runtime = (
-            _guard_site_runtime_summary(guard_sites, guard_site_statuses, status_errors=guard_site_status_errors)
-            if guard_sites_ok
-            else {}
-        )
-        guard_last_frame_ts = _parse_iso_ts(guard_runtime.get("updated_at"))
-        guard_running = bool(guard_runtime.get("running"))
-        guard_service_error = guard_health_error or _guard_sites_error or guard_runtime.get("status_error")
-
-        ai_health_ok, ai_health, ai_latency, ai_health_error = upstream["ai_health"]
-        _ai_status_ok, ai_status, _ai_status_latency, ai_status_error = upstream["ai_status"]
-        _ai_cam_ok, ai_cameras, _ai_cam_latency, _ai_cam_error = upstream["ai_cameras"]
-        if not isinstance(ai_status, dict) and isinstance(ai_health, dict):
-            ai_status = ai_health
-        ai_running_cameras = ai_status.get("running_cameras", []) if isinstance(ai_status, dict) else []
-        ai_running_models = ai_status.get("running_models", []) if isinstance(ai_status, dict) else []
-        ai_running_consumers = ai_status.get("running_consumers", []) if isinstance(ai_status, dict) else []
-        ai_camera_items = [camera for camera in ai_cameras if camera.get("department") == department] if isinstance(ai_cameras, list) else []
-        visible_camera_keys = {camera.get("shm_name") for camera in ai_camera_items}
-        ai_running_cameras = [key for key in ai_running_cameras if key in visible_camera_keys]
-        ai_enabled_camera_count = sum(1 for camera in ai_camera_items if camera.get("enabled") and _camera_functions_enabled(camera))
-        ai_feature_status = _aivision_feature_status(ai_camera_items, ai_running_cameras)
-
-        vlm_ok, vlm_state, vlm_latency, vlm_error = upstream["vlm_state"]
-        vlm_state = vlm_state if isinstance(vlm_state, dict) else {}
-        vlm_cameras = vlm_state.get("cameras", [])
-        vlm_running = bool(vlm_state.get("running"))
-        vlm_camera_count = len(vlm_cameras)
-        vlm_online_count = sum(bool(camera.get("running")) for camera in vlm_cameras)
-
-        services = {
-            "guard_room": _service_status(
-                "Guard Room",
-                guard_room_url,
-                guard_health_ok,
-                guard_latency,
-                guard_service_error,
-                {
-                    "running": guard_running,
-                    "camera_count": guard_camera_count,
-                    "enabled_camera_count": guard_enabled_camera_count,
-                    "online_camera_count": int(guard_runtime.get("online_camera_count") or 0) if guard_sites_ok else (guard_enabled_camera_count if guard_running else 0),
-                    "offline_camera_count": int(guard_runtime.get("offline_camera_count") or 0) if guard_sites_ok else (0 if guard_running else guard_enabled_camera_count),
-                    "fps": guard_runtime.get("fps"),
-                    "frame_count": guard_runtime.get("frame_count"),
-                    "running_sites": guard_runtime.get("running_sites", []),
-                    "last_frame_age_sec": round(now - guard_last_frame_ts, 1) if guard_last_frame_ts else None,
-                    "model_status": {
-                        "pose_enabled": bool(guard_runtime.get("pose_enabled")),
-                        "loaded": guard_health_ok,
-                    },
-                },
-            ),
-            "aivision": _service_status(
-                "AiVision",
-                aivision_url,
-                ai_health_ok,
-                ai_latency,
-                ai_health_error if not ai_health_ok else (ai_status_error if ai_status_error and ai_status_error != "401 Unauthorized" else None),
-                {
-                    "running": bool(ai_running_cameras),
-                    "camera_count": len(ai_camera_items),
-                    "enabled_camera_count": ai_enabled_camera_count,
-                    "online_camera_count": len(ai_running_cameras),
-                    "offline_camera_count": max(0, ai_enabled_camera_count - len(ai_running_cameras)),
-                    "running_cameras": ai_running_cameras,
-                    "running_models": ai_running_models,
-                    "running_consumers": ai_running_consumers,
-                    "feature_status": ai_feature_status,
-                    "model_status": {
-                        "loaded": len(ai_running_models) > 0,
-                        "running_count": len(ai_running_models),
-                    },
-                },
-            ),
-            "security_vlm": _service_status(
-                "Security VLM",
-                security_vlm_url,
-                vlm_ok,
-                vlm_latency,
-                vlm_error,
-                {
-                    "running": vlm_running,
-                    "camera_count": vlm_camera_count,
-                    "online_camera_count": vlm_online_count,
-                    "offline_camera_count": max(0, vlm_camera_count - vlm_online_count),
-                    "model_status": {
-                        "loaded": vlm_running,
-                        "vlm_ok": bool(vlm_state.get("vlm", {}).get("ok")),
-                    },
-                },
-            ),
-        }
-
-        camera_total = sum(int(service.get("camera_count") or 0) for service in services.values())
-        camera_online = sum(int(service.get("online_camera_count") or 0) for service in services.values())
-        online_services = sum(1 for service in services.values() if service.get("online"))
-        running_services = sum(1 for service in services.values() if service.get("running"))
-        all_services_online = online_services == len(services)
-
-        if all_services_online and camera_online == camera_total and running_services == len(services):
-            level = "healthy"
-        elif online_services > 0:
-            level = "degraded"
-        else:
-            level = "down"
-
-        return {
-            "ok": all_services_online,
-            "level": level,
-            "generated_at": now,
-            "summary": {
-                "service_total": len(services),
-                "service_online": online_services,
-                "service_running": running_services,
-                "camera_total": camera_total,
-                "camera_online": camera_online,
-                "camera_offline": max(0, camera_total - camera_online),
-                "model_loaded": {
-                    "guard_room": services["guard_room"]["model_status"]["loaded"],
-                    "aivision": services["aivision"]["model_status"]["loaded"],
-                    "security_vlm": services["security_vlm"]["model_status"]["loaded"],
-                },
-            },
-            "services": services,
-        }
+        return build_overview(request, department, aivision_url, guard_room_url,
+                              security_vlm_url, _get_json_concurrently)
 
     # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -1949,46 +1560,28 @@ def create_app() -> FastAPI:
         )
         return _build_alarm_statistics(alarms, days=days)
 
-    # 后面不管跟什么路径，我全接住（统一后端没有做处理手机的配置，只做(收到请求->原样转发->AiVision）
-    # 功能：实现 `proxy_aivision_root_api` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
+    @app.api_route("/api/guard-room/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    async def proxy_guard_room(path: str, request: Request):
+        if path.split("/", 1)[0] not in {"sites", "cameras"}:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return await _proxy(request, guard_room_url, f"/api/{path}")
+
+    @app.api_route("/api/security-vlm/departments/{department}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    async def proxy_security_vlm(department: str, path: str, request: Request):
+        try:
+            department = require_department(department)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await _proxy(request, security_vlm_url, f"/api/departments/{department}/{path}")
+
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_root_api(path: str, request: Request):
-        if _is_guard_room_api_path(path):
-            return await _proxy(request, guard_room_url, f"/api/{path}")
+        # 仅发布正式资源，内部集成入口和已移除的路径不对浏览器开放。
+        if path.split("/", 1)[0] not in {
+            "departments", "cameras", "features", "models", "face-recognition",
+            "logistics-channels", "alarms", "horns", "runtime", "exception-alert", "public",
+        }:
+            raise HTTPException(status_code=404, detail="Not Found")
         return await _proxy(request, aivision_url, f"/api/{path}")
-
-    # 功能：实现 `proxy_aivision_root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/aivision/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_aivision_root(path: str, request: Request):
-        return await _proxy(request, aivision_url, f"/{path}")
-
-    # 功能：实现 `proxy_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `path`（str）：目标路径
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`_proxy`、`app.api_route`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.api_route("/security-vlm/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_security_vlm(path: str, request: Request):
-        return await _proxy(request, security_vlm_url, f"/{path}")
 
     return app

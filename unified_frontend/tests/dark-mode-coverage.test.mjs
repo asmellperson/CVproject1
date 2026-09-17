@@ -124,7 +124,7 @@ test('guard and security workflow business cards support dark mode', async () =>
 test('remaining routed pages and shared configuration surfaces support dark mode', async () => {
   const files = [
     'src/sections/AlarmsSection.tsx', 'src/sections/StatisticsSection.tsx',
-    'src/sections/UserManagementSection.tsx', 'src/sections/AiVisionSection.tsx',
+    'src/sections/UserManagementSection.tsx',
     'src/components/AiVisionMonitor.tsx', 'src/components/FeatureCameraManager.tsx',
     'src/components/AiVisionRoiEditor.tsx', 'src/components/AiVisionModelConfig.tsx',
     'src/components/AiVisionPresetActions.tsx', 'src/components/AlarmPushConfig.tsx',

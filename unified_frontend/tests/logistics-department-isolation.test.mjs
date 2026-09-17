@@ -95,19 +95,13 @@ test('each route passes department to one shared page and resets the whole page 
   assert.match(config, /createLogisticsChannel\(feature, \{ name, department \}\)/)
   assert.doesNotMatch(config, /createDialog\.department|change-department/)
   const home = await read('sections/HomeSection.tsx')
-  assert.match(home, /onNavigate\(camera.pageId!, department\)/)
+  assert.match(home, /onNavigate\(camera.capabilities\[0\], camera.department\)/)
   assert.doesNotMatch(home, /logisticsPageByFeature/)
 })
 
-test('logistics overview cards count only cameras and online states in their department', async () => {
-  const { getLoadedAiVisionFeatureCounts } = await import(moduleUrl(await read('sections/homeCameraCounts.ts')))
-  const cameras = [
-    { department: departments[0], enabled: true, functions: { [feature]: true }, logisticsOnline: false },
-    { department: departments[1], enabled: true, functions: { [feature]: true }, logisticsOnline: true },
-    { department: departments[1], enabled: false, functions: { [feature]: true }, logisticsOnline: false },
-    { department: null, enabled: true, functions: { [feature]: true }, logisticsOnline: true },
-  ]
-  assert.deepEqual(getLoadedAiVisionFeatureCounts(cameras, true, departments[0])[feature], { cameraCount: 1, enabledCameraCount: 1, onlineCameraCount: 0 })
-  assert.deepEqual(getLoadedAiVisionFeatureCounts(cameras, true, departments[1])[feature], { cameraCount: 2, enabledCameraCount: 1, onlineCameraCount: 1 })
-  assert.deepEqual(getLoadedAiVisionFeatureCounts(cameras, true, departments[2])[feature], { cameraCount: 0, enabledCameraCount: 0, onlineCameraCount: 0 })
+test('总览直接展示后端的事业部摄像头和能力统计', async () => {
+  const home = await read('sections/HomeSection.tsx')
+  assert.match(home, /overviewStatus\?\.capabilities/)
+  assert.match(home, /overviewStatus\?\.cameras/)
+  assert.doesNotMatch(home, /getLoadedAiVisionFeatureCounts|mergeAiVisionAndLogisticsCameras/)
 })

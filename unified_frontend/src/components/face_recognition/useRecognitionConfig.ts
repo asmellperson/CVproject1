@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras, selectFeatureCamera, EMPTY_FEATURE_CAMERA_MESSAGE } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/auth/useAuth'
@@ -84,6 +85,8 @@ export function useFacePersons() {
 export function useRecognitionConfig(department: DepartmentId) {
   const { isAdmin } = useAuth()
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
+  const camerasRef = useRef<AiVisionCamera[]>([])
+  const enabledCameras = getEnabledFeatureCameras(cameras, FACE_FEATURE, department)
   const [cameraKey, setCameraKey] = useState('')
   const [configRevision, setConfigRevision] = useState(0)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -101,12 +104,15 @@ export function useRecognitionConfig(department: DepartmentId) {
   const mountedRef = useRef(true)
 
   const selectCamera = useCallback((key: string) => {
+    if (key && !getEnabledFeatureCameras(camerasRef.current, FACE_FEATURE, department).some((camera) => camera.shm_name === key)) return
     if (selectedRef.current === key) return
     selectedRef.current = key
     requestRef.current += 1
     setLoadedKey('')
+    setConfig(null)
+    setForm(EMPTY_FORM)
     setCameraKey(key)
-  }, [])
+  }, [department])
 
   const loadConfig = useCallback(async (key: string) => {
     const request = ++requestRef.current
@@ -116,13 +122,19 @@ export function useRecognitionConfig(department: DepartmentId) {
     setHornError(null)
     setForm(EMPTY_FORM)
     setLoading(Boolean(key))
-    if (!key) {
-      setMessage('请先添加摄像头。')
+    if (!key || !getEnabledFeatureCameras(camerasRef.current, FACE_FEATURE, department).some((camera) => camera.shm_name === key)) {
+      setLoading(false)
+      setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
       return
     }
     try {
       const payload = await getAiVisionFeatureConfig(FACE_FEATURE, key)
       if (!mountedRef.current || request !== requestRef.current || key !== selectedRef.current) return
+      if (!payload.config.enable) {
+        selectCamera('')
+        setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
+        return
+      }
       const value = payload.config.value
       setConfig(payload.config)
       setForm({
@@ -138,9 +150,9 @@ export function useRecognitionConfig(department: DepartmentId) {
     } finally {
       if (mountedRef.current && request === requestRef.current) setLoading(false)
     }
-  }, [])
+  }, [department, selectCamera])
 
-  const refreshCameras = useCallback(async () => {
+  const refreshCameras = useCallback(async (preferredCamera?: string) => {
     const request = ++cameraRequestRef.current
     requestRef.current += 1
     setLoadedKey('')
@@ -148,10 +160,11 @@ export function useRecognitionConfig(department: DepartmentId) {
     try {
       const items = await getAiVisionCameras(department)
       if (!mountedRef.current || request !== cameraRequestRef.current) return
+      camerasRef.current = items
       setCameras(items)
-      if (!items.some((camera) => camera.shm_name === selectedRef.current)) selectCamera(items[0]?.shm_name || '')
+      selectCamera(selectFeatureCamera(items, FACE_FEATURE, department, preferredCamera ?? selectedRef.current))
       setConfigRevision((value) => value + 1)
-      if (!selectedRef.current) setMessage('当前事业部暂未配置摄像头')
+      if (!selectedRef.current) setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
     } finally {
       if (mountedRef.current && request === cameraRequestRef.current) setCameraLoading(false)
     }
@@ -159,6 +172,9 @@ export function useRecognitionConfig(department: DepartmentId) {
 
   useEffect(() => {
     mountedRef.current = true
+    camerasRef.current = []
+    setCameras([])
+    selectCamera('')
     let active = true
     const refresh = () => {
       void refreshCameras().catch((error) => {
@@ -215,7 +231,7 @@ export function useRecognitionConfig(department: DepartmentId) {
     }
   }
   return {
-    cameras, cameraKey, form, setForm, config, setAlarm, hornError, setHornError, message, loading, cameraLoading, saving,
+    cameras, enabledCameras, cameraKey, form, setForm, config, setAlarm, hornError, setHornError, message, loading, cameraLoading, saving,
     disabled: !isAdmin || loading || cameraLoading || saving,
     canSave: isAdmin && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
     selectCamera, loadConfig, refreshCameras, save,
