@@ -29,6 +29,11 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
             'blocks', 'detect_door', 'detect_face', 'detect_human',
             'detect_logistics_single_person', 'detect_phone', 'recognize_face',
         }
+        guard_tables = {
+            'ai_guard_behavior_site', 'ai_guard_behavior_site_camera',
+            'ai_camera_config_guard_behavior', 'ai_guard_behavior_site_policy',
+            'ai_guard_behavior_alarm_policy',
+        }
         database = Path(sys.argv[1]) / 'fresh.sqlite'
         assert not database.exists()
         engine = create_engine('sqlite:///' + str(database))
@@ -51,6 +56,8 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
             for table in tables:
                 assert metadata.tables[table.name] is table
             assert tables <= set(kwargs['tables'])
+            assert guard_tables <= {table.name for table in kwargs['tables']}
+            assert 'AiVision.features.guard_behavior.orm' in sys.modules
             creation_snapshots.append({table.name for table in tables})
 
         attempts = []
@@ -79,6 +86,9 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
                 checked = [call.args[1] for call in verify.call_args_list]
                 for spec in sys.modules['AiVision.features.registry']._REGISTRY.values():
                     assert checked.count(spec.orm_class.__table__) == 1
+                for name in guard_tables:
+                    assert checked.count(db.Base.metadata.tables[name]) == 1
+                assert 'guard_behavior' not in sys.modules['AiVision.features.registry']._REGISTRY
                 assert attempts == []
         finally:
             sys.setprofile(None)

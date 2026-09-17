@@ -1,0 +1,278 @@
+"""保安室数据事务；不启动检测，也不修改物理摄像头属性。"""
+from contextlib import closing, contextmanager
+
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
+
+from AiVision.alarms.devices.binding import validate_horn_binding
+from AiVision.cameras.orm import AiCameraConfig
+from AiVision.core import db
+from AiVision.departments.department_registry import require_department
+from .constants import GUARD_ALARM_TYPES, MAX_CAMERAS_PER_SITE, SITE_POLICY_DEFAULTS, require_alarm_type
+from .orm import (
+    GuardBehaviorAlarmPolicy, GuardBehaviorCameraConfig, GuardBehaviorSite,
+    GuardBehaviorSiteCamera, GuardBehaviorSitePolicy,
+)
+from .schema import (
+    GuardBehaviorAlarmPolicyResponse, GuardBehaviorAlarmPolicyUpdate,
+    GuardBehaviorCameraRoiResponse, GuardBehaviorCameraRoiUpdate,
+    GuardBehaviorMemberCreate, GuardBehaviorMemberEnabledUpdate, GuardBehaviorMemberOrder,
+    GuardBehaviorMemberResponse, GuardBehaviorSiteCreate, GuardBehaviorSitePolicyResponse,
+    GuardBehaviorSitePolicySchema, GuardBehaviorSitePolicyUpdate,
+    GuardBehaviorSiteResponse, GuardBehaviorSiteUpdate,
+)
+
+
+@contextmanager
+def _write_session():
+    try:
+        with db.session_scope() as session:
+            yield session
+    except IntegrityError:
+        # 包含 flush 和 commit 失败；公共事务已回滚并关闭会话。
+        raise ValueError("配置写入冲突：名称或摄像头成员已存在，或关联记录已失效") from None
+
+
+def _positive_id(value: int) -> int:
+    if type(value) is not int or value <= 0:
+        raise ValueError("ID 必须为正整数")
+    return value
+
+
+class GuardBehaviorService:
+    @staticmethod
+    def _site(session, site_id: int, *, lock: bool = False):
+        site = session.get(GuardBehaviorSite, _positive_id(site_id), with_for_update=lock)
+        if site is None:
+            raise ValueError("保安室不存在")
+        return site
+
+    @staticmethod
+    def _camera(session, camera_id: int):
+        camera = session.get(AiCameraConfig, _positive_id(camera_id), with_for_update=True)
+        if camera is None:
+            raise ValueError("摄像头不存在")
+        return camera
+
+    @staticmethod
+    def _member(session, site_id: int, camera_id: int, *, lock: bool = False):
+        query = session.query(GuardBehaviorSiteCamera).filter_by(
+            site_id=site_id, camera_id=_positive_id(camera_id))
+        if lock:
+            query = query.with_for_update()
+        member = query.first()
+        if member is None:
+            raise ValueError("摄像头不属于当前保安室")
+        return member
+
+    @staticmethod
+    def _policy(session, site_id: int, *, lock: bool = False):
+        query = session.query(GuardBehaviorSitePolicy).filter_by(site_id=site_id)
+        if lock:
+            query = query.with_for_update()
+        policy = query.first()
+        if policy is None:
+            raise ValueError("保安室缺少检测策略")
+        return policy
+
+    @staticmethod
+    def _camera_config(session, camera_id: int, *, lock: bool = False):
+        query = session.query(GuardBehaviorCameraConfig).filter_by(camera_id=camera_id)
+        if lock:
+            query = query.with_for_update()
+        config = query.first()
+        if config is None:
+            raise ValueError("摄像头缺少保安行为配置")
+        return config
+
+    @classmethod
+    def _protect_vehicle_camera(cls, session, site_id: int, camera_id: int):
+        policy = cls._policy(session, site_id, lock=True)
+        if policy.vehicle_inspection_enabled and policy.vehicle_camera_id == camera_id:
+            raise ValueError("当前摄像头正在作为车辆出厂检查摄像头，请先关闭或修改车辆检查配置")
+
+    def list_sites(self, department: str | None = None) -> list[dict]:
+        if department is not None:
+            department = require_department(department)
+        with closing(db.get_session()) as session:
+            query = session.query(GuardBehaviorSite)
+            if department is not None:
+                query = query.filter_by(department=department)
+            return [GuardBehaviorSiteResponse.model_validate(site).model_dump()
+                    for site in query.order_by(GuardBehaviorSite.sort_order, GuardBehaviorSite.id).all()]
+
+    def get_site(self, site_id: int) -> dict:
+        with closing(db.get_session()) as session:
+            return GuardBehaviorSiteResponse.model_validate(self._site(session, site_id)).model_dump()
+
+    def create_site(self, name: str, department: str) -> dict:
+        values = GuardBehaviorSiteCreate(name=name, department=department).model_dump()
+        with _write_session() as session:
+            site = GuardBehaviorSite(**values)
+            session.add(site)
+            session.flush()
+            session.add(GuardBehaviorSitePolicy(site_id=site.id))
+            session.add_all(GuardBehaviorAlarmPolicy(site_id=site.id, violation_type=kind)
+                            for kind in GUARD_ALARM_TYPES)
+            session.flush()
+            return GuardBehaviorSiteResponse.model_validate(site).model_dump()
+
+    def update_site(self, site_id: int, payload: dict) -> dict:
+        changes = GuardBehaviorSiteUpdate.model_validate(payload).model_dump(exclude_unset=True)
+        with _write_session() as session:
+            site = self._site(session, site_id, lock=True)
+            values = {key: getattr(site, key) for key in GuardBehaviorSiteCreate.model_fields}
+            values = GuardBehaviorSiteCreate.model_validate({**values, **changes}).model_dump()
+            for key in changes:
+                setattr(site, key, values[key])
+            session.flush()
+            return GuardBehaviorSiteResponse.model_validate(site).model_dump()
+
+    def delete_site(self, site_id: int) -> bool:
+        with _write_session() as session:
+            site = session.get(GuardBehaviorSite, _positive_id(site_id), with_for_update=True)
+            if site is None:
+                return False
+            members = session.query(GuardBehaviorSiteCamera).filter_by(site_id=site_id).all()
+            # 所有成员写操作先锁 Site，再按 ID 锁 Camera，最后修改成员与配置。
+            for member in sorted(members, key=lambda item: item.camera_id):
+                self._camera(session, member.camera_id)
+                self._camera_config(session, member.camera_id, lock=True).enable = False
+            session.flush()
+            session.delete(site)
+            return True
+
+    def list_site_cameras(self, site_id: int) -> list[dict]:
+        with closing(db.get_session()) as session:
+            self._site(session, site_id)
+            members = (session.query(GuardBehaviorSiteCamera)
+                       .options(joinedload(GuardBehaviorSiteCamera.camera))
+                       .filter_by(site_id=site_id)
+                       .order_by(GuardBehaviorSiteCamera.sort_order, GuardBehaviorSiteCamera.id).all())
+            return [GuardBehaviorMemberResponse.model_validate(member).model_dump() for member in members]
+
+    def add_camera(self, site_id: int, camera_id: int) -> dict:
+        camera_id = GuardBehaviorMemberCreate(camera_id=camera_id).camera_id
+        with _write_session() as session:
+            site = self._site(session, site_id, lock=True)
+            camera = self._camera(session, camera_id)
+            if camera.department != site.department:
+                raise ValueError("Camera department 必须与 Site department 一致")
+            existing = session.query(GuardBehaviorSiteCamera).filter_by(camera_id=camera_id).with_for_update().first()
+            if existing is not None:
+                raise ValueError("摄像头已属于一个保安室，不能重复绑定或隐式移动")
+            members = session.query(GuardBehaviorSiteCamera).filter_by(site_id=site_id)
+            if members.count() >= MAX_CAMERAS_PER_SITE:
+                raise ValueError(f"每个保安室最多允许 {MAX_CAMERAS_PER_SITE} 路摄像头")
+            last_order = members.with_entities(func.max(GuardBehaviorSiteCamera.sort_order)).scalar()
+            member = GuardBehaviorSiteCamera(site_id=site_id, camera=camera, enabled=True,
+                                             sort_order=0 if last_order is None else last_order + 1)
+            session.add(member)
+            config = session.query(GuardBehaviorCameraConfig).filter_by(camera_id=camera_id).with_for_update().first()
+            if config is None:
+                config = GuardBehaviorCameraConfig(camera_id=camera_id)
+                session.add(config)
+            config.enable = True
+            session.flush()
+            return GuardBehaviorMemberResponse.model_validate(member).model_dump()
+
+    def remove_camera(self, site_id: int, camera_id: int) -> None:
+        with _write_session() as session:
+            self._site(session, site_id, lock=True)
+            self._camera(session, camera_id)
+            member = self._member(session, site_id, camera_id, lock=True)
+            self._protect_vehicle_camera(session, site_id, camera_id)
+            self._camera_config(session, camera_id, lock=True).enable = False
+            session.delete(member)
+
+    def set_camera_enabled(self, site_id: int, camera_id: int, enabled: bool) -> dict:
+        enabled = GuardBehaviorMemberEnabledUpdate(enabled=enabled).enabled
+        with _write_session() as session:
+            self._site(session, site_id, lock=True)
+            self._camera(session, camera_id)
+            member = self._member(session, site_id, camera_id, lock=True)
+            if not enabled:
+                self._protect_vehicle_camera(session, site_id, camera_id)
+            member.enabled = enabled
+            session.flush()
+            return GuardBehaviorMemberResponse.model_validate(member).model_dump()
+
+    def reorder_cameras(self, site_id: int, camera_ids: list[int]) -> None:
+        camera_ids = GuardBehaviorMemberOrder(camera_ids=camera_ids).camera_ids
+        with _write_session() as session:
+            self._site(session, site_id, lock=True)
+            members = session.query(GuardBehaviorSiteCamera).filter_by(site_id=site_id).with_for_update().all()
+            by_camera = {member.camera_id: member for member in members}
+            if set(camera_ids) != set(by_camera):
+                raise ValueError("排序必须包含当前保安室完整的 camera_id 成员集合")
+            for index, camera_id in enumerate(camera_ids):
+                by_camera[camera_id].sort_order = index
+
+    def get_policy(self, site_id: int) -> dict:
+        with closing(db.get_session()) as session:
+            self._site(session, site_id)
+            return GuardBehaviorSitePolicyResponse.model_validate(self._policy(session, site_id)).model_dump()
+
+    def update_policy(self, site_id: int, payload: dict) -> dict:
+        changes = GuardBehaviorSitePolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
+        with _write_session() as session:
+            site = self._site(session, site_id, lock=True)
+            policy = self._policy(session, site_id, lock=True)
+            values = {key: getattr(policy, key) for key in SITE_POLICY_DEFAULTS}
+            values = GuardBehaviorSitePolicySchema.model_validate({**values, **changes}).model_dump()
+            if values["vehicle_inspection_enabled"]:
+                camera = self._camera(session, values["vehicle_camera_id"])
+                if camera.department != site.department:
+                    raise ValueError("车辆检查 Camera department 必须与 Site department 一致")
+                member = self._member(session, site_id, camera.id, lock=True)
+                if not member.enabled:
+                    raise ValueError("车辆检查摄像头成员必须启用")
+            for key, value in values.items():
+                setattr(policy, key, value)
+            session.flush()
+            return GuardBehaviorSitePolicyResponse.model_validate(policy).model_dump()
+
+    def get_camera_roi(self, site_id: int, camera_id: int) -> dict:
+        with closing(db.get_session()) as session:
+            self._site(session, site_id)
+            self._member(session, site_id, camera_id)
+            config = self._camera_config(session, camera_id)
+            return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
+
+    def update_camera_roi(self, site_id: int, camera_id: int, payload: dict) -> dict:
+        values = GuardBehaviorCameraRoiUpdate.model_validate(payload)
+        with _write_session() as session:
+            self._site(session, site_id, lock=True)
+            self._camera(session, camera_id)
+            self._member(session, site_id, camera_id, lock=True)
+            config = self._camera_config(session, camera_id, lock=True)
+            config.vehicle_roi_pos = values.vehicle_roi_pos
+            session.flush()
+            return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
+
+    def list_alarm_policies(self, site_id: int) -> list[dict]:
+        with closing(db.get_session()) as session:
+            self._site(session, site_id)
+            policies = (session.query(GuardBehaviorAlarmPolicy).filter_by(site_id=site_id)
+                        .order_by(GuardBehaviorAlarmPolicy.violation_type).all())
+            if tuple(policy.violation_type for policy in policies) != GUARD_ALARM_TYPES:
+                raise ValueError("保安室必须具有完整的四类报警策略")
+            return [GuardBehaviorAlarmPolicyResponse.model_validate(policy).model_dump() for policy in policies]
+
+    def update_alarm_policy(self, site_id: int, violation_type: int, payload: dict) -> dict:
+        violation_type = require_alarm_type(violation_type)
+        changes = GuardBehaviorAlarmPolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
+        with _write_session() as session:
+            self._site(session, site_id, lock=True)
+            policy = (session.query(GuardBehaviorAlarmPolicy)
+                      .filter_by(site_id=site_id, violation_type=violation_type).with_for_update().first())
+            if policy is None:
+                raise ValueError("保安室缺少该报警策略")
+            values = {key: getattr(policy, key) for key in GuardBehaviorAlarmPolicyUpdate.model_fields}
+            values = GuardBehaviorAlarmPolicyUpdate.model_validate({**values, **changes}).model_dump()
+            validate_horn_binding(session, values["horn_enable"], values["horn_id"], values["horn_event_id"])
+            for key, value in values.items():
+                setattr(policy, key, value)
+            session.flush()
+            return GuardBehaviorAlarmPolicyResponse.model_validate(policy).model_dump()

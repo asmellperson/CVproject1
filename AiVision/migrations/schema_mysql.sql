@@ -43,6 +43,20 @@ CREATE TABLE ai_face_person (
 	CONSTRAINT uq_face_person_hik_source_person UNIQUE (hik_source, hik_person_id)
 )CHARSET=utf8mb4 COMMENT='海康人员资料库' ENGINE=InnoDB;
 
+CREATE TABLE ai_guard_behavior_site (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	department VARCHAR(100) NOT NULL,
+	name VARCHAR(100) NOT NULL,
+	enabled BOOL NOT NULL,
+	sort_order INTEGER NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_guard_behavior_site_department_name UNIQUE (department, name)
+)CHARSET=utf8mb4 ENGINE=InnoDB;
+
+CREATE INDEX ix_ai_guard_behavior_site_department ON ai_guard_behavior_site (department);
+
 CREATE TABLE ai_horn_config (
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	name VARCHAR(100) NOT NULL,
@@ -261,6 +275,19 @@ CREATE TABLE ai_camera_config_detect_phone (
 
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_phone_camera_id ON ai_camera_config_detect_phone (camera_id);
 
+CREATE TABLE ai_camera_config_guard_behavior (
+	vehicle_roi_pos JSON NOT NULL,
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	enable BOOL COMMENT '是否启用',
+	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
+	PRIMARY KEY (id),
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+)CHARSET=utf8mb4 ENGINE=InnoDB;
+
+CREATE UNIQUE INDEX ix_ai_camera_config_guard_behavior_camera_id ON ai_camera_config_guard_behavior (camera_id);
+
 CREATE TABLE ai_camera_config_recognize_face (
 	roi_pos JSON NOT NULL,
 	cap_interval FLOAT NOT NULL,
@@ -318,6 +345,87 @@ CREATE INDEX ix_ai_face_recognition_record_camera_id ON ai_face_recognition_reco
 CREATE INDEX ix_ai_face_recognition_record_person_id ON ai_face_recognition_record (person_id);
 
 CREATE INDEX ix_ai_face_recognition_record_recognized_at ON ai_face_recognition_record (recognized_at);
+
+CREATE TABLE ai_guard_behavior_alarm_policy (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	site_id INTEGER NOT NULL,
+	violation_type INTEGER NOT NULL,
+	alarm_interval DOUBLE NOT NULL,
+	sql_enable BOOL NOT NULL,
+	horn_enable BOOL NOT NULL,
+	horn_id INTEGER,
+	horn_event_id INTEGER,
+	wechat_enable BOOL NOT NULL,
+	wechat_user VARCHAR(255) NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_guard_behavior_site_alarm_type UNIQUE (site_id, violation_type),
+	CONSTRAINT ck_guard_behavior_alarm_type CHECK (violation_type IN (8, 9, 10, 11)),
+	FOREIGN KEY(site_id) REFERENCES ai_guard_behavior_site (id) ON DELETE CASCADE,
+	FOREIGN KEY(horn_id) REFERENCES ai_horn_config (id) ON DELETE SET NULL
+)CHARSET=utf8mb4 ENGINE=InnoDB;
+
+CREATE INDEX ix_ai_guard_behavior_alarm_policy_site_id ON ai_guard_behavior_alarm_policy (site_id);
+
+CREATE TABLE ai_guard_behavior_site_camera (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	site_id INTEGER NOT NULL,
+	camera_id INTEGER NOT NULL,
+	enabled BOOL NOT NULL,
+	sort_order INTEGER NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_guard_behavior_site_camera UNIQUE (site_id, camera_id),
+	CONSTRAINT uq_guard_behavior_camera_owner UNIQUE (camera_id),
+	FOREIGN KEY(site_id) REFERENCES ai_guard_behavior_site (id) ON DELETE CASCADE,
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+)CHARSET=utf8mb4 ENGINE=InnoDB;
+
+CREATE INDEX ix_ai_guard_behavior_site_camera_site_id ON ai_guard_behavior_site_camera (site_id);
+
+CREATE TABLE ai_guard_behavior_site_policy (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	site_id INTEGER NOT NULL,
+	cap_interval DOUBLE NOT NULL,
+	person_confidence_threshold DOUBLE NOT NULL,
+	phone_confidence_threshold DOUBLE NOT NULL,
+	uniform_confidence_threshold DOUBLE NOT NULL,
+	vehicle_confidence_threshold DOUBLE NOT NULL,
+	model_iou_threshold DOUBLE NOT NULL,
+	person_phone_imgsz INTEGER NOT NULL,
+	phone_crop_imgsz INTEGER NOT NULL,
+	pose_imgsz INTEGER NOT NULL,
+	vehicle_imgsz INTEGER NOT NULL,
+	guard_hold_seconds DOUBLE NOT NULL,
+	absent_alarm_seconds DOUBLE NOT NULL,
+	phone_seconds DOUBLE NOT NULL,
+	phone_window_seconds DOUBLE NOT NULL,
+	phone_min_hits_in_window INTEGER NOT NULL,
+	phone_grace_seconds DOUBLE NOT NULL,
+	phone_near_person_px DOUBLE NOT NULL,
+	phone_near_head_px DOUBLE NOT NULL,
+	prone_sleep_seconds DOUBLE NOT NULL,
+	static_motion_threshold DOUBLE NOT NULL,
+	prone_head_down_ratio_threshold DOUBLE NOT NULL,
+	prone_bbox_height_ratio_threshold DOUBLE NOT NULL,
+	prone_consecutive_frames INTEGER NOT NULL,
+	state_ttl_seconds DOUBLE NOT NULL,
+	vehicle_inspection_enabled BOOL NOT NULL,
+	vehicle_camera_id INTEGER,
+	vehicle_occlusion_seconds DOUBLE NOT NULL,
+	vehicle_near_px DOUBLE NOT NULL,
+	vehicle_exit_direction VARCHAR(10) NOT NULL,
+	vehicle_direction_min_delta_ratio DOUBLE NOT NULL,
+	vehicle_reassociate_seconds DOUBLE NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	UNIQUE (site_id),
+	FOREIGN KEY(site_id) REFERENCES ai_guard_behavior_site (id) ON DELETE CASCADE,
+	FOREIGN KEY(vehicle_camera_id) REFERENCES ai_camera_config (id) ON DELETE SET NULL
+)CHARSET=utf8mb4 ENGINE=InnoDB;
 
 CREATE TABLE ai_logistics_channel (
 	id INTEGER NOT NULL AUTO_INCREMENT,

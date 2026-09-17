@@ -12,6 +12,10 @@ def bootstrap_database():
     from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
     from AiVision.alarms.records import orm as _violation_orm  # noqa: F401
     from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson
+    from AiVision.features.guard_behavior.orm import (
+        GuardBehaviorSite, GuardBehaviorSiteCamera, GuardBehaviorCameraConfig,
+        GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
+    )
     from AiVision.core.schema import assert_table_matches
 
     specs = all_specs()  # 注册表及其他业务 ORM 必须在创建表之前完成导入。
@@ -20,6 +24,10 @@ def bootstrap_database():
     with engine.connect() as connection:
         for spec in specs.values():
             assert_table_matches(connection, spec.orm_class.__table__)
-        for model in (LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding):
+        for model in (
+            LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding,
+            GuardBehaviorSite, GuardBehaviorSiteCamera, GuardBehaviorCameraConfig,
+            GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
+        ):
             assert_table_matches(connection, model.__table__)
     logger.info("[DB] 功能配置和业务表结构核验通过")
