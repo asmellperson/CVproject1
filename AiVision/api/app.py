@@ -31,6 +31,7 @@ from AiVision.api.routes.exception_alerts import router as exception_alerts_rout
 from AiVision.api.routes.features import router as features_router
 from AiVision.api.routes.face_recognition import router as face_recognition_router
 from AiVision.api.routes.logistics_channels import router as logistics_channels_router
+from AiVision.api.routes.guard_behavior import router as guard_behavior_router
 from AiVision.api.routes.models import router as models_router
 from AiVision.api.routes.horns import router as horns_router
 from AiVision.api.routes.runtime import router as runtime_router
@@ -191,6 +192,7 @@ def create_app(
     app.include_router(public_alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)
+    app.include_router(guard_behavior_router)
 
     # mount（）：把一个完整的ASGI应用挂进当前FastAPI
     app.mount(

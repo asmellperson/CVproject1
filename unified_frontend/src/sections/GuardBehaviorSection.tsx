@@ -1,130 +1,39 @@
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
-import { useEffect, useMemo, useState } from 'react'
-import { useAuth } from '@/auth/useAuth'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
-import { GuardRoomRuntimeControl } from '@/components/guard_room/GuardRoomRuntimeControl'
+import { GuardConfigView } from '@/components/guard_behavior/GuardConfigView'
+import { GuardMonitorView } from '@/components/guard_behavior/GuardMonitorView'
+import { useGuardSites } from '@/components/guard_behavior/useGuardSites'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { MonitorSection } from '@/sections/MonitorSection'
-import { ConfigSection } from '@/sections/ConfigSection'
-import { createGuardRoomSite, deleteGuardRoomSite, getGuardRoomSites } from '@/lib/api'
-import type { GuardRoomSite } from '@/types'
 
-type GuardBehaviorSectionProps = {
-  department: DepartmentId
+function DepartmentGuardBehavior({ department }: { department: DepartmentId }) {
+  const { sites, site, selectedId, setSelectedId, loading, error, reload } = useGuardSites(department)
+  return <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
+    <Tabs defaultValue="monitor" className="space-y-5">
+      <DetectionPageHeader title="保安行为规范检测" subtitle="行为分析监控面板" departmentLabel={DEPARTMENT_LABELS[department]} />
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <Label htmlFor="guard-site-selector">保安室</Label>
+        <Select value={selectedId === null ? '' : String(selectedId)} disabled={loading || !sites.length} onValueChange={(id) => setSelectedId(Number(id))}>
+          <SelectTrigger id="guard-site-selector" className="w-full sm:w-72"><SelectValue placeholder={loading ? '读取中…' : '尚无保安室'} /></SelectTrigger>
+          <SelectContent>{sites.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}{item.enabled ? '' : '（已停用）'}</SelectItem>)}</SelectContent>
+        </Select>
+        <Button variant="outline" disabled={loading} onClick={() => void reload()}>刷新保安室</Button>
+      </div>
+      {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
+      <TabsContent value="monitor" className="mt-0 space-y-5">
+        {site ? <GuardMonitorView key={site.id} site={site} /> : <p className="text-sm text-slate-500">{loading ? '正在读取保安室…' : '当前事业部尚无保安室，请在配置管理中创建。'}</p>}
+      </TabsContent>
+      <TabsContent value="config" className="mt-0">
+        {!loading && <GuardConfigView key={site?.id ?? 'empty'} site={site} department={department} onSitesChanged={(id) => reload(undefined, id)} />}
+      </TabsContent>
+    </Tabs>
+  </div>
 }
 
-export function GuardBehaviorSection({ department }: GuardBehaviorSectionProps) {
-  const { isAdmin } = useAuth()
-  const [sites, setSites] = useState<GuardRoomSite[]>([])
-  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null)
-  const [loadingSites, setLoadingSites] = useState(true)
-  const [siteError, setSiteError] = useState('')
-  const detectionTitle = '保安行为规范检测'
-
-  const selectedSite = useMemo(
-    () => sites.find((site) => site.id === selectedSiteId) || null,
-    [selectedSiteId, sites],
-  )
-
-  const loadSites = async () => {
-    const next = await getGuardRoomSites(department)
-    setSites(next)
-    setSelectedSiteId((current) => {
-      if (current && next.some((site) => site.id === current)) return current
-      return next[0]?.id ?? null
-    })
-  }
-
-  useEffect(() => {
-    let mounted = true
-    getGuardRoomSites(department)
-      .then((next) => {
-        if (!mounted) return
-        setSites(next)
-        setSelectedSiteId((current) => {
-          if (current && next.some((site) => site.id === current)) return current
-          return next[0]?.id ?? null
-        })
-      })
-      .catch((error) => setSiteError(error instanceof Error ? error.message : String(error)))
-      .finally(() => {
-        if (mounted) setLoadingSites(false)
-      })
-    return () => {
-      mounted = false
-    }
-  }, [department])
-
-  const handleCreateSite = async (name: string) => {
-    setSiteError('')
-    try {
-      const created = await createGuardRoomSite({ name, department })
-      await loadSites()
-      setSelectedSiteId(created.id)
-      return created
-    } catch (error) {
-      setSiteError(error instanceof Error ? error.message : String(error))
-      throw error
-    }
-  }
-
-  const handleDeleteSite = async (siteId: number) => {
-    setSiteError('')
-    try {
-      await deleteGuardRoomSite(siteId, department)
-      await loadSites()
-    } catch (error) {
-      setSiteError(error instanceof Error ? error.message : String(error))
-      throw error
-    }
-  }
-
-  return (
-    <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
-      <Tabs defaultValue="monitor" className="space-y-5">
-        <DetectionPageHeader
-          title={detectionTitle}
-          subtitle="行为分析监控面板"
-          departmentLabel={DEPARTMENT_LABELS[department]}
-          runtimeControl={(
-            <GuardRoomRuntimeControl
-              site={selectedSite}
-              department={department}
-              isAdmin={isAdmin}
-              onChanged={loadSites}
-            />
-          )}
-        />
-
-        <TabsContent value="monitor" className="mt-0 space-y-5">
-          {!loadingSites && !siteError && !sites.some((site) => site.cameras.length) && <p>当前事业部暂未配置摄像头</p>}
-          <MonitorSection
-            site={selectedSite}
-            sites={sites}
-            selectedSiteId={selectedSiteId}
-            loadingSites={loadingSites}
-            onSelectSite={setSelectedSiteId}
-            department={department}
-          />
-        </TabsContent>
-
-        <TabsContent value="config" className="mt-0">
-          <ConfigSection
-            site={selectedSite}
-            sites={sites}
-            selectedSiteId={selectedSiteId}
-            loadingSites={loadingSites}
-            siteError={siteError}
-            onSelectSite={setSelectedSiteId}
-            department={department}
-            onCreateSite={handleCreateSite}
-            onDeleteSite={handleDeleteSite}
-            onSitesChanged={loadSites}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
+export function GuardBehaviorSection({ department }: { department: DepartmentId }) {
+  // 事业部切换时卸载上一组请求与草稿，避免延迟响应串入新的工作区。
+  return <DepartmentGuardBehavior key={department} department={department} />
 }
-
 export default GuardBehaviorSection

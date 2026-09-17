@@ -172,8 +172,10 @@ class GuardBehaviorService:
         with closing(db.get_session()) as session:
             return GuardBehaviorSiteResponse.model_validate(self._site(session, site_id)).model_dump()
 
-    def create_site(self, name: str, department: str) -> dict:
-        values = GuardBehaviorSiteCreate(name=name, department=department).model_dump()
+    def create_site(self, name: str, department: str, *, enabled: bool = True, sort_order: int = 0) -> dict:
+        values = GuardBehaviorSiteCreate(
+            name=name, department=department, enabled=enabled, sort_order=sort_order,
+        ).model_dump()
         with _write_session() as session:
             site = GuardBehaviorSite(**values)
             session.add(site)

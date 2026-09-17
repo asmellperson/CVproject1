@@ -1,21 +1,5 @@
-import { guardRoomSiteCameraFrameUrl, guardRoomSitesPath } from './api'
+import { siteFrameUrl } from '../components/guard_behavior/api'
 
-function assertEndsWith(actual: string, expected: string) {
-  if (!actual.endsWith(expected)) {
-    throw new Error(`expected ${actual} to end with ${expected}`)
-  }
-}
-
-assertEndsWith(
-  guardRoomSiteCameraFrameUrl(12, 'cam2', 123, 'fulida_company'),
-  '/api/guard-room/sites/12/cameras/cam2/frame.jpg?t=123&department=fulida_company',
-)
-
-assertEndsWith(
-  guardRoomSiteCameraFrameUrl(12, 'cam 2', undefined, 'research_institute'),
-  '/api/guard-room/sites/12/cameras/cam%202/frame.jpg?department=research_institute',
-)
-
-if (guardRoomSitesPath('electronics_electrician') !== '/sites?department=electronics_electrician') {
-  throw new Error('expected electronics department site path to include department query')
+if (!siteFrameUrl(12).endsWith('/api/guard-behavior/sites/12/frame.jpg')) {
+  throw new Error('expected native Guard Behavior frame endpoint')
 }

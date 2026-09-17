@@ -1,8 +1,7 @@
-import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { AlertTriangle, Eye, MousePointer2, RefreshCw, RotateCcw, Save, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { guardRoomSiteCameraFrameUrl } from '@/lib/api'
+import { aiVisionFrameUrl } from '@/lib/aivision'
 import {
   clientPointToImagePoint,
   imagePixelsPerRenderedPixel,
@@ -16,10 +15,8 @@ import {
   type VehicleRoiPoint,
 } from './vehicleRoiGeometry'
 
-type GuardRoomVehicleRoiEditorProps = {
-  siteId: number | null
-  department: DepartmentId
-  cameraId: string
+type VehicleRoiEditorProps = {
+  cameraId: number
   cameraLabel?: string
   roi: VehicleRoiPoint[]
   fallbackSize: Size
@@ -62,9 +59,7 @@ function rectToPoints(rect: number[]): ImagePoint[] {
   ]
 }
 
-export function GuardRoomVehicleRoiEditor({
-  siteId,
-  department,
+export function VehicleRoiEditor({
   cameraId,
   cameraLabel,
   roi,
@@ -75,20 +70,20 @@ export function GuardRoomVehicleRoiEditor({
   minRoiArea = DEFAULT_MIN_ROI_AREA,
   onChange,
   onSave,
-}: GuardRoomVehicleRoiEditorProps) {
+}: VehicleRoiEditorProps) {
   const fallbackWidth = fallbackSize.width
   const fallbackHeight = fallbackSize.height
   const [imageSize, setImageSize] = useState(() => safeImageSize(fallbackSize))
   const [points, setPoints] = useState<ImagePoint[]>(() => vehicleRoiToImagePoints(roi, safeImageSize(fallbackSize)))
   const [nonce, setNonce] = useState(0)
+  const [frameError, setFrameError] = useState(false)
   const [dragStart, setDragStart] = useState<ImagePoint | null>(null)
   const [draftPoint, setDraftPoint] = useState<ImagePoint | null>(null)
   const [dragPointIndex, setDragPointIndex] = useState<number | null>(null)
 
   const frameUrl = useMemo(() => {
-    if (!siteId || !cameraId) return ''
-    return guardRoomSiteCameraFrameUrl(siteId, cameraId, nonce, department)
-  }, [cameraId, department, nonce, siteId])
+    return aiVisionFrameUrl(String(cameraId), undefined, nonce)
+  }, [cameraId, nonce])
 
   useEffect(() => {
     const nextSize = safeImageSize({ width: fallbackWidth, height: fallbackHeight })
@@ -123,7 +118,7 @@ export function GuardRoomVehicleRoiEditor({
   }
 
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !siteId || !cameraId) return
+    if (disabled || !cameraId) return
     const point = getPoint(event)
     event.currentTarget.setPointerCapture(event.pointerId)
 
@@ -141,7 +136,7 @@ export function GuardRoomVehicleRoiEditor({
   }
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled || !siteId || !cameraId || !dragStart) return
+    if (disabled || !cameraId || !dragStart) return
     const point = getPoint(event)
     if (dragPointIndex !== null) {
       const nextPoints = points.map((existing, index) => (index === dragPointIndex ? point : existing))
@@ -177,15 +172,15 @@ export function GuardRoomVehicleRoiEditor({
   const polyline = displayPoints.map((point) => `${point.x},${point.y}`).join(' ')
   const bbox = displayPoints.length ? pointsToRect(displayPoints) : []
   const roiArea = displayPoints.length >= 3 ? polygonArea(displayPoints) : 0
-  const valid = points.length >= 3
+  const valid = points.length === 0 || points.length >= 3
   const outOfBounds = points.some(
     (point) => point.x < 0 || point.y < 0 || point.x > imageSize.width || point.y > imageSize.height,
   )
-  const areaTooSmall = valid && roiArea < minRoiArea
+  const areaTooSmall = points.length >= 3 && roiArea < minRoiArea
   const canSave = valid && !outOfBounds && !areaTooSmall
 
   const useFullFrame = () => {
-    commitPoints(rectToPoints([0, 0, imageSize.width, imageSize.height]))
+    commitPoints([])
   }
 
   const clear = () => {
@@ -199,7 +194,7 @@ export function GuardRoomVehicleRoiEditor({
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-3 text-lg font-black text-[#10264d]">
+        <div className="flex items-center gap-3 text-lg font-black text-[#10264d] dark:text-slate-100">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-amber-500/20">
             <MousePointer2 className="h-5 w-5" />
           </span>
@@ -210,7 +205,7 @@ export function GuardRoomVehicleRoiEditor({
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setNonce(Date.now())} disabled={!siteId || !cameraId}>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => { setFrameError(false); setNonce(Date.now()) }} disabled={!cameraId}>
           <RefreshCw className="h-4 w-4" />
           刷新画面
         </Button>
@@ -226,8 +221,10 @@ export function GuardRoomVehicleRoiEditor({
             <img
               src={frameUrl}
               alt=""
-              className="block h-auto max-h-[70dvh] w-full object-contain"
+              className="block aspect-video max-h-[70dvh] w-full object-contain"
+              onError={() => setFrameError(true)}
               onLoad={(event) => {
+                setFrameError(false)
                 const image = event.currentTarget
                 setImageSize(safeImageSize({
                   width: image.naturalWidth || fallbackSize.width,
@@ -272,8 +269,9 @@ export function GuardRoomVehicleRoiEditor({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-4 py-4">
-        <div className="min-w-0 text-sm text-slate-600">
+      {frameError ? <p role="status" className="text-sm text-amber-700 dark:text-amber-300">摄像头画面不可用，可刷新重试；已保存的 ROI 保持不变。</p> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-4 py-4 dark:border-amber-900 dark:bg-amber-950/30">
+        <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">
           <div>{message || '车辆 ROI 修改后点击保存配置生效。'}</div>
           <div className="mt-1 font-mono text-xs text-slate-500">
             {bbox.length === 4 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px² · 顶点数: ${points.length}` : `顶点数: ${points.length}`}
@@ -297,11 +295,11 @@ export function GuardRoomVehicleRoiEditor({
             <Trash2 className="h-4 w-4" />
             清空
           </Button>
-          <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !siteId || !cameraId}>
+          <Button variant="outline" className="gap-2" onClick={useFullFrame} disabled={disabled || !cameraId}>
             <RotateCcw className="h-4 w-4" />
             全画面
           </Button>
-          <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={onSave} disabled={disabled || saving || !canSave || !siteId || !cameraId}>
+          <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={onSave} disabled={disabled || saving || !canSave || !cameraId}>
             <Save className="h-4 w-4" />
             {saving ? '保存中' : '保存ROI'}
           </Button>

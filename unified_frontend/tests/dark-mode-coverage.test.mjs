@@ -24,7 +24,7 @@ test('continues to read and persist the existing manual theme choice', () => {
 
 test('shared monitor views define their own dark surfaces and typography', async () => {
   for (const path of [
-    'src/components/guard_room/GuardMonitorUi.tsx',
+    'src/components/guard_behavior/GuardMonitorUi.tsx',
     'src/components/feature_dashboard/FeatureDashboardMonitorView.tsx',
     'src/components/human_dwell/HumanDwellMonitorView.tsx',
     'src/components/logistics_single_person/LogisticsChannelMonitorView.tsx',
@@ -76,11 +76,11 @@ test('detection page titles remain readable on dark surfaces', async () => {
 
 test('guard detection rules heading keeps contrast in dark mode', async () => {
   const [source, shared] = await Promise.all([
-    read('src/sections/ConfigSection.tsx'),
+    read('src/components/guard_behavior/PolicySettings.tsx'),
     read('src/components/detection/DetectionConfigUi.tsx'),
   ])
   assert.match(source, /title="检测参数"/)
-  assert.match(source, /tone="emerald"/)
+  assert.match(source, /tone="violet"/)
   assert.match(shared, /dark:from-slate-900/)
   assert.match(shared, /dark:to-slate-900/)
   assert.match(shared, /dark:text-slate-100/)
@@ -109,8 +109,7 @@ test('detection configuration headings remove light gradients in dark mode', asy
 
 test('guard and security workflow business cards support dark mode', async () => {
   for (const path of [
-    'src/sections/MonitorSection.tsx',
-    'src/sections/ConfigSection.tsx',
+    'src/components/guard_behavior/GuardMonitorView.tsx',
     'src/sections/SecurityVlmSection.tsx',
     'src/components/security-vlm/SecurityCameraBar.tsx',
   ]) {
@@ -140,18 +139,17 @@ test('remaining routed pages and shared configuration surfaces support dark mode
 })
 
 test('fixed navy labels and ranking bars remain visible on dark surfaces', async () => {
-  const config = await read('src/sections/ConfigSection.tsx')
+  const config = await read('src/components/guard_behavior/PolicySettings.tsx')
   const shared = await read('src/components/detection/DetectionConfigUi.tsx')
   const statistics = await read('src/sections/StatisticsSection.tsx')
-  assert.match(config, /text-\[#1a2e55\] dark:text-slate-100/)
+  assert.match(config, /DetectionConfigCardHeader/)
   assert.match(shared, /text-\[#0B1226\] dark:text-slate-100/)
   assert.match(statistics, /bg-slate-900 dark:bg-blue-500/)
 })
 
 test('every light indigo icon tile uses a dark variant in monitor views', async () => {
   for (const [path, expectedCount] of [
-    ['src/components/guard_room/GuardMonitorUi.tsx', 1],
-    ['src/sections/MonitorSection.tsx', 1],
+    ['src/components/guard_behavior/GuardMonitorUi.tsx', 1],
     ['src/components/feature_dashboard/FeatureDashboardMonitorView.tsx', 3],
     ['src/components/human_dwell/HumanDwellMonitorView.tsx', 3],
     ['src/components/logistics_single_person/LogisticsSinglePersonMonitorView.tsx', 3],
@@ -160,4 +158,12 @@ test('every light indigo icon tile uses a dark variant in monitor views', async 
     const matches = source.match(/bg-\[#EAF0FE\] text-\[#1B3FA0\] dark:bg-blue-950\/60 dark:text-blue-300/g) || []
     assert.equal(matches.length, expectedCount, path)
   }
+})
+
+
+test('Guard vehicle ROI retains an explicit dark amber editor surface', async () => {
+  const source = await read('src/components/guard_behavior/VehicleRoiEditor.tsx')
+  assert.match(source, /dark:bg-amber-950/)
+  assert.match(source, /dark:border-amber-900/)
+  assert.match(source, /dark:text-slate-100/)
 })

@@ -42,27 +42,26 @@ test('all ordinary pages scope camera lists, monitors and creation to the select
   }
 })
 
-test('guard and security configuration pages keep their camera creation entrypoints', async () => {
+test('Guard binds platform cameras while security retains its camera creation entrypoint', async () => {
   const [guardConfig, securityConfig] = await Promise.all([
-    readFrontendSource('src/sections/ConfigSection.tsx'),
+    readFrontendSource('src/components/guard_behavior/CameraMembership.tsx'),
     readFrontendSource('src/sections/SecurityVlmSection.tsx'),
   ])
 
-  assert.match(guardConfig, /await createGuardRoomSiteCamera\(site\.id, \{ name, rtsp_url: rtsp \}, department\)/)
-  assert.match(guardConfig, /<DialogTitle>添加摄像头<\/DialogTitle>/)
+  assert.match(guardConfig, /addCamera\(site\.id, Number\(selected\)\)/)
+  assert.doesNotMatch(guardConfig, /rtsp|createAiVisionCamera/i)
   assert.match(securityConfig, /await createSecurityVlmCamera\(department, name, rtspUrl\)/)
   assert.match(securityConfig, /onAdd=\{\(\) => void openCameraDialog\(null\)\}/)
 })
 
 test('camera mutations from every backend notify the shared overview inventory', async () => {
-  const [aiVision, guardRoom, securityVlm, platformStatus] = await Promise.all([
+  const [aiVision, securityVlm, platformStatus] = await Promise.all([
     readFrontendSource('src/lib/aivision.ts'),
-    readFrontendSource('src/lib/api.ts'),
     readFrontendSource('src/lib/security-vlm.ts'),
     readFrontendSource('src/hooks/use-overview.ts'),
   ])
 
-  for (const source of [aiVision, guardRoom, securityVlm]) {
+  for (const source of [aiVision, securityVlm]) {
     assert.match(source, /notifyPlatformCamerasChanged\(\)/)
   }
   assert.match(aiVision, /\/api\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)
@@ -71,8 +70,9 @@ test('camera mutations from every backend notify the shared overview inventory',
 })
 
 
-test('camera queries and Guard mutations transmit explicit department context', async () => {
+test('camera queries and native Guard APIs transmit the formal resource contracts', async () => {
   const calls = []
+  const cache = new Map()
   const compile = (source) => ts.transpileModule(source.replaceAll('import.meta.env', '({})'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
@@ -84,8 +84,8 @@ test('camera queries and Guard mutations transmit explicit department context', 
         return { ok: true, status: 200, json: async () => [] }
       },
       require(name) {
+        if (name === '@/lib/api') return cache.get(name)
         if (name === '@/lib/camera-events') return { notifyPlatformCamerasChanged() {} }
-        if (name === '@/lib/runtime-events') return { notifyPlatformRuntimeChanged() {} }
         if (name === '@/lib/horn-alarm-binding') return { validateHornBinding() {} }
         throw new Error(`unexpected import: ${name}`)
       },
@@ -93,42 +93,52 @@ test('camera queries and Guard mutations transmit explicit department context', 
     vm.runInNewContext(compile(await readFrontendSource(path)), context)
     return context.exports
   }
+  cache.set('@/lib/api', await load('src/lib/api.ts'))
   const ai = await load('src/lib/aivision.ts')
-  const guard = await load('src/lib/api.ts')
-  const catalog = await load('src/auth/permissions.ts')
-  for (const department of catalog.DEPARTMENTS) {
-    calls.length = 0
-    await ai.getAiVisionCameras(department)
-    await guard.getGuardRoomSites(department)
-    await guard.updateGuardRoomSite(12, { name: '当前站点' }, department)
-    await guard.deleteGuardRoomSite(12, department)
-    await guard.saveGuardRoomSiteConfig(12, {}, department)
-    await guard.startGuardRoomSiteRuntime(12, department)
-    await guard.stopGuardRoomSiteRuntime(12, department)
-    await guard.restartGuardRoomSiteRuntime(12, department)
-    await guard.createGuardRoomSiteCamera(12, { name: '当前摄像头', rtsp_url: 'rtsp://camera' }, department)
-    await guard.updateGuardRoomCamera(23, { name: '更新名称' }, department)
-    await guard.deleteGuardRoomCamera(23, department)
-    const expected = [
-      ['GET', '/api/cameras'], ['GET', '/api/guard-room/sites'],
-      ['PUT', '/api/guard-room/sites/12'], ['DELETE', '/api/guard-room/sites/12'],
-      ['POST', '/api/guard-room/sites/12/config'], ['POST', '/api/guard-room/sites/12/control/start'],
-      ['POST', '/api/guard-room/sites/12/control/stop'], ['POST', '/api/guard-room/sites/12/control/restart'],
-      ['POST', '/api/guard-room/sites/12/cameras'],
-      ['PUT', '/api/guard-room/cameras/23'],
-      ['DELETE', '/api/guard-room/cameras/23'],
-    ]
-    assert.equal(calls.length, expected.length)
-    calls.forEach(({ url, options }, index) => {
-      assert.equal(url, `${expected[index][1]}?department=${department}`)
-      assert.equal(options.method ?? 'GET', expected[index][0])
-      assert.equal(options.credentials, 'include')
-    })
-    calls.length = 0
-    await ai.saveAiVisionCameraOrder(department, [3, 7, 2])
-    assert.equal(calls[0].url, '/api/cameras/order')
-    assert.equal(calls[0].options.method, 'PUT')
-    assert.equal(calls[0].options.credentials, 'include')
-    assert.deepEqual(JSON.parse(calls[0].options.body), { department, camera_ids: [3, 7, 2] })
-  }
+  const guard = await load('src/components/guard_behavior/api.ts')
+  await ai.getAiVisionCameras('general_electric')
+  const signal = new AbortController().signal
+  await guard.getSites('general_electric', signal)
+  await guard.getSite(12)
+  await guard.createSite({ name: '南门', department: 'general_electric' })
+  await guard.updateSite(12, { enabled: false, sort_order: 3 })
+  await guard.getMembers(12)
+  await guard.addCamera(12, 23)
+  await guard.reorderCameras(12, [23, 24])
+  await guard.setCameraEnabled(12, 23, false)
+  await guard.getPolicy(12)
+  await guard.updatePolicy(12, { phone_seconds: 4 })
+  await guard.getRoi(12, 23)
+  await guard.updateRoi(12, 23, [])
+  await guard.getAlarmPolicies(12)
+  await guard.updateAlarmPolicy(12, 9, { sql_enable: true })
+  await guard.getSiteStatus(12)
+  await guard.removeCamera(12, 23)
+  await guard.deleteSite(12)
+  const prefix = '/api/guard-behavior/sites'
+  const expected = [
+    ['GET', '/api/cameras?department=general_electric'], ['GET', `${prefix}?department=general_electric`],
+    ['GET', `${prefix}/12`], ['POST', prefix], ['PATCH', `${prefix}/12`],
+    ['GET', `${prefix}/12/cameras`], ['POST', `${prefix}/12/cameras`],
+    ['PUT', `${prefix}/12/cameras/order`], ['PUT', `${prefix}/12/cameras/23/enabled`],
+    ['GET', `${prefix}/12/policy`], ['PATCH', `${prefix}/12/policy`],
+    ['GET', `${prefix}/12/cameras/23/roi`], ['PUT', `${prefix}/12/cameras/23/roi`],
+    ['GET', `${prefix}/12/alarm-policies`], ['PATCH', `${prefix}/12/alarm-policies/9`],
+    ['GET', `${prefix}/12/status`], ['DELETE', `${prefix}/12/cameras/23`], ['DELETE', `${prefix}/12`],
+  ]
+  assert.equal(calls.length, expected.length)
+  calls.forEach(({ url, options }, index) => {
+    assert.equal(url, expected[index][1])
+    assert.equal(options.method ?? 'GET', expected[index][0])
+    assert.equal(options.credentials, 'include')
+  })
+  assert.equal(calls[1].options.signal, signal)
+  assert.deepEqual(JSON.parse(calls[6].options.body), { camera_id: 23 })
+  assert.deepEqual(JSON.parse(calls[7].options.body), { camera_ids: [23, 24] })
+  assert.deepEqual(JSON.parse(calls[12].options.body), { vehicle_roi_pos: [] })
+  assert.deepEqual(JSON.parse(calls[14].options.body), { sql_enable: true })
+  assert.equal(guard.siteFrameUrl(12), `${prefix}/12/frame.jpg`)
+  calls.length = 0
+  await ai.saveAiVisionCameraOrder('general_electric', [3, 7, 2])
+  assert.deepEqual(JSON.parse(calls[0].options.body), { department: 'general_electric', camera_ids: [3, 7, 2] })
 })

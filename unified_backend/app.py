@@ -1575,7 +1575,7 @@ def create_app() -> FastAPI:
         # 仅发布正式资源，内部集成入口和已移除的路径不对浏览器开放。
         if path.split("/", 1)[0] not in {
             "departments", "cameras", "features", "models", "face-recognition",
-            "logistics-channels", "alarms", "horns", "runtime", "exception-alert", "public",
+            "logistics-channels", "guard-behavior", "alarms", "horns", "runtime", "exception-alert", "public",
         }:
             raise HTTPException(status_code=404, detail="Not Found")
         return await _proxy(request, aivision_url, f"/api/{path}")

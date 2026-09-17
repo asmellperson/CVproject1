@@ -804,6 +804,7 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
         raise RuntimeError("巡检线程停止超时")
 
     orchestrator.logistics_channel_runtime = SimpleNamespace(stop=fail_logistics_stop)
+    orchestrator.guard_behavior_runtime = SimpleNamespace(stop=lambda: calls.append("guard"))
     orchestrator.horn_runtime_manager = SimpleNamespace(stop=lambda: calls.append("horn"))
     orchestrator.camera_runtime_manager = SimpleNamespace(stop_all=lambda: calls.append("camera"))
     monkeypatch.setattr(
@@ -828,6 +829,7 @@ def test_stop_continues_all_cleanup_after_logistics_runtime_failure(monkeypatch,
     assert calls == [
         "consumer",
         "logistics",
+        "guard",
         "inference",
         "horn",
         "violation",

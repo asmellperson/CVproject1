@@ -43,6 +43,8 @@ from AiVision.inference.model_registry import MODEL_SPECS
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
 from AiVision.features.logistics_channel.service import logistics_channel_service
+from AiVision.features.guard_behavior.runtime import GuardBehaviorSiteRuntime
+from AiVision.features.guard_behavior.service import GuardBehaviorService
 from AiVision.alarms.devices.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.alarms.records.service import violation_writer                  # 写入违规记录
 from AiVision.alarms.evidence.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
@@ -86,6 +88,12 @@ class Orchestrator:
             dispatcher=alarm_dispatcher,                          # 统一告警模块
             is_camera_active=frame_reader_registry.is_active,     # 摄像头存活函数，传函数名，需要调用的时候自己调用
             frame_provider=lambda shm_name: frame_reader_registry.latest_frames.get(shm_name),   # 获取摄像头最新画面函数
+            evidence_recorder=alarm_evidence_recorder,
+        )
+
+        # 仅创建 Site 聚合层；Consumer 与模型仍由正式 Feature registry 决定。
+        self.guard_behavior_runtime = GuardBehaviorSiteRuntime(
+            service=GuardBehaviorService(), dispatcher=alarm_dispatcher,
             evidence_recorder=alarm_evidence_recorder,
         )
 
@@ -170,6 +178,8 @@ class Orchestrator:
             evidence_recorder=alarm_evidence_recorder,  # 报警视频模块
         )
 
+        self.guard_behavior_runtime.start()
+
         # 6) 推理 Worker 进程
         inference_runtime_manager.initialize_queues()         # 创建模型任务队列
         inference_runtime_manager.configure_runtime_monitor(self._monitor_consumer_threads)
@@ -207,6 +217,11 @@ class Orchestrator:
             self.logistics_channel_runtime.stop()   # 停止物流通道
         except Exception as e:
             logger.warning(f"[Orchestrator] 停止物流通道运行时失败，将继续清理其余资源: {e}")
+
+        try:
+            self.guard_behavior_runtime.stop()
+        except Exception as exc:
+            logger.warning(f"[Orchestrator] 停止保安室运行时失败，将继续清理其余资源: {exc}")
 
         try:
             # 2、停止模型推理进程

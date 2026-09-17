@@ -52,3 +52,18 @@ def get_horn_runtime_manager():
     """获取与 Orchestrator 共用的喇叭运行管理器。"""
     from AiVision.alarms.devices.runtime_manager import horn_runtime_manager
     return horn_runtime_manager
+
+
+def get_guard_behavior_service():
+    from AiVision.features.guard_behavior.service import GuardBehaviorService
+    return GuardBehaviorService()
+
+
+def get_guard_behavior_runtime():
+    # 配置 API 在编排器启动前也可用，运行数据由各读取入口明确降级。
+    from AiVision.runtime.orchestrator import get_orchestrator
+    try:
+        orchestrator = get_orchestrator()
+    except RuntimeError:
+        return None
+    return orchestrator.guard_behavior_runtime

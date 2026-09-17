@@ -13,7 +13,8 @@ export type ImagePoint = {
   y: number
 }
 
-export type VehicleRoiPoint = [number, number]
+import type { VehicleRoiPoint } from './types'
+export type { VehicleRoiPoint } from './types'
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
@@ -30,15 +31,9 @@ export function safeImageSize(size: Size): Size {
   }
 }
 
-export function normalizeVehicleRoi(points: VehicleRoiPoint[] | undefined): VehicleRoiPoint[] {
-  return (points || [])
-    .filter((point) => Array.isArray(point) && point.length >= 2)
-    .map(([x, y]) => [clamp(Number(x) || 0, 0, 1), clamp(Number(y) || 0, 0, 1)] as VehicleRoiPoint)
-}
-
-export function vehicleRoiToImagePoints(points: VehicleRoiPoint[] | undefined, size: Size): ImagePoint[] {
+export function vehicleRoiToImagePoints(points: VehicleRoiPoint[], size: Size): ImagePoint[] {
   const imageSize = safeImageSize(size)
-  return normalizeVehicleRoi(points).map(([x, y]) => ({
+  return points.map(([x, y]) => ({
     x: Math.round(x * imageSize.width),
     y: Math.round(y * imageSize.height),
   }))
@@ -50,24 +45,6 @@ export function imagePointsToVehicleRoi(points: ImagePoint[], size: Size): Vehic
     roundRatio(clamp(point.x / imageSize.width, 0, 1)),
     roundRatio(clamp(point.y / imageSize.height, 0, 1)),
   ])
-}
-
-export function parseVehicleRoiText(text: string): VehicleRoiPoint[] {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [xRaw, yRaw] = line.split(',').map((item) => Number(item.trim()))
-      return [xRaw, yRaw] as VehicleRoiPoint
-    })
-    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1)
-}
-
-export function formatVehicleRoiText(points: VehicleRoiPoint[] | undefined): string {
-  return normalizeVehicleRoi(points)
-    .map(([x, y]) => `${x},${y}`)
-    .join('\n')
 }
 
 export function polygonArea(points: ImagePoint[]) {

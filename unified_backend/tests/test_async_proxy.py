@@ -493,6 +493,9 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             "models/yolo_human/path",
             request,
         )
+        await routes["proxy_aivision_root_api"].endpoint(
+            "guard-behavior/sites/12/policy", request,
+        )
 
     asyncio.run(scenario())
 
@@ -517,6 +520,7 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
             "http://aivision:7862",
             "/api/models/yolo_human/path",
         ),
+        (request, "http://aivision:7862", "/api/guard-behavior/sites/12/policy"),
     ]
 
     assert "PATCH" in routes["proxy_aivision_root_api"].methods

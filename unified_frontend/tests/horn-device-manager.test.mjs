@@ -321,7 +321,7 @@ test('all runtime states have distinct labels', () => {
 
 test('each detection configuration uses the single public horn container', async () => {
   const paths = ['FaceDetectionSection', 'HumanDetectionSection', 'IntrusionDetectionSection',
-    'PhoneDetectionSection', 'DoorDetectionSection', 'ConfigSection', 'SecurityVlmSection'].map((name) => `sections/${name}.tsx`)
+    'PhoneDetectionSection', 'DoorDetectionSection', 'SecurityVlmSection'].map((name) => `sections/${name}.tsx`)
   paths.push('components/logistics_single_person/LogisticsChannelConfigView.tsx')
   for (const path of paths) {
     const content = await source(path)
@@ -333,10 +333,9 @@ test('each detection configuration uses the single public horn container', async
   for (const suffix of ['']) {
     assert.match(await source(`sections/LogisticsSinglePerson${suffix}DetectionSection.tsx`), /<LogisticsChannelSection/)
   }
-  assert.match(await source('sections/GuardBehaviorSection.tsx'), /<ConfigSection/)
-  const guard = await source('sections/ConfigSection.tsx')
-  assert.match(guard, /!site && activeTab !== 'sites' && activeTab !== 'horns'/)
-  assert.match(guard, /activeTab !== 'sites' && activeTab !== 'horns' && site/)
+  assert.match(await source('sections/GuardBehaviorSection.tsx'), /<GuardConfigView/)
+  const guard = await source('components/guard_behavior/AlarmPolicies.tsx')
+  assert.match(guard, /<HornDeviceManager/)
   const tabs = moduleOf('components/detection/DetectionConfigTabs.tsx')
   const tree = tabs.DetectionConfigTabs({ defaultValue: 'horns', tabs: [], children: null })
   assert.equal(nodes(tree).filter((node) => node?.type === 'HornDeviceManager').length, 1)

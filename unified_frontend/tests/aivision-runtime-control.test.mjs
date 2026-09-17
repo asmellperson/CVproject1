@@ -36,19 +36,9 @@ test('exception alert settings use the dedicated API route', async () => {
   assert.match(api, /\/api\/exception-alert/)
 })
 
-test('guard configuration saves without implicitly starting a manually stopped site', async () => {
-  const [config, monitor, guardPage, runtime] = await Promise.all([
-    read('src/sections/ConfigSection.tsx'),
-    read('src/sections/MonitorSection.tsx'),
-    read('src/sections/GuardBehaviorSection.tsx'),
-    read('src/components/guard_room/GuardRoomRuntimeControl.tsx'),
-  ])
-
-  assert.match(config, /if \(site\.enabled\)/)
-  assert.match(config, /配置已保存，检测保持关闭/)
-  assert.doesNotMatch(monitor, /startGuardRoomSiteRuntime|stopGuardRoomSiteRuntime/)
-  assert.match(runtime, /startGuardRoomSiteRuntime\(site\.id, department\)/)
-  assert.match(runtime, /stopGuardRoomSiteRuntime\(site\.id, department\)/)
-  assert.match(runtime, /await onChanged\(\)/)
-  assert.match(guardPage, /onChanged=\{loadSites\}/)
+test('Guard has no manual runtime controls or save-and-restart flow', async () => {
+  for (const path of ['src/sections/GuardBehaviorSection.tsx', 'src/components/guard_behavior/GuardConfigView.tsx', 'src/components/guard_behavior/GuardMonitorView.tsx', 'src/components/guard_behavior/api.ts']) {
+    const source = await read(path)
+    assert.doesNotMatch(source, /RuntimeControl|waitUntilRunning|\/control\/|startGuard|stopGuard|restartGuard/)
+  }
 })

@@ -1,6 +1,5 @@
 import {
   imagePointsToVehicleRoi,
-  parseVehicleRoiText,
   vehicleRoiToImagePoints,
 } from './vehicleRoiGeometry'
 
@@ -37,13 +36,5 @@ assertDeepEqual(
   [
     [0.25, 0.5],
     [1, 0],
-  ],
-)
-
-assertDeepEqual(
-  parseVehicleRoiText('0.1,0.2\nbad\n1.2,0.3\n0.4, 0.5'),
-  [
-    [0.1, 0.2],
-    [0.4, 0.5],
   ],
 )
