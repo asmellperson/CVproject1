@@ -11,6 +11,9 @@ import yaml
 from .state import TrackedPerson
 
 
+_TRACK_BUFFER_REFERENCE_FPS = 30
+
+
 @lru_cache(maxsize=1)
 def _tracker_types():
     # Ultralytics 在缺少 lap 时会尝试安装；提前检查，保持运行过程离线。
@@ -33,10 +36,10 @@ def _tracker_types():
             return self._allocate_id()
 
     class LocalBYTETracker(BYTETracker):
-        def __init__(self, args, frame_rate):
+        def __init__(self, args):
             # 官方构造函数会动态调用 reset_id，必须先建立实例计数器。
             self.next_track_id = 1
-            super().__init__(args, frame_rate=frame_rate)
+            super().__init__(args)
 
         def _allocate_id(self):
             track_id = self.next_track_id
@@ -76,7 +79,10 @@ class CameraByteTracker:
 
     def __init__(self, fps: float):
         tracker_type, self._boxes_type = _tracker_types()
-        self.tracker = tracker_type(_default_arguments(), frame_rate=max(1, round(fps)))
+        args = _default_arguments()
+        # 上游直接接收缓冲帧数；在边界保留按 Camera FPS 换算的丢失保留时长。
+        args.track_buffer = int(max(1, round(fps)) / _TRACK_BUFFER_REFERENCE_FPS * args.track_buffer)
+        self.tracker = tracker_type(args)
 
     def reset(self) -> None:
         # 官方 reset 负责轨迹、Kalman 与帧号清理；只覆盖其 ID 重置动作。

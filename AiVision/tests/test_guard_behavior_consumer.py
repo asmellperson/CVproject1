@@ -350,6 +350,13 @@ def test_bytetrack_installed_versions_match_declared_pins(package_name):
     assert installed == version(package_name)
     assert installed in requirements[package_name].specifier
     assert str(requirements[package_name].specifier) == f"=={installed}"
+    # 所有安装入口必须锁定同一接口版本，不能只验证开发环境的 pyproject。
+    manifest = path.with_name("requirements.txt")
+    declared = {item.name: item for item in (
+        Requirement(line) for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#"))}
+    assert package_name in declared, f"{manifest.name} 缺少 {package_name}"
+    assert declared[package_name].specifier == requirements[package_name].specifier, manifest.name
 
 
 @pytest.mark.parametrize("lap_state", ["missing", "missing_version", "empty_version"])
@@ -381,6 +388,20 @@ def test_bytetrack_rejects_unusable_lap_before_upstream_auto_install(monkeypatch
             tracking.CameraByteTracker(10.)
     finally:
         tracking._tracker_types.cache_clear()
+
+
+@pytest.mark.parametrize("fps,buffer_frames", [(1., 1), (10., 10), (25., 25), (60., 60)])
+def test_real_bytetrack_constructor_preserves_camera_buffer_duration(fps, buffer_frames):
+    from AiVision.features.guard_behavior.tracking import CameraByteTracker
+
+    wrapper = CameraByteTracker(fps)
+    tracker = wrapper.tracker
+    assert tracker.args.track_buffer == tracker.max_frames_lost == buffer_frames
+    assert wrapper.update([tracker_person()], (1000, 1000, 3))[0].track_id == 1
+    wrapper.reset()
+    assert tracker.max_frames_lost == buffer_frames
+    assert not tracker.tracked_stracks and tracker.frame_id == 0
+    assert wrapper.update([tracker_person()], (1000, 1000, 3))[0].track_id == 1
 
 
 def test_real_bytetrack_ids_are_stable_and_independent_across_cameras(monkeypatch):
@@ -437,9 +458,9 @@ def test_matching_lost_reassociation_and_removal_use_official_bytetrack():
     wrapper = CameraByteTracker(10.)
     tracker = wrapper.tracker
     assert isinstance(tracker, BYTETracker)
-    for name in ("update", "reset", "get_kalmanfilter", "get_dists", "multi_predict",
-                 "joint_stracks", "sub_stracks", "remove_duplicate_stracks"):
-        assert getattr(type(tracker), name) is getattr(BYTETracker, name)
+    for name in vars(BYTETracker):
+        if name not in {"__init__", "init_track", "reset_id"} and callable(getattr(BYTETracker, name)):
+            assert getattr(type(tracker), name) is getattr(BYTETracker, name)
     assert wrapper.update([tracker_person()], (1000, 1000, 3))[0].track_id == 1
     track = tracker.tracked_stracks[0]
     for name in ("activate", "re_activate", "update", "predict", "multi_predict"):
@@ -487,6 +508,7 @@ def test_consumer_snapshot_reaches_site_runtime_and_formal_dispatcher(consumer, 
     from AiVision.features.guard_behavior.runtime import GuardBehaviorSiteRuntime
     from test_guard_behavior_runtime import FakeEvidence, site_config
 
+    monkeypatch.setattr(consumer.consumer, "_persons", GuardBehaviorConsumer._persons.__get__(consumer.consumer))
     config = site_config(absent_alarm_seconds=1.)
     config = config.model_copy(update={"alarm_policies": tuple(
         policy.model_copy(update={"sql_enable": True}) for policy in config.alarm_policies)})
