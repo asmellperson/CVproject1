@@ -319,6 +319,60 @@ def tracker_person(x=20.):
     return {"bbox": (x, 20., x + 60., 180.), "confidence": .9}
 
 
+@pytest.mark.parametrize("package_name", ["ultralytics", "lap"])
+def test_bytetrack_installed_versions_match_declared_pins(package_name):
+    import importlib
+    from importlib.metadata import version
+    from pathlib import Path
+    import sys
+    from packaging.requirements import Requirement
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        # Python 3.10 使用 pytest 已声明的 tomli 依赖读取同一份 TOML。
+        import tomli as tomllib
+
+    path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+    requirements = {item.name: item for item in map(Requirement, project["dependencies"])}
+    installed = importlib.import_module(package_name).__version__
+    assert installed == version(package_name)
+    assert installed in requirements[package_name].specifier
+    assert str(requirements[package_name].specifier) == f"=={installed}"
+
+
+@pytest.mark.parametrize("lap_state", ["missing", "missing_version", "empty_version"])
+def test_bytetrack_rejects_unusable_lap_before_upstream_auto_install(monkeypatch, lap_state):
+    import builtins
+    import subprocess
+    from AiVision.features.guard_behavior import tracking
+
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "lap":
+            if lap_state == "missing":
+                raise ModuleNotFoundError("lap")
+            return SimpleNamespace() if lap_state == "missing_version" else SimpleNamespace(__version__="")
+        if name == "ultralytics" or name.startswith("ultralytics."):
+            pytest.fail("无有效 lap 时必须在上游导入及自动安装之前失败")
+        return original_import(name, *args, **kwargs)
+
+    def forbidden_process(*args, **kwargs):
+        pytest.fail("运行时不得启动 pip 或其他依赖安装进程")
+
+    # 强制走首次构造，不能让已缓存的 Tracker 类型绕过依赖检查。
+    tracking._tracker_types.cache_clear()
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(subprocess, "Popen", forbidden_process)
+    try:
+        with pytest.raises(RuntimeError, match="禁止运行时下载安装"):
+            tracking.CameraByteTracker(10.)
+    finally:
+        tracking._tracker_types.cache_clear()
+
+
 def test_real_bytetrack_ids_are_stable_and_independent_across_cameras(monkeypatch):
     from AiVision.features.guard_behavior.tracking import CameraByteTracker
     from ultralytics.trackers.basetrack import BaseTrack
