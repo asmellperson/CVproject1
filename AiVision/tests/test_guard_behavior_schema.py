@@ -144,16 +144,21 @@ def test_data_package_import_does_not_register_feature_alarm_types_or_start_mode
                 if fullname.startswith('AiVision.integrations.') or fullname.split('.')[0] in {'torch', 'timm', 'ultralytics'}:
                     raise AssertionError('forbidden dependency: ' + fullname)
         sys.meta_path.insert(0, ImportBoundary())
-        from AiVision.features.guard_behavior import constants, orm, schema, service
+        from AiVision.features.guard_behavior import constants, orm, schema, service, tracking
+        from AiVision.features.guard_behavior.spec import SPEC
         from AiVision.core import db
         from AiVision.features.registry import all_specs
         from AiVision.alarms.types import VIOLATION_TYPE_META
         from AiVision.inference.runtime_manager import InferenceRuntimeManager
         assert 'guard_behavior' not in all_specs()
         assert set(VIOLATION_TYPE_META) == set(range(1, 8))
+        assert SPEC.name == 'guard_behavior' and SPEC.alarm_types == (8, 9, 10, 11)
+        assert SPEC.required_models == ('yolo_guard_person_phone', 'guard_uniform')
+        assert SPEC.optional_models == ('yolo_guard_pose', 'yolo_vehicle')
         manager = InferenceRuntimeManager()
         future = {'guard_uniform', 'yolo_guard_pose', 'yolo_guard_person_phone', 'yolo_vehicle'}
         assert not manager._required_model_names().intersection(future)
+        assert not manager._declared_model_names().intersection(future)
         assert not manager._workers and not db._engine and not db._session_factory
         assert service.GuardBehaviorService()
     """)
@@ -164,10 +169,24 @@ def test_data_package_import_does_not_register_feature_alarm_types_or_start_mode
 
 def test_data_package_contains_only_expected_modules_and_no_retired_dependencies():
     directory = Path(__file__).resolve().parents[1] / "features" / "guard_behavior"
-    assert {path.name for path in directory.glob("*.py")} == {"__init__.py", "constants.py", "orm.py", "schema.py", "service.py"}
+    assert {path.name for path in directory.glob("*.py")} == {
+        "__init__.py", "constants.py", "orm.py", "schema.py", "service.py", "spec.py",
+        "consumer.py", "state.py", "behavior.py", "pose_features.py", "tracking.py",
+    }
     forbidden = ("AiVision.integrations.guard_room", "GuardRoomSite", "GuardRoomCamera", "GuardRoomSiteConfig", "AppConfig")
     for path in directory.glob("*.py"):
         source = path.read_text()
         assert not any(name in source for name in forbidden)
         imports = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)]
         assert not any((node.module or "").startswith("AiVision.features.logistics_channel") for node in imports)
+
+
+def test_camera_feature_schema_contains_only_enable_and_vehicle_roi():
+    from AiVision.features.guard_behavior.schema import GuardBehaviorCameraConfigSchema
+
+    assert GuardBehaviorCameraConfigSchema().model_dump() == {"enable": False, "value": {"vehicle_roi_pos": []}}
+    assert GuardBehaviorCameraConfigSchema.model_validate({"enable": True, "value": {"vehicle_roi_pos": []}}).enable
+    for payload in ({"roi_pos": []}, {"policy": {}}, {"value": {"cap_interval": 1}},
+                    {"value": {"vehicle_roi_pos": [[20, 30], [40, 30], [40, 50]]}}):
+        with pytest.raises(ValueError):
+            GuardBehaviorCameraConfigSchema.model_validate(payload)

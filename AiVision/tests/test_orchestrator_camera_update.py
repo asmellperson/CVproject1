@@ -34,6 +34,40 @@ def _orchestrator_without_init():
     return orchestrator
 
 
+def test_consumer_start_and_health_require_only_core_models(monkeypatch):
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+
+    module = importlib.import_module("AiVision.runtime.orchestrator")
+    running = []
+
+    class Consumer:
+        def __init__(self, **kwargs):
+            self.spec = kwargs["spec"]
+            self.running = False
+
+        def start(self):
+            self.running = True
+
+    spec = replace(all_specs()["blocks"], consumer_cls=Consumer,
+                   required_models=("core",), optional_models=("optional",))
+    orchestrator = _orchestrator_without_init()
+    orchestrator._started = True
+    orchestrator.camera_runtime_manager = SimpleNamespace(list_running=lambda: [])
+    orchestrator._send_system_exception_alert = lambda *_: None
+    monkeypatch.setattr(module.inference_runtime_manager, "list_running", lambda: running)
+    monkeypatch.setattr(module.inference_runtime_manager, "runtime_status", lambda: {})
+    monkeypatch.setattr(module.inference_runtime_manager, "infer_queues", {})
+    monkeypatch.setattr(module.inference_runtime_manager, "result_queues", {spec.name: None})
+    with pytest.raises(RuntimeError, match="core"):
+        orchestrator._start_consumer(spec.name, spec)
+    running.append("core")
+    assert orchestrator._start_consumer(spec.name, spec).running
+    assert orchestrator.runtime_status()["running_consumers"] == [spec.name]
+    running.clear()
+    assert orchestrator.runtime_status()["running_consumers"] == []
+
+
 # 功能：验证 `test_runtime_status_exposes_worker_and_consumer_inference_state` 对应的摄像头逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `monkeypatch`（未显式标注）：`monkeypatch` 对应的业务输入值

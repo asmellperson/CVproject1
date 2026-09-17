@@ -483,19 +483,33 @@ class InferenceRuntimeManager:
             raise ValueError(f"Feature 引用了未注册模型: {sorted(unknown)}")
         return required
 
+    @staticmethod
+    def _declared_model_names() -> set[str]:
+        declared = {name for spec in all_specs().values() for name in spec.model_names}
+        unknown = declared - MODEL_SPECS.keys()
+        if unknown:
+            raise ValueError(f"Feature 引用了未注册模型: {sorted(unknown)}")
+        return declared
+
     def _build_model_groups(self) -> tuple[dict[str, dict], dict[str, str]]:
         required = self._required_model_names()
+        declared = self._declared_model_names()
         paths = load_model_paths()
         groups, owners, identities = {}, {}, {}
         for name, spec in MODEL_SPECS.items():
-            if name not in required:
+            if name not in declared:
                 continue
             path = paths.get(name, "")
             try:
                 resolved = Path(validate_model_path(path, model_type=spec.type))
                 info = resolved.stat()
                 identity = (spec.worker_class, info.st_dev, info.st_ino)
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                # 可选模型没有合法本机路径时不创建 Worker，也不进入重试循环。
+                if name not in required:
+                    if path:
+                        logger.warning(f"[InferenceRuntimeManager] 可选模型 {name} 路径不可用: {exc}")
+                    continue
                 identity = (name,)
             owner = identities.setdefault(identity, name)
             owners[name] = owner
@@ -525,10 +539,10 @@ class InferenceRuntimeManager:
         with self._configuration_lock:
             if self._reload_thread is not None and self._reload_thread.is_alive():
                 raise RuntimeError("已有模型正在重载，请等待加载完成后再保存")
-            required = name in self._required_model_names()
+            declared = name in self._declared_model_names()
             saved_path = save_model_path(name, path)
             with self._lock:
-                active = self._active and not self._shutting_down and required
+                active = self._active and not self._shutting_down and declared
                 self._reload_results[name] = {
                     "status": "loading" if active else "not_started", "error": "",
                 }
@@ -549,7 +563,7 @@ class InferenceRuntimeManager:
         affected = {name}
         with self._lifecycle_lock:
             try:
-                if not self._active or self._shutting_down or name not in self._required_model_names():
+                if not self._active or self._shutting_down or name not in self._declared_model_names():
                     with self._lock:
                         self._reload_results[name] = {"status": "not_started", "error": ""}
                     return
@@ -582,7 +596,9 @@ class InferenceRuntimeManager:
                         self._model_configs.pop(owner, None)
                         self._worker_states.pop(owner, None)
                     self._model_configs.update(new_groups)
-                    self._model_owners.update({key: owners[key] for key in affected})
+                    for key in affected:
+                        self._model_owners.pop(key, None)
+                    self._model_owners.update({key: owners[key] for key in affected if key in owners})
                     for owner in new_groups:
                         self._worker_states[owner] = WorkerWatchdogState()
                 for key in affected:
@@ -592,6 +608,9 @@ class InferenceRuntimeManager:
                 self._wait_for_workers_ready(set(new_groups))
                 with self._lock:
                     for key in affected:
+                        if key not in owners:
+                            self._reload_results[key] = {"status": "not_started", "error": ""}
+                            continue
                         owner = owners[key]
                         worker = self._workers.get(owner)
                         running = worker is not None and worker.is_running()
@@ -606,6 +625,14 @@ class InferenceRuntimeManager:
                         self._reload_results[key] = {"status": "failed", "error": str(exc)}
 
     # ---------- 状态查询 ----------
+    def is_model_running(self, name: str) -> bool:
+        """按逻辑模型查询共享物理 Worker，不启动或加载模型。"""
+        get_model_spec(name)
+        with self._lock:
+            owner = self._model_owners.get(name)
+            worker = self._workers.get(owner)
+            return worker is not None and worker.is_running()
+
     def list_running(self) -> list[str]:
         with self._lock:
             return [name for name, owner in self._model_owners.items()

@@ -80,6 +80,36 @@ def data_db(monkeypatch):
     engine.dispose()
 
 
+def test_runtime_configuration_is_detached_read_only_and_preserves_flags(data_db):
+    db = data_db
+    service = db.service
+    site = service.create_site("runtime", DEPARTMENT)
+    camera_id = db.camera()
+    assert service.get_runtime_camera_config(camera_id) is None
+    service.add_camera(site["id"], camera_id)
+    service.update_camera_roi(site["id"], camera_id, {"vehicle_roi_pos": [[0., 0.], [1., 0.], [0., 1.]]})
+    service.set_camera_enabled(site["id"], camera_id, False)
+    service.update_site(site["id"], {"enabled": False})
+    snapshot = service.get_runtime_camera_config(camera_id)
+    assert snapshot == service.list_runtime_camera_configs()[0]
+    assert snapshot.camera_id == camera_id and snapshot.camera_name == "camera-1"
+    assert snapshot.shm_name == "guard-test-1" and snapshot.fps == 7
+    assert snapshot.site_id == site["id"] and snapshot.site_name == "runtime"
+    assert not snapshot.site_enabled and not snapshot.member_enabled and snapshot.feature_enabled
+    assert snapshot.vehicle_roi_pos == ((0., 0.), (1., 0.), (0., 1.))
+    assert db.sessions[-1].closed
+    assert "url" not in snapshot.model_dump()
+    with pytest.raises(ValueError):
+        snapshot.camera_name = "mutated"
+    with pytest.raises(ValueError):
+        snapshot.policy.cap_interval = 5
+    service.update_policy(site["id"], {"cap_interval": 0.5})
+    assert snapshot.policy.cap_interval == SITE_POLICY_DEFAULTS["cap_interval"]
+    assert service.get_runtime_camera_config(camera_id).policy.cap_interval == 0.5
+    service.remove_camera(site["id"], camera_id)
+    assert service.list_runtime_camera_configs() == []
+
+
 def site(data_db, name="南门", department=DEPARTMENT):
     return data_db.service.create_site(name, department)["id"]
 

@@ -415,7 +415,7 @@ def test_startup_rejects_unregistered_feature_model(fixed_runtime, monkeypatch):
     manager, _, _, _ = fixed_runtime
     manager.stop_all()
     monkeypatch.setattr(manager_module, "all_specs", lambda: {
-        "test": SimpleNamespace(required_models=["custom"])
+        "test": SimpleNamespace(required_models=("custom",), model_names=("custom",))
     })
     with pytest.raises(ValueError, match="未注册模型"):
         manager.start_all()
@@ -491,7 +491,7 @@ def test_three_required_yolo_models_share_one_physical_worker(fixed_runtime, mon
     manager.stop_all()
     names = ("yolo_human", "yolo_phone", "yolo_guard_person_phone")
     monkeypatch.setattr(manager_module, "all_specs", lambda: {
-        "synthetic": SimpleNamespace(required_models=names),
+        "synthetic": SimpleNamespace(required_models=names, model_names=names),
     })
     # 正式 WorkerClass 与 inode 决定共享；与逻辑模型标签及文件名无关。
     with monkeypatch.context() as context:
@@ -522,3 +522,106 @@ def test_reload_timeout_stops_worker_and_reports_failed(fixed_runtime, monkeypat
     manager._reload_thread.join(timeout=2)
     assert manager._reload_results["yolo_phone"] == {"status": "failed", "error": "模型加载超时"}
     assert not manager._workers["yolo_human"].is_alive()
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_optional_models_start_only_with_valid_path_and_can_reload(fixed_runtime, monkeypatch, tmp_path, configured):
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+    from AiVision.inference.model_paths import save_model_path
+
+    manager, _, shared, _ = fixed_runtime
+    manager.stop_all()
+    optional = tmp_path / "optional.pt"
+    optional.write_bytes(b"optional weights")
+    if configured:
+        save_model_path("yolo_vehicle", str(optional))
+    spec = replace(all_specs()["blocks"], required_models=("yolo_human",), optional_models=("yolo_vehicle",))
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {"synthetic": spec})
+    monkeypatch.setattr(manager, "_notify_runtime_alert", lambda *_: pytest.fail("optional missing path alerted"))
+    manager.start_all()
+    assert manager._required_model_names() == {"yolo_human"}
+    assert manager._declared_model_names() == {"yolo_human", "yolo_vehicle"}
+    assert manager.is_model_running("yolo_human")
+    assert manager.is_model_running("yolo_vehicle") is configured
+    if not configured:
+        assert "yolo_vehicle" not in manager._worker_states
+        assert next(m for m in manager.list_models() if m["name"] == "yolo_vehicle")["runtime"]["status"] == "not_started"
+    core = manager._workers["yolo_human"]
+    assert manager.update_model_path("yolo_vehicle", str(optional))["load_status"] == "loading"
+    manager._reload_thread.join(timeout=2)
+    assert not manager._reload_thread.is_alive()
+    assert manager.is_model_running("yolo_vehicle")
+    assert manager._workers["yolo_human"] is core and core.stop_calls == 0
+    # 可选模型仍参与物理文件共享。
+    manager.update_model_path("yolo_vehicle", str(shared))
+    manager._reload_thread.join(timeout=2)
+    assert manager._model_owners["yolo_vehicle"] == manager._model_owners["yolo_human"]
+
+
+def test_unregistered_optional_model_is_rejected(fixed_runtime, monkeypatch):
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+
+    manager, *_ = fixed_runtime
+    manager.stop_all()
+    spec = replace(all_specs()["blocks"], optional_models=("unknown",))
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {"synthetic": spec})
+    with pytest.raises(ValueError, match="未注册模型"):
+        manager.start_all()
+    assert not manager._active
+
+
+def test_feature_model_names_deduplicate_required_and_optional():
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+
+    assert all(spec.optional_models == () for spec in all_specs().values())
+    spec = replace(all_specs()["blocks"], required_models=("core",), optional_models=("optional", "core"))
+    assert spec.model_names == ("core", "optional")
+
+
+def test_optional_invalid_path_is_not_started_without_retry(fixed_runtime, monkeypatch):
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+
+    manager, *_ = fixed_runtime
+    manager.stop_all()
+    spec = replace(all_specs()["blocks"], required_models=("yolo_human",), optional_models=("yolo_vehicle",))
+    paths = manager_module.load_model_paths()
+    paths["yolo_vehicle"] = "/missing/optional-model.pt"
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {"synthetic": spec})
+    monkeypatch.setattr(manager_module, "load_model_paths", lambda: paths)
+    monkeypatch.setattr(manager, "_notify_runtime_alert", lambda *_: pytest.fail("unconfigured optional alerted"))
+    manager.start_all()
+    assert manager.is_model_running("yolo_human")
+    assert not manager.is_model_running("yolo_vehicle")
+    assert "yolo_vehicle" not in manager._worker_states
+    manager._watchdog_tick(now=1000.)
+
+
+def test_optional_model_load_failure_does_not_stop_core(fixed_runtime, monkeypatch, tmp_path):
+    from dataclasses import replace
+    from AiVision.features.registry import all_specs
+    from AiVision.inference.model_paths import save_model_path
+
+    manager, *_ = fixed_runtime
+    manager.stop_all()
+    path = tmp_path / "optional.pt"
+    path.write_bytes(b"optional")
+    save_model_path("yolo_vehicle", str(path))
+    spec = replace(all_specs()["blocks"], required_models=("yolo_human",), optional_models=("yolo_vehicle",))
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {"synthetic": spec})
+    start = ManagedWorker.start
+
+    def failed_optional(worker):
+        if worker.model_name == "yolo_vehicle":
+            worker.alive, worker.running, worker.failed = False, False, True
+        else:
+            start(worker)
+
+    monkeypatch.setattr(ManagedWorker, "start", failed_optional)
+    manager.start_all()
+    assert manager.is_model_running("yolo_human")
+    assert not manager.is_model_running("yolo_vehicle")
+    assert manager._worker_states["yolo_vehicle"].last_failure

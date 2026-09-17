@@ -108,6 +108,15 @@ class GuardBehaviorCameraRoiResponse(GuardBehaviorCameraRoiUpdate):
     enable: bool
 
 
+class GuardBehaviorCameraValueSchema(_StrictSchema):
+    vehicle_roi_pos: NormalizedRoi = Field(default_factory=list)
+
+
+class GuardBehaviorCameraConfigSchema(_StrictSchema):
+    enable: bool = False
+    value: GuardBehaviorCameraValueSchema = Field(default_factory=GuardBehaviorCameraValueSchema)
+
+
 class GuardBehaviorSitePolicyUpdate(_StrictSchema):
     cap_interval: PositiveSeconds = SITE_POLICY_DEFAULTS["cap_interval"]
     person_confidence_threshold: Probability = SITE_POLICY_DEFAULTS["person_confidence_threshold"]
@@ -157,6 +166,28 @@ class GuardBehaviorSitePolicyResponse(GuardBehaviorSitePolicyUpdate, _Timestamps
 
     id: PositiveId
     site_id: PositiveId
+
+
+class GuardBehaviorRuntimePolicy(GuardBehaviorSitePolicyUpdate):
+    model_config = ConfigDict(frozen=True)
+
+
+class GuardBehaviorRuntimeCameraConfig(_StrictSchema):
+    """脱离 Session 的只读运行快照；ROI 使用不可变坐标序列。"""
+
+    model_config = ConfigDict(frozen=True)
+    camera_id: PositiveId
+    camera_name: str
+    shm_name: str
+    fps: PositiveSeconds
+    department: str
+    site_id: PositiveId
+    site_name: str
+    site_enabled: bool
+    member_enabled: bool
+    feature_enabled: bool
+    vehicle_roi_pos: tuple[tuple[float, float], ...]
+    policy: GuardBehaviorRuntimePolicy
 
 
 class GuardBehaviorAlarmPolicyUpdate(_StrictSchema):

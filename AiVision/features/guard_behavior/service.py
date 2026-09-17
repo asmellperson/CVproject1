@@ -21,6 +21,7 @@ from .schema import (
     GuardBehaviorMemberResponse, GuardBehaviorSiteCreate, GuardBehaviorSitePolicyResponse,
     GuardBehaviorSitePolicySchema, GuardBehaviorSitePolicyUpdate,
     GuardBehaviorSiteResponse, GuardBehaviorSiteUpdate,
+    GuardBehaviorRuntimeCameraConfig, GuardBehaviorRuntimePolicy,
 )
 
 
@@ -41,6 +42,39 @@ def _positive_id(value: int) -> int:
 
 
 class GuardBehaviorService:
+    @staticmethod
+    def _runtime_query(session):
+        return (session.query(GuardBehaviorSiteCamera, GuardBehaviorSite, AiCameraConfig,
+                              GuardBehaviorCameraConfig, GuardBehaviorSitePolicy)
+                .join(GuardBehaviorSite, GuardBehaviorSiteCamera.site_id == GuardBehaviorSite.id)
+                .join(AiCameraConfig, GuardBehaviorSiteCamera.camera_id == AiCameraConfig.id)
+                .join(GuardBehaviorCameraConfig, GuardBehaviorCameraConfig.camera_id == AiCameraConfig.id)
+                .join(GuardBehaviorSitePolicy, GuardBehaviorSitePolicy.site_id == GuardBehaviorSite.id))
+
+    @staticmethod
+    def _runtime_snapshot(row) -> GuardBehaviorRuntimeCameraConfig:
+        member, site, camera, config, policy = row
+        roi = GuardBehaviorCameraRoiResponse.model_validate(config).vehicle_roi_pos
+        return GuardBehaviorRuntimeCameraConfig(
+            camera_id=camera.id, camera_name=camera.name, shm_name=camera.shm_name,
+            fps=float(camera.fps), department=camera.department,
+            site_id=site.id, site_name=site.name, site_enabled=site.enabled,
+            member_enabled=member.enabled, feature_enabled=config.enable,
+            vehicle_roi_pos=tuple(tuple(point) for point in roi),
+            policy=GuardBehaviorRuntimePolicy.model_validate(policy),
+        )
+
+    def get_runtime_camera_config(self, camera_id: int) -> GuardBehaviorRuntimeCameraConfig | None:
+        with closing(db.get_session()) as session:
+            row = self._runtime_query(session).filter(AiCameraConfig.id == _positive_id(camera_id)).first()
+            return None if row is None else self._runtime_snapshot(row)
+
+    def list_runtime_camera_configs(self) -> list[GuardBehaviorRuntimeCameraConfig]:
+        with closing(db.get_session()) as session:
+            rows = self._runtime_query(session).order_by(
+                GuardBehaviorSite.id, GuardBehaviorSiteCamera.sort_order, GuardBehaviorSiteCamera.id).all()
+            return [self._runtime_snapshot(row) for row in rows]
+
     @staticmethod
     def _site(session, site_id: int, *, lock: bool = False):
         site = session.get(GuardBehaviorSite, _positive_id(site_id), with_for_update=lock)
