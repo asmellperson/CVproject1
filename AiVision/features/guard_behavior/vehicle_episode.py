@@ -34,6 +34,13 @@ class _Episode:
 
 
 @dataclass(frozen=True)
+class _RecentChecked:
+    class_id: int
+    bbox: BBox
+    last_seen_at: float
+
+
+@dataclass(frozen=True)
 class VehicleEpisodeOutcome:
     episode_id: str
     class_id: int
@@ -60,6 +67,7 @@ class VehicleEpisodeUpdate:
 @dataclass
 class VehicleEpisodeTracker:
     _episodes: dict[str, _Episode] = field(default_factory=dict)
+    _recent_checked: list[_RecentChecked] = field(default_factory=list)
     _last_snapshot_at: float | None = None
     uncertain: bool = False
 
@@ -70,13 +78,20 @@ class VehicleEpisodeTracker:
     def mark_unknown(self) -> None:
         # 不完整的观察区间不能证明整段事件都无人检查，直到场景清空才重新采信负证据。
         self.uncertain = True
+        self._recent_checked.clear()
         for episode in self._episodes.values():
             episode.uncertain = True
 
     def update(self, snapshot: GuardCameraSnapshot, now: float,
                policy: GuardBehaviorRuntimePolicy) -> VehicleEpisodeUpdate:
         started = []
-        if self._last_snapshot_at is None or snapshot.updated_at > self._last_snapshot_at:
+        fresh = self._last_snapshot_at is None or snapshot.updated_at > self._last_snapshot_at
+        observed_at = snapshot.updated_at if fresh else now
+        self._recent_checked = [item for item in self._recent_checked
+                                if 0 <= observed_at - item.last_seen_at <= policy.vehicle_reassociate_seconds]
+        # 已确认遮挡超时的事件先闭合，返回车辆只能开启新事件，不能复活旧事件。
+        completed = self._close_departed(observed_at, policy)
+        if fresh:
             self._last_snapshot_at = snapshot.updated_at
             detections = snapshot.vehicle.detections
             matched = self._associate(detections, snapshot.updated_at, policy)
@@ -88,7 +103,8 @@ class VehicleEpisodeTracker:
                     episode_id = uuid4().hex
                     self._episodes[episode_id] = _Episode(
                         episode_id, vehicle.class_id, vehicle.bbox, vehicle.bbox, snapshot.frame_size,
-                        snapshot.updated_at, snapshot.updated_at, vehicle.confidence, uncertain=self.uncertain,
+                        snapshot.updated_at, snapshot.updated_at, vehicle.confidence,
+                        inspected=self._take_recent_checked(vehicle), uncertain=self.uncertain,
                     )
                     started.append(episode_id)
                 episode = self._episodes[episode_id]
@@ -98,20 +114,19 @@ class VehicleEpisodeTracker:
                 episode.occluded = False
                 episode.inspected |= any(bbox_distance(guard.bbox, vehicle.bbox) <= policy.vehicle_near_px
                                          for guard in snapshot.guards)
-        completed = self._close_departed(now, policy)
+        completed.extend(self._close_departed(now, policy))
         if not self._episodes and not snapshot.vehicle.detections:
             self.uncertain = False
         return VehicleEpisodeUpdate(tuple(started), tuple(completed))
 
     def _associate(self, detections: tuple[VehicleDetection, ...], observed_at: float,
                    policy: GuardBehaviorRuntimePolicy) -> dict[int, str]:
-        window = max(policy.vehicle_occlusion_seconds, policy.vehicle_reassociate_seconds)
         candidates = []
         for index, vehicle in enumerate(detections):
             for episode in self._episodes.values():
                 if episode.class_id != vehicle.class_id:
                     continue
-                if episode.occluded and observed_at - episode.last_seen_at > window:
+                if episode.occluded and observed_at - episode.last_seen_at >= policy.vehicle_occlusion_seconds:
                     continue
                 overlap = bbox_iou(vehicle.bbox, episode.last_bbox)
                 if overlap > REASSOCIATE_MIN_IOU:
@@ -123,18 +138,32 @@ class VehicleEpisodeTracker:
                 used.add(episode_id)
         return matched
 
+    def _take_recent_checked(self, vehicle: VehicleDetection) -> bool:
+        candidates = [(bbox_iou(vehicle.bbox, item.bbox), index)
+                      for index, item in enumerate(self._recent_checked) if item.class_id == vehicle.class_id]
+        if not candidates:
+            return False
+        overlap, index = max(candidates)
+        if overlap <= REASSOCIATE_MIN_IOU:
+            return False
+        # 已检查事实只转移给一个同类、同位置车辆，不复制给同时出现的多个目标。
+        self._recent_checked.pop(index)
+        return True
+
     def _close_departed(self, now: float, policy: GuardBehaviorRuntimePolicy) -> list[VehicleEpisodeOutcome]:
         completed = []
-        window = max(policy.vehicle_occlusion_seconds, policy.vehicle_reassociate_seconds)
         for episode_id, episode in tuple(self._episodes.items()):
             # 至少观察到一帧车辆缺席；不能因同一张快照被定时评估而制造离场。
-            if not episode.occluded or now - episode.last_seen_at <= window:
+            if not episode.occluded or now - episode.last_seen_at < policy.vehicle_occlusion_seconds:
                 continue
             completed.append(VehicleEpisodeOutcome(
                 episode_id, episode.class_id, episode.first_bbox, episode.last_bbox,
                 episode.started_at, now, episode.confidence, episode.inspected,
                 self._direction_matches(episode, policy), episode.uncertain,
             ))
+            if (episode.inspected and not episode.uncertain and policy.vehicle_reassociate_seconds > 0
+                    and now - episode.last_seen_at <= policy.vehicle_reassociate_seconds):
+                self._recent_checked.append(_RecentChecked(episode.class_id, episode.last_bbox, episode.last_seen_at))
             del self._episodes[episode_id]
         return completed
 

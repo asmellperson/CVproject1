@@ -40,7 +40,7 @@ class SiteRuntimeState:
 
 class GuardBehaviorSiteRuntime:
     def __init__(self, *, service, dispatcher, evidence_recorder, clock=time.time, start_background=True):
-        if dispatcher.evidence_recorder is not evidence_recorder:
+        if dispatcher.evidence_recorder is not None and dispatcher.evidence_recorder is not evidence_recorder:
             raise ValueError("SiteRuntime 与 Dispatcher 必须使用同一个公共 Evidence 实例")
         self.service, self.dispatcher, self.evidence = service, dispatcher, evidence_recorder
         self._clock, self._start_background = clock, start_background
@@ -54,6 +54,9 @@ class GuardBehaviorSiteRuntime:
 
     def start(self) -> None:
         with self._lifecycle_lock:
+            # Orchestrator 先构造 Runtime，再配置 Dispatcher；启动前才要求依赖完整且一致。
+            if self.evidence is None or self.dispatcher.evidence_recorder is not self.evidence:
+                raise ValueError("SiteRuntime 启动前必须为 Dispatcher 配置同一个公共 Evidence 实例")
             if self.running:
                 return
             configs = self.service.list_runtime_site_configs()
@@ -136,7 +139,8 @@ class GuardBehaviorSiteRuntime:
                 state.absence.clear()
             if snapshot.camera_id == state.config.policy.vehicle_camera_id:
                 gap = previous is not None and snapshot.updated_at - previous.updated_at > stale_seconds(state.config)
-                if gap or status != CameraAvailability.READY or not snapshot.vehicle.available:
+                if (gap or status != CameraAvailability.READY or not snapshot.vehicle.available
+                        or snapshot.guard_count is None):
                     state.vehicle.mark_unknown()
                     self._cancel_episodes(state)
             self.latest_snapshots[snapshot.camera_id] = replace(snapshot, model_states=dict(snapshot.model_states))
@@ -208,7 +212,8 @@ class GuardBehaviorSiteRuntime:
             return SiteRuleDecision("unavailable", "idle", "车辆检查未启用"), ()
         snapshot = self.latest_snapshots.get(policy.vehicle_camera_id)
         if (camera_states.get(policy.vehicle_camera_id) != CameraAvailability.READY
-                or snapshot is None or not snapshot.vehicle.available):
+                or snapshot is None or not snapshot.vehicle.available or snapshot.guard_count is None):
+            # 看见一个保安不代表制服身份已全部判明，负证据必须排除其他未知人员靠近的可能。
             state.vehicle.mark_unknown()
             self._cancel_episodes(state)
             return SiteRuleDecision("unavailable", "unknown", "车辆检查 Camera 缺少完整证据"), ()

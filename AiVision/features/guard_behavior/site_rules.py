@@ -29,9 +29,8 @@ def camera_availability(member: GuardBehaviorRuntimeMember, snapshot: GuardCamer
         return CameraAvailability.OFFLINE
     if now - snapshot.updated_at > stale_after:
         return CameraAvailability.STALE
-    if (snapshot.guard_present is None
-            or snapshot.model_states.get("yolo_guard_person_phone") != "ready"
-            or snapshot.model_states.get("guard_uniform") not in ("ready", "not_applicable")):
+    # 同一模型还承担手机裁图推理；子规则失败不能覆盖已确定的核心在岗事实。
+    if snapshot.guard_present is None:
         return CameraAvailability.INFERENCE_ERROR
     return CameraAvailability.READY
 

@@ -74,7 +74,8 @@ def test_unavailable_camera_breaks_absence_accumulation(failure):
     elif failure == "stale":
         snapshots[2] = replace(snapshots[2], updated_at=90.)
     elif failure == "error":
-        snapshots[2] = replace(snapshots[2], model_states={**snapshots[2].model_states, "guard_uniform": "error"})
+        snapshots[2] = replace(snapshots[2], guard_present=None, guard_count=None,
+                               model_states={**snapshots[2].model_states, "guard_uniform": "error"})
     elif failure == "unknown":
         snapshots[2] = replace(snapshots[2], guard_present=None, guard_count=None)
     else:
@@ -146,16 +147,73 @@ def test_vehicle_episode_closes_once_and_guard_proximity_suppresses_alarm(inspec
     assert not tracker.update(vehicle_snapshot(110., present=False), 110., policy).completed
 
 
-def test_vehicle_reassociation_keeps_episode_open_past_occlusion_threshold():
+def test_vehicle_occlusion_closes_at_two_seconds_despite_ten_second_reassociation():
     policy = GuardBehaviorRuntimePolicy(vehicle_occlusion_seconds=2., vehicle_reassociate_seconds=10.)
     tracker = VehicleEpisodeTracker()
     first = tracker.update(vehicle_snapshot(100.), 100., policy).started[0]
+    assert not tracker.update(vehicle_snapshot(101.99, present=False), 101.99, policy).completed
+    finished = tracker.update(vehicle_snapshot(102., present=False), 102., policy).completed
+    assert len(finished) == 1 and finished[0].episode_id == first and finished[0].should_alarm
+    assert finished[0].ended_at == 102. and not tracker.monitoring
     assert not tracker.update(vehicle_snapshot(103., present=False), 103., policy).completed
-    returned = tracker.update(vehicle_snapshot(105.), 105., policy)
+
+
+def test_vehicle_return_before_occlusion_deadline_keeps_same_episode():
+    policy = GuardBehaviorRuntimePolicy(vehicle_occlusion_seconds=2., vehicle_reassociate_seconds=10.)
+    tracker = VehicleEpisodeTracker()
+    first = tracker.update(vehicle_snapshot(100.), 100., policy).started[0]
+    tracker.update(vehicle_snapshot(101., present=False), 101., policy)
+    returned = tracker.update(vehicle_snapshot(101.5), 101.5, policy)
     assert not returned.started and not returned.completed
-    tracker.update(vehicle_snapshot(106., present=False), 106., policy)
-    finished = tracker.update(vehicle_snapshot(116., present=False), 116., policy).completed
+    finished = tracker.update(vehicle_snapshot(103.5, present=False), 103.5, policy).completed
     assert len(finished) == 1 and finished[0].episode_id == first
+
+
+@pytest.mark.parametrize("inspected", [False, True])
+def test_return_after_occlusion_closes_old_episode_before_association(inspected):
+    policy = GuardBehaviorRuntimePolicy(vehicle_occlusion_seconds=2., vehicle_reassociate_seconds=10.)
+    tracker = VehicleEpisodeTracker()
+    first = tracker.update(vehicle_snapshot(100., guard=inspected), 100., policy).started[0]
+    tracker.update(vehicle_snapshot(101., present=False), 101., policy)
+    returned = tracker.update(vehicle_snapshot(103.), 103., policy)
+    assert len(returned.completed) == len(returned.started) == 1
+    assert returned.completed[0].episode_id == first and returned.started[0] != first
+    assert returned.completed[0].should_alarm is (not inspected)
+    finished = tracker.update(vehicle_snapshot(105., present=False), 105., policy).completed
+    assert len(finished) == 1 and finished[0].episode_id == returned.started[0]
+    assert finished[0].inspected is inspected and finished[0].should_alarm is (not inspected)
+
+
+@pytest.mark.parametrize("returned_at,expected_checked", [(109., True), (111., False)])
+def test_recent_checked_state_expires_from_last_seen_without_extending_closed_episode(returned_at, expected_checked):
+    policy = GuardBehaviorRuntimePolicy(vehicle_occlusion_seconds=2., vehicle_reassociate_seconds=10.)
+    tracker = VehicleEpisodeTracker()
+    first = tracker.update(vehicle_snapshot(100., guard=True), 100., policy).started[0]
+    closed = tracker.update(vehicle_snapshot(102., present=False), 102., policy).completed
+    assert len(closed) == 1 and closed[0].episode_id == first and not tracker.monitoring
+    returned = tracker.update(vehicle_snapshot(returned_at), returned_at, policy)
+    assert len(returned.started) == 1 and returned.started[0] != first and not returned.completed
+    finished = tracker.update(vehicle_snapshot(returned_at + 2., present=False), returned_at + 2., policy).completed
+    assert len(finished) == 1 and finished[0].inspected is expected_checked
+    assert finished[0].should_alarm is (not expected_checked)
+    tracker.update(vehicle_snapshot(returned_at + 13., present=False), returned_at + 13., policy)
+    assert not tracker._recent_checked
+
+
+def test_recent_checked_state_is_consumed_once_and_requires_matching_class_and_position():
+    policy = GuardBehaviorRuntimePolicy(vehicle_occlusion_seconds=2., vehicle_reassociate_seconds=10.)
+    tracker = VehicleEpisodeTracker()
+    tracker.update(vehicle_snapshot(100., guard=True), 100., policy)
+    tracker.update(vehicle_snapshot(102., present=False), 102., policy)
+    vehicles = (VehicleDetection((40., 40., 70., 90.), .9, 3),
+                VehicleDetection((0., 0., 20., 20.), .9, 2),
+                VehicleDetection((40., 40., 70., 90.), .9, 2),
+                VehicleDetection((41., 40., 71., 90.), .9, 2))
+    tracker.update(snapshot(now=103., vehicle=VehicleObservation(True, vehicles)), 103., policy)
+    finished = tracker.update(vehicle_snapshot(105., present=False), 105., policy).completed
+    assert len(finished) == 4
+    checked = [outcome for outcome in finished if outcome.inspected]
+    assert len(checked) == 1 and checked[0].class_id == 2 and checked[0].first_bbox == vehicles[2].bbox
 
 
 @pytest.mark.parametrize(("direction", "end_bbox", "expected"), [
@@ -275,6 +333,49 @@ def test_runtime_aggregates_cached_facts_without_database_reads_per_frame(runtim
     assert set(result.camera_states.values()) == {CameraAvailability.STALE}
 
 
+@pytest.mark.parametrize("rule,model", [("phone", "yolo_guard_person_phone"),
+                                       ("prone", "yolo_guard_pose"), ("vehicle", "yolo_vehicle")])
+@pytest.mark.parametrize("present", [False, True])
+def test_subrule_failure_does_not_degrade_core_camera_availability(runtime, rule, model, present):
+    runtime.configs[1] = site_config(count=1, absent_alarm_seconds=1., vehicle_inspection_enabled=True,
+                                   vehicle_camera_id=1)
+    runtime.instance.reload_site(1)
+    value = snapshot(present=present, vehicle=VehicleObservation(True))
+    changes = {"model_states": {**value.model_states, model: "error"}}
+    changes[rule] = VehicleObservation(False, error="模型失败") if rule == "vehicle" else LocalRuleDecision("unknown")
+    runtime.push(replace(value, **changes))
+    result = runtime.instance.evaluate_after_camera_update(1)
+    assert result.status == "healthy" and result.camera_states[1] == CameraAvailability.READY
+    assert result.absence.availability == "available"
+    assert result.absence.state == ("normal" if present else "pending")
+    assert getattr(result, rule).state == "unknown" and getattr(result, rule).availability == "unavailable"
+    for other in {"phone", "prone", "vehicle"} - {rule}:
+        assert getattr(result, other).availability == "available"
+    runtime.now[0] = 101.
+    assert runtime.instance.evaluate_after_camera_update(1).absence.state == ("normal" if present else "alarm")
+
+
+def test_partial_uniform_identity_keeps_presence_ready_but_invalidates_vehicle_negative_evidence(runtime):
+    runtime.configs[1] = site_config(count=1, vehicle_inspection_enabled=True, vehicle_camera_id=1)
+    runtime.instance.reload_site(1)
+    runtime.push(vehicle_snapshot(100.))
+    runtime.instance.evaluate_after_camera_update(1)
+    partial = vehicle_snapshot(101., guard=True)
+    partial = replace(partial, guard_count=None,
+                      guards=(TrackedPerson((0., 0., 5., 5.), .9, 1),),
+                      model_states={**partial.model_states, "guard_uniform": "error"})
+    runtime.now[0] = 101.
+    runtime.push(partial)
+    assert runtime.evidence.cancelled == ["1"]
+    result = runtime.instance.evaluate_after_camera_update(1)
+    assert result.camera_states[1] == CameraAvailability.READY and result.absence.state == "normal"
+    assert result.vehicle.state == "unknown" and result.vehicle.availability == "unavailable"
+    runtime.now[0] = 102.
+    runtime.push(vehicle_snapshot(102., present=False))
+    assert runtime.instance.evaluate_after_camera_update(1).vehicle.state == "idle"
+    assert not runtime.requests and not runtime.evidence.episodes
+
+
 @pytest.mark.parametrize("rule", ["phone", "prone"])
 def test_runtime_positive_alarm_is_site_level_with_highest_confidence_primary(runtime, rule):
     for index, confidence in ((1, .7), (2, .95)):
@@ -363,6 +464,44 @@ def test_runtime_background_lifecycle_is_repeatable_without_lingering_threads(ru
         assert thread.is_alive()
         runtime.instance.stop()
         assert not thread.is_alive() and runtime.instance._thread is None
+
+
+def test_runtime_can_be_constructed_before_dispatcher_configure_and_started_afterwards():
+    from AiVision.alarms.dispatcher import AlarmDispatcher
+
+    reads, dispatcher, evidence = [], AlarmDispatcher(), FakeEvidence()
+    service = SimpleNamespace(list_runtime_site_configs=lambda: reads.append("all") or [])
+    instance = GuardBehaviorSiteRuntime(service=service, dispatcher=dispatcher, evidence_recorder=evidence,
+                                        start_background=False)
+    assert not reads and not instance.running and dispatcher._wechat_thread is None
+    with pytest.raises(ValueError, match="启动前"):
+        instance.start()
+    assert not reads and not instance.sites and instance._thread is None
+    try:
+        dispatcher.configure(horn_runtime_manager=None, wechat=None, violation_writer=None, evidence_recorder=evidence)
+        instance.start()
+        instance.start()
+        assert instance.running and reads == ["all"]
+    finally:
+        instance.stop()
+        dispatcher.stop()
+
+
+@pytest.mark.parametrize("changed_to", [None, "different"])
+def test_start_rechecks_final_evidence_binding_before_reading_configs(changed_to):
+    evidence = FakeEvidence()
+    dispatcher = SimpleNamespace(evidence_recorder=evidence)
+    instance = GuardBehaviorSiteRuntime(service=None, dispatcher=dispatcher, evidence_recorder=evidence)
+    dispatcher.evidence_recorder = None if changed_to is None else FakeEvidence()
+    with pytest.raises(ValueError, match="启动前"):
+        instance.start()
+    assert not instance.running and instance._thread is None
+
+
+def test_constructor_still_rejects_different_already_configured_evidence():
+    with pytest.raises(ValueError, match="同一个"):
+        GuardBehaviorSiteRuntime(service=None, dispatcher=SimpleNamespace(evidence_recorder=FakeEvidence()),
+                                 evidence_recorder=FakeEvidence())
 
 
 def test_unregistered_guard_request_still_fails_formal_alarm_validation(runtime):

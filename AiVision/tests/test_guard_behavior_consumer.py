@@ -11,7 +11,8 @@ from AiVision.features.guard_behavior import consumer as module
 from AiVision.features.guard_behavior.consumer import GuardBehaviorConsumer
 from AiVision.features.guard_behavior.schema import GuardBehaviorRuntimeCameraConfig, GuardBehaviorRuntimePolicy
 from AiVision.features.guard_behavior.spec import SPEC
-from AiVision.features.guard_behavior.state import TrackedPerson
+from AiVision.features.guard_behavior.site_rules import camera_availability
+from AiVision.features.guard_behavior.state import CameraAvailability, TrackedPerson
 
 
 def runtime_config(camera_id=1, **policy):
@@ -114,6 +115,8 @@ def test_partial_uniform_failure_preserves_unknown_or_known_positive(consumer, p
     assert snapshot.guard_present is (True if positive else None)
     assert snapshot.guard_count is None
     assert snapshot.model_states[module.UNIFORM_MODEL] == "error"
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+        CameraAvailability.READY if positive else CameraAvailability.INFERENCE_ERROR)
 
 
 def test_uniform_cache_is_per_camera_and_hold_expires(consumer):
@@ -157,6 +160,9 @@ def test_phone_inference_failure_does_not_destroy_guard_presence(consumer):
     consumer.outputs["phone"] = {"status": "timeout"}
     snapshot, _ = consumer.process()
     assert snapshot.guard_present is True and snapshot.phone.state == "unknown"
+    assert snapshot.model_states[module.PERSON_MODEL] == "error"
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+        CameraAvailability.READY)
 
 
 def test_pose_uses_own_default_conf_and_full_frame(consumer):
@@ -173,6 +179,8 @@ def test_pose_uses_own_default_conf_and_full_frame(consumer):
     consumer.now[0] += 1
     snapshot, _ = consumer.process()
     assert snapshot.prone.state == "unknown" and snapshot.guard_present is True
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+        CameraAvailability.READY)
 
 
 @pytest.mark.parametrize("designated", [None, 2])
@@ -195,6 +203,8 @@ def test_vehicle_optional_unavailable_and_normalized_bottom_center_roi(consumer)
     snapshot, _ = consumer.process()
     assert not snapshot.vehicle.available and snapshot.guard_present is False
     assert snapshot.model_states[module.VEHICLE_MODEL] == "unavailable"
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+        CameraAvailability.READY)
     consumer.available[module.VEHICLE_MODEL] = True
     consumer.outputs[module.VEHICLE_MODEL] = [
         detection("vehicle", (200., 100., 400., 600.), class_id=2),
