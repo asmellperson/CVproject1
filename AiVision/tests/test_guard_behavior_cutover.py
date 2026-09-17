@@ -254,6 +254,45 @@ def test_atomic_migration_exact_defaults_and_idempotence(writable_migration):
         data.migrate_data(engine, snapshot)
 
 
+@pytest.mark.parametrize('tamper', [None, 'missing', 'disabled', 'roi'])
+def test_verify_scopes_guard_configs_to_migrated_cameras(writable_migration, tamper):
+    from sqlalchemy.orm import Session
+    from AiVision.cameras.orm import AiCameraConfig
+    from AiVision.features.guard_behavior.orm import GuardBehaviorCameraConfig
+    from AiVision.migrations import guard_behavior_cutover_data as data
+
+    engine, snapshot = writable_migration
+    with Session(engine) as session, session.begin():
+        other = AiCameraConfig(name='其他摄像头', shm_name='other_camera',
+                               url='rtsp://other-camera/stream', department='general_electric')
+        session.add(other)
+        session.flush()
+        other_camera_id = other.id
+    snapshot['physical_camera_count'] += 1
+    data.create_schema(engine)
+    migrated = data.migrate_data(engine, snapshot)
+    camera_id = migrated['mappings'][0]['camera_ids'][10]
+    # 模拟迁移后正常启动为非成员 Camera 补齐默认 Feature 配置。
+    with Session(engine) as session, session.begin():
+        session.add(GuardBehaviorCameraConfig(camera_id=other_camera_id))
+    with Session(engine) as session:
+        default = session.query(GuardBehaviorCameraConfig).filter_by(camera_id=other_camera_id).one()
+        assert default.enable is False and default.vehicle_roi_pos == []
+        assert session.query(GuardBehaviorCameraConfig).count() == 2
+        assert data.verify_data(session, snapshot) == migrated
+    if tamper is not None:
+        with Session(engine) as session, session.begin():
+            config = session.query(GuardBehaviorCameraConfig).filter_by(camera_id=camera_id).one()
+            if tamper == 'missing':
+                session.delete(config)
+            elif tamper == 'disabled':
+                config.enable = False
+            else:
+                config.vehicle_roi_pos = []
+        with Session(engine) as session, pytest.raises(ValueError, match='Camera 配置/ROI'):
+            data.verify_data(session, snapshot)
+
+
 def test_data_failure_rolls_back_all_new_rows(writable_migration, monkeypatch):
     from AiVision.migrations import guard_behavior_cutover_data as data
     engine, snapshot = writable_migration

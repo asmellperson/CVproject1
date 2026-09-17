@@ -141,7 +141,14 @@ def verify_data(session: Session, snapshot: dict) -> dict:
                     _alarm_values(alarm), "AlarmPolicy")
         mappings.append({"old_site_id": plan["id"], "site_id": site.id, "camera_ids": mapping})
     sites, cameras = len(mappings), len(old_cameras)
-    counts = {model.__tablename__: session.query(model).count() for model in TABLE_CLASSES}
+    migrated_camera_ids = {camera_id for mapping in mappings for camera_id in mapping["camera_ids"].values()}
+    counts = {}
+    for model in TABLE_CLASSES:
+        query = session.query(model)
+        if model is GuardBehaviorCameraConfig:
+            # 启动会为其他物理 Camera 补默认配置，迁移核验只统计本次涉及的 Camera。
+            query = query.filter(model.camera_id.in_(migrated_camera_ids))
+        counts[model.__tablename__] = query.count()
     if list(counts.values()) != [sites, cameras, cameras, sites, sites * 4]:
         raise ValueError("迁移目标数量不一致")
     expected_cameras = snapshot["physical_camera_count"] + sum(
