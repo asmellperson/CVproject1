@@ -632,7 +632,6 @@ def test_person_api_requires_login_and_admin_for_permission_changes(library):
 
 def test_identity_feature_uses_platform_alarm_schema():
     from AiVision.alarms.types import VIOLATION_TYPE_META
-    from AiVision.alarms.notifications.wechat import _EVENT_DISPLAY
     from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 
     assert "departments" not in SPEC.__dataclass_fields__
@@ -647,7 +646,6 @@ def test_identity_feature_uses_platform_alarm_schema():
     assert config.alarm.horn.parm.horn_event_id == 7
     assert SPEC.alarm_types == (7,)
     assert VIOLATION_TYPE_META[7] == {"event_type": "recognize_face", "label": "人脸身份识别"}
-    assert _EVENT_DISPLAY[SPEC.name] == "人脸身份识别"
 
 
 def test_monitor_status_exposes_identities_and_clears_expired_results(monkeypatch):

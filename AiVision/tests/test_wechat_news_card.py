@@ -2,7 +2,9 @@
 # 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
 
 import logging
+import queue
 import threading
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,7 +12,9 @@ import pytest
 
 from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
 from AiVision.alarms.notifications import wechat as wechat_module
-from AiVision.alarms.notifications.wechat import WeChatNotifier, _EVENT_DISPLAY
+from AiVision.alarms.notifications.wechat import WeChatNotifier
+from AiVision.alarms.types import VIOLATION_TYPE_META
+from AiVision.features import registry
 
 
 # 功能：定义 `FakeResponse` 类，封装企业微信通知相关的状态、约束与操作
@@ -49,15 +53,8 @@ class FakeResponse:
         return self._payload
 
 
-# 功能：验证 `test_wechat_human_alarm_uses_personnel_violation_dwell_name` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_wechat_human_alarm_uses_personnel_violation_dwell_name():
-    assert _EVENT_DISPLAY["detect_human"] == "人员违规逗留检测"
+def test_wechat_has_no_separate_alarm_display_registry():
+    assert not hasattr(wechat_module, "_EVENT_DISPLAY")
 
 
 # 功能：验证 `test_wechat_alarm_uses_single_news_card` 对应的企业微信通知逻辑；输入由参数提供，处理结果见返回值说明
@@ -68,7 +65,8 @@ def test_wechat_human_alarm_uses_personnel_violation_dwell_name():
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
 #   - 内部调用：`WeChatNotifier`、`monkeypatch.setattr`、`posts.append`、`FakeResponse`、`notifier.send`、`len`。
 # 副作用/注意事项：可能发起网络请求或发送外部消息。
-def test_wechat_alarm_uses_single_news_card(monkeypatch):
+@pytest.mark.parametrize("violation_type", range(1, 8))
+def test_wechat_alarm_uses_single_news_card(monkeypatch, violation_type):
     posts = []
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
     monkeypatch.setattr(notifier, "_get_token", lambda: "token")
@@ -78,7 +76,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     )
 
     sent = notifier.send(
-        feature_name="blocks",
+        violation_type=violation_type,
         camera_name="后大门",
         recipients="zhangsan",
         image_url="https://aicv.fudar.com/api/alarms/42/image",
@@ -92,10 +90,74 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch):
     assert payload["touser"] == "zhangsan"
     assert payload["agentid"] == 100
     article = payload["news"]["articles"][0]
-    assert article["title"] == "区域入侵告警"
+    assert article["title"] == f"{VIOLATION_TYPE_META[violation_type]['label']}告警"
     assert article["description"] == "后大门"
     assert article["url"] == "https://aicv.fudar.com/?page=alarms&alarmId=aivision%3A42"
     assert article["picurl"] == "https://aicv.fudar.com/api/alarms/42/image"
+
+
+@pytest.mark.parametrize("violation_type", [0, 8, True, 1.0, "1", None])
+def test_wechat_rejects_unregistered_or_non_integer_alarm_types(monkeypatch, violation_type):
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(notifier, "_get_token", lambda: pytest.fail("不应请求企业微信 token"))
+
+    with pytest.raises(ValueError, match="violation_type"):
+        notifier.send(
+            violation_type=violation_type,
+            camera_name="后大门",
+            recipients="zhangsan",
+            image_url="https://example.test/image",
+            detail_url="https://example.test/detail",
+        )
+
+
+def test_dispatcher_uses_distinct_official_titles_for_same_feature(monkeypatch):
+    spec = replace(registry.get_spec("blocks"), name="composite", alarm_types=(1, 2))
+    monkeypatch.setattr(registry, "_REGISTRY", registry._build_registry((spec,)))
+    monkeypatch.setitem(VIOLATION_TYPE_META, 1, {"event_type": "blocks", "label": "测试报警名称"})
+    posts = []
+    notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
+    monkeypatch.setattr(notifier, "_get_token", lambda: "token")
+    monkeypatch.setattr(
+        wechat_module.requests,
+        "post",
+        lambda *args, **kwargs: posts.append(kwargs["json"]) or FakeResponse({"errcode": 0}),
+    )
+    dispatcher = AlarmDispatcher()
+    dispatcher.wechat = notifier
+    monkeypatch.setattr(
+        dispatcher, "_alarm_card_urls",
+        lambda *args, **kwargs: ("https://example.test/image", "https://example.test/detail"),
+    )
+    for violation_type in spec.alarm_types:
+        request = AlarmRequest(
+            feature_name=spec.name,
+            department="research_institute",
+            cooldown_subject_type="camera",
+            cooldown_subject_id="7",
+            camera_id=7,
+            camera_name="后大门",
+            frame=np.zeros((8, 8, 3), dtype=np.uint8),
+            violation_type=violation_type,
+            alarm_config={},
+        )
+        dispatcher._wechat_queue.put_nowait((request, "zhangsan", SimpleNamespace(id=42)))
+
+    get_request = dispatcher._wechat_queue.get
+
+    def drain_queue(*, timeout):
+        try:
+            return get_request(block=False)
+        except queue.Empty:
+            dispatcher._wechat_stop_event.set()
+            raise
+
+    monkeypatch.setattr(dispatcher._wechat_queue, "get", drain_queue)
+    dispatcher._wechat_loop()
+
+    titles = [post["news"]["articles"][0]["title"] for post in posts]
+    assert titles == [f"{VIOLATION_TYPE_META[alarm_type]['label']}告警" for alarm_type in spec.alarm_types]
+    assert titles[0] != titles[1]
 
 
 def test_wechat_alarm_skips_when_card_urls_are_missing(monkeypatch, caplog):
@@ -108,7 +170,7 @@ def test_wechat_alarm_skips_when_card_urls_are_missing(monkeypatch, caplog):
 
     with caplog.at_level(logging.WARNING):
         sent = notifier.send(
-            feature_name="blocks",
+            violation_type=1,
             camera_name="后大门",
             recipients="zhangsan",
             image_url="",
@@ -130,7 +192,7 @@ def test_wechat_alarm_reports_news_send_failure(monkeypatch, caplog):
 
     with caplog.at_level(logging.WARNING):
         sent = notifier.send(
-            feature_name="blocks",
+            violation_type=1,
             camera_name="后大门",
             recipients="zhangsan",
             image_url="https://aicv.fudar.com/api/alarms/42/image",

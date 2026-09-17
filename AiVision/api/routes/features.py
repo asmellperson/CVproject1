@@ -17,18 +17,26 @@ from pydantic import BaseModel, Field, ValidationError
 from auth.auth import get_current_user, require_admin
 from AiVision.api.routes.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
+from AiVision.alarms.types import VIOLATION_TYPE_META
 
 from AiVision.features.registry import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
 from AiVision.features._shared.spec import FeatureSpec
 from AiVision.features._shared.config_manager import feature_config_manager    # 普通检测功能配置管理函数
 from AiVision.cameras.config_manager import camera_config_manager           # 摄像头配置服务
 
+class FeatureAlarmTypeResponse(BaseModel):
+    """功能声明的正式报警元数据。"""
+    violation_type: int
+    event_type: str
+    label: str
+
+
 class FeatureMetaResponse(BaseModel):
     """单个检测功能和前端交互的字段"""
     name: str
     display_name: str
     required_models: list[str]
-    violation_type: int                     # 违规数量
+    alarm_types: list[FeatureAlarmTypeResponse]
     default_config: dict
     config_schema: dict                     # 这个功能有哪些可配置参数
 
@@ -92,14 +100,14 @@ def create_features_router(
 
     def _spec_to_meta(spec: FeatureSpec) -> FeatureMetaResponse:
         """将 FeatureSpec 对象转换为 API 响应模型，集中处理 JSON Schema 序列化。"""
-        # 当前元数据接口只表达单报警功能，不能替复合功能选择类型。
-        (violation_type,) = spec.alarm_types
-        # 返回FeatureMetaResponse
         return FeatureMetaResponse(
             name=spec.name,
             display_name=spec.display_name,
             required_models=list(spec.required_models),
-            violation_type=violation_type,
+            alarm_types=[
+                FeatureAlarmTypeResponse(violation_type=alarm_type, **VIOLATION_TYPE_META[alarm_type])
+                for alarm_type in spec.alarm_types
+            ],
             config_schema=spec.config_schema.model_json_schema(),
             default_config=spec.config_schema().model_dump(),
         )

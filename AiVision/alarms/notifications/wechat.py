@@ -21,8 +21,8 @@ AlarmDispatcher._wechat_loop()传入已保存报警的图片与详情 URL；人�
     _get_token()：校验凭据，请求 access_token，检查 HTTP 状态、业务错误码和响应。
         当前已经缓存 token 和过期时间，使用 monotonic 时钟及锁避免并发重复刷新，
         并按接口响应的 expires_in 提前刷新；不是每次发送都重新获取 token。
-    _EVENT_DISPLAY：把内部 Feature 名称转换为通知展示名称，未收录名称保持原值。
-    send()：用于检测业务告警，需要接收人、缩略图 URL 和详情 URL。
+    send()：用于检测业务告警，需要正式报警类型、接收人、缩略图 URL 和详情 URL。
+        标题统一使用 VIOLATION_TYPE_META 中的报警名称。
         当前只走单条 news 图文卡片；缺少 URL 时记录原因并返回 False，
         不再执行旧说明中提到的“上传图片 / 文本加图片降级”流程。
     _send_news_card()：组织标题、说明、图片 URL、跳转 URL，调用企业微信 message/send。
@@ -41,16 +41,8 @@ import requests                     # 调企业微信HTTP API
 
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-# 程序内部Feature名称转换为告警名称
-_EVENT_DISPLAY = {
-    "blocks":        "区域入侵",
-    "detect_face":   "人脸逗留",
-    "recognize_face": "人脸身份识别",
-    "detect_phone":  "手机违规",
-    "detect_door":   "大门状态",
-    "detect_human":  "人员违规逗留检测",
-    "detect_logistics_single_person": "物流通道单人异常",
-}
+from AiVision.alarms.types import VIOLATION_TYPE_META
+
 _TOKEN_REFRESH_MARGIN_SECONDS = 60
 
 class WeChatNotifier:
@@ -214,7 +206,7 @@ class WeChatNotifier:
 
     def send(
         self,
-        feature_name: str,
+        violation_type: int,
         camera_name: str,
         recipients: str,
         image_url: str = "",
@@ -227,12 +219,15 @@ class WeChatNotifier:
             - URL 缺失时记录失败，不发送没有可用链接的卡片。
 
         Args:
-            feature_name    : 功能内部名称，通过 _EVENT_DISPLAY 映射为中文展示名。
+            violation_type  : 正式报警类型，标题使用 VIOLATION_TYPE_META 中的名称。
             camera_name     : 摄像头展示名称，写入告警文本。
             recipients      : 接收人账号，多人用 | 分隔，如 "user1|user2"。
             image_url       : 企业微信可访问的报警缩略图 URL。
             detail_url      : 平台报警详情页 URL。
         """
+        if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
+            raise ValueError("企业微信业务告警 violation_type 必须是正式报警类型注册表中的整数")
+        event_label = VIOLATION_TYPE_META[violation_type]["label"]
         if not recipients:
             return False  # 无接收人，跳过
         if not image_url or not detail_url:
@@ -243,7 +238,7 @@ class WeChatNotifier:
                 missing.append("detail_url")
             logger.warning(
                 f"[WeChat] AI 告警图文卡片缺少 {', '.join(missing)}，跳过推送: "
-                f"feature={feature_name} target={camera_name}"
+                f"violation_type={violation_type} target={camera_name}"
             )
             return False
         # 先向企业微信认证，拿到后面接口所需的access_token
@@ -251,8 +246,6 @@ class WeChatNotifier:
         if token is None:
             return False
 
-        # 将内部功能名映射为用户友好的中文标签；未收录的名称原样展示
-        event_label = _EVENT_DISPLAY.get(feature_name, feature_name)
         # 告警截图和告警详情URL都有
         return self._send_news_card(
             token=token,

@@ -1,4 +1,5 @@
 """最终配置契约、真实 API/SQLite 持久化和模拟推理行为。"""
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,6 +14,8 @@ from sqlalchemy.pool import StaticPool
 
 from AiVision.core import db
 from AiVision.core.cache import ConfigCache
+from AiVision.alarms.types import VIOLATION_TYPE_META
+from AiVision.features import registry
 from AiVision.features.registry import all_specs, get_spec
 from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 from AiVision.features._shared import config_manager
@@ -60,15 +63,38 @@ def test_defaults_read_save_echo_and_cache(api, feature):
             assert runtime[key] == value
 
 
-def test_feature_metadata_preserves_single_alarm_response(api):
+def test_feature_metadata_returns_structured_alarm_types(api):
     response = api.client.get("/api/features")
     assert response.status_code == 200
     expected_types = {"blocks": 1, "detect_door": 2, "detect_phone": 3, "detect_face": 4,
                       "detect_human": 5, "detect_logistics_single_person": 6, "recognize_face": 7}
-    for meta in response.json()["features"]:
-        assert meta["violation_type"] == expected_types[meta["name"]]
-        assert set(meta) == {"name", "display_name", "required_models", "violation_type", "default_config", "config_schema"}
+    features = response.json()["features"]
+    assert {meta["name"] for meta in features} == expected_types.keys()
+    for meta in features:
+        alarm_type = expected_types[meta["name"]]
+        assert meta["alarm_types"] == [{"violation_type": alarm_type, **VIOLATION_TYPE_META[alarm_type]}]
+        assert set(meta) == {"name", "display_name", "required_models", "alarm_types", "default_config", "config_schema"}
         assert api.client.get(f"/api/features/{meta['name']}").json() == meta
+
+
+@pytest.mark.parametrize("alarm_types", [(2, 1), ()])
+def test_feature_metadata_serializes_multiple_or_no_alarm_types(api, monkeypatch, alarm_types):
+    spec = replace(get_spec("blocks"), name="composite", alarm_types=alarm_types)
+    monkeypatch.setattr(registry, "_REGISTRY", registry._build_registry((spec,)))
+    monkeypatch.setitem(VIOLATION_TYPE_META, 1, {"event_type": "blocks", "label": "测试报警名称"})
+
+    response = api.client.get("/api/features")
+    assert response.status_code == 200
+    [meta] = response.json()["features"]
+    assert meta["name"] == spec.name
+    assert "violation_type" not in meta
+    assert meta["alarm_types"] == [
+        {"violation_type": alarm_type, **VIOLATION_TYPE_META[alarm_type]}
+        for alarm_type in alarm_types
+    ]
+    detail = api.client.get(f"/api/features/{spec.name}")
+    assert detail.status_code == 200
+    assert detail.json() == meta
 
 
 @pytest.mark.parametrize("feature", list(all_specs()))

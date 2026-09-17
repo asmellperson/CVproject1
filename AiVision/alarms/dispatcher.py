@@ -372,7 +372,7 @@ class AlarmDispatcher:
                 )
                 # 把告警类型、摄像头、截图、接收人和卡片连接交给企业微信客户端
                 self.wechat.send(
-                    feature_name=req.feature_name,
+                    violation_type=req.violation_type,
                     camera_name=req.camera_name,
                     recipients=user,
                     image_url=image_url,

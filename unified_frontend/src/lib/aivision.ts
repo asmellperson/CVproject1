@@ -25,7 +25,11 @@ export type AiVisionFeatureMeta = {
   name: string
   display_name: string
   required_models: string[]
-  violation_type: number
+  alarm_types: Array<{
+    violation_type: number
+    event_type: string
+    label: string
+  }>
   default_config: AiVisionFeatureConfig
   config_schema: Record<string, unknown>
 }
