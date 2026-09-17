@@ -8,7 +8,7 @@ from AiVision.alarms.devices.binding import MAX_HORN_ID
 from AiVision.departments.department_registry import require_department
 from AiVision.features._shared.roi import NormalizedRoi
 from .constants import (
-    ALARM_POLICY_DEFAULTS, MAX_CAMERAS_PER_SITE, MAX_MODEL_IMGSZ, MIN_MODEL_IMGSZ,
+    ALARM_POLICY_DEFAULTS, GUARD_ALARM_TYPES, MAX_CAMERAS_PER_SITE, MAX_MODEL_IMGSZ, MIN_MODEL_IMGSZ,
     SITE_POLICY_DEFAULTS, require_alarm_type,
 )
 
@@ -216,3 +216,52 @@ class GuardBehaviorAlarmPolicyResponse(GuardBehaviorAlarmPolicyUpdate, _Timestam
     @classmethod
     def _alarm_type(cls, value: int) -> int:
         return require_alarm_type(value)
+
+
+class GuardBehaviorRuntimeAlarmPolicy(GuardBehaviorAlarmPolicyUpdate):
+    model_config = ConfigDict(frozen=True)
+    violation_type: int
+    alarm_interval: PositiveSeconds
+
+    @field_validator("violation_type")
+    @classmethod
+    def _alarm_type(cls, value: int) -> int:
+        return require_alarm_type(value)
+
+
+class GuardBehaviorRuntimeMember(_StrictSchema):
+    model_config = ConfigDict(frozen=True)
+    camera_id: PositiveId
+    camera_name: str
+    shm_name: str
+    member_enabled: bool
+    physical_enabled: bool
+    feature_enabled: bool
+    sort_order: int
+
+
+class GuardBehaviorRuntimeSiteConfig(_StrictSchema):
+    """同一次数据库读取形成的配置快照，运行线程不保留 Session 或 ORM。"""
+
+    model_config = ConfigDict(frozen=True)
+    site_id: PositiveId
+    site_name: str
+    department: str
+    enabled: bool
+    members: tuple[GuardBehaviorRuntimeMember, ...]
+    policy: GuardBehaviorRuntimePolicy
+    alarm_policies: tuple[GuardBehaviorRuntimeAlarmPolicy, ...]
+
+    @field_validator("department")
+    @classmethod
+    def _department(cls, value: str) -> str:
+        return require_department(value)
+
+    @model_validator(mode="after")
+    def _complete(self):
+        if sorted(item.violation_type for item in self.alarm_policies) != list(GUARD_ALARM_TYPES):
+            raise ValueError("Site 运行配置必须包含完整且唯一的四类报警策略")
+        camera_ids = [member.camera_id for member in self.members]
+        if len(camera_ids) != len(set(camera_ids)) or len(camera_ids) > MAX_CAMERAS_PER_SITE:
+            raise ValueError("Site 运行配置的 Camera 成员重复或超限")
+        return self

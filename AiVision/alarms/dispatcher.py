@@ -11,7 +11,7 @@ import inspect
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import quote
 
 import numpy as np
@@ -25,6 +25,25 @@ if TYPE_CHECKING:
 from AiVision.alarms.notifications.wechat import WeChatNotifier
 from AiVision.alarms.notifications.notification_image import issue_thumbnail_token
 from AiVision.alarms.validation import validate_alarm_identity, validate_cooldown_identity
+
+
+@dataclass(frozen=True)
+class AlarmEvidenceRequest:
+    """证据源与物理 Camera 身份分离；开放时长事件由公共 Recorder 的 token 引用。"""
+
+    source_key: str
+    mode: Literal["clip", "episode"] = "clip"
+    episode_token: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_key, str) or not self.source_key.strip():
+            raise ValueError("证据源必须是非空字符串")
+        if self.mode not in ("clip", "episode"):
+            raise ValueError("证据模式必须是 clip 或 episode")
+        if self.mode == "clip" and self.episode_token is not None:
+            raise ValueError("普通片段不能携带 episode token")
+        if self.episode_token is not None and (not isinstance(self.episode_token, str) or not self.episode_token.strip()):
+            raise ValueError("episode token 必须是非空字符串")
 
 
 @dataclass
@@ -61,10 +80,13 @@ class AlarmRequest:
     subject_name: str = ""
     reason: str = ""
     metadata: dict = field(default_factory=dict)
+    evidence: AlarmEvidenceRequest | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         validate_alarm_identity(self.violation_type, self.feature_name, self.department)
         validate_cooldown_identity(self.cooldown_subject_type, self.cooldown_subject_id, self.violation_type)
+        if self.evidence is not None and not isinstance(self.evidence, AlarmEvidenceRequest):
+            raise ValueError("证据选择必须使用 AlarmEvidenceRequest")
 
 class AlarmDispatcher:
     """
@@ -163,9 +185,12 @@ class AlarmDispatcher:
 
         with self._lock:
             last = self._last_alarm.get(key, 0.0)
-            if now - last < alarm_interval:
-                return False          # 冷却期内，跳过
-            self._last_alarm[key] = now  # 更新时间戳，占位防并发重入
+            accepted = now - last >= alarm_interval
+            if accepted:
+                self._last_alarm[key] = now  # 更新时间戳，占位防并发重入
+        if not accepted:
+            self._cancel_episode(request)
+            return False
         # 报警冷却时间已过，真正执行告警
         self._execute(request)
         return True
@@ -194,6 +219,25 @@ class AlarmDispatcher:
     # ------------------------------------------------------------------ #
     #  私有方法                                                             #
     # ------------------------------------------------------------------ #
+
+    def _cancel_episode(self, req: AlarmRequest) -> None:
+        evidence = req.evidence
+        if evidence is not None and evidence.mode == "episode" and evidence.episode_token and self.evidence_recorder:
+            try:
+                self.evidence_recorder.cancel_episode(evidence.episode_token)
+            except Exception as exc:
+                logger.warning(f"[Alarm] 事件证据取消失败: {exc}")
+
+    def _start_evidence(self, req: AlarmRequest) -> str | None:
+        evidence = req.evidence
+        if evidence is None:
+            return self.evidence_recorder.start_alarm(req.camera_key or req.camera_name, req.frame)
+        if evidence.mode == "episode":
+            # 采集失败不能替换成普通前后片段，否则会把截短录像误称为完整事件。
+            if evidence.episode_token is None:
+                return None
+            return self.evidence_recorder.finish_episode(evidence.episode_token)
+        return self.evidence_recorder.start_alarm(evidence.source_key, req.frame)
 
     def _execute(self, req: AlarmRequest):
         """
@@ -228,13 +272,13 @@ class AlarmDispatcher:
         if should_persist_violation and self.evidence_recorder is not None:
             try:
                 # 摄像头报警了，创建一段视频前后视频证据任务，生成的是告警视频路径
-                video_path = self.evidence_recorder.start_alarm(
-                    req.camera_key or req.camera_name,                  # 哪一路视频发生的告警
-                    req.frame,
-                )
+                video_path = self._start_evidence(req)
             # 各报警通道相互独立，一个失败不能拖死其他通道
             except Exception as exc:
+                self._cancel_episode(req)
                 logger.warning(f"[Alarm] 报警视频任务创建失败: {exc}")
+        elif not should_persist_violation:
+            self._cancel_episode(req)
 
         # ---- 通道 1: 喇叭（后台队列）----
         # 拿喇叭配置

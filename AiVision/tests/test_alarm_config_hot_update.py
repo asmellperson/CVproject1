@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import AiVision.features._shared.consumer as consumer_module
-from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmRequest
+from AiVision.alarms.dispatcher import AlarmDispatcher, AlarmEvidenceRequest, AlarmRequest
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 
@@ -557,3 +557,52 @@ def test_camera_department_reaches_alarm_from_camera_ownership(monkeypatch):
     monkeypatch.setattr(consumer_module.alarm_dispatcher, "maybe_dispatch", lambda request, **_kwargs: requests.append(request))
     consumer._handle_alarm(7, [(True, {})], None)
     assert requests[0].department == "research_institute"
+
+
+@pytest.mark.parametrize(("mode", "token", "expected_action"), [
+    ("clip", None, ("clip", "production-line/1")),
+    ("episode", "event-1", ("finish", "event-1")),
+    ("episode", None, None),
+])
+def test_explicit_evidence_does_not_change_physical_camera_identity(mode, token, expected_action):
+    calls, writes = [], []
+    dispatcher = AlarmDispatcher()
+    dispatcher.evidence_recorder = SimpleNamespace(
+        start_alarm=lambda source, frame: calls.append(("clip", source)) or "/evidence/clip.mp4",
+        finish_episode=lambda value: calls.append(("finish", value)) or "/evidence/episode.mp4",
+        cancel_episode=lambda value: calls.append(("cancel", value)),
+    )
+    dispatcher.violation_writer = SimpleNamespace(enqueue=lambda **values: writes.append(values))
+    request = AlarmRequest(
+        feature_name="blocks", violation_type=1, department="general_electric",
+        camera_id=1, camera_name="Camera 1", camera_key="physical-camera-1",
+        cooldown_subject_type="production_line", cooldown_subject_id="1",
+        frame=np.zeros((2, 2, 3), np.uint8), alarm_config={"sql": {"enable": True}},
+        evidence=AlarmEvidenceRequest("production-line/1", mode, token),
+    )
+    assert dispatcher.maybe_dispatch(request)
+    assert calls == ([] if expected_action is None else [expected_action])
+    assert writes[0]["camera_no"] == "physical-camera-1"
+    assert writes[0]["video_status"] == ("pending" if expected_action else None)
+
+
+def test_episode_evidence_is_cancelled_when_cooldown_or_channels_reject_it():
+    cancelled, finished = [], []
+    dispatcher = AlarmDispatcher()
+    dispatcher.evidence_recorder = SimpleNamespace(
+        finish_episode=lambda token: finished.append(token) or "/evidence/event.mp4",
+        cancel_episode=lambda token: cancelled.append(token),
+    )
+    request = AlarmRequest(
+        feature_name="blocks", violation_type=1, department="general_electric",
+        camera_id=1, camera_name="Camera 1", frame=np.zeros((2, 2, 3), np.uint8),
+        cooldown_subject_type="production_line", cooldown_subject_id="1",
+        alarm_config={"sql": {"enable": True}}, evidence=AlarmEvidenceRequest("line", "episode", "first"),
+    )
+    assert dispatcher.maybe_dispatch(request, alarm_interval=60)
+    rejected = replace(request, evidence=AlarmEvidenceRequest("line", "episode", "second"))
+    assert not dispatcher.maybe_dispatch(rejected, alarm_interval=60)
+    muted = replace(request, cooldown_subject_id="2", alarm_config={"sql": {"enable": False}},
+                    evidence=AlarmEvidenceRequest("line", "episode", "muted"))
+    assert dispatcher.maybe_dispatch(muted)
+    assert finished == ["first"] and cancelled == ["second", "muted"]

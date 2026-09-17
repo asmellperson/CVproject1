@@ -239,3 +239,137 @@ def test_unexpected_encoding_error_keeps_worker_alive(tmp_path, monkeypatch):
     recorder.stop()
     assert first and second
     assert statuses == [(first, "failed"), (second, "failed")]
+
+
+def test_episode_preserves_complete_stream_beyond_pre_and_post_window(tmp_path, monkeypatch):
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, pre_seconds=1, post_seconds=1, fps=1)
+    captured = []
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: captured.append([
+        int(recorder._decode_frame(frame)[0, 0, 0]) for frame in recorder._task_frames(task)]))
+    recorder.record_frame("inspection-line", _frame(10), 0.)
+    token = recorder.begin_episode("inspection-line", _frame(20), 1.)
+    task = recorder._episodes[token]
+    for tick in range(2, 11):
+        recorder.record_frame("inspection-line", _frame(20 + tick), float(tick))
+    assert not captured and not task.frames
+    assert len(recorder._buffers["inspection-line"]) == 2
+    path = recorder.finish_episode(token)
+    assert path and recorder.finish_episode(token) is None
+    recorder.stop()
+    assert captured == [[10, 20, *range(22, 31)]]
+    assert task.spool.closed
+
+
+def test_episode_finish_uses_shared_video_writer_and_status_callback(tmp_path):
+    statuses = []
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, pre_seconds=0, fps=1,
+                                     status_callback=lambda *args: statuses.append(args))
+    token = recorder.begin_episode("process-batch", _frame(10), 0.)
+    for tick in range(1, 4):
+        recorder.record_frame("process-batch", _frame(20 + tick), float(tick))
+    video_path = recorder.finish_episode(token)
+    recorder.stop()
+    assert statuses == [(video_path, "ready")]
+    capture = cv2.VideoCapture(video_path)
+    try:
+        assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 4
+    finally:
+        capture.release()
+
+
+def test_episode_cancel_and_stop_release_shared_capacity_without_video(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True)
+    token = recorder.begin_episode("a", _frame(1))
+    spool = recorder._episodes[token].spool
+    assert recorder.begin_episode("b", _frame(2)) is None
+    assert recorder.start_alarm("b", _frame(2)) is None
+    assert recorder.cancel_episode(token) and spool.closed
+    assert not recorder.cancel_episode(token)
+    second = recorder.begin_episode("b", _frame(2))
+    assert second
+    second_spool = recorder._episodes[second].spool
+    recorder.stop()
+    assert second_spool.closed and not recorder._episodes and not recorder._writer_threads
+    assert not list(recorder.output_dir.iterdir())
+    assert recorder.begin_episode("c", _frame(3)) is None
+
+
+def test_episode_sources_are_isolated(tmp_path, monkeypatch):
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, pre_seconds=0, fps=1)
+    captured = {}
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: captured.update({task.source_key: [
+        int(recorder._decode_frame(frame)[0, 0, 0]) for frame in recorder._task_frames(task)]}))
+    first = recorder.begin_episode("line-a", _frame(10), 0.)
+    second = recorder.begin_episode("line-b", _frame(20), 0.)
+    recorder.record_frame("line-b", _frame(30), 1.)
+    recorder.finish_episode(first)
+    recorder.finish_episode(second)
+    recorder.stop()
+    assert captured == {"line-a": [10], "line-b": [20, 30]}
+
+
+def test_episode_disk_failure_cancels_incomplete_evidence_and_releases_slot(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, fps=1)
+    token = recorder.begin_episode("a", _frame(1), 0.)
+    spool = recorder._episodes[token].spool
+
+    def disk_full(*args):
+        raise OSError("disk full")
+
+    with monkeypatch.context() as context:
+        context.setattr(recorder, "_append_episode_frame", disk_full)
+        recorder.record_frame("a", _frame(2), 1.)
+    assert token not in recorder._episodes and spool.closed
+    assert recorder.finish_episode(token) is None
+    assert recorder.begin_episode("b", _frame(3), 2.)
+    recorder.stop()
+
+
+def test_corrupt_episode_is_failed_and_does_not_kill_writer(tmp_path, monkeypatch):
+    module = importlib.import_module("AiVision.alarms.evidence.evidence_recorder")
+    monkeypatch.setattr(module.settings.storage, "alarm_clip_max_tasks", 1)
+    statuses = []
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, status_callback=lambda *args: statuses.append(args))
+    token = recorder.begin_episode("a")
+    spool = recorder._episodes[token].spool
+    spool.write(b"\x00\x00\x00\x10short")
+    path = recorder.finish_episode(token)
+    recorder._write_queue.join()
+    assert statuses == [(path, "failed")] and spool.closed
+    assert all(worker.is_alive() for worker in recorder._writer_threads)
+    assert recorder.begin_episode("b")
+    recorder.stop()
+
+
+def test_clear_source_finishes_clips_cancels_episodes_and_keeps_other_sources(tmp_path, monkeypatch):
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True)
+    completed = []
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: completed.append(task.video_path))
+    clip = recorder.start_alarm("a", _frame(1))
+    first = recorder.begin_episode("a")
+    second = recorder.begin_episode("b", _frame(2))
+    recorder.clear_source("a")
+    recorder._write_queue.join()
+    assert completed == [clip]
+    assert first not in recorder._episodes and second in recorder._episodes
+    assert "a" not in recorder._buffers and "a" not in recorder._last_sample
+    assert "b" in recorder._buffers
+    recorder.stop()
+
+
+def test_clip_deadline_finishes_without_new_source_frames(tmp_path, monkeypatch):
+    clock, completed = [0.], threading.Event()
+    recorder = AlarmEvidenceRecorder(tmp_path, enabled=True, post_seconds=1, clock=lambda: clock[0])
+    monkeypatch.setattr(recorder, "_finish_task", lambda task: completed.set())
+    recorder.start(lambda: {})
+    try:
+        assert recorder.start_alarm("offline-soon", _frame(1))
+        clock[0] = 2.
+        assert completed.wait(2)
+        assert not recorder._tasks
+    finally:
+        recorder.stop()

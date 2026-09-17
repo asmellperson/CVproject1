@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Literal
 
 
@@ -77,6 +78,8 @@ class GuardCameraSnapshot:
     prone: LocalRuleDecision
     vehicle: VehicleObservation
     model_states: dict[str, ModelState]
+    guards: tuple[TrackedPerson, ...]
+    frame_size: tuple[int, int]  # 原始像素宽、高，仅供同摄空间关系和方向比例计算。
 
 
 @dataclass
@@ -137,3 +140,33 @@ class CameraPerception:
     prone: LocalRuleDecision
     vehicle: VehicleObservation
     model_states: dict[str, ModelState] = field(default_factory=dict)
+
+
+class CameraAvailability(str, Enum):
+    READY = "READY"
+    OFFLINE = "OFFLINE"
+    STALE = "STALE"
+    PHYSICAL_DISABLED = "PHYSICAL_DISABLED"
+    INFERENCE_ERROR = "INFERENCE_ERROR"
+
+
+@dataclass(frozen=True)
+class SiteRuleDecision:
+    availability: Literal["available", "degraded", "unavailable"]
+    state: Literal["normal", "pending", "alarm", "unknown", "idle", "monitoring"]
+    reason: str
+    primary_camera_id: int | None = None
+    offending_camera_ids: tuple[int, ...] = ()
+    confidence: float = 0.
+    duration_seconds: float = 0.
+
+
+@dataclass(frozen=True)
+class SiteEvaluation:
+    status: Literal["disabled", "unconfigured", "healthy", "degraded", "unavailable"]
+    camera_states: dict[int, CameraAvailability]
+    absence: SiteRuleDecision
+    phone: SiteRuleDecision
+    prone: SiteRuleDecision
+    vehicle: SiteRuleDecision
+    updated_at: float

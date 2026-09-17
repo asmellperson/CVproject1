@@ -11,11 +11,14 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+import struct
+import tempfile
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from queue import Queue
-from typing import Callable, Mapping
+from typing import BinaryIO, Callable, Iterator, Mapping
 
 import cv2
 import numpy as np
@@ -31,6 +34,7 @@ class _ClipTask:
     video_path: str
     end_time: float            # 当前时间+10秒
     frames: list[bytes]        # 前十秒已经缓存的帧（不是numpy，而是jpeg bytes）
+    spool: BinaryIO | None = None
 
 class AlarmEvidenceRecorder:
     def __init__(
@@ -67,6 +71,7 @@ class AlarmEvidenceRecorder:
         self._last_sample: dict[str, float] = {}
         # 当前正在等待报警后十秒结束录像任务
         self._tasks: list[_ClipTask] = []
+        self._episodes: dict[str, _ClipTask] = {}
         # RLock：可重入锁
         self._lock = threading.RLock()
         self._lifecycle_lock = threading.Lock()
@@ -126,6 +131,9 @@ class AlarmEvidenceRecorder:
         with self._lock:
             pending = list(self._tasks)
             self._tasks.clear()
+            # 未结束的业务事件没有告警归属；停止时取消并释放磁盘和容量。
+            for token in tuple(self._episodes):
+                self.cancel_episode(token)
             self._buffers.clear()
             self._last_sample.clear()
             for task in pending:
@@ -186,6 +194,16 @@ class AlarmEvidenceRecorder:
             # 早于10秒前的旧帧删掉
             while buffer and buffer[0][0] < cutoff:
                 buffer.popleft()
+
+            for token, episode in tuple(self._episodes.items()):
+                if episode.source_key != source_key:
+                    continue
+                try:
+                    self._append_episode_frame(episode, sampled)
+                except OSError as exc:
+                    # 不能把缺帧的长事件伪装成完整录像，容量也必须立即归还。
+                    self.cancel_episode(token)
+                    logger.warning(f"[AlarmEvidence] 事件证据写入失败 source={source_key}: {exc}")
 
             finished: list[_ClipTask] = []
             for task in self._tasks:
@@ -256,6 +274,106 @@ class AlarmEvidenceRecorder:
                 self._tasks.append(task)
         return video_path
 
+    def begin_episode(self, source_key: str, trigger_frame: np.ndarray | None = None,
+                      timestamp: float | None = None) -> str | None:
+        """开始开放时长的证据采集；调用方持有 token，不关心存储和编码。"""
+        if not self.enabled or not source_key or self._stop_event.is_set():
+            return None
+        now = self._clock() if timestamp is None else float(timestamp)
+        if isinstance(trigger_frame, np.ndarray) and trigger_frame.size:
+            self.record_frame(source_key, trigger_frame, now)
+        with self._lock:
+            if self._stop_event.is_set() or not self._task_slots.acquire(blocking=False):
+                return None
+            spool = None
+            try:
+                self.output_dir.mkdir(parents=True, exist_ok=True)
+                # 长事件不能无限占用内存；匿名磁盘文件在取消、完成或进程退出时回收。
+                spool = tempfile.TemporaryFile(mode="w+b", dir=self.output_dir)
+                token = uuid.uuid4().hex
+                task = _ClipTask(source_key, str(self.output_dir / f"{int(now * 1000)}_{token}.mp4"),
+                                 float("inf"), [], spool)
+                for _, encoded in self._buffers.get(source_key, ()):
+                    self._append_episode_frame(task, encoded)
+                self._ensure_writers()
+                self._episodes[token] = task
+                return token
+            except (OSError, RuntimeError) as exc:
+                if spool is not None:
+                    self._close_spool(spool)
+                self._task_slots.release()
+                logger.warning(f"[AlarmEvidence] 无法开始事件证据 source={source_key}: {exc}")
+                return None
+
+    def finish_episode(self, token: str) -> str | None:
+        """封存完整事件并交给公共编码队列；同一个 token 只能结束一次。"""
+        with self._lock:
+            task = self._episodes.pop(token, None)
+            if task is None:
+                return None
+            self._write_queue.put_nowait(task)
+            return task.video_path
+
+    def cancel_episode(self, token: str) -> bool:
+        """正常结束、配置失效等无需报警的事件不落最终视频。"""
+        with self._lock:
+            task = self._episodes.pop(token, None)
+            if task is None:
+                return False
+            try:
+                self._close_spool(task.spool)
+            finally:
+                self._task_slots.release()
+            return True
+
+    def clear_source(self, source_key: str) -> None:
+        """解除一个证据源；已接受的普通片段完成落盘，未结束事件取消。"""
+        with self._lock:
+            self._buffers.pop(source_key, None)
+            self._last_sample.pop(source_key, None)
+            for token, task in tuple(self._episodes.items()):
+                if task.source_key == source_key:
+                    self.cancel_episode(token)
+            pending = [task for task in self._tasks if task.source_key == source_key]
+            self._tasks = [task for task in self._tasks if task.source_key != source_key]
+            for task in pending:
+                self._write_queue.put_nowait(task)
+
+    def _finish_due_tasks(self, now: float) -> None:
+        with self._lock:
+            finished = [task for task in self._tasks if now >= task.end_time]
+            self._tasks = [task for task in self._tasks if now < task.end_time]
+            for task in finished:
+                self._write_queue.put_nowait(task)
+
+    @staticmethod
+    def _close_spool(spool: BinaryIO) -> None:
+        try:
+            spool.close()
+        except OSError as exc:
+            logger.warning(f"[AlarmEvidence] 事件证据缓冲关闭失败: {exc}")
+
+    @staticmethod
+    def _append_episode_frame(task: _ClipTask, encoded: bytes) -> None:
+        record = struct.pack("!I", len(encoded)) + encoded
+        if task.spool.write(record) != len(record):
+            raise OSError("事件证据帧未完整写入")
+
+    @staticmethod
+    def _task_frames(task: _ClipTask) -> Iterator[bytes]:
+        if task.spool is None:
+            yield from task.frames
+            return
+        task.spool.seek(0)
+        while header := task.spool.read(4):
+            if len(header) != 4:
+                raise ValueError("事件证据帧头不完整")
+            size = struct.unpack("!I", header)[0]
+            encoded = task.spool.read(size)
+            if not size or len(encoded) != size:
+                raise ValueError("事件证据帧不完整")
+            yield encoded
+
     def _ensure_writers(self) -> None:
         """持有 _lock 时调用；手动送帧和定时采帧共用同一组固定 worker。"""
         if self._writer_threads:
@@ -282,7 +400,11 @@ class AlarmEvidenceRecorder:
                     self._report_status(task.video_path, "failed")
             finally:
                 if task is not None:
-                    self._task_slots.release()
+                    try:
+                        if task.spool is not None:
+                            self._close_spool(task.spool)
+                    finally:
+                        self._task_slots.release()
                 self._write_queue.task_done()
 
     def _sample_loop(self) -> None:
@@ -290,6 +412,8 @@ class AlarmEvidenceRecorder:
         持续取帧
         """
         while not self._stop_event.wait(min(0.1, self._sample_interval)):
+            # 来源离线也必须结束已接受的普通片段，不能永久占用任务名额。
+            self._finish_due_tasks(self._clock())
             provider = self._frame_provider
             if provider is None:
                 continue
@@ -307,10 +431,12 @@ class AlarmEvidenceRecorder:
         """生成MP4"""
         status = "failed"
         try:
-            if not task.frames:
+            encoded_frames = self._task_frames(task)
+            first_encoded = next(encoded_frames, None)
+            if first_encoded is None:
                 raise ValueError("报警视频没有可写入帧")
             # 取第一帧确认尺寸
-            first_frame = self._decode_frame(task.frames[0])
+            first_frame = self._decode_frame(first_encoded)
             height, width = first_frame.shape[:2]
             # 创建cv2.VideoWriter
             writer = cv2.VideoWriter(
@@ -323,7 +449,7 @@ class AlarmEvidenceRecorder:
                 raise OSError(f"无法创建报警视频: {task.video_path}")
             try:
                 # 一帧一帧写视频
-                for encoded_frame in task.frames:
+                for encoded_frame in chain((first_encoded,), encoded_frames):
                     # 恢复成numpy图像
                     frame = self._decode_frame(encoded_frame)
                     # 检查尺寸

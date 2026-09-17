@@ -22,6 +22,7 @@ from .schema import (
     GuardBehaviorSitePolicySchema, GuardBehaviorSitePolicyUpdate,
     GuardBehaviorSiteResponse, GuardBehaviorSiteUpdate,
     GuardBehaviorRuntimeCameraConfig, GuardBehaviorRuntimePolicy,
+    GuardBehaviorRuntimeAlarmPolicy, GuardBehaviorRuntimeMember, GuardBehaviorRuntimeSiteConfig,
 )
 
 
@@ -42,6 +43,37 @@ def _positive_id(value: int) -> int:
 
 
 class GuardBehaviorService:
+    @classmethod
+    def _site_runtime_snapshot(cls, session, site) -> GuardBehaviorRuntimeSiteConfig:
+        rows = (session.query(GuardBehaviorSiteCamera, AiCameraConfig, GuardBehaviorCameraConfig)
+                .join(AiCameraConfig, GuardBehaviorSiteCamera.camera_id == AiCameraConfig.id)
+                .outerjoin(GuardBehaviorCameraConfig, GuardBehaviorCameraConfig.camera_id == AiCameraConfig.id)
+                .filter(GuardBehaviorSiteCamera.site_id == site.id)
+                .order_by(GuardBehaviorSiteCamera.sort_order, GuardBehaviorSiteCamera.id).all())
+        if any(config is None or camera.department != site.department for _, camera, config in rows):
+            raise ValueError("Site 成员缺少 Feature 配置或事业部不一致")
+        policies = session.query(GuardBehaviorAlarmPolicy).filter_by(site_id=site.id).all()
+        return GuardBehaviorRuntimeSiteConfig(
+            site_id=site.id, site_name=site.name, department=site.department, enabled=site.enabled,
+            members=tuple(GuardBehaviorRuntimeMember(
+                camera_id=camera.id, camera_name=camera.name, shm_name=camera.shm_name,
+                member_enabled=member.enabled, physical_enabled=camera.enable,
+                feature_enabled=config.enable, sort_order=member.sort_order,
+            ) for member, camera, config in rows),
+            policy=GuardBehaviorRuntimePolicy.model_validate(cls._policy(session, site.id)),
+            alarm_policies=tuple(GuardBehaviorRuntimeAlarmPolicy.model_validate(policy) for policy in policies),
+        )
+
+    def get_runtime_site_config(self, site_id: int) -> GuardBehaviorRuntimeSiteConfig | None:
+        with closing(db.get_session()) as session:
+            site = session.get(GuardBehaviorSite, _positive_id(site_id))
+            return None if site is None else self._site_runtime_snapshot(session, site)
+
+    def list_runtime_site_configs(self) -> list[GuardBehaviorRuntimeSiteConfig]:
+        with closing(db.get_session()) as session:
+            sites = session.query(GuardBehaviorSite).order_by(GuardBehaviorSite.sort_order, GuardBehaviorSite.id).all()
+            return [self._site_runtime_snapshot(session, site) for site in sites]
+
     @staticmethod
     def _runtime_query(session):
         return (session.query(GuardBehaviorSiteCamera, GuardBehaviorSite, AiCameraConfig,

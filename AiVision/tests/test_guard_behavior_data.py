@@ -114,6 +114,33 @@ def site(data_db, name="南门", department=DEPARTMENT):
     return data_db.service.create_site(name, department)["id"]
 
 
+def test_site_runtime_config_contains_detached_members_and_all_policies(data_db):
+    service = data_db.service
+    site_id = site(data_db)
+    cameras = [data_db.camera(), data_db.camera()]
+    for camera_id in cameras:
+        service.add_camera(site_id, camera_id)
+    service.reorder_cameras(site_id, list(reversed(cameras)))
+    service.set_camera_enabled(site_id, cameras[0], False)
+    config = service.get_runtime_site_config(site_id)
+    assert config == service.list_runtime_site_configs()[0]
+    assert tuple(member.camera_id for member in config.members) == tuple(reversed(cameras))
+    assert config.members[0].member_enabled and not config.members[1].member_enabled
+    assert all(member.feature_enabled and not member.physical_enabled for member in config.members)
+    assert sorted(policy.violation_type for policy in config.alarm_policies) == list(GUARD_ALARM_TYPES)
+    assert data_db.sessions[-1].closed
+    assert "rtsp" not in config.model_dump_json()
+    with pytest.raises(ValueError):
+        config.members[0].physical_enabled = True
+    with pytest.raises(ValueError):
+        config.alarm_policies[0].sql_enable = True
+    service.update_policy(site_id, {"absent_alarm_seconds": 100.})
+    assert config.policy.absent_alarm_seconds == SITE_POLICY_DEFAULTS["absent_alarm_seconds"]
+    assert service.get_runtime_site_config(site_id).policy.absent_alarm_seconds == 100.
+    service.delete_site(site_id)
+    assert service.get_runtime_site_config(site_id) is None
+
+
 def test_orm_uses_shared_base_exact_tables_fields_and_real_schema_validation(data_db):
     expected = {
         "ai_guard_behavior_site", "ai_guard_behavior_site_camera", "ai_camera_config_guard_behavior",

@@ -344,6 +344,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             camera_id, config.camera_name, config.site_id, config.site_name, updated_at,
             bool(self.is_camera_active(config.shm_name)), detail.guard_present, detail.guard_count,
             detail.guard_confidence, detail.phone, detail.prone, detail.vehicle, dict(detail.model_states),
+            detail.guards, (annotated.shape[1], annotated.shape[0]),
         )
         self.latest_snapshots[camera_id] = snapshot
         self.result_dict[config.shm_name] = annotated

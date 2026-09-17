@@ -144,7 +144,7 @@ def test_data_package_import_does_not_register_feature_alarm_types_or_start_mode
                 if fullname.startswith('AiVision.integrations.') or fullname.split('.')[0] in {'torch', 'timm', 'ultralytics'}:
                     raise AssertionError('forbidden dependency: ' + fullname)
         sys.meta_path.insert(0, ImportBoundary())
-        from AiVision.features.guard_behavior import constants, orm, schema, service, tracking
+        from AiVision.features.guard_behavior import constants, orm, schema, service, tracking, runtime
         from AiVision.features.guard_behavior.spec import SPEC
         from AiVision.core import db
         from AiVision.features.registry import all_specs
@@ -171,7 +171,8 @@ def test_data_package_contains_only_expected_modules_and_no_retired_dependencies
     directory = Path(__file__).resolve().parents[1] / "features" / "guard_behavior"
     assert {path.name for path in directory.glob("*.py")} == {
         "__init__.py", "constants.py", "orm.py", "schema.py", "service.py", "spec.py",
-        "consumer.py", "state.py", "behavior.py", "pose_features.py", "tracking.py",
+        "consumer.py", "state.py", "behavior.py", "pose_features.py", "tracking.py", "site_rules.py",
+        "vehicle_episode.py", "runtime.py",
     }
     forbidden = ("AiVision.integrations.guard_room", "GuardRoomSite", "GuardRoomCamera", "GuardRoomSiteConfig", "AppConfig")
     for path in directory.glob("*.py"):
