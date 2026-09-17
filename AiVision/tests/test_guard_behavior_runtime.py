@@ -46,7 +46,8 @@ def snapshot(camera_id=1, now=100., present=False, **changes):
 
 
 def camera_states(config, snapshots, now):
-    return {member.camera_id: camera_availability(member, snapshots.get(member.camera_id), now, stale_seconds(config))
+    return {member.camera_id: camera_availability(member, snapshots.get(member.camera_id), now, stale_seconds(config),
+                                                 physical_online=member.camera_id not in snapshots or snapshots[member.camera_id].online)
             for member in expected_members(config)}
 
 
@@ -120,9 +121,9 @@ def test_staleness_uses_internal_threshold_and_physical_disabled_is_distinct():
     assert stale_seconds(config) == 9.
     assert stale_seconds(site_config(cap_interval=.1)) == 5.
     member = config.members[0]
-    assert camera_availability(member, snapshot(), 109., 9.) == CameraAvailability.READY
-    assert camera_availability(member, snapshot(), 109.01, 9.) == CameraAvailability.STALE
-    assert camera_availability(member.model_copy(update={"physical_enabled": False}), None, 100., 5.) == (
+    assert camera_availability(member, snapshot(), 109., 9., physical_online=True) == CameraAvailability.READY
+    assert camera_availability(member, snapshot(), 109.01, 9., physical_online=True) == CameraAvailability.STALE
+    assert camera_availability(member.model_copy(update={"physical_enabled": False}), None, 100., 5., physical_online=True) == (
         CameraAvailability.PHYSICAL_DISABLED)
 
 
@@ -298,6 +299,7 @@ class FakeEvidence:
 @pytest.fixture
 def runtime():
     configs, reads, requests, now = {1: site_config()}, [], [], [100.]
+    online = {f"camera-{index}": True for index in range(1, 10)}
     evidence = FakeEvidence()
     service = SimpleNamespace(
         list_runtime_site_configs=lambda: reads.append("all") or list(configs.values()),
@@ -306,14 +308,14 @@ def runtime():
     dispatcher = SimpleNamespace(evidence_recorder=evidence,
                                  maybe_dispatch=lambda request, **kwargs: requests.append((request, kwargs)) or True)
     instance = GuardBehaviorSiteRuntime(service=service, dispatcher=dispatcher, evidence_recorder=evidence,
-                                        clock=lambda: now[0], start_background=False)
+                                        is_camera_active=online.__getitem__, clock=lambda: now[0], start_background=False)
     instance.start()
 
     def push(value, color=100):
         return instance.update_camera_snapshot(value, np.full((100, 100, 3), color, np.uint8))
 
     yield SimpleNamespace(instance=instance, configs=configs, reads=reads, requests=requests,
-                          evidence=evidence, now=now, push=push)
+                          evidence=evidence, now=now, push=push, online=online)
     instance.stop()
 
 
@@ -331,6 +333,37 @@ def test_runtime_aggregates_cached_facts_without_database_reads_per_frame(runtim
     result = runtime.instance.evaluate_after_camera_update(1)
     assert result.status == "unavailable" and result.absence.state == "unknown"
     assert set(result.camera_states.values()) == {CameraAvailability.STALE}
+
+
+@pytest.mark.parametrize("has_snapshot", [False, True])
+def test_physical_video_status_is_independent_of_guard_snapshot(runtime, has_snapshot):
+    runtime.configs[1] = site_config(count=3)
+    runtime.instance.reload_site(1)
+    if has_snapshot:
+        for camera_id in (1, 2, 3):
+            runtime.push(snapshot(camera_id))
+    result = runtime.instance.evaluate_after_camera_update(1)
+    expected = CameraAvailability.READY if has_snapshot else CameraAvailability.INFERENCE_ERROR
+    assert result.camera_states == {camera_id: expected for camera_id in (1, 2, 3)}
+    assert runtime.instance.get_camera_online(1) == {1: True, 2: True, 3: True}
+    if not has_snapshot:
+        assert result.absence.state == "unknown" and not runtime.requests
+
+    # 即使已有 READY 快照，采集链路离线也必须立即使规则不可用。
+    runtime.online["camera-2"] = False
+    result = runtime.instance.evaluate_after_camera_update(1)
+    assert result.camera_states[2] == CameraAvailability.OFFLINE
+    assert runtime.instance.get_camera_online(1) == {1: True, 2: False, 3: True}
+    assert result.absence.state == "unknown" and not runtime.requests
+
+
+def test_disabled_site_and_member_do_not_hide_physical_video_status(runtime):
+    config = site_config(enabled=False)
+    runtime.configs[1] = config.model_copy(update={"members": tuple(
+        member.model_copy(update={"member_enabled": False}) for member in config.members)})
+    runtime.instance.reload_site(1)
+    assert runtime.instance.evaluate_after_camera_update(1).status == "disabled"
+    assert runtime.instance.get_camera_online(1) == {1: True, 2: True}
 
 
 @pytest.mark.parametrize("rule,model", [("phone", "yolo_guard_person_phone"),
@@ -472,7 +505,7 @@ def test_runtime_can_be_constructed_before_dispatcher_configure_and_started_afte
     reads, dispatcher, evidence = [], AlarmDispatcher(), FakeEvidence()
     service = SimpleNamespace(list_runtime_site_configs=lambda: reads.append("all") or [])
     instance = GuardBehaviorSiteRuntime(service=service, dispatcher=dispatcher, evidence_recorder=evidence,
-                                        start_background=False)
+                                        is_camera_active=lambda _: True, start_background=False)
     assert not reads and not instance.running and dispatcher._wechat_thread is None
     with pytest.raises(ValueError, match="启动前"):
         instance.start()
@@ -491,7 +524,7 @@ def test_runtime_can_be_constructed_before_dispatcher_configure_and_started_afte
 def test_start_rechecks_final_evidence_binding_before_reading_configs(changed_to):
     evidence = FakeEvidence()
     dispatcher = SimpleNamespace(evidence_recorder=evidence)
-    instance = GuardBehaviorSiteRuntime(service=None, dispatcher=dispatcher, evidence_recorder=evidence)
+    instance = GuardBehaviorSiteRuntime(service=None, dispatcher=dispatcher, evidence_recorder=evidence, is_camera_active=lambda _: True)
     dispatcher.evidence_recorder = None if changed_to is None else FakeEvidence()
     with pytest.raises(ValueError, match="启动前"):
         instance.start()
@@ -501,7 +534,7 @@ def test_start_rechecks_final_evidence_binding_before_reading_configs(changed_to
 def test_constructor_still_rejects_different_already_configured_evidence():
     with pytest.raises(ValueError, match="同一个"):
         GuardBehaviorSiteRuntime(service=None, dispatcher=SimpleNamespace(evidence_recorder=FakeEvidence()),
-                                 evidence_recorder=FakeEvidence())
+                                 evidence_recorder=FakeEvidence(), is_camera_active=lambda _: True)
 
 
 def test_registered_guard_request_passes_formal_alarm_validation(runtime):

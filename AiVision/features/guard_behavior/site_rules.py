@@ -22,11 +22,14 @@ def stale_seconds(config: GuardBehaviorRuntimeSiteConfig) -> float:
 
 
 def camera_availability(member: GuardBehaviorRuntimeMember, snapshot: GuardCameraSnapshot | None,
-                        now: float, stale_after: float) -> CameraAvailability:
+                        now: float, stale_after: float, *, physical_online: bool) -> CameraAvailability:
     if not member.physical_enabled:
         return CameraAvailability.PHYSICAL_DISABLED
-    if snapshot is None or not snapshot.online:
+    if not physical_online:
         return CameraAvailability.OFFLINE
+    # 缺少推理结果不能证明视频离线；离线只由平台采集链路判断。
+    if snapshot is None or not snapshot.online:
+        return CameraAvailability.INFERENCE_ERROR
     if now - snapshot.updated_at > stale_after:
         return CameraAvailability.STALE
     # 同一模型还承担手机裁图推理；子规则失败不能覆盖已确定的核心在岗事实。

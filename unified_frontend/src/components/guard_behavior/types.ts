@@ -88,6 +88,7 @@ export type SiteStatus = {
   running: boolean
   status: 'disabled' | 'unconfigured' | 'healthy' | 'degraded' | 'unavailable'
   camera_states: Record<string, CameraAvailability>
+  camera_online: Record<string, boolean>
   absence: RuleDecision
   phone: RuleDecision
   prone: RuleDecision

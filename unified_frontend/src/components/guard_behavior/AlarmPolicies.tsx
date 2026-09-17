@@ -12,7 +12,7 @@ import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfi
 import { updateAlarmPolicy } from './api'
 import type { AlarmPolicy, AlarmPolicyValues, GuardAlarmType } from './types'
 
-const LABELS: Record<GuardAlarmType, string> = { 8: '离岗', 9: '手机', 10: '趴睡', 11: '车辆出厂检查异常' }
+const LABELS: Record<GuardAlarmType, string> = { 8: '离岗', 9: '手机使用', 10: '趴睡', 11: '车辆出厂检查异常' }
 
 function AlarmPolicyCard({ policy, busy, onChange }: { policy: AlarmPolicy; busy: boolean; onChange: (operation: () => Promise<unknown>) => Promise<void> }) {
   const { isAdmin } = useAuth()
@@ -22,7 +22,7 @@ function AlarmPolicyCard({ policy, busy, onChange }: { policy: AlarmPolicy; busy
   const disabled = !isAdmin || busy
   return <section>
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Bell} tone="amber" title={`${policy.violation_type} · ${LABELS[policy.violation_type]}`} description="此类报警独立设置间隔及推送方式。" />
+      <DetectionConfigCardHeader icon={Bell} tone="amber" title={LABELS[policy.violation_type]} description="此类报警独立设置间隔及推送方式。" />
       <DetectionConfigCardContent className="space-y-4">
         <div className="space-y-2"><Label htmlFor={`guard-alarm-${policy.violation_type}`}>报警间隔（秒）</Label><Input id={`guard-alarm-${policy.violation_type}`} type="number" min={.1} step={.1} disabled={disabled} value={value.alarm_interval}
           onChange={(event) => setChanges((previous) => ({ ...previous, alarm_interval: Number(event.target.value) }))} /></div>

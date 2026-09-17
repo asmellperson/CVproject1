@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field, replace
 from math import ceil, isfinite, sqrt
 import threading
 import time
-from typing import Literal
+from typing import Callable, Literal
 
 import cv2
 import numpy as np
@@ -39,10 +39,12 @@ class SiteRuntimeState:
 
 
 class GuardBehaviorSiteRuntime:
-    def __init__(self, *, service, dispatcher, evidence_recorder, clock=time.time, start_background=True):
+    def __init__(self, *, service, dispatcher, evidence_recorder, is_camera_active: Callable[[str], bool],
+                 clock=time.time, start_background=True):
         if dispatcher.evidence_recorder is not None and dispatcher.evidence_recorder is not evidence_recorder:
             raise ValueError("SiteRuntime 与 Dispatcher 必须使用同一个公共 Evidence 实例")
         self.service, self.dispatcher, self.evidence = service, dispatcher, evidence_recorder
+        self._is_camera_active = is_camera_active
         self._clock, self._start_background = clock, start_background
         self.sites: dict[int, SiteRuntimeState] = {}
         self.latest_snapshots: dict[int, GuardCameraSnapshot] = {}
@@ -133,7 +135,8 @@ class GuardBehaviorSiteRuntime:
             previous = self.latest_snapshots.get(snapshot.camera_id)
             if previous is not None and snapshot.updated_at <= previous.updated_at:
                 return False
-            status = camera_availability(member, snapshot, self._clock(), stale_seconds(state.config))
+            status = camera_availability(member, snapshot, self._clock(), stale_seconds(state.config),
+                                         physical_online=self._is_camera_active(member.shm_name))
             if status != CameraAvailability.READY:
                 # 快照可能在下一次聚合前被覆盖，未知区间必须立即切断连续负证据。
                 state.absence.clear()
@@ -166,7 +169,8 @@ class GuardBehaviorSiteRuntime:
                 state.last_error = None
                 return state.evaluation
             camera_states = {member.camera_id: camera_availability(
-                member, self.latest_snapshots.get(member.camera_id), now, stale_seconds(config)) for member in members}
+                member, self.latest_snapshots.get(member.camera_id), now, stale_seconds(config),
+                physical_online=self._is_camera_active(member.shm_name)) for member in members}
             absence = state.absence.evaluate(config, self.latest_snapshots, camera_states, now)
             phone = aggregate_positive("phone", self.latest_snapshots, camera_states)
             prone = aggregate_positive("prone", self.latest_snapshots, camera_states)
@@ -303,10 +307,18 @@ class GuardBehaviorSiteRuntime:
                     left, top = x + (TILE_WIDTH - width) // 2, y + (TILE_HEIGHT - height) // 2
                     canvas[top:top + height, left:left + width] = tile
                 status = camera_availability(member, self.latest_snapshots.get(member.camera_id),
-                                             self._clock(), stale_seconds(state.config))
+                                             self._clock(), stale_seconds(state.config),
+                                             physical_online=self._is_camera_active(member.shm_name))
                 cv2.putText(canvas, f"Camera {member.camera_id} {status.value}", (x + 8, y + 22),
                             cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
             return canvas
+
+    def get_camera_online(self, site_id: int) -> dict[int, bool]:
+        """视频状态独立于 Site 启停、成员参与状态及 AI Snapshot。"""
+        with self._lock:
+            state = self.sites.get(site_id)
+            return {member.camera_id: bool(member.physical_enabled and self._is_camera_active(member.shm_name))
+                    for member in state.config.members} if state is not None else {}
 
     def get_site_status(self, site_id: int) -> SiteEvaluation | None:
         with self._lock:

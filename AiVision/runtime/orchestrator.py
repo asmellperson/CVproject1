@@ -96,6 +96,8 @@ class Orchestrator:
         self.guard_behavior_runtime = GuardBehaviorSiteRuntime(
             service=self.guard_behavior_service, dispatcher=alarm_dispatcher,
             evidence_recorder=alarm_evidence_recorder,
+            is_camera_active=lambda shm_name: (
+                self.camera_runtime_manager.is_running(shm_name) and frame_reader_registry.is_active(shm_name)),
         )
 
         # 监听配置变更

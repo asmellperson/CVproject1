@@ -42,6 +42,7 @@ class GuardBehaviorSiteStatusResponse(BaseModel):
     running: bool
     status: Literal["disabled", "unconfigured", "healthy", "degraded", "unavailable"] = "unavailable"
     camera_states: dict[int, CameraAvailability] = Field(default_factory=dict)
+    camera_online: dict[int, bool] = Field(default_factory=dict)
     absence: SiteRuleDecision = Field(default_factory=_unavailable_rule)
     phone: SiteRuleDecision = Field(default_factory=_unavailable_rule)
     prone: SiteRuleDecision = Field(default_factory=_unavailable_rule)
@@ -228,7 +229,9 @@ def get_status(site: Site, runtime: Runtime):
     running = runtime is not None and runtime.running
     evaluation = runtime.get_site_status(site["id"]) if running else None
     values = asdict(evaluation) if evaluation is not None else {}
-    return GuardBehaviorSiteStatusResponse(site_id=site["id"], running=running, **values)
+    camera_online = runtime.get_camera_online(site["id"]) if runtime is not None else {}
+    return GuardBehaviorSiteStatusResponse(site_id=site["id"], running=running,
+                                           camera_online=camera_online, **values)
 
 
 @router.get("/sites/{site_id}/frame.jpg")

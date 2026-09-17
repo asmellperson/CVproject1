@@ -115,7 +115,7 @@ def test_partial_uniform_failure_preserves_unknown_or_known_positive(consumer, p
     assert snapshot.guard_present is (True if positive else None)
     assert snapshot.guard_count is None
     assert snapshot.model_states[module.UNIFORM_MODEL] == "error"
-    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5., physical_online=True) == (
         CameraAvailability.READY if positive else CameraAvailability.INFERENCE_ERROR)
 
 
@@ -161,7 +161,7 @@ def test_phone_inference_failure_does_not_destroy_guard_presence(consumer):
     snapshot, _ = consumer.process()
     assert snapshot.guard_present is True and snapshot.phone.state == "unknown"
     assert snapshot.model_states[module.PERSON_MODEL] == "error"
-    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5., physical_online=True) == (
         CameraAvailability.READY)
 
 
@@ -179,7 +179,7 @@ def test_pose_uses_own_default_conf_and_full_frame(consumer):
     consumer.now[0] += 1
     snapshot, _ = consumer.process()
     assert snapshot.prone.state == "unknown" and snapshot.guard_present is True
-    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5., physical_online=True) == (
         CameraAvailability.READY)
 
 
@@ -203,7 +203,7 @@ def test_vehicle_optional_unavailable_and_normalized_bottom_center_roi(consumer)
     snapshot, _ = consumer.process()
     assert not snapshot.vehicle.available and snapshot.guard_present is False
     assert snapshot.model_states[module.VEHICLE_MODEL] == "unavailable"
-    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5.) == (
+    assert camera_availability(SimpleNamespace(physical_enabled=True), snapshot, snapshot.updated_at, 5., physical_online=True) == (
         CameraAvailability.READY)
     consumer.available[module.VEHICLE_MODEL] = True
     consumer.outputs[module.VEHICLE_MODEL] = [
@@ -496,7 +496,7 @@ def test_consumer_snapshot_reaches_site_runtime_and_formal_dispatcher(consumer, 
     monkeypatch.setattr(module, "time", lambda: consumer.now[0])
     runtime = GuardBehaviorSiteRuntime(
         service=SimpleNamespace(list_runtime_site_configs=lambda: [config]),
-        dispatcher=dispatcher, evidence_recorder=evidence,
+        dispatcher=dispatcher, evidence_recorder=evidence, is_camera_active=lambda _: True,
         clock=lambda: consumer.now[0], start_background=False,
     )
     runtime.start()

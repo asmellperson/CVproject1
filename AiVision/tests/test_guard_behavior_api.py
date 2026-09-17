@@ -24,7 +24,7 @@ def client(data_db, monkeypatch):  # noqa: F811
     app.include_router(api.router)
     state = SimpleNamespace(user={"role": "admin"}, runtime=SimpleNamespace(
         running=False, reload_site=Mock(), get_site_status=Mock(return_value=None),
-        get_site_frame=Mock(return_value=None)))
+        get_site_frame=Mock(return_value=None), get_camera_online=Mock(return_value={})))
     app.dependency_overrides[api.get_current_user] = lambda: state.user
     app.dependency_overrides[api.get_guard_behavior_service] = lambda: data_db.service
     state.orchestrator = SimpleNamespace(refresh_guard_site=Mock())
@@ -158,6 +158,17 @@ def test_live_status_and_jpeg_use_injected_runtime(client):
     assert response.status_code == 200 and response.content[:2] == b"\xff\xd8"
     assert response.headers["cache-control"] == "no-store"
     assert c.request("GET", f"/sites/{c.site}/frame.jpg?quality=999").status_code == 422
+
+
+@pytest.mark.parametrize("online", [True, False])
+def test_status_reports_physical_video_without_ai_snapshot(client, online):
+    client.runtime.running = True
+    client.runtime.get_camera_online.return_value = {client.camera: online}
+    response = client.request("GET", f"/sites/{client.site}/status")
+    assert response.status_code == 200
+    assert response.json()["camera_online"] == {str(client.camera): online}
+    assert response.json()["camera_states"] == {}
+    assert response.json()["absence"]["state"] == "unknown"
 
 
 def test_reload_failure_does_not_claim_transaction_was_rolled_back(client):
