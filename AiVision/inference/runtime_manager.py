@@ -4,8 +4,8 @@ inference/runtime_manager.py
 
 负责建队列、查模型配置、启动Worker、判断是否就绪、Worker挂掉后自动恢复、提供运行状态
 
-启动时加载固定模型注册配置，模型文件路径来自本机配置文件。
-模型缺失 / 本机路径未配置时记录失败，由 Watchdog 重试，
+只启动已注册 Feature 依赖的模型，模型文件路径来自本机配置文件。
+所需模型缺失 / 本机路径未配置时记录失败，由 Watchdog 重试，
 不影响其他模型。Consumer 继续通过推理结果 contract 处理超时或失败。
 
 """
@@ -87,16 +87,13 @@ class InferenceRuntimeManager:
         )
 
     def start_all(self):
-        """加载固定模型；同一物理权重只启动一个 Worker。"""
+        """加载 Feature 所需模型；同类 Worker 共享同一物理权重。"""
         with self._lifecycle_lock:
             self._start_all()
 
     def _start_all(self):
         if self._active:
             return
-        unknown = {name for spec in all_specs().values() for name in spec.required_models} - MODEL_SPECS.keys()
-        if unknown:
-            raise ValueError(f"Feature 引用了未注册模型: {sorted(unknown)}")
         groups, owners = self._build_model_groups()
         models = list(groups.values())
         with self._lock:
@@ -478,10 +475,21 @@ class InferenceRuntimeManager:
                 logger.warning(f"[InferenceRuntimeManager] 清理模型 {name} 待处理队列失败: {exc}")
                 return discarded
 
+    @staticmethod
+    def _required_model_names() -> set[str]:
+        required = {name for spec in all_specs().values() for name in spec.required_models}
+        unknown = required - MODEL_SPECS.keys()
+        if unknown:
+            raise ValueError(f"Feature 引用了未注册模型: {sorted(unknown)}")
+        return required
+
     def _build_model_groups(self) -> tuple[dict[str, dict], dict[str, str]]:
+        required = self._required_model_names()
         paths = load_model_paths()
         groups, owners, identities = {}, {}, {}
         for name, spec in MODEL_SPECS.items():
+            if name not in required:
+                continue
             path = paths.get(name, "")
             try:
                 resolved = Path(validate_model_path(path, model_type=spec.type))
@@ -517,9 +525,10 @@ class InferenceRuntimeManager:
         with self._configuration_lock:
             if self._reload_thread is not None and self._reload_thread.is_alive():
                 raise RuntimeError("已有模型正在重载，请等待加载完成后再保存")
+            required = name in self._required_model_names()
             saved_path = save_model_path(name, path)
             with self._lock:
-                active = self._active and not self._shutting_down
+                active = self._active and not self._shutting_down and required
                 self._reload_results[name] = {
                     "status": "loading" if active else "not_started", "error": "",
                 }
@@ -540,7 +549,7 @@ class InferenceRuntimeManager:
         affected = {name}
         with self._lifecycle_lock:
             try:
-                if not self._active or self._shutting_down:
+                if not self._active or self._shutting_down or name not in self._required_model_names():
                     with self._lock:
                         self._reload_results[name] = {"status": "not_started", "error": ""}
                     return

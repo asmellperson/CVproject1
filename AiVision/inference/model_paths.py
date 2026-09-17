@@ -114,7 +114,7 @@ def validate_model_path(value: str, *, model_type: str = "yolo") -> str:
             if path.suffix != ".onnx":
                 raise ValueError("InsightFace 纯检测模型路径必须是本地 .onnx 文件")
             files = [path]
-        elif model_type == "yolo":
+        elif model_type in {"yolo", "yolo_pose", "timm_classifier"}:
             files = [path]
         else:
             raise ValueError("不支持的模型类型")

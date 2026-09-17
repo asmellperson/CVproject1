@@ -33,16 +33,33 @@ def isolated_environment(tmp_path):
     "AiVision.inference.workers.face_recognizer", "AiVision.features",
     "AiVision.runtime.orchestrator", "AiVision.features.face_recognition.library.embedding",
     "AiVision.inference.result_router",
+    "AiVision.inference.workers.yolo_pose", "AiVision.inference.workers.uniform_classifier",
 ])
 def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_path):
     program = textwrap.dedent("""
         import importlib
         import importlib.util
+        import importlib.abc
+        import multiprocessing.process
         from pathlib import Path
         import pickle
         import sys
         import threading
         import sqlalchemy
+        import socket
+
+        class ForbidModelImports(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.split('.')[0] in {'torch', 'timm', 'ultralytics'}:
+                    raise AssertionError('model libraries must not load during import: ' + fullname)
+        sys.meta_path.insert(0, ForbidModelImports())
+
+        def forbid_network(*args, **kwargs):
+            raise AssertionError("imports must not connect to a network")
+        socket.socket.connect = forbid_network
+        def forbid_process(*args, **kwargs):
+            raise AssertionError("imports must not start processes")
+        multiprocessing.process.BaseProcess.start = forbid_process
 
         def forbid_database(*args, **kwargs):
             raise AssertionError("imports must not connect to a database")
@@ -59,6 +76,8 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
         from AiVision.inference.workers.yolo_detector import YoloDetectorWorker
         from AiVision.inference.workers.face_detector import FaceDetectorWorker
         from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
+        from AiVision.inference.workers.yolo_pose import YoloPoseWorker
+        from AiVision.inference.workers.uniform_classifier import UniformClassifierWorker
         from AiVision.features.registry import all_specs
 
         root = Path(sys.argv[2]) / "AiVision"
@@ -68,6 +87,8 @@ def test_fresh_import_orders_register_canonical_workers_and_features(entry, tmp_
         assert {name: spec.worker_class for name, spec in MODEL_SPECS.items()} == {
             "yolo_human": YoloDetectorWorker, "yolo_phone": YoloDetectorWorker,
             "insightface_detection": FaceDetectorWorker, "insightface": FaceRecognizerWorker,
+            "yolo_guard_person_phone": YoloDetectorWorker, "yolo_vehicle": YoloDetectorWorker,
+            "guard_uniform": UniformClassifierWorker, "yolo_guard_pose": YoloPoseWorker,
         }
         for cls in {spec.worker_class for spec in MODEL_SPECS.values()}:
             assert issubclass(cls, BaseModelWorker)

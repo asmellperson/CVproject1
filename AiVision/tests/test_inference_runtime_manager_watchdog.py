@@ -419,6 +419,93 @@ def test_startup_rejects_unregistered_feature_model(fixed_runtime, monkeypatch):
     })
     with pytest.raises(ValueError, match="未注册模型"):
         manager.start_all()
+    assert not manager._active
+    assert manager._workers == {}
+
+
+def test_startup_and_watchdog_ignore_models_unused_by_registered_features(fixed_runtime, monkeypatch):
+    manager, _, _, _ = fixed_runtime
+    manager.stop_all()
+    alerts = []
+    monkeypatch.setattr(manager, "_notify_runtime_alert", lambda *args: alerts.append(args))
+    manager.start_all()
+    unused = {"yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle"}
+    assert manager._required_model_names() == {
+        "yolo_human", "yolo_phone", "insightface_detection", "insightface",
+    }
+    assert unused <= manager.infer_queues.keys()
+    assert not unused.intersection(manager._model_owners)
+    assert not unused.intersection(manager._model_configs)
+    assert not unused.intersection(manager._worker_states)
+    assert not unused.intersection(worker.model_name for worker in ManagedWorker.instances)
+    manager._watchdog_tick(now=100)
+    manager._watchdog_tick(now=200)
+    assert not unused.intersection(alert[0] for alert in alerts)
+    for item in manager.list_models():
+        if item["name"] in unused:
+            assert item["runtime"]["status"] == "not_started"
+            assert not item["runtime"]["alive"] and not item["runtime"]["running"]
+
+
+@pytest.mark.parametrize("name", [
+    "yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle",
+])
+def test_unused_model_save_never_reloads_or_disturbs_running_shared_worker(fixed_runtime, monkeypatch, name):
+    from AiVision.inference.model_paths import load_model_paths
+
+    manager, _, shared, _ = fixed_runtime
+    workers = dict(manager._workers)
+    instances = list(ManagedWorker.instances)
+    monkeypatch.setattr(manager, "_notify_runtime_alert", lambda *_: pytest.fail("unused model alerted"))
+    result = manager.update_model_path(name, str(shared))
+    assert result["load_status"] == "not_started"
+    assert load_model_paths()[name] == str(shared)
+    assert manager._reload_thread is None
+    assert manager._workers == workers
+    assert ManagedWorker.instances == instances
+    assert name not in manager._model_owners
+    assert all(worker.stop_calls == 0 for worker in workers.values())
+
+
+def test_required_set_is_generic_and_empty_features_start_no_models(fixed_runtime, monkeypatch):
+    manager, _, shared, _ = fixed_runtime
+    manager.stop_all()
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {})
+    monkeypatch.setattr(manager, "_notify_runtime_alert", lambda *_: pytest.fail("unused model alerted"))
+    manager.start_all()
+    assert manager._model_configs == {}
+    assert manager._workers == {}
+    assert manager.update_model_path("yolo_human", str(shared))["load_status"] == "not_started"
+    assert manager._reload_thread is None
+
+
+def test_three_required_yolo_models_share_one_physical_worker(fixed_runtime, monkeypatch, tmp_path):
+    import os
+    from types import SimpleNamespace
+    from AiVision.inference.model_registry import MODEL_SPECS
+
+    manager, _, shared, _ = fixed_runtime
+    alias = tmp_path / "person_phone.pt"
+    os.link(shared, alias)
+    manager.update_model_path("yolo_guard_person_phone", str(alias))
+    manager.stop_all()
+    names = ("yolo_human", "yolo_phone", "yolo_guard_person_phone")
+    monkeypatch.setattr(manager_module, "all_specs", lambda: {
+        "synthetic": SimpleNamespace(required_models=names),
+    })
+    # 正式 WorkerClass 与 inode 决定共享；与逻辑模型标签及文件名无关。
+    with monkeypatch.context() as context:
+        context.setattr(manager_module, "MODEL_SPECS", MODEL_SPECS)
+        groups, owners = manager._build_model_groups()
+        assert len(groups) == 1
+        assert groups["yolo_human"]["worker_class"] is MODEL_SPECS["yolo_human"].worker_class
+        assert groups["yolo_human"]["model_names"] == list(names)
+        assert set(owners.values()) == {"yolo_human"}
+    ManagedWorker.instances = []
+    manager.start_all()
+    assert len(ManagedWorker.instances) == 1
+    assert set(manager._workers["yolo_human"].infer_queues) == set(names)
+    assert set(manager.list_running()) == set(names)
 
 
 def test_reload_timeout_stops_worker_and_reports_failed(fixed_runtime, monkeypatch):

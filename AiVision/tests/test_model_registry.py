@@ -23,7 +23,10 @@ def local_paths(tmp_path, monkeypatch):
 
 
 def test_fixed_registry_has_explicit_inference_settings():
-    assert set(MODEL_SPECS) == {"yolo_human", "yolo_phone", "insightface_detection", "insightface"}
+    assert set(MODEL_SPECS) == {
+        "yolo_human", "yolo_phone", "insightface_detection", "insightface",
+        "yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle",
+    }
     assert get_model_spec("yolo_human").class_filter == (0,)
     assert get_model_spec("yolo_phone").class_filter == (1,)
     from AiVision.inference.workers.face_detector import FaceDetectorWorker
@@ -35,6 +38,14 @@ def test_fixed_registry_has_explicit_inference_settings():
     assert get_model_spec("insightface").worker_class is FaceRecognizerWorker
     assert get_model_spec("insightface").type == "insightface"
     assert get_model_spec("insightface").conf == 0.5
+    from AiVision.inference.workers.yolo_pose import YoloPoseWorker
+    from AiVision.inference.workers.uniform_classifier import UniformClassifierWorker
+    assert get_model_spec("yolo_guard_pose").worker_class is YoloPoseWorker
+    assert get_model_spec("yolo_guard_pose").type == "yolo_pose"
+    assert get_model_spec("guard_uniform").worker_class is UniformClassifierWorker
+    assert get_model_spec("guard_uniform").type == "timm_classifier"
+    assert get_model_spec("yolo_guard_person_phone").class_labels == ((0, "person"), (1, "phone"))
+    assert get_model_spec("yolo_vehicle").class_filter == (1, 2, 3)
     with pytest.raises(TypeError):
         MODEL_SPECS["new"] = get_model_spec("yolo_human")
     with pytest.raises(FrozenInstanceError):
@@ -107,6 +118,23 @@ def test_empty_file_directory_and_unknown_model_are_rejected(local_paths, tmp_pa
     with pytest.raises(KeyError):
         model_paths.save_model_path("custom", str(weight))
     assert not config.exists()
+
+
+@pytest.mark.parametrize("model_type", ["yolo_pose", "timm_classifier"])
+@pytest.mark.parametrize("suffix", [".pt", ".engine", ".checkpoint", ""])
+def test_new_model_types_accept_local_nonempty_files_without_suffix_restriction(tmp_path, model_type, suffix):
+    path = tmp_path / f"model{suffix}"
+    path.write_bytes(b"local weights")
+    assert model_paths.validate_model_path(str(path), model_type=model_type) == str(path)
+
+
+@pytest.mark.parametrize("model_type", ["yolo_pose", "timm_classifier"])
+def test_new_model_types_reject_invalid_local_paths(tmp_path, model_type):
+    empty = tmp_path / "empty.pt"
+    empty.touch()
+    for path in ("", "relative.pt", str(tmp_path / "missing.pt"), str(tmp_path), str(empty)):
+        with pytest.raises(ValueError):
+            model_paths.validate_model_path(path, model_type=model_type)
 
 
 @pytest.mark.parametrize("source", [
@@ -204,6 +232,22 @@ def test_shared_yolo_uses_each_logical_models_fixed_parameters(name, expected_cl
     worker.infer(model, None, {"model_name": name, "conf": 0.7, "iou": 0.4})
     assert calls[-1]["conf"] == 0.7
     assert calls[-1]["iou"] == 0.4
+    worker.infer(model, None, {"model_name": name, "imgsz": 960})
+    assert calls[-1] == {"conf": conf, "iou": 0.5, "verbose": False, "imgsz": 960}
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("yolo_guard_person_phone", [(0, "person"), (1, "phone")]),
+    ("yolo_vehicle", [(1, "vehicle"), (2, "vehicle"), (3, "vehicle")]),
+])
+def test_multiclass_detector_filters_and_preserves_class_identity(name, expected):
+    worker = YoloDetectorWorker({}, {}, name, "/unused.pt")
+    boxes = Boxes(xyxy=Tensor([[10, 20, 30, 40]] * 5),
+                  conf=Tensor([0.9] * 5), cls=Tensor([0, 1, 2, 3, 4]))
+    model = SimpleNamespace(predict=lambda *args, **kwargs: [SimpleNamespace(boxes=boxes)])
+    detections = worker.infer(model, None, {"model_name": name})
+    assert [(item["class_id"], item["type"]) for item in detections] == expected
+    assert all(item["bbox"] == [10., 20., 30., 40.] for item in detections)
 
 
 def test_shared_worker_reads_queues_fairly_and_preserves_request_identity():

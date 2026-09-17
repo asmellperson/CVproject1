@@ -4,9 +4,12 @@
 # 模型身份及推理参数由代码固定注册；
 # 推理 worker 只使用此文件中按模型 name 配置的 path。
 models:
+  # 以下三个逻辑模型可指向同一物理 person_phone.pt，共享一个 YOLO Worker。
   yolo_human:
     path: /path/to/person_phone.pt
   yolo_phone:
+    path: /path/to/person_phone.pt
+  yolo_guard_person_phone:
     path: /path/to/person_phone.pt
   # 人脸逗留纯检测只需要此文件，不加载身份识别和人员特征库。
   insightface_detection:
@@ -14,3 +17,10 @@ models:
   # buffalo_l 解压目录，包含完整的五个 ONNX 文件；应用不会联网下载。
   insightface:
     path: /srv/models/insightface/buffalo_l
+  # 尚未被已注册 Feature 依赖的模型只保存路径，不启动 Worker。
+  guard_uniform:
+    path: /path/to/uniform_classes.pt
+  yolo_guard_pose:
+    path: /path/to/yolo11n-pose.engine
+  yolo_vehicle:
+    path: /path/to/yolo11n.pt

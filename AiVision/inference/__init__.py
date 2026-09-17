@@ -51,12 +51,13 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
     runtime_manager.py：InferenceRuntimeManager，所有推理 Worker 的总调度器。
         initialize_queues()：按 MODEL_SPECS 建输入队列，按 all_specs() 建结果队列。
         start_all()：检查功能依赖的模型是否已注册，将相同物理权重分组，启动 Worker，
-            等待就绪，然后开启 Watchdog；启动范围是整个固定模型注册表。
+            等待就绪，然后开启 Watchdog；启动范围是所有 Feature.required_models 的并集。
+            注册表中的其他模型仍可查询和配置路径，状态保持 not_started。
         stop_all()：停止监控并回收 Worker。
         Watchdog：发现退出、加载失败或超时后，按指数退避重试；次数耗尽时报告异常。
             重试次数、退避时间和就绪超时来自 core/settings.py 的运行配置。
         list_models() / runtime_status()：提供逻辑模型列表、路径、加载及自动恢复状态。
-        update_model_path()：保存新路径；运行已启动时异步重载受影响的 Worker 组。
+        update_model_path()：保存新路径；运行已启动且模型被 Feature 依赖时，异步重载受影响的 Worker 组。
             重载会处理旧、新共享关系，清掉受影响队列里的待处理任务，保留队列对象，
             让 Consumer 继续使用原来的队列；共享模型也可能一起暂停和重载。
 
@@ -70,10 +71,14 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
     workers/yolo_detector.py：YoloDetectorWorker，真正执行 YOLO 加载和推理。
         load_model()：用 YOLO(self.model_path) 加载当前服务器的权重。
         infer()：按 task_meta["model_name"] 读取对应 ModelSpec；任务中的 conf/iou
-            可以覆盖默认值，然后调用 model.predict(frame)。
+            可以覆盖默认值，可选 imgsz 只在任务显式提供时传入 model.predict(frame)。
         从预测结果提取 bbox、confidence、class_id，按 class_filter 过滤，
-        并添加 type_label 对应的 type 字段，返回 list[dict]。
+        优先使用 class_labels 中的类别标签，否则使用 type_label，返回 list[dict]。
         Worker 共享权重时，每次任务仍使用自己的逻辑模型参数和类别过滤规则。
+
+    workers/yolo_pose.py：YoloPoseWorker，输出原图像素坐标中的人体框及 COCO 17 关键点。
+    workers/uniform_classifier.py：UniformClassifierWorker，离线加载 ConvNeXtV2 Tiny，
+        对输入的人体 crop 输出 uniform 正类概率，不包含业务阈值判断。
 
     workers/__init__.py：Worker 子包入口；具体 Worker 类在各实现文件中定义，
         固定模型与 Worker 的对应关系由 model_registry.py 声明。

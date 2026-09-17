@@ -41,13 +41,10 @@ class YoloDetectorWorker(BaseModelWorker):
         spec = get_model_spec(task_meta["model_name"])
         conf = float(task_meta.get("conf", spec.conf))
         iou = float(task_meta.get("iou", spec.iou))
-        # YOLO推理
-        results = model.predict(
-            frame,
-            conf=conf,
-            iou=iou,
-            verbose=False,
-        )
+        predict_kwargs = {"conf": conf, "iou": iou, "verbose": False}
+        if "imgsz" in task_meta:
+            predict_kwargs["imgsz"] = task_meta["imgsz"]
+        results = model.predict(frame, **predict_kwargs)
         if not results:
             return []
         r = results[0]
@@ -59,6 +56,7 @@ class YoloDetectorWorker(BaseModelWorker):
         boxes_xyxy = r.boxes.xyxy.cpu().numpy().tolist()
         confs = r.boxes.conf.cpu().numpy().tolist()
         cls_ids = r.boxes.cls.cpu().numpy().astype(int).tolist()
+        class_labels = dict(spec.class_labels)
         # 把同一目标的框、置信度、类别ID绑在一起处理
         for bbox, score, cls_id in zip(boxes_xyxy, confs, cls_ids):
             if spec.class_filter is not None and cls_id not in spec.class_filter:
@@ -68,6 +66,6 @@ class YoloDetectorWorker(BaseModelWorker):
                 "bbox": [float(x) for x in bbox],
                 "confidence": float(score),
                 "class_id": int(cls_id),
-                "type": spec.type_label,
+                "type": class_labels.get(cls_id, spec.type_label),
             })
         return out

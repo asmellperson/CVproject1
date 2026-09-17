@@ -56,7 +56,10 @@ def test_path_save_and_list_use_local_yaml_and_real_runtime_state(client, tmp_pa
         assert response.json()["configuration_saved"] is True
         assert response.json()["load_status"] == "not_started"
         items = {item["name"]: item for item in http.get("/api/models").json()}
-        assert set(items) == {"yolo_human", "yolo_phone", "insightface_detection", "insightface"}
+        assert set(items) == {
+            "yolo_human", "yolo_phone", "insightface_detection", "insightface",
+            "yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle",
+        }
         assert items["yolo_human"]["path"] == str(weight)
         assert items["yolo_human"]["runtime"]["running"] is False
         assert items["yolo_human"]["runtime"]["status"] == "not_started"
@@ -64,6 +67,42 @@ def test_path_save_and_list_use_local_yaml_and_real_runtime_state(client, tmp_pa
         assert "database_path" not in items["yolo_human"]
         assert config.exists()
     finally:
+        model_paths.clear_model_paths_cache()
+
+
+@pytest.mark.parametrize("name", [
+    "yolo_guard_person_phone", "guard_uniform", "yolo_guard_pose", "yolo_vehicle",
+])
+def test_unused_model_path_is_saved_without_starting_active_runtime_model(client, tmp_path, monkeypatch, name):
+    from AiVision.inference import model_paths
+    from AiVision.inference.runtime_manager import InferenceRuntimeManager
+
+    http, service, _ = client
+    manager = InferenceRuntimeManager()
+    manager._active = True
+    service.list_models = manager.list_models
+    service.update_model_path = manager.update_model_path
+    monkeypatch.setattr(manager, "_reload_affected", lambda *_: pytest.fail("unused model reloaded"))
+    config = tmp_path / "model_paths.yaml"
+    weight = tmp_path / "local.model"
+    weight.write_bytes(b"offline checkpoint")
+    monkeypatch.setattr(model_paths.settings.model_paths, "config_path", str(config))
+    model_paths.clear_model_paths_cache()
+    try:
+        response = http.patch(f"/api/models/{name}/path", json={"path": str(weight)})
+        assert response.status_code == 202
+        assert response.json()["load_status"] == "not_started"
+        assert model_paths.load_model_paths()[name] == str(weight)
+        item = next(item for item in http.get("/api/models").json() if item["name"] == name)
+        assert item["path"] == str(weight)
+        assert item["runtime"]["status"] == "not_started"
+        assert item["runtime"]["running"] is False
+        assert item["runtime"]["alive"] is False
+        assert item["reload"] == {"status": "not_started", "error": ""}
+        assert manager._reload_thread is None
+        assert manager._workers == {}
+    finally:
+        manager.stop_all()
         model_paths.clear_model_paths_cache()
 
 
