@@ -24,6 +24,7 @@ from AiVision.features.security_inspection.schema import (
     InspectionConfig,
     InspectionValue,
     InspectionVerdict,
+    VlmHealth,
     VlmSettings,
 )
 from AiVision.features.security_inspection.service import InspectionService
@@ -61,6 +62,13 @@ def task(camera_id=1, department="general_electric", **changes):
         queued_at=time.monotonic(),
     )
     return InspectionTask(**(values | changes))
+
+
+def wait_for(predicate):
+    deadline = time.monotonic() + 2
+    while not predicate():
+        assert time.monotonic() < deadline, "condition not reached"
+        time.sleep(0.005)
 
 
 @pytest.mark.parametrize("field", ["start_hold_frames", "video_id", "pending_queue_dir", "model"])
@@ -144,9 +152,13 @@ def test_bounded_fair_queue_and_errors():
             assert release.wait(2)
         return verdict(), 0.01
 
-    runtime = InspectionRuntime(lambda *args: completed.append(args), SimpleNamespace(judge=judge))
+    runtime = InspectionRuntime(
+        lambda *args: completed.append(args),
+        SimpleNamespace(judge=judge, check_health=lambda _: VlmHealth(reachable=True)),
+    )
     runtime.start(VlmSettings(max_concurrent=1, queue_capacity=3))
     try:
+        wait_for(lambda: runtime.health_status().reachable is True)
         runtime.submit(task(frames=[b"first", b"b"]))
         assert first_entered.wait(2)
         runtime.submit(task(2, frames=[b"A1", b"b"]))
@@ -401,8 +413,12 @@ def test_queue_errors_are_department_scoped_and_shutdown_survives_storage_failur
         completed.set()
         raise RuntimeError("database unavailable")
 
-    runtime = InspectionRuntime(fail_storage, SimpleNamespace(judge=fail_judgment))
+    runtime = InspectionRuntime(
+        fail_storage,
+        SimpleNamespace(judge=fail_judgment, check_health=lambda _: VlmHealth(reachable=True)),
+    )
     runtime.start(VlmSettings(max_concurrent=1))
+    wait_for(lambda: runtime.health_status().reachable is True)
     runtime.submit(task())
     assert completed.wait(2)
     runtime.stop()

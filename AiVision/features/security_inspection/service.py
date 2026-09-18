@@ -8,12 +8,16 @@ from AiVision.core.db import get_session, session_scope
 from AiVision.core.system_config import AiSystemConfig
 from AiVision.cameras.orm import AiCameraConfig
 from .orm import InspectionSession
-from .schema import VlmSettings
+from .schema import VlmHealth, VlmSettings
+from .vlm import VlmClient
 
 SETTINGS_KEY = "security_inspection"
 
 
 class InspectionService:
+    def check_model(self, settings: VlmSettings) -> VlmHealth:
+        return VlmClient().check_health(settings)
+
     def get_settings(self) -> VlmSettings:
         with get_session() as session:
             row = session.get(AiSystemConfig, SETTINGS_KEY)

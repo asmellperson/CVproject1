@@ -103,7 +103,12 @@ function VlmConfiguration() {
   const save = async () => {
     if (!settings || saving) return
     setSaving(true)
-    try { setSettings(await saveVlmSettings(settings)); setMessage('模型设置已保存并生效') }
+    try {
+      const result = await saveVlmSettings(settings)
+      setSettings(result.settings)
+      setMessage(result.vlm.reachable === false ? `设置已保存；${result.vlm.last_error}`
+        : result.vlm.reachable === true ? '设置已保存，千问接口可达' : '设置已保存，正在检查千问连接')
+    }
     catch (error) { setMessage(`保存失败：${String(error)}`) }
     finally { setSaving(false) }
   }

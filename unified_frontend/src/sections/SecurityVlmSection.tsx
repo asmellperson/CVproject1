@@ -12,6 +12,7 @@ import { DetectionConfigTab, DetectionConfigCardHeader, DetectionConfigCardConte
 import { InspectionConfiguration } from '@/components/security-inspection/InspectionConfiguration'
 import { InspectionHistory } from '@/components/security-inspection/InspectionHistory'
 import { SecurityVideoPanel } from '@/components/security-inspection/SecurityVideoPanel'
+import { inspectionStatusPresentation } from '@/components/security-inspection/statusPresentation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -51,11 +52,13 @@ function InspectionPage({ department }: { department: DepartmentId }) {
     setConfigVersion((version) => version + 1)
   }
   const displayed = singleView ? (current && current.functions[INSPECTION_FEATURE] ? [current] : enabled.slice(0, 1)) : enabled
+  const presentation = inspectionStatusPresentation(status, error)
   return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
     <DetectionPageHeader title="安检流程规范检测" subtitle="实时查看安检画面、流程判定与工位配置。"
       departmentLabel={DEPARTMENT_LABELS[department]} monitorValue="dashboard"
-      runtimeControl={<Badge variant={error || status?.error ? 'destructive' : 'secondary'}>{error ? '状态读取失败' : status?.error ? '判定服务异常' : status?.running ? '检测服务就绪' : '检测服务未运行'}</Badge>} />
-    {(error || status?.error) && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error || status?.error}</p>}
+      runtimeControl={<Badge variant={presentation.error ? 'destructive' : 'secondary'}>{presentation.label}</Badge>} />
+    {presentation.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{presentation.error}</p>}
+    {status?.vlm.last_success && <p className="text-xs text-slate-500 dark:text-slate-400">最近判定成功：{new Date(status.vlm.last_success).toLocaleString('zh-CN')}</p>}
     <TabsContent value="dashboard" className="mx-auto w-full space-y-6 2xl:w-[92%] 2xl:max-w-[120rem]">
       <Card className="overflow-hidden dark:border-slate-800 dark:bg-slate-900">
         <CardHeader className="flex flex-row items-center justify-between border-b bg-slate-50 dark:border-slate-800 dark:bg-slate-900">

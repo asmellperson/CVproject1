@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from auth.auth import get_current_user, require_admin
 from AiVision.departments.department_registry import require_department
-from AiVision.features.security_inspection.schema import InspectionVerdict, VlmSettings
+from AiVision.features.security_inspection.schema import InspectionVerdict, VlmHealth, VlmSettings
 from AiVision.features.security_inspection.service import InspectionService
 
 router = APIRouter(prefix="/api/security-inspection", tags=["security-inspection"])
@@ -70,6 +70,12 @@ class StatusResponse(BaseModel):
     queue: int
     active: int
     error: str | None
+    vlm: VlmHealth
+
+
+class SettingsResponse(BaseModel):
+    settings: VlmSettings
+    vlm: VlmHealth
 
 
 @router.get("/history", response_model=HistoryResponse)
@@ -85,9 +91,18 @@ def history(
 
 @router.get("/status", response_model=StatusResponse)
 def status(department: str = Depends(department_access), consumer=Depends(get_consumer)):
-    if consumer is None or not consumer.running:
-        return {"running": False, "queue": 0, "active": 0, "error": "安检处理器未运行，请检查人体模型状态"}
-    return consumer.vlm_runtime.status(department)
+    if consumer is None:
+        return StatusResponse(
+            running=False,
+            queue=0,
+            active=0,
+            error="安检处理器未运行，请检查人体模型状态",
+            vlm=VlmHealth(),
+        )
+    result = consumer.vlm_runtime.status(department)
+    if not consumer.running:
+        result.update(running=False, error="安检处理器未运行，请检查人体模型状态")
+    return result
 
 
 @router.get("/settings", response_model=VlmSettings, dependencies=[Depends(require_admin)])
@@ -95,9 +110,12 @@ def get_settings(service=Depends(get_service)):
     return service.get_settings()
 
 
-@router.put("/settings", response_model=VlmSettings, dependencies=[Depends(require_admin)])
+@router.put("/settings", response_model=SettingsResponse, dependencies=[Depends(require_admin)])
 def save_settings(payload: VlmSettings, service=Depends(get_service), consumer=Depends(get_consumer)):
     service.save_settings(payload)
     if consumer is not None:
         consumer.vlm_runtime.configure(payload)
-    return payload
+        health = consumer.vlm_runtime.health_status()
+    else:
+        health = service.check_model(payload)
+    return {"settings": payload, "vlm": health}

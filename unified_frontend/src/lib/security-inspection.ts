@@ -42,7 +42,21 @@ export const VLM_PARAMETERS = [
   ['image_jpeg_quality', '图片质量', 30, 100, 1],
 ] as const
 export type VlmSettings = { base_url: string; model: string } & Record<typeof VLM_PARAMETERS[number][0], number>
-export type InspectionStatus = { running: boolean; queue: number; active: number; error: string | null }
+export type InspectionStatus = {
+  running: boolean
+  queue: number
+  active: number
+  error: string | null
+  vlm: {
+    reachable: boolean | null
+    checking: boolean
+    last_success: string | null
+    last_error: string | null
+    consecutive_failures: number
+    circuit_state: 'closed' | 'open' | 'half_open'
+    retry_after_sec: number | null
+  }
+}
 export type InspectionSession = {
   session_id: string
   camera_id: number | null
@@ -69,4 +83,5 @@ export function getInspectionHistory(department: DepartmentId, limit: number, of
 export const getInspectionStatus = (department: DepartmentId, signal?: AbortSignal) =>
   apiGet<InspectionStatus>(`/security-inspection/status?department=${encodeURIComponent(department)}`, { signal })
 export const getVlmSettings = () => apiGet<VlmSettings>('/security-inspection/settings')
-export const saveVlmSettings = (settings: VlmSettings) => apiPut<VlmSettings>('/security-inspection/settings', settings)
+export const saveVlmSettings = (settings: VlmSettings) =>
+  apiPut<{ settings: VlmSettings; vlm: InspectionStatus['vlm'] }>('/security-inspection/settings', settings)

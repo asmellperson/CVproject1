@@ -1,5 +1,7 @@
 """安检配置与内部千问返回值的唯一契约。"""
 
+from datetime import datetime
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -101,6 +103,16 @@ class VlmSettings(StrictModel):
         if not value.strip() or value != value.strip():
             raise ValueError("模型名称不能为空或含首尾空白")
         return value
+
+
+class VlmHealth(StrictModel):
+    reachable: bool | None = None
+    checking: bool = False
+    last_success: datetime | None = None
+    last_error: str | None = None
+    consecutive_failures: int = 0
+    circuit_state: Literal["closed", "open", "half_open"] = "closed"
+    retry_after_sec: int | None = None
 
 
 class InspectionVerdict(StrictModel):
