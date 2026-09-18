@@ -21,8 +21,8 @@ const labels = ['安检流程规范检测', '保安行为规范检测', '区域�
 const service = { online: true, running: false, error: null, latency_ms: 1, camera_count: 0, online_camera_count: 0, model_ready: false }
 function overview(departments) {
   return { departments, department_summaries: {}, ok: true, level: 'healthy', generated_at: 1, inventory_complete: true, inventory_errors: {},
-    capabilities: ids.map((id, index) => ({ id, name: labels[index], source: index === 0 ? 'security_vlm' : 'aivision', camera_count: 0, online_camera_count: 0, running: false, model_ready: false })),
-    cameras: [], guard_behavior_sites: [], services: { aivision: service, security_vlm: service },
+    capabilities: ids.map((id, index) => ({ id, name: labels[index], source: 'aivision', camera_count: 0, online_camera_count: 0, running: false, model_ready: false })),
+    cameras: [], guard_behavior_sites: [], services: { aivision: service },
     summary: { capability_total: 9, capability_online: 9, capability_running: 0, camera_total: 0, camera_online: 0, camera_offline: 0 } }
 }
 const wrapper = ({ children }) => React.createElement('div', null, children)
@@ -35,7 +35,7 @@ const deps = {
   '@/auth/permissions': permissions,
   '@/hooks/use-department-catalog': { useDepartmentCatalog: () => ({ options: [], labels: {}, loading: false, error: '' }) },
   '@/lib/nav': { detectionNavItems: ids.map((id, i) => ({ id, label: labels[i] })) },
-  '@/lib/api': {}, '@/lib/aivision': {}, '@/lib/security-vlm': {},
+  '@/lib/api': {}, '@/lib/aivision': {},
   './HomeSection.status': await compile('sections/HomeSection.status.ts'),
 }
 for (const name of ['button', 'badge', 'alert-dialog', 'dialog', 'input', 'label', 'select', 'switch']) deps[`@/components/ui/${name}`] = ui

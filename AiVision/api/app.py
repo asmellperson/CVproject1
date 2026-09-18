@@ -1,20 +1,7 @@
-"""
-api/app.py
-FastAPI 实例、CORS、中间件和路由注册。
-    1、_send_api_exception_alert():API异常时发送企业微信
-    2、create_app():创建整个FastAPI应用
-        3、lifespan（）：FastAPI启动/关闭时管理视觉子服务
-        4、auth_middleware():所有/api/请求统一做登录认证
-        5、unhandled_exception_handler():全局未处理异常兜底
-        6、include_router/mount:注册普通API+挂载Security VLM 子应用
-    app = create_app():创建一个全局FastAPI实例
-"""
 from __future__ import annotations
 
 import threading
 import time                                                        # 获取当前时间戳，用来判断异常报警是否还在冷却期
-from contextlib import asynccontextmanager                         # 管理FastAPI的启动和关闭生命周期
-from AiVision.api.mounted_apps import ManagedVisualServices # 复杂管理复杂视觉任务
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware                 # 跨域访问控制
@@ -32,6 +19,7 @@ from AiVision.api.routes.features import router as features_router
 from AiVision.api.routes.face_recognition import router as face_recognition_router
 from AiVision.api.routes.logistics_channels import router as logistics_channels_router
 from AiVision.api.routes.guard_behavior import router as guard_behavior_router
+from AiVision.api.routes.security_inspection import router as security_inspection_router
 from AiVision.api.routes.models import router as models_router
 from AiVision.api.routes.horns import router as horns_router
 from AiVision.api.routes.runtime import router as runtime_router
@@ -99,38 +87,13 @@ def _send_api_exception_alert(path: str, detail: str):
     threading.Thread(target=_send, daemon=True, name="api-exception-alert").start()
 
 
-def create_app(
-    *,
-    managed_visual_services: ManagedVisualServices | None = None,
-) -> FastAPI:
-    visual_services = managed_visual_services or ManagedVisualServices(                           # 创建视觉服务管理器
-        security_vlm_config_path=settings.visual_services.security_vlm_config_path,
-    )
-    """
-    创建并组装整个AiVision FastAPI应用
-        Security VLM生命周期
-        CORS
-        登录认证中间件
-        全局异常处理
-        所有API Router
-        Security VLM 子应用
-    """
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        """
-        FastAPI的生命周期管理器
-        """
-        app.state.managed_visual_services = visual_services          # app.state:FastAPI应用自己的一个“全局运行状态容器”
-        async with visual_services.lifespan():
-            yield
-
+def create_app() -> FastAPI:
+    """组装 AiVision 原生 API；检测生命周期由 Orchestrator 管理。"""
     # 创建FastAPI
     app = FastAPI(
         title="AiVision Backend",                                 # 主要用于Swagger文档
         version="2.0.0",
         description="AiVision features-first refactored backend.",
-        lifespan=lifespan,                                        # 告诉FastAPI：启动和关闭的时候，用刚才定义的生命周期函数
     )
 
     # 给整个AiVision HTTP服务增加跨域访问规则
@@ -152,7 +115,7 @@ def create_app(
         """
         path = request.url.path
         # 先列出公共接口
-        public_paths = {"/api/runtime/health", "/api/integrations/security-vlm/health"}
+        public_paths = {"/api/runtime/health"}
         # 服务探针不读取业务数据，无需登录；业务接口仍按原认证流程处理。
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
@@ -193,12 +156,7 @@ def create_app(
     app.include_router(logistics_channels_router)
     app.include_router(guard_behavior_router)
 
-    # mount（）：把一个完整的ASGI应用挂进当前FastAPI
-    app.mount(
-        "/api/integrations/security-vlm",
-        visual_services.security_vlm,
-        name="security-vlm",
-    )
+    app.include_router(security_inspection_router)
 
     return app
 

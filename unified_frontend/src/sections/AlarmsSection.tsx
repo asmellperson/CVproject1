@@ -202,8 +202,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         { eventType: 'guard_phone_use', label: '保安玩手机', icon: <Smartphone className="w-6 h-6 text-orange-700" />, valueClassName: 'text-orange-700' },
         { eventType: 'guard_prone_sleep', label: '保安趴睡', icon: <UserRound className="w-6 h-6 text-yellow-600" />, valueClassName: 'text-yellow-600' },
         { eventType: 'guard_vehicle_inspection_missing', label: '车辆出厂检查异常', icon: <Truck className="w-6 h-6 text-rose-700" />, valueClassName: 'text-rose-700' },
-        { eventType: 'security_vlm_non_compliant', label: '安检不规范', icon: <ShieldAlert className="w-6 h-6 text-cyan-700" />, valueClassName: 'text-cyan-700' },
-        { eventType: 'security_vlm_error', label: '安检判定错误', icon: <AlertTriangle className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
+        { eventType: 'security_inspection', label: '安检不规范', icon: <ShieldAlert className="w-6 h-6 text-cyan-700" />, valueClassName: 'text-cyan-700' },
       ].filter((item) => !allowedAlarmTypes || allowedAlarmTypes.has(item.eventType)),
     [allowedAlarmTypes],
   )
@@ -230,10 +229,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
         return <Badge className="bg-yellow-600">保安趴睡</Badge>
       case 'guard_vehicle_inspection_missing':
         return <Badge className="bg-rose-700">车辆出厂检查异常</Badge>
-      case 'security_vlm_non_compliant':
+      case 'security_inspection':
         return <Badge className="bg-cyan-700">安检流程不规范</Badge>
-      case 'security_vlm_error':
-        return <Badge className="bg-amber-600">安检判定错误</Badge>
       default:
         return <Badge variant="secondary">未知报警</Badge>
     }
@@ -595,7 +592,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
 
                 {!selectedAlarm.video_status && (
                   <div className="text-sm text-slate-500">
-                    {selectedAlarm.source === 'security_vlm' ? '当前安检流程记录来自 VLM 历史判定；后端未提供单条截图接口。' : '当前 AiVision 报警记录已保存截图；未配置报警视频文件。'}
+                    当前报警提供截图证据，未关联视频文件。
                   </div>
                 )}
 

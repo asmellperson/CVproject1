@@ -28,6 +28,7 @@ VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     9: {"event_type": "guard_phone_use", "label": "保安玩手机"},
     10: {"event_type": "guard_prone_sleep", "label": "保安趴睡"},
     11: {"event_type": "guard_vehicle_inspection_missing", "label": "车辆出厂检查异常"},
+    12: {"event_type": "security_inspection", "label": "安检流程不规范"},
 }
 
 # 未知类型的默认显示信息

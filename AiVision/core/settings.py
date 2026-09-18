@@ -188,15 +188,6 @@ class RuntimeSettings(BaseSettings):
 # 计算Aivision根目录
 _AIVISION_ROOT = Path(__file__).resolve().parents[1]
 
-class ManagedVisualServiceSettings(BaseSettings):
-    """由 AiVision 同一进程承载的扩展视觉能力配置。"""
-    security_vlm_config_path: Path = Field(
-        _AIVISION_ROOT / "integrations" / "security_vlm" / "configs" / "config.yaml",
-        alias="SECURITY_VLM_CONFIG_PATH",
-    )
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
 class ModelPathSettings(BaseSettings):
     """
     本机模型路径配置。
@@ -226,7 +217,6 @@ class Settings:
         self.alarm   = AlarmSettings()
         self.api     = ApiSettings()
         self.runtime = RuntimeSettings()
-        self.visual_services = ManagedVisualServiceSettings()
         self.model_paths = ModelPathSettings()
 
 # Settings只创建一次，后面重复调用直接返回缓存对象

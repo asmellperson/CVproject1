@@ -18,10 +18,12 @@ from AiVision.inference.base_worker import BaseModelWorker
 class YoloDetectorWorker(BaseModelWorker):
     """通用 YOLO 目标检测 Worker"""
     def load_model(self) -> Any:
+        from AiVision.inference.model_paths import validate_model_path
+        path = validate_model_path(self.model_path)
         from ultralytics import YOLO
 
         # 这里的路径是模型本机路径
-        model = YOLO(self.model_path)
+        model = YOLO(path)
 
         logger.info(
             f"[YoloDetectorWorker:{self.model_name}] 已加载，服务逻辑模型 {self._queue_names}"

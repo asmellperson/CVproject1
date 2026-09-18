@@ -480,8 +480,8 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
     # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     async def scenario():
         await routes["proxy_aivision_root_api"].endpoint("guard-behavior/sites", request)
-        await routes["proxy_security_vlm"].endpoint(
-            "general_electric", "history",
+        await routes["proxy_aivision_root_api"].endpoint(
+            "security-inspection/history",
             request,
         )
         await routes["proxy_aivision_root_api"].endpoint(
@@ -506,8 +506,8 @@ def test_visual_and_root_routes_target_aivision_control_plane(monkeypatch, tmp_p
         ),
         (
             request,
-            "http://aivision:7862/api/integrations/security-vlm",
-            "/api/departments/general_electric/history",
+            "http://aivision:7862",
+            "/api/security-inspection/history",
         ),
         (
             request,

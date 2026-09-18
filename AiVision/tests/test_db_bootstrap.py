@@ -27,12 +27,12 @@ def test_fresh_schema_bootstrap_registers_all_feature_tables_before_create_all(t
 
         expected = {
             'blocks', 'detect_door', 'detect_face', 'detect_human',
-            'detect_logistics_single_person', 'detect_phone', 'recognize_face', 'guard_behavior',
+            'detect_logistics_single_person', 'detect_phone', 'recognize_face', 'guard_behavior', 'security_inspection',
         }
         guard_tables = {
             'ai_guard_behavior_site', 'ai_guard_behavior_site_camera',
             'ai_camera_config_guard_behavior', 'ai_guard_behavior_site_policy',
-            'ai_guard_behavior_alarm_policy',
+            'ai_guard_behavior_alarm_policy', 'ai_security_inspection_session',
         }
         database = Path(sys.argv[1]) / 'fresh.sqlite'
         assert not database.exists()

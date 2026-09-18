@@ -200,7 +200,7 @@ def test_reset_clears_only_requested_scope_and_alarm_type(cooldown_dispatcher, s
     assert len(dispatched) == 5
 
 
-@pytest.mark.parametrize("value", ["blocks", True, 1.0, 0, 12])
+@pytest.mark.parametrize("value", ["blocks", True, 1.0, 0, 999])
 def test_reset_requires_formal_alarm_type(cooldown_dispatcher, value):
     dispatcher, _ = cooldown_dispatcher
     assert dispatcher.maybe_dispatch(cooldown_request())

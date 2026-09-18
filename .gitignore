@@ -138,7 +138,6 @@ config.local.yaml
 config.local.yml
 config.prod.yaml
 config.prod.yml
-AiVision/integrations/security_vlm/configs/config.yaml
 AiVision/config/model_paths.yaml
 *.local.yaml
 *.local.yml
@@ -161,7 +160,6 @@ AGENTS.md
 /requirements-python311.lock
 /代码调用关系说明.md
 /unified_frontend/info.md
-/AiVision/integrations/security_vlm/logical_explanation.md
 
 # ======================
 # Python virtual env

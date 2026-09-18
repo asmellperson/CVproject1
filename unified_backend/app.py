@@ -5,7 +5,7 @@
 
 统一后端只做平台级能力和请求转发，不接管各算法子系统的运行逻辑：
 - 本地处理登录、当前用户、改密、报警处置状态；
-- 转发 Guard Room、AiVision、Security VLM 的业务接口。
+- 转发 AiVision 原生检测与管理接口。
 """
 from __future__ import annotations
 
@@ -205,8 +205,7 @@ ALARM_TYPE_META: dict[str, dict[str, str]] = {
     "guard_phone_use": {"name": "保安玩手机"},
     "guard_prone_sleep": {"name": "保安趴睡"},
     "guard_vehicle_inspection_missing": {"name": "车辆出厂检查异常"},
-    "security_vlm_non_compliant": {"name": "安检流程不规范"},
-    "security_vlm_error": {"name": "安检判定错误"},
+    "security_inspection": {"name": "安检流程不规范"},
 }
 
 
@@ -218,7 +217,6 @@ _MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Int
 # 参数：无。
 # 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_get_json` 调用本符号；`unified_backend/app.py` 的 `_normalize_security_vlm_alarm`
 #         调用本符号；`unified_backend/app.py` 的 `create_app::overview` 调用本符号
 #   - 内部调用：`time.time`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
@@ -237,24 +235,6 @@ def _now() -> float:
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _env_url(name: str, default: str) -> str:
     return os.getenv(name, default).rstrip("/")
-
-
-# 功能：实现 `_visual_service_url` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
-#   - `service`（str）：`service` 对应的业务输入值
-# 返回：str；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app` 调用本符号
-#   - 内部调用：`ValueError`、`aivision_url.rstrip`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def _visual_service_url(aivision_url: str, service: str) -> str:
-    if service != "security-vlm":
-        raise ValueError(f"unknown visual service: {service}")
-    return (
-        f"{aivision_url.rstrip('/')}"
-        f"/api/integrations/{service}"
-    )
 
 
 def _departments_for_user(user: dict[str, Any]) -> list[str]:
@@ -584,45 +564,6 @@ def _normalize_alarm_id_list(value: object) -> list[int]:
     return normalized
 
 
-# 功能：转换或规范化 `_normalize_security_vlm_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `item`（dict[str, Any]）：`item` 对应的业务输入值
-#   - `department`（str）：业务部门名称或标识
-# 返回：dict[str, Any] | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`str`、`item.get`、`int`、`_now`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _normalize_security_vlm_alarm(
-    item: dict[str, Any],
-    department: str,
-) -> dict[str, Any] | None:
-    status = str(item.get("status") or "")
-    if status not in {"non_compliant", "error"}:
-        return None
-    source_id = str(item.get("session_id") or f"{item.get('roi_name') or 'security_vlm'}:{item.get('time') or int(_now())}")
-    event_type = "security_vlm_error" if status == "error" else "security_vlm_non_compliant"
-    return {
-        "id": f"security_vlm:{department}:{source_id}",
-        "source": "security_vlm",
-        "source_id": source_id,
-        "department": department,
-        "event_type": event_type,
-        "event_label": "安检判定错误" if status == "error" else "安检流程不规范",
-        "subject_type": "camera",
-        "subject_id": str(item.get("camera_id") or item.get("roi_name") or "security_vlm"),
-        "subject_name": item.get("camera_name") or item.get("roi_name") or "安检流程规范检测",
-        "camera_no": item.get("camera_id") or item.get("roi_name") or "security_vlm",
-        "camera_name": item.get("camera_name") or item.get("roi_name") or "安检流程规范检测",
-        "reason": item.get("error") or item.get("reason") or "安检流程规范检测判定异常",
-        "confidence": 1,
-        "created_at": item.get("time"),
-        "image_url": None,
-        "video_url": None,
-        "video_status": None,
-    }
-
-
 # 功能：实现 `_allowed_event_types_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `user`（dict[str, Any]）：当前用户或待处理用户对象
@@ -634,83 +575,6 @@ def _normalize_security_vlm_alarm(
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _allowed_event_types_for_user(user: dict[str, Any]) -> set[str] | None:
     return allowed_alarm_event_types(user, _departments_for_user(user))
-
-
-# 功能：检查或判断 `_can_mutate_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-#   - `method`（str）：`method` 对应的业务输入值
-# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_can_access_security_vlm` 调用本符号
-#   - 内部调用：`str(method).upper`、`str`、`str(user.get('role') or '').strip().lower`、`str(user.get('role') or '').strip`、`user.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _can_mutate_security_vlm(user: dict[str, Any], method: str) -> bool:
-    if str(method).upper() in {"GET", "HEAD", "OPTIONS"}:
-        return True
-    return str(user.get("role") or "").strip().lower() == "admin"
-
-
-# 功能：实现 `_security_vlm_departments_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-# 返回：list[str]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`_departments_for_user`、`list`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _security_vlm_departments_for_user(
-    user: dict[str, Any],
-) -> list[str]:
-    role = str(user.get("role") or "").strip().lower()
-    departments = _departments_for_user(user)
-    if role == "admin":
-        return list(DEPARTMENT_SPECS)
-    if role == "viewer":
-        return [
-            department
-            for department in DEPARTMENT_SPECS
-            if department in departments
-        ]
-    return []
-
-
-# 功能：检查或判断 `_can_access_security_vlm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-#   - `method`（str）：`method` 对应的业务输入值
-#   - `path`（str）：目标路径
-# 返回：bool；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::auth_middleware` 调用本符号
-#   - 内部调用：`str(user.get('role') or '').strip().lower`、`str(user.get('role') or
-#          '').strip`、`str`、`user.get`、`str(path).rstrip`、`normalized_path.endswith`、`_can_mutate_security_vlm`、`_departments_for_user`、`normalized_path.startswith`、`normalized_path[len(prefix):].split`
-#          等共 11 个调用。
-# 副作用/注意事项：可能启动、等待或停止线程/进程资源。
-def _can_access_security_vlm(
-    user: dict[str, Any],
-    method: str,
-    path: str,
-) -> bool:
-    role = str(user.get("role") or "").strip().lower()
-    normalized_path = str(path).rstrip("/")
-    if normalized_path.endswith("/credentials"):
-        return role == "admin"
-    if not _can_mutate_security_vlm(user, method):
-        return False
-    if role == "admin":
-        return True
-    if role != "viewer":
-        return False
-
-    departments = _security_vlm_departments_for_user(user)
-    prefix = "/api/security-vlm/departments/"
-    if normalized_path.startswith(prefix):
-        requested = normalized_path[len(prefix):].split("/", 1)[0]
-        return requested in departments and requested in DEPARTMENT_SPECS
-
-    return False
 
 
 # 功能：转换或规范化 `_parse_event_types` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -792,7 +656,6 @@ def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, A
 #   - `request`（Request）：当前 HTTP 请求及上下文
 #   - `user`（dict[str, Any]）：当前用户或待处理用户对象
 #   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
-#   - `security_vlm_url`（str）：`security_vlm_url` 对应的业务输入值
 #   - `disposition_store`（AlarmDispositionStore）：`disposition_store` 对应的业务输入值
 #   - `limit`（int）：返回或处理的最大记录数
 #   - `event_types`（set[str] | None）：`event_types` 对应的业务输入值；默认值为 `None`
@@ -807,7 +670,6 @@ def _collect_alarms(
     request: Request,
     user: dict[str, Any],
     aivision_url: str,
-    security_vlm_url: str,
     disposition_store: AlarmDispositionStore,
     limit: int,
     event_types: set[str] | None = None,
@@ -818,7 +680,7 @@ def _collect_alarms(
             department = require_department(department)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if department not in _security_vlm_departments_for_user(user):
+        if user.get("role") != "admin" and department not in _departments_for_user(user):
             raise HTTPException(status_code=403, detail="department permission required")
     upstream_limit = max(limit, 100)
     alarms: list[dict[str, Any]] = []
@@ -828,23 +690,6 @@ def _collect_alarms(
         ai_path += f"&department={department}"
     ai_payload = _get_upstream_json(aivision_url, ai_path, request)
     alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
-
-    security_departments = [department] if department else _security_vlm_departments_for_user(user)
-    for security_department in security_departments:
-        vlm_path = (
-            f"/api/departments/{security_department}/history"
-            f"?limit={upstream_limit}"
-        )
-        vlm_payload = _get_upstream_json(
-            security_vlm_url,
-            vlm_path,
-            request,
-        )
-        if isinstance(vlm_payload, dict):
-            for item in _items_from_payload(vlm_payload.get("history")):
-                alarm = _normalize_security_vlm_alarm(item, security_department)
-                if alarm:
-                    alarms.append(alarm)
 
     scoped = _filter_alarms(alarms, user=user, event_types=event_types)
     if department is not None:
@@ -995,11 +840,9 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
 # 返回：FastAPI；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
 # 调用关系：
 #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_env_url`、`_visual_service_url`、`os.getenv`、`str`、`AlarmDispositionStore`、`Path`、`AccessAuditStore`、`FastAPI`、`app.add_middleware`、`_cors_origins`。
 # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app() -> FastAPI:
     aivision_url = _env_url("UNIFIED_AIVISION_URL", "http://127.0.0.1:7862")
-    security_vlm_url = _visual_service_url(aivision_url, "security-vlm")
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
     access_audit_database = os.getenv(
@@ -1053,7 +896,6 @@ def create_app() -> FastAPI:
     # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
     # 调用关系：
     #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`path.startswith`、`call_next`、`get_current_user_from_request`、`JSONResponse`、`str`、`_can_access_security_vlm`、`app.middleware`。
     # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
@@ -1067,23 +909,6 @@ def create_app() -> FastAPI:
                 request.state.user = get_current_user_from_request(request)
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
-            if (
-                path.startswith("/api/security-vlm/")
-                and not _can_access_security_vlm(
-                    request.state.user,
-                    request.method,
-                    path,
-                )
-            ):
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": (
-                            "仅管理员可以修改安检模块配置"
-                            "或读取摄像头连接信息"
-                        )
-                    },
-                )
         return await call_next(request)
 
     # 功能：实现 `root` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1099,7 +924,6 @@ def create_app() -> FastAPI:
             "name": "fuda-unified-backend",
             "ok": True,
             "aivision": aivision_url,
-            "security_vlm": security_vlm_url,
         }
 
     # 功能：实现 `health` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -1118,7 +942,7 @@ def create_app() -> FastAPI:
         user = request.state.user
         departments = list(DEPARTMENT_SPECS) if user.get("role") == "admin" else _departments_for_user(user)
         return build_overview(request, departments, aivision_url,
-                              security_vlm_url, _get_json_concurrently)
+                              _get_json_concurrently)
 
     # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
     # 参数：
@@ -1397,7 +1221,6 @@ def create_app() -> FastAPI:
                 request=request,
                 user=user,
                 aivision_url=aivision_url,
-                security_vlm_url=security_vlm_url,
                 disposition_store=disposition_store,
                 limit=limit,
                 event_types=_parse_event_types(event_types),
@@ -1427,27 +1250,18 @@ def create_app() -> FastAPI:
             request=request,
             user=user,
             aivision_url=aivision_url,
-            security_vlm_url=security_vlm_url,
             disposition_store=disposition_store,
             limit=1000,
             event_types=_parse_event_types(event_types),
         )
         return _build_alarm_statistics(alarms, days=days)
 
-    @app.api_route("/api/security-vlm/departments/{department}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    async def proxy_security_vlm(department: str, path: str, request: Request):
-        try:
-            department = require_department(department)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return await _proxy(request, security_vlm_url, f"/api/departments/{department}/{path}")
-
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_aivision_root_api(path: str, request: Request):
         # 仅发布正式资源，内部集成入口和已移除的路径不对浏览器开放。
         if path.split("/", 1)[0] not in {
             "departments", "cameras", "features", "models", "face-recognition",
-            "logistics-channels", "guard-behavior", "alarms", "horns", "runtime", "exception-alert", "public",
+            "logistics-channels", "guard-behavior", "security-inspection", "alarms", "horns", "runtime", "exception-alert", "public",
         }:
             raise HTTPException(status_code=404, detail="Not Found")
         return await _proxy(request, aivision_url, f"/api/{path}")

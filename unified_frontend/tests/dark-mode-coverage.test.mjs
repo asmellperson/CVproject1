@@ -111,7 +111,6 @@ test('guard and security workflow business cards support dark mode', async () =>
   for (const path of [
     'src/components/guard_behavior/GuardMonitorView.tsx',
     'src/sections/SecurityVlmSection.tsx',
-    'src/components/security-vlm/SecurityCameraBar.tsx',
   ]) {
     const source = await read(path)
     assert.match(source, /dark:bg-slate-900/)

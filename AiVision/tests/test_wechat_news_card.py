@@ -96,7 +96,7 @@ def test_wechat_alarm_uses_single_news_card(monkeypatch, violation_type):
     assert article["picurl"] == "https://aicv.fudar.com/api/alarms/42/image"
 
 
-@pytest.mark.parametrize("violation_type", [0, 12, True, 1.0, "1", None])
+@pytest.mark.parametrize("violation_type", [0, 999, True, 1.0, "1", None])
 def test_wechat_rejects_unregistered_or_non_integer_alarm_types(monkeypatch, violation_type):
     notifier = WeChatNotifier(corp_id="corp", corp_secret="secret", agent_id=100)
     monkeypatch.setattr(notifier, "_get_token", lambda: pytest.fail("不应请求企业微信 token"))

@@ -83,25 +83,24 @@ test('keeps cameras in one scroller with a responsive two-column grid and hover 
   assert.match(cameraList, /group-hover:pointer-events-auto/)
   assert.doesNotMatch(cameraList, /tabIndex=/)
   assert.match(cameraList, /platformCameras\.map\(\(camera\) =>/)
-  assert.match(cameraList, /cameraSourceLabel\(camera\.source\)/)
+  assert.match(cameraList, /AiVision/)
   assert.match(cameraList, /camera\.capabilities\.map/)
   assert.match(cameraList, /onClick=\{\(\) => openEditCameraDialog\(camera\.aivision_camera!\)\}/)
   assert.match(cameraList, /setCameraToDelete\(camera\.aivision_camera!\)/)
   assert.match(cameraList, /onClick=\{\(\) => onNavigate\(camera\.capabilities\[0\], camera\.department\)\}/)
 })
 
-test('aggregates every camera source including logistics and routes overview creation to the selected backend', () => {
+test('aggregates platform cameras and creates them through AiVision', () => {
   assert.match(homeSection, /overviewStatus\?\.cameras \?\? \[\]/)
   assert.doesNotMatch(homeSection, /mergeAiVisionAndLogisticsCameras|getLogisticsCameraInventory|getGuardRoomSites|getSecurityVlmCameras/)
   assert.match(homeSection, /已汇总 AiVision、物流通道、保安行为和安检流程摄像头/)
-  assert.match(homeSection, /<Label htmlFor="overview-camera-source">目标能力<\/Label>/)
   assert.match(homeSection, /<Label htmlFor="overview-camera-department">所属事业部<\/Label>/)
   assert.match(homeSection, /<Label htmlFor="overview-camera-fps">FPS<\/Label>/)
   assert.match(homeSection, /FPS 必须是大于等于 1 的整数/)
   assert.match(homeSection, /await createAiVisionCamera\(\{[\s\S]*?shm_name: generatedShmName,[\s\S]*?fps,/)
   assert.match(homeSection, /await updateAiVisionCamera\([^\n]*\{ name, url, fps \}\)/)
   assert.doesNotMatch(homeSection, /createGuardRoomSiteCamera|overview-camera-guard-site/)
-  assert.match(homeSection, /await createSecurityVlmCamera\(/)
+  assert.doesNotMatch(homeSection, /createSecurityVlmCamera|overview-camera-source/)
   assert.match(homeSection, /overviewState\.refresh\(\)[\s\S]*?setCameraDialogOpen\(false\)/)
 })
 
@@ -127,7 +126,7 @@ test('renders the five latest alarms as a severity timeline with navigation', ()
   assert.match(homeSection, /recentAlarms: AlarmEvent\[\]/)
   assert.match(homeSection, /alarmItems\.slice\(0, 5\)/)
   assert.match(alarmHelpers, /criticalAlarmTypes = new Set\(\['blocks', 'guard_absent'\]\)/)
-  for (const eventType of ['detect_door', 'detect_phone', 'guard_phone_use', 'guard_prone_sleep', 'security_vlm_non_compliant', 'security_vlm_error']) {
+  for (const eventType of ['detect_door', 'detect_phone', 'guard_phone_use', 'guard_prone_sleep', 'security_inspection']) {
     assert.match(alarmHelpers, new RegExp(`'${eventType}'`))
   }
   assert.match(alarmHelpers, /function getAlarmSeverity[\s\S]*?return 'normal'/)

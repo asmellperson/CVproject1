@@ -55,10 +55,6 @@ import {
   updateAiVisionCamera,
   type AiVisionCamera,
 } from '@/lib/aivision'
-import {
-  createSecurityVlmCamera,
-  type SecurityVlmDepartment,
-} from '@/lib/security-vlm'
 import { detectionNavItems } from '@/lib/nav'
 import type { OverviewState as OverviewRequest } from '@/hooks/use-overview'
 
@@ -77,13 +73,6 @@ type OverviewState = {
 
 type AlarmSeverity = 'critical' | 'warning' | 'normal'
 
-type CameraSource = 'aivision' | 'security_vlm'
-
-const cameraSourceOptions: Array<{ value: CameraSource; label: string }> = [
-  { value: 'aivision', label: 'AiVision 通用检测' },
-  { value: 'security_vlm', label: '安检流程规范检测' },
-]
-
 const defaultOverview: OverviewState = {
   todayAlarms: 0,
   pendingAlarms: 0,
@@ -97,8 +86,7 @@ const warningAlarmTypes = new Set([
   'guard_phone_use',
   'guard_prone_sleep',
   'guard_vehicle_inspection_missing',
-  'security_vlm_non_compliant',
-  'security_vlm_error',
+  'security_inspection',
 ])
 
 function isToday(value?: string) {
@@ -131,10 +119,6 @@ function getAlarmLocation(alarm: AlarmEvent) {
   return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
 }
 
-function cameraSourceLabel(source: CameraSource) {
-  return cameraSourceOptions.find((item) => item.value === source)?.label || source
-}
-
 function makeAiVisionShmName(alias: string) {
   const base = alias
     .trim()
@@ -158,7 +142,6 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const [cameraDialogOpen, setCameraDialogOpen] = useState(false)
   const [cameraDialogMode, setCameraDialogMode] = useState<'create' | 'edit'>('create')
   const [cameraToEdit, setCameraToEdit] = useState<AiVisionCamera | null>(null)
-  const [cameraSource, setCameraSource] = useState<CameraSource>('aivision')
   const [cameraDepartment, setCameraDepartment] = useState('')
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
@@ -266,19 +249,9 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const openCreateCameraDialog = () => {
     setCameraDialogMode('create')
     resetCameraForm()
-    setCameraSource('aivision')
     setCameraDepartment('')
     if (departmentsError) reloadDepartments()
     setCameraDialogOpen(true)
-  }
-
-  const handleCameraSourceChange = (source: CameraSource) => {
-    const nextDepartment = isDepartment(cameraDepartment) && allowedCameraDepartments.includes(cameraDepartment)
-      ? cameraDepartment
-      : ''
-    setCameraSource(source)
-    setCameraDepartment(nextDepartment)
-    setCameraFormError('')
   }
 
   const handleCameraDepartmentChange = (nextDepartment: string) => {
@@ -305,7 +278,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
       setCameraFormError('摄像头名称和 RTSP 地址都不能为空。')
       return
     }
-    if ((cameraDialogMode === 'edit' || cameraSource === 'aivision') && (!Number.isInteger(fps) || fps < 1)) {
+    if (!Number.isInteger(fps) || fps < 1) {
       setCameraFormError('FPS 必须是大于等于 1 的整数。')
       return
     }
@@ -323,13 +296,13 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
     const generatedShmName = makeAiVisionShmName(name)
     const actionKey = cameraDialogMode === 'edit' && cameraToEdit
       ? getAiVisionCameraKey(cameraToEdit)
-      : `${cameraSource}:${generatedShmName}`
+      : `aivision:${generatedShmName}`
     setCameraActionKey(actionKey)
     setCameraFormError('')
     try {
       if (cameraDialogMode === 'edit' && cameraToEdit) {
         await updateAiVisionCamera(getAiVisionCameraKey(cameraToEdit), { name, url, fps })
-      } else if (cameraSource === 'aivision' && isDepartment(cameraDepartment)) {
+      } else if (isDepartment(cameraDepartment)) {
         await createAiVisionCamera({
           name,
           url,
@@ -338,12 +311,6 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
           enabled: true,
           department: cameraDepartment,
         })
-      } else {
-        await createSecurityVlmCamera(
-          cameraDepartment as SecurityVlmDepartment,
-          name,
-          url,
-        )
       }
       overviewState.refresh()
       setCameraDialogOpen(false)
@@ -491,7 +458,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-bold text-[#071d3d] dark:text-slate-100">{camera.name}</div>
                                 <div className="mt-1 truncate text-xs font-medium text-slate-500">
-                                  {cameraSourceLabel(camera.source)} · {cameraDepartmentLabel(camera.department)} · {camera.identifier}
+                                  AiVision · {cameraDepartmentLabel(camera.department)} · {camera.identifier}
                                   {camera.online ? ' · 在线' : ' · 离线'}
                                 </div>
                               </div>
@@ -766,30 +733,13 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
           <DialogHeader>
             <DialogTitle>{cameraDialogMode === 'edit' ? '修改摄像头' : '新增摄像头'}</DialogTitle>
             <DialogDescription>
-              {cameraDialogMode === 'edit' ? '修改全局摄像头信息，相关检测功能会继续引用该摄像头。' : '选择目标能力并新增摄像头，保存后平台汇总会立即刷新。'}
+              {cameraDialogMode === 'edit' ? '修改全局摄像头信息，相关检测功能会继续引用该摄像头。' : '新增平台摄像头，保存后可在各检测功能中启用。'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             {cameraDialogMode === 'create' ? (
               <>
-                <div className="space-y-2">
-                  <Label htmlFor="overview-camera-source">目标能力</Label>
-                  <Select
-                    value={cameraSource}
-                    onValueChange={(value) => handleCameraSourceChange(value as CameraSource)}
-                    disabled={Boolean(cameraActionKey)}
-                  >
-                    <SelectTrigger id="overview-camera-source">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {cameraSourceOptions.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="overview-camera-department">所属事业部</Label>
                   <Select
@@ -831,7 +781,6 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                 disabled={Boolean(cameraActionKey)}
               />
             </div>
-            {cameraDialogMode === 'edit' || cameraSource === 'aivision' ? (
               <div className="space-y-2">
                 <Label htmlFor="overview-camera-fps">FPS</Label>
                 <Input
@@ -844,7 +793,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                   disabled={Boolean(cameraActionKey)}
                 />
               </div>
-            ) : null}
+
             {(cameraFormError || (cameraDialogMode === 'create' && departmentsError)) ? <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraFormError || departmentsError}</div> : null}
           </div>
 

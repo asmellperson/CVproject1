@@ -139,7 +139,7 @@ export type OverviewServiceStatus = {
 export type OverviewCapability = {
   id: string
   name: string
-  source: 'aivision' | 'security_vlm'
+  source: 'aivision'
   camera_count: number
   online_camera_count: number
   running: boolean
@@ -190,7 +190,7 @@ export const getOverview = (init?: RequestInit) => apiGet<OverviewStatus>('/over
 
 export type AlarmEvent = {
   id: string
-  source?: 'aivision' | 'security_vlm'
+  source?: 'aivision'
   source_id?: string
   site_id?: number
   site_name?: string

@@ -104,11 +104,8 @@ def mock_overview_sources(monkeypatch):
                     site = {"id": index, "name": "本部", "department": department, "enabled": True,
                             "cameras": [{"id": index, "name": "保安", "enabled": True}]}
                     payload = [site, {**site, "id": 100 + index, "department": other}]
-                elif resource == "vlm_state":
-                    payload = {"vlm": {"ok": True}, "cameras": [
-                        {"camera_id": "scanner", "name": "安检", "running": True},
-                        {"camera_id": "other", "name": "其他", "department": other, "running": True},
-                    ]}
+                elif resource == "inspection_status":
+                    payload = {"running": True, "queue": 0, "active": 0, "error": None}
                 else:
                     pytest.fail(f"意外的上游资源：{resource}")
             results[key] = (True, payload, 1.0, None)
@@ -141,7 +138,7 @@ def test_guard_running_requires_native_site_evidence(monkeypatch, tmp_path, fail
     response = client.get("/api/overview")
     assert response.status_code == 200
     result = response.json()
-    assert result["summary"]["camera_total"] == 2
+    assert result["summary"]["camera_total"] == 1
     assert not result["inventory_complete"]
     guard = next(item for item in result["capabilities"] if item["id"] == "guard-behavior")
     assert not guard["running"] and guard["online_camera_count"] == 0
@@ -159,7 +156,7 @@ def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tm
     assert result["departments"] == allowed
     assert "department" not in result
     assert len(result["capabilities"]) == result["summary"]["capability_total"] == 9
-    assert len(result["cameras"]) == result["summary"]["camera_total"] == 2 * len(allowed)
+    assert len(result["cameras"]) == result["summary"]["camera_total"] == len(allowed)
     assert {camera["department"] for camera in result["cameras"]} == set(allowed)
     assert len({camera["key"] for camera in result["cameras"]}) == len(result["cameras"])
     for camera in result["cameras"]:
@@ -168,7 +165,7 @@ def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tm
             assert len(camera["logistics_memberships"]) == 1
     for summary in result["department_summaries"].values():
         assert summary["capability_total"] == 9
-        assert summary["camera_total"] == 2
+        assert summary["camera_total"] == 1
     assert result["inventory_complete"] is True
     capabilities = {item["id"]: item for item in result["capabilities"]}
     assert capabilities["face-recognition"]["model_ready"] is True
@@ -176,7 +173,7 @@ def test_overview_uses_account_scope_and_keeps_nine_capabilities(monkeypatch, tm
     assert calls.count("/api/runtime/status") == calls.count("/api/features") == 1
     assert not any("/sites/10" in path for path in calls)
     for scoped_department in DEPARTMENT_SPECS:
-        assert (f"/api/departments/{scoped_department}/health" in calls) == (scoped_department in allowed)
+        assert (f"/api/security-inspection/status?department={scoped_department}" in calls) == (scoped_department in allowed)
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
@@ -247,6 +244,8 @@ def test_removed_external_routes_do_not_proxy(monkeypatch, tmp_path, path):
 
 
 @pytest.mark.parametrize("method, path, internal", [
+    ("GET", "/api/security-inspection/history", "/api/security-inspection/history"),
+    ("PUT", "/api/security-inspection/settings", "/api/security-inspection/settings"),
     ("GET", "/api/guard-behavior/sites", "/api/guard-behavior/sites"),
     ("POST", "/api/guard-behavior/sites", "/api/guard-behavior/sites"),
     ("PATCH", "/api/guard-behavior/sites/1/policy", "/api/guard-behavior/sites/1/policy"),
@@ -264,20 +263,3 @@ def test_formal_proxies_forward_method_path_and_query(monkeypatch, tmp_path, met
     monkeypatch.setattr(app_module, "_proxy", proxy)
     client = client_for(monkeypatch, tmp_path, {"role": "admin"})
     assert client.request(method, path, params={"department": "electronics_electrician"}).status_code == 200
-
-
-@pytest.mark.parametrize("resource", ["health", "history", "cameras", "cameras/one/rois", "video/one/capture"])
-def test_security_proxy_keeps_department_permissions(monkeypatch, tmp_path, resource):
-    from fastapi.responses import JSONResponse
-    user = {"role": "viewer", "departments": ["electronics_electrician"]}
-    async def proxy(request, base, path):
-        assert path == f"/api/departments/electronics_electrician/{resource}"
-        return JSONResponse({"ok": True})
-    monkeypatch.setattr(app_module, "_proxy", proxy)
-    client = client_for(monkeypatch, tmp_path, user)
-    path = f"/api/security-vlm/departments/electronics_electrician/{resource}"
-    assert client.get(path).status_code == 200
-    assert client.post(path).status_code == 403
-    assert client.get(path.replace("electronics_electrician", "research_institute")).status_code == 403
-    user["role"] = "admin"
-    assert client.post(path).status_code == 200

@@ -15,9 +15,8 @@
 公网网关只需把 https://aicv.fudar.com/ 转发到项目服务器 TCP 3000。
 5000 和 7862 仅供本机前端代理与服务间调用，不应直接开放到公网。
 
-Guard Room 和 Security VLM 的 API、配置与生命周期均由 AiVision 管理，源码位于
-AiVision/integrations/。Security VLM 的耗 token 推理 worker 仍按页面操作动态启停，
-但不作为独立 Web 服务运行。
+保安行为和安检流程检测均为 AiVision 原生功能，摄像头由平台统一管理，检测配置和历史写入同一 MySQL。
+安检使用 config/model_paths.yaml 中的 yolo_human 人体模型；内部千问接口与推理参数在管理页面保存到数据库。
 
 二、首次部署
 ------------
@@ -39,12 +38,6 @@ conda create -n aivision python=3.11 -y
 conda run -n aivision python -m pip install \
   -r /srv/Fuda_CVPreject/AiVision/requirements.txt
 
-Security VLM 按需 worker 使用 security_vlm Conda 环境：
-
-conda create -n security_vlm python=3.11 -y
-conda run -n security_vlm python -m pip install \
-  -r /srv/Fuda_CVPreject/AiVision/integrations/security_vlm/requirements.txt
-
 统一后端可使用系统 Python、unified_backend Conda 环境，或通过
 UNIFIED_BACKEND_PYTHON 指定解释器。依赖安装示例：
 
@@ -65,10 +58,11 @@ npm ci
 
 - AiVision/.env：MySQL 等 AiVision 配置；
 - AiVision/config/model_paths.yaml：含 Guard 模型在内的平台共享模型路径；
-- AiVision/integrations/security_vlm/configs/config.yaml：Security VLM 配置；
 - runtime/auth/auth_users.db：当前用户、角色、部门、密码哈希和登录版本；
 - scripts/auth_secret：如需保持现有登录态；
 - unified_frontend/.env.local：仅在覆盖默认前端配置时需要。
+
+连接同一 MySQL 的其他服务器无需重复迁移安检数据；只需准备本机模型路径和相同数据库连接。
 
 用户管理已完全使用 SQLite。系统不会再从旧 JSON 用户文件自动导入账号；部署到新机器前必须
 备份并复制 runtime/auth/auth_users.db，或通过 AUTH_USERS_DB 指向已准备好的数据库。

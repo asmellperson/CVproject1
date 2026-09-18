@@ -42,7 +42,7 @@ test('all ordinary pages scope camera lists, monitors and creation to the select
   }
 })
 
-test('Guard binds platform cameras while security retains its camera creation entrypoint', async () => {
+test('Guard and security use platform camera management', async () => {
   const [guardConfig, securityConfig] = await Promise.all([
     readFrontendSource('src/components/guard_behavior/CameraMembership.tsx'),
     readFrontendSource('src/sections/SecurityVlmSection.tsx'),
@@ -50,18 +50,19 @@ test('Guard binds platform cameras while security retains its camera creation en
 
   assert.match(guardConfig, /addCamera\(site\.id, Number\(selected\)\)/)
   assert.doesNotMatch(guardConfig, /rtsp|createAiVisionCamera/i)
-  assert.match(securityConfig, /await createSecurityVlmCamera\(department, name, rtspUrl\)/)
-  assert.match(securityConfig, /onAdd=\{\(\) => void openCameraDialog\(null\)\}/)
+  assert.match(securityConfig, /<FeatureCameraManager/)
+  assert.match(securityConfig, /feature=\{INSPECTION_FEATURE\}/)
+  assert.doesNotMatch(securityConfig, /rtspUrl|createSecurityVlmCamera/)
+
 })
 
 test('camera mutations from every backend notify the shared overview inventory', async () => {
-  const [aiVision, securityVlm, platformStatus] = await Promise.all([
+  const [aiVision, platformStatus] = await Promise.all([
     readFrontendSource('src/lib/aivision.ts'),
-    readFrontendSource('src/lib/security-vlm.ts'),
     readFrontendSource('src/hooks/use-overview.ts'),
   ])
 
-  for (const source of [aiVision, securityVlm]) {
+  for (const source of [aiVision]) {
     assert.match(source, /notifyPlatformCamerasChanged\(\)/)
   }
   assert.match(aiVision, /\/api\/features\/\$\{encodeURIComponent\(feature\)\}\/cameras/)

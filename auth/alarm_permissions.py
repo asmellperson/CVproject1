@@ -4,7 +4,7 @@ from typing import Any, Iterable
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 DETECTION_EVENT_TYPES = frozenset({
-    "security_vlm_non_compliant", "security_vlm_error",
+    "security_inspection",
     "guard_absent", "guard_phone_use", "guard_prone_sleep", "guard_vehicle_inspection_missing",
     "blocks", "detect_door", "detect_face", "recognize_face", "detect_human",
     "detect_logistics_single_person", "detect_phone",

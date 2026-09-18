@@ -25,9 +25,6 @@ status_script="$(<"$PROJECT_ROOT/scripts/status.sh")"
 stop_script="$(<"$PROJECT_ROOT/scripts/stop.sh")"
 vite_config="$(<"$PROJECT_ROOT/unified_frontend/vite.config.ts")"
 aivision_app="$(<"$PROJECT_ROOT/AiVision/api/app.py")"
-managed_visual_services="$(<"$PROJECT_ROOT/AiVision/api/mounted_apps.py")"
-security_vlm_main="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/src/main.py")"
-security_vlm_config="$(<"$PROJECT_ROOT/AiVision/integrations/security_vlm/configs/config.example.yaml")"
 
 [[ "$start_script" == *'conda activate ${AIVISION_ENV} && python -m AiVision.main'* ]] || \
   fail "AiVision must start as a package from the project root"
@@ -69,25 +66,10 @@ done
   fail "completed five-service migration helper must be removed"
 [[ "$aivision_app" != *"/api/integrations/guard-room"* ]] || \
   fail "Guard must use native API"
-[[ "$aivision_app" == *'app.mount('*"/api/integrations/security-vlm"* ]] || \
-  fail "Security VLM must be mounted in AiVision"
-[[ "$aivision_app" != *"VisualWorkerClient"* ]] || \
-  fail "AiVision must not retain the HTTP worker relay"
-[[ "$managed_visual_services" != *"guard_room"* ]] || \
-  fail "only Security VLM remains managed"
-[[ "$managed_visual_services" == *"from AiVision.integrations.security_vlm.src.main import create_app"* ]] || \
-  fail "Security VLM must be imported from inside AiVision"
-[[ ! -e "$PROJECT_ROOT/AiVision/integrations/guard_room" ]] || \
-  fail "old Guard source tree must be removed"
-[[ -d "$PROJECT_ROOT/AiVision/integrations/security_vlm" ]] || \
-  fail "Security VLM source tree must live under AiVision/integrations"
-[[ ! -e "$PROJECT_ROOT/guard_room" && ! -e "$PROJECT_ROOT/security_vlm" ]] || \
-  fail "legacy root-level visual service directories must not remain"
-[[ ! -e "$PROJECT_ROOT/AiVision/integrations/guard_room/run_server.py" ]] || \
-  fail "Guard Room must not retain an independent Web launcher"
-[[ "$security_vlm_main" != *"uvicorn.run("* ]] || \
-  fail "Security VLM must not retain an independent Web launcher"
-[[ "$security_vlm_config" != *"port: 8000"* ]] || \
-  fail "Security VLM config must not advertise the removed Web port"
+[[ "$aivision_app" == *"security_inspection_router"* ]] || fail "Security inspection must use native API"
+[[ ! -e "$PROJECT_ROOT/AiVision/integrations" ]] || fail "the integrations directory must be removed"
+[[ ! -e "$PROJECT_ROOT/AiVision/api/mounted_apps.py" ]] || fail "the retired application manager must be removed"
+[[ -f "$PROJECT_ROOT/AiVision/features/security_inspection/spec.py" ]] || fail "Security inspection must be a native feature"
+[[ ! -e "$PROJECT_ROOT/guard_room" && ! -e "$PROJECT_ROOT/security_vlm" ]] || fail "retired root applications must be removed"
 
 echo "PASS: three tmux services with Vite frontend topology"

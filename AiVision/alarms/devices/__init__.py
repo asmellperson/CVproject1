@@ -118,8 +118,7 @@ alarms/devices/：喇叭设备配置、检测绑定校验、运行管理与设�
             → HornRuntimeManager.enqueue_play(horn_id, horn_event_id)
             → 后台 Horn.play(horn_event_id) → 设备 /run_task。
         一个设备故障不会把设备网络等待放回微信、SQL、证据处理的调用线程。
-        Guard Behavior / Security VLM 当前没有接入这条喇叭播放链；
-        页面能管理全局设备，不代表该检测功能已有真实喇叭绑定和播放能力。
+        Guard Behavior 与安检流程检测沿用同一设备绑定和播放链路。
 
 四、设备状态与日常操作
 

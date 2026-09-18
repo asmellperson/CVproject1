@@ -366,7 +366,6 @@ UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
   "$UNIFIED_BACKEND_ENV" \
   "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
-SECURITY_VLM_WORKER_ENV="${SECURITY_VLM_WORKER_ENV:-security_vlm}"
 
 # 健康检查上限（秒）- 可在 cold_start.env 中覆盖
 WAIT_AIVISION="${WAIT_AIVISION:-90}"
@@ -807,14 +806,6 @@ precheck_one() {
         hint "请编辑: vi ${env_file}"
         issues=$((issues + 1))
       fi
-      if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml" ]]; then
-        cfg "${name} 托管的 Security VLM 缺少配置文件 ${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml"
-        issues=$((issues + 1))
-      fi
-      if [[ -n "$CONDA_SH_PATH" ]] && ! conda_env_exists "$SECURITY_VLM_WORKER_ENV" "$CONDA_SH_PATH"; then
-        cfg "Security VLM 按需推理环境 '${SECURITY_VLM_WORKER_ENV}' 不存在；AiVision 可启动，但安检检测无法开启"
-        hint "创建环境后安装: conda run -n ${SECURITY_VLM_WORKER_ENV} python -m pip install -r ${PROJECT_ROOT}/AiVision/integrations/security_vlm/requirements.txt"
-      fi
       ;;
     unified_frontend)
       if [[ ! -d "${workdir}/node_modules" ]]; then
@@ -1022,7 +1013,6 @@ main() {
   log "  NODE_VERSION = ${NODE_VERSION}"
   log "  AIVISION_ENV = ${AIVISION_ENV}"
   log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
-  log "  SECURITY_VLM_WORKER_ENV = ${SECURITY_VLM_WORKER_ENV}"
   log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND} frontend=${WAIT_FRONTEND}"
 
   # AUTH_SECRET 状态

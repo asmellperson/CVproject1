@@ -32,16 +32,16 @@ class AlarmEvidenceRequest:
     """证据源与物理 Camera 身份分离；开放时长事件由公共 Recorder 的 token 引用。"""
 
     source_key: str
-    mode: Literal["clip", "episode"] = "clip"
+    mode: Literal["clip", "episode", "snapshot"] = "clip"
     episode_token: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_key, str) or not self.source_key.strip():
             raise ValueError("证据源必须是非空字符串")
-        if self.mode not in ("clip", "episode"):
-            raise ValueError("证据模式必须是 clip 或 episode")
-        if self.mode == "clip" and self.episode_token is not None:
-            raise ValueError("普通片段不能携带 episode token")
+        if self.mode not in ("clip", "episode", "snapshot"):
+            raise ValueError("证据模式必须是 clip、episode 或 snapshot")
+        if self.mode != "episode" and self.episode_token is not None:
+            raise ValueError("仅完整事件可以携带 episode token")
         if self.episode_token is not None and (not isinstance(self.episode_token, str) or not self.episode_token.strip()):
             raise ValueError("episode token 必须是非空字符串")
 
@@ -232,6 +232,8 @@ class AlarmDispatcher:
         evidence = req.evidence
         if evidence is None:
             return self.evidence_recorder.start_alarm(req.camera_key or req.camera_name, req.frame)
+        if evidence.mode == "snapshot":
+            return None
         if evidence.mode == "episode":
             # 采集失败不能替换成普通前后片段，否则会把截短录像误称为完整事件。
             if evidence.episode_token is None:

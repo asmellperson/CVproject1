@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 CAPABILITIES = (
-    ("security-vlm", "安检流程规范检测", "security_vlm", None),
+    ("security-vlm", "安检流程规范检测", "aivision", "security_inspection"),
     ("guard-behavior", "保安行为规范检测", "aivision", "guard_behavior"),
     ("intrusion-detection", "区域入侵检测", "aivision", "blocks"),
     ("door-detection", "大门开关异常检测", "aivision", "detect_door"),
@@ -25,7 +25,7 @@ ReadMany = Callable[[dict[str, tuple[str, str, Request | None]]], dict[str, Upst
 
 class OverviewCamera(BaseModel):
     key: str
-    source: Literal["aivision", "security_vlm"]
+    source: Literal["aivision"]
     camera_id: int | str
     name: str
     department: str
@@ -102,14 +102,13 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
     feature_meta = {item["name"]: item for item in payload("features", dict).get("features", [])}
     logistics = payload("logistics", dict)
     guard_sites = payload("guard_sites", list)
-    vlm_state = payload("vlm_state", dict)
+    inspection_status = payload("inspection_status", dict)
     sites = [site for site in guard_sites if site.get("department") == department]
     services = {}
-    for source, key in (("aivision", "ai_status"), ("security_vlm", "vlm_state")):
+    for source, key in (("aivision", "ai_status"),):
         ok, _value, latency, error = upstream[key]
         services[source] = OverviewServiceStatus(online=ok, latency_ms=latency, error=errors.get(key) or error)
     services["aivision"].model_ready = bool(ai_status.get("running_models"))
-    services["security_vlm"].model_ready = bool(vlm_state.get("vlm", {}).get("ok"))
     running_cameras = set(ai_status.get("running_cameras", []))
     running_features = set(ai_status.get("running_consumers", []))
     memberships = {item["camera_id"]: item for item in logistics.get("items", []) if item.get("department") == department}
@@ -129,7 +128,8 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
         physical_online = enabled and camera["shm_name"] in running_cameras
         # Guard 是否参与检测以 Site/member 状态为准，Consumer 存活不能代替成员可用性。
         active = [FEATURE_PAGES[name] for name in features
-                  if physical_online and name in running_features and name != "guard_behavior"]
+                  if physical_online and name in running_features and name != "guard_behavior"
+                  and (name != "security_inspection" or (inspection_status.get("running") and not inspection_status.get("error")))]
         if enabled and member.get("online") and "logistics-single-person" not in active:
             active.append("logistics-single-person")
         cameras.append(OverviewCamera(
@@ -162,17 +162,6 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
             if (camera.enabled and site.get("enabled") and member.get("member_enabled")
                     and state.get("running") and ready):
                 camera.running_capabilities.append("guard-behavior")
-    for camera in vlm_state.get("cameras", []):
-        # 安检摄像头来自当前事业部工作区，拒绝上游显式返回的其他事业部数据。
-        if camera.get("department", department) != department:
-            continue
-        online = bool(camera.get("running"))
-        cameras.append(OverviewCamera(
-            key=f"security_vlm:{department}:{camera['camera_id']}", source="security_vlm",
-            camera_id=camera["camera_id"], name=camera["name"], identifier=camera["camera_id"],
-            department=department, enabled=bool(camera.get("desired_running", online)), online=online,
-            capabilities=["security-vlm"], running_capabilities=["security-vlm"] if online else [],
-        ))
     capabilities = []
     for page, name, source, feature in CAPABILITIES:
         members = [camera for camera in cameras if page in camera.capabilities]
@@ -181,6 +170,8 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
         if feature:
             metadata = feature_meta.get(feature)
             model_ready = metadata is not None and set(metadata["required_models"]).issubset(ai_status.get("running_models", []))
+        if feature == "security_inspection":
+            model_ready = model_ready and bool(inspection_status.get("running")) and not inspection_status.get("error")
         capabilities.append(OverviewCapability(
             id=page, name=name, source=source, camera_count=len(members),
             online_camera_count=online_count, running=online_count > 0,
@@ -206,7 +197,7 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
 
 
 def build_overview(request: Request, departments: list[str], aivision_url: str,
-                   security_vlm_url: str, read_many: ReadMany) -> OverviewStatus:
+                   read_many: ReadMany) -> OverviewStatus:
     # 公共状态只读取一次，各事业部清单并发获取，避免随授权范围串行增加等待时间。
     calls = {
         "ai_status": (aivision_url, "/api/runtime/status", request),
@@ -217,7 +208,7 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
             f"{department}:ai_cameras": (aivision_url, f"/api/cameras?department={department}", request),
             f"{department}:logistics": (aivision_url, f"/api/logistics-channels/inventory?department={department}", request),
             f"{department}:guard_sites": (aivision_url, f"/api/guard-behavior/sites?department={department}", request),
-            f"{department}:vlm_state": (security_vlm_url, f"/api/departments/{department}/health", request),
+            f"{department}:inspection_status": (aivision_url, f"/api/security-inspection/status?department={department}", request),
         })
     upstream = read_many(calls) if calls else {}
     site_calls = {}
@@ -236,7 +227,7 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
         scope_upstream = {key: upstream[key] for key in ("ai_status", "features")}
         scope_upstream.update({
             key: upstream[f"{department}:{key}"]
-            for key in ("ai_cameras", "logistics", "guard_sites", "vlm_state")
+            for key in ("ai_cameras", "logistics", "guard_sites", "inspection_status")
         })
         scopes[department] = _build_department_overview(department, scope_upstream, site_results)
 
@@ -244,7 +235,7 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
     errors = {f"{department}:{key}": error for department, scope in scopes.items()
               for key, error in scope.inventory_errors.items()}
     services = {}
-    for source in ("aivision", "security_vlm"):
+    for source in ("aivision",):
         items = [scope.services[source] for scope in scopes.values()]
         services[source] = OverviewServiceStatus(
             online=any(item.online for item in items), running=any(item.running for item in items),

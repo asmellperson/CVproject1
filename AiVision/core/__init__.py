@@ -40,8 +40,6 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     ApiSettings / settings.api：API 监听地址、端口及 CORS 来源配置。
     RuntimeSettings / settings.runtime：OpenCV 线程数、慢帧日志阈值、物流状态新鲜度、
         推理异常告警阈值，以及模型 Worker 就绪超时、Watchdog 周期与重启退避参数。
-    ManagedVisualServiceSettings / settings.visual_services：Guard Room 与 Security VLM
-        这两类集成视觉服务的配置文件位置，默认路径基于 AiVision/ 目录计算。
     ModelPathSettings / settings.model_paths：模型路径 YAML 的位置，由 MODEL_PATHS_CONFIG
         指定；具体逻辑模型和实际权重路径不在此文件逐项声明。
 

@@ -30,7 +30,7 @@ export type UserRole = 'admin' | 'viewer'
 export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management'
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
-  'security-vlm': ['security_vlm_non_compliant', 'security_vlm_error'],
+  'security-vlm': ['security_inspection'],
   'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep', 'guard_vehicle_inspection_missing'],
   'intrusion-detection': ['blocks'], 'door-detection': ['detect_door'],
   'face-detection': ['detect_face'], 'face-recognition': ['recognize_face'],
