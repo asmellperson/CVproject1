@@ -36,8 +36,20 @@ ffprobe -version
 
 - `envs.worker_python`:上一步得到的 python 路径
 - `data.camera_registry_path`:摄像头注册表（默认 `data/config/cameras.json`）
-- `vlm.api_key`:阿里云百炼 API Key
+- `vlm.base_url`:内部千问模型的 Chat Completions 接口根地址，示例为 `http://127.0.0.1:18100/v1`
+- `vlm.model`:模型服务名称，`fuda_llm` 默认是 `fuda-qwen36-27b`
+- `vlm.api_key`:内部模型接口启用鉴权时填写对应密钥；未启用时留空
 - `yolo.device`:`cuda:0` 或 `cpu`
+
+`SECURITY_VLM_BASE_URL`、`SECURITY_VLM_MODEL`、`SECURITY_VLM_API_KEY` 可覆盖上述配置。
+模型地址指向实际推理服务，不能填写 `fuda_llm` 员工聊天服务的 `9010` 端口。
+`fuda_llm` 默认将模型端口 `18100` 绑定到 `127.0.0.1`，示例配置适用于两个服务
+运行在同一台机器的情况；跨机器时需要填写已通过内网代理或隧道开放的模型接口地址。
+修改配置后重启安检检测 worker 才会生效。
+
+关键帧以 JPEG Base64 随请求发送，模型服务器不需要挂载摄像头机器的目录。
+请求关闭思考输出，并沿用现有合规判定提示词。内部模型调用不自动回退到外部服务。
+`budget.estimated_cost_per_call` 设为 `0` 时不再累计外部 API 费用，仍保留调用次数。
 
 启动 AiVision 后，在“安检流程规范检测”页面填写“摄像头名称 + RTSP 地址”。
 支持 2～4 台现场摄像头，每台可独立开启、关闭或重启，也可全部开启/全部关闭。
@@ -90,6 +102,6 @@ bash scripts/start.sh
 ## 常见问题
 
 - **RTSP 打不开**:用 ffmpeg 先测 `ffmpeg -rtsp_transport tcp -i <url> -t 5 -an -c:v libx264 -pix_fmt yuv420p out.mp4`
-- **VLM 一直 error**:先单独跑 `demo` 版本验证 API Key
+- **VLM 一直 error**:检查内部模型的 `/v1/models`、模型服务名称及图片输入能力；连接失败显示 `api_connection_failed`，超时显示 `api_timeout`
 - **合规率异常**:调 `session.min_persons_to_start` 和 `session.start_hold_frames`
 - **花费超标**:调低 `budget.daily_limit_yuan`,或增大 `session.min_session_seconds` 过滤短 session

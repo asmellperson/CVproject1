@@ -99,8 +99,13 @@ session:
 
 # ---- VLM(Qwen-VL)调用 ----
 vlm:
-  api_key: 
-  model: 
+  # 内部千问的模型接口，不能填写员工聊天页面的 9010 端口。
+  # 可用 SECURITY_VLM_BASE_URL / SECURITY_VLM_MODEL / SECURITY_VLM_API_KEY 覆盖。
+  base_url: http://127.0.0.1:18100/v1
+  api_key: ""
+  model: fuda-qwen36-27b
+  max_tokens: 2048
+  temperature: 0.1
   # 排队超时:session 在 VLM 队列超过此秒数则丢弃并记录
   queue_timeout_sec: 60
   # 同时最多几个 session 并发送 VLM(防止突发 RTSP 大量 session 堆积)
@@ -119,7 +124,7 @@ vlm:
 # ---- 成本保护 ----
 budget:
   daily_limit_yuan: 50.0
-  estimated_cost_per_call: 0.05
+  estimated_cost_per_call: 0.0  # 内部部署不累计外部 API 费用，调用次数仍统计
 
 # ---- 输出 ----
 output:

@@ -546,64 +546,42 @@ def test_draw_text_falls_back_when_configured_font_cannot_be_opened(monkeypatch)
     assert rendered.dtype == image.dtype
 
 
-# 功能：验证 `test_vlm_judge_passes_request_timeout` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `tmp_path`（未显式标注）：`tmp_path` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`object.__new__`、`SimpleNamespace`、`judge.judge`、`np.zeros`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_vlm_judge_passes_request_timeout(tmp_path):
+def test_vlm_judge_passes_request_timeout(tmp_path, monkeypatch):
     calls = []
 
-    # 功能：定义 `FakeMMC` 类，封装后台任务相关的状态、约束与操作
-    # 参数：无。
-    # 返回：FakeMMC；返回新建的 `FakeMMC` 实例。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    class FakeMMC:
-        # 功能：实现 `call` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明
-        # 参数：
-        #   - `cls`（未显式标注）：当前类对象
-        #   - `**kwargs`（未显式标注）：`kwargs` 对应的业务输入值
-        # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-        # 调用关系：
-        #   - 调用方：`AiVision/integrations/security_vlm/src/vlm_worker.py` 的 `VLMJudge::judge` 调用本符号
-        #   - 内部调用：`calls.append`、`SimpleNamespace`。
-        # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-        @classmethod
-        def call(cls, **kwargs):
-            calls.append(kwargs)
-            message = SimpleNamespace(content='{"compliant": true}')
-            choice = SimpleNamespace(message=message)
-            output = SimpleNamespace(choices=[choice])
-            return SimpleNamespace(status_code=200, output=output, usage=None)
+    class Response:
+        status_code = 200
 
-    judge = object.__new__(vlm_worker.VLMJudge)
-    judge.MMC = FakeMMC
-    judge.model = "test-model"
-    judge.api_timeout = 45.0
-    judge.image_max_side = 960
-    judge.image_quality = 85
-    judge.budget = SimpleNamespace(try_consume=lambda: True)
-    judge.tmp_dir = tmp_path
+        def __enter__(self):
+            return self
 
-    result = judge.judge(
-        "session-1",
-        "security_staff_1",
-        [0, 0, 10, 10],
-        [np.zeros((10, 10, 3), dtype=np.uint8)],
-        department="electrical_components",
+        def __exit__(self, *_args):
+            return False
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"compliant": true}'}}]}
+
+    def post(url, **kwargs):
+        calls.append({"url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(vlm_worker.requests, "post", post)
+    for name in ("SECURITY_VLM_BASE_URL", "SECURITY_VLM_MODEL", "SECURITY_VLM_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    judge = vlm_worker.VLMJudge(
+        {"vlm": {"base_url": "http://127.0.0.1:18100/v1/", "model": "fuda-qwen36-27b", "api_timeout_sec": 45}},
+        vlm_worker.BudgetGuard(50, 0), tmp_path,
     )
-
+    result = judge.judge(
+        "session-1", "security_staff_1", [0, 0, 10, 10],
+        [np.zeros((10, 10, 3), dtype=np.uint8)], department="electrical_components",
+    )
     assert result["compliant"] is True
-    assert calls[0]["request_timeout"] == 45.0
-    assert "timeout" not in calls[0]
-    image_uri = calls[0]["messages"][1]["content"][0]["image"]
-    assert "/electrical_components/" in image_uri
+    assert calls[0]["timeout"] == 45.0
+    assert calls[0]["url"] == "http://127.0.0.1:18100/v1/chat/completions"
+    assert calls[0]["json"]["model"] == "fuda-qwen36-27b"
+    assert calls[0]["json"]["messages"][1]["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert not list(tmp_path.iterdir())
 
 
 # 功能：验证 `test_budget_guard_restores_same_day_and_persists_each_consumption` 对应的后台任务逻辑；输入由参数提供，处理结果见返回值说明

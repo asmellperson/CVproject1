@@ -26,6 +26,7 @@ vlm_worker.py —— Qwen-VL 合规判定子进程
 ================================================================================
 """
 import argparse
+import base64
 import json
 import math
 import os
@@ -43,10 +44,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 from PIL import Image, ImageDraw, ImageFont
 
 import cv2
 import numpy as np
+import requests
 import yaml
 
 from AiVision.integrations.security_vlm.src.departments import DEPARTMENTS, require_department
@@ -491,7 +494,7 @@ class BudgetGuard:
                 self.date = today
                 self.spent = 0.0
                 self.call_count = 0
-            if self.spent + self.est_cost > self.daily_limit:
+            if self.est_cost > 0 and self.spent + self.est_cost > self.daily_limit:
                 return False
             self.spent += self.est_cost
             self.call_count += 1
@@ -589,47 +592,38 @@ VLM_USER_PROMPT = """以下是某安检工位的 {n_frames} 张监控截图,按�
 # VLM 调用封装
 # ---------------------------------------------------------------------------
 class VLMJudge:
-    """
-    封装 dashscope 多模态调用:
-    1) 把每张关键帧 resize + 写到临时 jpg
-    2) 拼成 messages, 调 MultiModalConversation.call
-    3) 解析返回的 JSON (兼容 markdown 包裹)
-    4) try-finally 删临时 jpg, 不留垃圾
-    """
+    """通过内部千问的 Chat Completions 接口发送 JPEG 图片并解析合规结果。"""
 
     def __init__(self, cfg: Dict[str, Any], budget: BudgetGuard, tmp_dir: Path):
-        import dashscope
-        from dashscope import MultiModalConversation
-
-        self.dashscope = dashscope
-        self.MMC = MultiModalConversation
-        self.api_key = cfg["vlm"]["api_key"]
-        self.model = cfg["vlm"]["model"]
-        self.image_max_side = int(cfg["vlm"].get("image_max_side", 960))
-        self.image_quality = int(cfg["vlm"].get("image_jpeg_quality", 85))
-        self.api_timeout = float(cfg["vlm"].get("api_timeout_sec", 45))
+        vlm = cfg["vlm"]
+        self.base_url = os.getenv("SECURITY_VLM_BASE_URL", str(vlm.get("base_url") or "")).strip().rstrip("/")
+        self.model = os.getenv("SECURITY_VLM_MODEL", str(vlm.get("model") or "")).strip()
+        self.api_key = os.getenv("SECURITY_VLM_API_KEY", str(vlm.get("api_key") or "")).strip()
+        url = urlsplit(self.base_url)
+        if (url.scheme not in {"http", "https"} or not url.hostname
+                or url.username or url.password or url.query or url.fragment):
+            raise ValueError("请配置 vlm.base_url / SECURITY_VLM_BASE_URL 为内部模型接口地址（例如 http://127.0.0.1:18100/v1）")
+        if not self.model:
+            raise ValueError("请配置 vlm.model / SECURITY_VLM_MODEL 为内部模型服务名称")
+        self.image_max_side = max(1, int(vlm.get("image_max_side", 960)))
+        self.image_quality = max(1, min(100, int(vlm.get("image_jpeg_quality", 85))))
+        self.api_timeout = float(vlm.get("api_timeout_sec", 45))
+        self.max_tokens = int(vlm.get("max_tokens", 2048))
+        if self.api_timeout <= 0 or self.max_tokens <= 0:
+            raise ValueError("vlm.api_timeout_sec 和 vlm.max_tokens 必须大于 0")
+        self.temperature = float(vlm.get("temperature", 0.1))
         self.budget = budget
-        self.tmp_dir = Path(tmp_dir)
-        self.tmp_dir.mkdir(parents=True, exist_ok=True)
-        dashscope.api_key = self.api_key
 
-    def _save_frame(
-        self,
-        frame: np.ndarray,
-        session_id: str,
-        idx: int,
-        department: str,
-    ) -> str:
-        """临时 jpg, dashscope 用 file:// 协议读"""
-        department_dir = self.tmp_dir / require_department(department)
-        department_dir.mkdir(parents=True, exist_ok=True)
-        path = department_dir / f"{session_id}_{idx}.jpg"
+    def _encode_frame(self, frame: np.ndarray) -> str:
+        """图片随请求传输，模型服务器无需访问本机文件系统。"""
         h, w = frame.shape[:2]
         if max(h, w) > self.image_max_side:
             s = self.image_max_side / max(h, w)
-            frame = cv2.resize(frame, (int(w * s), int(h * s)))
-        cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, self.image_quality])
-        return str(path.absolute())
+            frame = cv2.resize(frame, (max(1, int(w * s)), max(1, int(h * s))))
+        ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.image_quality])
+        if not ok:
+            raise ValueError("关键帧 JPEG 编码失败")
+        return "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
 
     def judge(
         self,
@@ -650,43 +644,50 @@ class VLMJudge:
         if not self.budget.try_consume():
             return {"error": "budget_exceeded"}
 
-        paths: List[str] = []
+        t0 = time.monotonic()
         try:
-            # 1) 关键帧 → 临时 jpg
-            for i, fr in enumerate(keyframes):
-                paths.append(
-                    self._save_frame(fr, session_id, i, department)
-                )
-
-            # 2) 组装 messages: 多张图 + 一段 prompt
-            user_content = [{"image": f"file://{p}"} for p in paths]
+            require_department(department)
+            user_content = [
+                {"type": "image_url", "image_url": {"url": self._encode_frame(frame)}}
+                for frame in keyframes
+            ]
             user_content.append({
+                "type": "text",
                 "text": VLM_USER_PROMPT.format(
-                    n_frames=len(paths),
+                    n_frames=len(keyframes),
                     roi_name=roi_name,
                     roi_box=roi_box,
                 )
             })
             messages = [
-                {"role": "system", "content": [{"text": VLM_SYSTEM_PROMPT}]},
+                {"role": "system", "content": VLM_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_content},
             ]
 
-            # 3) 调 API; DashScope 使用 request_timeout 控制 HTTP 请求总超时
-            t0 = time.time()
-            response = self.MMC.call(
-                model=self.model,
-                messages=messages,
-                request_timeout=self.api_timeout,
-            )
-            latency = time.time() - t0
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            with requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                    "max_tokens": self.max_tokens,
+                    "temperature": self.temperature,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                timeout=self.api_timeout,
+                allow_redirects=False,
+            ) as response:
+                latency = time.monotonic() - t0
+                if response.status_code != 200:
+                    return {"error": f"api_error: HTTP {response.status_code}",
+                            "_latency_sec": round(latency, 2)}
+                payload = response.json()
 
-            if response.status_code != 200:
-                return {"error": f"api_error: {response.code} {response.message}",
-                        "_latency_sec": round(latency, 2)}
-
-            # 4) 提取文本 (Qwen 有时返回 list[dict], 有时直接字符串)
-            content = response.output.choices[0].message.content
+            content = payload["choices"][0]["message"].get("content") or ""
             text = ""
             if isinstance(content, list):
                 for it in content:
@@ -701,22 +702,19 @@ class VLMJudge:
                         "_latency_sec": round(latency, 2)}
 
             result["_latency_sec"] = round(latency, 2)
-            if getattr(response, "usage", None):
+            if payload.get("usage"):
                 result["_usage"] = {
-                    "input_tokens":  response.usage.get("input_tokens", 0),
-                    "output_tokens": response.usage.get("output_tokens", 0),
+                    "input_tokens": payload["usage"].get("prompt_tokens", 0),
+                    "output_tokens": payload["usage"].get("completion_tokens", 0),
                 }
             return result
 
+        except requests.Timeout:
+            return {"error": "api_timeout", "_latency_sec": round(time.monotonic() - t0, 2)}
+        except requests.ConnectionError:
+            return {"error": "api_connection_failed", "_latency_sec": round(time.monotonic() - t0, 2)}
         except Exception as e:
-            return {"error": f"exception: {e}"}
-        finally:
-            # 删除临时 jpg
-            for p in paths:
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+            return {"error": f"exception: {e}", "_latency_sec": round(time.monotonic() - t0, 2)}
 
     @staticmethod
     def _parse_json(text: str) -> Optional[Dict[str, Any]]:
@@ -734,15 +732,15 @@ class VLMJudge:
                     t = t.lstrip()[4:]
         t = t.strip()
         try:
-            return json.loads(t)
-        except Exception:
-            pass
-        try:
-            s = t.index("{")
-            e = t.rindex("}") + 1
-            return json.loads(t[s:e])
-        except Exception:
-            return None
+            result = json.loads(t)
+        except (ValueError, TypeError):
+            try:
+                s = t.index("{")
+                e = t.rindex("}") + 1
+                result = json.loads(t[s:e])
+            except (ValueError, TypeError):
+                return None
+        return result if isinstance(result, dict) else None
 
 
 # ---------------------------------------------------------------------------
