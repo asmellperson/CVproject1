@@ -38,6 +38,7 @@ class InspectionRuntime:
         self._client = client or VlmClient()
         self._condition = threading.Condition()
         self._queues: OrderedDict[str, OrderedDict[int, deque]] = OrderedDict()
+        self._cancelled: deque[InspectionTask] = deque()
         self._threads: dict[int, threading.Thread] = {}
         self._active: dict[str, str] = {}
         self._queued = 0
@@ -95,7 +96,7 @@ class InspectionRuntime:
                 error = "千问接口尚未通过健康检查，未提交判定"
             elif self._health.circuit_state == "half_open" and self._half_open_session is not None:
                 error = "千问服务正在验证恢复，暂不接收其他判定"
-            elif self._queued >= self.settings.queue_capacity:
+            elif self._queued + len(self._cancelled) >= self.settings.queue_capacity:
                 error = "安检判定队列已满"
             else:
                 cameras = self._queues.setdefault(task.department, OrderedDict())
@@ -115,8 +116,9 @@ class InspectionRuntime:
                 if not cameras:
                     del self._queues[department]
             self._queued -= len(cancelled)
-        for task in cancelled:
-            self._finish(task, None, "摄像头配置已变更", None)
+            # 取消可能从持有摄像头状态锁的调用方发起，交给现有工作线程写入历史。
+            self._cancelled.extend(cancelled)
+            self._condition.notify_all()
 
     def status(self, department: str) -> dict:
         with self._condition:
@@ -159,6 +161,8 @@ class InspectionRuntime:
     def _drain_queue(self) -> list[InspectionTask]:
         """调用方持有 condition；结果回调必须在释放锁后执行。"""
         tasks = [task for cameras in self._queues.values() for queue in cameras.values() for task in queue]
+        tasks.extend(self._cancelled)
+        self._cancelled.clear()
         self._queues.clear()
         self._queued = 0
         return tasks
@@ -225,27 +229,38 @@ class InspectionRuntime:
                         self._stopped
                         or (
                             index < self.settings.max_concurrent
-                            and self._queued > 0
-                            and self._health.reachable is True
-                            and self._health.circuit_state != "open"
+                            and (
+                                self._cancelled
+                                or (
+                                    self._queued > 0
+                                    and self._health.reachable is True
+                                    and self._health.circuit_state != "open"
+                                )
+                            )
                         )
                     )
                 )
                 if self._stopped:
                     return
-                department, cameras = self._queues.popitem(last=False)
-                camera_id, tasks = cameras.popitem(last=False)
-                task = tasks.popleft()
-                if tasks:
-                    cameras[camera_id] = tasks
-                if cameras:
-                    self._queues[department] = cameras
-                self._queued -= 1
-                self._active[task.session_id] = department
+                was_cancelled = bool(self._cancelled)
+                if was_cancelled:
+                    task = self._cancelled.popleft()
+                else:
+                    department, cameras = self._queues.popitem(last=False)
+                    camera_id, tasks = cameras.popitem(last=False)
+                    task = tasks.popleft()
+                    if tasks:
+                        cameras[camera_id] = tasks
+                    if cameras:
+                        self._queues[department] = cameras
+                    self._queued -= 1
+                self._active[task.session_id] = task.department
                 settings, generation = self.settings, self._generation
             verdict, latency, error = None, None, None
             cancelled = []
-            if time.monotonic() - task.queued_at > settings.queue_timeout_sec:
+            if was_cancelled:
+                error = "摄像头配置已变更"
+            elif time.monotonic() - task.queued_at > settings.queue_timeout_sec:
                 error = "安检任务排队超时"
             else:
                 try:

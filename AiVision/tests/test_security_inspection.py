@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import queue
 import threading
 import time
@@ -317,6 +318,160 @@ def test_noncompliance_uses_shared_alarm_writer_and_wechat_queue(inspection_alar
     assert dispatcher._wechat_queue.empty() and len(records) == 1
 
 
+@pytest.mark.parametrize("phase", ["record", "cancelled_record", "evidence", "alarm"])
+def test_slow_completion_io_does_not_lock_other_cameras(monkeypatch, inspection_alarms, phase):
+    instance, dispatcher, _, saved, frames = inspection_alarms
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(operation):
+        def run(*args, **kwargs):
+            entered.set()
+            assert release.wait(2)
+            return operation(*args, **kwargs)
+        return run
+
+    if phase in {"record", "cancelled_record"}:
+        monkeypatch.setattr(instance.service, "record", slow(lambda *args, **kwargs: saved.append((args, kwargs))))
+    elif phase == "evidence":
+        monkeypatch.setattr(instance, "_evidence_image", slow(instance._evidence_image))
+    else:
+        monkeypatch.setattr(dispatcher.violation_writer, "save_now", slow(dispatcher.violation_writer.save_now))
+    if phase == "cancelled_record":
+        instance._generations[1] += 1
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        completion = pool.submit(instance._complete, task(frames=frames), verdict(False), None, 0.2)
+        try:
+            assert entered.wait(1)
+            pool.submit(instance.update_status, 2, False).result(timeout=1)
+            assert 2 not in instance.config_cache
+        finally:
+            release.set()
+            completion.result(timeout=2)
+
+
+@pytest.mark.parametrize("change", ["disabled", "reconfigured", "offline", "stopped"])
+def test_state_change_during_slow_record_prevents_alarm(monkeypatch, inspection_alarms, change):
+    instance, dispatcher, records, _, frames = inspection_alarms
+    entered, release = threading.Event(), threading.Event()
+
+    def record(*_args):
+        entered.set()
+        assert release.wait(2)
+
+    monkeypatch.setattr(instance.service, "record", record)
+
+    def change_state():
+        if change == "disabled":
+            instance.update_status(1, False)
+        else:
+            with instance._camera_state_lock:
+                if change == "reconfigured":
+                    instance._invalidate(1)
+                elif change == "offline":
+                    instance._platform_active = lambda _: False
+                else:
+                    instance.running = False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        completion = pool.submit(instance._complete, task(frames=frames), verdict(False), None, 0.2)
+        try:
+            assert entered.wait(1)
+            pool.submit(change_state).result(timeout=1)
+        finally:
+            release.set()
+            completion.result(timeout=2)
+    assert not records and dispatcher._wechat_queue.empty()
+
+
+def test_alarm_uses_copied_config_without_rereading_cache(monkeypatch, inspection_alarms):
+    instance, dispatcher, records, _, frames = inspection_alarms
+
+    def record(*_args):
+        with instance._camera_state_lock:
+            instance.config_cache[1]["wechat_user"] = "different-user"
+            instance.config_cache[1]["name"] = "different-name"
+            instance.config_cache[1]["shm_name"] = "different-key"
+
+    monkeypatch.setattr(instance.service, "record", record)
+    instance._complete(task(frames=frames), verdict(False), None, 0.2)
+    request, recipient, _ = dispatcher._wechat_queue.get_nowait()
+    assert recipient == "test-user" and request.camera_name == "安检"
+    assert request.camera_key == "cam-1" and request.evidence.source_key == "cam-1"
+    assert len(records) == 1
+
+
+def test_queue_cancellation_returns_before_history_io_and_keeps_capacity_bound(monkeypatch, inspection_alarms):
+    instance, _, _, _, frames = inspection_alarms
+    judging, release_judgment = threading.Event(), threading.Event()
+    recording, release_record = threading.Event(), threading.Event()
+    saved = []
+
+    def judge(*_args):
+        judging.set()
+        assert release_judgment.wait(2)
+        return verdict(), 0.1
+
+    def record(current, status, *args, **kwargs):
+        if current.camera_id == 1:
+            recording.set()
+            assert release_record.wait(2)
+        saved.append((current.session_id, status, args, kwargs))
+
+    monkeypatch.setattr(instance.service, "record", record)
+    runtime = InspectionRuntime(instance._complete, SimpleNamespace(
+        check_health=lambda _: VlmHealth(reachable=True), judge=judge,
+    ))
+    instance.vlm_runtime = runtime
+    runtime.start(VlmSettings(max_concurrent=1, queue_capacity=1))
+    try:
+        wait_for(lambda: runtime.health_status().reachable is True)
+        runtime.submit(task(2, frames=frames))
+        assert judging.wait(1)
+        runtime.submit(task(frames=frames))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                pool.submit(instance.update_status, 1, False).result(timeout=1)
+                assert not recording.is_set()
+                runtime.submit(task(2, session_id="rejected", frames=frames))
+                assert saved[0][0:2] == ("rejected", "error")
+                assert saved[0][2][1] == "安检判定队列已满"
+                release_judgment.set()
+                assert recording.wait(1)
+                pool.submit(instance.update_status, 2, False).result(timeout=1)
+            finally:
+                release_judgment.set()
+                release_record.set()
+        wait_for(lambda: len(saved) == 3)
+        assert next(row[1] for row in saved if row[0] == "session-1") == "cancelled"
+    finally:
+        release_judgment.set()
+        release_record.set()
+        runtime.stop()
+
+
+def test_frame_submission_rejection_records_outside_state_lock(monkeypatch, inspection_alarms):
+    instance, _, _, _, frames = inspection_alarms
+    entered, release = threading.Event(), threading.Event()
+    instance.latest_frames["cam-1"] = np.zeros((64, 64, 3), np.uint8)
+    monkeypatch.setattr(instance, "_process", lambda *_: (False, {"tracks": [], "tasks": [task(frames=frames)]}))
+
+    def record(*_args):
+        entered.set()
+        assert release.wait(2)
+        instance.running = False
+
+    monkeypatch.setattr(instance.service, "record", record)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        processing = pool.submit(instance._run)
+        try:
+            assert entered.wait(1)
+            pool.submit(instance.update_status, 2, False).result(timeout=1)
+        finally:
+            instance.running = False
+            release.set()
+            processing.result(timeout=2)
+
+
 def test_alarm_cooldown_is_independent_per_camera_and_roi(monkeypatch, inspection_alarms):
     instance, dispatcher, records, saved, frames = inspection_alarms
     events = [
@@ -385,7 +540,7 @@ def test_native_processing_uses_shared_person_model(monkeypatch):
 
     monkeypatch.setattr(instance, "dispatch_inference_sync", infer)
     frame = np.zeros((200, 320, 3), np.uint8)
-    assert instance._process(frame, 1) == (False, [])
+    assert instance._process(frame, 1) == (False, {"tracks": [], "tasks": []})
     assert calls == [("yolo_human", frame.shape, {"conf": 0.35, "iou": 0.6, "imgsz": 640})]
 
 

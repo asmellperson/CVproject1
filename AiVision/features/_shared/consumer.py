@@ -339,12 +339,16 @@ class BaseFunctionConsumer(ABC):
                         self.result_updated_at[cam_name] = time.time()
                         # _process：得到业务结果，post_process:得到标注画面，_handle_alarm:决定是否发AlarmRequest
                         self._handle_alarm(cam_id, result, annotated)
+                    self._after_process(cam_id, result)
 
                 time.sleep(0.05)
             except Exception:
                 logger.exception(f"[{self.feature_name}] 主循环异常")
                 self._notify_runtime_alert("功能主循环异常", "Consumer 主循环捕获异常,已继续运行")
                 time.sleep(0.5)  # 异常后短暂等待，避免日志刷屏
+
+    def _after_process(self, camera_id: int, result: tuple):
+        """状态锁释放后执行；异步功能可在此提交任务，避免拒绝回调在锁内执行。"""
 
     #  抽象方法（子类必须实现）
     @abstractmethod
@@ -492,15 +496,16 @@ class BaseFunctionConsumer(ABC):
             }
 
     #  告警处理
-    def _handle_alarm(self, camera_id: int, result: tuple, frame: np.ndarray):
+    def _handle_alarm(self, camera_id: int, result: tuple, frame: np.ndarray, *, config: dict | None = None):
         """
         判定是否触发告警，并通过 alarm_dispatcher 分发到各通道。
 
         将数据库扁平字段（sql_enable、horn_enable 等）重组为
         alarm_dispatcher 期望的嵌套 alarm_config 结构，
         避免在每个子类中重复此转换逻辑。
+        异步结果通过 config 传入已校验的配置快照。
         """
-        cfg = self.config_cache.get(camera_id, {})
+        cfg = self.config_cache.get(camera_id, {}) if config is None else config
         if not self._should_alarm(camera_id, result, cfg):
             return
 

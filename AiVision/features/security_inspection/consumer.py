@@ -109,7 +109,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         )
         if result["status"] != "ok":
             self._invalidate(camera_id)
-            return False, []
+            return False, {"tracks": [], "tasks": []}
         people = self._trackers[camera_id].update(result["detections"], frame.shape)
         tracks = [
             {
@@ -126,8 +126,9 @@ class InspectionConsumer(BaseFunctionConsumer):
             name: roi_to_pixels(points, frame.shape).astype(float).tolist()
             for name, points in cfg["staff_rois"].items()
         }
+        tasks = []
         for session in self._sessions[camera_id].step(frame, tracks, rois, time.time()):
-            self.vlm_runtime.submit(
+            tasks.append(
                 InspectionTask(
                     session_id=session.session_id,
                     camera_id=camera_id,
@@ -142,59 +143,78 @@ class InspectionConsumer(BaseFunctionConsumer):
                     queued_at=time.monotonic(),
                 )
             )
-        return False, tracks
+        return False, {"tracks": tracks, "tasks": tasks}
+
+    def _after_process(self, camera_id, result):
+        for task in result[1]["tasks"]:
+            with self._camera_state_lock:
+                valid = self._task_is_current(task)
+            if valid:
+                self.vlm_runtime.submit(task)
+            else:
+                self._complete(task, None, "摄像头状态或检测配置已变更", None)
 
     def post_process(self, camera_id, result):
         frame = self.frame_cache[camera_id].copy()
         for points in self.config_cache[camera_id]["staff_rois"].values():
             cv2.polylines(frame, [roi_to_pixels(points, frame.shape)], True, self.ROI_COLOR, 2)
-        for track in result[1]:
+        for track in result[1]["tracks"]:
             start = (int(track["x1"]), int(track["y1"]))
             cv2.rectangle(frame, start, (int(track["x2"]), int(track["y2"])), (80, 220, 80), 2)
             cv2.putText(frame, str(track["track_id"]), start, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (80, 220, 80), 2)
         return frame
 
+    def _task_is_current(self, task) -> bool:
+        """调用方持有状态锁；检查异步结果是否仍属于当前摄像头配置。"""
+        cfg = self.config_cache.get(task.camera_id)
+        return bool(
+            self.running
+            and cfg is not None
+            and cfg["camera_enable"]
+            and cfg["enable"]
+            and task.generation == self._generations.get(task.camera_id)
+            and self._platform_active(task.camera_key)
+        )
+
     def _complete(self, task, verdict, error, latency):
         with self._camera_state_lock:
-            cfg = self.config_cache.get(task.camera_id)
-            valid = (
-                self.running
-                and cfg is not None
-                and cfg["camera_enable"]
-                and cfg["enable"]
-                and task.generation == self._generations.get(task.camera_id)
-                and self._platform_active(task.camera_key)
-            )
-            if not valid:
-                self.service.record(task, "cancelled", error="摄像头状态或检测配置已变更")
+            cfg = self.config_cache[task.camera_id].copy() if self._task_is_current(task) else None
+        if cfg is None:
+            self.service.record(task, "cancelled", error="摄像头状态或检测配置已变更")
+            return
+        status = "error" if error else ("compliant" if verdict.compliant else "non_compliant")
+        self.service.record(task, status, verdict, error, latency)
+        if status != "non_compliant":
+            return
+        frame = self._evidence_image(task.frames)
+        with self._camera_state_lock:
+            if not self._task_is_current(task):
                 return
-            status = "error" if error else ("compliant" if verdict.compliant else "non_compliant")
-            self.service.record(task, status, verdict, error, latency)
-            if status == "non_compliant":
-                self._handle_alarm(
-                    task.camera_id,
-                    (
-                        True,
-                        {
-                            "reason": "安检流程不规范",
-                            "metadata": {
-                                "session_id": task.session_id,
-                                "roi_name": task.roi_name,
-                                "started_at": task.start_ts,
-                                "ended_at": task.end_ts,
-                                "verdict": verdict.model_dump(),
-                            },
-                        },
-                    ),
-                    self._evidence_image(task.frames),
-                )
+        self._handle_alarm(
+            task.camera_id,
+            (
+                True,
+                {
+                    "reason": "安检流程不规范",
+                    "metadata": {
+                        "session_id": task.session_id,
+                        "roi_name": task.roi_name,
+                        "started_at": task.start_ts,
+                        "ended_at": task.end_ts,
+                        "verdict": verdict.model_dump(),
+                    },
+                    "evidence": AlarmEvidenceRequest(source_key=cfg["shm_name"], mode="snapshot"),
+                },
+            ),
+            frame,
+            config=cfg,
+        )
 
     def _alarm_context(self, camera_id, result):
         return {
             **result[1],
             "cooldown_subject_type": "security_inspection_roi",
             "cooldown_subject_id": f"{camera_id}:{result[1]['metadata']['roi_name']}",
-            "evidence": AlarmEvidenceRequest(source_key=self.config_cache[camera_id]["shm_name"], mode="snapshot"),
         }
 
     @staticmethod
