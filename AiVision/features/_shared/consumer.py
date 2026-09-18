@@ -6,7 +6,7 @@ features/_shared/consumer.py
     _process(roi, camera_id) → (is_alarm, msg_dict)
     post_process(camera_id, result) → annotated_frame
     (可选) _should_alarm(...) — 仅 detect_door 需要(双阶段告警)
-    (可选) _alarm_context(...) — 提供告警主体、原因和业务元数据
+    (可选) _alarm_context(...) — 提供告警主体、冷却主体、原因和业务元数据
 
 通用部分(帧读取、ROI 裁剪、相似帧跳过、告警分发)由本类提供:
     stop/start、配置热更新、Camera启停/删除状态
@@ -64,7 +64,8 @@ class BaseFunctionConsumer(ABC):
     扩展点:
         _should_alarm()       : 默认判定 result 中有 True 即告警，
                                 detect_door 等双阶段场景可重写此方法。
-        _alarm_context()      : 默认使用 AlarmRequest 的摄像头主体；子类可提供业务主体及元数据。
+        _alarm_context()      : 默认使用摄像头主体；子类可提供业务主体、冷却主体及元数据。
+        _reset_alarm_cooldown(): 清理本功能的摄像头冷却；使用其他冷却主体的子类须重写。
         _alarm_violation_type(): 单报警功能使用唯一类型；复合功能必须明确选择本次报警类型。
         _process_static_frames(): 默认返回 False（帧差类功能依赖画面变化），
                                   YOLO 逗留检测类功能重写为 True 以持续累积时间。
@@ -202,11 +203,10 @@ class BaseFunctionConsumer(ABC):
             # 从全局缓存中取最新版
             cfg = config_cache.get_function_config(camera_id, self.feature_name)
             if cfg and cfg.get("enable"):
+                # 在替换配置前清理旧主体，包含已删除或重命名的 ROI。
+                self._reset_alarm_cooldown(camera_id)
                 # 覆盖Consumer自己的旧快照（热更新，不重启Consumer)
                 self.config_cache[camera_id] = cfg
-                # 清掉旧告警冷却状态
-                for violation_type in self.spec.alarm_types:
-                    alarm_dispatcher.reset_cooldown(camera_id, violation_type)
             else:
                 # 未绑定该功能的摄像头不能因参数热更新重新进入 Consumer 主循环。
                 self.update_status(camera_id, False)
@@ -246,8 +246,11 @@ class BaseFunctionConsumer(ABC):
             camera_key = cfg.get("shm_name") or shm_name
             self.update_status(camera_id, False)
             self._clear_camera_state(camera_id, camera_key)                   # 这台camera在这个Consumer内所有痕迹全部清掉
-            for violation_type in self.spec.alarm_types:
-                alarm_dispatcher.reset_cooldown(camera_id, violation_type)
+            self._reset_alarm_cooldown(camera_id)
+
+    def _reset_alarm_cooldown(self, camera_id: int):
+        for violation_type in self.spec.alarm_types:
+            alarm_dispatcher.reset_cooldown(camera_id, violation_type)
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
         """
@@ -529,6 +532,11 @@ class BaseFunctionConsumer(ABC):
             },
         }
 
+        alarm_context = {
+            "cooldown_subject_type": "camera",
+            "cooldown_subject_id": str(camera_id),
+            **self._alarm_context(camera_id, result),
+        }
         alarm_dispatcher.maybe_dispatch(
             AlarmRequest(
                 feature_name=self.feature_name,
@@ -540,9 +548,7 @@ class BaseFunctionConsumer(ABC):
                 alarm_config=alarm_config,
                 camera_key=cam_key,
                 department=department,
-                cooldown_subject_type="camera",
-                cooldown_subject_id=str(camera_id),
-                **self._alarm_context(camera_id, result),
+                **alarm_context,
             ),
             alarm_interval=cfg["alarm_interval"],
         )
@@ -558,7 +564,7 @@ class BaseFunctionConsumer(ABC):
         return violation_type
 
     def _alarm_context(self, camera_id: int, result: tuple) -> dict:
-        """仅在确定报警后调用；子类可返回 subject_type/id/name、reason 和 metadata。"""
+        """报警后调用；子类可指定业务主体、cooldown_subject_type/id、原因和元数据。"""
         return {}
 
     def _should_alarm(self, camera_id: int, result: tuple, cfg: dict) -> bool:

@@ -6,7 +6,7 @@ import time
 import cv2
 import numpy as np
 
-from AiVision.alarms.dispatcher import AlarmEvidenceRequest
+from AiVision.alarms.dispatcher import AlarmEvidenceRequest, alarm_dispatcher
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.features.guard_behavior.tracking import CameraByteTracker
@@ -60,7 +60,19 @@ class InspectionConsumer(BaseFunctionConsumer):
     def update_status(self, camera_id: int, enabled: bool):
         with self._camera_state_lock:
             self._invalidate(camera_id)
+            if not enabled:
+                self._reset_alarm_cooldown(camera_id)
             super().update_status(camera_id, enabled)
+
+    def _reset_alarm_cooldown(self, camera_id: int):
+        cfg = self.config_cache.get(camera_id)
+        if cfg is None:
+            return
+        for roi_name in cfg["staff_rois"]:
+            for violation_type in self.spec.alarm_types:
+                alarm_dispatcher.reset_subject_cooldown(
+                    "security_inspection_roi", f"{camera_id}:{roi_name}", violation_type,
+                )
 
     def _camera_active(self, camera_key: str) -> bool:
         active = self._platform_active(camera_key)
@@ -180,6 +192,8 @@ class InspectionConsumer(BaseFunctionConsumer):
     def _alarm_context(self, camera_id, result):
         return {
             **result[1],
+            "cooldown_subject_type": "security_inspection_roi",
+            "cooldown_subject_id": f"{camera_id}:{result[1]['metadata']['roi_name']}",
             "evidence": AlarmEvidenceRequest(source_key=self.config_cache[camera_id]["shm_name"], mode="snapshot"),
         }
 

@@ -241,9 +241,11 @@ def test_native_api_department_permissions_and_admin_settings():
         assert client.get("/api/security-inspection/settings").status_code == 200
 
 
-def test_noncompliance_uses_shared_alarm_writer_and_wechat_queue(monkeypatch):
+@pytest.fixture
+def inspection_alarms(monkeypatch):
     from AiVision.alarms.dispatcher import AlarmDispatcher
     from AiVision.features._shared import consumer as base
+    from AiVision.features.security_inspection import consumer as inspection
 
     dispatcher = AlarmDispatcher()
     records = []
@@ -258,26 +260,37 @@ def test_noncompliance_uses_shared_alarm_writer_and_wechat_queue(monkeypatch):
         start_alarm=lambda *args: pytest.fail("异步判定不能录制返回时的画面")
     )
     monkeypatch.setattr(base, "alarm_dispatcher", dispatcher)
+    monkeypatch.setattr(inspection, "alarm_dispatcher", dispatcher)
     instance = InspectionConsumer(
         spec=SPEC, infer_dict={}, result_queue=queue.Queue(), latest_frames={}, is_camera_active=lambda _: True
     )
     instance.running = True
-    config = InspectionConfig(enable=True).model_dump()
-    instance.config_cache[1] = dict(
-        config["value"],
-        camera_enable=True,
-        enable=True,
-        name="安检",
-        shm_name="cam-1",
-        department="general_electric",
-        sql_enable=True,
-        wechat_enable=True,
-        wechat_user="test-user",
+    config = InspectionValue(
+        staff_rois={
+            f"工位{index}": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]] for index in (1, 2, 3)
+        },
     )
-    instance._generations[1] = 1
+    for camera_id in (1, 2):
+        instance.config_cache[camera_id] = dict(
+            config.model_dump(),
+            camera_enable=True,
+            enable=True,
+            name="安检",
+            shm_name=f"cam-{camera_id}",
+            department="general_electric",
+            sql_enable=True,
+            wechat_enable=True,
+            wechat_user="test-user",
+        )
+        instance._generations[camera_id] = 1
     saved = []
     instance.service = SimpleNamespace(record=lambda *args: saved.append(args))
     frames = encode_frames([np.full((64, 64, 3), 120, np.uint8)] * 2, VlmSettings())
+    return instance, dispatcher, records, saved, frames
+
+
+def test_noncompliance_uses_shared_alarm_writer_and_wechat_queue(inspection_alarms):
+    instance, dispatcher, records, saved, frames = inspection_alarms
     result = verdict(False)
     result.reason = "完整判定原因超过五十字：" + "现场存在明确违规证据。" * 10
     instance._complete(task(frames=frames), result, None, 0.2)
@@ -290,6 +303,60 @@ def test_noncompliance_uses_shared_alarm_writer_and_wechat_queue(monkeypatch):
     assert len(records[0]["reason"]) <= 50 and records[0]["video_path"] is None
     instance._complete(task(session_id="second", frames=frames), result, None, 0.2)
     assert dispatcher._wechat_queue.empty() and len(records) == 1
+
+
+def test_alarm_cooldown_is_independent_per_camera_and_roi(monkeypatch, inspection_alarms):
+    instance, dispatcher, records, saved, frames = inspection_alarms
+    events = [
+        (100.0, 1, "工位1", True),
+        (110.0, 1, "工位2", True),
+        (110.0, 1, "工位3", True),
+        (110.0, 2, "工位1", True),
+        (129.9, 1, "工位1", False),
+        (130.0, 1, "工位1", True),
+        (130.0, 1, "工位2", False),
+        (130.0, 1, "工位3", False),
+        (130.0, 2, "工位1", False),
+        (140.0, 1, "工位2", True),
+    ]
+    for index, (now, camera_id, roi_name, accepted) in enumerate(events):
+        monkeypatch.setattr("AiVision.alarms.dispatcher.time.time", lambda: now)
+        before = len(records)
+        instance._complete(
+            task(camera_id, session_id=f"session-{index}", roi_name=roi_name, frames=frames),
+            verdict(False), None, 0.2,
+        )
+        assert len(records) == before + int(accepted)
+        if accepted:
+            request, _, _ = dispatcher._wechat_queue.get_nowait()
+            assert (request.cooldown_subject_type, request.cooldown_subject_id, request.violation_type) == (
+                "security_inspection_roi", f"{camera_id}:{roi_name}", 12,
+            )
+            assert request.subject_type == "camera" and request.camera_id == camera_id
+            assert records[-1]["event_metadata"]["roi_name"] == roi_name
+        assert dispatcher._wechat_queue.empty()
+    assert len(saved) == len(events)
+
+
+@pytest.mark.parametrize("action", ["update_config", "remove_camera", "disable"])
+def test_camera_changes_clear_only_its_inspection_roi_cooldowns(monkeypatch, inspection_alarms, action):
+    from AiVision.features._shared import consumer as base
+
+    instance, dispatcher, _, _, frames = inspection_alarms
+    monkeypatch.setattr("AiVision.alarms.dispatcher.time.time", lambda: 100.0)
+    requests = []
+    for camera_id, roi_name in ((1, "工位1"), (1, "工位2"), (1, "工位3"), (2, "工位1")):
+        instance._complete(task(camera_id, roi_name=roi_name, frames=frames), verdict(False), None, 0.2)
+        requests.append(dispatcher._wechat_queue.get_nowait()[0])
+    # 修改工位名称或删除工位也必须清理旧名称对应的冷却。
+    updated = instance.config_cache[1] | {"staff_rois": {"新工位": instance.config_cache[1]["staff_rois"]["工位1"]}}
+    monkeypatch.setattr(base.config_cache, "get_function_config", lambda *_: updated)
+    if action == "disable":
+        instance.update_status(1, False)
+    else:
+        getattr(instance, action)(1)
+    for request in requests:
+        assert dispatcher.maybe_dispatch(request, alarm_interval=30) is (request.camera_id == 1)
 
 
 def test_native_processing_uses_shared_person_model(monkeypatch):
