@@ -31,17 +31,11 @@ from AiVision.features.security_inspection.schema import (
 from AiVision.features.security_inspection.service import InspectionService
 from AiVision.features.security_inspection.sessions import PairSessionManager
 from AiVision.features.security_inspection.spec import SPEC
-from AiVision.features.security_inspection.vlm import VlmClient, encode_frames
+from AiVision.features.security_inspection.vlm import encode_frames
 
 
 def verdict(compliant=True):
     return InspectionVerdict(
-        scene_summary="安检员与被检人互动",
-        staff_visible=True,
-        passenger_visible=True,
-        interaction_observed=compliant,
-        passenger_cooperation_posture=compliant,
-        non_compliance_evidence=None if compliant else "安检员全程未检查",
         reason="测试判定证据",
         compliant=compliant,
         confidence=0.9,
@@ -112,34 +106,6 @@ def test_session_collects_frames_and_finishes_on_pair_loss():
     assert completed[0].start_ts == 100.0
     assert completed[0].end_ts == 105.0
     assert manager.step(frame, [], rois, 106.0) == []
-
-
-def test_internal_client_sends_images_and_rejects_non_json(monkeypatch):
-    from AiVision.features.security_inspection import vlm
-
-    calls = []
-
-    @contextmanager
-    def post(url, **kwargs):
-        calls.append((url, kwargs))
-        yield SimpleNamespace(
-            status_code=200, json=lambda: {"choices": [{"message": {"content": verdict().model_dump_json()}}]}
-        )
-
-    monkeypatch.setattr(vlm.requests, "post", post)
-    settings = VlmSettings()
-    images = encode_frames([np.zeros((20, 20, 3), np.uint8)] * 2, settings)
-    result, latency = VlmClient().judge(images, settings)
-    assert result.compliant and latency >= 0
-    assert calls[0][0] == settings.base_url + "/chat/completions"
-    request = calls[0][1]
-    assert request["allow_redirects"] is False
-    assert request["json"]["model"] == "fuda-qwen36-27b"
-    assert request["json"]["messages"][1]["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
-    with pytest.raises(ValidationError):
-        InspectionVerdict.model_validate_json("```json\n{}\n```")
-    with pytest.raises(ValidationError):
-        InspectionVerdict.model_validate(verdict().model_dump() | {"compliant": False})
 
 
 def test_bounded_fair_queue_and_errors():

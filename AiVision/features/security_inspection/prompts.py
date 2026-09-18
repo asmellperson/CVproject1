@@ -39,24 +39,19 @@ VLM_SYSTEM_PROMPT = """你是安检合规审核员,负责审核厂区安检工�
 4. **只在明确证据下判不合规**: 必须能在 reason 里清楚说出"我看到了 XXX,所以不是在做安检"。
 5. **关注被检人姿态**: 被检人若有张臂、抬手、配合站立的姿态,几乎可以确定是在被检查。
 
-# 输出 JSON
+# 唯一输出协议
+只输出一个 JSON 对象,必须包含且仅包含以下三个字段:
+- compliant: JSON 布尔值,表示你的最终合规结论。
+- confidence: 0 到 1 之间的有限数值,表示对该结论的置信度。
+- reason: 非空字符串,用 1-3 句话说明画面依据;不合规时必须说明明确的违规证据。
+不要输出思考过程、<think> 标签、Markdown 代码块或 JSON 以外的文字。
 
+格式示例(示例值不代表本次画面的结论):
 {
-  "scene_summary": "整组画面的客观描述,3-5 句话,描述两人的位置、姿态、动作变化",
-  "staff_visible": true 或 false,
-  "passenger_visible": true 或 false,
-  "interaction_observed": true 或 false,
-  "passenger_cooperation_posture": true 或 false,
-  "non_compliance_evidence": "如果判不合规,必须在这里写清楚明确的证据;如果判合规,填 null",
-  "reason": "综合分析,2-3 句",
-  "compliant": true 或 false,
-  "confidence": 0.0 到 1.0
+  "compliant": true,
+  "confidence": 0.9,
+  "reason": "安检员靠近被检人并移动检查,被检人抬手配合。"
 }
-
-# 机械判定规则(不要主观放宽或收紧)
-- 如果 staff_visible 和 passenger_visible 任一为 false → compliant = false
-- 如果 non_compliance_evidence 不为 null → compliant = false
-- 否则 compliant = true (默认合规)
 """
 
 VLM_USER_PROMPT = """以下是某安检工位的 {n_frames} 张监控截图,按时间顺序排列。

@@ -116,21 +116,16 @@ class VlmHealth(StrictModel):
 
 
 class InspectionVerdict(StrictModel):
-    scene_summary: str
-    staff_visible: bool
-    passenger_visible: bool
-    interaction_observed: bool
-    passenger_cooperation_posture: bool
-    non_compliance_evidence: str | None
-    reason: str
+    """模型的最终结论；不通过辅助特征重新推导合规性。"""
+
     compliant: bool
     confidence: float = Field(ge=0, le=1)
+    reason: str
 
-    @model_validator(mode="after")
-    def consistent_verdict(self):
-        expected = self.staff_visible and self.passenger_visible and self.non_compliance_evidence is None
-        if self.compliant != expected:
-            raise ValueError("模型结论与证据不一致")
-        if not self.reason.strip():
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value):
+        value = value.strip()
+        if not value:
             raise ValueError("判定原因不能为空")
-        return self
+        return value

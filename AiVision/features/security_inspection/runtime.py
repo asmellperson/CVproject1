@@ -9,7 +9,7 @@ import time
 
 from AiVision.core.logger import logger
 from .schema import VlmHealth, VlmSettings
-from .vlm import VlmClient
+from .vlm import VlmClient, VlmError
 
 HEALTH_CHECK_INTERVAL_SEC = 30
 FAILURE_THRESHOLD = 3
@@ -271,7 +271,8 @@ class InspectionRuntime:
                     with self._condition:
                         if not self._stopped and generation == self._generation:
                             # 模型响应可能含当前部门的图像描述，公共健康状态仅暴露错误类别。
-                            cancelled = self._record_failure(f"千问判定请求失败（{type(exc).__name__}）")
+                            category = exc.category if isinstance(exc, VlmError) else type(exc).__name__
+                            cancelled = self._record_failure(f"千问判定请求失败（{category}）")
                 else:
                     with self._condition:
                         if not self._stopped and generation == self._generation:

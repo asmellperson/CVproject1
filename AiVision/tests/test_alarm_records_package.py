@@ -94,7 +94,7 @@ def test_record_imports_share_registration_without_running_workers_or_cleanup(en
             }
             assert set(all_specs()) == {
                 "blocks", "detect_door", "detect_phone", "detect_face", "detect_human",
-                "detect_logistics_single_person", "recognize_face", "guard_behavior",
+                "detect_logistics_single_person", "recognize_face", "guard_behavior", "security_inspection",
             }
             for department in ("general_electric", "haoda_company"):
                 validation.validate_alarm_identity(5, "detect_human", department)

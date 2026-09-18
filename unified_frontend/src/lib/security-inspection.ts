@@ -66,7 +66,7 @@ export type InspectionSession = {
   ended_at: string
   duration_sec: number
   status: 'compliant' | 'non_compliant' | 'error' | 'cancelled'
-  verdict: { reason?: string; scene_summary?: string; compliant?: boolean } | null
+  verdict: { compliant: boolean; confidence: number; reason: string } | null
   error: string | null
   latency_sec: number | null
 }

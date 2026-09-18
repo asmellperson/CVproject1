@@ -2,9 +2,12 @@
 
 import base64
 import os
+import re
 import time
+from typing import Literal
 
 import cv2
+from pydantic import BaseModel, Field, ValidationError
 import requests
 
 from AiVision.core.logger import logger
@@ -12,6 +15,63 @@ from .prompts import VLM_SYSTEM_PROMPT, VLM_USER_PROMPT
 from .schema import InspectionVerdict, VlmHealth, VlmSettings
 
 HEALTH_CHECK_TIMEOUT_SEC = 3
+
+
+class VlmError(RuntimeError):
+    def __init__(self, category: Literal["HTTP_ERROR", "JSON_ERROR", "FIELD_ERROR", "RESULT_ERROR"], detail: str):
+        self.category = category
+        super().__init__(f"[{category}] {detail}")
+
+
+class _ChatMessage(BaseModel):
+    content: str | None
+    refusal: str | None = None
+
+
+class _ChatChoice(BaseModel):
+    message: _ChatMessage
+    finish_reason: str
+
+
+class _ChatCompletion(BaseModel):
+    # 传输层只读取单次判定需要的字段，id、usage 等标准元数据不进入业务层。
+    choices: list[_ChatChoice] = Field(min_length=1, max_length=1)
+
+
+def parse_completion(body: str) -> InspectionVerdict:
+    """唯一解析入口：标准响应封装 → 文本边界整理 → 严格业务模型。"""
+    stage = "Chat Completions 响应"
+    try:
+        choice = _ChatCompletion.model_validate_json(body, strict=True).choices[0]
+        if choice.finish_reason != "stop":
+            raise VlmError("RESULT_ERROR", f"模型未完成判定：finish_reason={choice.finish_reason}")
+        if choice.message.refusal:
+            raise VlmError("RESULT_ERROR", "模型拒绝判定")
+        content = choice.message.content
+        if content is None:
+            raise VlmError("RESULT_ERROR", "模型未返回判定内容")
+        # 千问关闭思考时仍可能输出空 think 标签；只接纳这个完整的空前缀。
+        content = re.sub(r"\A<think>\s*</think>\s*", "", content.strip(), count=1)
+        fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", content, flags=re.DOTALL | re.IGNORECASE)
+        if fenced:
+            content = fenced[1].strip()
+        if not content:
+            raise VlmError("RESULT_ERROR", "模型返回空判定内容")
+        stage = "判定 JSON"
+        return InspectionVerdict.model_validate_json(content)
+    except ValidationError as exc:
+        errors = exc.errors(include_input=False, include_context=False, include_url=False)
+        kinds = {error["type"] for error in errors}
+        if "json_invalid" in kinds:
+            category = "JSON_ERROR"
+        elif kinds <= {"greater_than_equal", "less_than_equal", "finite_number", "value_error"}:
+            category = "RESULT_ERROR"
+        else:
+            category = "FIELD_ERROR"
+        detail = "; ".join(
+            f"{'.'.join(map(str, error['loc'])) or '$'}: {error['msg']} ({error['type']})" for error in errors
+        )
+        raise VlmError(category, f"{stage}：{detail}") from exc
 
 
 def encode_frames(frames, settings: VlmSettings) -> list[bytes]:
@@ -75,25 +135,28 @@ class VlmClient:
         ]
         content.append({"type": "text", "text": VLM_USER_PROMPT.format(n_frames=len(frames))})
         started = time.monotonic()
-        with requests.post(
-            f"{settings.base_url}/chat/completions",
-            headers=self._headers(),
-            json={
-                "model": settings.model,
-                "messages": [
-                    {"role": "system", "content": VLM_SYSTEM_PROMPT},
-                    {"role": "user", "content": content},
-                ],
-                "stream": False,
-                "max_tokens": settings.max_tokens,
-                "temperature": settings.temperature,
-                "response_format": {"type": "json_object"},
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
-            timeout=(5, settings.api_timeout_sec),
-            allow_redirects=False,
-        ) as response:
-            if response.status_code != 200:
-                raise RuntimeError(f"内部模型返回 HTTP {response.status_code}")
-            text = response.json()["choices"][0]["message"]["content"]
-        return InspectionVerdict.model_validate_json(text), time.monotonic() - started
+        try:
+            with requests.post(
+                f"{settings.base_url}/chat/completions",
+                headers=self._headers(),
+                json={
+                    "model": settings.model,
+                    "messages": [
+                        {"role": "system", "content": VLM_SYSTEM_PROMPT},
+                        {"role": "user", "content": content},
+                    ],
+                    "stream": False,
+                    "max_tokens": settings.max_tokens,
+                    "temperature": settings.temperature,
+                    "response_format": {"type": "json_object"},
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                timeout=(5, settings.api_timeout_sec),
+                allow_redirects=False,
+            ) as response:
+                if response.status_code != 200:
+                    raise VlmError("HTTP_ERROR", f"内部模型返回 HTTP {response.status_code}")
+                verdict = parse_completion(response.text)
+        except requests.RequestException as exc:
+            raise VlmError("HTTP_ERROR", f"模型 HTTP 请求失败：{type(exc).__name__}") from exc
+        return verdict, time.monotonic() - started
