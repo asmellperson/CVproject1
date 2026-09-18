@@ -436,13 +436,28 @@ port_listening() {
 #   - 内部调用：`port_listening`。
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 wait_port() {
-  local port="$1" max="$2" elapsed=0
+  local port="$1" max="$2" name="${3:-}" elapsed=0
+  WAIT_PORT_EXIT_CODE=""
   while [[ $elapsed -lt $max ]]; do
+    if [[ -n "$name" ]]; then
+      tmux has-session -t "$name" 2>/dev/null || return 2
+      WAIT_PORT_EXIT_CODE="$(tmux show-option -qv -t "$name" @fuda_start_exit 2>/dev/null || true)"
+      [[ -n "$WAIT_PORT_EXIT_CODE" ]] && return 2
+    fi
     port_listening "$port" && return 0
     sleep 1
     elapsed=$((elapsed + 1))
   done
   return 1
+}
+
+# AiVision/main.py 优先加载 AiVision/.env；兼容 Settings 从 cwd 读取旧 .env。
+aivision_env_path() {
+  if [[ -f "$1/AiVision/.env" || ! -f "$1/.env" ]]; then
+    printf '%s/AiVision/.env' "$1"
+  else
+    printf '%s/.env' "$1"
+  fi
 }
 
 # ---- 健康检查配置 ----------------------------------------------------------
@@ -684,17 +699,19 @@ suggest_fix_from_log() {
     if [[ -n "$env_name" && -n "$CONDA_SH_PATH" ]]; then
       hint "缺少 Python 包 '${pkg:-?}'。执行："
       if [[ "$name" == "aivision" ]]; then
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/requirements.txt"
+        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/AiVision/requirements.txt"
       else
         hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
       fi
     else
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
     fi
-  elif echo "$log" | grep -qE 'Field required.*MYSQL_DB'; then
-    hint "AiVision 缺少业务配置 .env（含 MySQL 连接信息）。执行："
-    hint "  从老机器拷贝: scp <老机器>:${workdir}/.env ${workdir}/.env"
-    hint "  拷贝后务必编辑 MySQL 连接信息: vi ${workdir}/.env"
+  elif [[ "$name" == "aivision" ]] && echo "$log" | grep -qE 'MYSQL_DB_|DATA_PATH'; then
+    local env_file
+    env_file="$(aivision_env_path "$workdir")"
+    hint "请检查 AiVision 业务配置 ${env_file}（MySQL 连接信息和 DATA_PATH）。"
+    hint "  配置示例: ${workdir}/AiVision/.env.example"
+    hint "  编辑实际配置: vi ${env_file}"
   elif echo "$log" | grep -qE 'pydantic.*ValidationError'; then
     hint "配置校验失败，请检查 .env 文件中必填字段是否完整"
     hint "  参考示例: ls ${workdir}/.env.*"
@@ -735,7 +752,7 @@ suggest_dep_fix() {
         hint "conda 环境 '${AIVISION_ENV}' 不存在。执行："
         hint "  source ${CONDA_SH_PATH}"
         hint "  conda create -n ${AIVISION_ENV} python=3.11 -y"
-        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/requirements.txt"
+        hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/AiVision/requirements.txt"
       fi
       ;;
     unified_backend)
@@ -778,14 +795,16 @@ precheck_one() {
 
   case "$name" in
     aivision)
-      if [[ ! -f "${workdir}/.env" ]]; then
-        cfg "${name} 缺少配置文件 ${workdir}/.env（含 MySQL 连接信息）"
-        hint "从老机器拷贝: scp <老机器>:${workdir}/.env ${workdir}/.env"
-        hint "拷贝后务必编辑 MySQL 连接信息: vi ${workdir}/.env"
+      local env_file
+      env_file="$(aivision_env_path "$workdir")"
+      if [[ ! -f "$env_file" && -z "${MYSQL_DB_URL+x}" ]]; then
+        cfg "${name} 缺少配置文件 ${env_file}（含 MySQL 连接信息）"
+        hint "配置示例: ${workdir}/AiVision/.env.example"
+        hint "拷贝后务必编辑 MySQL 连接信息: vi ${env_file}"
         issues=$((issues + 1))
-      elif ! grep -qE 'MYSQL_DB_URL' "${workdir}/.env" 2>/dev/null; then
+      elif [[ -z "${MYSQL_DB_URL+x}" ]] && ! grep -qE '^[[:space:]]*(export[[:space:]]+)?MYSQL_DB_URL[[:space:]]*=' "$env_file" "${workdir}/.env" 2>/dev/null; then
         cfg "${name} .env 中缺少 MYSQL_DB_URL"
-        hint "请编辑: vi ${workdir}/.env"
+        hint "请编辑: vi ${env_file}"
         issues=$((issues + 1))
       fi
       if [[ ! -f "${PROJECT_ROOT}/AiVision/integrations/security_vlm/configs/config.yaml" ]]; then
@@ -892,8 +911,16 @@ start_one() {
     return 4
   fi
 
+  # 交互 shell 会在 Python 退出后保留；记录真实启动命令的退出码供轮询检查。
+  tmux set-option -t "$name" @fuda_start_exit ""
+  local quoted_name
+  printf -v quoted_name '%q' "$name"
+  cmd_to_send="( ${cmd_to_send} ); fuda_start_exit=\$?; tmux set-option -t ${quoted_name} @fuda_start_exit \"\$fuda_start_exit\""
   log "注入启动命令"
-  tmux send-keys -t "$name" "$cmd_to_send" C-m
+  if ! tmux send-keys -t "$name" "$cmd_to_send" C-m; then
+    err "启动命令发送失败: $name"
+    return 4
+  fi
 
   if [[ $NO_CHECK -eq 1 ]]; then
     ok "已发出启动命令（--no-check，未做端口检查）"
@@ -901,9 +928,15 @@ start_one() {
   fi
 
   log "轮询等待端口 ${port}（最多 ${wait_s}s）..."
-  if ! wait_port "$port" "$wait_s"; then
+  wait_port "$port" "$wait_s" "$name"
+  local wait_rc=$?
+  if [[ $wait_rc -ne 0 ]]; then
     # 启动失败：抓取 tmux 末 20 行 + 给出建议
-    warn "${name} 端口 ${port} 在 ${wait_s}s 内未监听，下面是 tmux 末 20 行输出："
+    if [[ $wait_rc -eq 2 ]]; then
+      err "${name} 启动命令已退出（退出码 ${WAIT_PORT_EXIT_CODE:-未知}），停止等待端口 ${port}。下面是 tmux 末 20 行输出："
+    else
+      warn "${name} 端口 ${port} 在 ${wait_s}s 内未监听，下面是 tmux 末 20 行输出："
+    fi
     tmux capture-pane -t "$name" -p -S -200 2>/dev/null | tail -20 | sed 's/^/  | /'
     echo
     suggest_fix_from_log "$name" "$workdir"
@@ -1081,4 +1114,6 @@ main() {
   [[ $fail_cnt -eq 0 ]] && exit 0 || exit 1
 }
 
-main
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi
