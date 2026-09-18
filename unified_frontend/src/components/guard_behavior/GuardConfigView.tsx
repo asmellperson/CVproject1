@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bell, Building2, Camera, Cpu, Settings2 } from 'lucide-react'
 import type { DepartmentId } from '@/auth/permissions'
 import { AiVisionModelConfig } from '@/components/AiVisionModelConfig'
-import { DetectionConfigTab, DetectionConfigTabsList } from '@/components/detection/DetectionConfigUi'
-import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { DetectionConfigTab } from '@/components/detection/DetectionConfigUi'
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
+import { TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { getAlarmPolicies, getMembers, getPolicy } from './api'
 import { SiteSettings } from './SiteSettings'
@@ -42,14 +43,13 @@ export function GuardConfigView({ site, department, onSitesChanged }: {
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setBusy(false) }
   }
-  return <Tabs defaultValue="sites" className="space-y-5">
-    <DetectionConfigTabsList>
+  return <DetectionConfigTabs defaultValue="sites" className="space-y-5" tabs={<>
       <DetectionConfigTab value="sites" icon={Building2}>保安室管理</DetectionConfigTab>
       <DetectionConfigTab value="cameras" icon={Camera} disabled={!site}>摄像头</DetectionConfigTab>
       <DetectionConfigTab value="policy" icon={Settings2} disabled={!site}>检测参数</DetectionConfigTab>
       <DetectionConfigTab value="models" icon={Cpu}>模型配置</DetectionConfigTab>
       <DetectionConfigTab value="alarms" icon={Bell} disabled={!site}>报警推送</DetectionConfigTab>
-    </DetectionConfigTabsList>
+    </>}>
     {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">{error}<Button variant="outline" className="ml-3" disabled={busy} onClick={() => void change(async () => undefined)}>重新读取配置</Button></div>}
     {message && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-300">{message}</p>}
     {site && !data && !error && <p role="status">正在读取保安室配置…</p>}
@@ -58,5 +58,5 @@ export function GuardConfigView({ site, department, onSitesChanged }: {
     <TabsContent value="policy">{data && <PolicySettings policy={data.policy} members={data.members} busy={busy} onChange={change} />}</TabsContent>
     <TabsContent value="models"><AiVisionModelConfig requiredModels={GUARD_MODELS} /></TabsContent>
     <TabsContent value="alarms">{data && <AlarmPolicies policies={data.alarms} busy={busy} onChange={change} />}</TabsContent>
-  </Tabs>
+  </DetectionConfigTabs>
 }

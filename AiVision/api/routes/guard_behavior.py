@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 from auth.auth import get_current_user, require_admin
 from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_guard_behavior_orchestrator
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
+from AiVision.api.routes.alarms import AlarmEventResponse, _event_dict
+from AiVision.alarms.records.orm import AiAlarmEvent
+from AiVision.core.db import get_session
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from AiVision.features.guard_behavior.schema import (
     GuardBehaviorAlarmPolicyResponse, GuardBehaviorAlarmPolicyUpdate,
@@ -18,7 +21,7 @@ from AiVision.features.guard_behavior.schema import (
     GuardBehaviorSiteCreate, GuardBehaviorSitePolicyResponse, GuardBehaviorSitePolicyUpdate,
     GuardBehaviorSiteResponse, GuardBehaviorSiteUpdate,
 )
-from AiVision.features.guard_behavior.state import CameraAvailability, SiteRuleDecision
+from AiVision.features.guard_behavior.state import CameraAvailability, GuardCameraMetrics, SiteRuleDecision
 
 
 router = APIRouter(prefix="/api/guard-behavior", tags=["guard-behavior"])
@@ -43,6 +46,7 @@ class GuardBehaviorSiteStatusResponse(BaseModel):
     status: Literal["disabled", "unconfigured", "healthy", "degraded", "unavailable"] = "unavailable"
     camera_states: dict[int, CameraAvailability] = Field(default_factory=dict)
     camera_online: dict[int, bool] = Field(default_factory=dict)
+    camera_metrics: dict[int, GuardCameraMetrics] = Field(default_factory=dict)
     absence: SiteRuleDecision = Field(default_factory=_unavailable_rule)
     phone: SiteRuleDecision = Field(default_factory=_unavailable_rule)
     prone: SiteRuleDecision = Field(default_factory=_unavailable_rule)
@@ -247,3 +251,19 @@ def get_frame(site: Site, runtime: Runtime,
         raise HTTPException(503, "保安室画面不可用")
     return Response(encode_frame_to_jpeg(frame, quality=quality, max_width=max_width), media_type="image/jpeg",
                     headers={"Cache-Control": "no-store", **frame_size_headers(frame, max_width=max_width)})
+
+
+@router.get("/sites/{site_id}/latest-alarm", response_model=AlarmEventResponse | None)
+def get_latest_alarm(site: Site):
+    """先按保安室授权，再查询该主体最新的持久化报警，不受其他保安室报警量影响。"""
+    session = get_session()
+    try:
+        row = session.query(AiAlarmEvent).filter(
+            AiAlarmEvent.department == site["department"],
+            AiAlarmEvent.feature_name == "guard_behavior",
+            AiAlarmEvent.subject_type == "guard_behavior_site",
+            AiAlarmEvent.subject_id == str(site["id"]),
+        ).order_by(AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc()).first()
+        return _event_dict(row) if row is not None else None
+    finally:
+        session.close()

@@ -755,3 +755,32 @@ def test_site_runtime_has_no_inference_capture_database_or_notification_dependen
         assert not calls.intersection({"dispatch_inference_sync", "VideoCapture", "VideoWriter", "get_session", "track"})
     public = (root / "alarms/evidence/evidence_recorder.py").read_text()
     assert "guard_behavior" not in public
+
+
+def test_monitor_metrics_use_fresh_facts_and_reset_after_gaps_or_reload(runtime):
+    r = runtime
+    r.push(snapshot(1, 100., True, guard_count=2))
+    first = r.instance.evaluate_after_camera_update(1)
+    assert first.camera_metrics[1].guard_count == 2
+    assert first.camera_metrics[1].fps is None
+    r.now[0] = 100.5
+    r.push(snapshot(1, 100.5, True, guard_count=3))
+    r.push(snapshot(2, 100.5, True))
+    result = r.instance.evaluate_after_camera_update(1)
+    assert result.camera_metrics[1].fps == pytest.approx(2.)
+    assert result.camera_metrics[1].guard_confidence == .9
+    assert result.camera_metrics[2].fps is None
+    detached = r.instance.get_site_status(1)
+    detached.camera_metrics.clear()
+    assert len(r.instance.get_site_status(1).camera_metrics) == 2
+    r.online['camera-1'] = False
+    assert 1 not in r.instance.evaluate_after_camera_update(1).camera_metrics
+    r.now[0] = 200.
+    assert r.instance.evaluate_after_camera_update(1).camera_metrics == {}
+    r.online['camera-1'] = True
+    r.push(snapshot(1, 200., True))
+    assert r.instance.evaluate_after_camera_update(1).camera_metrics[1].fps is None
+    r.instance.reload_site(1)
+    r.now[0] = 200.5
+    r.push(snapshot(1, 200.5, True))
+    assert r.instance.evaluate_after_camera_update(1).camera_metrics[1].fps is None

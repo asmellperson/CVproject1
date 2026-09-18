@@ -13,6 +13,12 @@ function DepartmentGuardBehavior({ department }: { department: DepartmentId }) {
   return <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
     <Tabs defaultValue="monitor" className="space-y-5">
       <DetectionPageHeader title="保安行为规范检测" subtitle="行为分析监控面板" departmentLabel={DEPARTMENT_LABELS[department]} />
+      {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
+      <TabsContent value="monitor" className="mt-0 space-y-5">
+        <GuardMonitorView key={site?.id ?? 'empty'} site={site} sites={sites} loadingSites={loading}
+          onSelectSite={setSelectedId} onRefreshSites={() => reload()} />
+      </TabsContent>
+      <TabsContent value="config" className="mt-0 space-y-5">
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <Label htmlFor="guard-site-selector">保安室</Label>
         <Select value={selectedId === null ? '' : String(selectedId)} disabled={loading || !sites.length} onValueChange={(id) => setSelectedId(Number(id))}>
@@ -21,11 +27,6 @@ function DepartmentGuardBehavior({ department }: { department: DepartmentId }) {
         </Select>
         <Button variant="outline" disabled={loading} onClick={() => void reload()}>刷新保安室</Button>
       </div>
-      {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
-      <TabsContent value="monitor" className="mt-0 space-y-5">
-        {site ? <GuardMonitorView key={site.id} site={site} /> : <p className="text-sm text-slate-500">{loading ? '正在读取保安室…' : '当前事业部尚无保安室，请在配置管理中创建。'}</p>}
-      </TabsContent>
-      <TabsContent value="config" className="mt-0">
         {!loading && <GuardConfigView key={site?.id ?? 'empty'} site={site} department={department} onSitesChanged={(id) => reload(undefined, id)} />}
       </TabsContent>
     </Tabs>

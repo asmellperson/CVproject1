@@ -1,4 +1,5 @@
 import type { DepartmentId } from '@/auth/permissions'
+import type { AlarmEvent } from '@/lib/api'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUrl } from '@/lib/api'
 import type { AlarmPolicy, AlarmPolicyValues, CameraRoi, GuardAlarmType, GuardMember, GuardSite, SiteCreate, SitePolicy, SitePolicyValues, SiteStatus, SiteUpdate, VehicleRoiPoint } from './types'
 
@@ -22,4 +23,5 @@ export const updateRoi = (id: number, cameraId: number, roi: VehicleRoiPoint[]) 
 export const getAlarmPolicies = (id: number, signal?: AbortSignal) => apiGet<AlarmPolicy[]>(`${sitePath(id)}/alarm-policies`, { signal })
 export const updateAlarmPolicy = (id: number, type: GuardAlarmType, value: Partial<AlarmPolicyValues>) => apiPatch<AlarmPolicy>(`${sitePath(id)}/alarm-policies/${type}`, value)
 export const getSiteStatus = (id: number, signal?: AbortSignal) => apiGet<SiteStatus>(`${sitePath(id)}/status`, { signal })
+export const getLatestAlarm = (id: number, signal?: AbortSignal) => apiGet<AlarmEvent | null>(`${sitePath(id)}/latest-alarm`, { signal })
 export const siteFrameUrl = (id: number) => apiUrl(`${sitePath(id)}/frame.jpg`)

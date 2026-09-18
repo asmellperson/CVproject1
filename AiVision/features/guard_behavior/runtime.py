@@ -18,7 +18,7 @@ from .constants import (
 )
 from .schema import GuardBehaviorRuntimeSiteConfig
 from .site_rules import AbsenceState, aggregate_positive, camera_availability, expected_members, stale_seconds
-from .state import CameraAvailability, GuardCameraSnapshot, SiteEvaluation, SiteRuleDecision
+from .state import CameraAvailability, GuardCameraMetrics, GuardCameraSnapshot, SiteEvaluation, SiteRuleDecision
 from .vehicle_episode import VehicleEpisodeOutcome, VehicleEpisodeTracker
 
 
@@ -48,6 +48,7 @@ class GuardBehaviorSiteRuntime:
         self._clock, self._start_background = clock, start_background
         self.sites: dict[int, SiteRuntimeState] = {}
         self.latest_snapshots: dict[int, GuardCameraSnapshot] = {}
+        self._camera_fps: dict[int, float] = {}
         self._frames: dict[int, np.ndarray] = {}
         self._lock, self._lifecycle_lock = threading.RLock(), threading.Lock()
         self._stop_event = threading.Event()
@@ -114,6 +115,7 @@ class GuardBehaviorSiteRuntime:
             self._cancel_episodes(state)
             for member in state.config.members:
                 self.latest_snapshots.pop(member.camera_id, None)
+                self._camera_fps.pop(member.camera_id, None)
                 self._frames.pop(member.camera_id, None)
                 self.evidence.clear_source(self._camera_source(member.camera_id))
             self.evidence.clear_source(self._site_source(site_id))
@@ -146,6 +148,14 @@ class GuardBehaviorSiteRuntime:
                         or snapshot.guard_count is None):
                     state.vehicle.mark_unknown()
                     self._cancel_episodes(state)
+            # 展示实际相邻感知帧的处理频率；中断或不可用后等待连续有效帧。
+            previous_ready = previous is not None and camera_availability(
+                member, previous, snapshot.updated_at, stale_seconds(state.config),
+                physical_online=True) == CameraAvailability.READY
+            if status == CameraAvailability.READY and previous_ready:
+                self._camera_fps[snapshot.camera_id] = 1. / (snapshot.updated_at - previous.updated_at)
+            else:
+                self._camera_fps.pop(snapshot.camera_id, None)
             self.latest_snapshots[snapshot.camera_id] = replace(snapshot, model_states=dict(snapshot.model_states))
             self._frames[snapshot.camera_id] = annotated_frame.copy()
             self.evidence.record_frame(self._camera_source(snapshot.camera_id), annotated_frame, snapshot.updated_at)
@@ -177,7 +187,12 @@ class GuardBehaviorSiteRuntime:
             vehicle, completed = self._evaluate_vehicle(state, camera_states, now)
             ready = sum(value == CameraAvailability.READY for value in camera_states.values())
             status = "healthy" if ready == len(members) else "degraded" if ready else "unavailable"
-            state.evaluation = SiteEvaluation(status, camera_states, absence, phone, prone, vehicle, now)
+            metrics = {camera_id: GuardCameraMetrics(
+                self.latest_snapshots[camera_id].guard_count,
+                self.latest_snapshots[camera_id].guard_confidence,
+                self._camera_fps.get(camera_id),
+            ) for camera_id, availability in camera_states.items() if availability == CameraAvailability.READY}
+            state.evaluation = SiteEvaluation(status, camera_states, absence, phone, prone, vehicle, now, metrics)
             state.last_error = None
             try:
                 self._dispatch_evaluation(state, completed, now)
@@ -324,7 +339,8 @@ class GuardBehaviorSiteRuntime:
         with self._lock:
             state = self.sites.get(site_id)
             evaluation = state.evaluation if state is not None else None
-            return replace(evaluation, camera_states=dict(evaluation.camera_states)) if evaluation is not None else None
+            return replace(evaluation, camera_states=dict(evaluation.camera_states),
+                           camera_metrics=dict(evaluation.camera_metrics)) if evaluation is not None else None
 
     def _cancel_episodes(self, state: SiteRuntimeState) -> None:
         for token in state.episode_tokens.values():

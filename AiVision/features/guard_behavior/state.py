@@ -162,6 +162,13 @@ class SiteRuleDecision:
 
 
 @dataclass(frozen=True)
+class GuardCameraMetrics:
+    guard_count: int | None
+    guard_confidence: float | None
+    fps: float | None
+
+
+@dataclass(frozen=True)
 class SiteEvaluation:
     status: Literal["disabled", "unconfigured", "healthy", "degraded", "unavailable"]
     camera_states: dict[int, CameraAvailability]
@@ -170,3 +177,4 @@ class SiteEvaluation:
     prone: SiteRuleDecision
     vehicle: SiteRuleDecision
     updated_at: float
+    camera_metrics: dict[int, GuardCameraMetrics] = field(default_factory=dict)

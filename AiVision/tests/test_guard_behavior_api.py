@@ -1,5 +1,6 @@
 """原生 API 使用真实数据 Service，验证授权、事务结果及运行时刷新边界。"""
 import asyncio
+import datetime as dt
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,12 +11,14 @@ import pytest
 from fastapi import FastAPI
 
 from AiVision.api.routes import guard_behavior as api
-from AiVision.features.guard_behavior.state import CameraAvailability, SiteEvaluation, SiteRuleDecision
+from AiVision.features.guard_behavior.state import CameraAvailability, GuardCameraMetrics, SiteEvaluation, SiteRuleDecision
 from AiVision.tests.test_guard_behavior_data import data_db, DEPARTMENT, OTHER_DEPARTMENT  # noqa: F401
 
 
 @pytest.fixture
 def client(data_db, monkeypatch):  # noqa: F811
+    api.AiAlarmEvent.__table__.create(data_db.engine)
+    monkeypatch.setattr(api, "get_session", data_db.factory)
     # 内存 SQLite 的连接留在同一线程；请求仍经过完整 FastAPI 校验和依赖链。
     async def inline(func, *args, **kwargs):
         return func(*args)
@@ -73,7 +76,7 @@ def test_site_crud_and_every_configuration_mutation_reload(client):
             assert c.orchestrator.refresh_guard_site.call_args.args[1] == (c.camera,)
 
 
-READ_PATHS = ("", "/cameras", "/policy", "/cameras/{camera}/roi", "/alarm-policies", "/status", "/frame.jpg")
+READ_PATHS = ("", "/cameras", "/policy", "/cameras/{camera}/roi", "/alarm-policies", "/status", "/frame.jpg", "/latest-alarm")
 
 
 @pytest.mark.parametrize("suffix", READ_PATHS)
@@ -150,10 +153,12 @@ def test_live_status_and_jpeg_use_injected_runtime(client):
     decision = SiteRuleDecision("available", "normal", "正常")
     c.runtime.running = True
     c.runtime.get_site_status.return_value = SiteEvaluation(
-        "healthy", {c.camera: CameraAvailability.READY}, decision, decision, decision, decision, 100.)
+        "healthy", {c.camera: CameraAvailability.READY}, decision, decision, decision, decision, 100.,
+        {c.camera: GuardCameraMetrics(2, .95, 5.)})
     c.runtime.get_site_frame.return_value = np.zeros((20, 30, 3), dtype=np.uint8)
     result = c.request("GET", f"/sites/{c.site}/status").json()
     assert result["camera_states"][str(c.camera)] == "READY" and result["running"]
+    assert result["camera_metrics"][str(c.camera)] == {"guard_count": 2, "guard_confidence": .95, "fps": 5.}
     response = c.request("GET", f"/sites/{c.site}/frame.jpg")
     assert response.status_code == 200 and response.content[:2] == b"\xff\xd8"
     assert response.headers["cache-control"] == "no-store"
@@ -169,6 +174,25 @@ def test_status_reports_physical_video_without_ai_snapshot(client, online):
     assert response.json()["camera_online"] == {str(client.camera): online}
     assert response.json()["camera_states"] == {}
     assert response.json()["absence"]["state"] == "unknown"
+
+
+def test_latest_alarm_is_scoped_to_site_and_department_before_limiting(client):
+    c = client
+    path = f"/sites/{c.site}/latest-alarm"
+    assert c.request("GET", path).json() is None
+    with c.db.factory.begin() as session:
+        for id_, subject, department in [(1, str(c.site), DEPARTMENT), (2, str(c.site), DEPARTMENT),
+                                         (3, "999", DEPARTMENT), (4, str(c.site), OTHER_DEPARTMENT)]:
+            session.add(api.AiAlarmEvent(
+                id=id_, violation_type=9, feature_name="guard_behavior", department=department,
+                subject_type="guard_behavior_site", subject_id=subject, subject_name="南门",
+                image_path="alarm.jpg", reason=f"报警 {id_}", create_time=dt.datetime(2026, 9, 18, 12, id_),
+            ))
+    c.user = {"role": "viewer", "departments": [DEPARTMENT]}
+    response = c.request("GET", path)
+    assert response.status_code == 200
+    assert response.json()["reason"] == "报警 2"
+    assert c.db.sessions[-1].closed
 
 
 def test_reload_failure_does_not_claim_transaction_was_rolled_back(client):

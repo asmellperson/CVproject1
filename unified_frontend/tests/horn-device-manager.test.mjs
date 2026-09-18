@@ -323,6 +323,7 @@ test('each detection configuration uses the single public horn container', async
   const paths = ['FaceDetectionSection', 'HumanDetectionSection', 'IntrusionDetectionSection',
     'PhoneDetectionSection', 'DoorDetectionSection', 'SecurityVlmSection'].map((name) => `sections/${name}.tsx`)
   paths.push('components/logistics_single_person/LogisticsChannelConfigView.tsx')
+  paths.push('components/guard_behavior/GuardConfigView.tsx')
   for (const path of paths) {
     const content = await source(path)
     assert.equal((content.match(/<DetectionConfigTabs\b/g) ?? []).length, 1, path)
@@ -335,7 +336,7 @@ test('each detection configuration uses the single public horn container', async
   }
   assert.match(await source('sections/GuardBehaviorSection.tsx'), /<GuardConfigView/)
   const guard = await source('components/guard_behavior/AlarmPolicies.tsx')
-  assert.match(guard, /<HornDeviceManager/)
+  assert.doesNotMatch(guard, /<HornDeviceManager/)
   const tabs = moduleOf('components/detection/DetectionConfigTabs.tsx')
   const tree = tabs.DetectionConfigTabs({ defaultValue: 'horns', tabs: [], children: null })
   assert.equal(nodes(tree).filter((node) => node?.type === 'HornDeviceManager').length, 1)
