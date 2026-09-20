@@ -379,7 +379,7 @@ fi
 SERVICES=()
 
 if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH"; then
-  SERVICES+=("aivision|${PROJECT_ROOT}|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python -m AiVision.main --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
+  SERVICES+=("aivision|${PROJECT_ROOT}|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python -m AiVision.main|7862|${WAIT_AIVISION}")
 else
   SERVICES+=("aivision|${PROJECT_ROOT}|__DEP_MISSING__|7862|${WAIT_AIVISION}")
 fi

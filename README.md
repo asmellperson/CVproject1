@@ -23,10 +23,10 @@ flowchart LR
 
 运维脚本管理以下两个 tmux 服务：
 
-| 服务 | 脚本监听地址 | 启动入口 |
+| 服务 | 默认监听地址 | 启动入口 |
 | --- | --- | --- |
 | `unified_frontend` | `0.0.0.0:3000` | `npm run dev -- --host 0.0.0.0 --port 3000` |
-| `aivision` | `127.0.0.1:7862` | `python -m AiVision.main --host 127.0.0.1 --port 7862` |
+| `aivision` | `0.0.0.0:7862` | `python -m AiVision.main` |
 
 项目站点地址为 `https://aicv.fudar.com/`，网关部署需把请求转发至前端入口。Vite 的 `/api` 代理默认指向 `http://127.0.0.1:7862`，由 `VITE_AIVISION_TARGET` 覆盖；配置中也保留 `/ws` 的 WebSocket 代理。
 
@@ -174,7 +174,7 @@ npm ci
 
 随后填写真实数据库连接、可写 `DATA_PATH` 和模型路径。`cold_start.env` 仅用于覆盖运行环境探测等脚本设置；模板占位值不能直接用于部署。
 
-环境模板、代码默认值、启动脚本和前端默认代理统一使用后端端口 `7862`。运维脚本显式指定后端监听 `127.0.0.1:7862`，状态脚本检查 `7862` 和 `3000`；自定义调试端口时应同步调整前端代理目标。
+AiVision 启动命令使用默认参数，监听地址和端口读取 `API_HOST`、`API_PORT`，默认 `0.0.0.0:7862`。前端代理、启动健康检查和状态脚本使用后端端口 `7862`，前端端口为 `3000`；自定义端口时应同步调整代理目标和运维检查配置。
 
 主入口按源码位置加载 `AiVision/.env`，已有进程环境变量优先。Settings 只读取环境变量与字段默认值；启动预检也不再回退到仓库根目录的旧 `.env`。
 
@@ -191,7 +191,7 @@ bash scripts/status.sh
 
 ```bash
 conda activate aivision
-python -m AiVision.main --host 127.0.0.1 --port 7862
+python -m AiVision.main
 ```
 
 另一个终端启动前端：

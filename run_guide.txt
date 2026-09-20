@@ -9,7 +9,7 @@
 生产环境统一由 scripts/start.sh 管理两个 tmux 服务：
 
 - unified_frontend：Vite 前端，监听 0.0.0.0:3000；
-- aivision：唯一 API 服务与全部视觉检测业务，监听 127.0.0.1:7862。
+- aivision：唯一 API 服务与全部视觉检测业务，默认监听 0.0.0.0:7862，地址和端口由 API_HOST、API_PORT 配置。
 
 公网网关只需把 https://aicv.fudar.com/ 转发到项目服务器 TCP 3000。
 7862 仅供本机前端代理调用，不应直接开放到公网。
@@ -137,7 +137,7 @@ AiVision（在项目根目录）：
 
 conda activate aivision
 export AUTH_SECRET="<scripts/auth_secret 中现有的密钥>"
-python -m AiVision.main --host 127.0.0.1 --port 7862
+python -m AiVision.main
 
 七、物流通道说明
 ----------------

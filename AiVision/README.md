@@ -955,13 +955,9 @@ ffprobe -version
 python -m AiVision.main
 ```
 
-临时覆盖监听地址和端口：
+手动启动与 `scripts/start.sh` 均使用该命令，监听地址和端口读取 `API_HOST`、`API_PORT`，默认 `0.0.0.0:7862`。
 
-```bash
-python -m AiVision.main --host 127.0.0.1 --port 7863
-```
-
-默认地址：
+本机访问地址：
 
 - API：`http://127.0.0.1:7862`
 - Swagger：`http://127.0.0.1:7862/docs`
