@@ -34,6 +34,8 @@ export function useOverview(user: AuthUser | null) {
       if (!mounted.current || signal.aborted || current.current !== requestContext) return
       setResult({ scope, data, error: data.inventory_complete ? '' : `摄像头清单加载不完整：${Object.values(data.inventory_errors).join('；')}` })
     } catch (error) {
+      // 初始化重挂载或刷新导致的主动取消不属于加载失败，超时仍需提示。
+      if (signal.aborted && signal.reason.name !== 'TimeoutError') return
       if (mounted.current && current.current === requestContext) setResult({ scope, data: null, error: `摄像头清单加载失败：${String(error)}` })
     }
   }, {

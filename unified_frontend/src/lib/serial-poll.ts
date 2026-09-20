@@ -79,7 +79,7 @@ export function createSerialPoller(options: {
         return
       }
       requestTimer = undefined
-      controller.abort()
+      controller.abort(new DOMException('请求超时', 'TimeoutError'))
     }, timeoutMs)
     requestTimer = timeoutHandle
 
