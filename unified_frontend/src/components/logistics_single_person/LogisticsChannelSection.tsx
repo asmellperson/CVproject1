@@ -8,7 +8,6 @@ import { Tabs, TabsContent } from '@/components/ui/tabs'
 
 import { LogisticsChannelConfigView } from './LogisticsChannelConfigView'
 import { LogisticsChannelMonitorView } from './LogisticsChannelMonitorView'
-import { LogisticsChannelRuntimeControl } from './LogisticsChannelRuntimeControl'
 import { useLogisticsChannels, useLogisticsChannelStatus } from './useLogisticsChannels'
 import type { LogisticsFeatureName } from './types'
 
@@ -66,15 +65,6 @@ export function LogisticsChannelSection({ feature, department, title }: Logistic
           title={title.replace(/监控与配置$/, '')}
           subtitle="物流通道单人检测监控面板"
           departmentLabel={DEPARTMENT_LABELS[department]}
-          runtimeControl={(
-            <LogisticsChannelRuntimeControl
-              feature={feature}
-              channel={channelQuery.selectedChannelDetail}
-              loading={channelQuery.loading}
-              isAdmin={isAdmin}
-              onChanged={refreshAll}
-            />
-          )}
         />
         <TabsContent value="monitor" className="mt-0">
           {cameraCount === 0 && <p>当前事业部暂未配置摄像头</p>}
