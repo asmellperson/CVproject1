@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, RefreshCw, Video } from 'lucide-react'
@@ -10,7 +11,6 @@ import {
   getAiVisionCameraKey,
   getAiVisionCameras,
   getAiVisionFeatureConfig,
-  isAiVisionFeatureEnabled,
   type AiVisionCamera,
 } from '@/lib/aivision'
 import {
@@ -89,7 +89,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     setMessage('正在读取摄像头列表...')
     try {
       const items = await getAiVisionCameras(department)
-      const featureCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, feature))
+      const featureCameras = getEnabledFeatureCameras(items, feature, department)
       setCameras(featureCameras)
       const currentCamera = selectedCameraRef.current
       const selectedStillEnabled = featureCameras.some((camera) => getAiVisionCameraKey(camera) === currentCamera)

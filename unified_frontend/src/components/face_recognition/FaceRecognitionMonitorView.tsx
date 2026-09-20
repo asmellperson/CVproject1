@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import type { ReactNode } from 'react'
 import { Camera, RefreshCw, ScanFace, Users, Video } from 'lucide-react'
@@ -7,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
-import { getAiVisionCameraKey, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
 import { StatCard } from '@/components/feature_dashboard/FeatureDashboardMonitorView'
 import { FACE_FEATURE } from './api'
 import { freshFaceDetections, useFaceRecognitionStatus } from './useFaceRecognitionStatus'
@@ -27,7 +28,7 @@ export function FaceRecognitionMonitorView({
   onSelectCamera: (key: string) => void
   onRefreshCameras: () => void
 }) {
-  const featureCameras = cameras.filter((camera) => camera.department === department && isAiVisionFeatureEnabled(camera, FACE_FEATURE))
+  const featureCameras = getEnabledFeatureCameras(cameras, FACE_FEATURE, department)
   const camera = featureCameras.find((item) => getAiVisionCameraKey(item) === selectedCamera)
   const result = useFaceRecognitionStatus(selectedCamera, Boolean(camera))
   const status = result?.status

@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import { useState, type ReactNode } from 'react'
 import { AlertTriangle, Bell, Camera, CheckCircle2, Clock3, Columns2, Crosshair, FileCheck2, Layers3, Settings2 } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
@@ -34,8 +35,8 @@ function InspectionPage({ department }: { department: DepartmentId }) {
   const [error, setError] = useState('')
   const [singleView, setSingleView] = useState(false)
   const [configVersion, setConfigVersion] = useState(0)
-  const enabled = cameras.filter((camera) => camera.functions[INSPECTION_FEATURE])
-  const current = cameras.find((camera) => camera.shm_name === selected) || enabled[0] || cameras[0]
+  const enabled = getEnabledFeatureCameras(cameras, INSPECTION_FEATURE, department)
+  const current = enabled.find((camera) => camera.shm_name === selected) || enabled[0]
   useSerialPoll(async (signal) => {
     const [nextCameras, nextStatus, history] = await Promise.all([
       apiGet<AiVisionCamera[]>(`/cameras?department=${encodeURIComponent(department)}`, { signal }),

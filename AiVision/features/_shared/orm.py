@@ -111,6 +111,7 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
     # FeatureConfigBase自己不是数据库表，这种表只给子类继承
     __abstract__ = True
 
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"), comment="功能内摄像头展示排序")
     cap_interval = Column(Float, default=defaults.CAP_INTERVAL, comment="采集间隔(秒)")
 
     def to_config_dict(self) -> dict:
@@ -155,7 +156,7 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
 
     # 这些是非告警、非元数据的列名（哪些字段不属于Feature自己的检测参数） — 提取 value 字典时排除
     _NON_VALUE_COLUMNS: frozenset[str] = frozenset({
-        "id", "camera_id", "enable",
+        "id", "camera_id", "enable", "sort_order",
         "sql_enable", "horn_enable", "horn_id", "horn_event_id",
         "wechat_enable", "wechat_user",
         "created_at", "updated_at",

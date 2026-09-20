@@ -3,7 +3,6 @@ import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Copy, Plus } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
-import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -17,9 +16,8 @@ import {
   createAiVisionFeatureCamera,
   getAiVisionFeatureConfig,
   type AiVisionCamera,
-  isAiVisionFeatureEnabled,
   saveAiVisionFeatureConfig,
-  saveAiVisionCameraOrder,
+  saveAiVisionFeatureCameraOrder,
 } from '@/lib/aivision'
 import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
 import { LogisticsCameraCreateDialog } from '@/components/logistics_single_person/LogisticsCameraCreateDialog'
@@ -51,6 +49,9 @@ export function FeatureCameraManager({
 }: FeatureCameraManagerProps) {
   const cameras = useMemo(() => sourceCameras.filter((camera) => camera.department === department), [sourceCameras, department])
   const enabledCameras = useMemo(() => getEnabledFeatureCameras(cameras, feature, department), [cameras, feature, department])
+  const availableCameras = cameras.filter((camera) => camera.enabled && !camera.functions[feature])
+  const [existingCamera, setExistingCamera] = useState('')
+  const cameraToAdd = availableCameras.find((camera) => camera.shm_name === existingCamera)
   const [workingCamera, setWorkingCamera] = useState('')
   const [copySourceCamera, setCopySourceCamera] = useState('')
   const [copyTargetCamera, setCopyTargetCamera] = useState('')
@@ -64,6 +65,7 @@ export function FeatureCameraManager({
 
   useEffect(() => {
     setWorkingCamera('')
+    setExistingCamera('')
     setCopySourceCamera('')
     setCopyTargetCamera('')
     setOperationError('')
@@ -98,7 +100,10 @@ export function FeatureCameraManager({
       if (operation !== operationRef.current) return
       if (!enable && camera.shm_name === currentCameraName) onSelectCamera('')
       await onCamerasChanged(enable ? camera.shm_name : currentCameraName)
-      if (operation === operationRef.current) notifyPlatformCamerasChanged()
+      if (operation === operationRef.current) {
+        if (enable) setExistingCamera('')
+        notifyPlatformCamerasChanged()
+      }
     } catch (error) {
       if (operation === operationRef.current) setOperationError(`操作失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -111,15 +116,15 @@ export function FeatureCameraManager({
 
   const handleMove = async (index: number, direction: -1 | 1) => {
     const destination = index + direction
-    if (readOnly || busyRef.current || destination < 0 || destination >= cameras.length) return
+    if (readOnly || busyRef.current || destination < 0 || destination >= enabledCameras.length) return
     const operation = operationRef.current
-    const ids = cameras.map((camera) => camera.camera_id)
+    const ids = enabledCameras.map((camera) => camera.camera_id)
     ;[ids[index], ids[destination]] = [ids[destination], ids[index]]
     busyRef.current = true
-    setWorkingCamera(cameras[index].shm_name)
+    setWorkingCamera(enabledCameras[index].shm_name)
     setOperationError('')
     try {
-      await saveAiVisionCameraOrder(department, ids)
+      await saveAiVisionFeatureCameraOrder(feature, department, ids)
       if (operation !== operationRef.current) return
       await onCamerasChanged()
       if (operation === operationRef.current) notifyPlatformCamerasChanged()
@@ -207,35 +212,45 @@ export function FeatureCameraManager({
         icon={Camera}
         tone="blue"
         title="摄像头"
-        description="管理当前事业部摄像头的检测开关、展示顺序和功能配置。"
+        description="管理已启用当前检测功能的摄像头、展示顺序和功能配置。"
       />
       <DetectionConfigCardContent className="space-y-4">
         {operationError ? <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{operationError}</div> : null}
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
-            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">当前事业部摄像头</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">启用当前检测后才可配置参数；摄像头顺序在本事业部各普通检测功能中统一。</div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">添加已有摄像头到当前功能</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">选择当前事业部尚未启用本功能的摄像头，添加后即可配置检测参数。</div>
           </div>
-          {cameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">当前事业部暂未配置摄像头</div> : cameras.map((camera, index) => {
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Select value={cameraToAdd ? existingCamera : ''} onValueChange={setExistingCamera} disabled={readOnly || availableCameras.length === 0}>
+              <SelectTrigger className="min-w-0 flex-1 bg-white" aria-label="添加已有摄像头">
+                <SelectValue placeholder={availableCameras.length ? '选择已有摄像头' : '暂无可添加的摄像头'} />
+              </SelectTrigger>
+              <SelectContent>{availableCameras.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Button disabled={readOnly || !cameraToAdd} onClick={() => { if (cameraToAdd) void handleToggle(cameraToAdd, true) }}><Plus className="h-4 w-4" />添加到当前功能</Button>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+          <div>
+            <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">已启用当前功能的摄像头</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">停用后从列表移除，原有配置保留，可通过上方下拉框重新添加。顺序仅对当前功能生效。</div>
+          </div>
+          {enabledCameras.length === 0 ? <div className="px-4 py-5 text-sm text-slate-500">尚未添加摄像头到当前功能</div> : enabledCameras.map((camera, index) => {
             const active = camera.shm_name === currentCameraName
-            const enabled = isAiVisionFeatureEnabled(camera, feature)
-            const blocked = !camera.enabled && !enabled
             return (
-              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${!enabled ? 'opacity-60' : ''} ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
+              <div key={camera.camera_id} className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 transition dark:border-slate-800 ${active ? 'border-blue-200 bg-blue-50/70 dark:bg-blue-950/30' : 'border-[#E8ECF5] bg-white hover:border-blue-200 dark:bg-slate-900'}`}>
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"><Camera className="h-4 w-4" /></span>
-                <button type="button" onClick={() => { if (enabled && !workingCamera) onSelectCamera(camera.shm_name) }} disabled={!enabled || Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
+                <button type="button" onClick={() => onSelectCamera(camera.shm_name)} disabled={Boolean(workingCamera)} className="min-w-0 flex-1 text-left" aria-pressed={active}>
                   <div className="truncate text-sm font-semibold">{camera.name}</div>
                   <div className="truncate font-mono text-xs text-slate-500">{camera.shm_name}</div>
-                  {!enabled ? <span className="text-xs text-slate-500">未启用当前检测，启用后才可配置参数</span> : active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
+                  {active ? <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">当前正在编辑</span> : <span className="text-xs text-slate-500">点击切换配置</span>}
                 </button>
                 <Badge variant="secondary">{camera.enabled ? '摄像头正常' : '摄像头已停用'}</Badge>
-                <Badge variant={enabled ? 'default' : 'secondary'}>{enabled ? '检测已启用' : '检测已停用'}</Badge>
-                <span title={blocked ? '请先在平台启用该摄像头' : undefined}>
-                  <Switch checked={enabled} aria-label={`${camera.name}：${enabled ? '停用检测' : '启用检测'}`} onCheckedChange={(value) => void handleToggle(camera, value)} disabled={readOnly || blocked} />
-                </span>
+                <Button size="sm" variant="outline" aria-label={`${camera.name}：停用检测`} onClick={() => void handleToggle(camera, false)} disabled={readOnly}>停用</Button>
                 <Button size="sm" variant="outline" aria-label={`${camera.name}上移`} onClick={() => void handleMove(index, -1)} disabled={readOnly || index === 0}><ArrowUp className="h-4 w-4" />上移</Button>
-                <Button size="sm" variant="outline" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === cameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
-                {blocked ? <p className="w-full text-xs text-amber-700 dark:text-amber-400">请先在平台启用该摄像头</p> : null}
+                <Button size="sm" variant="outline" aria-label={`${camera.name}下移`} onClick={() => void handleMove(index, 1)} disabled={readOnly || index === enabledCameras.length - 1}><ArrowDown className="h-4 w-4" />下移</Button>
               </div>
             )
           })}

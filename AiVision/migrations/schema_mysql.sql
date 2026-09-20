@@ -99,6 +99,7 @@ CREATE TABLE ai_violation_image (
 )CHARSET=utf8mb4 COMMENT='AI告警事件表' ENGINE=InnoDB;
 
 CREATE TABLE ai_camera_config_blocks (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL COMMENT '单个ROI归一化坐标点集（0~1）',
 	line_points JSON NOT NULL COMMENT '警戒线两点归一化坐标（0~1）',
 	alarm_side INTEGER COMMENT '警戒线入侵侧: 1=左侧,-1=右侧',
@@ -125,6 +126,7 @@ CREATE TABLE ai_camera_config_blocks (
 CREATE UNIQUE INDEX ix_ai_camera_config_blocks_camera_id ON ai_camera_config_blocks (camera_id);
 
 CREATE TABLE ai_camera_config_detect_door (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	threshold FLOAT NOT NULL DEFAULT '0.5',
 	diff_threshold INTEGER,
@@ -161,6 +163,7 @@ CREATE TABLE ai_camera_config_detect_door (
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_door_camera_id ON ai_camera_config_detect_door (camera_id);
 
 CREATE TABLE ai_camera_config_detect_face (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	`FACE_SCORE_THR` FLOAT,
 	`MAX_TIME` FLOAT COMMENT '逗留时间阈值(秒)',
@@ -191,6 +194,7 @@ CREATE TABLE ai_camera_config_detect_face (
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_face_camera_id ON ai_camera_config_detect_face (camera_id);
 
 CREATE TABLE ai_camera_config_detect_human (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	`CONF_THRESHOLD` FLOAT,
 	`DETECTION_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
 	`TRACK_IOU_THR` FLOAT NOT NULL DEFAULT '0.3',
@@ -240,6 +244,7 @@ CREATE TABLE ai_camera_config_detect_logistics_single_person (
 CREATE UNIQUE INDEX ix_ai_camera_config_detect_logistics_single_person_camera_id ON ai_camera_config_detect_logistics_single_person (camera_id);
 
 CREATE TABLE ai_camera_config_detect_phone (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	`CONF_THRESHOLD` FLOAT,
 	`IOU_THR` FLOAT,
@@ -289,6 +294,7 @@ CREATE TABLE ai_camera_config_guard_behavior (
 CREATE UNIQUE INDEX ix_ai_camera_config_guard_behavior_camera_id ON ai_camera_config_guard_behavior (camera_id);
 
 CREATE TABLE ai_camera_config_recognize_face (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	cap_interval FLOAT NOT NULL,
 	detection_threshold FLOAT NOT NULL DEFAULT 0.5,
@@ -481,6 +487,7 @@ CREATE INDEX ix_ai_logistics_channel_camera_camera_id ON ai_logistics_channel_ca
 CREATE INDEX ix_ai_logistics_channel_camera_channel_id ON ai_logistics_channel_camera (channel_id);
 
 CREATE TABLE ai_camera_config_agv_person_check (
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
 	roi_pos JSON NOT NULL,
 	confidence_threshold FLOAT NOT NULL,
 	iou_threshold FLOAT NOT NULL,
@@ -509,3 +516,41 @@ CREATE TABLE ai_camera_config_agv_person_check (
 );
 
 CREATE UNIQUE INDEX ix_ai_camera_config_agv_person_check_camera_id ON ai_camera_config_agv_person_check (camera_id);
+
+CREATE TABLE ai_camera_config_security_inspection (
+	staff_rois JSON NOT NULL,
+	conf FLOAT NOT NULL,
+	iou FLOAT NOT NULL,
+	imgsz INTEGER NOT NULL,
+	pair_start_hold_frames INTEGER NOT NULL,
+	fingerprint_lost_seconds FLOAT NOT NULL,
+	no_interact_seconds FLOAT NOT NULL,
+	max_session_seconds FLOAT NOT NULL,
+	keyframe_interval_sec FLOAT NOT NULL,
+	keyframes_per_session INTEGER NOT NULL,
+	roi_crop_padding INTEGER NOT NULL,
+	fp_match_threshold FLOAT NOT NULL,
+	interact_distance_max_ratio FLOAT NOT NULL,
+	interact_motion_min_pixels FLOAT NOT NULL,
+	roi_enter_overlap_ratio FLOAT NOT NULL,
+	roi_hold_overlap_ratio FLOAT NOT NULL,
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
+	cap_interval FLOAT COMMENT '采集间隔(秒)',
+	alarm_interval FLOAT COMMENT '告警间隔(秒)',
+	sql_enable BOOL COMMENT 'SQL告警启用',
+	horn_enable BOOL COMMENT '喇叭告警启用',
+	horn_event_id INTEGER COMMENT '告警音ID',
+	wechat_enable BOOL COMMENT '微信告警启用',
+	wechat_user VARCHAR(255) COMMENT '微信用户列表',
+	horn_id INTEGER COMMENT '喇叭设备ID',
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	enable BOOL COMMENT '是否启用',
+	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
+	PRIMARY KEY (id),
+	FOREIGN KEY(horn_id) REFERENCES ai_horn_config (id) ON DELETE SET NULL,
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX ix_ai_camera_config_security_inspection_camera_id ON ai_camera_config_security_inspection (camera_id);

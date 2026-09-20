@@ -10,6 +10,7 @@ export type AiVisionCamera = {
   url?: string
   camera_id: number
   sort_order: number
+  feature_sort_orders: Record<string, number>
   fps?: number
   enabled: boolean
   functions: Record<string, boolean>
@@ -138,8 +139,8 @@ async function readAiVisionError(response: Response) {
   return detail || `${response.status} ${response.statusText}`
 }
 
-export async function saveAiVisionCameraOrder(department: DepartmentId, cameraIds: number[]): Promise<void> {
-  const response = await fetch('/api/cameras/order', {
+export async function saveAiVisionFeatureCameraOrder(feature: string, department: DepartmentId, cameraIds: number[]): Promise<void> {
+  const response = await fetch(`/api/features/${encodeURIComponent(feature)}/cameras/order`, {
     method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ department, camera_ids: cameraIds }),
   })
@@ -197,10 +198,6 @@ export async function getAiVisionDepartmentFeatures(departmentName: DepartmentId
 
 export function getAiVisionCameraKey(camera: Pick<AiVisionCamera, 'shm_name' | 'id' | 'camera_id'>) {
   return camera.shm_name || camera.id || String(camera.camera_id)
-}
-
-export function isAiVisionFeatureEnabled(camera: AiVisionCamera, feature: string) {
-  return Boolean(camera.functions[feature])
 }
 
 export type AiVisionFrameOptions = {

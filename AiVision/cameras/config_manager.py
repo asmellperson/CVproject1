@@ -35,6 +35,7 @@ from AiVision.core.events import config_event_bus, ConfigChangeEvent      # conf
 from AiVision.core.cache import config_cache         # 摄像头配置改完后刷新内存缓存
 from AiVision.core.logger import logger
 from AiVision.features.registry import all_specs
+from AiVision.features._shared.orm import FeatureConfigBase
 from AiVision.departments.department_registry import require_department
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
@@ -51,25 +52,34 @@ def camera_access_departments(camera: dict) -> set[str]:
     except ValueError:
         return set()
 
-def _load_function_states(session, camera_ids: list[int], specs: dict) -> dict[int, dict[str, bool]]:
-    """批量查出每台摄像头分别开启了哪些Feature。"""
+def _load_function_metadata(
+    session, camera_ids: list[int], specs: dict,
+) -> tuple[dict[int, dict[str, bool]], dict[int, dict[str, int]]]:
+    """批量读取功能开关及普通检测功能的独立展示顺序。"""
     # 先全部设为False（即使某个Feature表里没有这台摄像头的记录，默认也是False）
     states = {
         camera_id: {feature_name: False for feature_name in specs}
         for camera_id in camera_ids
     }
+    orders = {camera_id: {} for camera_id in camera_ids}
     if not camera_ids:
-        return states
+        return states, orders
     # 逐个Feature表查询
     for feature_name, spec in specs.items():
+        ordered = issubclass(spec.orm_class, FeatureConfigBase)
+        columns = [spec.orm_class.camera_id, spec.orm_class.enable]
+        if ordered:
+            columns.append(spec.orm_class.sort_order)
         rows = (
-            session.query(spec.orm_class.camera_id, spec.orm_class.enable)
+            session.query(*columns)
             .filter(spec.orm_class.camera_id.in_(camera_ids))
             .all()
         )
-        for camera_id, enabled in rows:
-            states[camera_id][feature_name] = bool(enabled)
-    return states
+        for row in rows:
+            states[row.camera_id][feature_name] = bool(row.enable)
+            if ordered:
+                orders[row.camera_id][feature_name] = row.sort_order
+    return states, orders
 
 def _database_error_code(exc: OperationalError) -> int | None:
     """从SQLAIchemy的operationalError里面把MySQL错误码挖出来"""
@@ -109,13 +119,13 @@ class CameraConfigManager:
                 query = query.filter(AiCameraConfig.department == department)
             cameras = query.order_by(AiCameraConfig.sort_order, AiCameraConfig.id).all()
             specs = all_specs()
-            function_states = _load_function_states(
+            function_states, function_orders = _load_function_metadata(
                 session,
                 [cam.id for cam in cameras],
                 specs,
             )
             items = [
-                self._to_dict(cam, function_states[cam.id])
+                self._to_dict(cam, function_states[cam.id], function_orders[cam.id])
                 for cam in cameras
             ]
             return items
@@ -130,8 +140,8 @@ class CameraConfigManager:
             if cam is None:
                 return None
             specs = all_specs()
-            functions = _load_function_states(session, [cam.id], specs)[cam.id]
-            return self._to_dict(cam, functions)
+            functions, orders = _load_function_metadata(session, [cam.id], specs)
+            return self._to_dict(cam, functions[cam.id], orders[cam.id])
         finally:
             session.close()
 
@@ -255,38 +265,6 @@ class CameraConfigManager:
         return (session.query(AiCameraConfig)
                 .filter(AiCameraConfig.department == department)
                 .order_by(AiCameraConfig.id).populate_existing().with_for_update().all())
-
-    def reorder_cameras(self, department: str, camera_ids: list[int]) -> list[dict]:
-        department = require_department(department)
-        if any(type(camera_id) is not int or camera_id <= 0 for camera_id in camera_ids):
-            raise ValueError("camera_ids 必须只包含正整数摄像头主键")
-        if len(camera_ids) != len(set(camera_ids)):
-            raise ValueError("camera_ids 不允许重复")
-
-        def reorder(session: Session):
-            cameras = self._lock_department_cameras(session, department)
-            by_id = {camera.id: camera for camera in cameras}
-            if set(camera_ids) != set(by_id):
-                raise CameraOrderConflict("摄像头集合已变化或包含其他事业部摄像头，请重新加载后排序")
-            changes = []
-            for position, camera_id in enumerate(camera_ids):
-                camera = by_id[camera_id]
-                if camera.sort_order != position:
-                    before = self._event_snapshot(camera)
-                    camera.sort_order = position
-                    changes.append((camera.id, camera.shm_name, before, self._event_snapshot(camera)))
-            session.flush()
-            return changes
-
-        changes = self._run_write_transaction(reorder)
-        for camera_id, _name, _before, _after in changes:
-            config_cache.refresh_camera(camera_id)
-        for camera_id, name, before, after in changes:
-            config_event_bus.publish(ConfigChangeEvent(
-                change_type="camera_updated", camera_id=camera_id, camera_name=name,
-                old_value=before, new_value=after,
-            ))
-        return self.list_cameras(department)
 
     def create_camera_record(self, session, payload: dict) -> AiCameraConfig:
         """真正的创建摄像头数据库记录。"""
@@ -519,7 +497,7 @@ class CameraConfigManager:
         return get_camera_by_key(session, key)
 
     @staticmethod
-    def _to_dict(cam: AiCameraConfig, functions: dict[str, bool]) -> dict:
+    def _to_dict(cam: AiCameraConfig, functions: dict[str, bool], feature_sort_orders: dict[str, int]) -> dict:
         """ORM转成API/业务dict"""
         return {
             "id": cam.shm_name or f"camera_{cam.id}",  # 前端用作 key（前端历史上把id当成字符串key使用）
@@ -534,6 +512,7 @@ class CameraConfigManager:
             "department": cam.department,
             "sort_order": cam.sort_order,
             "functions": functions,
+            "feature_sort_orders": feature_sort_orders,
         }
 
     @staticmethod

@@ -992,10 +992,15 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/features/{feature}` | 功能详情和配置元数据 |
 | GET / PUT | `/api/features/{feature}/configs/{shm_name}` | 读取 / 保存功能配置 |
 | GET | `/api/features/{feature}/cameras/{key}/status` | 摄像头功能监控状态 |
+| PUT | `/api/features/{feature}/cameras/order` | 保存当前事业部、当前功能已启用摄像头的独立顺序 |
 | GET | `/api/models` | 模型路径、加载和重载状态 |
 | PATCH | `/api/models/{model_name}/path` | 保存模型路径并请求后台重载 |
 | GET | `/api/departments` | 事业部列表 |
 | GET | `/api/departments/{name}/features` | 事业部可用功能 |
+
+摄像头响应的 `feature_sort_orders` 按功能保存展示顺序，平台设备的 `sort_order` 独立保留。功能排序请求为 `{ "department": "general_electric", "camera_ids": [3, 1] }`，必须包含该事业部当前功能所有已启用摄像头且不能重复；成功返回 204，集合变化返回 409。排序字段不属于检测 `value`，参数保存及配置复制不会覆盖顺序。物流通道和保安室通过各自成员排序接口管理。
+
+已有数据库升级时，停止 AiVision 并备份数据库，再执行 `AiVision/migrations/feature_camera_order_20260920.sql`，然后启动服务。该迁移只执行一次，初始化为现有平台顺序；新库通过 ORM 或 `schema_mysql.sql` 建表。
 
 ### 12.2 告警、设备和身份识别
 

@@ -1,3 +1,4 @@
+import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useEffect, useState } from 'react'
 import { History, RefreshCw } from 'lucide-react'
@@ -5,7 +6,7 @@ import { ImagePreviewDialog } from '@/components/ImagePreviewDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getAiVisionCameras, isAiVisionFeatureEnabled, type AiVisionCamera } from '@/lib/aivision'
+import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
 import { FACE_FEATURE, getRecognitionRecords, recognitionImageUrl, type RecognitionRecord, type RecognitionRecordPage } from './api'
 
 export function RecognitionRecordsView({ department }: { department: DepartmentId }) {
@@ -24,7 +25,7 @@ export function RecognitionRecordsView({ department }: { department: DepartmentI
     let cancelled = false
     getAiVisionCameras(department).then((items) => {
       if (!cancelled) {
-        const featureCameras = items.filter((camera) => isAiVisionFeatureEnabled(camera, FACE_FEATURE))
+        const featureCameras = getEnabledFeatureCameras(items, FACE_FEATURE, department)
         setCameras(featureCameras)
         setCameraId((current) => featureCameras.some((camera) => String(camera.camera_id) === current) ? current : '')
         setCameraError('')

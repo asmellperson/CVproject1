@@ -12,16 +12,16 @@ api/routes/features.py
 from __future__ import annotations
 from typing import Annotated                                # 给一个普通Python类型额外附加FastAPI参数说明
 from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL路径参数
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.routes.cameras import get_camera_for_user         # 检查某个用户有没有权限查看这个摄像头
+from AiVision.api.routes.cameras import get_camera_for_user
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 from AiVision.alarms.types import VIOLATION_TYPE_META
 
 from AiVision.features.registry import all_specs, get_spec            # 系统当前已经注册过的所有检测功能以及查询某个具体的功能
 from AiVision.features._shared.spec import FeatureSpec
-from AiVision.features._shared.config_manager import feature_config_manager    # 普通检测功能配置管理函数
+from AiVision.features._shared.config_manager import FeatureCameraOrderConflict, feature_config_manager
 from AiVision.cameras.config_manager import camera_config_manager           # 摄像头配置服务
 
 class FeatureAlarmTypeResponse(BaseModel):
@@ -49,6 +49,14 @@ class FeatureConfigResponse(BaseModel):
     camera: dict
     feature: str
     config: dict
+
+class FeatureCameraOrderRequest(BaseModel):
+    """提交当前功能已启用摄像头的完整顺序。"""
+
+    model_config = ConfigDict(extra="forbid")
+    department: str
+    camera_ids: list[Annotated[int, Field(strict=True, gt=0)]]
+
 
 class FeatureCameraCreateRequest(BaseModel):
     """功能页面新增摄像头"""
@@ -138,6 +146,21 @@ def create_features_router(
                 spec.name,
                 payload.model_dump(exclude_none=True),
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.put("/{feature}/cameras/order", status_code=204)
+    def reorder_feature_cameras(
+        feature: str,
+        payload: FeatureCameraOrderRequest,
+        _user: dict = Depends(require_admin),
+    ) -> None:
+        """保存当前事业部内指定功能的摄像头顺序。"""
+        spec = _require_spec(feature)
+        try:
+            feature_config_manager.reorder_cameras(spec, payload.department, payload.camera_ids)
+        except FeatureCameraOrderConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -14,6 +14,11 @@ from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig, get_camera_by_key
 from AiVision.departments.department_registry import require_department
 
+
+class FeatureCameraOrderConflict(ValueError):
+    """功能摄像头集合变化，需重新加载后再排序。"""
+
+
 class FeatureConfigManager:
     """所有功能配置的 CRUD 入口。
     
@@ -60,6 +65,30 @@ class FeatureConfigManager:
             session.close()
 
     # ---------- Write ----------
+    def reorder_cameras(self, spec: FeatureSpec, department: str, camera_ids: list[int]) -> None:
+        """只更新当前功能已启用摄像头的展示顺序，不触发检测配置热更新。"""
+        if not issubclass(spec.orm_class, FeatureConfigBase):
+            raise ValueError("此功能请通过成员排序接口调整顺序")
+        department = require_department(department)
+        if any(type(camera_id) is not int or camera_id <= 0 for camera_id in camera_ids):
+            raise ValueError("camera_ids 必须只包含正整数摄像头主键")
+        if len(camera_ids) != len(set(camera_ids)):
+            raise ValueError("camera_ids 不允许重复")
+        with session_scope() as session:
+            # 与功能启停保持先锁摄像头、再锁配置的顺序，避免排序覆盖并发停用。
+            cameras = (session.query(AiCameraConfig)
+                       .filter_by(department=department)
+                       .order_by(AiCameraConfig.id).with_for_update().all())
+            configs = (session.query(spec.orm_class)
+                       .filter(spec.orm_class.camera_id.in_([camera.id for camera in cameras]),
+                               spec.orm_class.enable.is_(True))
+                       .order_by(spec.orm_class.camera_id).with_for_update().all())
+            by_id = {config.camera_id: config for config in configs}
+            if set(camera_ids) != set(by_id):
+                raise FeatureCameraOrderConflict("当前功能的摄像头集合已变化，请重新加载后排序")
+            for position, camera_id in enumerate(camera_ids):
+                by_id[camera_id].sort_order = position
+
     def save_config(
         self,
         spec: FeatureSpec,

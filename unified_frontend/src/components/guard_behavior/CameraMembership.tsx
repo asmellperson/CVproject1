@@ -3,7 +3,6 @@ import { ArrowDown, ArrowUp, Camera, Link, Unlink } from 'lucide-react'
 import { useAuth } from '@/auth/useAuth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader } from '@/components/detection/DetectionConfigUi'
 import { getAiVisionCameras, type AiVisionCamera } from '@/lib/aivision'
@@ -23,29 +22,46 @@ export function CameraMembership({ site, members, busy, onChange }: {
       .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)) })
     return () => { current = false }
   }, [site.department])
-  const available = inventory.filter((camera) => !members.some((member) => member.camera_id === camera.camera_id))
+  const enabledMembers = members.filter((member) => member.member_enabled)
+  const available = inventory.filter((camera) => camera.department === site.department && !enabledMembers.some((member) => member.camera_id === camera.camera_id)
+    && (members.length < 9 || members.some((member) => member.camera_id === camera.camera_id)))
+  const cameraToAdd = available.find((camera) => String(camera.camera_id) === selected)
+  const addSelected = () => {
+    if (!cameraToAdd) return
+    void onChange(async () => {
+      if (members.some((member) => member.camera_id === cameraToAdd.camera_id)) {
+        await setCameraEnabled(site.id, cameraToAdd.camera_id, true)
+      } else {
+        await addCamera(site.id, cameraToAdd.camera_id)
+      }
+      setSelected('')
+    })
+  }
   const move = (index: number, offset: number) => {
     const ids = members.map((member) => member.camera_id)
-    ;[ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]
+    const from = members.indexOf(enabledMembers[index])
+    const to = members.indexOf(enabledMembers[index + offset])
+    ;[ids[from], ids[to]] = [ids[to], ids[from]]
     void onChange(() => reorderCameras(site.id, ids))
   }
   return <Card className={DETECTION_CONFIG_CARD_CLASS}>
-    <DetectionConfigCardHeader icon={Camera} tone="emerald" title={`摄像头 · ${members.length}/9`} description="从当前事业部的平台设备中绑定。成员开关只控制当前保安室的联合检测。" />
+    <DetectionConfigCardHeader icon={Camera} tone="emerald" title={`摄像头 · 已启用 ${enabledMembers.length} 路`} description="只显示参与当前保安室检测的摄像头；停用后可从下拉框重新添加，原有 ROI 保留。" />
     <DetectionConfigCardContent className="space-y-4">
       {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
       {isAdmin && <div className="flex flex-col gap-3 sm:flex-row">
-        <Select value={selected} disabled={busy || members.length >= 9} onValueChange={setSelected}>
-          <SelectTrigger className="flex-1" aria-label="平台摄像头"><SelectValue placeholder="选择已有平台摄像头" /></SelectTrigger>
+        <Select value={cameraToAdd ? selected : ''} disabled={busy || !available.length} onValueChange={setSelected}>
+          <SelectTrigger className="flex-1" aria-label="添加已有摄像头"><SelectValue placeholder="选择已有摄像头加入当前保安室" /></SelectTrigger>
           <SelectContent>{available.map((camera) => <SelectItem key={camera.camera_id} value={String(camera.camera_id)}>{camera.name}{camera.enabled ? '' : '（物理设备已停用）'}</SelectItem>)}</SelectContent>
         </Select>
-        <Button disabled={busy || !selected || members.length >= 9 || !available.some((camera) => String(camera.camera_id) === selected)} onClick={() => void onChange(() => addCamera(site.id, Number(selected)))}><Link className="h-4 w-4" />绑定摄像头</Button>
+        <Button disabled={busy || !cameraToAdd} onClick={addSelected}><Link className="h-4 w-4" />添加到当前功能</Button>
       </div>}
-      {!members.length && <p className="text-sm text-slate-500">尚未绑定摄像头。请先在平台摄像头管理中添加设备。</p>}
-      {members.map((member, index) => <div key={member.camera_id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
+      {!enabledMembers.length && <p className="text-sm text-slate-500">尚未启用摄像头，请从上方下拉框添加。</p>}
+      {members.length >= 9 && <p className="text-sm text-slate-500">当前保安室已绑定 9 路摄像头，可重新启用已停用的成员；添加其他设备前请先解除绑定。</p>}
+      {enabledMembers.map((member, index) => <div key={member.camera_id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 dark:border-slate-800">
         <div><p className="font-semibold">{index + 1}. {member.name}</p><p className="mt-1 text-xs text-slate-500">{member.shm_name} · {member.physical_enabled ? '物理设备已启用' : '物理设备已停用'}</p></div>
-        <div className="flex items-center gap-2"><Switch aria-label={`参与联合检测：${member.name}`} checked={member.member_enabled} disabled={!isAdmin || busy} onCheckedChange={(enabled) => void onChange(() => setCameraEnabled(site.id, member.camera_id, enabled))} />
+        <div className="flex items-center gap-2"><Button variant="outline" aria-label={`停用 ${member.name}`} disabled={!isAdmin || busy} onClick={() => void onChange(() => setCameraEnabled(site.id, member.camera_id, false))}>停用</Button>
           {isAdmin && <><Button size="icon" variant="outline" aria-label={`上移 ${member.name}`} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button>
-            <Button size="icon" variant="outline" aria-label={`下移 ${member.name}`} disabled={busy || index === members.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button>
+            <Button size="icon" variant="outline" aria-label={`下移 ${member.name}`} disabled={busy || index === enabledMembers.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button>
             <Button variant="outline" disabled={busy} onClick={() => void onChange(() => removeCamera(site.id, member.camera_id))}><Unlink className="h-4 w-4" />解除绑定</Button></>}
         </div>
       </div>)}
