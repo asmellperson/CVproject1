@@ -433,15 +433,6 @@ wait_port() {
   return 1
 }
 
-# AiVision/main.py 优先加载 AiVision/.env；兼容 Settings 从 cwd 读取旧 .env。
-aivision_env_path() {
-  if [[ -f "$1/AiVision/.env" || ! -f "$1/.env" ]]; then
-    printf '%s/AiVision/.env' "$1"
-  else
-    printf '%s/.env' "$1"
-  fi
-}
-
 # ---- 健康检查配置 ----------------------------------------------------------
 # 每个服务一条: name|health_url|judge_rule
 #   judge_rule 语法:
@@ -683,14 +674,13 @@ suggest_fix_from_log() {
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
     fi
   elif [[ "$name" == "aivision" ]] && echo "$log" | grep -qE 'MYSQL_DB_|DATA_PATH'; then
-    local env_file
-    env_file="$(aivision_env_path "$workdir")"
+    local env_file="${workdir}/AiVision/.env"
     hint "请检查 AiVision 业务配置 ${env_file}（MySQL 连接信息和 DATA_PATH）。"
     hint "  配置示例: ${workdir}/AiVision/.env.example"
     hint "  编辑实际配置: vi ${env_file}"
   elif echo "$log" | grep -qE 'pydantic.*ValidationError'; then
-    hint "配置校验失败，请检查 .env 文件中必填字段是否完整"
-    hint "  参考示例: ls ${workdir}/.env.*"
+    hint "配置校验失败，请检查 AiVision/.env 文件中必填字段是否完整"
+    hint "  参考示例: ${workdir}/AiVision/.env.example"
   elif echo "$log" | grep -qE 'Address already in use|port .* already'; then
     hint "端口被占用，查看占用进程: ss -tlnp | grep ':<端口>'"
   elif echo "$log" | grep -qE 'CUDA.*error|no CUDA-capable device'; then
@@ -698,7 +688,7 @@ suggest_fix_from_log() {
   elif echo "$log" | grep -qE 'ImportError.*cannot import name'; then
     hint "依赖版本不匹配，建议按对应 requirements.txt 重装: pip install -r ${workdir}/requirements.txt --upgrade"
   elif echo "$log" | grep -qE 'No such file or directory.*\.env'; then
-    hint "缺少配置文件 .env，请从老机器拷贝或从示例创建"
+    hint "缺少配置文件 AiVision/.env，请从老机器拷贝或从 AiVision/.env.example 创建"
   elif echo "$log" | grep -qE 'No such file or directory.*config'; then
     hint "缺少配置文件，请从老机器拷贝或从示例创建: ls ${workdir}/config*/"
   else
@@ -765,15 +755,14 @@ precheck_one() {
 
   case "$name" in
     aivision)
-      local env_file
-      env_file="$(aivision_env_path "$workdir")"
+      local env_file="${workdir}/AiVision/.env"
       if [[ ! -f "$env_file" && -z "${MYSQL_DB_URL+x}" ]]; then
         cfg "${name} 缺少配置文件 ${env_file}（含 MySQL 连接信息）"
         hint "配置示例: ${workdir}/AiVision/.env.example"
         hint "拷贝后务必编辑 MySQL 连接信息: vi ${env_file}"
         issues=$((issues + 1))
-      elif [[ -z "${MYSQL_DB_URL+x}" ]] && ! grep -qE '^[[:space:]]*(export[[:space:]]+)?MYSQL_DB_URL[[:space:]]*=' "$env_file" "${workdir}/.env" 2>/dev/null; then
-        cfg "${name} .env 中缺少 MYSQL_DB_URL"
+      elif [[ -z "${MYSQL_DB_URL+x}" ]] && ! grep -qE '^[[:space:]]*(export[[:space:]]+)?MYSQL_DB_URL[[:space:]]*=' "$env_file"; then
+        cfg "${name} AiVision/.env 中缺少 MYSQL_DB_URL"
         hint "请编辑: vi ${env_file}"
         issues=$((issues + 1))
       fi

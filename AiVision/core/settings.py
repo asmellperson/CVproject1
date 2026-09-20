@@ -2,7 +2,7 @@
 core/settings.py
 统一配置入口 — Pydantic Settings,替代散落的 os.getenv 调用。
 
-加载顺序: 环境变量 > .env 文件 > 字段默认值
+由主入口或 CLI 加载 AiVision/.env，保留已有环境变量；Settings 只读取环境变量和字段默认值。
 
 使用:
     from AiVision.core.settings import settings
@@ -12,10 +12,9 @@ core/settings.py
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict           # BaseSettings：自动从环境变量/.env文件读取配置
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DatabaseSettings(BaseSettings):
     """
@@ -44,7 +43,7 @@ class DatabaseSettings(BaseSettings):
             f"@{self.url}:{self.port}/{self.name}?charset={self.charset}"
         )
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")            # 除系统环境变量外，也读取.env文件
+    model_config = SettingsConfigDict(extra="ignore")
 
 class StorageSettings(BaseSettings):
     """
@@ -77,7 +76,7 @@ class StorageSettings(BaseSettings):
     alarm_clip_workers: int = Field(2, ge=1, le=2, alias="ALARM_CLIP_WORKERS")
     alarm_clip_max_tasks: int = Field(32, ge=1, alias="ALARM_CLIP_MAX_TASKS")  # 含采帧中、排队中和写入中的录像
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
 class AlarmSettings(BaseSettings):
     """
@@ -103,7 +102,7 @@ class AlarmSettings(BaseSettings):
     wechat_card_base_url: str = Field("https://aicv.fudar.com", alias="WECHAT_CARD_BASE_URL")
     wechat_thumbnail_ttl_seconds: int = Field(86400, ge=60, le=604800, alias="WECHAT_THUMBNAIL_TTL_SECONDS")
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
 class ApiSettings(BaseSettings):
     """
@@ -116,7 +115,7 @@ class ApiSettings(BaseSettings):
     port: int              = Field(7862,       alias="API_PORT")
     cors_origins: list[str] = Field(default_factory=lambda: ["*"], alias="CORS_ORIGINS")     # 允许所有来源
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
 
 class RuntimeSettings(BaseSettings):
@@ -183,10 +182,7 @@ class RuntimeSettings(BaseSettings):
         alias="MODEL_WORKER_RESTART_RESET_SECONDS",
     )
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-# 计算Aivision根目录
-_AIVISION_ROOT = Path(__file__).resolve().parents[1]
+    model_config = SettingsConfigDict(extra="ignore")
 
 class ModelPathSettings(BaseSettings):
     """
@@ -198,7 +194,7 @@ class ModelPathSettings(BaseSettings):
     # 本机模型真实路径配置文件的位置
     config_path: str = Field("config/model_paths.yaml", alias="MODEL_PATHS_CONFIG")
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
 
 class Settings:

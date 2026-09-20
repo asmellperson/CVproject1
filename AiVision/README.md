@@ -1,8 +1,8 @@
 # AiVision：多摄像头视觉检测与告警后端
 
-AiVision 是福达视觉平台的视觉业务后端，负责摄像头采集、模型推理、检测规则、运行配置、实时画面、告警通知和证据保存。它通过 FastAPI 对外提供接口，由统一前端和统一后端接入。
+AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、九项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
 
-本文按当前源码介绍系统。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
+本文按当前源码整理（2026-09-20）。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
 
 ## 目录
 
@@ -12,9 +12,9 @@ AiVision 是福达视觉平台的视觉业务后端，负责摄像头采集、�
 - [4. 摄像头到检测结果的数据流](#4-摄像头到检测结果的数据流)
 - [5. 功能注册、配置与热更新](#5-功能注册配置与热更新)
 - [6. 模型推理与模型管理](#6-模型推理与模型管理)
-- [7. 七项内置功能的算法逻辑](#7-七项内置功能的算法逻辑)
+- [7. 基础检测与通道算法](#7-基础检测与通道算法)
 - [8. 告警分发、证据与媒体清理](#8-告警分发证据与媒体清理)
-- [9. 内置视觉子系统](#9-内置视觉子系统)
+- [9. 保安行为与安检流程](#9-保安行为与安检流程)
 - [10. 数据存储与权限边界](#10-数据存储与权限边界)
 - [11. 环境准备与启动](#11-环境准备与启动)
 - [12. API 导航](#12-api-导航)
@@ -30,9 +30,11 @@ AiVision 是福达视觉平台的视觉业务后端，负责摄像头采集、�
 flowchart LR
     UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
     API --> Auth[auth 认证 / 用户 / 访问审计]
-    API --> Features[七项内置检测功能]
-    API --> Guard[Guard Room 子应用]
-    API --> Security[Security VLM 子应用]
+    API --> Features[九项原生检测功能]
+    API --> Records[总览 / 告警 / 统计 / 处置]
+    Auth --> DB
+    Records --> DB
+    Features --> Qwen[安检关键帧 → 内部千问]
     Features --> Cameras[摄像头采集与帧缓存]
     Features --> Models[共享模型推理进程]
     Features --> Alarms[告警分发与证据保存]
@@ -48,23 +50,25 @@ flowchart LR
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 
-### 1.2 七项内置功能
+### 1.2 九项原生功能
 
-Python 目录名用于组织代码，业务标识用于 API、数据库、缓存、权限关联和前端查询。两者不要求相同，接入时应使用表中的业务标识。
+Python 目录名用于组织代码，业务标识用于 API、数据库、缓存和前端查询。接入时应使用表中的业务标识。
 
-| Python 功能目录 | 业务标识 `FeatureSpec.name` | 判定方法 | 模型依赖 | 适用事业部 |
-| --- | --- | --- | --- | --- |
-| `features/intrusion/` | `blocks` | 人体检测 + 脚底参考点与警戒线的位置关系 | `yolo_human` | 福达新材院 |
-| `features/door_state/` | `detect_door` | 前后帧、参考背景的差分 + 持续变化确认 | 无 | 通用电气 |
-| `features/face_dwell/` | `detect_face` | 人脸检测 + 多目标跟踪 + 逗留计时 | `insightface_detection` | 福达新材院 |
-| `features/person_dwell/` | `detect_human` | 人体检测 + 多目标跟踪 + 逗留计时 | `yolo_human` | 通用电气、皓达公司 |
-| `features/phone_detection/` | `detect_phone` | 手机检测 + 人体关联 + 多次命中和时长确认 | `yolo_phone`；开启人体关联时还调用 `yolo_human` | 通用电气、福达新材院 |
-| `features/face_recognition/` | `recognize_face` | 人脸检测、对齐、特征提取、底库相似度匹配 | `insightface` | 电子电工 |
-| `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测 + 多路通道状态联合判定 | `yolo_human` | 通用电气、电子电工、电气部件事业部、伟达公司 |
+| Python 功能目录 | `FeatureSpec.name` | 判定方法 | 模型依赖 |
+| --- | --- | --- | --- |
+| `features/intrusion/` | `blocks` | 人体框与警戒线的位置关系 | `yolo_human` |
+| `features/door_state/` | `detect_door` | 图像差分与持续变化确认 | 无 |
+| `features/face_dwell/` | `detect_face` | 人脸检测、跟踪与逗留计时 | `insightface_detection` |
+| `features/person_dwell/` | `detect_human` | 人体检测、跟踪与逗留计时 | `yolo_human` |
+| `features/phone_detection/` | `detect_phone` | 手机候选、人体关联与持续确认 | `yolo_phone`，人体关联时调用 `yolo_human` |
+| `features/face_recognition/` | `recognize_face` | 人脸对齐、特征与底库相似度匹配 | `insightface` |
+| `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测与通道联合判定 | `yolo_human` |
+| `features/guard_behavior/` | `guard_behavior` | 单路感知与保安室规则汇总 | 必需 `yolo_guard_person_phone`、`guard_uniform`；可选 `yolo_guard_pose`、`yolo_vehicle` |
+| `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与千问判定 | `yolo_human`，另通过 HTTP 调用千问 |
 
-人员逗留只有一套 `HumanConsumer`、Schema 和配置表，通用电气与皓达通过摄像头事业部隔离。当前注册表不再注册旧标识 `detect_human_haoda`。
+所有正式事业部均可使用上述功能，事业部用于数据归属和访问隔离。FeatureSpec 不再声明事业部白名单。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
-人脸身份识别提供识别结果和记录，**不会触发普通违规告警**。Guard Room 和 Security VLM 不在上述七项 `FeatureSpec` 中。
+保安行为与安检流程均在同一个注册表和 Orchestrator 下运行，共享平台摄像头、模型与告警设施；没有独立 Web 子应用。
 
 ## 2. 整体架构与目录职责
 
@@ -74,13 +78,13 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 AiVision/
 ├── main.py                         # 正式启动入口
 ├── api/
-│   ├── app.py                      # FastAPI、认证中间件、路由与子应用挂载
+│   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
-│   ├── mounted_apps.py             # 托管 Guard Room / Security VLM 生命周期
 │   └── routes/                     # 摄像头、功能、模型、告警、通道等 API
 ├── runtime/
 │   ├── bootstrap.py                # 启动阶段 ORM 注册、建表与结构核验
 │   ├── orchestrator.py             # 总编排、配置事件路由、运行状态聚合
+│   ├── overview.py                 # 平台、能力、事业部和摄像头总览
 │   └── process_cleanup.py          # 启动前残留进程清理
 ├── cameras/
 │   ├── config_manager.py           # 摄像头数据库配置管理
@@ -98,7 +102,7 @@ AiVision/
 │   ├── insightface_detector.py     # InsightFace 检测和 GPU 模型加载
 │   └── workers/                    # YOLO、人脸检测、人脸身份识别
 ├── features/
-│   ├── registry.py                 # 七项功能唯一显式注册入口
+│   ├── registry.py                 # 九项功能唯一显式注册入口
 │   ├── _shared/
 │   │   ├── spec.py                 # FeatureSpec 元数据
 │   │   ├── consumer.py             # 公共帧处理、推理调用和告警衔接
@@ -116,32 +120,30 @@ AiVision/
 │   ├── phone_detection/            # 手机使用检测
 │   ├── face_recognition/           # 身份识别、识别记录
 │   │   └── library/                # 人员同步、照片特征和内存索引
-│   └── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
+│   ├── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
+│   ├── guard_behavior/             # 保安室、感知、规则、成员和告警策略
+│   └── security_inspection/        # 工位 ROI、会话、千问调度与历史
 ├── alarms/
 │   ├── dispatcher.py              # 统一告警分发与冷却
 │   ├── devices/                   # 喇叭配置、绑定、运行队列与心跳
 │   ├── notifications/             # 企业微信、通知图片
-│   ├── records/                   # 告警 ORM、异步写入、媒体引用管理
+│   ├── records/                   # 告警、MySQL 处置、异步写入与媒体引用
 │   └── evidence/                  # 报警前后视频缓存与编码
-├── departments/                   # 事业部注册、查询与功能约束
+├── departments/                   # 固定事业部目录和平台功能查询
 ├── core/                          # Settings、数据库、缓存、事件、日志等
 ├── connectors/hikvision/           # 海康签名、HTTP 客户端与人员协议
-├── integrations/
-│   ├── guard_room/                # 保安行为检测子系统
-│   └── security_vlm/              # 安检流程合规检测子系统
 ├── config/model_paths.example.yaml
 ├── migrations/                    # 显式离线迁移
-├── tests/                         # 算法、状态、API 和运行生命周期测试
 ├── .env.example                   # 主服务环境变量模板
 ├── requirements.txt               # 主服务基础依赖
-└── pyproject.toml                  # Python 版本、可选依赖、测试配置
+└── pyproject.toml                  # Python 版本、依赖和 Ruff 配置
 ```
 
 ### 2.2 各层如何分工
 
 | 层次 | 主要职责 | 典型入口 |
 | --- | --- | --- |
-| HTTP 接口层 | 参数验证、鉴权、调用业务服务、组织响应 | `api/routes/` |
+| HTTP 接口层 | 参数验证、鉴权、调用业务服务、组织响应 | `api/routes/`、`../auth/api.py` |
 | 配置与持久化层 | 配置读写、事务、事业部约束、设备绑定 | 各模块的 `service.py`、`config_manager.py`、`orm.py` |
 | 运行编排层 | 把摄像头、模型、Consumer 和告警模块组装起来 | `runtime/orchestrator.py` |
 | 图像采集层 | 解码、发布最新帧、维护采集进程 | `cameras/` |
@@ -169,26 +171,25 @@ flowchart TD
     Capture --> Alarm[启动告警记录、证据和设备服务]
     Alarm --> Queue[创建推理和结果队列]
     Queue --> Worker[启动模型 Worker 并等待就绪]
-    Worker --> Consumer[启动物流通道运行时与各 Consumer]
-    Consumer --> HTTP[启动 FastAPI / Uvicorn]
-    HTTP --> Integration[父应用 lifespan 启动两个托管子应用]
+    Worker --> Consumer[启动通道、保安室运行时与各 Consumer]
+    Consumer --> HTTP[启动 FastAPI / Uvicorn 与 auth 路由]
 ```
 
 关键行为：
 
-1. `.env` 在创建 Settings 前加载，已注入进程的环境变量优先。
-2. `bootstrap_database()` 集中导入 ORM，创建缺失表，核验功能配置表及物流通道相关表的结构。
+1. 主入口按源码位置加载 `AiVision/.env`，已注入进程的环境变量优先；Settings 只读进程环境和默认值，不扫描当前工作目录的旧 `.env`。
+2. `bootstrap_database()` 集中导入 ORM，创建缺失表，核验功能配置、物流、保安室、人脸底库、安检会话、认证、审计和处置等表结构。
 3. 主启动会先准备业务运行资源，再启动 HTTP 服务。模型等待时间会影响端口开始响应的时间。
 4. 摄像头按总开关和功能启用关系启动；启动时还会整理共享内存名称、补齐默认功能配置。
 5. 模型运行管理器按注册模型建立物理 Worker 分组；并非只为当前开启的摄像头临时加载一个模型。
-6. `ManagedVisualServices` 校验两个子系统的配置文件，并显式进入它们的 lifespan；退出时按反向顺序关闭。
+6. 保安行为通过专用运行时汇总摄像头快照；安检 Consumer 管理千问调度线程。各功能依照配置和模型就绪情况参与检测。
 7. `SIGINT`、`SIGTERM` 和主循环退出会进入资源清理，停止 Consumer、运行时、模型、告警服务、采集及共享管理器。
 
 `bootstrap_database()` 的职责是准备数据库结构；业务采集与推理由 Orchestrator 启动。已有业务字段转换和历史数据合并通过离线迁移完成，主启动不会代替迁移脚本修改这些业务语义。
 
 ### 3.2 进程和线程如何组织
 
-以下描述七项内置功能的主流水线；托管子系统另有自己的并发方式。
+九项功能共用采集和模型推理流水线；保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -199,7 +200,7 @@ flowchart TD
 | 帧读取线程 | 每路已注册摄像头一个 | 把共享内存中的新帧复制到主进程缓存 |
 | 模型 Worker 进程 | 每组可共享物理模型一个 | 加载权重并轮询逻辑模型队列 |
 | Consumer 线程 | 每个成功启动的功能一个 | 遍历该功能已启用的摄像头并执行检测 |
-| 后台服务线程 | 按模块创建 | 通道评估、模型监控、记录写入、视频编码、喇叭和企微 |
+| 后台服务线程 | 按模块创建 | 通道/保安室评估、千问调度与健康检查、模型监控、写入、视频编码和通知 |
 
 同一功能的 Consumer 在一个线程中依次处理多路摄像头，并同步等待当前推理结果。因此路数、模型耗时和超时等待会共同影响该功能的更新频率。
 
@@ -256,7 +257,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 
 规则：
 
-- 每个摄像头在每项功能中维护一个多边形 ROI。
+- 普通检测每路每项功能维护一个多边形 ROI；安检使用 `staff_rois` 保存多个命名工位，保安行为单独保存车辆 ROI。
 - 坐标范围是 `[0, 1]`；`x` 对应图像宽，`y` 对应图像高。
 - 空列表 `[]` 表示全帧；非空多边形至少三个点，面积必须大于零。
 - 运行时将坐标映射到像素，取多边形外接矩形，再用掩码把矩形内、多边形外的像素置零。
@@ -267,7 +268,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 
 ### 4.4 处理频率和静止画面
 
-公共层用低分辨率采样和高斯模糊判断帧变化，并缓存结果。七项内置 Consumer 均支持周期处理静止画面，以维持站立人员检测、逗留计时和状态更新。
+公共层用低分辨率采样和高斯模糊判断帧变化，并缓存结果。各功能按自身采样策略处理静止画面，以维持站立人员检测、逗留计时和状态更新。
 
 需要区分三个参数/频率：
 
@@ -277,7 +278,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | 功能 `cap_interval` | Consumer 的处理间隔参数；公共层对静止画面用它判断是否再次处理 |
 | 实际检测更新频率 | 同时受采集速度、帧变化、摄像头数、模型排队和推理耗时影响 |
 
-公共基类对发生变化的画面可提前处理，`cap_interval` 不能统一理解为所有功能的严格限频器。人脸身份识别通过 `_should_process_now()` 额外限制采样间隔；物流通道还受成员关系和通道检测时段约束。
+公共基类对发生变化的画面可提前处理，`cap_interval` 不能统一理解为所有功能的严格限频器。人脸身份识别和安检通过 `_should_process_now()` 额外限制采样间隔；物流通道还受成员关系和通道检测时段约束。
 
 ### 4.5 前端看到什么
 
@@ -300,11 +301,12 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | `consumer_cls` | 执行业务算法的 Consumer 类 |
 | `orm_class` | 保存配置的数据库模型 |
 | `config_schema` | 验证请求和配置的 Pydantic Schema |
-| `required_models` | 功能声明依赖的逻辑模型 |
-| `violation_type` | 普通告警记录类型 |
-| `departments` | 允许启用此功能的事业部 |
+| `required_models` | 功能运行必需的逻辑模型 |
+| `optional_models` | 仅影响对应子规则的逻辑模型 |
+| `alarm_types` | 该功能拥有的告警类型元组 |
+| `model_names` | 必需与可选模型合并去重后的只读属性 |
 
-[registry.py](features/registry.py) 显式导入七项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复标识、非法事业部或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
+[registry.py](features/registry.py) 显式导入九项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
 
 ### 5.2 配置分为三类
 
@@ -312,7 +314,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | --- | --- | --- | --- |
 | 部署环境 | `AiVision/.env` / 进程环境 | 数据库、存储目录、API 端口、全局通知开关 | 通常重启后生效 |
 | 本机模型路径 | `config/model_paths.yaml` | YOLO 权重、人脸检测文件、身份模型目录 | 模型路径 API 保存后后台重载 |
-| 业务配置 | 数据库 | 摄像头、功能开关、ROI、阈值、通道和喇叭绑定 | 管理接口保存、刷新缓存并发布配置事件 |
+| 业务配置 | MySQL | 摄像头、ROI、阈值、通道、保安室、千问参数和设备绑定 | 对应管理接口保存并刷新运行时 |
 
 普通检测配置的 HTTP 结构如下；`value` 的内容由各功能 Schema 定义：
 
@@ -334,7 +336,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 
 上例对应人员逗留配置的部分字段，省略项由 Schema 默认值补齐。`PUT` 保存采用完整配置校验和写入语义，不能当作只改一个字段的 `PATCH`；实际编辑时应先读取配置，保留其他字段后再保存。
 
-物流通道把**人数置信度、检测时段、无人/多人容忍时间、告警渠道**保存在通道层；成员摄像头配置只保留 ROI、NMS 阈值、几何过滤和采样间隔等参数。人脸身份识别的普通告警渠道固定关闭。
+物流通道把人数置信度、检测时段、无人/多人容忍时间、NMS 阈值、几何过滤、采样间隔和告警渠道统一保存在通道层；成员摄像头的检测配置只保留 ROI，通过专用 `/roi` 接口读写。人脸身份识别的普通告警渠道固定关闭。
 
 ### 5.3 热更新链路
 
@@ -351,7 +353,7 @@ HTTP 保存请求
 
 `ConfigEventBus` 是主进程内的同步回调总线，支持精确、前缀及通配订阅。它不是跨进程消息中间件；模型进程接收的是推理任务中携带的参数。
 
-多事业部功能启用时，需要明确摄像头所属事业部。单事业部功能可以依据 SPEC 自动补全归属；不符合功能约束的事业部会被拒绝。
+摄像头、通道和保安室必须属于正式事业部，成员关系需保持事业部一致。保安室接口在事务提交后显式刷新运行时；千问设置保存后重新配置调度器，并取消旧设置下排队的判定。
 
 ## 6. 模型推理与模型管理
 
@@ -365,8 +367,12 @@ HTTP 保存请求
 | `yolo_phone` | `YoloDetectorWorker` | `phone`，过滤类别 `1` | 本地 YOLO 权重文件 |
 | `insightface_detection` | `FaceDetectorWorker` | `face` | `det_10g.onnx` 检测文件 |
 | `insightface` | `FaceRecognizerWorker` | `face_identity` | 本地完整 `buffalo_l` 目录 |
+| `yolo_guard_person_phone` | `YoloDetectorWorker` | `guard_object`，类别 `0/1` | 人体/手机权重 |
+| `guard_uniform` | `UniformClassifierWorker` | `uniform` | 制服分类权重 |
+| `yolo_guard_pose` | `YoloPoseWorker` | `pose` | 姿态模型 |
+| `yolo_vehicle` | `YoloDetectorWorker` | `vehicle`，过滤类别 `1/2/3` | 车辆检测权重 |
 
-YOLO 类别编号是本项目的固定约定，配套权重需要满足 `0=person`、`1=phone`。换权重时必须检查训练类别；通用模型的相同数字不一定代表同一业务对象。
+人体/手机权重约定 `0=person`、`1=phone`；车辆模型使用自身的类别映射。换权重时必须检查对应模型的类别，不能把同一数字跨权重解释为同一对象。千问不在本地模型 Worker 注册表中，通过安检设置和 HTTP 客户端管理。
 
 ### 6.2 一份权重如何共享
 
@@ -430,6 +436,14 @@ models:
     path: /path/to/person_phone.pt
   yolo_phone:
     path: /path/to/person_phone.pt
+  yolo_guard_person_phone:
+    path: /path/to/person_phone.pt
+  guard_uniform:
+    path: /path/to/uniform_classes.pt
+  yolo_guard_pose:
+    path: /path/to/yolo11n-pose.engine
+  yolo_vehicle:
+    path: /path/to/yolo11n.pt
   insightface_detection:
     path: /srv/models/insightface/buffalo_l/det_10g.onnx
   insightface:
@@ -456,7 +470,7 @@ YAML 中每个模型的 `path` 必须是当前服务器上的绝对路径，指�
 
 Consumer 统计各摄像头/模型的推理结果、连续失败次数及最近状态。默认连续失败 `3` 次达到异常通知条件，通知冷却 `300` 秒。运行状态可通过 `/api/runtime/status` 和 `/api/models` 查看。
 
-## 7. 七项内置功能的算法逻辑
+## 7. 基础检测与通道算法
 
 ### 7.1 区域入侵：`blocks`
 
@@ -551,7 +565,7 @@ Consumer 统计各摄像头/模型的推理结果、连续失败次数及最近�
 
 **目标：同一条人体轨迹在 ROI 中停留达到阈值。**
 
-人体检测采用 `yolo_human`，先做最小框面积和宽高比过滤，再复用与人脸相同的跟踪和计时流程。通用电气、皓达使用相同算法，状态按摄像头隔离。
+人体检测采用 `yolo_human`，先做最小框面积和宽高比过滤，再复用与人脸相同的跟踪和计时流程。各事业部使用相同算法，状态按摄像头隔离。
 
 默认检测参数：`CONF_THRESHOLD=0.3`、`DETECTION_IOU_THR=0.3`、`MIN_BOX_AREA=0`、`ASPECT_RATIO_RANGE=[0.0, 10.0]`、`MAX_TIME=10.0` 秒。
 
@@ -695,7 +709,7 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 - 告警主体为 `logistics_channel`，记录通道、事业部、各摄像头人数/状态、触发原因和违规摄像头 ID。
 - 通道最多 `9` 台摄像头；拼图由独立 compositor 生成，缺失、离线和未知画面有对应状态表达。
 
-通道默认人数置信度 `0.3`；成员默认 `IOU_THR=0.3`、`cap_interval=0.2` 秒。同画面附加去重的 IoU 阈值为 `0.5`。
+通道默认人数置信度 `0.3`、`model_iou_threshold=0.3`、`cap_interval=0.2` 秒，检测策略对成员统一生效。同画面附加去重的 IoU 阈值为 `0.5`。
 
 ## 8. 告警分发、证据与媒体清理
 
@@ -715,10 +729,10 @@ Consumer / 通道状态机满足规则
 [dispatcher.py](alarms/dispatcher.py) 的冷却键为：
 
 ```text
-(subject_type, subject_id, feature_name)
+(cooldown_subject_type, cooldown_subject_id, violation_type)
 ```
 
-普通检测主体是摄像头，物流主体是通道。不同功能、不同主体分别控制冷却。冷却时间在分发尝试时登记，业务上的“已触发”不代表所有外部渠道都已成功送达。
+普通检测按摄像头冷却，物流按通道，保安行为按保安室和告警类型。安检持久化主体仍为摄像头，冷却主体使用 `security_inspection_roi`，ID 为 `camera_id:roi_name`，避免不同工位相互抑制。冷却时间在分发尝试时登记，业务上的“已触发”不代表所有外部渠道都已成功送达。
 
 ### 8.2 告警记录和身份
 
@@ -729,7 +743,7 @@ Consumer / 通道状态机满足规则
 - 原因 `reason` 和结构化 `event_metadata`。
 - 图片路径、视频路径、视频状态和创建时间。
 
-普通告警类型：入侵 `1`、门状态 `2`、手机 `3`、人脸逗留 `4`、人员逗留 `5`、物流通道 `6`。记录写入会检查类型、功能和事业部组合。
+业务告警类型：入侵 `1`、门状态 `2`、手机 `3`、人脸逗留 `4`、人员逗留 `5`、物流通道 `6`、保安离岗/手机/趴睡/车辆检查 `8–11`、安检不合规 `12`。类型表还定义身份识别 `7`，但识别 Consumer 使用独立记录流程。记录写入检查类型、功能、事业部与主体身份。
 
 普通配置可以分别开启数据库、喇叭和企微。**企微通知需要持久化记录用于卡片跳转**，因此开启有效企微通知时，即使普通 SQL 渠道关闭，也会保存相应事件。识别记录使用单独的记录流程。
 
@@ -749,7 +763,7 @@ Consumer / 通道状态机满足规则
 
 视频经历 `pending → ready/failed`，由回调更新记录。启动时间较短、摄像头断流或缓存不足时，实际片段可能短于配置的前后时长；任务满或编码失败时应查看视频状态和日志。
 
-该功能保存报警证据片段，不能作为全天连续录像存储使用。物流证据来源使用通道画面。
+该功能保存报警证据片段，不能作为全天连续录像存储使用。物流证据使用通道画面；安检告警采用 `snapshot` 模式，保存已结束 session 的关键帧拼图，不使用模型返回时的实时帧代替证据。
 
 ### 8.4 后台写入、通知和清理
 
@@ -759,68 +773,68 @@ Consumer / 通道状态机满足规则
 - 媒体清理按保留时间和容量控制，主配置默认 `7` 天、`10 GB`、每 `60` 分钟检查。告警和识别图片通过媒体引用接口协调清理。
 - API、摄像头、Worker 和 Consumer 的运行异常有独立异常通知配置，不等同于检测业务告警。
 
-## 9. 内置视觉子系统
+## 9. 保安行为与安检流程
 
-### 9.1 与七项主功能的关系
+### 9.1 保安行为：`guard_behavior`
 
-挂载入口：[api/mounted_apps.py](api/mounted_apps.py)。
-
-| 子系统 | AiVision 挂载前缀 | 内部结构 |
-| --- | --- | --- |
-| Guard Room | `/api/integrations/guard-room` | 站点/摄像头运行上下文、人体/制服/手机/车辆/姿态与行为规则 |
-| Security VLM | `/api/integrations/security-vlm` | 多摄像头采集、检测、会话抽帧及全局 VLM 调度 |
-
-两者的 API 随父应用托管，检测资源按其自身控制流程管理。它们不自动复用 `features` 的摄像头配置表、Consumer 和模型 Queue；排障时应先区分请求属于哪套流水线。
-
-### 9.2 Guard Room：保安行为检测
-
-当前实现的单路处理顺序：
+源码：[consumer.py](features/guard_behavior/consumer.py)、[runtime.py](features/guard_behavior/runtime.py)、[site_rules.py](features/guard_behavior/site_rules.py)。
 
 ```text
-人体检测与跟踪
-  → 制服分类 + 缓存/保持窗口，筛出保安
-  → 手机检测（默认保安区域裁图，也有全图测试模式）
-  → 车辆检测与车辆 ROI 过滤
-  → 姿态估计
-  → 行为时间规则
-  → 标注、状态、记录和告警
+平台最新帧 → 人体/手机检测 → ByteTrack → 制服分类与身份保持
+           → 手机关联、姿态、车辆感知 → GuardCameraSnapshot
+           → 保安室成员快照汇总 → 规则状态 → 统一告警 / 拼图
 ```
 
-主要规则：
+- 保安室（Site）保存事业部、成员顺序、规则参数和各类告警策略，摄像头本体复用 `ai_camera_config`。
+- `yolo_guard_person_phone` 和 `guard_uniform` 是必需模型；姿态和车辆模型是可选依赖，缺失时影响对应子规则的可用性。
+- 规则覆盖离岗、玩手机、趴睡和车辆出厂检查异常，分别维护状态并使用告警类型 `8–11`。
+- 规则同时考虑成员是否启用、摄像头是否在线、模型就绪和快照是否有效。不可用或未知不能直接当作“无人”。
+- 制服识别、跟踪保持、手机关联与姿态质量共同影响行为判断；其规则和阈值不等同于普通 `detect_phone`。
+- 当前画面用灰色框表示非保安人员，具体标注在 Consumer 中生成。
+- 配置保存在 MySQL，由 `/api/guard-behavior/sites/...` 管理；事务保存后刷新运行对象。若返回“配置已保存，但运行时刷新失败”，应重新读取配置和日志再处理。
 
-- **离岗/无人**：规则输入人员持续缺失达到时间阈值。默认裁图模式以筛选出的保安参与规则。
-- **手机**：关联到人员附近、头部附近或上半身的手机，使用滑动窗口命中、容忍间隔和累计时长确认。
-- **趴睡**：结合低运动量、低头姿态或人体框高度比例，累计候选帧并按处理 FPS 换算时间。
-- **车辆未值守**：维护车辆出现事件，记录是否有保安靠近；车辆消失超过遮挡容忍时间后，结合离开方向等条件判断本次事件。
+相关文件：`schema.py/orm.py/service.py` 管配置与事务，`behavior.py` 管单路行为，`site_rules.py` 管多路规则，`vehicle_episode.py` 管车辆事件。旧独立 YAML、RTSPReader 和子应用生命周期已不属于当前链路。
 
-手机裁图还过滤尺寸/面积比例过大的疑似平板目标。制服筛选和姿态质量会影响后续规则，Guard Room 的阈值和行为时间逻辑与主功能 `detect_phone` 并不相同。
+### 9.2 安检流程：`security_inspection`
 
-参考：[子系统 README](integrations/guard_room/README.md)、[runtime.py](integrations/guard_room/src/runtime.py)、[behavior.py](integrations/guard_room/src/behavior.py)、[vehicle_behavior.py](integrations/guard_room/src/vehicle_behavior.py)。
-
-### 9.3 Security VLM：安检流程合规
-
-该子系统先从连续视频中筛出有意义的安检会话，再调用视觉语言模型分析关键帧。
+源码：[consumer.py](features/security_inspection/consumer.py)、[sessions.py](features/security_inspection/sessions.py)、[runtime.py](features/security_inspection/runtime.py)、[vlm.py](features/security_inspection/vlm.py)。
 
 ```text
-每台摄像头：capture_worker → detector_worker → session_worker
-                                      ↓
-                     按摄像头/事业部隔离的待处理会话
-                                      ↓
-                       全局 vlm_worker 公平调度
-                                      ↓
-                 关键帧 → Qwen-VL → JSON 判定/历史/统计
+平台最新帧 → 共享 yolo_human → 摄像头独立 ByteTrack
+           → 命名工位 ROI → 双人交互 session → JPEG 关键帧
+           → 按事业部/摄像头轮询的有界队列 → 千问 Chat Completions
+           → 严格校验 verdict → MySQL session 历史
+           → non_compliant 时提交统一告警与关键帧拼图
 ```
 
-- 采集进程通过 FrameHub 发布视频帧。
-- 检测进程使用 YOLO 和 ByteTrack 提供人员及跟踪信息。
-- 会话进程在安检 ROI 内判断交互、维护 session，并抽取关键帧。
-- 全局 VLM Worker 在各摄像头/事业部任务间调度，控制并发和预算，调用配置的 Qwen-VL 模型。
-- VLM 输入包含关键帧图像及提示词；返回结果经过结构解析，写入历史、统计和证据。API 错误、无关键帧、预算耗尽、解析失败分别保留错误状态。
-- 这里的模型调用会使用子系统配置的外部 VLM 服务，主功能的 YOLO/InsightFace 则在本地 Worker 推理。
+摄像头、开关、ROI、检测参数和告警配置复用公共 API。`staff_rois` 使用归一化坐标，单台摄像头最多 16 个工位，每个工位 3–64 个顶点；不同工位使用不同名称。配置更新、禁用、分辨率变化或推理失败时，会清理相关跟踪/会话，旧配置的异步结果不能继续产生新告警。
 
-Security VLM 使用自己的共享内存/原子状态文件、摄像头注册表和结果目录；其路径和 Worker 解释器由子系统配置决定。父 HTTP 应用就绪不代表安检 Worker 已开启。
+全局千问设置通过 `/api/security-inspection/settings` 存入数据库，主要默认值如下：
 
-参考：[子系统说明](integrations/security_vlm/readme.md)、[camera_runtime.py](integrations/security_vlm/src/camera_runtime.py)、[vlm_worker.py](integrations/security_vlm/src/vlm_worker.py)。
+| 字段 | 默认值 |
+| --- | --- |
+| `base_url` | `http://127.0.0.1:18100/v1` |
+| `model` | `fuda-qwen36-27b` |
+| `api_timeout_sec` / `queue_timeout_sec` | `45` / `60` 秒 |
+| `max_concurrent` / `queue_capacity` | `3` / `32` |
+| `max_tokens` / `temperature` | `2048` / `0.1` |
+| `image_max_side` / `image_jpeg_quality` | `960` / `85` |
+
+可选认证通过环境变量 `SECURITY_VLM_API_KEY` 提供，模型地址不允许携带用户名或密码。内部千问服务需独立可用，项目启动脚本不启动它。
+
+客户端先检查 `/models` 中是否存在配置的模型，再向 `/chat/completions` 提交关键帧和提示词。返回内容严格转换为 `InspectionVerdict`：
+
+```json
+{"compliant": false, "confidence": 0.95, "reason": "安检动作未覆盖要求区域"}
+```
+
+`compliant` 必须为布尔值，`confidence` 在 `[0, 1]` 内，`reason` 不得为空。解析器接受完整 JSON 代码块和空的 think 前缀，但不会从解释文本猜测结论；截断、拒绝、字段错误和非法 JSON 保留为错误。
+
+`InspectionRuntime` 使用后台线程执行网络调用，按部门和摄像头轮询调度。健康检查默认每 30 秒运行；连续判定失败 3 次或健康检查失败会开启熔断，按 5–60 秒退避检查恢复。接口重新可达后进入半开状态，须一次真实判定成功才恢复正常并发。
+
+历史状态为 `compliant`、`non_compliant`、`error`、`cancelled`。只有不合规结果触发类型 `12` 的业务告警，错误不会冒充不合规；各工位独立冷却。历史写入和网络请求均避免长时间占用摄像头状态锁。
+
+安检没有独立采集进程、FrameHub、外部 Worker Python 或旧版预算配置；原生 Consumer 随 Orchestrator 管理，通过摄像头/功能开关决定是否产生检测任务。
 
 ## 10. 数据存储与权限边界
 
@@ -832,6 +846,10 @@ Security VLM 使用自己的共享内存/原子状态文件、摄像头注册表
 | 各功能配置 | 各功能 `orm.py` | 按 `camera_id` 关联；算法参数、ROI 和功能启用状态 |
 | 物流通道与成员 | `ai_logistics_channel`、`ai_logistics_channel_camera` | 通道配置、成员关系和排序 |
 | 告警事件 | `ai_violation_image` | 功能/事业部/主体快照及证据引用 |
+| 报警处置 | `ai_alarm_disposition` | 状态、备注、处理人及最近 20 次历史 |
+| 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
+| 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
+| 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
 | 图片和视频 | `DATA_PATH` 及相关模块目录 | 数据库存引用，媒体文件落磁盘 |
@@ -846,16 +864,19 @@ Security VLM 使用自己的共享内存/原子状态文件、摄像头注册表
 
 | 代码 | 名称 |
 | --- | --- |
-| `general_electric` | 通用电气 |
-| `research_institute` | 福达新材院 |
-| `electronics_electrician` | 电子电工 |
+| `general_electric` | 通用电气事业部 |
+| `electronics_electrician` | 电子电工事业部 |
 | `electrical_components` | 电气部件事业部 |
-| `precious_metal_recycling` | 伟达公司 |
-| `haoda_company` | 皓达公司 |
+| `research_institute` | 福达新材院 |
+| `precious_metal_recycling` | 伟达子公司 |
+| `haoda_company` | 皓达子公司 |
+| `fulida_company` | 福力达子公司 |
 
-认证复用项目根目录的 [auth/auth.py](../auth/auth.py)。多数 `/api/` 请求需要有效登录身份，管理写操作使用相应管理员或业务权限检查。普通用户的摄像头、告警和运行状态按权限过滤；物流成员配置还需要通道成员访问校验。
+全部正式事业部共用九项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
 
-`/api/runtime/health` 是公开健康接口。`/api/public/alarms/...` 用于有签名和有效期校验的通知图片，不能据此认为全部告警媒体公开。统一后端与 AiVision 必须使用一致的认证部署配置。
+报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
+
+`/api/runtime/health`、登录和登出是公开接口；`/api/public/alarms/...` 的通知图片需签名及有效期校验，其余告警媒体仍需登录和授权。`AUTH_SECRET` 由运行环境提供，运维脚本从 `scripts/auth_secret` 注入。
 
 ### 10.3 数据迁移边界
 
@@ -870,8 +891,8 @@ Security VLM 使用自己的共享内存/原子状态文件、摄像头注册表
 ### 11.1 运行前提
 
 - 项目声明 Python `>=3.10,<3.12`，可使用现有 `aivision` 环境。
-- 安装主依赖、托管子系统所需依赖，准备可用的 MySQL、FFmpeg 和 ffprobe。
-- 准备本地 YOLO 和 InsightFace 模型，以及两个子系统各自需要的模型/配置。
+- 安装主依赖，准备可用的 MySQL、FFmpeg 和 ffprobe。
+- 准备本地 YOLO、制服、姿态和 InsightFace 模型；使用安检时准备可访问的内部千问服务。
 - `DATA_PATH` 必须可写；部署系统需要支持当前采集代码使用的进程和共享内存机制。
 
 **人脸模型的运行要求：**当前 `load_insightface_model()` 明确要求 `CUDAExecutionProvider`，并关闭静默 CPU fallback。仅安装 CPU ONNX Runtime 不能满足当前人脸 Worker 的运行方式。
@@ -887,21 +908,16 @@ cd /usr/zyy/Fuda_CVPreject_V3
 conda activate aivision
 
 python -m pip install -r AiVision/requirements.txt
-python -m pip install -r AiVision/integrations/security_vlm/requirements.txt
 
 # -n 保留已经存在的本机配置。复制后仍需修改占位值。
 cp -n AiVision/.env.example AiVision/.env
 cp -n AiVision/config/model_paths.example.yaml AiVision/config/model_paths.yaml
-cp -n AiVision/integrations/guard_room/config/config.example.yaml \
-  AiVision/integrations/guard_room/config/config.yaml
-cp -n AiVision/integrations/security_vlm/configs/config.example.yaml \
-  AiVision/integrations/security_vlm/configs/config.yaml
 
 ffmpeg -version
 ffprobe -version
 ```
 
-Guard Room 的依赖文件引用主服务依赖；Security VLM 增加 `dashscope` 等依赖。若子系统配置指定独立 Worker Python 解释器，需要在该解释器环境中安装它实际需要的依赖。上述基础安装命令不包含完整人脸 GPU 环境配置。
+保安行为和安检使用同一个 Python 环境；千问客户端使用 `requests`，无需旧版 `dashscope` 或独立 Worker 解释器。上述基础安装命令不包含完整人脸 GPU 环境配置。ByteTrack 相关依赖当前固定为 `ultralytics==8.4.124` 和 `lap==0.5.13`，以依赖声明为准。
 
 ### 11.3 关键环境配置
 
@@ -914,8 +930,11 @@ Guard Room 的依赖文件引用主服务依赖；Security VLM 增加 `dashscope
 | `DATA_PATH` | 必填，图片/视频等存储根目录 |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `7862` |
 | `MODEL_PATHS_CONFIG` | `config/model_paths.yaml`，相对 AiVision 目录 |
-| `GUARD_ROOM_CONFIG_PATH` | 可覆盖 Guard Room 默认配置文件路径 |
-| `SECURITY_VLM_CONFIG_PATH` | 可覆盖 Security VLM 默认配置文件路径 |
+| `AUTH_SECRET` | 至少 32 字符的认证密钥；运维脚本注入 |
+| `AUTH_TOKEN_EXPIRE_HOURS` | 登录有效期设置，模板为 `never` |
+| `PLATFORM_OWNER_EMPLOYEE_ID` | 访问审计等能力的所有者账号配置 |
+| `ACCESS_AUDIT_RETENTION_DAYS` | 访问审计保留天数，模板为 `90` |
+| `SECURITY_VLM_API_KEY` | 内部千问接口需要认证时配置 |
 | `OPENCV_NUM_THREADS` | 主进程 OpenCV 线程数，默认 `4` |
 | `WECHAT_ENABLE` / `HORN_ENABLE` | 全局通知渠道开关；还需配置具体功能/通道及设备 |
 | `WECHAT_CORP_ID/CORP_SECRET/AGENT_ID` | 企业微信配置 |
@@ -926,7 +945,7 @@ Guard Room 的依赖文件引用主服务依赖；Security VLM 增加 `dashscope
 
 主启动会访问数据库并 bootstrap；`SQL_ENABLE=false` 不能当作“完整主服务无需数据库”的启动模式。
 
-两个托管子系统默认配置文件都必须存在。模型、API Key、存储、Worker 解释器等需按模板里的字段填写，不能把 example 文件原样复制后就视为部署完成。
+主入口和人脸库 CLI 按源码位置加载 `AiVision/.env`，已注入环境变量优先。Settings 不再从当前工作目录读取 `.env`，启动预检也只检查 `AiVision/.env` 或已注入配置。模板端口与代码、运维脚本、前端默认代理统一为 `7862`；数据库、存储和权重占位值仍需填写。
 
 ### 11.4 正式启动与状态检查
 
@@ -952,13 +971,13 @@ python -m AiVision.main --host 127.0.0.1 --port 7863
 curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 ```
 
-健康响应中的 `ok` 当前表示“Orchestrator 已启动且至少一个逻辑模型就绪”，不等于所有模型、摄像头和托管子系统都正常。确认完整运行状态还要查看 `/api/runtime/status`、`/api/models` 和各功能/子系统状态。
+健康响应中的 `ok` 表示“Orchestrator 已启动且至少一个逻辑模型就绪”，不等于所有模型、摄像头或千问接口都正常。确认完整运行状态还要查看 `/api/runtime/status`、`/api/models` 和各功能状态。
 
 启动会使用实际摄像头、模型和通知配置。首次现场验证可先关闭业务通知渠道，确认画面、判定和归属后再开启所需渠道。
 
 ## 12. API 导航
 
-以下均是 **AiVision 自身的路径**。通过统一后端访问时还需遵循平台代理路径。字段和响应类型以对应路由和运行实例的 OpenAPI 为准。
+以下均是 AiVision 直接提供的路径，统一前端通过 Vite `/api` 代理访问，无额外子系统前缀。字段和响应类型以对应路由和运行实例的 OpenAPI 为准。
 
 ### 12.1 运行、摄像头、功能与模型
 
@@ -984,10 +1003,11 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | --- | --- | --- |
 | GET | `/api/alarms` | 告警列表 |
 | GET | `/api/alarms/{alarm_id}` | 告警详情 |
-| POST | `/api/alarms/access-check` | 批量检查告警访问权限 |
 | GET | `/api/alarms/{alarm_id}/image` | 告警图片 |
 | GET | `/api/alarms/{alarm_id}/video` | 告警视频 |
 | GET | `/api/alarms/statistics/summary` | 告警统计 |
+| GET / POST | `/api/alarm-dispositions` | 游标分页读取 / 更新处置 |
+| GET | `/api/alarm-dispositions/{alarm_id}` | 单条处置及历史 |
 | GET / PUT | `/api/exception-alert` | 系统异常通知配置 |
 | GET / POST | `/api/horns` | 喇叭列表 / 新建 |
 | GET / PATCH / DELETE | `/api/horns/{horn_id}` | 喇叭详情 / 修改 / 删除 |
@@ -1009,11 +1029,46 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | PUT | `/api/logistics-channels/{feature}/{channel_id}/cameras/order` | 成员排序 |
 | PUT / DELETE | `/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}` | 修改 / 移除成员 |
 | PUT | `/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/enabled` | 修改成员启用状态 |
-| GET / PUT | `/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/config` | 成员检测配置 |
+| GET / PUT | `/api/logistics-channels/{feature}/{channel_id}/cameras/{camera_id}/roi` | 成员 ROI |
 | GET | `/api/logistics-channels/{feature}/{channel_id}/status` | 通道实时状态 |
 | GET | `/api/logistics-channels/{feature}/{channel_id}/frame.jpg` | 通道拼接画面 |
 | GET | `/api/logistics-channels/{feature}/{channel_id}/alarms` | 通道告警 |
 | GET | `/api/logistics-channels/{feature}/{channel_id}/statistics` | 通道统计 |
+
+### 12.4 保安行为、安检与平台管理
+
+保安室接口前缀为 `/api/guard-behavior/sites`：
+
+| 方法 | 后缀 | 用途 |
+| --- | --- | --- |
+| GET / POST | 无 | 列表 / 创建保安室 |
+| GET / PATCH / DELETE | `/{site_id}` | 详情 / 修改 / 删除 |
+| GET / POST | `/{site_id}/cameras` | 成员列表 / 绑定平台摄像头 |
+| DELETE | `/{site_id}/cameras/{camera_id}` | 移除成员 |
+| PUT | `/{site_id}/cameras/order` | 排序 |
+| PUT | `/{site_id}/cameras/{camera_id}/enabled` | 成员启停 |
+| GET / PATCH | `/{site_id}/policy` | 规则参数 |
+| GET / PUT | `/{site_id}/cameras/{camera_id}/roi` | 车辆 ROI |
+| GET | `/{site_id}/alarm-policies` | 告警策略 |
+| PATCH | `/{site_id}/alarm-policies/{violation_type}` | 更新指定类型的策略 |
+| GET | `/{site_id}/status`、`/{site_id}/frame.jpg`、`/{site_id}/latest-alarm` | 运行状态、拼图和最新告警 |
+
+其他原生接口：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/security-inspection/history` | 按事业部及可选摄像头查询 session 历史 |
+| GET | `/api/security-inspection/status` | 处理器、队列与千问健康状态 |
+| GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局千问设置 |
+| GET | `/api/overview` | 平台、事业部、能力和摄像头总览 |
+| POST | `/api/auth/login`、`/api/auth/logout`、`/api/auth/password` | 登录、退出和改密 |
+| GET | `/api/auth/me` | 当前用户 |
+| GET / POST | `/api/admin/users` | 用户列表 / 创建 |
+| PATCH / DELETE | `/api/admin/users/{employee_id}` | 更新 / 删除用户 |
+| POST | `/api/admin/users/{employee_id}/reset-password` | 重置密码 |
+| GET | `/api/admin/access-audit` | 有权限的访问记录 |
+
+安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
 
 ## 13. 人脸库同步与特征生成
 
@@ -1069,40 +1124,22 @@ python -m AiVision.features.face_recognition.library.embedding
 
 ## 14. 验证、调参与故障定位
 
-### 14.1 验证层次
+### 14.1 当前验证入口
 
-1. **文档/静态检查**：链接、路径、配置字段与源码一致性。
-2. **单元测试**：ROI、几何跟踪、故障计时、通道状态、配置契约。
-3. **运行/API 测试**：进程生命周期、Queue、模型重载、鉴权和媒体接口，通常使用替身模型或临时数据。
-4. **现场验证**：真实摄像头、权重、GPU、数据库、设备、企微和 VLM；单元测试通过不能代替这一层。
+仓库已删除原有测试文件及 pytest 项目配置，历史文档里的 `AiVision/tests` 和其他旧测试目录不能作为当前可执行入口。现有验证按修改范围选择：
 
-文档改动检查，在项目根目录执行：
+1. 文档改动检查路径、链接、字段与源码，并执行 `git diff --check`。
+2. Python 改动进行语法检查和受影响模块的隔离验证，避免直接导入或启动整套服务连接现场资源。
+3. 在已准备的环境检查健康接口、登录后的业务 API 和配置保存结果。
+4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和千问，静态检查不能替代现场验证。
 
-```bash
-git diff --check -- AiVision/README.md
-```
-
-纯通道状态测试可独立运行：
+在项目根目录检查文档：
 
 ```bash
-python -m pytest -q -c AiVision/pyproject.toml \
-  AiVision/tests/test_logistics_channel_state.py
+git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 ```
 
-涉及主模块配置导入的测试，可显式覆盖为隔离环境，避免使用现场配置：
-
-```bash
-SQL_ENABLE=false \
-MYSQL_DB_URL=127.0.0.1 MYSQL_DB_PORT=3306 \
-MYSQL_DB_USER=test MYSQL_DB_PASSWORD=test MYSQL_DB_NAME=aivision_test \
-DATA_PATH=/tmp/aivision-readme-tests \
-python -m pytest -q -c AiVision/pyproject.toml \
-  AiVision/tests/test_consumer_roi.py \
-  AiVision/tests/test_dwell_inference_failure.py \
-  AiVision/tests/test_inference_outcomes.py
-```
-
-完整回归入口：`python -m pytest -q -c AiVision/pyproject.toml AiVision/tests`。完整测试应使用独立测试配置；涉及 MySQL 或特定依赖的用例可能需要额外环境，具体条件见测试文件。本节提供验证命令，不代表本文编写时已经执行所有业务测试。
+完整启动需要 MySQL；`SQL_ENABLE=false` 不会跳过主入口的数据库准备。文中接口和启动命令用于部署与排障，不代表本次文档更新已执行现场测试。
 
 ### 14.2 常见现象与定位入口
 
@@ -1123,8 +1160,9 @@ python -m pytest -q -c AiVision/pyproject.toml \
 | 有违规标注但没有通知 | 首次确认/计时、分发冷却、渠道开关、接收人、喇叭绑定和发送日志 |
 | 模型路径已保存但功能异常 | 查看 `reload.status` 和 Worker `runtime`，202 不代表加载成功 |
 | 告警视频暂不可用 | `pending` 是否仍收集后置帧，任务容量、FFmpeg 编码、磁盘权限和 `failed` 日志 |
-| 托管子应用启动失败 | 两个配置文件是否存在、实际解释器依赖、子系统自己的启动日志 |
-| Security VLM 持续 error | 会话关键帧、外部 API 配置、预算、响应解析及待处理任务状态 |
+| 保安行为规则不可用 | 保安室/成员开关、必需/可选模型、摄像头快照与规则状态 |
+| 安检持续 error | 工位关键帧、千问地址/模型、健康检查、熔断、响应字段和排队状态 |
+| 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
 ### 14.3 调参顺序
 
@@ -1144,14 +1182,14 @@ python -m pytest -q -c AiVision/pyproject.toml \
 
 1. 参考业务最接近的 `features/{package}`，定义独立 `schema.py`、`orm.py`、`consumer.py`、`spec.py`。
 2. 复用 `BaseFunctionConsumer` 的 ROI、帧管理、推理结果匹配和告警衔接；逗留类规则优先复用 `DwellDetectionConsumer`。
-3. 在 `features/registry.py` 显式登记 SPEC，保持业务标识稳定，明确模型、事业部和告警类型。
+3. 在 `features/registry.py` 显式登记 SPEC，保持业务标识稳定，明确必需/可选模型和告警类型。
 4. 需要新模型时，在 `inference/model_registry.py` 注册 Worker 和模型语义，在路径模板中增加本机路径项。
 5. 在服务层、Schema 和 ORM 中明确配置保存和默认值；已有数据库需要配套显式迁移。
 6. 涉及告警时同步检查 `alarms/types.py`、`alarms/validation.py`、权限和统计映射；注册 SPEC 并不自动完成所有跨模块接入。
 7. 测试正常检测、正常空结果、推理失败、配置更新、禁用/删除、状态过期和告警归属。
-8. 对接统一后端与前端时沿用现有同类功能的权限、接口和交互方式。
+8. 对接统一前端时沿用同类功能的事业部权限、接口和交互方式。
 
-普通规则保持在 Consumer；模型加载与执行保持在 Worker；HTTP 路由调用服务和运行对象。复杂的跨摄像头业务可参考物流通道，把成员管理、纯状态机、运行调度和画面合成分开。
+普通规则保持在 Consumer；模型加载与执行保持在 Worker；HTTP 路由调用服务和运行对象。复杂的跨摄像头业务可参考物流通道和保安室，把成员管理、纯状态机、运行调度和画面合成分开。
 
 ### 15.2 推荐阅读路径
 
@@ -1161,10 +1199,12 @@ python -m pytest -q -c AiVision/pyproject.toml \
 | 一帧图像怎样处理 | `cameras/runtime.py` → `cameras/frame_reader.py` → `features/_shared/consumer.py` |
 | 模型怎样共享和返回结果 | `inference/model_registry.py` → `inference/runtime_manager.py` → `inference/base_worker.py` → `workers/` |
 | 普通功能怎样新增或改配置 | `features/registry.py` → 目标功能 `spec.py/schema.py/orm.py` → `_shared/config_manager.py` |
-| 逗留时间怎样计算 | 目标 Consumer → `_shared/dwell_consumer.py` → `_shared/tracking.py` → 对应故障计时测试 |
-| 物流通道怎样联合判定 | `logistics_channel/consumer.py` → `state.py` → `runtime.py` → `compositor.py` |
+| 逗留时间怎样计算 | 目标 Consumer → `features/_shared/dwell_consumer.py` → `features/_shared/tracking.py` |
+| 物流通道怎样联合判定 | `features/logistics_channel/consumer.py` → 同目录 `state.py/runtime.py/compositor.py` |
 | 告警怎样保存与通知 | `alarms/dispatcher.py` → `records/service.py` → `evidence/evidence_recorder.py` → `notifications/` |
 | 人脸身份从何而来 | `library/sync.py` → `library/embedding.py` → `library/index.py` → `workers/face_recognizer.py` |
-| 两个子系统怎样接入 | `api/mounted_apps.py` → `integrations/guard_room/src/` / `integrations/security_vlm/src/` |
+| 保安室怎样汇总规则 | `features/guard_behavior/consumer.py` → 同目录 `state.py/site_rules.py/runtime.py` |
+| 安检怎样判定 | `features/security_inspection/consumer.py` → 同目录 `sessions.py/runtime.py/vlm.py` |
+| 账号与处置怎样接入 | `api/app.py` → `../auth/api.py`、`api/routes/alarm_dispositions.py` |
 
 以上目录和入口对应当前实现。历史设计文档、旧路径和过去的测试结果可用于追溯背景，当前运行行为应以这些源码入口与本机实际配置为准。
