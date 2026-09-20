@@ -1,79 +1,92 @@
 import { lazy, Suspense } from 'react'
-import { Camera, MousePointer2, SlidersHorizontal, Webhook } from 'lucide-react'
+import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, Webhook } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
-import { AgvPersonCheckForm } from '@/components/agv_person_check/AgvPersonCheckForm'
+import { AiVisionMonitor } from '@/components/AiVisionMonitor'
+import { AlarmPushConfig } from '@/components/AlarmPushConfig'
+import { FeatureCameraManager } from '@/components/FeatureCameraManager'
+import { AgvDetectionParameters, AgvHttpConfig } from '@/components/agv_person_check/AgvPersonCheckForm'
+import { AGV_FEATURE } from '@/components/agv_person_check/config'
 import { useAgvPersonCheckConfig } from '@/components/agv_person_check/useAgvPersonCheckConfig'
-import {
-  DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader,
-  DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar,
-} from '@/components/detection/DetectionConfigUi'
+import { DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
-import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
+import { FeatureConfigGate } from '@/components/detection/FeatureConfigGate'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { normalizeFeatureAlarmConfig } from '@/lib/alarm-config'
 
 const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })))
+const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })))
 
 export function AgvPersonCheckSection({ department }: { department: DepartmentId }) {
   const { isAdmin } = useAuth()
-  const { cameras, cameraKey, form, loading, saving, message, updateForm, save, reload, selectCamera } = useAgvPersonCheckConfig(department, isAdmin)
-  const camera = cameras.find((item) => item.shm_name === cameraKey)
+  const { cameras, enabledCameras, cameraKey, form, loading, saving, message, updateForm, save, reload, selectCamera } = useAgvPersonCheckConfig(department, isAdmin)
   const readOnly = !isAdmin || loading || saving || !form
+  const saveBar = <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={readOnly}
+    onReload={() => void reload()} onSave={save} />
 
   return (
-    <div className="min-h-[calc(100vh-7rem)] space-y-5 rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
-      <DetectionPageHeader title="AGV无人运货检测" subtitle="配置指定摄像头的 ROI、多帧人体检测与 AGV HTTP 通信。"
-        departmentLabel={DEPARTMENT_LABELS[department]} configurationOnly />
-      <Card className={DETECTION_CONFIG_CARD_CLASS}>
-        <DetectionConfigCardHeader icon={Camera} tone="blue" title="摄像头与功能开关"
-          description="选择当前事业部的摄像头，填写通信返回值后保存并启用检测。"
-          actions={<Badge variant="outline">{isAdmin ? '管理员可编辑' : '当前账号只读'}</Badge>} />
-        <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="agv-camera">摄像头</Label>
-            <Select value={cameraKey} onValueChange={selectCamera} disabled={loading || saving || cameras.length === 0}>
-              <SelectTrigger id="agv-camera" className="w-full"><SelectValue placeholder={loading ? '正在读取摄像头' : '选择摄像头'} /></SelectTrigger>
-              <SelectContent>{cameras.map((item) => <SelectItem key={item.camera_id} value={item.shm_name}>
-                {item.name}{item.enabled ? '' : '（摄像头已关闭）'}
-              </SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-            <div className="space-y-1">
-              <Label htmlFor="agv-enable">启用 AGV 检测</Label>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {camera && !camera.enabled ? '摄像头已关闭，启用检测前请先在平台总览开启。' : '开关随配置一起保存，检测由 AGV 的 HTTP 请求触发。'}
-              </p>
-            </div>
-            <Switch id="agv-enable" checked={form?.enable ?? false}
-              disabled={readOnly || (!camera?.enabled && !form?.enable)}
-              onCheckedChange={(enable) => updateForm((current) => ({ ...current, enable }))} />
-          </div>
-        </DetectionConfigCardContent>
-      </Card>
-
-      {form && <Tabs defaultValue="params" className="space-y-5">
-        <DetectionConfigTabsList className="grid-cols-3 sm:grid-cols-3 lg:grid-cols-3">
-          <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
-          <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
-          <DetectionConfigTab value="http" icon={Webhook}>HTTP 通信</DetectionConfigTab>
-        </DetectionConfigTabsList>
-        <AgvPersonCheckForm form={form} disabled={readOnly} onChange={updateForm} />
-        <TabsContent value="roi" className="mt-0">
-          <Suspense fallback={<p role="status" className="p-5 text-sm text-slate-500">正在加载 ROI 编辑器...</p>}>
-            <AiVisionRoiEditor key={cameraKey} title="AGV 人体检测 ROI 绘制" cameraKey={cameraKey} roiJson={form.roiJson}
-              disabled={readOnly} saving={saving} message={message}
-              onChange={(roiJson) => updateForm((current) => ({ ...current, roiJson }))} onSave={save} />
-          </Suspense>
+    <div className="min-h-[calc(100vh-7rem)] rounded-3xl bg-[#F3F5FA] p-4 dark:bg-slate-950 dark:text-slate-100 sm:p-5 lg:p-6">
+      <Tabs defaultValue="monitor" className="space-y-5">
+        <DetectionPageHeader title="AGV无人运货检测" subtitle="实时查看摄像头画面；收到 HTTP 请求后检测，返回结果后结束本次检测。"
+          departmentLabel={DEPARTMENT_LABELS[department]} />
+        <TabsContent value="monitor" className="mt-0 space-y-5">
+          <AiVisionMonitor title="AGV无人运货检测监控" feature={AGV_FEATURE} department={department} presentation="feature-dashboard" rawPreview />
         </TabsContent>
-      </Tabs>}
-      <div role="status" aria-live="polite">
-        <DetectionSaveBar message={message} loading={loading} saving={saving} disabled={readOnly} onReload={reload} onSave={save} />
-      </div>
+        <TabsContent value="config" className="mt-0 space-y-6">
+          <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-7" tabs={<>
+            <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
+            <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
+            <DetectionConfigTab value="http" icon={Webhook}>HTTP 通信</DetectionConfigTab>
+            <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
+            <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
+            <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
+          </>}>
+            {!form && <p role="status" className="text-sm text-slate-500 dark:text-slate-400">{message}</p>}
+            <TabsContent value="camera" className="mt-0 space-y-6">
+              <FeatureCameraManager cameras={cameras} feature={AGV_FEATURE} department={department} currentCameraName={cameraKey}
+                disabled={!isAdmin || loading || saving} onSelectCamera={selectCamera} onCamerasChanged={reload} onConfigCopied={reload} />
+            </TabsContent>
+            <TabsContent value="params" className="mt-0 space-y-6">
+              <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>
+                {form && <AgvDetectionParameters form={form} disabled={readOnly} onChange={updateForm}
+                  cameras={enabledCameras} cameraKey={cameraKey} onSelectCamera={selectCamera} />}
+                {saveBar}
+              </FeatureConfigGate>
+            </TabsContent>
+            <TabsContent value="http" className="mt-0 space-y-6">
+              <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>
+                {form && <AgvHttpConfig form={form} disabled={readOnly} onChange={updateForm} />}
+                {saveBar}
+              </FeatureConfigGate>
+            </TabsContent>
+            <TabsContent value="roi" className="mt-0 space-y-6">
+              <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>
+                {form && <Suspense fallback={<p role="status">正在加载 ROI 编辑器...</p>}>
+                  <AiVisionRoiEditor key={cameraKey} title="AGV 人体检测 ROI 绘制" cameraKey={cameraKey} roiJson={form.roiJson}
+                    disabled={readOnly} saving={saving} message={message}
+                    onChange={(roiJson) => updateForm((current) => ({ ...current, roiJson }))} onSave={save} />
+                </Suspense>}
+              </FeatureConfigGate>
+            </TabsContent>
+            <TabsContent value="model" className="mt-0 space-y-6">
+              <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>
+                <Suspense fallback={<p role="status">正在加载模型配置...</p>}>
+                  <AiVisionModelConfig requiredModels={['yolo_human']} />
+                </Suspense>
+              </FeatureConfigGate>
+            </TabsContent>
+            <TabsContent value="alarm" className="mt-0 space-y-6">
+              <FeatureConfigGate cameraKey={cameraKey} disabled={readOnly}>
+                {form && <AlarmPushConfig alarmInterval={form.alarmInterval} alarm={form.alarm} disabled={readOnly}
+                  saving={saving} message={message} onSave={save}
+                  onAlarmIntervalChange={(alarmInterval) => updateForm((current) => ({ ...current, alarmInterval }))}
+                  onChange={(alarm) => updateForm((current) => ({ ...current, alarm: normalizeFeatureAlarmConfig(alarm) }))} />}
+              </FeatureConfigGate>
+            </TabsContent>
+          </DetectionConfigTabs>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

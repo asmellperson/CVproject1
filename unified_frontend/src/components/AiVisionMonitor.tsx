@@ -35,12 +35,13 @@ type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
+  rawPreview?: boolean
   presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity'
 }
 
 const FRAME_REFRESH_MS = 200
 
-export function AiVisionMonitor({ title, feature, department, presentation = 'default' }: AiVisionMonitorProps) {
+export function AiVisionMonitor({ title, feature, department, presentation = 'default', rawPreview = false }: AiVisionMonitorProps) {
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
@@ -177,7 +178,8 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       requestTimeoutId = scheduleFrameRequestAbort(controller, FRAME_REQUEST_TIMEOUT_MS)
       try {
         const response = await fetch(
-          buildAiVisionPreviewFrameUrl(selectedCamera, feature, Date.now()),
+          // 请求触发型检测使用实时原始画面，预览不依赖推理任务或上次检测帧。
+          buildAiVisionPreviewFrameUrl(selectedCamera, rawPreview ? '' : feature, Date.now()),
           { cache: 'no-store', credentials: 'include', signal: controller.signal },
         )
         if (response.status === 401) {
@@ -228,7 +230,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       if (requestTimeoutId) clearTimeout(requestTimeoutId)
       revokeFrameUrl()
     }
-  }, [feature, isPageVisible, revokeFrameUrl, selectedCamera])
+  }, [feature, isPageVisible, rawPreview, revokeFrameUrl, selectedCamera])
 
   const frameContent = (
     <>

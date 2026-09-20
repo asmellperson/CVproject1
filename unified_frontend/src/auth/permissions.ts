@@ -37,7 +37,7 @@ export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'face-detection': ['detect_face'], 'face-recognition': ['recognize_face'],
   'human-detection': ['detect_human'], 'logistics-single-person': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
-  'agv-person-check': [],
+  'agv-person-check': ['agv_person_check'],
 }
 export const DETECTION_EVENT_TYPES = Object.values(alarmEventTypesByPage).flat()
 const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management'])

@@ -490,6 +490,13 @@ CREATE TABLE ai_camera_config_agv_person_check (
 	inference_timeout_seconds FLOAT NOT NULL,
 	frame_max_age_seconds FLOAT NOT NULL,
 	http JSON NOT NULL,
+	alarm_interval FLOAT COMMENT '告警间隔(秒)',
+	sql_enable BOOL COMMENT 'SQL告警启用',
+	horn_enable BOOL COMMENT '喇叭告警启用',
+	horn_id INTEGER COMMENT '喇叭设备ID',
+	horn_event_id INTEGER COMMENT '告警音ID',
+	wechat_enable BOOL COMMENT '微信告警启用',
+	wechat_user VARCHAR(255) COMMENT '微信用户列表',
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	enable BOOL COMMENT '是否启用',
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -497,6 +504,7 @@ CREATE TABLE ai_camera_config_agv_person_check (
 	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
 	PRIMARY KEY (id),
 	CONSTRAINT ck_agv_person_check_sample_count CHECK (sample_count >= 2 AND sample_count <= 30),
+	FOREIGN KEY(horn_id) REFERENCES ai_horn_config (id) ON DELETE SET NULL,
 	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
 );
 

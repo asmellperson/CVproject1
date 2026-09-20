@@ -1,6 +1,6 @@
 import type { AlarmEvent } from '@/lib/api'
 
-export type FeatureDashboardKey = 'blocks' | 'detect_face' | 'detect_phone' | 'detect_door'
+export type FeatureDashboardKey = 'blocks' | 'detect_face' | 'detect_phone' | 'detect_door' | 'agv_person_check'
 
 export type FeatureDashboardProfile = {
   pageTitle: string
@@ -12,6 +12,14 @@ export type FeatureDashboardProfile = {
 }
 
 export const FEATURE_DASHBOARD_PROFILES: Record<FeatureDashboardKey, FeatureDashboardProfile> = {
+  agv_person_check: {
+    pageTitle: 'AGV无人运货检测监控与配置',
+    pageSubtitle: 'HTTP 请求触发人体检测',
+    videoTitle: 'AGV无人运货检测监控',
+    metricLabel: '采样帧数',
+    eventLabel: 'AGV有人告警',
+    statusSubject: '检测区域',
+  },
   blocks: {
     pageTitle: '区域入侵检测监控与配置',
     pageSubtitle: '警戒区域实时监控面板',

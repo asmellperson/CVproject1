@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DepartmentId } from '@/auth/permissions'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
-import { notifyPlatformCamerasChanged } from '@/lib/camera-events'
+import { EMPTY_FEATURE_CAMERA_MESSAGE, getEnabledFeatureCameras, selectFeatureCamera } from '@/lib/feature-cameras'
 import { AGV_FEATURE, toAgvConfig, toAgvForm, type AgvConfig, type AgvForm } from './config'
 
 type Editor = { cameraKey: string; config: AgvConfig; form: AgvForm }
@@ -25,7 +25,7 @@ export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boole
     setEditor(null)
     if (!key) {
       setLoading(false)
-      setMessage('当前事业部暂无摄像头，请先在平台总览添加摄像头。')
+      setMessage(EMPTY_FEATURE_CAMERA_MESSAGE)
       return
     }
     setLoading(true)
@@ -43,20 +43,19 @@ export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boole
     }
   }, [])
 
-  const loadCameras = useCallback(async () => {
+  const loadCameras = useCallback(async (preferredCamera?: string) => {
     if (busy.current) return
     const request = ++cameraRequest.current
     configRequest.current += 1
     setLoading(true)
     setEditor(null)
+    setCameraKey('')
     try {
       const items = (await getAiVisionCameras(department)).filter((camera) => camera.department === department)
       if (request !== cameraRequest.current) return
       setCameras(items)
-      // 未启用 AGV 的摄像头也能先填写协议参数，再随完整配置一起启用。
-      const next = items.find((camera) => camera.shm_name === selectedCamera.current)
-        ?? items.find((camera) => camera.functions[AGV_FEATURE]) ?? items[0]
-      await loadConfig(next?.shm_name ?? '')
+      const next = selectFeatureCamera(items, AGV_FEATURE, department, preferredCamera ?? selectedCamera.current)
+      await loadConfig(next)
     } catch (error) {
       if (request !== cameraRequest.current) return
       setCameras([])
@@ -101,14 +100,9 @@ export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boole
     setMessage('正在保存 AGV 检测配置...')
     let committed = false
     try {
-      const saved = await saveAiVisionFeatureConfig(AGV_FEATURE, key, nextConfig)
+      await saveAiVisionFeatureConfig(AGV_FEATURE, key, nextConfig)
       committed = true
-      notifyPlatformCamerasChanged()
       if (request !== configRequest.current) return
-      const config = saved.config as AgvConfig
-      setEditor({ cameraKey: key, config, form: toAgvForm(config) })
-      setCameras((items) => items.map((camera) => camera.shm_name === key
-        ? { ...camera, functions: { ...camera.functions, [AGV_FEATURE]: config.enable } } : camera))
       const reloaded = await getAiVisionFeatureConfig(AGV_FEATURE, key)
       if (request !== configRequest.current) return
       const confirmed = reloaded.config as AgvConfig
@@ -124,6 +118,9 @@ export function useAgvPersonCheckConfig(department: DepartmentId, isAdmin: boole
     }
   }
 
-  return { cameras, cameraKey, form: editor?.form ?? null, loading, saving, message, updateForm, save,
-    reload: loadCameras, selectCamera: (key: string) => { if (!busy.current) void loadConfig(key) } }
+  const enabledCameras = getEnabledFeatureCameras(cameras, AGV_FEATURE, department)
+  return { cameras, enabledCameras, cameraKey, form: editor?.form ?? null, loading, saving, message, updateForm, save,
+    reload: loadCameras, selectCamera: (key: string) => {
+      if (!busy.current && (!key || enabledCameras.some((camera) => camera.shm_name === key))) void loadConfig(key)
+    } }
 }

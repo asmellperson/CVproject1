@@ -297,6 +297,7 @@ db_backups/
 **/db_backups/
 *.sql
 !AiVision/migrations/schema_mysql.sql
+!AiVision/migrations/agv_person_check_alarms_20260920.sql
 
 # ======================
 # Real local config / users / secrets

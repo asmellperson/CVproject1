@@ -12,4 +12,5 @@ SPEC = FeatureSpec(
     orm_class=AgvPersonCheckConfigORM,
     config_schema=AgvPersonCheckConfigSchema,
     required_models=("yolo_human",),
+    alarm_types=(13,),
 )

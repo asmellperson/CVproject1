@@ -1,14 +1,14 @@
 """按摄像头保存 AGV 检测及 HTTP 通信配置。"""
 from sqlalchemy import JSON, CheckConstraint, Column, Float, Integer
 
-from AiVision.features._shared.orm import CameraFeatureConfigBase
+from AiVision.features._shared.orm import FeatureConfigBase
 
 from .schema import AgvPersonCheckValueSchema, HttpConfigSchema
 
 _DEFAULTS = AgvPersonCheckValueSchema().model_dump()
 
 
-class AgvPersonCheckConfigORM(CameraFeatureConfigBase):
+class AgvPersonCheckConfigORM(FeatureConfigBase):
     __tablename__ = "ai_camera_config_agv_person_check"
     __table_args__ = (
         CheckConstraint("sample_count >= 2 AND sample_count <= 30", name="ck_agv_person_check_sample_count"),

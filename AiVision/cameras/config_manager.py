@@ -186,7 +186,7 @@ class CameraConfigManager:
             )
             # 只将摄像头开启当前功能
             config.enable = True
-            # AGV 等功能启用前有必填协议参数，必须在事务内校验，避免写入不可运行的配置。
+            # 在事务内校验新建的功能配置，失败时回滚摄像头及其配置。
             spec.config_schema.model_validate(config.to_config_dict())
             session.flush()
             return cam.id, cam.shm_name

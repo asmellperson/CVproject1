@@ -2,6 +2,7 @@
 import time
 
 from AiVision.cameras.frame_reader import frame_reader_registry
+from AiVision.core.logger import logger
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.inference.contracts import INFERENCE_STATUS_OK
 
@@ -27,7 +28,15 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
 
     def _run(self):
         # 保留统一生命周期和结果路由，只把连续检测改为 HTTP 请求驱动。
-        self.service.run(self._sample, lambda: self.running)
+        self.service.run(self._sample, lambda: self.running, self._on_result)
+
+    def _on_result(self, request: CheckRequest, result: PersonCheckResult, frame):
+        if not result.person_present:
+            return
+        try:
+            self._handle_alarm(request.camera_id, (True, result), frame, config=request.runtime_config)
+        except Exception:  # noqa: BLE001 -- 推送异常单独记录，不改写已完成的人体判定。
+            logger.exception(f"[agv_person_check] 有人告警失败 request_id={request.request_id}")
 
     def stop(self):
         super().stop()
@@ -77,7 +86,7 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
         )
         if outcome["status"] != INFERENCE_STATUS_OK:
             raise PersonCheckError("inference_failed", "人体推理未成功，不能判定无人")
-        # yolo_human 已由模型定义限制为人体类别；本功能不产生业务告警。
+        # yolo_human 已限制为人体类别；告警由最终判定统一触发。
         return False, PersonCheckResult(person_present=bool(outcome["detections"]))
 
     def post_process(self, camera_id: int, result: tuple):

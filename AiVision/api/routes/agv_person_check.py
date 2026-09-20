@@ -15,7 +15,7 @@ from AiVision.features.agv_person_check.service import CheckRequest, PersonCheck
 
 router = APIRouter(prefix="/api/public/agv", tags=["AGV无人运货检测"])
 _ERROR_STATUS = {"busy": 409, "not_found": 404, "cancelled": 409, "timeout": 504,
-                 "unavailable": 503, "inference_failed": 503}
+                 "unavailable": 503, "inference_failed": 503, "not_configured": 409}
 
 
 def get_agv_consumer(orchestrator: Annotated[Any, Depends(get_current_orchestrator)]) -> AgvPersonCheckConsumer:

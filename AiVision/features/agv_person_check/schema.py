@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from AiVision.features._shared.roi import NormalizedRoi
+from AiVision.features._shared.alarm_schema import AlarmConfigSchema
+from AiVision.features._shared.defaults import ALARM_INTERVAL
 
 TEMPLATE_VARIABLES = frozenset({"${result}", "${camera_key}", "${request_id}"})
 
@@ -24,6 +26,20 @@ class HttpConfigSchema(BaseModel):
     present_value: bool | int | float | str | None = None
     absent_value: bool | int | float | str | None = None
     timeout_seconds: float = Field(3.0, gt=0, le=10)
+
+    @model_validator(mode="after")
+    def validate_result_values(self):
+        if self.present_value is not None and self.absent_value is not None:
+            if json.dumps(self.present_value) == json.dumps(self.absent_value):
+                raise ValueError("有人返回值和无人返回值必须不同")
+        return self
+
+    def require_ready(self):
+        """先添加摄像头并配置参数；实际接收检测请求前必须完成通信配置。"""
+        if self.present_value is None or self.absent_value is None:
+            raise ValueError("请先在 HTTP 通信中配置有人返回值和无人返回值")
+        if self.mode == "callback" and not self.callback_url:
+            raise ValueError("请先在 HTTP 通信中配置回调 URL")
 
     @field_validator("callback_url")
     @classmethod
@@ -81,6 +97,7 @@ class AgvPersonCheckValueSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
+    alarm_interval: float = Field(ALARM_INTERVAL, gt=0)
     confidence_threshold: float = Field(0.5, ge=0, le=1)
     iou_threshold: float = Field(0.5, ge=0, le=1)
     sample_count: int = Field(3, ge=2, le=30, description="全部无人所需的不同帧数；任一帧有人即结束")
@@ -102,18 +119,7 @@ class AgvPersonCheckConfigSchema(BaseModel):
 
     enable: bool = False
     value: AgvPersonCheckValueSchema = Field(default_factory=AgvPersonCheckValueSchema)
-
-    @model_validator(mode="after")
-    def validate_enabled_protocol(self):
-        if self.enable:
-            http = self.value.http
-            if http.present_value is None or http.absent_value is None:
-                raise ValueError("启用前必须配置有人返回值和无人返回值")
-            if json.dumps(http.present_value) == json.dumps(http.absent_value):
-                raise ValueError("有人返回值和无人返回值必须不同")
-            if http.mode == "callback" and not http.callback_url:
-                raise ValueError("回调模式必须配置回调 URL")
-        return self
+    alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)
 
 
 class PersonCheckResult(BaseModel):

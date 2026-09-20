@@ -42,7 +42,7 @@ export const detectionNavItems: NavItem[] = [
   { id: 'human-detection', label: '人员违规逗留检测', icon: Clock3, description: '人员违规逗留检测监控与配置入口' },
   { id: 'logistics-single-person', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
   { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
-  { id: 'agv-person-check', label: 'AGV无人运货检测', icon: Truck, description: 'AGV 多帧人体检测、ROI 与 HTTP 通信配置' },
+  { id: 'agv-person-check', label: 'AGV无人运货检测', icon: Truck, description: '实时画面与 AGV 请求触发检测配置' },
 ]
 
 export const navGroups: NavGroup[] = [

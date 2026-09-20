@@ -61,6 +61,10 @@ class AgvPersonCheckService:
             config = AgvPersonCheckValueSchema.model_validate({
                 name: cfg[name] for name in AgvPersonCheckValueSchema.model_fields
             })
+            try:
+                config.http.require_ready()
+            except ValueError as exc:
+                raise PersonCheckError("not_configured", str(exc)) from exc
             request = CheckRequest(camera_id, camera_key, config, cfg)
             self._requests[camera_id] = request
             self._wake.set()
@@ -94,7 +98,7 @@ class AgvPersonCheckService:
         if not request.future.done():
             request.future.set_exception(error)
 
-    def run(self, sample: Callable, is_running: Callable[[], bool]):
+    def run(self, sample: Callable, is_running: Callable[[], bool], on_result: Callable):
         while is_running():
             self._wake.clear()
             with self._lock:
@@ -128,6 +132,10 @@ class AgvPersonCheckService:
                         # 一帧有人即可确认；无人必须完成整个采样窗口。
                         if result.person_present or request.sample_count >= request.config.sample_count:
                             request.future.set_result(result)
+                        else:
+                            continue
+                    # 判定完成后停止采样；报警使用本次快照，且不持有请求锁执行外部操作。
+                    on_result(request, result, frame)
                 except PersonCheckError as exc:
                     with self._lock:
                         self._fail(request, exc)

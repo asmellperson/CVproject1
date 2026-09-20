@@ -1,4 +1,5 @@
 import { parseNormalizedRoi, type NormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
+import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 
 export const AGV_FEATURE = 'agv_person_check'
 
@@ -7,7 +8,9 @@ type ResultValue = string | number | boolean | null
 
 export type AgvConfig = {
   enable: boolean
+  alarm: NormalizedFeatureAlarmConfig
   value: {
+    alarm_interval: number
     roi_pos: NormalizedRoi
     confidence_threshold: number
     iou_threshold: number
@@ -42,7 +45,8 @@ export const AGV_NUMBER_FIELDS = [
 type NumberField = typeof AGV_NUMBER_FIELDS[number]['key']
 
 export type AgvForm = {
-  enable: boolean
+  alarm: NormalizedFeatureAlarmConfig
+  alarmInterval: string
   roiJson: string
   parameters: Record<NumberField, string>
   http: Omit<AgvConfig['value']['http'], 'headers' | 'body_template' | 'present_value' | 'absent_value' | 'timeout_seconds'> & {
@@ -57,7 +61,8 @@ export type AgvForm = {
 export function toAgvForm(config: AgvConfig): AgvForm {
   const http = config.value.http
   return {
-    enable: config.enable,
+    alarm: config.alarm,
+    alarmInterval: String(config.value.alarm_interval),
     roiJson: JSON.stringify(config.value.roi_pos),
     parameters: Object.fromEntries(AGV_NUMBER_FIELDS.map(({ key }) => [key, String(config.value[key])])) as AgvForm['parameters'],
     http: {
@@ -110,10 +115,8 @@ export function toAgvConfig(form: AgvForm, current: AgvConfig): AgvConfig {
   }
   const presentValue = parseResult(form.http.present_value, '有人返回值')
   const absentValue = parseResult(form.http.absent_value, '无人返回值')
-  if (form.enable && (presentValue === null || absentValue === null)) throw new Error('启用前请填写有人返回值和无人返回值。')
-  if (form.enable && presentValue === absentValue) throw new Error('有人返回值和无人返回值必须不同。')
+  if (presentValue !== null && presentValue === absentValue) throw new Error('有人返回值和无人返回值必须不同。')
   const callbackUrl = form.http.callback_url.trim()
-  if (form.enable && form.http.mode === 'callback' && !callbackUrl) throw new Error('HTTP 回调模式必须填写回调 URL。')
   if (callbackUrl) {
     let url: URL
     try { url = new URL(callbackUrl) } catch { throw new Error('请填写有效的 HTTP/HTTPS 回调 URL。') }
@@ -125,10 +128,16 @@ export function toAgvConfig(form: AgvForm, current: AgvConfig): AgvConfig {
   if (!form.http.timeout_seconds.trim() || !Number.isFinite(timeout) || timeout <= 0 || timeout > 10) {
     throw new Error('回调超时必须大于 0 且不超过 10 秒。')
   }
+  const alarmInterval = Number(form.alarmInterval)
+  if (!form.alarmInterval.trim() || !Number.isFinite(alarmInterval) || alarmInterval <= 0) {
+    throw new Error('报警间隔必须大于 0 秒。')
+  }
   return {
-    enable: form.enable,
+    enable: current.enable,
+    alarm: form.alarm,
     value: {
       ...parameters,
+      alarm_interval: alarmInterval,
       roi_pos: parseNormalizedRoi(form.roiJson),
       http: {
         ...form.http,
