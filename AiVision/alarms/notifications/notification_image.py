@@ -9,7 +9,6 @@ import time
 import cv2
 from fastapi import HTTPException, Response
 
-from auth.auth import DEV_AUTH_SECRET
 from AiVision.core.settings import settings
 from AiVision.departments.department_registry import require_department
 
@@ -20,7 +19,7 @@ _THUMBNAIL_MAX_EDGE = 320
 def _signature(alarm_id: int, department: str, expires: int) -> str:
     # 复用部署脚本注入的共享认证密钥，但签名域独立，不能当 JWT 使用。
     secret = os.environ.get("AUTH_SECRET", "")
-    if secret == DEV_AUTH_SECRET or len(secret) < 32:
+    if len(secret) < 32:
         raise ValueError("人员报警通知缩略图要求配置至少 32 字符的 AUTH_SECRET")
     message = f"{_PURPOSE}:{alarm_id}:{department}:{expires}".encode()
     return hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()

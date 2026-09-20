@@ -12,6 +12,8 @@ from sqlalchemy.orm import sessionmaker
 
 from auth.auth import create_token
 from auth.user_store import UserStore
+from auth.orm import AuthUser
+from auth import auth
 from AiVision.alarms.records.orm import AiAlarmEvent
 
 alarms = importlib.import_module("AiVision.api.routes.alarms")
@@ -19,10 +21,12 @@ alarms = importlib.import_module("AiVision.api.routes.alarms")
 
 @pytest.fixture
 def alarm_api(monkeypatch, tmp_path):
-    monkeypatch.setenv("AUTH_USERS_DB", str(tmp_path / "auth.sqlite"))
     monkeypatch.setenv("AUTH_SECRET", "alarm-batch-tests-only-secret-value")
     users = {}
-    auth_store = UserStore(database_path=tmp_path / "auth.sqlite")
+    auth_engine = create_engine(f"sqlite:///{tmp_path / 'auth.sqlite'}")
+    AuthUser.__table__.create(auth_engine)
+    auth_store = UserStore(sessionmaker(bind=auth_engine))
+    monkeypatch.setattr(auth, "_user_store", auth_store)
     for key, departments in {
         "ge": ["general_electric"], "haoda": ["haoda_company"],
         "both": ["general_electric", "haoda_company"], "research": ["research_institute"],
@@ -55,6 +59,7 @@ def alarm_api(monkeypatch, tmp_path):
     yield SimpleNamespace(app=app, users=users, tokens={key: create_token(user) for key, user in users.items()},
                           statements=statements)
     engine.dispose()
+    auth_engine.dispose()
 
 
 @pytest.mark.parametrize("key,expected", [

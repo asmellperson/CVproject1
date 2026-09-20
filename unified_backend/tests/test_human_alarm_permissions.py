@@ -73,7 +73,6 @@ def test_public_notification_proxy_preserves_query_and_cache_headers(monkeypatch
     import httpx
     from fastapi.testclient import TestClient
     monkeypatch.setenv("UNIFIED_BACKEND_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("AUTH_USERS_DB", str(tmp_path / "auth.sqlite"))
     calls = []
     class FakeProxy:
         def __init__(self, *_args, **_kwargs):

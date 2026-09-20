@@ -414,7 +414,6 @@ def test_only_aivision_dispositions_are_visible_and_writable(tmp_path, user):
 def test_lifespan_releases_client_on_application_error(monkeypatch, tmp_path):
     async def scenario():
         monkeypatch.setenv("UNIFIED_BACKEND_DATA_DIR", str(tmp_path / "data"))
-        monkeypatch.setenv("AUTH_USERS_DB", str(tmp_path / "auth.sqlite"))
         app = backend.create_app()
         with pytest.raises(RuntimeError, match="test application failure"):
             async with app.router.lifespan_context(app):

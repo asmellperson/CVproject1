@@ -20,7 +20,6 @@ def isolated_environment(tmp_path):
         MYSQL_DB_URL="127.0.0.1", MYSQL_DB_PORT="1", MYSQL_DB_USER="alarm_device_package_test",
         MYSQL_DB_PASSWORD="test-only-unused", MYSQL_DB_NAME="alarm_device_package_test",
         AUTO_CREATE_DB="false", DATA_PATH=str(tmp_path / "media"),
-        AUTH_USERS_DB=str(tmp_path / "auth.sqlite"),
         UNIFIED_BACKEND_DATA_DIR=str(tmp_path / "backend"),
     )
     return env

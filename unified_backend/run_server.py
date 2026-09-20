@@ -9,11 +9,13 @@ import uvicorn
 from dotenv import load_dotenv
 
 
+_AIVISION_ENV_FILE = Path(__file__).resolve().parents[1] / "AiVision" / ".env"
 _ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 
 def _load_env_file() -> None:
-    """加载 unified_backend/.env，保留已存在的系统环境变量。"""
+    """先加载 AiVision 共享数据库和认证配置，保留系统环境变量优先级。"""
+    load_dotenv(dotenv_path=_AIVISION_ENV_FILE, override=False)
     load_dotenv(dotenv_path=_ENV_FILE, override=False)
 
 def main() -> None:

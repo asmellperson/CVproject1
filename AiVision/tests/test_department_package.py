@@ -46,7 +46,7 @@ def test_fresh_imports_share_department_definitions_and_preserve_lazy_dependenci
                 stack.enter_context(patch(target, side_effect=forbid(target)))
             entry = sys.argv[1]
             importlib.import_module(entry)
-            if entry in ("AiVision.departments", "AiVision.departments.department_registry", "auth.user_store"):
+            if entry in ("AiVision.departments", "AiVision.departments.department_registry"):
                 assert "AiVision.features" not in sys.modules
                 assert "AiVision.core.db" not in sys.modules
                 assert "AiVision.departments.service" not in sys.modules

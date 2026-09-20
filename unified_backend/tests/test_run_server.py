@@ -8,6 +8,20 @@ from unittest.mock import Mock
 from unified_backend import run_server
 
 
+def test_shared_config_precedes_gateway_config_and_system_wins(monkeypatch, tmp_path):
+    shared = tmp_path / "aivision.env"
+    gateway = tmp_path / "gateway.env"
+    shared.write_text("AUTH_SECRET=shared\nMYSQL_DB_NAME=shared-db\n", encoding="utf-8")
+    gateway.write_text("AUTH_SECRET=gateway\nMYSQL_DB_NAME=gateway-db\n", encoding="utf-8")
+    monkeypatch.setattr(run_server, "_AIVISION_ENV_FILE", shared)
+    monkeypatch.setattr(run_server, "_ENV_FILE", gateway)
+    monkeypatch.setenv("AUTH_SECRET", "system")
+    monkeypatch.delenv("MYSQL_DB_NAME", raising=False)
+    run_server._load_env_file()
+    assert os.environ["AUTH_SECRET"] == "system"
+    assert os.environ["MYSQL_DB_NAME"] == "shared-db"
+
+
 def test_load_env_file_uses_backend_env_without_overriding_system_values(
     monkeypatch,
     tmp_path,

@@ -73,7 +73,7 @@ def test_feature_specs_declare_canonical_alarm_types():
     assert {name: spec.alarm_types for name, spec in features.all_specs().items()} == {
         "blocks": (1,), "detect_door": (2,), "detect_phone": (3,), "detect_face": (4,),
         "detect_human": (5,), "detect_logistics_single_person": (6,), "recognize_face": (7,),
-        "guard_behavior": (8, 9, 10, 11),
+        "guard_behavior": (8, 9, 10, 11), "security_inspection": (12,),
     }
     for spec in features.all_specs().values():
         assert isinstance(spec.alarm_types, tuple)
@@ -87,7 +87,7 @@ def test_feature_specs_declare_canonical_alarm_types():
     ([1], "必须是 tuple"), ({1}, "必须是 tuple"), (None, "必须是 tuple"),
     ((1, 1), "重复报警类型"), ((0,), "正整数"), ((-1,), "正整数"),
     ((True,), "正整数"), ((False,), "正整数"), ((1.0,), "正整数"),
-    (("1",), "正整数"), ((None,), "正整数"), ((12,), "未注册报警类型"),
+    (("1",), "正整数"), ((None,), "正整数"), ((13,), "未注册报警类型"),
 ])
 def test_feature_registry_rejects_invalid_alarm_types(alarm_types, message):
     before = features.all_specs()
@@ -135,7 +135,12 @@ def test_schema_verification_leaves_historical_department_tables_untouched(monke
 
 
 def test_user_store_accepts_only_registered_departments(tmp_path):
-    store = UserStore(database_path=tmp_path / "users.db")
+    from auth.orm import AuthUser
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'users.db'}")
+    AuthUser.__table__.create(engine)
+    store = UserStore(sessionmaker(bind=engine))
     for index, name in enumerate(DEPARTMENT_SPECS):
         user = store.create_user(employee_id=str(index), name=name, role="viewer", departments=[name], password_hash="test-hash")
         assert user["departments"] == [name]

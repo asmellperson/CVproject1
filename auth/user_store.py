@@ -1,50 +1,50 @@
-"""SQLite 用户存储和用户数据读写。"""
+"""共享 MySQL 中的用户读写与账号约束。"""
+
 from __future__ import annotations
 
 import base64
 import hashlib
-import json
-import os
 import secrets
-import sqlite3                                # Python自带的SQLite操作库 
-import threading
-from contextlib import closing
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
-from AiVision.departments.department_registry import require_department
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-# 两级角色权限
+from AiVision.core.db import get_session
+from AiVision.departments.department_registry import require_department
+from auth.orm import AuthUser
+
 ALLOWED_ROLES = {"admin", "viewer"}
 PASSWORD_HASH_ITERATIONS = 260_000
 
-# ========= 四个异常类 ==========
+
 class UserStoreError(RuntimeError):
-    """总异常"""
+    """账号操作失败。"""
+
 
 class UserValidationError(UserStoreError):
-    """用户提交的数据本身不合法"""
+    """用户提交的数据不合法。"""
+
 
 class UserConflictError(UserStoreError):
-    """数据格式没问题，但和已有业务状态冲突"""
+    """操作与现有账号状态冲突。"""
+
 
 class UserNotFoundError(UserStoreError):
-    """目标用户不存在"""
+    """目标用户不存在。"""
 
-def default_database_path() -> Path:
-    """SQLite数据库的路径"""
-    raw = os.getenv("AUTH_USERS_DB")
-    if raw:
-        return Path(raw)
-    return Path(__file__).resolve().parents[1] / "runtime" / "auth" / "auth_users.db"
 
-# ================ 数据合法性 ============================
-def _normalize_required(value: object, label: str) -> str:
+def _normalize_required(value: object, label: str, max_length: int) -> str:
     """清洗数据"""
     normalized = str(value or "").strip()
     if not normalized:
         raise UserValidationError(f"{label}不能为空")
+    if len(normalized) > max_length:
+        raise UserValidationError(f"{label}不能超过 {max_length} 个字符")
     return normalized
+
 
 def _normalize_role_departments(
     role: object,
@@ -85,24 +85,10 @@ def _normalize_role_departments(
         raise UserValidationError("普通用户必须至少选择一个有效事业部")
     return normalized_role, normalized_departments
 
-# ================= 部门列表存储 =====================
-def _encode_departments(departments: list[str]) -> str:
-    """把Python的部门列表转换成SQLite可以保存的字符串"""
-    # Python list -> json.dumps() -> 字符串 -> SQLite TEXT
-    return json.dumps(departments, ensure_ascii=False, separators=(",", ":"))
-
-def _decode_departments(value: object) -> list[str]:
-    """把数据库里的departments TEXT重新变成Python列表"""
-    try:
-        decoded = json.loads(value) if isinstance(value, str) else value
-    except json.JSONDecodeError:
-        decoded = None
-    if isinstance(decoded, list) and decoded:
-        return [str(item) for item in decoded]
-    return []
 
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
 
 def hash_password(
     password: str,
@@ -120,138 +106,74 @@ def hash_password(
     )
     return f"pbkdf2_sha256${iterations}${salt}${_b64url_encode(digest)}"
 
-def _public_user(row: sqlite3.Row) -> dict[str, Any]:
-    """把SQLite查询出来的一行Row，转换成普通Python字典"""
+
+def _public_user(row: AuthUser) -> dict[str, Any]:
     return {
-        "employee_id": row["employee_id"],
-        "name": row["name"],
-        "role": row["role"],
-        "departments": _decode_departments(row["departments"]),
-        "enabled": bool(row["enabled"]),                  # 返回enabled，但是不返回password_hash
-        "auth_version": int(row["auth_version"]),
+        "employee_id": row.employee_id,
+        "name": row.name,
+        "role": row.role,
+        "departments": row.departments,
+        "enabled": row.enabled,
+        "auth_version": row.auth_version,
     }
 
-def _user_record(row: sqlite3.Row) -> dict[str, Any]:
-    """补回password_hash"""
-    item = _public_user(row)
-    item["password_hash"] = row["password_hash"]
-    return item
+
+def _user_record(row: AuthUser) -> dict[str, Any]:
+    return {**_public_user(row), "password_hash": row.password_hash}
+
 
 class UserStore:
-    def __init__(
-        self,
-        *,
-        database_path: str | Path | None = None,
-    ):
-        """创建一个UserStore数据库管理对象"""
-        self.database_path = Path(database_path or default_database_path())
-        self._initialize_lock = threading.Lock()
-        self._initialized = False                # 当前这个UserStore有没有完成数据库初始化
+    def __init__(self, session_factory: Callable[[], Session] = get_session):
+        self._session_factory = session_factory
 
-     # ====================== SQLite初始化 ======================
-    def _connect(self) -> sqlite3.Connection:
-        """创建一次SQLite数据库连接，并做一些通用设置"""
-        # 连接auth_users.db,数据库被其他线程占用时，最多等待约10秒
-        connection = sqlite3.connect(self.database_path, timeout=10)
-        connection.row_factory = sqlite3.Row              # 用了sqlite3.row后可以row['employee_id']这样去访问，通过字段名去访问
-        # 遇到数据库锁，不要马上报database is locked，等最多10000ms
-        connection.execute("PRAGMA busy_timeout = 10000")
-        connection.execute("PRAGMA foreign_keys = ON")            # 开启SQLite外键约束
-        return connection
-
-    def initialize(self) -> None:
-        """第一次使用UserStore时，创建数据库目录，创建正式 auth_users 表"""
-        if self._initialized:
-            return
-        with self._initialize_lock:
-            if self._initialized:
-                return
-            # 创建数据库目录
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
-            # 建立连接
-            connection = self._connect()
-            try:
-                # SQLite在有多个读写请求时，WAL模式通常比默认模式更适合开发
-                connection.execute("PRAGMA journal_mode = WAL")
-                # 开始一个写事务，并提前获得写锁
-                connection.execute("BEGIN IMMEDIATE")
-                # 创建auth_users表
-                connection.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS auth_users (
-                        employee_id TEXT PRIMARY KEY,               
-                        name TEXT NOT NULL UNIQUE,
-                        role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
-                        departments TEXT NOT NULL DEFAULT '[]',
-                        enabled INTEGER NOT NULL DEFAULT 1,
-                        password_hash TEXT NOT NULL,
-                        auth_version INTEGER NOT NULL DEFAULT 1,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                connection.commit()
-                self._initialized = True
-            except Exception:
-                connection.rollback()
-                raise
-            finally:
-                connection.close()
-    # ===================== 查询 ========================
     def list_users(self) -> list[dict[str, Any]]:
-        """查询所有用户"""
-        self.initialize()
-        with closing(self._connect()) as connection:       # closing:with结束以后自动执行connection.close()
-            # SQL查询
-            rows = connection.execute(
-                """
-                SELECT employee_id, name, role, departments, enabled,
-                       password_hash, auth_version
-                FROM auth_users
-                ORDER BY employee_id
-                """
-            ).fetchall()
-        # _public_user()不会返回password_hash(密码哈希)
-        return [_public_user(row) for row in rows]
+        with self._session_factory() as session:
+            return [
+                _public_user(row)
+                for row in session.scalars(
+                    select(AuthUser).order_by(AuthUser.employee_id)
+                )
+            ]
 
     def get_user_record(self, employee_id: str) -> dict[str, Any]:
-        """根据工号获取一个用户的完整内部记录,主要给内部认证使用"""
-        self.initialize()
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT employee_id, name, role, departments, enabled,
-                       password_hash, auth_version
-                FROM auth_users
-                WHERE employee_id = ?
-                """,
-                (str(employee_id).strip(),),
-            ).fetchone()
-        if row is None:
-            raise UserNotFoundError("用户不存在")
-        return _user_record(row)                  # _user_recode():有password_hash,
+        with self._session_factory() as session:
+            row = session.get(AuthUser, employee_id.strip())
+            if row is None:
+                raise UserNotFoundError("用户不存在")
+            return _user_record(row)
 
     def find_enabled_user(self, identifier: str) -> dict[str, Any] | None:
-        """查找一个启用状态用户"""
-        self.initialize()
-        normalized = str(identifier).strip()
-        if not normalized:
-            return None
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT employee_id, name, role, departments, enabled,
-                       password_hash, auth_version
-                FROM auth_users
-                WHERE enabled = 1 AND (employee_id = ? OR name = ?)
-                LIMIT 1
-                """,
-                (normalized, normalized),
-            ).fetchone()
-        return _user_record(row) if row is not None else None             # 有password_hash
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(AuthUser)
+                .where(
+                    AuthUser.enabled.is_(True),
+                    or_(
+                        AuthUser.employee_id == identifier.strip(),
+                        AuthUser.name == identifier.strip(),
+                    ),
+                )
+                .order_by(AuthUser.employee_id)
+                .limit(1)
+            )
+            return _user_record(row) if row is not None else None
 
-     # ================== 写操作 =====================
+    @staticmethod
+    def _locked_users(session: Session) -> dict[str, AuthUser]:
+        # 账号管理写操作按工号加锁，避免并发降权或删除绕过最后一个管理员约束。
+        return {
+            row.employee_id: row
+            for row in session.scalars(
+                select(AuthUser).order_by(AuthUser.employee_id).with_for_update()
+            )
+        }
+
+    @staticmethod
+    def _require_user(users: dict[str, AuthUser], employee_id: str) -> AuthUser:
+        if employee_id not in users:
+            raise UserNotFoundError("用户不存在")
+        return users[employee_id]
+
     def create_user(
         self,
         *,
@@ -261,59 +183,30 @@ class UserStore:
         password_hash: str,
         departments: list[str] | None,
     ) -> dict[str, Any]:
-        """在SQL里创建一条用户记录"""
-        self.initialize()
-        normalized_employee_id = _normalize_required(employee_id, "工号")
-        normalized_name = _normalize_required(name, "姓名")
-        normalized_role, normalized_departments = _normalize_role_departments(
-            role,
-            departments,
-        )
+        employee_id = _normalize_required(employee_id, "工号", 64)
+        name = _normalize_required(name, "姓名", 128)
+        role, departments = _normalize_role_departments(role, departments)
         if not password_hash:
             raise UserValidationError("密码哈希不能为空")
-
-        connection = self._connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
-            # 检查工号重复
-            if connection.execute(
-                "SELECT 1 FROM auth_users WHERE employee_id = ?",
-                (normalized_employee_id,),
-            ).fetchone():
-                raise UserConflictError("工号已存在")
-            # 检查姓名重复
-            if connection.execute(
-                "SELECT 1 FROM auth_users WHERE name = ?",
-                (normalized_name,),
-            ).fetchone():
-                raise UserConflictError("姓名已存在")
-            # 新用户默认启用，并且初始登录凭证版本为1
-            connection.execute(
-                """
-                INSERT INTO auth_users(
-                    employee_id, name, role, departments, enabled,
-                    password_hash, auth_version
-                ) VALUES (?, ?, ?, ?, 1, ?, 1)
-                """,
-                (
-                    normalized_employee_id,
-                    normalized_name,
-                    normalized_role,
-                    _encode_departments(normalized_departments),
-                    password_hash,
-                ),
-            )
-            # 成功提交，失败抛异常rollback
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-        # 重新从数据库拿刚刚创建的新记录
-        return _public_without_password(
-            self.get_user_record(normalized_employee_id)
-        )
+            with self._session_factory() as session, session.begin():
+                users = self._locked_users(session)
+                if employee_id in users:
+                    raise UserConflictError("工号已存在")
+                if any(user.name == name for user in users.values()):
+                    raise UserConflictError("姓名已存在")
+                row = AuthUser(
+                    employee_id=employee_id,
+                    name=name,
+                    role=role,
+                    departments=departments,
+                    password_hash=password_hash,
+                )
+                session.add(row)
+                session.flush()
+                return _public_user(row)
+        except IntegrityError as exc:
+            raise UserConflictError("工号或姓名已存在") from exc
 
     def update_user(
         self,
@@ -325,175 +218,74 @@ class UserStore:
         enabled: bool,
         departments: list[str] | None,
     ) -> dict[str, Any]:
-        """管理员修改用户基本权限资料，同时保证不能禁用自己，不能重名，不能让系统失去最后一个有效管理员"""
-        self.initialize()
-        normalized_employee_id = _normalize_required(employee_id, "工号")
-        normalized_actor = _normalize_required(actor_employee_id, "当前管理员工号")
-        normalized_name = _normalize_required(name, "姓名")
-        normalized_role, normalized_departments = _normalize_role_departments(
-            role,
-            departments,
-        )
-        normalized_enabled = bool(enabled)
-
-        connection = self._connect()
+        employee_id = _normalize_required(employee_id, "工号", 64)
+        actor_employee_id = _normalize_required(actor_employee_id, "当前管理员工号", 64)
+        name = _normalize_required(name, "姓名", 128)
+        role, departments = _normalize_role_departments(role, departments)
+        if employee_id == actor_employee_id and not enabled:
+            raise UserConflictError("不能禁用当前登录管理员")
         try:
-            connection.execute("BEGIN IMMEDIATE")
-            # 查数据库里的原始用户
-            current = connection.execute(
-                "SELECT * FROM auth_users WHERE employee_id = ?",
-                (normalized_employee_id,),
-            ).fetchone()
-            if current is None:
-                raise UserNotFoundError("用户不存在")
-            # 不允许管理员禁用自己
-            if normalized_employee_id == normalized_actor and not normalized_enabled:
-                raise UserConflictError("不能禁用当前登录管理员")
-            # 检查姓名重复
-            duplicate_name = connection.execute(
-                """
-                SELECT 1 FROM auth_users
-                WHERE name = ? AND employee_id <> ?
-                """,
-                (normalized_name, normalized_employee_id),
-            ).fetchone()
-            if duplicate_name:
-                raise UserConflictError("姓名已存在")
-            # 修改是否在移除一个有效的管理员，防止最后一个管理员消失
-            removes_enabled_admin = (
-                bool(current["enabled"])
-                and current["role"] == "admin"
-                and (not normalized_enabled or normalized_role != "admin")
-            )
-            # 不能变更最后一个已启用的管理员
-            if removes_enabled_admin and self._enabled_admin_count(connection) <= 1:
-                raise UserConflictError("不能变更最后一个已启用管理员")
-            # 修改
-            connection.execute(
-                """
-                UPDATE auth_users
-                SET name = ?, role = ?, departments = ?, enabled = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE employee_id = ?
-                """,
-                (
-                    normalized_name,
-                    normalized_role,
-                    _encode_departments(normalized_departments),
-                    int(normalized_enabled),                     # SQLite仍然使用1和0
-                    normalized_employee_id,
-                ),
-            )
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-        return _public_without_password(self.get_user_record(normalized_employee_id))
+            with self._session_factory() as session, session.begin():
+                users = self._locked_users(session)
+                row = self._require_user(users, employee_id)
+                if any(
+                    user.name == name and user.employee_id != employee_id
+                    for user in users.values()
+                ):
+                    raise UserConflictError("姓名已存在")
+                if (
+                    row.enabled
+                    and row.role == "admin"
+                    and (not enabled or role != "admin")
+                ):
+                    if (
+                        sum(
+                            user.enabled and user.role == "admin"
+                            for user in users.values()
+                        )
+                        <= 1
+                    ):
+                        raise UserConflictError("不能变更最后一个已启用管理员")
+                row.name, row.role, row.departments, row.enabled = (
+                    name,
+                    role,
+                    departments,
+                    enabled,
+                )
+                session.flush()
+                return _public_user(row)
+        except IntegrityError as exc:
+            raise UserConflictError("姓名已存在") from exc
 
     def update_password_hash(
-        self,
-        employee_id: str,
-        password_hash: str,
+        self, employee_id: str, password_hash: str
     ) -> dict[str, Any]:
-        """修改用户密码哈希，并让这个用户之前所有的JWT登录凭证失效"""
-        self.initialize()
-        normalized_employee_id = _normalize_required(employee_id, "工号")
+        employee_id = _normalize_required(employee_id, "工号", 64)
         if not password_hash:
             raise UserValidationError("密码哈希不能为空")
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            cursor = connection.execute(
-                """
-                UPDATE auth_users
-                SET password_hash = ?, auth_version = auth_version + 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE employee_id = ?
-                """,
-                (password_hash, normalized_employee_id),
-            )
-            if cursor.rowcount == 0:
+        with self._session_factory() as session, session.begin():
+            row = session.get(AuthUser, employee_id, with_for_update=True)
+            if row is None:
                 raise UserNotFoundError("用户不存在")
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-        return _public_without_password(self.get_user_record(normalized_employee_id))
+            row.password_hash = password_hash
+            row.auth_version += 1
+            session.flush()
+            return _public_user(row)
 
-    def delete_user(
-        self,
-        employee_id: str,
-        *,
-        actor_employee_id: str,
-    ) -> None:
-        """管理员删除一个指定用户"""
-        self.initialize()
-        normalized_employee_id = _normalize_required(employee_id, "工号")
-        normalized_actor = _normalize_required(actor_employee_id, "当前管理员工号")
-        if normalized_employee_id == normalized_actor:
+    def delete_user(self, employee_id: str, *, actor_employee_id: str) -> None:
+        employee_id = _normalize_required(employee_id, "工号", 64)
+        actor_employee_id = _normalize_required(actor_employee_id, "当前管理员工号", 64)
+        if employee_id == actor_employee_id:
             raise UserConflictError("不能删除当前登录管理员")
-
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            # 目标用户必须存在
-            current = connection.execute(
-                "SELECT * FROM auth_users WHERE employee_id = ?",
-                (normalized_employee_id,),
-            ).fetchone()
-            if current is None:
-                raise UserNotFoundError("用户不存在")
-            if (
-                bool(current["enabled"])
-                and current["role"] == "admin"
-                and self._enabled_admin_count(connection) <= 1
-            ):
-                raise UserConflictError("不能删除最后一个已启用管理员")
-            # 执行删除操作
-            connection.execute(
-                "DELETE FROM auth_users WHERE employee_id = ?",
-                (normalized_employee_id,),
-            )
-            connection.commit()
-        except Exception:
-            # 关闭连接
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-
-    @staticmethod
-    def _enabled_admin_count(connection: sqlite3.Connection) -> int:
-        """统计当前还有多少个启用状态的管理员"""
-        row = connection.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM auth_users
-            WHERE role = 'admin' AND enabled = 1
-            """
-        ).fetchone()
-        return int(row["count"])
-
-def _public_without_password(record: dict[str, Any]) -> dict[str, Any]:
-    """从内部完整记录中删除password_hash"""
-    return {
-        key: value
-        for key, value in record.items()
-        if key != "password_hash"
-    }
-
-
-__all__ = [
-    "ALLOWED_ROLES",
-    "UserConflictError",
-    "UserNotFoundError",
-    "UserStore",
-    "UserStoreError",
-    "UserValidationError",
-    "default_database_path",
-    "hash_password",
-]
+        with self._session_factory() as session, session.begin():
+            users = self._locked_users(session)
+            row = self._require_user(users, employee_id)
+            if row.enabled and row.role == "admin":
+                if (
+                    sum(
+                        user.enabled and user.role == "admin" for user in users.values()
+                    )
+                    <= 1
+                ):
+                    raise UserConflictError("不能删除最后一个已启用管理员")
+            session.delete(row)

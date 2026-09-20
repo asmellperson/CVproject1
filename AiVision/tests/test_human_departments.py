@@ -269,8 +269,7 @@ def test_human_wechat_queue_card_thumbnail_is_fetchable_without_login(human_evid
 
 def test_notification_signing_requires_a_real_secret(monkeypatch):
     from AiVision.alarms.notifications.notification_image import issue_thumbnail_token, verify_thumbnail_token
-    from auth.auth import DEV_AUTH_SECRET
-    for secret in ("", "short", DEV_AUTH_SECRET):
+    for secret in ("", "short", "x" * 31):
         monkeypatch.setenv("AUTH_SECRET", secret)
         with pytest.raises(ValueError, match="AUTH_SECRET"):
             issue_thumbnail_token(1, "general_electric")

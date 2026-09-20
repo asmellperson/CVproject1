@@ -5,8 +5,10 @@ import time                                                        # 获取当�
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware                 # 跨域访问控制
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse                         # 手工构造JSON HTTP响应
 
+from auth.api import router as auth_router
 from auth.auth import AuthError, get_current_user_from_request     # 认证模块
 
 # 拿取每个API文件里的路由，最后统一注册到FastAPI
@@ -115,14 +117,14 @@ def create_app() -> FastAPI:
         """
         path = request.url.path
         # 先列出公共接口
-        public_paths = {"/api/runtime/health"}
+        public_paths = {"/api/runtime/health", "/api/auth/login", "/api/auth/logout"}
         # 服务探针不读取业务数据，无需登录；业务接口仍按原认证流程处理。
         if request.method == "OPTIONS" or path in public_paths or path.startswith("/api/public/"):
             return await call_next(request)
         if path.startswith("/api/"):
             try:
                 # 解析用户，将用户保存到这一次的Request的状态里，而各api下的各函数下的get_current_user负责从request.state.user里面把用户提供给具体函数
-                request.state.user = get_current_user_from_request(request)
+                request.state.user = await run_in_threadpool(get_current_user_from_request, request)
             # 认证失败
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
@@ -143,6 +145,7 @@ def create_app() -> FastAPI:
         return {"name": "AiVision", "version": "2.0.0", "docs": "/docs"}
 
     # 注册所有普通API
+    app.include_router(auth_router)
     app.include_router(runtime_router)
     app.include_router(exception_alerts_router)
     app.include_router(cameras_router)

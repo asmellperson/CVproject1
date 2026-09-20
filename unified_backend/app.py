@@ -4,14 +4,13 @@
 """统一平台后端入口。
 
 统一后端只做平台级能力和请求转发，不接管各算法子系统的运行逻辑：
-- 本地处理登录、当前用户、改密、报警处置状态；
+- 本地处理平台总览、报警聚合和报警处置状态；
 - 转发 AiVision 原生检测与管理接口。
 """
 from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -29,42 +28,13 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from auth.auth import (
-    AuthError,
-    ChangePasswordRequest,
-    LoginRequest,
-    UserConflictError,
-    UserNotFoundError,
-    UserStoreError,
-    UserValidationError,
-    change_own_password,
-    clear_auth_cookie,
-    create_auth_user,
-    create_token,
-    delete_auth_user,
-    get_current_user,
-    get_current_user_from_request,
-    get_user_store,
-    list_auth_users,
-    require_admin,
-    reset_auth_user_password,
-    set_auth_cookie,
-    update_auth_user,
-    verify_login,
-)
+from auth.auth import AuthError, get_current_user, get_current_user_from_request
 from auth.alarm_permissions import allowed_alarm_event_types
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
 from unified_backend.overview import OverviewStatus, build_overview
 from unified_backend.alarm_dispositions import AlarmDispositionStore, DispositionStoreBusy
 from unified_backend.disposition_queries import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DispositionPage, DispositionQueries,
-)
-from unified_backend.access_audit import (
-    DEFAULT_ACCESS_AUDIT_LIMIT,
-    MAX_ACCESS_AUDIT_LIMIT,
-    AccessAuditStore,
-    add_access_audit_capability,
-    require_access_audit_owner,
 )
 from unified_backend.proxy import (
     AsyncProxyClient,
@@ -119,78 +89,6 @@ class AlarmDispositionUpdateRequest(BaseModel):
     alarm_id: str
     status: str
     note: str = ""
-
-
-# 功能：定义 `AdminUserCreateRequest` 类，封装应用装配相关的状态、约束与操作
-# 参数：
-#   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
-#   - `name`（str）：业务对象名称
-#   - `role`（str）：`role` 对应的业务输入值
-#   - `departments`（list[str] | None）：`departments` 对应的业务输入值
-#   - `password`（str）：`password` 对应的业务输入值
-# 返回：AdminUserCreateRequest；返回新建的 `AdminUserCreateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class AdminUserCreateRequest(BaseModel):
-    employee_id: str
-    name: str
-    role: str
-    departments: list[str] | None = None
-    password: str
-
-
-# 功能：定义 `AdminUserUpdateRequest` 类，封装应用装配相关的状态、约束与操作
-# 参数：
-#   - `name`（str）：业务对象名称
-#   - `role`（str）：`role` 对应的业务输入值
-#   - `departments`（list[str] | None）：`departments` 对应的业务输入值
-#   - `enabled`（bool）：是否启用相应能力
-# 返回：AdminUserUpdateRequest；返回新建的 `AdminUserUpdateRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class AdminUserUpdateRequest(BaseModel):
-    name: str
-    role: str
-    departments: list[str] | None = None
-    enabled: bool
-
-
-# 功能：定义 `AdminUserPasswordResetRequest` 类，封装应用装配相关的状态、约束与操作
-# 参数：
-#   - `new_password`（str）：`new_password` 对应的业务输入值
-# 返回：AdminUserPasswordResetRequest；返回新建的 `AdminUserPasswordResetRequest` 实例。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-class AdminUserPasswordResetRequest(BaseModel):
-    new_password: str
-
-
-# 功能：实现 `_raise_user_management_http_error` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `exc`（UserStoreError）：`exc` 对应的业务输入值
-# 返回：None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::admin_list_users` 调用本符号；`unified_backend/app.py` 的 `create_app::admin_create_user`
-#         调用本符号；`unified_backend/app.py` 的 `create_app::admin_update_user` 调用本符号；`unified_backend/app.py` 的
-#         `create_app::admin_reset_user_password` 调用本符号；另有 1 处静态调用
-#   - 内部调用：`isinstance`、`HTTPException`、`str`。
-# 副作用/注意事项：校验或执行失败时会主动抛出异常。
-def _raise_user_management_http_error(exc: UserStoreError) -> None:
-    if isinstance(exc, UserNotFoundError):
-        status_code = 404
-    elif isinstance(exc, UserConflictError):
-        status_code = 409
-    elif isinstance(exc, UserValidationError):
-        status_code = 400
-    else:
-        status_code = 500
-    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 # 功能：实现 `_env_url` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -584,35 +482,12 @@ async def _proxy(request: Request, base_url: str, upstream_path: str) -> Respons
         background=BackgroundTask(upstream.aclose),
     )
 
-
-# 功能：创建或构建 `create_app` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：FastAPI；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def create_app() -> FastAPI:
     aivision_url = _env_url("UNIFIED_AIVISION_URL", "http://127.0.0.1:7862")
     data_dir = os.getenv("UNIFIED_BACKEND_DATA_DIR", str(_REPO_ROOT / "unified_backend" / "data"))
     disposition_store = AlarmDispositionStore(data_dir)
-    access_audit_database = os.getenv(
-        "UNIFIED_ACCESS_AUDIT_DB",
-        str(Path(data_dir) / "access_audit.db"),
-    )
-    access_audit_store = AccessAuditStore(access_audit_database)
-
-    # 功能：实现 `lifespan` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `app`（FastAPI）：`app` 对应的业务输入值
-    # 返回：None；仅执行处理流程，不返回业务数据。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    #   - 内部调用：`get_user_store().initialize`、`get_user_store`、`access_audit_store.initialize`、`AsyncProxyClient`、`ProxySettings.from_env`、`proxy_client.close`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        get_user_store().initialize()
-        access_audit_store.initialize()
         proxy_client = AsyncProxyClient(ProxySettings.from_env())
         app.state.proxy_client = proxy_client
         try:
@@ -630,7 +505,6 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
-    app.state.access_audit_store = access_audit_store
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -639,14 +513,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 功能：实现 `auth_middleware` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    #   - `call_next`（未显式标注）：`call_next` 对应的业务输入值
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-    # 副作用/注意事项：可能启动、等待或停止线程/进程资源。
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         path = request.url.path
@@ -656,7 +522,7 @@ def create_app() -> FastAPI:
         protected = path.startswith("/api/")
         if protected:
             try:
-                request.state.user = get_current_user_from_request(request)
+                request.state.user = await run_in_threadpool(get_current_user_from_request, request)
             except AuthError as exc:
                 return JSONResponse(status_code=401, content={"detail": str(exc)})
         return await call_next(request)
@@ -693,225 +559,6 @@ def create_app() -> FastAPI:
         departments = list(DEPARTMENT_SPECS) if user.get("role") == "admin" else _departments_for_user(user)
         return build_overview(request, departments, aivision_url,
                               _get_json_concurrently)
-
-    # 功能：实现 `login` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `payload`（LoginRequest）：接口或事件携带的业务数据
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    #   - `response`（Response）：待读取或更新的 HTTP 响应
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/login')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`verify_login`、`HTTPException`、`create_token`、`set_auth_cookie`、`access_audit_store.record_visit`、`logger.exception`、`user.get`、`add_access_audit_capability`、`app.post`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息；校验或执行失败时会主动抛出异常。
-    @app.post("/api/auth/login")
-    def login(payload: LoginRequest, request: Request, response: Response):
-        user = verify_login(payload.employee_id, payload.password)
-        if user is None:
-            raise HTTPException(status_code=401, detail="invalid employee_id or password")
-        token = create_token(user)
-        set_auth_cookie(response, token, request)
-        try:
-            access_audit_store.record_visit(user)
-        except (OSError, sqlite3.Error, ValueError):
-            logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
-        return {"success": True, "user": add_access_audit_capability(user)}
-
-    # 功能：实现 `me` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/auth/me')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`access_audit_store.record_visit`、`logger.exception`、`user.get`、`add_access_audit_capability`、`app.get`。
-    # 副作用/注意事项：会向日志系统输出运行或异常信息。
-    @app.get("/api/auth/me")
-    def me(user: dict = Depends(get_current_user)):
-        try:
-            access_audit_store.record_visit(user)
-        except (OSError, sqlite3.Error, ValueError):
-            logger.exception("记录平台访问失败 employee_id=%s", user.get("employee_id"))
-        return {"success": True, "user": add_access_audit_capability(user)}
-
-    # 功能：实现 `logout` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `request`（Request）：当前 HTTP 请求及上下文
-    #   - `response`（Response）：待读取或更新的 HTTP 响应
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/logout')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`clear_auth_cookie`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/auth/logout")
-    def logout(request: Request, response: Response):
-        clear_auth_cookie(response, request)
-        return {"success": True}
-
-    # 功能：实现 `change_password` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `payload`（ChangePasswordRequest）：接口或事件携带的业务数据
-    #   - `user`（dict）：当前用户或待处理用户对象；默认值为 `Depends(get_current_user)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/auth/password')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`change_own_password`、`user.get`、`HTTPException`、`str`、`add_access_audit_capability`、`app.post`。
-    # 副作用/注意事项：校验或执行失败时会主动抛出异常。
-    @app.post("/api/auth/password")
-    def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
-        try:
-            updated_user = change_own_password(
-                user.get("employee_id", ""),
-                payload.current_password,
-                payload.new_password,
-            )
-        except AuthError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {
-            "success": True,
-            "user": add_access_audit_capability(updated_user),
-        }
-
-    # 功能：实现 `access_audit` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `limit`（int）：返回或处理的最大记录数；默认值为 `Query(default=DEFAULT_ACCESS_AUDIT_LIMIT, ge=1, le=MAX_ACCESS_AUDIT_LIMIT)`
-    #   - `owner`（dict）：`owner` 对应的业务输入值；默认值为 `Depends(require_access_audit_owner)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/admin/access-audit')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Query`、`Depends`、`access_audit_store.list_recent`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/admin/access-audit")
-    def access_audit(
-        limit: int = Query(
-            default=DEFAULT_ACCESS_AUDIT_LIMIT,
-            ge=1,
-            le=MAX_ACCESS_AUDIT_LIMIT,
-        ),
-        owner: dict = Depends(require_access_audit_owner),
-    ):
-        del owner
-        return {"items": access_audit_store.list_recent(limit)}
-
-    # 功能：读取或查询 `admin_list_users` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.get('/api/admin/users')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`list_auth_users`、`_raise_user_management_http_error`、`app.get`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.get("/api/admin/users")
-    def admin_list_users(admin: dict = Depends(require_admin)):
-        del admin
-        try:
-            return {"items": list_auth_users()}
-        except UserStoreError as exc:
-            _raise_user_management_http_error(exc)
-
-    # 功能：创建或构建 `admin_create_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `payload`（AdminUserCreateRequest）：接口或事件携带的业务数据
-    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/admin/users')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`create_auth_user`、`_raise_user_management_http_error`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/admin/users")
-    def admin_create_user(
-        payload: AdminUserCreateRequest,
-        admin: dict = Depends(require_admin),
-    ):
-        del admin
-        try:
-            user = create_auth_user(
-                employee_id=payload.employee_id,
-                name=payload.name,
-                role=payload.role,
-                password=payload.password,
-                departments=payload.departments,
-            )
-            return {"success": True, "user": user}
-        except UserStoreError as exc:
-            _raise_user_management_http_error(exc)
-
-    # 功能：更新或保存 `admin_update_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
-    #   - `payload`（AdminUserUpdateRequest）：接口或事件携带的业务数据
-    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.patch('/api/admin/users/{employee_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`update_auth_user`、`str`、`admin.get`、`_raise_user_management_http_error`、`app.patch`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.patch("/api/admin/users/{employee_id}")
-    def admin_update_user(
-        employee_id: str,
-        payload: AdminUserUpdateRequest,
-        admin: dict = Depends(require_admin),
-    ):
-        try:
-            user = update_auth_user(
-                employee_id,
-                actor_employee_id=str(admin.get("employee_id", "")),
-                name=payload.name,
-                role=payload.role,
-                enabled=payload.enabled,
-                departments=payload.departments,
-            )
-            return {"success": True, "user": user}
-        except UserStoreError as exc:
-            _raise_user_management_http_error(exc)
-
-    # 功能：实现 `admin_reset_user_password` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
-    #   - `payload`（AdminUserPasswordResetRequest）：接口或事件携带的业务数据
-    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.post('/api/admin/users/{employee_id}/reset-password')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`reset_auth_user_password`、`_raise_user_management_http_error`、`app.post`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.post("/api/admin/users/{employee_id}/reset-password")
-    def admin_reset_user_password(
-        employee_id: str,
-        payload: AdminUserPasswordResetRequest,
-        admin: dict = Depends(require_admin),
-    ):
-        del admin
-        try:
-            user = reset_auth_user_password(
-                employee_id,
-                new_password=payload.new_password,
-            )
-            return {"success": True, "user": user}
-        except UserStoreError as exc:
-            _raise_user_management_http_error(exc)
-
-    # 功能：删除或清理 `admin_delete_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-    # 参数：
-    #   - `employee_id`（str）：`employee_id` 对应业务对象的唯一标识
-    #   - `admin`（dict）：`admin` 对应的业务输入值；默认值为 `Depends(require_admin)`
-    # 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-    # 调用关系：
-    #   - 调用方：由 FastAPI 按 `app.delete('/api/admin/users/{employee_id}')` 注册，并在请求到达时调用以生成接口响应
-    #   - 内部调用：`Depends`、`delete_auth_user`、`str`、`admin.get`、`_raise_user_management_http_error`、`app.delete`。
-    # 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-    @app.delete("/api/admin/users/{employee_id}")
-    def admin_delete_user(
-        employee_id: str,
-        admin: dict = Depends(require_admin),
-    ):
-        try:
-            delete_auth_user(
-                employee_id,
-                actor_employee_id=str(admin.get("employee_id", "")),
-            )
-            return {"success": True}
-        except UserStoreError as exc:
-            _raise_user_management_http_error(exc)
 
     @app.get("/api/alarm-dispositions", response_model=DispositionPage)
     async def get_alarm_dispositions(
@@ -1010,7 +657,7 @@ def create_app() -> FastAPI:
     async def proxy_aivision_root_api(path: str, request: Request):
         # 仅发布正式资源，内部集成入口和已移除的路径不对浏览器开放。
         if path.split("/", 1)[0] not in {
-            "departments", "cameras", "features", "models", "face-recognition",
+            "auth", "admin", "departments", "cameras", "features", "models", "face-recognition",
             "logistics-channels", "guard-behavior", "security-inspection", "alarms", "horns", "runtime", "exception-alert", "public",
         }:
             raise HTTPException(status_code=404, detail="Not Found")
