@@ -24,6 +24,7 @@ export const DEPARTMENT_LABELS: Record<DepartmentId, string> = {
 export const DETECTION_PAGE_IDS = [
   'security-vlm', 'guard-behavior', 'intrusion-detection', 'door-detection',
   'face-detection', 'face-recognition', 'human-detection', 'logistics-single-person', 'phone-detection',
+  'agv-person-check',
 ] as const
 export type DetectionPageId = typeof DETECTION_PAGE_IDS[number]
 export type UserRole = 'admin' | 'viewer'
@@ -36,6 +37,7 @@ export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'face-detection': ['detect_face'], 'face-recognition': ['recognize_face'],
   'human-detection': ['detect_human'], 'logistics-single-person': ['detect_logistics_single_person'],
   'phone-detection': ['detect_phone'],
+  'agv-person-check': [],
 }
 export const DETECTION_EVENT_TYPES = Object.values(alarmEventTypesByPage).flat()
 const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management'])

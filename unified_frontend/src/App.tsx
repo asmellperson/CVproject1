@@ -55,6 +55,9 @@ const LogisticsSinglePersonDetectionSection = lazy(() =>
 const PhoneDetectionSection = lazy(() =>
   import('@/sections/PhoneDetectionSection').then((module) => ({ default: module.PhoneDetectionSection })),
 )
+const AgvPersonCheckSection = lazy(() =>
+  import('@/sections/AgvPersonCheckSection').then((module) => ({ default: module.AgvPersonCheckSection })),
+)
 const SecurityVlmSection = lazy(() =>
   import('@/sections/SecurityVlmSection').then((module) => ({ default: module.SecurityVlmSection })),
 )
@@ -166,6 +169,8 @@ function App() {
         return currentDepartment && <LogisticsSinglePersonDetectionSection department={currentDepartment} />
       case 'phone-detection':
         return currentDepartment && <PhoneDetectionSection department={currentDepartment} />
+      case 'agv-person-check':
+        return currentDepartment && <AgvPersonCheckSection department={currentDepartment} />
       case 'alarms':
         return <AlarmsSection initialAlarmId={initialAlarmId} />
       case 'statistics':

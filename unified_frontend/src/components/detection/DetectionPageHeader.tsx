@@ -11,6 +11,7 @@ type DetectionPageHeaderProps = {
   monitorValue?: string
   configValue?: string
   recordsValue?: string
+  configurationOnly?: boolean
 }
 
 export function DetectionPageHeader({
@@ -21,6 +22,7 @@ export function DetectionPageHeader({
   monitorValue = 'monitor',
   configValue = 'config',
   recordsValue,
+  configurationOnly = false,
 }: DetectionPageHeaderProps) {
   return (
     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -31,12 +33,12 @@ export function DetectionPageHeader({
         </div>
         <h1 className="mt-2 flex flex-wrap items-baseline gap-x-2 text-2xl font-black tracking-tight text-[#0B1226] dark:text-slate-100 sm:text-[28px]">
           <span>{title}</span>
-          <span className="bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent">监控与配置</span>
+          <span className="bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent">{configurationOnly ? '配置管理' : '监控与配置'}</span>
         </h1>
         <p className="mt-1 text-sm text-[#6B7699] dark:text-slate-400 sm:text-base">{subtitle}</p>
       </div>
 
-      <div className="flex w-full flex-col gap-3 sm:items-stretch xl:w-auto xl:flex-row xl:items-center">
+      {!configurationOnly && <div className="flex w-full flex-col gap-3 sm:items-stretch xl:w-auto xl:flex-row xl:items-center">
         {runtimeControl}
         <TabsList className={`grid h-auto w-full shrink-0 ${recordsValue ? 'grid-cols-3' : 'grid-cols-2'} rounded-2xl border border-slate-200/70 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:w-auto`}>
           <TabsTrigger
@@ -55,7 +57,7 @@ export function DetectionPageHeader({
             配置管理
           </TabsTrigger>
         </TabsList>
-      </div>
+      </div>}
     </div>
   )
 }
