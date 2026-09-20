@@ -22,6 +22,7 @@ from AiVision.api.routes.face_recognition import router as face_recognition_rout
 from AiVision.api.routes.logistics_channels import router as logistics_channels_router
 from AiVision.api.routes.guard_behavior import router as guard_behavior_router
 from AiVision.api.routes.security_inspection import router as security_inspection_router
+from AiVision.api.routes.agv_person_check import router as agv_person_check_router
 from AiVision.api.routes.models import router as models_router
 from AiVision.api.routes.horns import router as horns_router
 from AiVision.api.routes.runtime import router as runtime_router
@@ -164,6 +165,7 @@ def create_app() -> FastAPI:
     app.include_router(guard_behavior_router)
 
     app.include_router(security_inspection_router)
+    app.include_router(agv_person_check_router)
 
     return app
 

@@ -479,3 +479,25 @@ CREATE TABLE ai_logistics_channel_camera (
 CREATE INDEX ix_ai_logistics_channel_camera_camera_id ON ai_logistics_channel_camera (camera_id);
 
 CREATE INDEX ix_ai_logistics_channel_camera_channel_id ON ai_logistics_channel_camera (channel_id);
+
+CREATE TABLE ai_camera_config_agv_person_check (
+	roi_pos JSON NOT NULL,
+	confidence_threshold FLOAT NOT NULL,
+	iou_threshold FLOAT NOT NULL,
+	sample_count INTEGER NOT NULL,
+	cap_interval FLOAT NOT NULL,
+	request_timeout_seconds FLOAT NOT NULL,
+	inference_timeout_seconds FLOAT NOT NULL,
+	frame_max_age_seconds FLOAT NOT NULL,
+	http JSON NOT NULL,
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	enable BOOL COMMENT '是否启用',
+	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
+	PRIMARY KEY (id),
+	CONSTRAINT ck_agv_person_check_sample_count CHECK (sample_count >= 2 AND sample_count <= 30),
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX ix_ai_camera_config_agv_person_check_camera_id ON ai_camera_config_agv_person_check (camera_id);

@@ -11,6 +11,7 @@ from .phone_detection.spec import SPEC as phone_detection_spec
 from .face_recognition.spec import SPEC as face_recognition_spec
 from .guard_behavior.spec import SPEC as guard_behavior_spec
 from .security_inspection.spec import SPEC as security_inspection_spec
+from .agv_person_check.spec import SPEC as agv_person_check_spec
 
 # 保持原注册表的展示/遍历顺序；新增功能须在这里明确登记。
 _BUILTIN_SPECS = (
@@ -23,6 +24,7 @@ _BUILTIN_SPECS = (
     face_recognition_spec,
     guard_behavior_spec,
     security_inspection_spec,
+    agv_person_check_spec,
 )
 
 
