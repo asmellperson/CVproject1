@@ -131,7 +131,7 @@ tmux show-environment -t aivision AUTH_SECRET
 前端：
 
 cd unified_frontend
-npm run dev -- --host 0.0.0.0 --port 3000
+npm run dev
 
 AiVision（在项目根目录）：
 

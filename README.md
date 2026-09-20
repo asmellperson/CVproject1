@@ -25,7 +25,7 @@ flowchart LR
 
 | 服务 | 默认监听地址 | 启动入口 |
 | --- | --- | --- |
-| `unified_frontend` | `0.0.0.0:3000` | `npm run dev -- --host 0.0.0.0 --port 3000` |
+| `unified_frontend` | `0.0.0.0:3000` | `npm run dev` |
 | `aivision` | `0.0.0.0:7862` | `python -m AiVision.main` |
 
 项目站点地址为 `https://aicv.fudar.com/`，网关部署需把请求转发至前端入口。Vite 的 `/api` 代理默认指向 `http://127.0.0.1:7862`，由 `VITE_AIVISION_TARGET` 覆盖；配置中也保留 `/ws` 的 WebSocket 代理。
@@ -198,7 +198,7 @@ python -m AiVision.main
 
 ```bash
 cd /usr/zyy/Fuda_CVPreject_V3/unified_frontend
-npm run dev -- --port 3000
+npm run dev
 ```
 
 主入口在数据库准备和运行资源启动后才启动 HTTP。不要用单独的 `uvicorn AiVision.api.app:app` 代替正式入口，也不要通过多个 Web Worker 重复启动同一批摄像头资源。

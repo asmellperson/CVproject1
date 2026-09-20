@@ -385,9 +385,9 @@ else
 fi
 
 if [[ "$NODE_RUNTIME_TYPE" == "nvm" ]]; then
-  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|source ${NODE_RUNTIME_PATH} && nvm use ${NODE_VERSION} >/dev/null && npm run dev -- --host 0.0.0.0 --port 3000|3000|${WAIT_FRONTEND}")
+  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|source ${NODE_RUNTIME_PATH} && nvm use ${NODE_VERSION} >/dev/null && npm run dev|3000|${WAIT_FRONTEND}")
 elif [[ "$NODE_RUNTIME_TYPE" == "system" ]]; then
-  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|npm run dev -- --host 0.0.0.0 --port 3000|3000|${WAIT_FRONTEND}")
+  SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|npm run dev|3000|${WAIT_FRONTEND}")
 else
   SERVICES+=("unified_frontend|${PROJECT_ROOT}/unified_frontend|__DEP_MISSING__|3000|${WAIT_FRONTEND}")
 fi
