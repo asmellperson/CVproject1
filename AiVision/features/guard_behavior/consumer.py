@@ -326,7 +326,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         annotated = self.frame_cache[camera_id].copy()
         for person in detail.persons:
             guard = person in detail.guards
-            self._draw_box(annotated, person.bbox, (0, 220, 0) if guard else (200, 160, 80),
+            self._draw_box(annotated, person.bbox, (0, 220, 0) if guard else (160, 160, 160),
                            f'{"guard" if guard else "person"} #{person.track_id} {person.confidence:.2f}')
         for phone in detail.phones:
             self._draw_box(annotated, phone.bbox, (0, 120, 255), f"phone {phone.confidence:.2f}")
