@@ -25,7 +25,8 @@ REQUEST = Request({"type": "http", "headers": [(b"authorization", b"Bearer test-
 def seed_store(tmp_path, ids):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "alarm_dispositions.json").write_text(json.dumps({"items": [
-        {"alarm_id": key, "status": "pending", "note": key, "updated_at": "2020-01-01"} for key in ids
+        {"alarm_id": key, "status": "pending", "note": key, "updated_at": "2020-01-01",
+         "updated_by": {"employee_id": "test", "name": "测试"}, "history": []} for key in ids
     ]}))
     return AlarmDispositionStore(tmp_path)
 
@@ -378,7 +379,9 @@ def test_alarm_list_reads_only_returned_dispositions(tmp_path, monkeypatch):
         return store.get_many(read_ids)
     rows = [{"id": str(n), "event_type": "detect_human", "violation_type": 5,
              "feature_name": "detect_human", "department": "general_electric" if n % 2 else "haoda_company",
-             "created_at": "2020-01-01"} for n in range(1, 101)]
+             "created_at": "2020-01-01", "video_status": None,
+             "event_label": "人员违规逗留检测", "subject_type": "camera",
+             "subject_id": str(n), "subject_name": "测试摄像头"} for n in range(1, 101)]
     monkeypatch.setattr(backend, "_get_upstream_json", lambda url, *_args: {"items": rows} if url == "ai" else {})
     result = backend._collect_alarms(request=REQUEST, user=VIEWER, aivision_url="ai",
                                     disposition_store=SimpleNamespace(get_many=get_many), limit=7)
@@ -387,19 +390,22 @@ def test_alarm_list_reads_only_returned_dispositions(tmp_path, monkeypatch):
     assert read_ids == [row["id"] for row in result]
 
 
-def test_other_sources_and_admin_orphan_permissions_are_unchanged(tmp_path):
+@pytest.mark.parametrize("user", [ADMIN, VIEWER])
+def test_only_aivision_dispositions_are_visible_and_writable(tmp_path, user):
     async def scenario():
-        ids = ["aivision:99999", "removed_source:1", "invalid_source:1"]
+        invalid = ["removed_source:1", "invalid_source:1", "1", "aivision:bad", "aivision:0", "aivision:-1",
+                   f"aivision:{2**64}"]
+        ids = ["aivision:99999", *invalid]
         store = seed_store(tmp_path, ids)
         service = DispositionQueries("http://aivision", transport=httpx.MockTransport(
             lambda _request: httpx.Response(200, json={"allowed_ids": []})))
         try:
-            page = await service.page(store, REQUEST, ADMIN, limit=50, cursor=None)
-            assert [item["alarm_id"] for item in page.items] == sorted(ids)
-            page = await service.page(store, REQUEST, VIEWER, limit=50, cursor=None)
-            assert [item["alarm_id"] for item in page.items] == sorted(ids[1:])
-            for key in ids[1:]:
-                await service.require_access(key, REQUEST, VIEWER)
+            page = await service.page(store, REQUEST, user, limit=50, cursor=None)
+            assert [item["alarm_id"] for item in page.items] == ([ids[0]] if user == ADMIN else [])
+            for key in invalid:
+                with pytest.raises(HTTPException) as error:
+                    await service.require_access(key, REQUEST, user)
+                assert error.value.status_code == 403
         finally:
             await service.close()
     asyncio.run(scenario())

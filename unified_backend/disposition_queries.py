@@ -51,7 +51,9 @@ def _owner(user: dict) -> tuple:
 
 
 def _source_id(alarm_id: str) -> int | None:
-    value = alarm_id.removeprefix("aivision:")
+    if not alarm_id.startswith("aivision:"):
+        return None
+    value = alarm_id[len("aivision:"):]
     if not value.isascii() or not value.isdecimal() or len(value) > 20:
         return None
     number = int(value)
@@ -141,12 +143,11 @@ class DispositionQueries:
             raise HTTPException(502, "alarm authorization upstream unavailable; retry") from exc
 
     async def _visible(self, candidates: list[str], request: Request, user: dict) -> set[str]:
-        # 保持原有管理员及非 AiVision 来源的处置权限，不新增来源权限例外。
+        source_ids = {key: number for key in candidates if (number := _source_id(key)) is not None}
         if user.get("role") == "admin":
-            return set(candidates)
-        visible = {key for key in candidates if not key.startswith("aivision:")}
-        source_ids = {key: _source_id(key) for key in candidates if key.startswith("aivision:")}
-        ids = list(dict.fromkeys(number for number in source_ids.values() if number is not None))
+            return set(source_ids)
+        visible = set()
+        ids = list(dict.fromkeys(source_ids.values()))
         if ids:
             allowed = await self._check(ids, request)
             visible.update(key for key, number in source_ids.items() if number in allowed)

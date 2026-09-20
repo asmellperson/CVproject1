@@ -9,11 +9,40 @@ import json
 import os
 from pathlib import Path
 import threading
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, get_args
 from uuid import uuid4
 
-ALARM_DISPOSITION_STATUSES = {"pending", "acknowledged", "resolved", "false_positive"}
+from pydantic import BaseModel, ConfigDict, Field
+
+DispositionStatus = Literal["pending", "acknowledged", "resolved", "false_positive"]
 READ_LOCK_TIMEOUT_SECONDS = 0.05
+
+
+class _Actor(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    employee_id: str
+    name: str
+
+
+class _Change(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    status: DispositionStatus
+    note: str
+    updated_at: str
+    updated_by: _Actor
+
+
+class _Disposition(_Change):
+    alarm_id: str = Field(min_length=1)
+    history: list[_Change]
+
+
+class _DispositionFile(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    items: list[_Disposition]
 
 
 class DispositionStoreBusy(TimeoutError):
@@ -70,18 +99,17 @@ class AlarmDispositionStore:
         status = str(status).strip()
         if not alarm_id:
             raise ValueError("alarm_id is required")
-        if status not in ALARM_DISPOSITION_STATUSES:
+        if status not in get_args(DispositionStatus):
             raise ValueError("invalid disposition status")
         actor = {"employee_id": str(user.get("employee_id", "")), "name": str(user.get("name", ""))}
         # 串行持久化；构造完整 JSON 和磁盘写入不占查询索引锁。
         with self._write_lock:
-            previous = self._items.get(alarm_id) or {}
-            history = list(previous.get("history") or [])
-            if previous:
-                history.append({
-                    "status": previous.get("status", "pending"), "note": previous.get("note", ""),
-                    "updated_at": previous.get("updated_at"), "updated_by": previous.get("updated_by"),
-                })
+            previous = self._items.get(alarm_id)
+            history = []
+            if previous is not None:
+                history = [*previous["history"], {
+                    key: previous[key] for key in ("status", "note", "updated_at", "updated_by")
+                }]
                 history = history[-20:]
             item = {
                 "alarm_id": alarm_id, "status": status, "note": str(note or "").strip(),
@@ -99,21 +127,14 @@ class AlarmDispositionStore:
 
     def _load(self) -> dict[str, dict[str, Any]]:
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            payload = _DispositionFile.model_validate_json(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
-        except json.JSONDecodeError:
-            return {}
-        rows = payload.get("items") if isinstance(payload, dict) else payload
-        if not isinstance(rows, list):
-            return {}
         items = {}
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            alarm_id = str(row.get("alarm_id", "")).strip()
-            if alarm_id and str(row.get("status", "pending")) in ALARM_DISPOSITION_STATUSES:
-                items[alarm_id] = row
+        for row in payload.items:
+            if row.alarm_id in items:
+                raise ValueError(f"duplicate disposition alarm_id: {row.alarm_id}")
+            items[row.alarm_id] = row.model_dump()
         return items
 
     def _flush(self, items: dict[str, dict[str, Any]]) -> None:

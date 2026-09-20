@@ -12,7 +12,9 @@ backend = importlib.import_module("unified_backend.app")
 
 def alarm(number, department):
     return {"id": str(number), "feature_name": "detect_human", "event_type": "detect_human",
-            "violation_type": 5, "department": department, "created_at": datetime.now().isoformat()}
+            "violation_type": 5, "department": department, "created_at": datetime.now().isoformat(),
+            "event_label": "人员违规逗留检测", "subject_type": "camera", "subject_id": str(number),
+            "subject_name": "测试摄像头"}
 
 
 @pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))

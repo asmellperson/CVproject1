@@ -15,9 +15,11 @@ def test_overview_alarms_query_department_before_limiting(monkeypatch, departmen
         if base == "ai":
             return {"items": [
                 {"id": 1, "feature_name": "recognize_face", "event_type": "recognize_face", "violation_type": 7,
-                 "department": department, "created_at": "2026-09-01"},
+                 "department": department, "created_at": "2026-09-01", "video_status": None,
+                 "event_label": "人脸身份识别", "subject_type": "face_person", "subject_id": "one", "subject_name": "测试一"},
                 {"id": 2, "feature_name": "recognize_face", "event_type": "recognize_face", "violation_type": 7,
-                 "department": foreign, "created_at": "2026-09-02"},
+                 "department": foreign, "created_at": "2026-09-02", "video_status": None,
+                 "event_label": "人脸身份识别", "subject_type": "face_person", "subject_id": "two", "subject_name": "测试二"},
             ]}
         return {}
     monkeypatch.setattr(backend, "_get_upstream_json", upstream)

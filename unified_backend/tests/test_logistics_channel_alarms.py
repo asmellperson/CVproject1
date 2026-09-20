@@ -1,324 +1,95 @@
-# 文件说明：包含告警的自动化测试、测试夹具与断言辅助代码。
-# 数据流：在上层调用方与下层库、外部资源之间传递配置、状态或业务数据。
-
+"""网关保留 AiVision 正式报警语义，处置和统计不重建报警字段。"""
+from copy import deepcopy
 from datetime import datetime
-from auth.alarm_permissions import DETECTION_EVENT_TYPES
-from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 import pytest
 
-
-from unified_backend.app import (
-    ALARM_TYPE_META,
-    _build_alarm_statistics,
-    _filter_alarms,
-    _normalize_aivision_alarm,
-)
+from AiVision.api.routes.alarms import AlarmEventResponse, _event_dict
+from AiVision.alarms.records.orm import AiAlarmEvent
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from unified_backend.app import _build_alarm_statistics, _filter_alarms, _normalize_aivision_alarm
 
 
-LOGISTICS_FEATURES = [("detect_logistics_single_person", department) for department in DEPARTMENT_SPECS]
-
-
-# 功能：实现 `_channel_alarm` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `**overrides`（未显式标注）：`overrides` 对应的业务输入值
-# 返回：未显式标注（由实现推断）；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/tests/test_logistics_channel_alarms.py` 的
-#         `test_aivision_channel_alarm_keeps_channel_identity_and_evidence`
-#         调用本符号；`unified_backend/tests/test_logistics_channel_alarms.py` 的 `test_malformed_channel_metadata_degrades_safely`
-#         调用本符号；`unified_backend/tests/test_logistics_channel_alarms.py` 的
-#         `test_malformed_nested_channel_metadata_does_not_leak_invalid_shapes`
-#         调用本符号；`unified_backend/tests/test_logistics_channel_alarms.py` 的
-#         `test_camera_id_metadata_only_accepts_unique_positive_decimal_ids` 调用本符号；另有 3 处静态调用
-#   - 内部调用：`datetime.now().isoformat`、`datetime.now`、`alarm.update`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _channel_alarm(**overrides):
-    alarm = {
-        "id": "42",
-        "violation_type": 6,
-        "feature_name": "detect_logistics_single_person",
-        "department": "general_electric",
-        "event_type": "detect_logistics_single_person",
-        "event_label": "物流通道单人检测",
-        "subject_type": "logistics_channel",
-        "subject_id": "3",
-        "subject_name": "一号物流通道",
-        "reason": "multiple",
-        "created_at": datetime.now().isoformat(sep=" "),
-        "metadata": {
-            "channel_id": 3,
-            "channel_name": "一号物流通道",
-            "camera_ids": [10, 11],
+def native_alarm(**overrides):
+    values = dict(
+        id=42, violation_type=6, feature_name="detect_logistics_single_person",
+        department="general_electric", subject_type="logistics_channel", subject_id="3",
+        subject_name="一号物流通道", reason="multiple", create_time=datetime.now(),
+        image_path="evidence.jpg", video_status="ready",
+        event_metadata={
+            "channel_id": 3, "channel_name": "一号物流通道", "camera_ids": [10, 11],
             "camera_counts": {"10": 2, "11": 1},
             "camera_states": {
                 "10": {"camera_name": "东侧", "status": "multiple"},
                 "11": {"camera_name": "西侧", "status": "normal"},
             },
-            "offending_camera_ids": [10],
-            "evidence_error": "channel_frame_unavailable",
+            "offending_camera_ids": [10], "evidence_error": "channel_frame_unavailable",
         },
+    )
+    values.update(overrides)
+    return AlarmEventResponse.model_validate(_event_dict(AiAlarmEvent(**values))).model_dump()
+
+
+@pytest.mark.parametrize("video_status", [None, "pending", "ready", "failed"])
+def test_channel_alarm_preserves_every_native_field(video_status):
+    alarm = native_alarm(video_status=video_status)
+    before = deepcopy(alarm)
+    result = _normalize_aivision_alarm(alarm)
+
+    assert alarm == before
+    assert {key: result[key] for key in alarm if key != "id"} == {
+        key: value for key, value in alarm.items() if key != "id"
     }
-    alarm.update(overrides)
-    return alarm
+    assert result["id"] == "aivision:42" and result["source_id"] == "42"
+    assert result["source"] == "aivision"
+    assert result["video_url"] == ("/api/alarms/42/video" if video_status == "ready" else None)
+    assert result["camera_names"] == {"10": "东侧", "11": "西侧"}
+    assert result["offending_camera_ids"] == [10]
 
 
-# 功能：验证 `test_aivision_channel_alarm_keeps_channel_identity_and_evidence` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_aivision_channel_alarm_keeps_channel_identity_and_evidence():
-    normalized = _normalize_aivision_alarm(_channel_alarm())
-
-    assert normalized["id"] == "aivision:42"
-    assert normalized["subject_type"] == "logistics_channel"
-    assert normalized["subject_id"] == "3"
-    assert normalized["subject_name"] == "一号物流通道"
-    assert normalized["camera_no"] is None
-    assert normalized["camera_name"] is None
-    assert normalized["channel_id"] == "3"
-    assert normalized["channel_name"] == "一号物流通道"
-    assert normalized["reason"] == "multiple"
-    assert normalized["status"] == "multiple"
-    assert normalized["camera_ids"] == [10, 11]
-    assert normalized["camera_names"] == {"10": "东侧", "11": "西侧"}
-    assert normalized["camera_counts"] == {"10": 2, "11": 1}
-    assert normalized["camera_states"]["10"]["status"] == "multiple"
-    assert normalized["offending_camera_ids"] == [10]
-    assert normalized["evidence_error"] == "channel_frame_unavailable"
-    assert normalized["metadata"]["channel_id"] == 3
-
-
-# 功能：验证 `test_legacy_camera_alarm_contract_remains_compatible` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_legacy_camera_alarm_contract_remains_compatible():
-    normalized = _normalize_aivision_alarm({
-        "id": "7",
-        "event_type": "detect_human",
-        "camera_no": "camera_7",
-        "camera_name": "七号摄像头",
-        "reason": "人体逗留 - 七号摄像头",
-    })
-
-    assert normalized["id"] == "aivision:7"
-    assert normalized["source_id"] == "7"
-    assert normalized["camera_no"] == "camera_7"
-    assert normalized["camera_name"] == "七号摄像头"
-    assert normalized["reason"] == "人体逗留 - 七号摄像头"
-    assert normalized["image_url"] == "/api/alarms/7/image"
-    assert normalized["video_url"] is None
-    assert normalized["metadata"] == {}
-    assert normalized["channel_id"] is None
-
-
-# 功能：验证 `test_human_dwell_alarm_names_are_consistent_across_departments` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_alarm_type_metadata_is_canonical_and_has_no_colors():
-    assert ALARM_TYPE_META["detect_human"]["name"] == "人员违规逗留检测"
-    assert all("color" not in meta for meta in ALARM_TYPE_META.values())
-
-
-def test_unified_normalizer_preserves_explicit_ownership():
-    normalized = _normalize_aivision_alarm({
-        "id": "10",
-        "event_type": "detect_human",
-        "violation_type": 5,
-        "feature_name": "detect_human",
-        "department": "haoda_company",
-        "camera_no": "haoda-camera",
-    })
-
-    assert normalized["event_type"] == "detect_human"
-    assert normalized["violation_type"] == 5
-    assert normalized["feature_name"] == "detect_human"
-    assert normalized["department"] == "haoda_company"
-
-
-# 功能：验证 `test_malformed_channel_metadata_degrades_safely` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `metadata`（未显式标注）：`metadata` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize("metadata", [None, "broken", [], 17])
-def test_malformed_channel_metadata_degrades_safely(metadata):
-    normalized = _normalize_aivision_alarm(_channel_alarm(metadata=metadata))
-
-    assert normalized["metadata"] == {}
-    assert normalized["camera_ids"] == []
-    assert normalized["camera_names"] == {}
-    assert normalized["camera_counts"] == {}
-    assert normalized["camera_states"] == {}
-    assert normalized["offending_camera_ids"] == []
-    assert normalized["subject_name"] == "一号物流通道"
-    assert normalized["camera_name"] is None
-
-
-# 功能：验证 `test_malformed_nested_channel_metadata_does_not_leak_invalid_shapes` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_malformed_nested_channel_metadata_does_not_leak_invalid_shapes():
-    normalized = _normalize_aivision_alarm(_channel_alarm(metadata={
-        "channel_id": 3,
-        "camera_ids": "10,11",
-        "camera_names": ["东侧"],
-        "camera_counts": [2, 1],
-        "camera_states": {"10": "multiple", "11": {"status": "normal"}},
-        "offending_camera_ids": {10},
-    }))
-
-    assert normalized["camera_ids"] == []
-    assert normalized["camera_names"] == {}
-    assert normalized["camera_counts"] == {}
-    assert normalized["camera_states"] == {"11": {"status": "normal"}}
-    assert normalized["offending_camera_ids"] == []
-
-
-# 功能：验证 `test_camera_id_metadata_only_accepts_unique_positive_decimal_ids` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `subject_type`（未显式标注）：`subject_type` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`、`list`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize("subject_type", ["logistics_channel", "camera"])
-def test_camera_id_metadata_only_accepts_unique_positive_decimal_ids(subject_type):
-    raw_ids = [10.9, -1, 0, True, "10", "010", " 11 ", 11, "-2", "+3", "1e2", "", None]
-    normalized = _normalize_aivision_alarm(_channel_alarm(
-        subject_type=subject_type,
-        metadata={
-            "channel_id": 3,
-            "camera_ids": raw_ids,
-            "offending_camera_ids": list(raw_ids),
-        },
-    ))
-
-    assert normalized["camera_ids"] == [10, 11]
-    assert normalized["offending_camera_ids"] == [10, 11]
-
-
-# 功能：验证 `test_oversized_camera_id_metadata_degrades_without_failure` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `subject_type`（未显式标注）：`subject_type` 对应的业务输入值
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`str`、`_normalize_aivision_alarm`、`_channel_alarm`、`list`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize("subject_type", ["logistics_channel", "camera"])
-def test_oversized_camera_id_metadata_degrades_without_failure(subject_type):
-    upper_bound = 2**31 - 1
-    raw_ids = ["9" * 5000, upper_bound, str(upper_bound + 1)]
-
-    normalized = _normalize_aivision_alarm(_channel_alarm(
-        subject_type=subject_type,
-        metadata={
-            "channel_id": 3,
-            "camera_ids": raw_ids,
-            "offending_camera_ids": list(raw_ids),
-        },
-    ))
-
-    assert normalized["camera_ids"] == [upper_bound]
-    assert normalized["offending_camera_ids"] == [upper_bound]
-
-
-# 功能：验证 `test_all_logistics_alarm_features_have_type_and_department_mapping` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `feature_name`（未显式标注）：`feature_name` 对应的业务输入值
-#   - `department`（未显式标注）：业务部门名称或标识
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`、`pytest.mark.parametrize`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-@pytest.mark.parametrize(("feature_name", "department"), LOGISTICS_FEATURES)
-def test_all_logistics_alarm_features_have_type_and_department_mapping(
-    feature_name,
-    department,
-):
-    normalized = _normalize_aivision_alarm(
-        _channel_alarm(feature_name=feature_name, department=department)
+@pytest.mark.parametrize("subject_type,feature,violation", [
+    ("camera", "detect_human", 5),
+    ("guard_site", "guard_behavior", 8),
+    ("security_inspection_roi", "security_inspection", 12),
+    ("face_person", "recognize_face", 7),
+    ("unknown_face", "recognize_face", 7),
+])
+def test_native_subject_and_camera_are_not_rewritten(subject_type, feature, violation):
+    alarm = native_alarm(
+        subject_type=subject_type, subject_id="7:station-one", subject_name="检测主体",
+        violation_type=violation, feature_name=feature, camera_no="camera_7",
+        event_metadata={"camera_name": "七号摄像头"},
     )
-
-    assert normalized["event_type"] == "detect_logistics_single_person"
-    assert normalized["feature_name"] == feature_name
-    assert normalized["department"] == department
-    assert "detect_logistics_single_person" in DETECTION_EVENT_TYPES
+    result = _normalize_aivision_alarm(alarm)
+    for field in ("subject_type", "subject_id", "subject_name", "camera_no", "camera_name", "reason"):
+        assert result[field] == alarm[field]
 
 
-# 功能：验证 `test_statistics_group_channel_alarms_by_channel_subject` 对应的告警逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：None；仅执行处理流程，不返回业务数据。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_normalize_aivision_alarm`、`_channel_alarm`、`_build_alarm_statistics`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def test_statistics_group_channel_alarms_by_channel_subject():
-    first = _normalize_aivision_alarm(_channel_alarm(id="1"))
-    second = _normalize_aivision_alarm(_channel_alarm(id="2", reason="empty"))
-
-    statistics = _build_alarm_statistics([first, second], days=1)
-
-    assert statistics["summary"]["total"] == 2
-    assert statistics["summary"]["active_subjects"] == 1
-    assert "week" not in statistics["summary"]
-    assert statistics["by_subject"] == [
-        {
-            "subject_type": "logistics_channel",
-            "subject_id": "3",
-            "subject_name": "一号物流通道",
-            "value": 2,
-        }
-    ]
-    assert statistics["by_type"][0]["event_type"] == (
-        "detect_logistics_single_person"
-    )
-    assert "color" not in statistics["by_type"][0]
+@pytest.mark.parametrize("department", tuple(DEPARTMENT_SPECS))
+def test_department_filter_preserves_alarm_ownership(department):
+    alarms = [_normalize_aivision_alarm(native_alarm(id=index + 1, department=scope))
+              for index, scope in enumerate(DEPARTMENT_SPECS)]
+    visible = _filter_alarms(alarms, user={"role": "viewer", "departments": [department]})
+    assert len(visible) == 1
+    assert visible[0]["department"] == department
+    assert visible[0]["event_type"] == visible[0]["feature_name"] == "detect_logistics_single_person"
 
 
-def test_department_filter_uses_alarm_ownership_after_event_type_is_unified():
-    electronics_alarm = _normalize_aivision_alarm(_channel_alarm(
-        id="7",
-        feature_name="detect_logistics_single_person",
-        department="electronics_electrician",
-    ))
-    general_alarm = _normalize_aivision_alarm(_channel_alarm(
-        id="8",
-        event_type="detect_logistics_single_person",
-    ))
-
-    visible = _filter_alarms(
-        [electronics_alarm, general_alarm],
-        user={"role": "viewer", "departments": ["electronics_electrician"]},
-    )
-
-    assert [alarm["id"] for alarm in visible] == ["aivision:7"]
+def test_statistics_use_native_label_and_subject():
+    alarms = [_normalize_aivision_alarm(native_alarm(id=number)) for number in (1, 2)]
+    for alarm in alarms:
+        alarm["event_label"] = "上游提供的名称"
+    stats = _build_alarm_statistics(alarms, days=1)
+    assert stats["summary"]["total"] == 2 and stats["summary"]["active_subjects"] == 1
+    assert stats["by_type"] == [{"event_type": "detect_logistics_single_person", "name": "上游提供的名称", "value": 2}]
+    assert stats["by_subject"] == [{
+        "subject_type": "logistics_channel", "subject_id": "3", "subject_name": "一号物流通道", "value": 2,
+    }]
 
 
-def test_unified_normalizer_does_not_guess_missing_feature_or_department():
-    normalized = _normalize_aivision_alarm({"id": "old", "violation_type": 10,
-        "event_type": "detect_human", "metadata": {"department": "haoda_company"}})
-    assert normalized["violation_type"] == 10
-    assert normalized["feature_name"] is None
-    assert normalized["department"] is None
+def test_gateway_does_not_reconstruct_fields_from_metadata():
+    alarm = native_alarm()
+    alarm.update(subject_id=None, subject_name=None, channel_name=None, reason="", camera_names={})
+    result = _normalize_aivision_alarm(alarm)
+    for field in ("subject_id", "subject_name", "channel_name", "reason", "camera_names"):
+        assert result[field] == alarm[field]

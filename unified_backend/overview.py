@@ -8,17 +8,17 @@ from pydantic import BaseModel, Field
 
 
 CAPABILITIES = (
-    ("security-vlm", "安检流程规范检测", "aivision", "security_inspection"),
-    ("guard-behavior", "保安行为规范检测", "aivision", "guard_behavior"),
-    ("intrusion-detection", "区域入侵检测", "aivision", "blocks"),
-    ("door-detection", "大门开关异常检测", "aivision", "detect_door"),
-    ("face-detection", "人脸逗留检测", "aivision", "detect_face"),
-    ("face-recognition", "人脸身份识别", "aivision", "recognize_face"),
-    ("human-detection", "人员违规逗留检测", "aivision", "detect_human"),
-    ("logistics-single-person", "物流通道单人检测", "aivision", "detect_logistics_single_person"),
-    ("phone-detection", "手机使用检测", "aivision", "detect_phone"),
+    ("security-vlm", "安检流程规范检测", "security_inspection"),
+    ("guard-behavior", "保安行为规范检测", "guard_behavior"),
+    ("intrusion-detection", "区域入侵检测", "blocks"),
+    ("door-detection", "大门开关异常检测", "detect_door"),
+    ("face-detection", "人脸逗留检测", "detect_face"),
+    ("face-recognition", "人脸身份识别", "recognize_face"),
+    ("human-detection", "人员违规逗留检测", "detect_human"),
+    ("logistics-single-person", "物流通道单人检测", "detect_logistics_single_person"),
+    ("phone-detection", "手机使用检测", "detect_phone"),
 )
-FEATURE_PAGES = {feature: page for page, _name, _source, feature in CAPABILITIES if feature}
+FEATURE_PAGES = {feature: page for page, _name, feature in CAPABILITIES}
 UpstreamResult = tuple[bool, dict | list | None, float | None, str | None]
 ReadMany = Callable[[dict[str, tuple[str, str, Request | None]]], dict[str, UpstreamResult]]
 
@@ -26,7 +26,7 @@ ReadMany = Callable[[dict[str, tuple[str, str, Request | None]]], dict[str, Upst
 class OverviewCamera(BaseModel):
     key: str
     source: Literal["aivision"]
-    camera_id: int | str
+    camera_id: int
     name: str
     department: str
     identifier: str
@@ -42,7 +42,7 @@ class OverviewCamera(BaseModel):
 class OverviewCapability(BaseModel):
     id: str
     name: str
-    source: str
+    source: Literal["aivision"]
     camera_count: int
     online_camera_count: int
     running: bool
@@ -104,11 +104,11 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
     guard_sites = payload("guard_sites", list)
     inspection_status = payload("inspection_status", dict)
     sites = [site for site in guard_sites if site.get("department") == department]
-    services = {}
-    for source, key in (("aivision", "ai_status"),):
-        ok, _value, latency, error = upstream[key]
-        services[source] = OverviewServiceStatus(online=ok, latency_ms=latency, error=errors.get(key) or error)
-    services["aivision"].model_ready = bool(ai_status.get("running_models"))
+    ok, _value, latency, error = upstream["ai_status"]
+    service = OverviewServiceStatus(
+        online=ok, latency_ms=latency, error=errors.get("ai_status") or error,
+        model_ready=bool(ai_status.get("running_models")),
+    )
     running_cameras = set(ai_status.get("running_cameras", []))
     running_features = set(ai_status.get("running_consumers", []))
     memberships = {item["camera_id"]: item for item in logistics.get("items", []) if item.get("department") == department}
@@ -163,35 +163,32 @@ def _build_department_overview(department: str, upstream: dict[str, UpstreamResu
                     and state.get("running") and ready):
                 camera.running_capabilities.append("guard-behavior")
     capabilities = []
-    for page, name, source, feature in CAPABILITIES:
+    for page, name, feature in CAPABILITIES:
         members = [camera for camera in cameras if page in camera.capabilities]
         online_count = sum(page in camera.running_capabilities for camera in members)
-        model_ready = services[source].model_ready
-        if feature:
-            metadata = feature_meta.get(feature)
-            model_ready = metadata is not None and set(metadata["required_models"]).issubset(ai_status.get("running_models", []))
+        metadata = feature_meta.get(feature)
+        model_ready = metadata is not None and set(metadata["required_models"]).issubset(ai_status.get("running_models", []))
         if feature == "security_inspection":
             model_ready = model_ready and bool(inspection_status.get("running")) and not inspection_status.get("error")
         capabilities.append(OverviewCapability(
-            id=page, name=name, source=source, camera_count=len(members),
+            id=page, name=name, source="aivision", camera_count=len(members),
             online_camera_count=online_count, running=online_count > 0,
             model_ready=model_ready,
         ))
-    for source, service in services.items():
-        service.camera_count = sum(camera.source == source for camera in cameras)
-        service.online_camera_count = sum(camera.source == source and camera.online for camera in cameras)
-        service.running = any(capability.source == source and capability.running for capability in capabilities)
-    all_online = all(service.online for service in services.values()) and not errors
     camera_online = sum(camera.online for camera in cameras)
+    service.camera_count = len(cameras)
+    service.online_camera_count = camera_online
+    service.running = any(capability.running for capability in capabilities)
+    all_online = service.online and not errors
     return _OverviewScope(
         generated_at=time(), ok=all_online,
-        level="healthy" if all_online else "degraded" if any(s.online for s in services.values()) else "down",
+        level="healthy" if all_online else "degraded" if service.online else "down",
         inventory_complete=not errors, inventory_errors=errors,
         summary=OverviewSummary(
-            capability_total=len(capabilities), capability_online=sum(services[c.source].online for c in capabilities),
+            capability_total=len(capabilities), capability_online=len(capabilities) if service.online else 0,
             capability_running=sum(c.running for c in capabilities), camera_total=len(cameras),
             camera_online=camera_online, camera_offline=len(cameras) - camera_online,
-        ), capabilities=capabilities, cameras=cameras, services=services,
+        ), capabilities=capabilities, cameras=cameras, services={"aivision": service},
         guard_behavior_sites=[{"id": site["id"], "name": site["name"], "department": department} for site in sites],
     )
 
@@ -234,22 +231,20 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
     cameras = [camera for scope in scopes.values() for camera in scope.cameras]
     errors = {f"{department}:{key}": error for department, scope in scopes.items()
               for key, error in scope.inventory_errors.items()}
-    services = {}
-    for source in ("aivision",):
-        items = [scope.services[source] for scope in scopes.values()]
-        services[source] = OverviewServiceStatus(
-            online=any(item.online for item in items), running=any(item.running for item in items),
-            model_ready=any(item.model_ready for item in items),
-            camera_count=sum(item.camera_count for item in items),
-            online_camera_count=sum(item.online_camera_count for item in items),
-            latency_ms=max((item.latency_ms for item in items if item.latency_ms is not None), default=None),
-            error="；".join(dict.fromkeys(item.error for item in items if item.error)) or None,
-        )
+    items = [scope.services["aivision"] for scope in scopes.values()]
+    service = OverviewServiceStatus(
+        online=any(item.online for item in items), running=any(item.running for item in items),
+        model_ready=any(item.model_ready for item in items),
+        camera_count=sum(item.camera_count for item in items),
+        online_camera_count=sum(item.online_camera_count for item in items),
+        latency_ms=max((item.latency_ms for item in items if item.latency_ms is not None), default=None),
+        error="；".join(dict.fromkeys(item.error for item in items if item.error)) or None,
+    )
     capabilities = []
-    for index, (page, name, source, _feature) in enumerate(CAPABILITIES):
+    for index, (page, name, _feature) in enumerate(CAPABILITIES):
         items = [scope.capabilities[index] for scope in scopes.values()]
         capabilities.append(OverviewCapability(
-            id=page, name=name, source=source, camera_count=sum(item.camera_count for item in items),
+            id=page, name=name, source="aivision", camera_count=sum(item.camera_count for item in items),
             online_camera_count=sum(item.online_camera_count for item in items),
             running=any(item.running for item in items), model_ready=any(item.model_ready for item in items),
         ))
@@ -258,12 +253,12 @@ def build_overview(request: Request, departments: list[str], aivision_url: str,
     return OverviewStatus(
         departments=departments, department_summaries={department: scope.summary for department, scope in scopes.items()},
         generated_at=time(), ok=all_online,
-        level="healthy" if all_online else "degraded" if any(s.online for s in services.values()) else "down",
+        level="healthy" if all_online else "degraded" if service.online else "down",
         inventory_complete=not errors, inventory_errors=errors,
         summary=OverviewSummary(
-            capability_total=len(capabilities), capability_online=sum(services[c.source].online for c in capabilities),
+            capability_total=len(capabilities), capability_online=len(capabilities) if service.online else 0,
             capability_running=sum(c.running for c in capabilities), camera_total=len(cameras),
             camera_online=camera_online, camera_offline=len(cameras) - camera_online,
-        ), capabilities=capabilities, cameras=cameras, services=services,
+        ), capabilities=capabilities, cameras=cameras, services={"aivision": service},
         guard_behavior_sites=[site for scope in scopes.values() for site in scope.guard_behavior_sites],
     )

@@ -193,37 +193,6 @@ def _raise_user_management_http_error(exc: UserStoreError) -> None:
     raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-ALARM_TYPE_META: dict[str, dict[str, str]] = {
-    "recognize_face": {"name": "人脸身份识别"},
-    "blocks": {"name": "区域入侵"},
-    "detect_door": {"name": "大门开关"},
-    "detect_phone": {"name": "手机检测"},
-    "detect_face": {"name": "人脸逗留检测"},
-    "detect_human": {"name": "人员违规逗留检测"},
-    "detect_logistics_single_person": {"name": "物流通道单人检测"},
-    "guard_absent": {"name": "保安离岗"},
-    "guard_phone_use": {"name": "保安玩手机"},
-    "guard_prone_sleep": {"name": "保安趴睡"},
-    "guard_vehicle_inspection_missing": {"name": "车辆出厂检查异常"},
-    "security_inspection": {"name": "安检流程不规范"},
-}
-
-
-
-
-_MAX_AIVISION_CAMERA_ID = 2**31 - 1  # AiCameraConfig.id 使用有符号 SQL Integer。
-
-# 功能：实现 `_now` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：无。
-# 返回：float；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#         调用本符号；`unified_backend/app.py` 的 `create_app::overview` 调用本符号
-#   - 内部调用：`time.time`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _now() -> float:
-    return time.time()
-
-
 # 功能：实现 `_env_url` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
 # 参数：
 #   - `name`（str）：业务对象名称
@@ -276,17 +245,6 @@ def _request_headers(request: Request) -> dict[str, str]:
     return {key: value for key, value in request.headers.items() if key.lower() not in excluded}
 
 
-# 功能：读取或查询 `_get_json` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `base_url`（str）：`base_url` 对应的业务输入值
-#   - `path`（str）：目标路径
-#   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `2.0`
-#   - `request`（Request | None）：当前 HTTP 请求及上下文；默认值为 `None`
-# 返回：tuple[bool, dict | list | None, float | None, str | None]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：程序入口 / 无调用者（静态分析未发现直接调用；框架反射、回调或多态调用处待确认）
-#   - 内部调用：`_now`、`_request_headers`、`requests.get`、`urljoin`、`path.lstrip`、`round`、`response.json`、`str`。
-# 副作用/注意事项：可能发起网络请求或发送外部消息。
 def _get_json(
     base_url: str,
     path: str,
@@ -294,25 +252,12 @@ def _get_json(
     timeout: float = 2.0,
     request: Request | None = None,
 ) -> tuple[bool, dict | list | None, float | None, str | None]:
-    started_at = _now()
+    started_at = time.perf_counter()
     try:
-        kwargs: dict[str, Any] = {}
-        if request is not None:
-            kwargs = {
-                "headers": _request_headers(request),
-                "cookies": request.cookies,
-            }
-        response = requests.get(
-            urljoin(f"{base_url}/", path.lstrip("/")),
-            timeout=timeout,
-            **kwargs,
-        )
-        latency_ms = round((_now() - started_at) * 1000, 1)
-        if not response.ok:
-            return False, None, latency_ms, f"{response.status_code} {response.reason}"
-        return True, response.json(), latency_ms, None
-    except Exception as exc:
-        return False, None, None, str(exc)
+        payload = _get_upstream_json(base_url, path, request, timeout=timeout)
+    except HTTPException as exc:
+        return False, None, None, str(exc.detail)
+    return True, payload, round((time.perf_counter() - started_at) * 1000, 1), None
 
 
 # 功能：在平台状态专属的有界线程池中并发执行多个同步上游探测；输入与输出详见下方说明
@@ -341,40 +286,35 @@ def _get_json_concurrently(
     return dict(zip(keys, results, strict=True))
 
 
-# 功能：读取或查询 `_get_upstream_json` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `base_url`（str）：`base_url` 对应的业务输入值
-#   - `path`（str）：目标路径
-#   - `request`（Request）：当前 HTTP 请求及上下文
-#   - `timeout`（float）：允许操作等待的最长秒数；默认值为 `3.0`
-# 返回：dict | list | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`requests.get`、`urljoin`、`path.lstrip`、`_request_headers`、`response.json`。
-# 副作用/注意事项：可能发起网络请求或发送外部消息。
-def _get_upstream_json(base_url: str, path: str, request: Request, *, timeout: float = 3.0) -> dict | list | None:
+def _get_upstream_json(
+    base_url: str, path: str, request: Request | None, *, timeout: float = 3.0,
+) -> dict | list:
     try:
-        response = requests.get(
+        with requests.get(
             urljoin(f"{base_url}/", path.lstrip("/")),
-            headers=_request_headers(request),
-            cookies=request.cookies,
+            headers=_request_headers(request) if request is not None else {},
             timeout=timeout,
-        )
-        if not response.ok:
-            return None
-        return response.json()
-    except Exception:
-        return None
+            allow_redirects=False,
+        ) as response:
+            if response.status_code != 200:
+                logger.error("AiVision HTTP 请求失败 path=%s status=%s", path, response.status_code)
+                status = response.status_code if response.status_code in (401, 403) else 502
+                raise HTTPException(status, f"AiVision HTTP {response.status_code}")
+            payload = response.json()
+    except requests.Timeout as exc:
+        logger.warning("AiVision 请求超时 path=%s", path)
+        raise HTTPException(504, "AiVision request timed out") from exc
+    except requests.exceptions.JSONDecodeError as exc:
+        logger.error("AiVision JSON 解析失败 path=%s", path)
+        raise HTTPException(502, "invalid AiVision JSON response") from exc
+    except requests.RequestException as exc:
+        logger.error("AiVision 请求失败 path=%s error=%s", path, type(exc).__name__)
+        raise HTTPException(502, "AiVision upstream unavailable") from exc
+    if not isinstance(payload, (dict, list)):
+        raise HTTPException(502, "invalid AiVision response structure")
+    return payload
 
 
-# 功能：转换或规范化 `_parse_alarm_datetime` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（object）：待转换、校验或写入的值
-# 返回：datetime | None；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_alarm_sort_key` 调用本符号；`unified_backend/app.py` 的 `_build_alarm_statistics` 调用本符号
-#   - 内部调用：`isinstance`、`value.replace`、`datetime.fromisoformat`、`parsed.astimezone().replace`、`parsed.astimezone`、`datetime.strptime`。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _parse_alarm_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -385,10 +325,7 @@ def _parse_alarm_datetime(value: object) -> datetime | None:
             parsed = parsed.astimezone().replace(tzinfo=None)
         return parsed
     except ValueError:
-        try:
-            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            return None
+        return None
 
 
 # 功能：实现 `_alarm_sort_key` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -404,164 +341,25 @@ def _alarm_sort_key(alarm: dict[str, Any]) -> float:
     return created.timestamp() if created else 0.0
 
 
-# 功能：实现 `_items_from_payload` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `payload`（object）：接口或事件携带的业务数据
-# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`isinstance`、`payload.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _items_from_payload(payload: object) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
-        rows = payload.get("items") or payload.get("alarms") or []
-    else:
-        rows = []
-    return [row for row in rows if isinstance(row, dict)]
+    required = {"id", "event_type", "event_label", "subject_type", "subject_id", "subject_name", "created_at", "video_status"}
+    if (not isinstance(payload, dict) or not isinstance(payload.get("items"), list)
+            or any(not isinstance(row, dict) or not required.issubset(row) for row in payload["items"])):
+        logger.error("AiVision 报警列表字段不符合当前接口协议")
+        raise HTTPException(502, "invalid AiVision alarm list response")
+    return payload["items"]
 
 
-# 功能：转换或规范化 `_normalize_aivision_alarm` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`str`、`alarm.get`、`isinstance`、`dict`、`metadata.get`、`raw_states.items`、`raw_counts.items`、`_normalize_alarm_id_list`、`explicit_names.items`、`camera_states.items`
-#          等共 12 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _normalize_aivision_alarm(alarm: dict[str, Any]) -> dict[str, Any]:
-    source_id = str(alarm.get("id") or "")
-    raw_metadata = alarm.get("metadata")
-    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-    subject_type = str(alarm.get("subject_type") or "camera")
-    is_channel = subject_type == "logistics_channel"
-    raw_event_type = str(alarm.get("event_type") or "unknown")
-    violation_type = alarm.get("violation_type")
-    feature_name = alarm.get("feature_name")
-    event_type = raw_event_type
-    department = alarm.get("department")
-
-    channel_id_value = alarm.get("channel_id") or alarm.get("subject_id") or metadata.get("channel_id")
-    channel_id = str(channel_id_value) if is_channel and channel_id_value is not None else None
-    channel_name = None
-    if is_channel:
-        channel_name = str(
-            alarm.get("channel_name")
-            or alarm.get("subject_name")
-            or metadata.get("channel_name")
-            or alarm.get("camera_name")
-            or "物流通道"
-        )
-
-    raw_states = metadata.get("camera_states")
-    camera_states = {
-        str(key): dict(value)
-        for key, value in raw_states.items()
-        if isinstance(value, dict)
-    } if isinstance(raw_states, dict) else {}
-    raw_counts = metadata.get("camera_counts")
-    camera_counts = {
-        str(key): value
-        for key, value in raw_counts.items()
-        if value is None or (
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-        )
-    } if isinstance(raw_counts, dict) else {}
-    camera_ids = metadata.get("camera_ids")
-    camera_ids = _normalize_alarm_id_list(camera_ids)
-    offending_ids = metadata.get("offending_camera_ids")
-    offending_ids = _normalize_alarm_id_list(offending_ids)
-    explicit_names = metadata.get("camera_names")
-    camera_names = {
-        str(key): str(value)
-        for key, value in explicit_names.items()
-        if value is not None
-    } if isinstance(explicit_names, dict) else {}
-    for key, state in camera_states.items():
-        if isinstance(state, dict) and state.get("camera_name") is not None:
-            camera_names.setdefault(str(key), str(state["camera_name"]))
-
-    camera_no = alarm.get("camera_no") if not is_channel else None
-    camera_name = alarm.get("camera_name") if not is_channel else None
-    if is_channel:
-        normalized_subject_id = channel_id
-        normalized_subject_name = channel_name
-    else:
-        normalized_subject_id = alarm.get("subject_id") or camera_no
-        normalized_subject_name = alarm.get("subject_name") or camera_name or camera_no
-    reason = alarm.get("reason") or metadata.get("reason")
+    """保留 AiVision 报警字段，只添加平台记录标识与视频访问地址。"""
+    source_id = alarm["id"]
     return {
         **alarm,
         "id": f"aivision:{source_id}",
         "source": "aivision",
         "source_id": source_id,
-        "event_type": event_type,
-        "feature_name": feature_name,
-        "violation_type": violation_type,
-        "department": department,
-        "subject_type": subject_type,
-        "subject_id": str(normalized_subject_id) if normalized_subject_id is not None else None,
-        "subject_name": normalized_subject_name,
-        "camera_no": camera_no,
-        "camera_name": camera_name,
-        "channel_id": channel_id,
-        "channel_name": channel_name,
-        "reason": reason,
-        "status": alarm.get("status") or (reason if is_channel else None),
-        "camera_ids": camera_ids,
-        "camera_names": camera_names,
-        "camera_counts": camera_counts,
-        "camera_states": camera_states,
-        "offending_camera_ids": offending_ids,
-        "evidence_error": alarm.get("evidence_error") or metadata.get("evidence_error"),
-        "metadata": metadata,
-        "image_url": alarm.get("image_url") or f"/api/alarms/{source_id}/image",
-        "video_url": (
-            alarm.get("video_url")
-            or (
-                f"/api/alarms/{source_id}/video"
-                if alarm.get("video_status") == "ready"
-                else None
-            )
-        ),
+        "video_url": f"/api/alarms/{source_id}/video" if alarm["video_status"] == "ready" else None,
     }
-
-
-# 功能：读取或查询 `_normalize_alarm_id_list` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `value`（object）：待转换、校验或写入的值
-# 返回：list[int]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_normalize_aivision_alarm` 调用本符号
-#   - 内部调用：`isinstance`、`set`、`item.strip`、`any`、`int`、`seen.add`、`normalized.append`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
-def _normalize_alarm_id_list(value: object) -> list[int]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[int] = []
-    seen: set[int] = set()
-    for item in value:
-        if isinstance(item, bool):
-            continue
-        if isinstance(item, int):
-            camera_id = item
-        elif isinstance(item, str):
-            raw_camera_id = item.strip()
-            if not raw_camera_id or any(char not in "0123456789" for char in raw_camera_id):
-                continue
-            try:
-                camera_id = int(raw_camera_id)
-            except (ValueError, OverflowError):
-                continue
-        else:
-            continue
-        if not 1 <= camera_id <= _MAX_AIVISION_CAMERA_ID or camera_id in seen:
-            continue
-        seen.add(camera_id)
-        normalized.append(camera_id)
-    return normalized
 
 
 # 功能：实现 `_allowed_event_types_for_user` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
@@ -631,40 +429,17 @@ def _filter_alarms(
     return alarms
 
 
-# 功能：实现 `_with_disposition` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `alarm`（dict[str, Any]）：`alarm` 对应的业务输入值
-#   - `dispositions`（dict[str, dict[str, Any]]）：`dispositions` 对应的业务输入值
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `_collect_alarms` 调用本符号
-#   - 内部调用：`dispositions.get`、`str`、`alarm.get`、`disposition.get`。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _with_disposition(alarm: dict[str, Any], dispositions: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    disposition = dispositions.get(str(alarm.get("id") or ""))
+    disposition = dispositions.get(alarm["id"])
     return {
         **alarm,
-        "disposition_status": disposition.get("status", "pending") if disposition else "pending",
-        "disposition_note": disposition.get("note", "") if disposition else "",
-        "disposition_updated_at": disposition.get("updated_at") if disposition else None,
-        "disposition_updated_by": disposition.get("updated_by") if disposition else None,
+        "disposition_status": disposition["status"] if disposition else "pending",
+        "disposition_note": disposition["note"] if disposition else "",
+        "disposition_updated_at": disposition["updated_at"] if disposition else None,
+        "disposition_updated_by": disposition["updated_by"] if disposition else None,
     }
 
 
-# 功能：实现 `_collect_alarms` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `request`（Request）：当前 HTTP 请求及上下文
-#   - `user`（dict[str, Any]）：当前用户或待处理用户对象
-#   - `aivision_url`（str）：`aivision_url` 对应的业务输入值
-#   - `disposition_store`（AlarmDispositionStore）：`disposition_store` 对应的业务输入值
-#   - `limit`（int）：返回或处理的最大记录数
-#   - `event_types`（set[str] | None）：`event_types` 对应的业务输入值；默认值为 `None`
-# 返回：list[dict[str, Any]]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::unified_alarms` 调用本符号；`unified_backend/app.py` 的 `create_app::unified_statistics`
-#         调用本符号
-#          等共 19 个调用。
-# 副作用/注意事项：无明显外部副作用；参数非法或下层调用失败时可能继续抛出异常。
 def _collect_alarms(
     *,
     request: Request,
@@ -683,13 +458,11 @@ def _collect_alarms(
         if user.get("role") != "admin" and department not in _departments_for_user(user):
             raise HTTPException(status_code=403, detail="department permission required")
     upstream_limit = max(limit, 100)
-    alarms: list[dict[str, Any]] = []
-
     ai_path = f"/api/alarms?limit={upstream_limit}"
     if department is not None:
         ai_path += f"&department={department}"
     ai_payload = _get_upstream_json(aivision_url, ai_path, request)
-    alarms.extend(_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload))
+    alarms = [_normalize_aivision_alarm(item) for item in _items_from_payload(ai_payload)]
 
     scoped = _filter_alarms(alarms, user=user, event_types=event_types)
     if department is not None:
@@ -702,16 +475,6 @@ def _collect_alarms(
     return [_with_disposition(alarm, disposition_map) for alarm in selected]
 
 
-# 功能：创建或构建 `_build_alarm_statistics` 对应的应用装配逻辑；输入由参数提供，处理结果见返回值说明
-# 参数：
-#   - `alarms`（list[dict[str, Any]]）：`alarms` 对应的业务输入值
-#   - `days`（int）：`days` 对应的业务输入值
-# 返回：dict[str, Any]；返回该函数计算、查询或构造得到的结果；具体语义由类型及调用方使用方式确定。
-# 调用关系：
-#   - 调用方：`unified_backend/app.py` 的 `create_app::unified_statistics` 调用本符号
-#   - 内部调用：`datetime.now`、`now.replace`、`timedelta`、`_parse_alarm_datetime`、`alarm.get`、`in_range.append`、`Counter`、`defaultdict`、`str`、`ALARM_TYPE_META.get`
-#          等共 31 个调用。
-# 副作用/注意事项：可能创建、写入、移动或删除本地文件。
 def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[str, Any]:
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -730,32 +493,22 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
     hourly_counts: dict[int, Counter[str]] = defaultdict(Counter)
 
     for alarm, created in in_range:
-        event_type = str(alarm.get("event_type") or "unknown")
-        meta = ALARM_TYPE_META.get(event_type, {"name": event_type})
+        event_type = alarm["event_type"]
         row = by_type.setdefault(
             event_type,
             {
                 "event_type": event_type,
-                "name": alarm.get("event_label") or meta["name"],
+                "name": alarm["event_label"],
                 "value": 0,
             },
         )
         row["value"] += 1
 
-        subject_type = str(alarm.get("subject_type") or "unknown")
-        subject_id = str(
-            alarm.get("subject_id")
-            or alarm.get("subject_name")
-            or alarm.get("camera_no")
-            or "unknown"
-        )
+        subject_type = alarm["subject_type"]
+        subject_id = alarm["subject_id"] or "unknown"
         subject_key = (subject_type, subject_id)
         by_subject[subject_key] += 1
-        subject_names[subject_key] = str(
-            alarm.get("subject_name")
-            or alarm.get("camera_name")
-            or subject_id
-        )
+        subject_names[subject_key] = alarm["subject_name"] or subject_id
         daily_counts[created.strftime("%m-%d")][event_type] += 1
         hourly_counts[created.hour][event_type] += 1
 
@@ -794,9 +547,6 @@ def _build_alarm_statistics(alarms: list[dict[str, Any]], *, days: int) -> dict[
         "hourly": hourly,
         "recent": alarms[:8],
     }
-
-
-
 
 
 # 读取请求体以及发送上游HTTP，都属于I/O操作，因此使用异步函数来处理请求转发，避免阻塞事件循环，提高并发性能。
