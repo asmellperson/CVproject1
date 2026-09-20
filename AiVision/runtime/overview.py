@@ -19,6 +19,7 @@ CAPABILITIES = (
     ("human-detection", "人员违规逗留检测", "detect_human"),
     ("logistics-single-person", "物流通道单人检测", "detect_logistics_single_person"),
     ("phone-detection", "手机使用检测", "detect_phone"),
+    ("agv-person-check", "AGV无人运货检测", "agv_person_check"),
 )
 FEATURE_PAGES = {feature: page for page, _name, feature in CAPABILITIES}
 
@@ -86,6 +87,8 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     running_cameras = set(status.get("running_cameras", []))
     running_features = set(status.get("running_consumers", []))
     running_models = set(status.get("running_models", []))
+    agv = orchestrator.consumers.get("agv_person_check") if orchestrator is not None else None
+    detecting_agv_cameras = agv.service.detecting_camera_ids() if agv is not None else set()
     inspection = orchestrator.consumers.get("security_inspection") if orchestrator is not None else None
     health = inspection.vlm_runtime.health_status() if inspection is not None else None
     vlm_ready = bool(inspection is not None and inspection.running and health.reachable is True
@@ -104,7 +107,8 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
             capabilities.append("logistics-single-person")
         active = [FEATURE_PAGES[name] for name in features
                   if online and name in running_features and name not in LOGISTICS_FEATURES and name != "guard_behavior"
-                  and (name != "security_inspection" or vlm_ready)]
+                  and (name != "security_inspection" or vlm_ready)
+                  and (name != "agv_person_check" or camera["camera_id"] in detecting_agv_cameras)]
         if enabled and member.get("online"):
             active.append("logistics-single-person")
         physical[camera["camera_id"]] = OverviewCamera(
@@ -135,11 +139,13 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     for page, name, feature in CAPABILITIES:
         members = [camera for camera in physical.values() if page in camera.capabilities]
         active = sum(page in camera.running_capabilities for camera in members)
+        # AGV 待机时画面仍在线；只有未完成的检测请求计入“正在检测”。
+        online_count = sum(camera.online for camera in members) if feature == "agv_person_check" else active
         ready = set(specs[feature].required_models).issubset(running_models)
         if feature == "security_inspection":
             ready = ready and vlm_ready
         capabilities.append(OverviewCapability(
-            id=page, name=name, camera_count=len(members), online_camera_count=active,
+            id=page, name=name, camera_count=len(members), online_camera_count=online_count,
             running=bool(active), model_ready=ready,
         ))
 

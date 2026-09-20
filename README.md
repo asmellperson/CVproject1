@@ -1,6 +1,6 @@
 # 福达视觉平台
 
-福达视觉平台将摄像头管理、九项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
+福达视觉平台将摄像头管理、十项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
 
 本文按当前源码整理（2026-09-20）。算法、配置和 API 细节见 [AiVision README](AiVision/README.md)，部署操作见 [运行手册](run_guide.txt)。本机的 `unified_frontend/info.md` 提供页面与组件导览，该文件按现有 Git 忽略规则在本地维护。
 
@@ -48,7 +48,7 @@ Fuda_CVPreject_V3/
 │   ├── runtime/            # 数据库 bootstrap、资源编排和总览
 │   ├── cameras/            # 配置、FFmpeg 采集和帧读取
 │   ├── inference/          # 模型注册、共享 Worker 和后台重载
-│   ├── features/           # 九项原生检测功能
+│   ├── features/           # 十项原生检测功能
 │   ├── alarms/             # 记录、处置、证据、设备和通知
 │   ├── departments/        # 固定事业部目录
 │   ├── core/               # 环境配置、数据库、日志、缓存和事件
@@ -75,8 +75,11 @@ Fuda_CVPreject_V3/
 | 物流通道单人 | `logistics_channel` | `detect_logistics_single_person` | `logistics-single-person` |
 | 保安行为规范 | `guard_behavior` | `guard_behavior` | `guard-behavior` |
 | 安检流程规范 | `security_inspection` | `security_inspection` | `security-vlm` |
+| AGV 无人运货 | `agv_person_check` | `agv_person_check` | `agv-person-check` |
 
 所有正式事业部均可使用平台全部功能。事业部表示数据归属与访问范围，不再通过 FeatureSpec 为不同部门分配不同的算法集合。具体摄像头是否参与检测，仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
+
+平台总览展示十项能力及对应摄像头，按权限汇总各事业部数据，功能数量随能力目录计算。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
 
 ### 普通检测与共享推理
 

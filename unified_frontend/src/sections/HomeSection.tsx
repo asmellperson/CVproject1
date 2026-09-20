@@ -690,7 +690,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
               <MetricTile
                 title="模块覆盖"
                 value={visibleStatusCards.length}
-                detail="每个事业部固定九个检测能力"
+                detail={`每个事业部提供 ${visibleStatusCards.length} 个检测能力`}
                 icon={<CircleDotDashed className="h-5 w-5" />}
                 tone="blue"
               />
@@ -922,6 +922,8 @@ function ServiceStatusCard({ service, capability }: {
     hasError,
     featureKey,
     cameraCount,
+    modelLoaded,
+    onlineCameraCount: onlineCameras,
   })
 
   return (

@@ -52,6 +52,11 @@ class AgvPersonCheckService:
         self._wake = threading.Event()
         self._requests: dict[int, CheckRequest] = {}
 
+    def detecting_camera_ids(self) -> set[int]:
+        """总览只读取尚未完成判定的请求，不把待机或等待回调计为检测。"""
+        with self._lock:
+            return {camera_id for camera_id, request in self._requests.items() if not request.future.done()}
+
     def submit(self, camera_id: int, camera_key: str, cfg: dict) -> CheckRequest:
         with self._lock:
             if camera_id in self._requests:

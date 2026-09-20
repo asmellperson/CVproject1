@@ -1,6 +1,6 @@
 # AiVision：多摄像头视觉检测与告警后端
 
-AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、九项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
+AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
 
 本文按当前源码整理（2026-09-20）。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
 
@@ -30,7 +30,7 @@ AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模�
 flowchart LR
     UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
     API --> Auth[auth 认证 / 用户 / 访问审计]
-    API --> Features[九项原生检测功能]
+    API --> Features[十项原生检测功能]
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
@@ -50,7 +50,7 @@ flowchart LR
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 
-### 1.2 九项原生功能
+### 1.2 十项原生功能
 
 Python 目录名用于组织代码，业务标识用于 API、数据库、缓存和前端查询。接入时应使用表中的业务标识。
 
@@ -65,6 +65,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测与通道联合判定 | `yolo_human` |
 | `features/guard_behavior/` | `guard_behavior` | 单路感知与保安室规则汇总 | 必需 `yolo_guard_person_phone`、`guard_uniform`；可选 `yolo_guard_pose`、`yolo_vehicle` |
 | `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与千问判定 | `yolo_human`，另通过 HTTP 调用千问 |
+| `features/agv_person_check/` | `agv_person_check` | HTTP 请求触发 ROI 多帧人体检测，任一有效帧有人即判定有人 | `yolo_human` |
 
 所有正式事业部均可使用上述功能，事业部用于数据归属和访问隔离。FeatureSpec 不再声明事业部白名单。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
@@ -102,7 +103,7 @@ AiVision/
 │   ├── insightface_detector.py     # InsightFace 检测和 GPU 模型加载
 │   └── workers/                    # YOLO、人脸检测、人脸身份识别
 ├── features/
-│   ├── registry.py                 # 九项功能唯一显式注册入口
+│   ├── registry.py                 # 十项功能唯一显式注册入口
 │   ├── _shared/
 │   │   ├── spec.py                 # FeatureSpec 元数据
 │   │   ├── consumer.py             # 公共帧处理、推理调用和告警衔接
@@ -118,6 +119,7 @@ AiVision/
 │   ├── face_dwell/                 # 人脸逗留
 │   ├── person_dwell/               # 人员逗留
 │   ├── phone_detection/            # 手机使用检测
+│   ├── agv_person_check/           # AGV 请求调度、人体检测和 HTTP 协议适配
 │   ├── face_recognition/           # 身份识别、识别记录
 │   │   └── library/                # 人员同步、照片特征和内存索引
 │   ├── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
@@ -189,7 +191,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-九项功能共用采集和模型推理流水线；保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程。
+十项功能共用采集和模型推理流水线；保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -306,7 +308,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | `alarm_types` | 该功能拥有的告警类型元组 |
 | `model_names` | 必需与可选模型合并去重后的只读属性 |
 
-[registry.py](features/registry.py) 显式导入九项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
+[registry.py](features/registry.py) 显式导入十项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
 
 ### 5.2 配置分为三类
 
@@ -872,7 +874,7 @@ Consumer / 通道状态机满足规则
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-全部正式事业部共用九项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
+全部正式事业部共用十项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
@@ -1074,6 +1076,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/admin/access-audit` | 有权限的访问记录 |
 
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
+
+`/api/overview` 的能力目录包含全部十项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
 ## 13. 人脸库同步与特征生成
 
