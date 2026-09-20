@@ -28,7 +28,7 @@ alarms/records/orm.py
         event_metadata
     
 """
-from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, text, event
+from sqlalchemy import JSON, Column, String, SmallInteger, DateTime, Enum, Text, text, event
 from sqlalchemy.dialects.mysql import BIGINT
 from AiVision.core.db import Base
 from ..validation import validate_alarm_identity
@@ -80,3 +80,17 @@ class AiAlarmEvent(Base):
 def _validate_new_alarm(_mapper, _connection, target: AiAlarmEvent) -> None:
     # 防止对象创建后、真正 INSERT 前被改成缺失或不一致的正式字段；不改变数据库列定义。
     validate_alarm_identity(target.violation_type, target.feature_name, target.department)
+
+
+class AiAlarmDisposition(Base):
+    """报警处置独立保留；证据过期清理不删除处理历史。"""
+
+    __tablename__ = "ai_alarm_disposition"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+
+    alarm_id = Column(BIGINT(unsigned=True), primary_key=True, autoincrement=False)
+    status = Column(Enum("pending", "acknowledged", "resolved", "false_positive"), nullable=False)
+    note = Column(Text, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    updated_by = Column(JSON, nullable=False)
+    history = Column(JSON, nullable=False)

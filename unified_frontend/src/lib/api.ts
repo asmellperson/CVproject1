@@ -130,7 +130,6 @@ export type OverviewServiceStatus = {
   online: boolean
   running: boolean
   error: string | null
-  latency_ms: number | null
   camera_count: number
   online_camera_count: number
   model_ready: boolean
@@ -139,7 +138,6 @@ export type OverviewServiceStatus = {
 export type OverviewCapability = {
   id: string
   name: string
-  source: 'aivision'
   camera_count: number
   online_camera_count: number
   running: boolean
@@ -148,7 +146,6 @@ export type OverviewCapability = {
 
 export type OverviewCamera = {
   key: string
-  source: OverviewCapability['source']
   camera_id: string | number
   name: string
   department: DepartmentId
@@ -180,7 +177,7 @@ export type OverviewStatus = {
   }
   capabilities: OverviewCapability[]
   cameras: OverviewCamera[]
-  services: Record<OverviewCapability['source'], OverviewServiceStatus>
+  service: OverviewServiceStatus
   guard_behavior_sites: Array<{ id: number; name: string; department: DepartmentId }>
 }
 
@@ -190,11 +187,7 @@ export const getOverview = (init?: RequestInit) => apiGet<OverviewStatus>('/over
 
 export type AlarmEvent = {
   id: string
-  source?: 'aivision'
-  source_id?: string
-  site_id?: number
-  site_name?: string
-  event_type: 'absent' | 'phone_use' | 'prone_sleep' | string
+  event_type: string
   event_label?: string
   violation_type?: number | null
   feature_name?: string | null
@@ -209,8 +202,6 @@ export type AlarmEvent = {
   reason: string
   confidence: number
   created_at?: string
-  frame_index?: number
-  track_id?: number | null
   image_path?: string
   image_url?: string
   video_path?: string | null
@@ -230,7 +221,7 @@ export type AlarmEvent = {
 }
 
 type AlarmsResponse = {
-  items?: AlarmEvent[]
+  items: AlarmEvent[]
 }
 
 export type AlarmDispositionStatus = 'pending' | 'acknowledged' | 'resolved' | 'false_positive'
@@ -251,10 +242,9 @@ export type AlarmDisposition = {
 export type AlarmDispositionsPage = {
   items: AlarmDisposition[]
   next_cursor: string | null
-  stop_reason: 'page_full' | 'scan_limit' | 'end'
 }
 
-// scan_limit 可能返回空页；只有 next_cursor === null 才表示结束。
+// 服务端按报警 ID 分页，next_cursor 为 null 时结束。
 export const getAlarmDispositions = (
   options: { limit?: number; cursor?: string | null } = {},
   signal?: AbortSignal,
@@ -296,11 +286,11 @@ function withQuery(path: string, params: Record<string, string | number | undefi
 }
 
 export const getAlarms = async (limit = 100, eventTypes?: readonly string[] | null, department?: DepartmentId): Promise<AlarmEvent[]> => {
-  const data = await apiGet<AlarmEvent[] | AlarmsResponse>(withQuery(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`, { department }))
-  return Array.isArray(data) ? data : (data?.items || [])
+  const data = await apiGet<AlarmsResponse>(withQuery(`/alarms?limit=${limit}${eventTypesQuery(eventTypes)}`, { department }))
+  return data.items
 }
 
 export const getStatistics = async (eventTypes?: readonly string[] | null) =>
-  apiGet(`/statistics?days=7${eventTypesQuery(eventTypes)}`)
+  apiGet(`/alarms/statistics/summary?days=7${eventTypesQuery(eventTypes)}`)
 export const alarmImageUrl = (alarmId: string) => `/api/alarms/${alarmId}/image`
 export const alarmVideoUrl = (alarmId: string) => `/api/alarms/${alarmId}/video`

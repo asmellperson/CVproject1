@@ -5,7 +5,7 @@
 # =============================================================================
 # 福达视觉平台 - 服务状态查询脚本
 # -----------------------------------------------------------------------------
-# 作用：查询 3 个 tmux 服务的端口与 health 状态。
+# 作用：查询 2 个 tmux 服务的端口与 health 状态。
 # 用法：bash scripts/status.sh
 # 只读：不修改任何状态。
 # =============================================================================
@@ -22,7 +22,6 @@ PROJECT_ROOT="${FUDA_CVP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 #   skip            不做 health 探测
 SERVICES=(
   "aivision|7862|http://127.0.0.1:7862/api/runtime/health|json:ok=true"
-  "unified_backend|5000|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|3000|http://127.0.0.1:3000/|http2xx"
 )
 
@@ -220,7 +219,7 @@ done
 
 echo "============================================================================"
 if [[ $ALL_OK -eq 1 && $DEGRADED -eq 0 ]]; then
-  echo "${C_GRN}[ OK ]${C_RST} 三个 tmux 服务全部正常"
+  echo "${C_GRN}[ OK ]${C_RST} 两个 tmux 服务全部正常"
   exit 0
 elif [[ $ALL_OK -eq 1 ]]; then
   echo "${C_YLW}[WARN]${C_RST} 端口正常但有服务 health 降级（可能模型未就绪）。建议: tmux attach -t <服务名>"

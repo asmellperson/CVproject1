@@ -75,6 +75,23 @@ class LogisticsChannelService(MembershipTransaction):
         finally:
             session.close()
 
+    def camera_inventory_status(self, departments, orchestrator) -> list[dict]:
+        """同一份通道快照同时供总览与物流清单使用。"""
+        from .constants import LOGISTICS_FEATURES
+
+        items = self.list_camera_inventory(list(LOGISTICS_FEATURES), departments=departments)
+        states = {}
+        for item in items:
+            for membership in item["memberships"]:
+                key = (membership["feature_name"], membership["channel_id"])
+                if key not in states:
+                    states[key] = orchestrator.get_logistics_channel_status(*key) if orchestrator is not None else None
+                camera_states = states[key]["camera_states"] if states[key] is not None else {}
+                camera_state = camera_states.get(str(item["camera_id"]), {})
+                membership["online"] = bool(membership["enabled"] and camera_state.get("online"))
+            item["online"] = any(member["online"] for member in item["memberships"])
+        return items
+
     def list_camera_inventory(
         self,
         feature_names: list[str] | tuple[str, ...],

@@ -116,7 +116,7 @@ function getAlarmSeverity(eventType: string): AlarmSeverity {
 }
 
 function getAlarmLocation(alarm: AlarmEvent) {
-  return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '未知位置'
+  return alarm.subject_name || '未知位置'
 }
 
 function makeAiVisionShmName(alias: string) {
@@ -163,7 +163,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const platformCameras = overviewStatus?.cameras ?? []
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
   const visibleStatusCards = overviewStatus?.capabilities ?? moduleEntries.map((entry) => ({
-    id: entry.id, name: entry.title, source: 'aivision' as const,
+    id: entry.id, name: entry.title,
     camera_count: 0, online_camera_count: 0, running: false, model_ready: false,
   }))
   const scopedStatusSummary = {
@@ -662,7 +662,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                 {visibleStatusCards.map((card) => (
                   <ServiceStatusCard
                     key={card.id}
-                    service={overviewStatus?.services[card.source]}
+                    service={overviewStatus?.service}
                     capability={card}
                   />
                 ))}
@@ -953,9 +953,9 @@ function ServiceStatusCard({ service, capability }: {
           </div>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900/70">
-          <div className="text-slate-500">连接响应</div>
+          <div className="text-slate-500">检测引擎</div>
           <div className="mt-1 font-black text-slate-900 dark:text-slate-100">
-            {typeof service?.latency_ms === 'number' ? `${service.latency_ms}ms` : '-'}
+            {service?.running ? '已就绪' : '未就绪'}
           </div>
         </div>
       </div>

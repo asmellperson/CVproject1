@@ -3,7 +3,7 @@
 这份文档读完后应能回答三个问题：
 
 1. 这个项目解决什么业务问题。
-2. 前端、统一后端和 AiVision 视觉业务层分别负责什么。
+2. 前端、auth 和 AiVision 分别负责什么。
 3. 如果要运行、排查或新增能力，应该先看哪些文件。
 
 ## 1. 项目定位
@@ -20,36 +20,31 @@ https://aicv.fudar.com/
 
 | 业务模块 | 子系统 | 做什么 |
 | --- | --- | --- |
-| 安检流程规范检测 | `AiVision/integrations/security_vlm` | 通过 YOLO + ByteTrack 跟踪安检工位人员交互过程，再把关键帧交给 Qwen-VL 判断流程是否合规。 |
-| 保安行为规范检测 | `AiVision/integrations/guard_room` | 多路摄像头实时检测保安离岗、玩手机、趴睡，并保存报警截图/视频、推送企业微信。 |
+| 安检流程规范检测 | `AiVision/features/security_inspection` | 通过 YOLO + ByteTrack 跟踪安检工位人员交互过程，再把关键帧交给 Qwen-VL 判断流程是否合规。 |
+| 保安行为规范检测 | `AiVision/features/guard_behavior` | 多路摄像头实时检测保安离岗、玩手机、趴睡，并保存报警截图/视频、推送企业微信。 |
 | 通用视觉检测能力 | `AiVision` | 以 features-first 架构提供区域入侵、大门开关异常、人脸逗留检测、人员逗留、手机使用检测等能力。 |
 | 统一管理界面 | `unified_frontend` | React 前端，统一登录、导航、监控预览、ROI/模型/摄像头配置、报警记录与统计。 |
 
-整体上，这是“一个 Vite 前端 + 一个统一后端 + 一个视觉业务后端”的三层项目。Guard Room 和
-Security VLM 的源码、API 与生命周期都属于 AiVision，不再是仓库顶层的独立项目或服务。
+平台只运行 Vite 前端和 AiVision 后端。auth 负责认证、用户、密码和访问审计，作为模块挂载到 AiVision；摄像头、检测、总览、报警与统计均由 AiVision 管理。
 
 ## 2. 仓库顶层结构
 
 ```text
 Fuda_CVPreject_V3/
 ├── unified_frontend/      # React + TypeScript + Vite 统一前端
-├── unified_backend/       # 统一认证、聚合与代理后端
-├── AiVision/              # 统一视觉业务后端（含全部检测能力）
-│   └── integrations/
-│       ├── guard_room/    # 保安行为算法与 API 模块
-│       └── security_vlm/  # 安检 VLM 算法与按需 worker
-├── auth/                  # 共享认证逻辑与 SQLite 用户存储
+├── AiVision/              # 唯一业务后端，包含全部检测、总览、报警与统计
+│   └── features/          # 安检、保安室及其他检测功能
+├── auth/                  # 认证、用户管理和访问审计，共享 MySQL
 ├── docs/diagrams/         # 项目流程图
-├── scripts/               # 三服务启停、状态检查与运行时探测
+├── scripts/               # 双服务启停、状态检查与运行时探测
 └── run_guide.txt          # 部署、线上/tmux 运维与账号维护说明
 ```
 
-生产环境统一管理三个 tmux 运行服务，前端由 Vite 直接提供：
+生产环境统一管理两个 tmux 运行服务，前端由 Vite 直接提供：
 
 | 服务 | 默认端口 | 启动目录 | 主要入口 |
 | --- | ---: | --- | --- |
 | 统一前端 | `3000` | `unified_frontend` | `npm run dev`（由 `scripts/start.sh` 启动） |
-| 统一后端 | `5000` | 仓库| `python -m unified_backend.run_server` |
 | AiVision 视觉业务层 | `7862` | 仓库 | `conda activate aivision && python -m AiVision.main` |
 
 ## 3. 整体调用关系
@@ -61,12 +56,12 @@ Fuda_CVPreject_V3/
 Vite -> unified_frontend (React 页面与 API 代理, :3000)
   |
   v
-unified_backend (:5000)
-  |
-  +-- 保安行为 API        -> AiVision (:7862, 进程内 Guard Room)
-  +-- 安检流程 API        -> AiVision (:7862, 进程内 Security VLM)
-  +-- /api/*             -> AiVision (:7862, 正式 API)
-  +-- /aivision/*        -> AiVision (:7862)
+AiVision (:7862)
+  +-- auth               -> 登录、用户管理、密码、访问审计
+  +-- /api/overview      -> 平台总览
+  +-- /api/alarms        -> 报警、统计、证据
+  +-- /api/alarm-dispositions -> MySQL 处置状态与历史
+  +-- 检测与配置 API      -> 摄像头、模型和各功能
 ```
 
 开发环境的代理配置在：
@@ -98,14 +93,14 @@ unified_frontend/src/lib/security-vlm.ts
 | 前端登录态 | `unified_frontend/src/auth/` |
 | 后端认证实现 | `auth/auth.py` |
 | AiVision/Guard Room 认证引用 | `from auth.auth import ...` |
-| 用户数据库 | `runtime/auth/auth_users.db`（可由 `AUTH_USERS_DB` 覆盖） |
+| 用户数据库 | 共享 MySQL 的 `auth_users` 表 |
 | 权限分级 | `unified_frontend/src/auth/permissions.ts` |
 | 角色 | `admin` 可以配置/启停/录制；`viewer` 只能查看。 |
 
-线上启动时需要让统一后端和 AiVision 使用同一个 `AUTH_SECRET`：
+线上启动由脚本向 AiVision 注入 `scripts/auth_secret` 中的 `AUTH_SECRET`：
 
 ```bash
-export AUTH_SECRET="<统一后端和AiVision保持同一串32位以上随机密钥>"
+export AUTH_SECRET="<至少32位的现有随机密钥>"
 ```
 
 新增账号和角色修改参考`run_guide.txt`。
@@ -173,7 +168,7 @@ unified_frontend/src/lib/nav.ts
 
 ### 6.1 业务职责
 
-`AiVision/integrations/guard_room` 是 AiVision 内置的保安行为模块，用于值班室/保安场景。它的 FastAPI 子应用
+`AiVision/features/guard_behavior` 是 AiVision 内置的保安行为模块，用于值班室/保安场景。它的 FastAPI 子应用
 挂载在 AiVision 7862 端口下，没有独立 Web 进程或端口。它支持多路 RTSP 摄像头，并检测：
 
 | 异常 | 判定逻辑概览 |
@@ -712,7 +707,7 @@ env -u CONFIG_TEST_MYSQL_URL -u LOGISTICS_TEST_MYSQL_URL -u HUMAN_TEST_MYSQL_URL
 /api/logistics-channels/{feature}/{channel_id}/frame.jpg
 ```
 
-统一后端处置接口 `/api/alarm-dispositions` 使用有界游标分页，默认 50 条、最多 100 条；分页、权限、错误处理及性能边界见[报警处置接口说明](unified_backend/alarm_dispositions.md)。
+AiVision 处置接口 `/api/alarm-dispositions` 使用 MySQL 主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。所有报警接口使用数据库 ID 字符串；处置状态、备注、处理人和最近 20 次历史保存在 `ai_alarm_disposition`，读取前按报警事业部授权。
 
 ### 7.6 物流通道多摄像头单人检测
 
@@ -796,7 +791,7 @@ AiVision/features/person_dwell/
 
 ### 8.1 业务职责
 
-`AiVision/integrations/security_vlm` 是 AiVision 内置的安检流程模块。其 API 没有独立端口；点击开启后，
+`AiVision/features/security_inspection` 是 AiVision 内置的安检流程模块。其 API 没有独立端口；点击开启后，
 AiVision 才按配置拉起隔离的检测/VLM worker。它不是逐帧直接给 VLM，而是先用传统视觉算法
 筛选出“有意义的交互 session”，再把关键帧拼图交给 VLM 判断。
 
@@ -859,7 +854,7 @@ unified_frontend/src/lib/security-vlm.ts
 前端访问路径会先经过统一后端，再进入 AiVision 内的 Security VLM 子应用：
 
 ```text
-/security-vlm/* -> unified_backend (:5000) -> AiVision (:7862)
+/api/security-inspection/* -> AiVision (:7862)
 ```
 
 ### 8.4 关键文件
@@ -917,7 +912,7 @@ ROI 热加载逻辑：前端 `POST /api/rois` 后写入 `staff_identity_dir/<vid
 | AiVision | `normalizeAiVisionAlarm` | 区域入侵、大门、手机、人脸、人体等。 |
 | Security VLM | `normalizeSecurityVlmAlarm` | VLM 判定不合规或错误。 |
 
-`getAlarms()` 会并发读取三套系统报警，归一化后按时间倒序合并。统计页目前也是基于报警记录聚合生成。
+`getAlarms()` 直接读取 AiVision 报警接口，数据库先按权限和事件类型筛选，再分页返回。统计页使用 `/api/alarms/statistics/summary`，按完整时间范围在数据库分组计数。
 
 排查报警时按以下顺序：
 
@@ -1078,14 +1073,13 @@ AiVision/integrations/security_vlm/configs/config.yaml
 
 如果只是改工位 ROI，走前端 ROI 编辑即可，不需要改代码。
 
-## 13. 最重要的心智模型
-
-这个项目由三个逻辑层组成；生产运行态是 Vite 前端加两个项目后端服务：
+## 13. 运行职责
 
 ```text
-unified_frontend = Vite 承载的门面、操作台与前端 API 代理
-unified_backend  = 统一鉴权、聚合与 API 网关
-AiVision         = 通用视觉能力 + Guard Room + Security VLM
+unified_frontend = Vite 页面与到 AiVision 的 API 代理
+AiVision         = 唯一 API 服务、总览、摄像头、检测、报警与统计
+  auth           = 认证、用户管理、密码修改和访问审计
 ```
 
-Guard Room 与 Security VLM 是 `AiVision/integrations/` 下的业务模块，不是两个独立后端。排查问题时先判断属于哪个视觉模块，再进入 AiVision 内对应目录查看配置、API 和运行时。
+前端代理目标由 `VITE_AIVISION_TARGET` 配置，默认 `http://127.0.0.1:7862`。
+所有业务数据使用共享 MySQL，运行服务器无需重复迁移处置记录。`scripts/start.sh`、`stop.sh` 和 `status.sh` 只管理 `aivision` 与 `unified_frontend` 两个服务。

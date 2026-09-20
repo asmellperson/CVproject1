@@ -5,8 +5,8 @@
 # =============================================================================
 # 福达视觉平台 - 冷启动脚本
 # -----------------------------------------------------------------------------
-# 作用：用 tmux 后台启动 unified_frontend / aivision / unified_backend
-#       三个运行服务，并完成端口与健康检查。
+# 作用：用 tmux 后台启动 unified_frontend / aivision
+#       两个运行服务，并完成端口与健康检查。
 #
 # 用法：
 #   bash scripts/start.sh                  # 安全模式：已存在会话则跳过
@@ -23,7 +23,7 @@
 #
 # AUTH_SECRET 管理：
 #   首次运行会在 scripts/auth_secret 生成 64 字符 hex 密钥（权限 600）。
-#   注入到 unified_backend / aivision 两个服务的 tmux 环境。
+#   注入到 aivision 服务的 tmux 环境。
 #   要刷新密钥：删除 scripts/auth_secret 后重新启动（会踢下线所有用户）。
 #   跨服务器迁移：scp scripts/auth_secret 到目标机以保持登录态。
 #
@@ -220,7 +220,7 @@ detect_conda_sh() {
 #   - `$2`（Shell 字符串）：第 2 个位置参数
 # 返回：Shell 状态码；0 表示成功，非 0 表示失败。
 # 调用关系：
-#   - 调用方：`scripts/lib/unified_backend_runtime.sh` 与 `scripts/start.sh` 的脚本流程调用本函数
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
 #   - 内部调用：不调用其他项目函数，仅进行字段声明、值返回或原地计算。
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；失败时通过 Shell 返回码影响上层流程。
 conda_env_exists() {
@@ -232,12 +232,10 @@ conda_env_exists() {
   echo "$output" | awk '{print $1}' | grep -qx "$env_name"
 }
 
-source "$SCRIPT_DIR/lib/unified_backend_runtime.sh"
-
 # ---- AUTH_SECRET 管理 ------------------------------------------------------
 # 读取或首次生成共享 auth 密钥；写入 scripts/auth_secret（权限 600）。
 # 首次生成会踢下线所有现有用户，因此默认弹出确认；--yes 跳过。
-# 注入到 unified_backend 与 aivision 的 tmux 环境。
+# 注入到 aivision 的 tmux 环境。
 AUTH_SECRET=""
 AUTH_SECRET_SOURCE=""    # reuse | new
 AUTH_SECRET_FP=""        # sha256 前 8 位
@@ -348,7 +346,7 @@ detect_tmux_env_support() {
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；失败时通过 Shell 返回码影响上层流程。
 needs_auth_secret() {
   case "$1" in
-    unified_backend|aivision) return 0 ;;
+    aivision) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -357,19 +355,10 @@ needs_auth_secret() {
 NVM_SH_PATH="$(detect_nvm_sh || true)"
 CONDA_SH_PATH="$(detect_conda_sh || true)"
 AIVISION_ENV="${AIVISION_ENV:-aivision}"
-UNIFIED_BACKEND_ENV="${UNIFIED_BACKEND_ENV:-unified_backend}"
-UNIFIED_BACKEND_PYTHON="${UNIFIED_BACKEND_PYTHON:-}"
-SYSTEM_PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
-UNIFIED_BACKEND_RUNTIME="$(resolve_unified_backend_runtime \
-  "$UNIFIED_BACKEND_PYTHON" \
-  "$CONDA_SH_PATH" \
-  "$UNIFIED_BACKEND_ENV" \
-  "$SYSTEM_PYTHON" || true)"
 NODE_VERSION="${NODE_VERSION:-20}"
 
 # 健康检查上限（秒）- 可在 cold_start.env 中覆盖
 WAIT_AIVISION="${WAIT_AIVISION:-90}"
-WAIT_UNIFIED_BACKEND="${WAIT_UNIFIED_BACKEND:-15}"
 WAIT_FRONTEND="${WAIT_FRONTEND:-30}"
 
 # node 运行时探测：先 nvm 后系统 node
@@ -393,12 +382,6 @@ if [[ -n "$CONDA_SH_PATH" ]] && conda_env_exists "$AIVISION_ENV" "$CONDA_SH_PATH
   SERVICES+=("aivision|${PROJECT_ROOT}|source ${CONDA_SH_PATH} && conda activate ${AIVISION_ENV} && python -m AiVision.main --host 127.0.0.1 --port 7862|7862|${WAIT_AIVISION}")
 else
   SERVICES+=("aivision|${PROJECT_ROOT}|__DEP_MISSING__|7862|${WAIT_AIVISION}")
-fi
-
-if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
-  SERVICES+=("unified_backend|${PROJECT_ROOT}|${UNIFIED_BACKEND_RUNTIME} -m unified_backend.run_server --host 127.0.0.1 --port 5000|5000|${WAIT_UNIFIED_BACKEND}")
-else
-  SERVICES+=("unified_backend|${PROJECT_ROOT}|__DEP_MISSING__|5000|${WAIT_UNIFIED_BACKEND}")
 fi
 
 if [[ "$NODE_RUNTIME_TYPE" == "nvm" ]]; then
@@ -468,7 +451,6 @@ aivision_env_path() {
 # 注意: health_url 用 127.0.0.1，避免走外部 DNS / 防火墙
 SERVICES_HEALTH=(
   "aivision|http://127.0.0.1:7862/api/runtime/health|json:ok=true"
-  "unified_backend|http://127.0.0.1:5000/api/health|json:status=ok"
   "unified_frontend|http://127.0.0.1:3000/|http2xx"
 )
 
@@ -693,15 +675,10 @@ suggest_fix_from_log() {
     local env_name=""
     case "$name" in
       aivision) env_name="$AIVISION_ENV" ;;
-      unified_backend) env_name="$UNIFIED_BACKEND_ENV" ;;
     esac
     if [[ -n "$env_name" && -n "$CONDA_SH_PATH" ]]; then
       hint "缺少 Python 包 '${pkg:-?}'。执行："
-      if [[ "$name" == "aivision" ]]; then
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/AiVision/requirements.txt"
-      else
-        hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
-      fi
+      hint "  conda run -n ${env_name} python -m pip install -r ${workdir}/AiVision/requirements.txt"
     else
       hint "缺少 Python 包 '${pkg:-?}'，请在对应环境中安装"
     fi
@@ -753,12 +730,6 @@ suggest_dep_fix() {
         hint "  conda create -n ${AIVISION_ENV} python=3.11 -y"
         hint "  conda run -n ${AIVISION_ENV} python -m pip install -r ${workdir}/AiVision/requirements.txt"
       fi
-      ;;
-    unified_backend)
-      hint "未找到 unified_backend Conda 环境或可用 Python。建议执行："
-      hint "  conda create -n ${UNIFIED_BACKEND_ENV} python=3.11 -y"
-      hint "  conda run -n ${UNIFIED_BACKEND_ENV} python -m pip install -r ${workdir}/unified_backend/requirements.txt"
-      hint "也可在 scripts/cold_start.env 设置 UNIFIED_BACKEND_ENV 或 UNIFIED_BACKEND_PYTHON"
       ;;
     unified_frontend)
       hint "既无 nvm，系统 node 版本也不匹配（需要 v${NODE_VERSION}）。任选其一："
@@ -1005,15 +976,9 @@ main() {
   else
     miss "  CONDA_SH     = 未找到（aivision 将跳过）"
   fi
-  if [[ -n "$UNIFIED_BACKEND_RUNTIME" ]]; then
-    ok "  BACKEND_CMD  = ${UNIFIED_BACKEND_RUNTIME}"
-  else
-    miss "  BACKEND_CMD  = 未找到（unified_backend 将跳过）"
-  fi
   log "  NODE_VERSION = ${NODE_VERSION}"
   log "  AIVISION_ENV = ${AIVISION_ENV}"
-  log "  UNIFIED_BACKEND_ENV = ${UNIFIED_BACKEND_ENV}"
-  log "  健康检查上限(秒) ai=${WAIT_AIVISION} backend=${WAIT_UNIFIED_BACKEND} frontend=${WAIT_FRONTEND}"
+  log "  健康检查上限(秒) ai=${WAIT_AIVISION} frontend=${WAIT_FRONTEND}"
 
   # AUTH_SECRET 状态
   if [[ "$AUTH_SECRET_SOURCE" == "reuse" ]]; then
@@ -1035,7 +1000,7 @@ main() {
   fi
 
   # 提示如何覆盖
-  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" || -z "$UNIFIED_BACKEND_RUNTIME" ]]; then
+  if [[ -z "$NODE_RUNTIME_TYPE" || -z "$CONDA_SH_PATH" ]]; then
     echo
     warn "部分依赖未探测到，对应服务会跳过；缺少 Node 时 unified_frontend 不会启动。"
     warn "如需手动指定路径，请复制 scripts/start.env.example 为 scripts/cold_start.env"

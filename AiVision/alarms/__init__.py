@@ -60,7 +60,7 @@
         根据 writer 方法签名过滤不支持的参数，兼容尚未接收全部新字段的写入适配器。
     _alarm_card_urls()：使用数据库告警 ID 和 WECHAT_CARD_BASE_URL 生成：
         缩略图 /api/public/alarms/{id}/image；人员报警附带仅授权该缩略图的短期签名。
-        前端详情页的 alarmId 使用 aivision:{id}，详情和视频仍要求登录及事业部权限。
+        前端详情页的 alarmId 使用报警数据库 ID，详情和视频仍要求登录及事业部权限。
     _wechat_loop()：从队列取请求，生成卡片 URL，再调用 WeChatNotifier.send()。
         当前这一步不再将 frame 编码成 JPEG 上传企业微信；图片由平台 URL 提供。
         没有保存成功的记录 ID 或有效站点地址时，URL 不完整，发送器会明确跳过卡片。

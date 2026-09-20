@@ -65,6 +65,7 @@ runtime/
 !/AiVision/runtime/bootstrap.py
 !/AiVision/runtime/orchestrator.py
 !/AiVision/runtime/process_cleanup.py
+!/AiVision/runtime/overview.py
 runs/
 outputs/
 output/
@@ -104,6 +105,9 @@ records/
 !/AiVision/alarms/records/orm.py
 !/AiVision/alarms/records/service.py
 !/AiVision/alarms/records/cleanup.py
+!/AiVision/alarms/records/queries.py
+!/AiVision/alarms/records/schema.py
+!/AiVision/alarms/records/dispositions.py
 recordings/
 *.mp4
 *.avi

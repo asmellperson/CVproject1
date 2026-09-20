@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, Field
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_guard_behavior_orchestrator
+from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_optional_orchestrator
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
-from AiVision.api.routes.alarms import AlarmEventResponse, _event_dict
+from AiVision.alarms.records.schema import AlarmEventResponse
+from AiVision.alarms.records.queries import event_dict
 from AiVision.alarms.records.orm import AiAlarmEvent
 from AiVision.core.db import get_session
 from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/guard-behavior", tags=["guard-behavior"])
 ResourceId = Annotated[int, Path(gt=0)]
 Service = Annotated[object, Depends(get_guard_behavior_service)]
 Runtime = Annotated[object, Depends(get_guard_behavior_runtime)]
-Orchestrator = Annotated[object, Depends(get_guard_behavior_orchestrator)]
+Orchestrator = Annotated[object, Depends(get_optional_orchestrator)]
 ADMIN = [Depends(require_admin)]
 
 
@@ -264,6 +265,6 @@ def get_latest_alarm(site: Site):
             AiAlarmEvent.subject_type == "guard_behavior_site",
             AiAlarmEvent.subject_id == str(site["id"]),
         ).order_by(AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc()).first()
-        return _event_dict(row) if row is not None else None
+        return event_dict(row) if row is not None else None
     finally:
         session.close()

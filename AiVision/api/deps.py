@@ -56,11 +56,11 @@ def get_horn_runtime_manager():
 
 def get_guard_behavior_service():
     from AiVision.features.guard_behavior.service import GuardBehaviorService
-    orchestrator = get_guard_behavior_orchestrator()
+    orchestrator = get_optional_orchestrator()
     return orchestrator.guard_behavior_service if orchestrator is not None else GuardBehaviorService()
 
 
-def get_guard_behavior_orchestrator():
+def get_optional_orchestrator():
     # 配置 API 在编排器启动前也可用；此时没有运行数据需要刷新。
     from AiVision.runtime.orchestrator import get_orchestrator
     try:
@@ -70,5 +70,5 @@ def get_guard_behavior_orchestrator():
 
 
 def get_guard_behavior_runtime():
-    orchestrator = get_guard_behavior_orchestrator()
+    orchestrator = get_optional_orchestrator()
     return orchestrator.guard_behavior_runtime if orchestrator is not None else None

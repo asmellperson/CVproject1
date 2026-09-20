@@ -6,14 +6,13 @@
 一、当前服务拓扑
 ----------------
 
-生产环境统一由 scripts/start.sh 管理三个 tmux 服务：
+生产环境统一由 scripts/start.sh 管理两个 tmux 服务：
 
 - unified_frontend：Vite 前端，监听 0.0.0.0:3000；
-- unified_backend：统一后端，监听 127.0.0.1:5000；
-- aivision：全部视觉检测业务，监听 127.0.0.1:7862。
+- aivision：唯一 API 服务与全部视觉检测业务，监听 127.0.0.1:7862。
 
 公网网关只需把 https://aicv.fudar.com/ 转发到项目服务器 TCP 3000。
-5000 和 7862 仅供本机前端代理与服务间调用，不应直接开放到公网。
+7862 仅供本机前端代理调用，不应直接开放到公网。
 
 保安行为和安检流程检测均为 AiVision 原生功能，摄像头由平台统一管理，检测配置和历史写入同一 MySQL。
 安检使用 config/model_paths.yaml 中的 yolo_human 人体模型；内部千问接口与推理参数在管理页面保存到数据库。
@@ -38,12 +37,6 @@ conda create -n aivision python=3.11 -y
 conda run -n aivision python -m pip install \
   -r /srv/Fuda_CVPreject/AiVision/requirements.txt
 
-统一后端可使用系统 Python、unified_backend Conda 环境，或通过
-UNIFIED_BACKEND_PYTHON 指定解释器。依赖安装示例：
-
-python3 -m pip install \
-  -r /srv/Fuda_CVPreject/unified_backend/requirements.txt
-
 3. 准备 Node.js 20 和前端依赖
 
 node -v
@@ -58,20 +51,13 @@ npm ci
 
 - AiVision/.env：MySQL 等 AiVision 配置；
 - AiVision/config/model_paths.yaml：含 Guard 模型在内的平台共享模型路径；
-- runtime/auth/auth_users.db：当前用户、角色、部门、密码哈希和登录版本；
 - scripts/auth_secret：如需保持现有登录态；
 - unified_frontend/.env.local：仅在覆盖默认前端配置时需要。
 
-连接同一 MySQL 的其他服务器无需重复迁移安检数据；只需准备本机模型路径和相同数据库连接。
-
-用户管理已完全使用 SQLite。系统不会再从旧 JSON 用户文件自动导入账号；部署到新机器前必须
-备份并复制 runtime/auth/auth_users.db，或通过 AUTH_USERS_DB 指向已准备好的数据库。
+用户、访问审计、报警处置和检测业务均写入同一 MySQL。连接同一数据库的其他服务器无需重复迁移；只需准备本机模型路径和数据库连接。
+前端 API 代理目标使用 VITE_AIVISION_TARGET，默认 http://127.0.0.1:7862。
 
 示例：
-
-mkdir -p /srv/Fuda_CVPreject/runtime/auth
-scp <当前生产机器>:/srv/Fuda_CVPreject/runtime/auth/auth_users.db \
-  /srv/Fuda_CVPreject/runtime/auth/auth_users.db
 
 scp <当前生产机器>:/srv/Fuda_CVPreject/AiVision/.env \
   /srv/Fuda_CVPreject/AiVision/.env
@@ -91,20 +77,18 @@ vi scripts/cold_start.env
 以下命令均在项目根目录执行：
 
 bash scripts/start.sh          # 启动；已有同名会话时安全跳过
-bash scripts/start.sh --force  # 重启当前三个服务
+bash scripts/start.sh --force  # 重启当前两个服务
 bash scripts/status.sh         # 查询 tmux、端口和 health
-bash scripts/stop.sh           # 确认后停止当前三个服务
-bash scripts/stop.sh -y        # 无交互停止当前三个服务
+bash scripts/stop.sh           # 确认后停止当前两个服务
+bash scripts/stop.sh -y        # 无交互停止当前两个服务
 
 启动后应存在：
 
-tmux has-session -t unified_backend
 tmux has-session -t aivision
 tmux has-session -t unified_frontend
 
 查看日志：
 
-tmux attach -t unified_backend
 tmux attach -t aivision
 tmux attach -t unified_frontend
 
@@ -112,7 +96,6 @@ tmux attach -t unified_frontend
 
 健康检查：
 
-curl -i http://127.0.0.1:5000/api/health
 curl -i http://127.0.0.1:7862/api/runtime/health
 curl -i http://127.0.0.1:3000/
 
@@ -121,13 +104,12 @@ AiVision 模型加载期间可能短暂显示 DEGRADED；如果持续不恢复�
 四、AUTH_SECRET
 ---------------
 
-unified_backend 和 aivision 必须使用同一个 AUTH_SECRET。首次执行 start.sh 时，脚本会在
+AiVision 使用 AUTH_SECRET 签发登录令牌。首次执行 start.sh 时，脚本会在
 scripts/auth_secret 不存在的情况下提示确认并生成 32 字节随机密钥，文件权限为 600；后续
 启动会复用该文件。统一前端不注入该密钥。
 
 查看注入状态（命令会显示密钥，仅在可信终端执行）：
 
-tmux show-environment -t unified_backend AUTH_SECRET
 tmux show-environment -t aivision AUTH_SECRET
 
 替换 scripts/auth_secret 会使现有登录令牌失效。跨服务器迁移时应连同用户数据库一起安全
@@ -137,17 +119,9 @@ tmux show-environment -t aivision AUTH_SECRET
 ------------------
 
 管理员登录前端后，在“系统管理 → 用户管理”中添加、修改、启停、重置密码或删除用户。
-所有操作直接读写 SQLite 数据库，默认路径为：
-
-/srv/Fuda_CVPreject/runtime/auth/auth_users.db
-
-可通过 AUTH_USERS_DB 覆盖该路径。备份时建议先停止 unified_backend，或使用 SQLite 在线
-备份工具；停服后的文件备份示例：
-
-cp runtime/auth/auth_users.db \
-  "runtime/auth/auth_users.db.backup-$(date +%Y%m%d-%H%M%S)"
-
-数据库位于 runtime/，不会提交到 Git。不要把用户数据库、备份文件或密码材料加入版本库。
+用户管理写入 auth_users，访问审计写入 auth_access_viewers；报警处置写入 ai_alarm_disposition。
+使用数据库管理工具备份共享 MySQL，备份应包含账号密码哈希、权限、登录版本及业务历史。
+不要将数据库备份或密钥加入版本库。
 
 六、单服务排障启动
 ------------------
@@ -159,17 +133,11 @@ cp runtime/auth/auth_users.db \
 cd unified_frontend
 npm run dev -- --host 0.0.0.0 --port 3000
 
-统一后端：
+AiVision（在项目根目录）：
 
-export AUTH_SECRET="<与 AiVision 相同的随机密钥>"
-python -m unified_backend.run_server --host 127.0.0.1 --port 5000
-
-AiVision：
-
-cd AiVision
 conda activate aivision
-export AUTH_SECRET="<与统一后端相同的随机密钥>"
-python main.py --host 127.0.0.1 --port 7862
+export AUTH_SECRET="<scripts/auth_secret 中现有的密钥>"
+python -m AiVision.main --host 127.0.0.1 --port 7862
 
 七、物流通道说明
 ----------------
@@ -180,5 +148,4 @@ python main.py --host 127.0.0.1 --port 7862
 - 任一路出现 2 人及以上进入多人报警；所有在线且结果新鲜的摄像头都为 0 才进入无人报警；
 - 离线、过期或无结果按未知处理，不能当作 0 人。
 
-上线前应备份 AiVision 数据库。前端经统一后端访问
-/api/logistics-channels/{feature}，再由统一后端转发到 AiVision。
+上线前应备份 AiVision 数据库。前端直接访问 AiVision 的 /api/logistics-channels/{feature}。

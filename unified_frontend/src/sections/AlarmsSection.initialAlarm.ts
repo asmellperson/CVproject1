@@ -1,19 +1,10 @@
-type AlarmWithSource = {
-  id: string
-  source?: string
-  source_id?: string | number | null
-}
-
-export function findInitialAlarm<T extends AlarmWithSource>(
+export function findInitialAlarm<T extends { id: string }>(
   alarms: readonly T[],
   initialAlarmId: string,
 ): T | undefined {
   if (!initialAlarmId) return undefined
 
-  return alarms.find((item) => {
-    const sourceId = item.source_id || item.id
-    return item.id === initialAlarmId || `${item.source || 'aivision'}:${sourceId}` === initialAlarmId
-  })
+  return alarms.find((item) => item.id === initialAlarmId)
 }
 
 export function removeAlarmIdFromSearch(search: string) {

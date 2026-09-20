@@ -25,6 +25,8 @@ from AiVision.api.routes.security_inspection import router as security_inspectio
 from AiVision.api.routes.models import router as models_router
 from AiVision.api.routes.horns import router as horns_router
 from AiVision.api.routes.runtime import router as runtime_router
+from AiVision.api.routes.overview import router as overview_router
+from AiVision.api.routes.alarm_dispositions import router as alarm_dispositions_router
 
 from AiVision.alarms.notifications.wechat import WeChatNotifier               # 调用企业微信发送报警信息
 from AiVision.core.logger import logger                             # 项目统一日志对象
@@ -154,6 +156,8 @@ def create_app() -> FastAPI:
     app.include_router(models_router)
     app.include_router(horns_router)
     app.include_router(alarms_router)
+    app.include_router(alarm_dispositions_router)
+    app.include_router(overview_router)
     app.include_router(public_alarms_router)
     app.include_router(departments_router)
     app.include_router(logistics_channels_router)

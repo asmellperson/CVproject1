@@ -28,8 +28,8 @@ AiVision 是福达视觉平台的视觉业务后端，负责摄像头采集、�
 
 ```mermaid
 flowchart LR
-    UI[统一前端 unified_frontend] --> Gateway[统一后端 unified_backend :5000]
-    Gateway --> API[AiVision FastAPI :7862]
+    UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
+    API --> Auth[auth 认证 / 用户 / 访问审计]
     API --> Features[七项内置检测功能]
     API --> Guard[Guard Room 子应用]
     API --> Security[Security VLM 子应用]
@@ -42,9 +42,9 @@ flowchart LR
 ```
 
 - **统一前端**负责配置页面、监控画面、状态和记录展示。
-- **统一后端**负责统一认证入口、业务聚合和代理。AiVision 自身仍会执行认证和资源权限检查。
-- **AiVision**负责视觉业务运行，默认监听 `7862` 端口。
-- **Guard Room、Security VLM**的 HTTP 应用挂载在 AiVision 内，由 AiVision 管理生命周期；它们各自保留内部检测流水线。
+- **auth**负责认证、用户管理、密码修改和访问审计，路由挂载到 AiVision。
+- **AiVision**提供唯一业务 API，负责总览、报警、统计和检测运行，默认监听 `7862` 端口。
+- **保安室、安检**均为 `features/` 下的原生功能，共享摄像头、模型、数据库和报警链路。
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 

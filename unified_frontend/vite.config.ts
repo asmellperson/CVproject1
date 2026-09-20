@@ -5,7 +5,7 @@ import { inspectAttr } from 'kimi-plugin-inspect-react'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendTarget = env.VITE_BACKEND_TARGET || 'http://127.0.0.1:5000'
+  const aivisionTarget = env.VITE_AIVISION_TARGET || 'http://127.0.0.1:7862'
   const devPort = Number(env.VITE_DEV_PORT || 3000)
 
   return {
@@ -23,13 +23,13 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         '/api': {
-          target: backendTarget,
+          target: aivisionTarget,
           changeOrigin: true,
           secure: false,
           ws: false,
         },
         '/ws': {
-          target: backendTarget,
+          target: aivisionTarget,
           changeOrigin: true,
           secure: false,
           ws: true,

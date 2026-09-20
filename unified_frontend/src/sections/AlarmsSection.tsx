@@ -47,7 +47,7 @@ type AlarmsSectionProps = {
 }
 
 function alarmSubjectName(alarm: AlarmEvent) {
-  return alarm.subject_name || alarm.channel_name || alarm.camera_name || alarm.site_name || alarm.camera_no || '-'
+  return alarm.subject_name || '-'
 }
 
 function alarmSubjectTypeLabel(subjectType?: string) {
@@ -557,7 +557,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     aria-label="放大查看报警截图"
                   >
                     <img
-                      src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
+                      src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.id)}
                       alt="报警截图"
                       className="w-full transition duration-200 group-hover:brightness-90"
                       onError={(e) => {
@@ -575,7 +575,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                   <div>
                     <div className="text-sm text-slate-500 mb-1">报警视频</div>
                     <video
-                      src={selectedAlarm.video_url || alarmVideoUrl(selectedAlarm.source_id || selectedAlarm.id)}
+                      src={selectedAlarm.video_url || alarmVideoUrl(selectedAlarm.id)}
                       controls
                       preload="metadata"
                       className="w-full rounded-lg border bg-black"
@@ -610,8 +610,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
       </Dialog>
 
       {imagePreviewOpen && selectedAlarm && <ImagePreviewDialog
-        src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.source_id || selectedAlarm.id)}
-        title="报警截图" filename={`alarm-${selectedAlarm.source_id || selectedAlarm.id}.jpg`}
+        src={selectedAlarm.image_url || alarmImageUrl(selectedAlarm.id)}
+        title="报警截图" filename={`alarm-${selectedAlarm.id}.jpg`}
         onClose={() => setImagePreviewOpen(false)}
       />}
     </div>

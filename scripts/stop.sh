@@ -5,7 +5,7 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：关停当前 3 个 tmux 服务。
+# 作用：关停当前 2 个 tmux 服务。
 # 用法：
 #   bash scripts/stop.sh            # 关停全部服务
 #   bash scripts/stop.sh -y         # 跳过确认，直接关停
@@ -19,7 +19,7 @@
 
 set -u
 
-SERVICES=(unified_backend aivision unified_frontend)
+SERVICES=(aivision unified_frontend)
 
 if [[ -t 1 ]]; then
   C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YLW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'

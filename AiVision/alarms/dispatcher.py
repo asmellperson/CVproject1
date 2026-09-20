@@ -386,7 +386,7 @@ class AlarmDispatcher:
         image_url = f"{base_url}/api/public/alarms/{quote(raw_id)}/image"
         if feature_name == "detect_human":
             image_url += "?thumbnail_token=" + issue_thumbnail_token(int(raw_id), department)
-        detail_id = quote(f"aivision:{raw_id}", safe="")
+        detail_id = quote(raw_id, safe="")
         detail_url = f"{base_url}/?page=alarms&alarmId={detail_id}"
         return image_url, detail_url
 

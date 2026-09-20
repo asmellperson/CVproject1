@@ -108,51 +108,8 @@ def list_logistics_camera_inventory(
     orchestrator=Depends(get_current_orchestrator),     
     department: Annotated[str | None, Query()] = None,
 ) -> LogisticsCameraInventoryResponse:
-    """将当前所有用户有权限看到的所有物流摄像头汇总成一张摄像头清单，再结合Orchestrator的实时状态补充每台摄像头是否   """
-    items = service.list_camera_inventory(
-        list(LOGISTICS_FEATURES), departments=_query_departments(user, department)
-    )
-    # 当前请求期间的通道状态缓存，key：（feature,channel_id）
-    # 避免同一个通道运行状态被重复读取
-    status_by_channel: dict[tuple[str, int], dict[str, Any]] = {}
-    # 遍历每台物理摄像头
-    for item in items:
-        item["online"] = False                 # 先认为摄像头不在线
-        camera_id = item["camera_id"]
-        for membership in item["memberships"]:  # 遍历这台摄像头属于哪些通道
-            feature = membership["feature_name"]
-            channel_id = membership["channel_id"]
-            channel_key = (feature, channel_id)
-            if channel_key not in status_by_channel:
-                # key是元组，value是物流状态的字典
-                status_by_channel[channel_key] = (
-                    orchestrator.get_logistics_channel_status(feature, channel_id)
-                    or {}
-                )
-            # 通道里每台摄像头的实时状态
-            camera_states = status_by_channel[channel_key].get(
-                "camera_states",
-                {},
-            )
-            # Orchestrator 状态异常时可能不是预期字典。（数据清洗）
-            if not isinstance(camera_states, dict):
-                camera_states = {}
-            # 找到当前摄像头的运行状态
-            state = camera_states.get(
-                str(camera_id),
-                camera_states.get(camera_id, {}),
-            )
-            if not isinstance(state, dict):
-                state = {}
-            # membership在这个通道中是否启用且在线
-            membership["online"] = bool(
-                membership["enabled"] and state.get("online", False)
-            )
-            # 只要这台摄像头在任意一个通道里是在线状态，整台物理摄像头就认为 online。
-            item["online"] = bool(
-                item["online"] or membership["online"]
-            )
-    # Pydantic校验，把最终整理好的摄像头清单交给Pydantic校验，在作为API响应返回
+    """返回授权范围内的物流摄像头及通道运行状态。"""
+    items = service.camera_inventory_status(_query_departments(user, department), orchestrator)
     return LogisticsCameraInventoryResponse.model_validate({"items": items})
 
 @router.get("/{feature}", response_model=LogisticsChannelListResponse)
