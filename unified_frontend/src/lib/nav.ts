@@ -5,6 +5,7 @@ import {
   DoorOpen,
   History,
   LayoutDashboard,
+  MessageSquareText,
   Radar,
   ScanFace,
   ShieldAlert,
@@ -33,6 +34,7 @@ export type NavGroup = {
 }
 
 export const detectionNavItems: NavItem[] = [
+  { id: 'visual-language-detection', label: '视觉语言检测', icon: MessageSquareText, description: '视频理解、事件时间线与视频提问' },
   { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
   { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
   { id: 'intrusion-detection', label: '区域入侵检测', icon: Radar, description: '区域入侵监控与配置入口' },

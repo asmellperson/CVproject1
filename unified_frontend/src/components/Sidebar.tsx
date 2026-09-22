@@ -545,6 +545,7 @@ export function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByP
   return visibleGroups.map((group) => group.id === 'modules' ? {
     ...group,
     items: [],
+    // 各事业部共用检测菜单的定义顺序，并沿用现有事业部访问范围。
     children: getAccessibleDepartments(user).map((department) => ({
       id: department, department, label: DEPARTMENT_LABELS[department], items: group.items,
     })),

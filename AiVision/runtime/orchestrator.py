@@ -341,6 +341,8 @@ class Orchestrator:
                 snapshot_sink=self.guard_behavior_runtime.update_camera_snapshot,
             )
         # 创建各检测功能的consumer
+        if name == "visual_language_detection":
+            consumer_kwargs["frame_info_provider"] = self.get_camera_frame_info
         consumer = spec.consumer_cls(**consumer_kwargs)
         # 启动线程主要调用函数
         consumer.start()                               # 启动当前功能consumer线程

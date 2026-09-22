@@ -67,7 +67,7 @@ class FeatureConfigManager:
     # ---------- Write ----------
     def reorder_cameras(self, spec: FeatureSpec, department: str, camera_ids: list[int]) -> None:
         """只更新当前功能已启用摄像头的展示顺序，不触发检测配置热更新。"""
-        if not issubclass(spec.orm_class, FeatureConfigBase):
+        if "sort_order" not in spec.orm_class.__table__.columns:
             raise ValueError("此功能请通过成员排序接口调整顺序")
         department = require_department(department)
         if any(type(camera_id) is not int or camera_id <= 0 for camera_id in camera_ids):

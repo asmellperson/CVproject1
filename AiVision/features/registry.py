@@ -12,9 +12,11 @@ from .face_recognition.spec import SPEC as face_recognition_spec
 from .guard_behavior.spec import SPEC as guard_behavior_spec
 from .security_inspection.spec import SPEC as security_inspection_spec
 from .agv_person_check.spec import SPEC as agv_person_check_spec
+from .visual_language_detection.spec import SPEC as visual_language_detection_spec
 
 # 保持原注册表的展示/遍历顺序；新增功能须在这里明确登记。
 _BUILTIN_SPECS = (
+    visual_language_detection_spec,
     intrusion_spec,
     door_state_spec,
     face_dwell_spec,

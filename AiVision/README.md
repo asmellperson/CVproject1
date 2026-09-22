@@ -1,6 +1,6 @@
 # AiVision：多摄像头视觉检测与告警后端
 
-AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
+AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十一项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
 
 本文按当前源码整理（2026-09-20）。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
 
@@ -30,7 +30,7 @@ AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模�
 flowchart LR
     UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
     API --> Auth[auth 认证 / 用户 / 访问审计]
-    API --> Features[十项原生检测功能]
+    API --> Features[十一项原生检测功能]
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
@@ -50,12 +50,13 @@ flowchart LR
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 
-### 1.2 十项原生功能
+### 1.2 十一项原生功能
 
 Python 目录名用于组织代码，业务标识用于 API、数据库、缓存和前端查询。接入时应使用表中的业务标识。
 
 | Python 功能目录 | `FeatureSpec.name` | 判定方法 | 模型依赖 |
 | --- | --- | --- | --- |
+| `features/visual_language_detection/` | `visual_language_detection` | 共享帧连续理解与视频提问 | 外部 JoyAI Adapter HTTP 服务 |
 | `features/intrusion/` | `blocks` | 人体框与警戒线的位置关系 | `yolo_human` |
 | `features/door_state/` | `detect_door` | 图像差分与持续变化确认 | 无 |
 | `features/face_dwell/` | `detect_face` | 人脸检测、跟踪与逗留计时 | `insightface_detection` |
@@ -103,7 +104,7 @@ AiVision/
 │   ├── insightface_detector.py     # InsightFace 检测和 GPU 模型加载
 │   └── workers/                    # YOLO、人脸检测、人脸身份识别
 ├── features/
-│   ├── registry.py                 # 十项功能唯一显式注册入口
+│   ├── registry.py                 # 十一项功能唯一显式注册入口
 │   ├── _shared/
 │   │   ├── spec.py                 # FeatureSpec 元数据
 │   │   ├── consumer.py             # 公共帧处理、推理调用和告警衔接
@@ -115,6 +116,7 @@ AiVision/
 │   │   ├── alarm_schema.py         # 普通检测告警配置契约
 │   │   └── defaults.py             # 公共默认参数
 │   ├── intrusion/                  # 区域入侵
+│   ├── visual_language_detection/  # 逐摄像头视频理解、参数、事件和提问调度
 │   ├── door_state/                 # 大门状态变化
 │   ├── face_dwell/                 # 人脸逗留
 │   ├── person_dwell/               # 人员逗留
@@ -133,7 +135,9 @@ AiVision/
 │   └── evidence/                  # 报警前后视频缓存与编码
 ├── departments/                   # 固定事业部目录和平台功能查询
 ├── core/                          # Settings、数据库、缓存、事件、日志等
-├── connectors/hikvision/           # 海康签名、HTTP 客户端与人员协议
+├── connectors/
+│   ├── hikvision/                  # 海康签名、HTTP 客户端与人员协议
+│   └── joyai/                     # JoyAI Adapter 客户端和响应清洗
 ├── config/model_paths.example.yaml
 ├── migrations/                    # 显式离线迁移
 ├── .env.example                   # 主服务环境变量模板
@@ -191,7 +195,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十项功能共用采集和模型推理流水线；保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程。
+十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，视觉语言检测通过后台线程调用 JoyAI Adapter。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -308,7 +312,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | `alarm_types` | 该功能拥有的告警类型元组 |
 | `model_names` | 必需与可选模型合并去重后的只读属性 |
 
-[registry.py](features/registry.py) 显式导入十项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
+[registry.py](features/registry.py) 显式导入十一项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
 
 ### 5.2 配置分为三类
 
@@ -838,6 +842,42 @@ Consumer / 通道状态机满足规则
 
 安检没有独立采集进程、FrameHub、外部 Worker Python 或旧版预算配置；原生 Consumer 随 Orchestrator 管理，通过摄像头/功能开关决定是否产生检测任务。
 
+### 9.3 视觉语言检测：`visual_language_detection`
+
+业务模块位于 `features/visual_language_detection/`：`consumer.py` 接入公共生命周期与配置热更新，`runtime.py` 串行调度每台摄像头的帧和问题，`schema.py` 校验配置及 API 数据，`orm.py` 定义配置和事件表，`service.py` 读写事件，`spec.py` 声明正式功能。外部协议仅位于 `connectors/joyai/client.py`。
+
+```text
+现有摄像头共享帧 → Orchestrator.get_camera_frame_info()
+→ VisualLanguageConsumer / VisualLanguageRuntime
+→ connectors/joyai/client.py → JoyAI Adapter :8070 → JoyAI 主模型 :7060
+```
+
+Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采样，不创建 RTSP 连接。每台摄像头仅保留一个在途任务，执行任务时重新读取最新共享帧；采集时间和帧对象用于去重。推理和提问共用 `visual-language-{department}-{camera_id}`，问题随下一张新帧发送。配置热更新、停用和删除会作废旧任务并清理对应会话；重新建立会话后重新统计处理帧数。后台线程数量由 `JOYAI_MAX_WORKERS` 控制。
+
+公共 `GET/PUT /api/features/visual_language_detection/configs/{key}` 保存 `{enable, value}`。配置继承 `CameraFeatureConfigBase`，包含功能内摄像头排序，不包含告警字段。
+
+| `value` 字段 | 默认值 | 用途 |
+| --- | --- | --- |
+| `cap_interval` | `1.0` | 每台摄像头的最小发送间隔，秒 |
+| `jpeg_quality` | `80` | JPEG 编码质量 |
+| `max_image_width` | `960` | 等比例缩小图像的最大宽度 |
+| `max_tokens` | `256` | 最大输出 Token 数 |
+| `temperature` | `0.8` | 采样温度 |
+| `top_p` | `0.9` | 采样概率范围 |
+| `observation_prompt` | 中文连续观察提示词 | 常规帧的观察目标 |
+
+环境配置由 `AiVision/.env` 加载至 `settings.joyai`：`JOYAI_ADAPTER_URL=http://172.16.0.32:8070`，`JOYAI_REQUEST_TIMEOUT_SECONDS=45`，`JOYAI_MAX_WORKERS=4`，`JOYAI_QUESTION_TIMEOUT_SECONDS=90`。业务不配置或请求主模型地址。Adapter 模型名从 `GET /v1/models` 读取；单帧使用 `POST /v1/chat/completions`、`x-streaming-session` 和单个 `frame_time_ranges`，清理使用 `POST /v1/streaming/reset`。Adapter 部署需设置 `HONOR_INBOUND_GENERATION_PARAMS=true`，使摄像头采样参数生效。
+
+客户端只解析普通 JSON 响应。`</silence>` 不形成理解结果或观察事件，`</response>` 标记被移除；最近推理耗时取 `streamingharness.timing.vllm_inference_ms`，未执行模型推理的静默响应记为零。观察结果、视频问答及处理错误保存到 `ai_visual_language_event`，不转为违规告警。`captured_at` 使用 MySQL `DATETIME(6)` 保留共享帧采集时间，使问答响应与事件读回的时间一致。累计处理帧数和最近结果属于当前检测会话的内存状态，事件持久化到 MySQL。
+
+| 方法 | API | 用途 |
+| --- | --- | --- |
+| GET | `/api/visual-language-detection/cameras/{key}/status?department=...` | 最近结果、推理耗时、帧数和处理错误 |
+| GET | `/api/visual-language-detection/cameras/{key}/events?department=...` | 事件时间线，支持 `limit` 和 `before_id` |
+| POST | `/api/visual-language-detection/cameras/{key}/questions?department=...` | 请求体 `{"question":"问题"}`，返回正文、耗时和采集时间 |
+
+以上接口复用 `camera_read_department`、`get_camera_for_user` 和现有账号角色；管理员可访问全部正式事业部，viewer 只能访问授权事业部。查看画面、结果、事件和提问均允许 viewer 使用；公共配置写接口只允许管理员。
+
 ## 10. 数据存储与权限边界
 
 ### 10.1 主模块存储
@@ -852,6 +892,7 @@ Consumer / 通道状态机满足规则
 | 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
 | 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
+| 视觉语言配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
 | 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
 | 图片和视频 | `DATA_PATH` 及相关模块目录 | 数据库存引用，媒体文件落磁盘 |
@@ -874,7 +915,7 @@ Consumer / 通道状态机满足规则
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-全部正式事业部共用十项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
+全部正式事业部共用十一项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
@@ -1073,7 +1114,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
 
-`/api/overview` 的能力目录包含全部十项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
+`/api/overview` 的能力目录包含全部十一项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
 ## 13. 人脸库同步与特征生成
 

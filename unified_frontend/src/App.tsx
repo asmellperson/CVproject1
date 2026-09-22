@@ -61,6 +61,9 @@ const AgvPersonCheckSection = lazy(() =>
 const SecurityVlmSection = lazy(() =>
   import('@/sections/SecurityVlmSection').then((module) => ({ default: module.SecurityVlmSection })),
 )
+const VisualLanguageDetectionSection = lazy(() =>
+  import('@/sections/VisualLanguageDetectionSection').then((module) => ({ default: module.VisualLanguageDetectionSection })),
+)
 const AlarmsSection = lazy(() => import('@/sections/AlarmsSection').then((module) => ({ default: module.AlarmsSection })))
 const StatisticsSection = lazy(() =>
   import('@/sections/StatisticsSection').then((module) => ({ default: module.StatisticsSection })),
@@ -153,6 +156,8 @@ function App() {
         return <HomeSection onNavigate={handlePageChange} overviewState={overviewState} />
       case 'security-vlm':
         return currentDepartment && <SecurityVlmSection department={currentDepartment} />
+      case 'visual-language-detection':
+        return currentDepartment && <VisualLanguageDetectionSection department={currentDepartment} />
       case 'guard-behavior':
         return currentDepartment && <GuardBehaviorSection department={currentDepartment} />
       case 'intrusion-detection':

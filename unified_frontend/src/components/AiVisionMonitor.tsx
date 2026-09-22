@@ -30,13 +30,14 @@ import {
 } from './feature_dashboard/monitorState'
 import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
 import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
+import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
   rawPreview?: boolean
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -264,6 +265,13 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       frameConnected={Boolean(frameSrc)} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
     />
+  }
+
+  if (presentation === 'visual-language') {
+    return <VisualLanguageMonitorView key={`${department}:${selectedCamera}`} department={department}
+      cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
+      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras} />
   }
 
   if (presentation === 'logistics-single-person') {

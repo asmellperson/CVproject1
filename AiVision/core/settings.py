@@ -197,6 +197,17 @@ class ModelPathSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
 
+class JoyAISettings(BaseSettings):
+    """外部视觉语言服务；业务请求只使用 Adapter 地址。"""
+
+    adapter_url: str = Field("", alias="JOYAI_ADAPTER_URL")
+    request_timeout_seconds: float = Field(45.0, ge=1, le=180, alias="JOYAI_REQUEST_TIMEOUT_SECONDS")
+    max_workers: int = Field(4, ge=1, le=32, alias="JOYAI_MAX_WORKERS")
+    question_timeout_seconds: float = Field(90.0, ge=1, le=600, alias="JOYAI_QUESTION_TIMEOUT_SECONDS")
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+
 class Settings:
     """
     配置聚合根，将各子配置组合为单一访问点。
@@ -214,6 +225,7 @@ class Settings:
         self.api     = ApiSettings()
         self.runtime = RuntimeSettings()
         self.model_paths = ModelPathSettings()
+        self.joyai = JoyAISettings()
 
 # Settings只创建一次，后面重复调用直接返回缓存对象
 @lru_cache(maxsize=1)

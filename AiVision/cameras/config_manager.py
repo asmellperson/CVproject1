@@ -35,7 +35,6 @@ from AiVision.core.events import config_event_bus, ConfigChangeEvent      # conf
 from AiVision.core.cache import config_cache         # 摄像头配置改完后刷新内存缓存
 from AiVision.core.logger import logger
 from AiVision.features.registry import all_specs
-from AiVision.features._shared.orm import FeatureConfigBase
 from AiVision.departments.department_registry import require_department
 from .orm import AiCameraConfig, get_camera_by_key             # 摄像头数据库表
 
@@ -66,7 +65,7 @@ def _load_function_metadata(
         return states, orders
     # 逐个Feature表查询
     for feature_name, spec in specs.items():
-        ordered = issubclass(spec.orm_class, FeatureConfigBase)
+        ordered = "sort_order" in spec.orm_class.__table__.columns
         columns = [spec.orm_class.camera_id, spec.orm_class.enable]
         if ordered:
             columns.append(spec.orm_class.sort_order)

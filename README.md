@@ -1,6 +1,6 @@
 # 福达视觉平台
 
-福达视觉平台将摄像头管理、十项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
+福达视觉平台将摄像头管理、十一项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
 
 本文按当前源码整理（2026-09-20）。算法、配置和 API 细节见 [AiVision README](AiVision/README.md)，部署操作见 [运行手册](run_guide.txt)。本机的 `unified_frontend/info.md` 提供页面与组件导览，该文件按现有 Git 忽略规则在本地维护。
 
@@ -19,6 +19,8 @@ flowchart LR
     Runtime --> Media[图片与视频证据]
     Runtime --> Notify[喇叭 / 企业微信]
     Runtime -->|安检关键帧| Qwen[内部千问服务]
+    Runtime -->|共享帧 / 视频提问| JoyAdapter[JoyAI Adapter :8070]
+    JoyAdapter --> JoyAI[JoyAI 主模型 :7060]
 ```
 
 运维脚本管理以下两个 tmux 服务：
@@ -48,11 +50,11 @@ Fuda_CVPreject_V3/
 │   ├── runtime/            # 数据库 bootstrap、资源编排和总览
 │   ├── cameras/            # 配置、FFmpeg 采集和帧读取
 │   ├── inference/          # 模型注册、共享 Worker 和后台重载
-│   ├── features/           # 十项原生检测功能
+│   ├── features/           # 十一项原生检测功能
 │   ├── alarms/             # 记录、处置、证据、设备和通知
 │   ├── departments/        # 固定事业部目录
 │   ├── core/               # 环境配置、数据库、日志、缓存和事件
-│   ├── connectors/         # 海康等外部系统协议
+│   ├── connectors/         # 海康与 JoyAI Adapter HTTP 协议
 │   └── migrations/         # 历史数据的显式离线迁移
 ├── auth/                   # 认证、账号与访问审计
 ├── scripts/                # 双服务启动、停止和状态检查
@@ -66,6 +68,7 @@ Fuda_CVPreject_V3/
 
 | 功能 | 功能目录 | 后端业务标识 | 前端页面 ID |
 | --- | --- | --- | --- |
+| 视觉语言检测 | `visual_language_detection` | `visual_language_detection` | `visual-language-detection` |
 | 区域入侵 | `intrusion` | `blocks` | `intrusion-detection` |
 | 大门开关异常 | `door_state` | `detect_door` | `door-detection` |
 | 人脸逗留 | `face_dwell` | `detect_face` | `face-detection` |
@@ -79,7 +82,15 @@ Fuda_CVPreject_V3/
 
 所有正式事业部均可使用平台全部功能。事业部表示数据归属与访问范围，不再通过 FeatureSpec 为不同部门分配不同的算法集合。具体摄像头是否参与检测，仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
 
-平台总览展示十项能力及对应摄像头，按权限汇总各事业部数据，功能数量随能力目录计算。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
+平台总览展示十一项能力及对应摄像头，按权限汇总各事业部数据，功能数量随能力目录计算。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
+
+### 视觉语言检测
+
+所有正式事业部的检测导航首项为“视觉语言检测”，其他功能顺序保持一致。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
+
+每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数和观察提示词按摄像头保存到 MySQL。监控页面提供实时画面、最近理解结果、推理耗时、当前检测会话累计帧数、事件时间线和视频问答；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
+
+`AiVision/.env` 中的 `JOYAI_ADAPTER_URL` 指向 `http://172.16.0.32:8070`，模型名通过 Adapter 的 `/v1/models` 读取。`7060` 由 Adapter 调用，不进入 AiVision 业务客户端。Adapter 需启用 `HONOR_INBOUND_GENERATION_PARAMS=true` 才会采用摄像头保存的 `max_tokens`、`temperature`、`top_p`。管理员可修改绑定和参数；viewer 可在授权事业部内查看和提问。
 
 ### 普通检测与共享推理
 
@@ -127,6 +138,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 统一告警事件 | `ai_violation_image` |
 | 报警处置与历史 | `ai_alarm_disposition` |
 | 安检 session | `ai_security_inspection_session` |
+| 视觉语言配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
 
@@ -152,6 +164,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | `/api/logistics-channels/*` | 通道与成员管理、状态及拼图 |
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
 | `/api/security-inspection/*` | 安检历史、运行状态与千问设置 |
+| `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |
 | `/api/face-recognition/records` | 身份识别记录 |
 | `/api/horns`、`/api/exception-alert` | 喇叭与系统异常通知 |
 

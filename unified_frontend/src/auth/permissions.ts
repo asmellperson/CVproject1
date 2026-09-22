@@ -22,6 +22,7 @@ export const DEPARTMENT_LABELS: Record<DepartmentId, string> = {
   fulida_company: '福力达子公司',
 }
 export const DETECTION_PAGE_IDS = [
+  'visual-language-detection',
   'security-vlm', 'guard-behavior', 'intrusion-detection', 'door-detection',
   'face-detection', 'face-recognition', 'human-detection', 'logistics-single-person', 'phone-detection',
   'agv-person-check',
@@ -31,6 +32,7 @@ export type UserRole = 'admin' | 'viewer'
 export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management'
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
+  'visual-language-detection': [],
   'security-vlm': ['security_inspection'],
   'guard-behavior': ['guard_absent', 'guard_phone_use', 'guard_prone_sleep', 'guard_vehicle_inspection_missing'],
   'intrusion-detection': ['blocks'], 'door-detection': ['detect_door'],

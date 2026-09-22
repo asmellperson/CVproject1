@@ -274,7 +274,7 @@ export function FeatureCameraManager({
         <div className="space-y-3 rounded-2xl border border-[#E8ECF5] bg-[#FAFBFE] px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div>
             <div className="text-sm font-bold text-[#071d3d] dark:text-slate-100">复制当前功能配置</div>
-            <div className="mt-1 text-xs font-medium text-slate-500">将一个摄像头的当前功能参数、ROI 和告警配置复制到另一个摄像头。</div>
+            <div className="mt-1 text-xs font-medium text-slate-500">将一个摄像头的当前功能配置复制到另一个摄像头。</div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <Select
