@@ -9,7 +9,7 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
         super().__init__(**kwargs)
         self._frame_info_provider = frame_info_provider
         self.visual_runtime = VisualLanguageRuntime(
-            frame_info_provider, self._prepare_frame, self._dispatch_alarm,
+            frame_info_provider, self._prepare_frame, self._dispatch_observation,
         )
 
     def start(self):
@@ -60,10 +60,10 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
                 raise VideoUnavailable("摄像头或检测配置已变更")
             return super()._get_roi(camera_id, frame)
 
-    def _dispatch_alarm(self, camera_id, cfg, frame, reason):
+    def _dispatch_observation(self, camera_id, cfg, frame, text):
         with self._camera_state_lock:
             if self.running and self.config_cache.get(camera_id) is cfg:
-                self._handle_alarm(camera_id, (True, reason), frame, config=cfg)
+                self._handle_alarm(camera_id, (True, text), frame, config=cfg)
 
     def _alarm_context(self, camera_id, result):
         return {"reason": result[1]}

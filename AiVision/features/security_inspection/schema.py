@@ -71,7 +71,7 @@ class InspectionConfig(StrictModel):
 
 class VlmSettings(StrictModel):
     base_url: str = "http://127.0.0.1:18100/v1"
-    model: str = "fuda-qwen38-27b"
+    model: str = "fuda-qwen36-27b"
     max_tokens: int = Field(2048, ge=128, le=16384)
     temperature: float = Field(0.1, ge=0, le=2)
     api_timeout_sec: float = Field(45.0, ge=1, le=180)

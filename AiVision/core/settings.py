@@ -208,13 +208,6 @@ class JoyAISettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
 
-class VisualLanguageSettings(BaseSettings):
-    """指令驱动智慧安防的报警确认策略。"""
-
-    confirm_hits: int = Field(2, ge=1, le=20, alias="VISUAL_LANGUAGE_CONFIRM_HITS")
-    model_config = SettingsConfigDict(extra="ignore")
-
-
 class Settings:
     """
     配置聚合根，将各子配置组合为单一访问点。
@@ -233,7 +226,6 @@ class Settings:
         self.runtime = RuntimeSettings()
         self.model_paths = ModelPathSettings()
         self.joyai = JoyAISettings()
-        self.visual_language = VisualLanguageSettings()
 
 # Settings只创建一次，后面重复调用直接返回缓存对象
 @lru_cache(maxsize=1)

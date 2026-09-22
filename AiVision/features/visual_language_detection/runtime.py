@@ -11,8 +11,6 @@ import cv2
 from AiVision.connectors.joyai.client import JoyAIClient, JoyAIError
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
-from .judge import EventJudge, EventJudgmentError
-from .prompts import OBSERVATION_PROMPT
 from .schema import VideoAnswer, VisualLanguageStatus
 from .service import VisualLanguageService
 
@@ -32,23 +30,15 @@ class _CameraState:
     last_sent_at: float = 0.0
     question: tuple[str, Future] | None = None
     status: VisualLanguageStatus = field(default_factory=VisualLanguageStatus)
-    consecutive_hits: int = 0
-
-    def confirm(self, hit: bool) -> bool:
-        """计数按摄像头会话隔离，否定或无法判定时必须重新确认。"""
-        required = settings.visual_language.confirm_hits
-        self.consecutive_hits = min(self.consecutive_hits + 1, required) if hit else 0
-        return self.consecutive_hits >= required
 
 
 class VisualLanguageRuntime:
-    def __init__(self, frame_info_provider, prepare_frame, dispatch_alarm):
+    def __init__(self, frame_info_provider, prepare_frame, dispatch_observation):
         self.client = JoyAIClient()
-        self.judge = EventJudge()
         self.service = VisualLanguageService()
         self._frame_info_provider = frame_info_provider
         self._prepare_frame = prepare_frame
-        self._dispatch_alarm = dispatch_alarm
+        self._dispatch_observation = dispatch_observation
         self._lock = threading.RLock()
         self._states: dict[int, _CameraState] = {}
         self._inflight: set[int] = set()
@@ -160,7 +150,6 @@ class VisualLanguageRuntime:
                 if not self._current(camera_id, state):
                     return
                 if frame is None:
-                    state.confirm(False)
                     state.status.error = "摄像头暂无新鲜画面，等待恢复"
                     return
                 if captured_at <= state.last_frame_at or frame is state.last_frame:
@@ -186,7 +175,7 @@ class VisualLanguageRuntime:
             elapsed = captured_at - state.first_frame_at
             result = self.client.observe(
                 session_id=state.session_id, jpeg=encoded.tobytes(),
-                prompt=question[0] if question else OBSERVATION_PROMPT,
+                prompt=question[0] if question else cfg["observation_prompt"],
                 start_seconds=max(0, elapsed - cfg["cap_interval"]), end_seconds=elapsed,
                 max_tokens=cfg["max_tokens"], temperature=cfg["temperature"], top_p=cfg["top_p"],
             )
@@ -196,6 +185,7 @@ class VisualLanguageRuntime:
                     return
                 state.status.processed_frames += 1
                 state.status.latency_seconds = latency
+                state.status.error = None
                 if text:
                     state.status.latest_result = text
                     state.status.latest_result_at = timestamp
@@ -207,35 +197,19 @@ class VisualLanguageRuntime:
                     text=text or "本次未产生回答", question=question[0] if question else None,
                     captured_at=timestamp, latency_seconds=latency,
                 )
-            with self._lock:
-                if not self._current(camera_id, state):
-                    return
-            # JoyAI 只描述事实，只有千问的结构化命中连续确认后才进入公共告警链路。
+            # 自动观察正文代表监控指令命中的事件；静默和视频提问不进入告警链路。
             if text and not question:
-                verdict = self.judge.judge(cfg["observation_prompt"], text)
-                with self._lock:
-                    if not self._current(camera_id, state):
-                        return
-                    confirmed = state.confirm(verdict.hit)
-                if confirmed:
-                    self._dispatch_alarm(camera_id, cfg, source_frame, verdict.reason)
-            else:
-                # 静默和问答不提供本轮监控命中证据，不能延续旧候选。
-                with self._lock:
-                    state.confirm(False)
+                self._dispatch_observation(camera_id, cfg, source_frame, text)
             with self._lock:
-                if self._current(camera_id, state):
-                    state.status.error = None
-                    if question and not question[1].done():
-                        question[1].set_result(VideoAnswer(text=text, latency_seconds=latency, captured_at=timestamp))
+                if self._current(camera_id, state) and question and not question[1].done():
+                    question[1].set_result(VideoAnswer(text=text, latency_seconds=latency, captured_at=timestamp))
         except Exception as exc:
             question_consumed = True
-            detail = str(exc) if isinstance(exc, (JoyAIError, EventJudgmentError)) else "指令驱动智慧安防处理失败，请检查后端日志"
+            detail = str(exc) if isinstance(exc, JoyAIError) else "指令驱动智慧安防处理失败，请检查后端日志"
             logger.exception(f"[visual_language_detection] 处理失败 camera_id={camera_id}: {detail}")
             record_error = False
             with self._lock:
                 if self._current(camera_id, state):
-                    state.confirm(False)
                     previous_error = state.status.error
                     state.status.error = detail
                     if question and not question[1].done():

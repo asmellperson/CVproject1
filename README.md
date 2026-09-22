@@ -19,7 +19,6 @@ flowchart LR
     Runtime --> Media[图片与视频证据]
     Runtime --> Notify[喇叭 / 企业微信]
     Runtime -->|安检关键帧| Qwen[内部千问服务]
-    Runtime -->|监控指令与 JoyAI 事件描述| Qwen
     Runtime -->|共享帧 / 视频提问| JoyAdapter[JoyAI Adapter :8070]
     JoyAdapter --> JoyAI[JoyAI 主模型 :7060]
 ```
@@ -33,7 +32,7 @@ flowchart LR
 
 项目站点地址为 `https://aicv.fudar.com/`，网关部署需把请求转发至前端入口。Vite 的 `/api` 代理默认指向 `http://127.0.0.1:7862`，由 `VITE_AIVISION_TARGET` 覆盖；配置中也保留 `/ws` 的 WebSocket 代理。
 
-当前仓库已没有独立的 `unified_backend`、Guard Room 或 Security VLM Web 服务。保安行为与安检流程均在 `AiVision/features/` 中注册，使用同一套摄像头、推理、数据库和告警设施。内部千问供安检判定和指令驱动智慧安防的事件判定使用，不由这两个 tmux 服务的启停脚本管理。
+当前仓库已没有独立的 `unified_backend`、Guard Room 或 Security VLM Web 服务。保安行为与安检流程均在 `AiVision/features/` 中注册，使用同一套摄像头、推理、数据库和告警设施。内部千问是安检依赖的模型服务，不由这两个 tmux 服务的启停脚本管理。
 
 ## 2. 仓库目录
 
@@ -55,7 +54,7 @@ Fuda_CVPreject_V3/
 │   ├── alarms/             # 记录、处置、证据、设备和通知
 │   ├── departments/        # 固定事业部目录
 │   ├── core/               # 环境配置、数据库、日志、缓存和事件
-│   ├── connectors/         # 海康、JoyAI Adapter 与千问 HTTP 协议
+│   ├── connectors/         # 海康与 JoyAI Adapter HTTP 协议
 │   └── migrations/         # 历史数据的显式离线迁移
 ├── auth/                   # 认证、账号与访问审计
 ├── scripts/                # 双服务启动、停止和状态检查
@@ -91,9 +90,7 @@ Fuda_CVPreject_V3/
 
 每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数、监控指令、ROI 和报警推送按摄像头保存到 MySQL。共享帧先经公共 ROI 裁剪，再发送给 JoyAI；空 ROI 表示全帧。监控页面提供实时画面、最近理解结果、推理耗时、当前检测会话累计帧数、事件时间线和视频问答；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
 
-配置页依次为摄像头、监控指令、ROI 配置、推理参数、报警推送、喇叭配置。ROI 使用 `AiVisionRoiEditor`，报警推送使用 `AlarmPushConfig` 管理当前功能的喇叭绑定、企业微信和报警间隔，喇叭设备管理由 `DetectionConfigTabs` 统一挂载。
-
-JoyAI 客观描述当前视频事件；`judge.py` 将摄像头监控指令和事件描述交给现有 Qwen3.8 服务，严格读取 `{"hit":true,"reason":"命中理由"}`。每台摄像头默认连续两次 `hit=true` 才调用公共 `AlarmDispatcher`，以千问的 `reason` 作为告警原因，复用冷却、SQL、企业微信、喇叭和截图/录像。`hit=false`、静默、问答或处理失败会清空连续计数；判定超时或 JSON 非法只记录错误，不触发报警。确认次数由 `VISUAL_LANGUAGE_CONFIRM_HITS` 配置，千问地址、模型和请求参数复用现有全局千问设置，HTTP 协议由 `connectors/qwen/client.py` 统一处理。
+配置页依次为摄像头、监控指令、ROI 配置、推理参数、报警推送、喇叭配置。ROI 使用 `AiVisionRoiEditor`，报警推送使用 `AlarmPushConfig` 管理当前功能的喇叭绑定、企业微信和报警间隔，喇叭设备管理由 `DetectionConfigTabs` 统一挂载。监控指令应要求仅在目标事件发生时输出结果；自动观察正文通过公共 `AlarmDispatcher` 按配置触发告警，静默、视频问答和处理错误不触发业务告警。
 
 `AiVision/.env` 中的 `JOYAI_ADAPTER_URL` 指向 `http://172.16.0.32:8070`，模型名通过 Adapter 的 `/v1/models` 读取。`7060` 由 Adapter 调用，不进入 AiVision 业务客户端。Adapter 需启用 `HONOR_INBOUND_GENERATION_PARAMS=true` 才会采用摄像头保存的 `max_tokens`、`temperature`、`top_p`。管理员可修改绑定和参数；viewer 可在授权事业部内查看和提问。
 
@@ -126,7 +123,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 `InspectionConsumer` 从平台帧缓存取图，调用共享 `yolo_human`，按命名工位 ROI 跟踪双人交互、生成 session 并抽取关键帧。后台 `InspectionRuntime` 按事业部和摄像头轮询调度千问请求，检测线程不等待网络判定。
 
 - 摄像头开关、工位 ROI、检测参数和告警配置通过公共摄像头/功能 API 保存到 MySQL。
-- 全局模型地址及调度参数通过 `/api/security-inspection/settings` 保存；默认地址为 `http://127.0.0.1:18100/v1`，模型名为 `fuda-qwen38-27b`。
+- 全局模型地址及调度参数通过 `/api/security-inspection/settings` 保存；默认地址为 `http://127.0.0.1:18100/v1`，模型名为 `fuda-qwen36-27b`。
 - 模型最终返回 `compliant`、`confidence`、`reason`；历史状态区分合规、不合规、错误和取消。
 - 只有不合规结果进入业务告警，证据使用该 session 的关键帧拼图；告警冷却按摄像头和工位隔离。
 - 运行时提供模型健康检查、连续失败熔断和自动恢复状态。
