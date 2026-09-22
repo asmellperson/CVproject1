@@ -41,6 +41,14 @@ class VideoQuestion(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class MonitoringVerdict(BaseModel):
+    """只有严格布尔命中与明确理由可以进入连续确认。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+    hit: bool
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class VideoAnswer(BaseModel):
     text: str | None
     latency_seconds: float

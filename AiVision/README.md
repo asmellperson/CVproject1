@@ -34,7 +34,7 @@ flowchart LR
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
-    Features --> Qwen[安检关键帧 → 内部千问]
+    Features --> Qwen[内部千问：安检关键帧与监控事件判定]
     Features --> Cameras[摄像头采集与帧缓存]
     Features --> Models[共享模型推理进程]
     Features --> Alarms[告警分发与证据保存]
@@ -137,7 +137,8 @@ AiVision/
 ├── core/                          # Settings、数据库、缓存、事件、日志等
 ├── connectors/
 │   ├── hikvision/                  # 海康签名、HTTP 客户端与人员协议
-│   └── joyai/                     # JoyAI Adapter 客户端和响应清洗
+│   ├── joyai/                     # JoyAI Adapter 客户端和响应清洗
+│   └── qwen/                      # 安检与监控事件判定共用的千问 HTTP 协议
 ├── config/model_paths.example.yaml
 ├── migrations/                    # 显式离线迁移
 ├── .env.example                   # 主服务环境变量模板
@@ -195,7 +196,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
+十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程依次调用 JoyAI Adapter 和千问事件判定。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -820,13 +821,13 @@ Consumer / 通道状态机满足规则
 | 字段 | 默认值 |
 | --- | --- |
 | `base_url` | `http://127.0.0.1:18100/v1` |
-| `model` | `fuda-qwen36-27b` |
+| `model` | `fuda-qwen38-27b` |
 | `api_timeout_sec` / `queue_timeout_sec` | `45` / `60` 秒 |
 | `max_concurrent` / `queue_capacity` | `3` / `32` |
 | `max_tokens` / `temperature` | `2048` / `0.1` |
 | `image_max_side` / `image_jpeg_quality` | `960` / `85` |
 
-可选认证通过环境变量 `SECURITY_VLM_API_KEY` 提供，模型地址不允许携带用户名或密码。内部千问服务需独立可用，项目启动脚本不启动它。
+可选认证通过环境变量 `SECURITY_VLM_API_KEY` 提供，模型地址不允许携带用户名或密码。正式部署时 AiVision 与内部千问同机运行，通过回环地址访问；项目启动脚本不启动千问服务。
 
 客户端先检查 `/models` 中是否存在配置的模型，再向 `/chat/completions` 提交关键帧和提示词。返回内容严格转换为 `InspectionVerdict`：
 
@@ -844,12 +845,14 @@ Consumer / 通道状态机满足规则
 
 ### 9.3 指令驱动智慧安防：`visual_language_detection`
 
-业务模块位于 `features/visual_language_detection/`：`consumer.py` 接入公共生命周期与配置热更新，`runtime.py` 串行调度每台摄像头的帧和问题，`schema.py` 校验配置及 API 数据，`orm.py` 定义配置和事件表，`service.py` 读写事件，`spec.py` 声明正式功能。外部协议仅位于 `connectors/joyai/client.py`。
+业务模块位于 `features/visual_language_detection/`：`consumer.py` 接入公共生命周期与配置热更新，`runtime.py` 串行调度每台摄像头的帧、问题与连续确认，`judge.py` 判定监控指令和事件描述，`prompts.py` 定义事实描述与条件判定提示词，`schema.py` 校验配置、判定及 API 数据，`orm.py` 定义配置和事件表，`service.py` 读写事件，`spec.py` 声明正式功能。HTTP 协议位于 `connectors/joyai/client.py` 和 `connectors/qwen/client.py`。
 
 ```text
 现有摄像头共享帧 → Orchestrator.get_camera_frame_info()
 → VisualLanguageConsumer / VisualLanguageRuntime
 → connectors/joyai/client.py → JoyAI Adapter :8070 → JoyAI 主模型 :7060
+JoyAI 当前事件描述 + 用户监控指令 → connectors/qwen/client.py → Qwen3.8
+→ 严格 hit/reason JSON → 逐摄像头连续确认 → 公共 AlarmDispatcher
 ```
 
 Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采样，不创建 RTSP 连接。每台摄像头仅保留一个在途任务，执行任务时重新读取最新共享帧；采集时间和帧对象用于去重。推理和提问共用 `visual-language-{department}-{camera_id}`，问题随下一张新帧发送。配置热更新、停用和删除会作废旧任务并清理对应会话；重新建立会话后重新统计处理帧数。后台线程数量由 `JOYAI_MAX_WORKERS` 控制。
@@ -866,13 +869,17 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `max_tokens` | `256` | 最大输出 Token 数 |
 | `temperature` | `0.8` | 采样温度 |
 | `top_p` | `0.9` | 采样概率范围 |
-| `observation_prompt` | 中文连续观察提示词 | 监控指令，定义常规帧的观察目标与静默条件 |
+| `observation_prompt` | 中文连续观察提示词 | 用户监控指令，由千问判断当前事件是否满足条件 |
 
 环境配置由 `AiVision/.env` 加载至 `settings.joyai`：`JOYAI_ADAPTER_URL=http://172.16.0.32:8070`，`JOYAI_REQUEST_TIMEOUT_SECONDS=45`，`JOYAI_MAX_WORKERS=4`，`JOYAI_QUESTION_TIMEOUT_SECONDS=90`。业务不配置或请求主模型地址。Adapter 模型名从 `GET /v1/models` 读取；单帧使用 `POST /v1/chat/completions`、`x-streaming-session` 和单个 `frame_time_ranges`，清理使用 `POST /v1/streaming/reset`。Adapter 部署需设置 `HONOR_INBOUND_GENERATION_PARAMS=true`，使摄像头采样参数生效。
 
 发送前通过 `BaseFunctionConsumer` 的公共 ROI 处理裁剪最新共享帧，多边形外区域遮罩，再按宽度和 JPEG 质量编码；自动观察和提问使用同一 ROI。摄像头或配置失效后，旧任务不能发起告警。
 
-客户端只解析普通 JSON 响应。`</silence>` 不形成理解结果或观察事件，`</response>` 标记被移除；最近推理耗时取 `streamingharness.timing.vllm_inference_ms`，未执行模型推理的静默响应记为零。观察结果、视频问答及处理错误保存到 `ai_visual_language_event`。自动观察正文作为监控指令命中的事件，经公共 `AlarmDispatcher` 按摄像头冷却与通道配置分发，报警类型为 `14`，事件标识为 `visual_language_detection`；正文作为告警原因，原始共享帧作为截图依据。监控指令应要求仅在目标事件发生时输出结果，静默、视频问答和处理错误不触发业务告警。`captured_at` 使用 MySQL `DATETIME(6)` 保留共享帧采集时间，使问答响应与事件读回的时间一致。累计处理帧数和最近结果属于当前检测会话的内存状态，事件持久化到 MySQL。
+JoyAI 通过固定观察提示词描述当前画面的可见事实，不承担报警条件判定。客户端只解析普通 JSON 响应。`</silence>` 不形成理解结果或观察事件，`</response>` 标记被移除；最近推理耗时取 `streamingharness.timing.vllm_inference_ms`，未执行模型推理的静默响应记为零。观察结果、视频问答及处理错误保存到 `ai_visual_language_event`。`captured_at` 使用 MySQL `DATETIME(6)` 保留共享帧采集时间，使问答响应与事件读回的时间一致。累计处理帧数和最近结果属于当前检测会话的内存状态，事件持久化到 MySQL。
+
+`EventJudge` 通过现有 `InspectionService.get_settings()` 读取全局千问的地址、模型、输出长度、温度和超时，复用 `SECURITY_VLM_API_KEY` 认证。请求仅携带监控指令和当前事件描述，要求 JSON 输出并关闭思考。返回必须完整结束且为严格的 `{"hit":true,"reason":"命中理由"}`：`hit` 只能是布尔值，`reason` 必须非空；缺字段、额外字段、重复字段、格式包裹、拒绝或截断均视为判定失败。
+
+连续计数属于逐摄像头会话，`VISUAL_LANGUAGE_CONFIRM_HITS` 默认为 `2`。只有连续命中达到阈值后才调用 `_handle_alarm`；`hit=false`、静默、视频问答和处理错误立即清空计数，配置失效后旧任务不能发起告警。判定失败或超时只写错误日志与事件。确认后的告警类型为 `14`，事件标识为 `visual_language_detection`，千问 `reason` 为告警原因，原始共享帧为截图依据。公共 `AlarmDispatcher` 统一处理冷却、SQL、企业微信、喇叭及截图/录像。
 
 | 方法 | API | 用途 |
 | --- | --- | --- |
@@ -939,7 +946,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 - 项目声明 Python `>=3.10,<3.12`，可使用现有 `aivision` 环境。
 - 安装主依赖，准备可用的 MySQL、FFmpeg 和 ffprobe。
-- 准备本地 YOLO、制服、姿态和 InsightFace 模型；使用安检时准备可访问的内部千问服务。
+- 准备本地 YOLO、制服、姿态和 InsightFace 模型；使用安检或指令驱动智慧安防时准备可访问的内部千问服务。
 - `DATA_PATH` 必须可写；部署系统需要支持当前采集代码使用的进程和共享内存机制。
 
 **人脸模型的运行要求：**当前 `load_insightface_model()` 明确要求 `CUDAExecutionProvider`，并关闭静默 CPU fallback。仅安装 CPU ONNX Runtime 不能满足当前人脸 Worker 的运行方式。

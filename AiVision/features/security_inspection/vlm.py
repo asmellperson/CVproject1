@@ -1,16 +1,16 @@
 """内部千问客户端；只接受约定的 Chat Completions JSON 响应。"""
 
 import base64
-import os
 import re
 import time
 from typing import Literal
 
 import cv2
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 import requests
 
 from AiVision.core.logger import logger
+from AiVision.connectors.qwen.client import ChatCompletion, QwenClient, QwenError
 from .prompts import VLM_SYSTEM_PROMPT, VLM_USER_PROMPT
 from .schema import InspectionVerdict, VlmHealth, VlmSettings
 
@@ -23,26 +23,11 @@ class VlmError(RuntimeError):
         super().__init__(f"[{category}] {detail}")
 
 
-class _ChatMessage(BaseModel):
-    content: str | None
-    refusal: str | None = None
-
-
-class _ChatChoice(BaseModel):
-    message: _ChatMessage
-    finish_reason: str
-
-
-class _ChatCompletion(BaseModel):
-    # 传输层只读取单次判定需要的字段，id、usage 等标准元数据不进入业务层。
-    choices: list[_ChatChoice] = Field(min_length=1, max_length=1)
-
-
 def parse_completion(body: str) -> InspectionVerdict:
     """唯一解析入口：标准响应封装 → 文本边界整理 → 严格业务模型。"""
     stage = "Chat Completions 响应"
     try:
-        choice = _ChatCompletion.model_validate_json(body, strict=True).choices[0]
+        choice = ChatCompletion.model_validate_json(body, strict=True).choices[0]
         if choice.finish_reason != "stop":
             raise VlmError("RESULT_ERROR", f"模型未完成判定：finish_reason={choice.finish_reason}")
         if choice.message.refusal:
@@ -88,15 +73,7 @@ def encode_frames(frames, settings: VlmSettings) -> list[bytes]:
     return encoded
 
 
-class VlmClient:
-    @staticmethod
-    def _headers() -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get("SECURITY_VLM_API_KEY", "").strip()
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        return headers
-
+class VlmClient(QwenClient):
     def check_health(self, settings: VlmSettings) -> VlmHealth:
         """只检查接口和已配置模型，不生成内容，也不代替真实图片判定。"""
         try:
@@ -136,27 +113,16 @@ class VlmClient:
         content.append({"type": "text", "text": VLM_USER_PROMPT.format(n_frames=len(frames))})
         started = time.monotonic()
         try:
-            with requests.post(
-                f"{settings.base_url}/chat/completions",
-                headers=self._headers(),
-                json={
-                    "model": settings.model,
-                    "messages": [
-                        {"role": "system", "content": VLM_SYSTEM_PROMPT},
-                        {"role": "user", "content": content},
-                    ],
-                    "stream": False,
-                    "max_tokens": settings.max_tokens,
-                    "temperature": settings.temperature,
-                    "response_format": {"type": "json_object"},
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                timeout=(5, settings.api_timeout_sec),
-                allow_redirects=False,
-            ) as response:
-                if response.status_code != 200:
-                    raise VlmError("HTTP_ERROR", f"内部模型返回 HTTP {response.status_code}")
-                verdict = parse_completion(response.text)
-        except requests.RequestException as exc:
-            raise VlmError("HTTP_ERROR", f"模型 HTTP 请求失败：{type(exc).__name__}") from exc
+            body = self.complete(
+                base_url=settings.base_url, model=settings.model,
+                messages=[
+                    {"role": "system", "content": VLM_SYSTEM_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=settings.max_tokens, temperature=settings.temperature,
+                timeout_seconds=settings.api_timeout_sec,
+            )
+            verdict = parse_completion(body)
+        except QwenError as exc:
+            raise VlmError("HTTP_ERROR", str(exc)) from exc
         return verdict, time.monotonic() - started

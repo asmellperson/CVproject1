@@ -75,7 +75,7 @@ export function VisualLanguageConfiguration({ cameraKey, tab }: { cameraKey: str
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
       <DetectionConfigCardHeader icon={tab === 'parameters' ? Settings2 : MessageSquareText} tone="blue"
         title={tab === 'parameters' ? '推理参数' : '监控指令'}
-        description={tab === 'parameters' ? '配置按摄像头独立保存，保存后自动用于后续视频理解。' : '描述需要关注的目标事件，并要求仅在事件发生时输出结果，其他时间保持静默；观察结果按报警推送配置触发告警。'} />
+        description={tab === 'parameters' ? '配置按摄像头独立保存，保存后自动用于后续视频理解。' : '描述需要监控的事件条件。系统根据视频事件描述判断是否命中，经连续确认后按报警推送配置触发告警。'} />
       <DetectionConfigCardContent>
         {tab === 'parameters' ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {VISUAL_LANGUAGE_PARAMETERS.map(([key, label, min, max, step]) => <div key={key} className="space-y-2">
