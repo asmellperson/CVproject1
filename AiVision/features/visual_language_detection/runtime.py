@@ -33,10 +33,12 @@ class _CameraState:
 
 
 class VisualLanguageRuntime:
-    def __init__(self, frame_info_provider):
+    def __init__(self, frame_info_provider, prepare_frame, dispatch_observation):
         self.client = JoyAIClient()
         self.service = VisualLanguageService()
         self._frame_info_provider = frame_info_provider
+        self._prepare_frame = prepare_frame
+        self._dispatch_observation = dispatch_observation
         self._lock = threading.RLock()
         self._states: dict[int, _CameraState] = {}
         self._inflight: set[int] = set()
@@ -158,6 +160,8 @@ class VisualLanguageRuntime:
                     state.first_frame_at = captured_at - cfg["cap_interval"]
             timestamp = datetime.fromtimestamp(captured_at)
             question_consumed = True
+            source_frame = frame
+            frame = self._prepare_frame(camera_id, cfg, source_frame)
             height, width = frame.shape[:2]
             if width > cfg["max_image_width"]:
                 frame = cv2.resize(frame, (cfg["max_image_width"], max(1, round(height * cfg["max_image_width"] / width))))
@@ -193,6 +197,9 @@ class VisualLanguageRuntime:
                     text=text or "本次未产生回答", question=question[0] if question else None,
                     captured_at=timestamp, latency_seconds=latency,
                 )
+            # 自动观察正文代表监控指令命中的事件；静默和视频提问不进入告警链路。
+            if text and not question:
+                self._dispatch_observation(camera_id, cfg, source_frame, text)
             with self._lock:
                 if self._current(camera_id, state) and question and not question[1].done():
                     question[1].set_result(VideoAnswer(text=text, latency_seconds=latency, captured_at=timestamp))

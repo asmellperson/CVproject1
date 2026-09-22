@@ -8,7 +8,9 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
     def __init__(self, *, frame_info_provider, **kwargs):
         super().__init__(**kwargs)
         self._frame_info_provider = frame_info_provider
-        self.visual_runtime = VisualLanguageRuntime(frame_info_provider)
+        self.visual_runtime = VisualLanguageRuntime(
+            frame_info_provider, self._prepare_frame, self._dispatch_observation,
+        )
 
     def start(self):
         self.visual_runtime.start()
@@ -49,7 +51,22 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
         return bool(cfg["camera_enable"] and self.visual_runtime.ready(camera_id, cfg))
 
     def _get_roi(self, camera_id, frame):
+        # HTTP 任务实际发送前再取最新帧并裁剪，避免使用排队前的画面。
         return frame
+
+    def _prepare_frame(self, camera_id, cfg, frame):
+        with self._camera_state_lock:
+            if not self.running or self.config_cache.get(camera_id) is not cfg:
+                raise VideoUnavailable("摄像头或检测配置已变更")
+            return super()._get_roi(camera_id, frame)
+
+    def _dispatch_observation(self, camera_id, cfg, frame, text):
+        with self._camera_state_lock:
+            if self.running and self.config_cache.get(camera_id) is cfg:
+                self._handle_alarm(camera_id, (True, text), frame, config=cfg)
+
+    def _alarm_context(self, camera_id, result):
+        return {"reason": result[1]}
 
     def _frame_changed(self, camera_id, roi):
         # 由运行时按采集时间去重，持续理解同一场景也需要按间隔发送新帧。

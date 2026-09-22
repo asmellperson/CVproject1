@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Camera, MessageSquareText, Settings2 } from 'lucide-react'
+import { Bell, Camera, MessageSquareText, MousePointer2, Settings2 } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
@@ -51,13 +51,15 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
     </TabsContent>
     <TabsContent value="config" className="space-y-6">
       {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
-      <DetectionConfigTabs value={configTab} onValueChange={setConfigTab} className="space-y-6" showHorns={false} tabListClassName="sm:grid-cols-3"
+      <DetectionConfigTabs value={configTab} onValueChange={setConfigTab} className="space-y-6"
         tabs={<><DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
+          <DetectionConfigTab value="prompt" icon={MessageSquareText}>监控指令</DetectionConfigTab>
+          <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
           <DetectionConfigTab value="parameters" icon={Settings2}>推理参数</DetectionConfigTab>
-          <DetectionConfigTab value="prompt" icon={MessageSquareText}>提示词</DetectionConfigTab></>}>
+          <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab></>}>
         <TabsContent value="camera"><FeatureCameraManager cameras={cameras} feature={VISUAL_LANGUAGE_FEATURE} department={department}
-          currentCameraName={current?.shm_name || ''} onSelectCamera={setSelected} onCamerasChanged={refreshCameras} /></TabsContent>
-        {(['parameters', 'prompt'] as const).map((tab) => <TabsContent key={tab} value={tab} className="space-y-4">
+          currentCameraName={current?.shm_name || ''} onSelectCamera={setSelected} onCamerasChanged={refreshCameras} onConfigCopied={refreshCameras} /></TabsContent>
+        {(['prompt', 'roi', 'parameters', 'alarm'] as const).map((tab) => <TabsContent key={tab} value={tab} className="space-y-4">
           <Select value={current?.shm_name || ''} onValueChange={setSelected} disabled={!enabled.length}>
             <SelectTrigger className="w-full sm:w-64" aria-label="配置摄像头"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
             <SelectContent>{enabled.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>

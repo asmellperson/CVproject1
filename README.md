@@ -88,7 +88,9 @@ Fuda_CVPreject_V3/
 
 所有正式事业部的检测导航首项为“指令驱动智慧安防”，其他功能顺序保持一致。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
 
-每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数和观察提示词按摄像头保存到 MySQL。监控页面提供实时画面、最近理解结果、推理耗时、当前检测会话累计帧数、事件时间线和视频问答；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
+每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数、监控指令、ROI 和报警推送按摄像头保存到 MySQL。共享帧先经公共 ROI 裁剪，再发送给 JoyAI；空 ROI 表示全帧。监控页面提供实时画面、最近理解结果、推理耗时、当前检测会话累计帧数、事件时间线和视频问答；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
+
+配置页依次为摄像头、监控指令、ROI 配置、推理参数、报警推送、喇叭配置。ROI 使用 `AiVisionRoiEditor`，报警推送使用 `AlarmPushConfig` 管理当前功能的喇叭绑定、企业微信和报警间隔，喇叭设备管理由 `DetectionConfigTabs` 统一挂载。监控指令应要求仅在目标事件发生时输出结果；自动观察正文通过公共 `AlarmDispatcher` 按配置触发告警，静默、视频问答和处理错误不触发业务告警。
 
 `AiVision/.env` 中的 `JOYAI_ADAPTER_URL` 指向 `http://172.16.0.32:8070`，模型名通过 Adapter 的 `/v1/models` 读取。`7060` 由 Adapter 调用，不进入 AiVision 业务客户端。Adapter 需启用 `HONOR_INBOUND_GENERATION_PARAMS=true` 才会采用摄像头保存的 `max_tokens`、`temperature`、`top_p`。管理员可修改绑定和参数；viewer 可在授权事业部内查看和提问。
 

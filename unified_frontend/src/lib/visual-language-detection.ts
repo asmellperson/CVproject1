@@ -1,4 +1,6 @@
 import type { DepartmentId } from '@/auth/permissions'
+import type { NormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
+import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
 import { apiGet, apiPost } from '@/lib/api'
 import { getAiVisionFeatureConfig, saveAiVisionFeatureConfig } from '@/lib/aivision'
 
@@ -6,6 +8,8 @@ export const VISUAL_LANGUAGE_FEATURE = 'visual_language_detection'
 
 export type VisualLanguageValue = {
   cap_interval: number
+  roi_pos: NormalizedRoi
+  alarm_interval: number
   jpeg_quality: number
   max_image_width: number
   max_tokens: number
@@ -13,7 +17,7 @@ export type VisualLanguageValue = {
   top_p: number
   observation_prompt: string
 }
-export type VisualLanguageConfig = { enable: boolean; value: VisualLanguageValue }
+export type VisualLanguageConfig = { enable: boolean; value: VisualLanguageValue; alarm: NormalizedFeatureAlarmConfig }
 export type VisualLanguageStatus = {
   processed_frames: number
   latest_result: string | null

@@ -854,21 +854,25 @@ Consumer / 通道状态机满足规则
 
 Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采样，不创建 RTSP 连接。每台摄像头仅保留一个在途任务，执行任务时重新读取最新共享帧；采集时间和帧对象用于去重。推理和提问共用 `visual-language-{department}-{camera_id}`，问题随下一张新帧发送。配置热更新、停用和删除会作废旧任务并清理对应会话；重新建立会话后重新统计处理帧数。后台线程数量由 `JOYAI_MAX_WORKERS` 控制。
 
-公共 `GET/PUT /api/features/visual_language_detection/configs/{key}` 保存 `{enable, value}`。配置继承 `CameraFeatureConfigBase`，包含功能内摄像头排序，不包含告警字段。
+公共 `GET/PUT /api/features/visual_language_detection/configs/{key}` 保存 `{enable, value, alarm}`。配置继承 `FeatureConfigBase`，复用功能内摄像头排序、喇叭绑定校验、配置复制及三通道报警配置；`alarm` 使用公共 `AlarmConfigSchema`，默认关闭推送。业务不接入 AiVision 本机模型配置。
 
 | `value` 字段 | 默认值 | 用途 |
 | --- | --- | --- |
 | `cap_interval` | `1.0` | 每台摄像头的最小发送间隔，秒 |
+| `roi_pos` | `[]` | 单个归一化多边形，空列表表示全帧 |
+| `alarm_interval` | `5.0` | 同一摄像头的业务告警冷却间隔，秒 |
 | `jpeg_quality` | `80` | JPEG 编码质量 |
 | `max_image_width` | `960` | 等比例缩小图像的最大宽度 |
 | `max_tokens` | `256` | 最大输出 Token 数 |
 | `temperature` | `0.8` | 采样温度 |
 | `top_p` | `0.9` | 采样概率范围 |
-| `observation_prompt` | 中文连续观察提示词 | 常规帧的观察目标 |
+| `observation_prompt` | 中文连续观察提示词 | 监控指令，定义常规帧的观察目标与静默条件 |
 
 环境配置由 `AiVision/.env` 加载至 `settings.joyai`：`JOYAI_ADAPTER_URL=http://172.16.0.32:8070`，`JOYAI_REQUEST_TIMEOUT_SECONDS=45`，`JOYAI_MAX_WORKERS=4`，`JOYAI_QUESTION_TIMEOUT_SECONDS=90`。业务不配置或请求主模型地址。Adapter 模型名从 `GET /v1/models` 读取；单帧使用 `POST /v1/chat/completions`、`x-streaming-session` 和单个 `frame_time_ranges`，清理使用 `POST /v1/streaming/reset`。Adapter 部署需设置 `HONOR_INBOUND_GENERATION_PARAMS=true`，使摄像头采样参数生效。
 
-客户端只解析普通 JSON 响应。`</silence>` 不形成理解结果或观察事件，`</response>` 标记被移除；最近推理耗时取 `streamingharness.timing.vllm_inference_ms`，未执行模型推理的静默响应记为零。观察结果、视频问答及处理错误保存到 `ai_visual_language_event`，不转为违规告警。`captured_at` 使用 MySQL `DATETIME(6)` 保留共享帧采集时间，使问答响应与事件读回的时间一致。累计处理帧数和最近结果属于当前检测会话的内存状态，事件持久化到 MySQL。
+发送前通过 `BaseFunctionConsumer` 的公共 ROI 处理裁剪最新共享帧，多边形外区域遮罩，再按宽度和 JPEG 质量编码；自动观察和提问使用同一 ROI。摄像头或配置失效后，旧任务不能发起告警。
+
+客户端只解析普通 JSON 响应。`</silence>` 不形成理解结果或观察事件，`</response>` 标记被移除；最近推理耗时取 `streamingharness.timing.vllm_inference_ms`，未执行模型推理的静默响应记为零。观察结果、视频问答及处理错误保存到 `ai_visual_language_event`。自动观察正文作为监控指令命中的事件，经公共 `AlarmDispatcher` 按摄像头冷却与通道配置分发，报警类型为 `14`，事件标识为 `visual_language_detection`；正文作为告警原因，原始共享帧作为截图依据。监控指令应要求仅在目标事件发生时输出结果，静默、视频问答和处理错误不触发业务告警。`captured_at` 使用 MySQL `DATETIME(6)` 保留共享帧采集时间，使问答响应与事件读回的时间一致。累计处理帧数和最近结果属于当前检测会话的内存状态，事件持久化到 MySQL。
 
 | 方法 | API | 用途 |
 | --- | --- | --- |

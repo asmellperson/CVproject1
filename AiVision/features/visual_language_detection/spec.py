@@ -11,4 +11,5 @@ SPEC = FeatureSpec(
     consumer_cls=VisualLanguageConsumer,
     orm_class=VisualLanguageConfigORM,
     config_schema=VisualLanguageConfig,
+    alarm_types=(14,),
 )

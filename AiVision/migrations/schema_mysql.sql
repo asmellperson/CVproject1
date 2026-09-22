@@ -554,3 +554,47 @@ CREATE TABLE ai_camera_config_security_inspection (
 );
 
 CREATE UNIQUE INDEX ix_ai_camera_config_security_inspection_camera_id ON ai_camera_config_security_inspection (camera_id);
+
+CREATE TABLE ai_camera_config_visual_language_detection (
+	roi_pos JSON NOT NULL,
+	cap_interval FLOAT NOT NULL,
+	jpeg_quality INTEGER NOT NULL,
+	max_image_width INTEGER NOT NULL,
+	max_tokens INTEGER NOT NULL,
+	temperature FLOAT NOT NULL,
+	top_p FLOAT NOT NULL,
+	observation_prompt TEXT NOT NULL,
+	sort_order INTEGER NOT NULL COMMENT '功能内摄像头展示排序' DEFAULT 0,
+	alarm_interval FLOAT COMMENT '告警间隔(秒)',
+	sql_enable BOOL COMMENT 'SQL告警启用',
+	horn_enable BOOL COMMENT '喇叭告警启用',
+	horn_event_id INTEGER COMMENT '告警音ID',
+	wechat_enable BOOL COMMENT '微信告警启用',
+	wechat_user VARCHAR(255) COMMENT '微信用户列表',
+	horn_id INTEGER COMMENT '喇叭设备ID',
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	enable BOOL COMMENT '是否启用',
+	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	camera_id INTEGER NOT NULL COMMENT '摄像头ID',
+	PRIMARY KEY (id),
+	FOREIGN KEY(horn_id) REFERENCES ai_horn_config (id) ON DELETE SET NULL,
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX ix_ai_camera_config_visual_language_detection_camera_id ON ai_camera_config_visual_language_detection (camera_id);
+
+CREATE TABLE ai_visual_language_event (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	camera_id INTEGER NOT NULL,
+	department VARCHAR(64) NOT NULL,
+	kind VARCHAR(16) NOT NULL,
+	text TEXT NOT NULL,
+	question TEXT,
+	captured_at DATETIME(6) NOT NULL,
+	latency_seconds FLOAT,
+	PRIMARY KEY (id),
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE CASCADE
+);
+
+CREATE INDEX ix_visual_language_camera_time ON ai_visual_language_event (department, camera_id, captured_at);
