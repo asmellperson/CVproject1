@@ -81,22 +81,22 @@ class JoyAIClient:
                     timeout=(5, self.config.request_timeout_seconds), allow_redirects=False,
                 )
                 if response.status_code != 200:
-                    raise JoyAIError(f"视觉语言服务请求失败（HTTP {response.status_code}）")
+                    raise JoyAIError(f"指令驱动智慧安防服务请求失败（HTTP {response.status_code}）")
                 body = response.json()
                 if not isinstance(body, dict):
-                    raise JoyAIError("视觉语言服务未返回 JSON 对象")
+                    raise JoyAIError("指令驱动智慧安防服务未返回 JSON 对象")
                 return body
             except requests.Timeout as exc:
-                raise JoyAIError("视觉语言服务请求超时") from exc
+                raise JoyAIError("指令驱动智慧安防服务请求超时") from exc
             except requests.JSONDecodeError as exc:
-                raise JoyAIError("视觉语言服务返回无效 JSON") from exc
+                raise JoyAIError("指令驱动智慧安防服务返回无效 JSON") from exc
             except requests.RequestException as exc:
-                raise JoyAIError("无法连接视觉语言服务") from exc
+                raise JoyAIError("无法连接指令驱动智慧安防服务") from exc
 
     def reset(self, session_id: str):
         body = self._request("POST", "/v1/streaming/reset", session_id, {})
         if body.get("ok") is not True:
-            raise JoyAIError("视觉语言会话清理失败")
+            raise JoyAIError("指令驱动智慧安防会话清理失败")
 
     def _model_name(self) -> str:
         with self._model_lock:
@@ -130,4 +130,4 @@ class JoyAIClient:
                 latency_seconds=result.streamingharness.timing.vllm_inference_ms / 1000,
             )
         except ValidationError as exc:
-            raise JoyAIError("视觉语言服务返回格式不符合 Chat Completions 协议") from exc
+            raise JoyAIError("指令驱动智慧安防服务返回格式不符合 Chat Completions 协议") from exc

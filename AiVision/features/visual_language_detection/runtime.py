@@ -111,7 +111,7 @@ class VisualLanguageRuntime:
     def ask(self, camera_id: int, config: dict, question: str) -> Future:
         with self._lock:
             if self._executor is None:
-                raise VideoUnavailable("视觉语言检测未运行")
+                raise VideoUnavailable("指令驱动智慧安防未运行")
             state = self._state(camera_id, config)
             if state.question is not None and not state.question[1].done():
                 raise VideoUnavailable("当前摄像头已有问题正在处理，请稍后再试")
@@ -198,7 +198,7 @@ class VisualLanguageRuntime:
                     question[1].set_result(VideoAnswer(text=text, latency_seconds=latency, captured_at=timestamp))
         except Exception as exc:
             question_consumed = True
-            detail = str(exc) if isinstance(exc, JoyAIError) else "视觉语言处理失败，请检查后端日志"
+            detail = str(exc) if isinstance(exc, JoyAIError) else "指令驱动智慧安防处理失败，请检查后端日志"
             logger.exception(f"[visual_language_detection] 处理失败 camera_id={camera_id}: {detail}")
             record_error = False
             with self._lock:

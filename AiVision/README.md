@@ -56,7 +56,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 
 | Python 功能目录 | `FeatureSpec.name` | 判定方法 | 模型依赖 |
 | --- | --- | --- | --- |
-| `features/visual_language_detection/` | `visual_language_detection` | 共享帧连续理解与视频提问 | 外部 JoyAI Adapter HTTP 服务 |
+| `features/visual_language_detection/` | `visual_language_detection` | 指令驱动智慧安防：共享帧连续理解与视频提问 | 外部 JoyAI Adapter HTTP 服务 |
 | `features/intrusion/` | `blocks` | 人体框与警戒线的位置关系 | `yolo_human` |
 | `features/door_state/` | `detect_door` | 图像差分与持续变化确认 | 无 |
 | `features/face_dwell/` | `detect_face` | 人脸检测、跟踪与逗留计时 | `insightface_detection` |
@@ -116,7 +116,7 @@ AiVision/
 │   │   ├── alarm_schema.py         # 普通检测告警配置契约
 │   │   └── defaults.py             # 公共默认参数
 │   ├── intrusion/                  # 区域入侵
-│   ├── visual_language_detection/  # 逐摄像头视频理解、参数、事件和提问调度
+│   ├── visual_language_detection/  # 指令驱动智慧安防：视频理解、参数、事件和提问调度
 │   ├── door_state/                 # 大门状态变化
 │   ├── face_dwell/                 # 人脸逗留
 │   ├── person_dwell/               # 人员逗留
@@ -195,7 +195,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，视觉语言检测通过后台线程调用 JoyAI Adapter。
+十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -842,7 +842,7 @@ Consumer / 通道状态机满足规则
 
 安检没有独立采集进程、FrameHub、外部 Worker Python 或旧版预算配置；原生 Consumer 随 Orchestrator 管理，通过摄像头/功能开关决定是否产生检测任务。
 
-### 9.3 视觉语言检测：`visual_language_detection`
+### 9.3 指令驱动智慧安防：`visual_language_detection`
 
 业务模块位于 `features/visual_language_detection/`：`consumer.py` 接入公共生命周期与配置热更新，`runtime.py` 串行调度每台摄像头的帧和问题，`schema.py` 校验配置及 API 数据，`orm.py` 定义配置和事件表，`service.py` 读写事件，`spec.py` 声明正式功能。外部协议仅位于 `connectors/joyai/client.py`。
 
@@ -892,7 +892,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
 | 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
-| 视觉语言配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
+| 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
 | 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
 | 图片和视频 | `DATA_PATH` 及相关模块目录 | 数据库存引用，媒体文件落磁盘 |

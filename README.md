@@ -68,7 +68,7 @@ Fuda_CVPreject_V3/
 
 | 功能 | 功能目录 | 后端业务标识 | 前端页面 ID |
 | --- | --- | --- | --- |
-| 视觉语言检测 | `visual_language_detection` | `visual_language_detection` | `visual-language-detection` |
+| 指令驱动智慧安防 | `visual_language_detection` | `visual_language_detection` | `visual-language-detection` |
 | 区域入侵 | `intrusion` | `blocks` | `intrusion-detection` |
 | 大门开关异常 | `door_state` | `detect_door` | `door-detection` |
 | 人脸逗留 | `face_dwell` | `detect_face` | `face-detection` |
@@ -84,9 +84,9 @@ Fuda_CVPreject_V3/
 
 平台总览展示十一项能力及对应摄像头，按权限汇总各事业部数据，功能数量随能力目录计算。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
 
-### 视觉语言检测
+### 指令驱动智慧安防
 
-所有正式事业部的检测导航首项为“视觉语言检测”，其他功能顺序保持一致。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
+所有正式事业部的检测导航首项为“指令驱动智慧安防”，其他功能顺序保持一致。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
 
 每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数和观察提示词按摄像头保存到 MySQL。监控页面提供实时画面、最近理解结果、推理耗时、当前检测会话累计帧数、事件时间线和视频问答；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
 
@@ -138,7 +138,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 统一告警事件 | `ai_violation_image` |
 | 报警处置与历史 | `ai_alarm_disposition` |
 | 安检 session | `ai_security_inspection_session` |
-| 视觉语言配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
+| 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
 

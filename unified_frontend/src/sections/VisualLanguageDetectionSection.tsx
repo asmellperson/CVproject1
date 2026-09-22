@@ -45,9 +45,9 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
     setConfigVersion((version) => version + 1)
   }
   return <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-    <DetectionPageHeader title="视觉语言检测" subtitle="实时理解摄像头画面，查看事件并向当前视频提问。" departmentLabel={DEPARTMENT_LABELS[department]} />
+    <DetectionPageHeader title="指令驱动智慧安防" subtitle="通过自然语言定义监控任务，持续理解视频场景，并在目标事件发生时自动触发告警。" departmentLabel={DEPARTMENT_LABELS[department]} />
     <TabsContent value="monitor">
-      <AiVisionMonitor title="视觉语言检测" feature={VISUAL_LANGUAGE_FEATURE} department={department} rawPreview presentation="visual-language" />
+      <AiVisionMonitor title="指令驱动智慧安防" feature={VISUAL_LANGUAGE_FEATURE} department={department} rawPreview presentation="visual-language" />
     </TabsContent>
     <TabsContent value="config" className="space-y-6">
       {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
@@ -63,7 +63,7 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
             <SelectContent>{enabled.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
           </Select>
           {current ? <VisualLanguageConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} />
-            : <p className="p-6 text-sm text-slate-500">请先在摄像头配置中添加摄像头。</p>}
+            : <p className="p-6 text-sm text-slate-500">请先在摄像头配置中为指令驱动智慧安防添加摄像头。</p>}
         </TabsContent>)}
       </DetectionConfigTabs>
     </TabsContent>

@@ -1,4 +1,4 @@
-"""视觉语言检测的摄像头参数与 API 数据契约。"""
+"""指令驱动智慧安防的摄像头参数与 API 数据契约。"""
 
 from datetime import datetime
 from typing import Literal

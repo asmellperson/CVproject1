@@ -1,4 +1,4 @@
-"""视觉语言结果、事件及视频提问；配置复用公共 feature API。"""
+"""指令驱动智慧安防的结果、事件及视频提问；配置复用公共 feature API。"""
 
 from concurrent.futures import TimeoutError as FutureTimeout
 
@@ -37,10 +37,10 @@ def get_service():
 @router.get("/cameras/{key}/status", response_model=VisualLanguageStatus)
 def status(camera=Depends(scoped_camera), consumer=Depends(get_consumer)):
     if consumer is None or not consumer.running:
-        return VisualLanguageStatus(error="视觉语言检测尚未运行")
+        return VisualLanguageStatus(error="指令驱动智慧安防尚未运行")
     result = consumer.visual_runtime.status(camera["camera_id"])
     if not camera["enabled"] or not camera["functions"][FEATURE_NAME]:
-        result.error = "摄像头未启用视觉语言检测"
+        result.error = "摄像头未启用指令驱动智慧安防"
     elif not consumer.is_camera_active(camera["shm_name"]):
         result.error = "摄像头离线，等待恢复画面"
     return result
@@ -55,13 +55,13 @@ def events(camera=Depends(scoped_camera), limit: int = Query(50, ge=1, le=200),
 @router.post("/cameras/{key}/questions", response_model=VideoAnswer)
 def ask(payload: VideoQuestion, camera=Depends(scoped_camera), consumer=Depends(get_consumer)):
     if consumer is None or not camera["enabled"] or not camera["functions"][FEATURE_NAME]:
-        raise HTTPException(503, "摄像头未运行或未添加到视觉语言检测")
+        raise HTTPException(503, "摄像头未运行或未添加到指令驱动智慧安防")
     try:
         future = consumer.ask(camera["camera_id"], camera["department"], payload.question)
         try:
             return future.result(timeout=settings.joyai.question_timeout_seconds)
         except FutureTimeout as exc:
             future.cancel()
-            raise HTTPException(504, "等待视频回答超时，请确认摄像头和视觉语言服务正常") from exc
+            raise HTTPException(504, "等待视频回答超时，请确认摄像头和指令驱动智慧安防服务正常") from exc
     except VideoUnavailable as exc:
         raise HTTPException(409, str(exc)) from exc

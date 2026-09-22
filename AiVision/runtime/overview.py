@@ -10,7 +10,7 @@ from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
 
 
 CAPABILITIES = (
-    ("visual-language-detection", "视觉语言检测", "visual_language_detection"),
+    ("visual-language-detection", "指令驱动智慧安防", "visual_language_detection"),
     ("security-vlm", "安检流程规范检测", "security_inspection"),
     ("guard-behavior", "保安行为规范检测", "guard_behavior"),
     ("intrusion-detection", "区域入侵检测", "blocks"),

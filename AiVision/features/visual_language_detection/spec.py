@@ -1,4 +1,4 @@
-"""全部正式事业部共享的视觉语言检测能力。"""
+"""全部正式事业部共享的指令驱动智慧安防能力。"""
 
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import VisualLanguageConsumer
@@ -7,7 +7,7 @@ from .schema import FEATURE_NAME, VisualLanguageConfig
 
 SPEC = FeatureSpec(
     name=FEATURE_NAME,
-    display_name="视觉语言检测",
+    display_name="指令驱动智慧安防",
     consumer_cls=VisualLanguageConsumer,
     orm_class=VisualLanguageConfigORM,
     config_schema=VisualLanguageConfig,

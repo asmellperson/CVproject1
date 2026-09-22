@@ -39,7 +39,7 @@ class VisualLanguageConsumer(BaseFunctionConsumer):
             cfg = self.config_cache.get(camera_id)
             if (not self.running or cfg is None or cfg["department"] != department
                     or not cfg["camera_enable"] or not self.is_camera_active(cfg["shm_name"])):
-                raise VideoUnavailable("摄像头未运行或未添加到视觉语言检测")
+                raise VideoUnavailable("摄像头未运行或未添加到指令驱动智慧安防")
             frame, _ = self._frame_info_provider(cfg["shm_name"])
             if frame is None:
                 raise VideoUnavailable("摄像头暂无新鲜画面，请稍后重试")
