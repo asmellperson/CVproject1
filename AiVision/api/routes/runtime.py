@@ -51,8 +51,6 @@ def runtime_status(
 ) -> dict:
     """AiVision完整运行状态查询接口"""
     status = orchestrator.runtime_status()
-    if user.get("role") == "admin":
-        return status
     cameras = camera_list_response_for_user(camera_config_manager.list_cameras(), user)
     names = {camera["shm_name"] for camera in cameras}
     features = {name for camera in cameras for name, enabled in camera["functions"].items() if enabled}
@@ -72,5 +70,8 @@ def runtime_status(
         "running_cameras": [name for name in status.get("running_cameras", []) if name in names],
         "running_consumers": [name for name in status.get("running_consumers", []) if name in features],
         # Worker 级统计跨摄像头聚合，只有管理员读取；普通用户仅获取授权摄像头统计。
-        "inference": {"consumers": consumers},
+        "inference": {
+            **(status.get("inference", {}) if user.get("role") == "admin" else {}),
+            "consumers": consumers,
+        },
     }

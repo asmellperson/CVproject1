@@ -52,7 +52,7 @@ def get_records(
 
 @router.get("/records/{record_id}/image")
 def get_record_image(record_id: int, user: dict = Depends(get_current_user)):
-    departments = None if user.get("role") == "admin" else feature_departments(user, "recognize_face")
+    departments = feature_departments(user, "recognize_face")
     path = get_recognition_image(record_id, departments=departments)
     if path is None:
         raise HTTPException(status_code=404, detail="recognition image not found")

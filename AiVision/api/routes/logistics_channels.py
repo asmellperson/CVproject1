@@ -38,10 +38,8 @@ from AiVision.alarms.records.orm import AiAlarmEvent
 
 router = APIRouter(prefix="/api/logistics-channels", tags=["logistics-channels"])
 
-def _accessible_departments(user: dict) -> tuple[str, ...] | None:
-    """None 表示管理员；空元组表示没有可访问事业部。"""
-    if user.get("role") == "admin":
-        return None
+def _accessible_departments(user: dict) -> tuple[str, ...]:
+    """只返回已分配物流功能的事业部，空元组表示无访问权限。"""
     return tuple(feature_departments(user, "detect_logistics_single_person"))
 
 
@@ -52,7 +50,7 @@ def _require_feature_access(feature: str) -> str:
     return feature
 
 
-def _query_departments(user: dict, department: str | None) -> tuple[str, ...] | None:
+def _query_departments(user: dict, department: str | None) -> tuple[str, ...]:
     """页面事业部与用户授权取交集，交给 service 在数据库层过滤。"""
     accessible = _accessible_departments(user)
     if department is None:
@@ -61,7 +59,7 @@ def _query_departments(user: dict, department: str | None) -> tuple[str, ...] | 
         require_department(department)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if accessible is not None and department not in accessible:
+    if department not in accessible:
         raise HTTPException(status_code=403, detail="department permission required")
     return (department,)
 
@@ -70,7 +68,7 @@ def _require_channel_access(service, feature: str, channel_id: int, user: dict) 
     _require_feature_access(feature)
     channel = _get_channel_or_404(service, feature, channel_id)
     departments = _accessible_departments(user)
-    if departments is not None and channel["department"] not in departments:
+    if channel["department"] not in departments:
         raise HTTPException(status_code=403, detail="channel department permission required")
     return channel
 

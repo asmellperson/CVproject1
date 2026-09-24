@@ -75,16 +75,15 @@ def camera_read_department(user: dict, requested_department: str) -> str:
 
 
 def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, Any]:
-    """ 根据用户身份，决定返回给前端的摄像头信息里要不要包含RTSP地址"""
+    """按事业部分配过滤检测功能，仅管理员可读取摄像头地址。"""
     response = dict(camera)
     # 不是管理员就不让看url
     if user.get("role") != "admin":
         response.pop("url", None)
-        response["functions"] = {
-            feature: enabled for feature, enabled in camera["functions"].items()
-            if camera["department"] in feature_departments(user, feature)
-        }
-    # 是管理员就让看所有摄像头相关的参数
+    response["functions"] = {
+        feature: enabled for feature, enabled in camera["functions"].items()
+        if camera["department"] in feature_departments(user, feature)
+    }
     return response
 
 # 批量过滤用户不能看的摄像头

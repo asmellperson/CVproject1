@@ -1,4 +1,4 @@
-"""事业部功能权限统一判断；管理员保留全部检测功能的维护权限。"""
+"""事业部功能权限统一判断，所有角色均遵守功能分配。"""
 
 from fastapi import HTTPException
 
@@ -8,10 +8,12 @@ from AiVision.departments.department_registry import DEPARTMENT_SPECS
 def feature_departments(user: dict, feature: str) -> list[str]:
     """按事业部与功能的配对授权，避免多事业部账号串用权限。"""
     if user["role"] == "admin":
-        return list(DEPARTMENT_SPECS)
-    if user["role"] != "viewer":
+        departments = DEPARTMENT_SPECS
+    elif user["role"] == "viewer":
+        departments = user["departments"]
+    else:
         return []
-    return [department for department in user["departments"]
+    return [department for department in departments
             if feature in user["feature_access"].get(department, [])]
 
 

@@ -56,9 +56,7 @@ class GuardBehaviorSiteStatusResponse(BaseModel):
     updated_at: float | None = None
 
 
-def _departments(user: dict) -> tuple[str, ...] | None:
-    if user.get("role") == "admin":
-        return None
+def _departments(user: dict) -> tuple[str, ...]:
     return tuple(feature_departments(user, "guard_behavior"))
 
 
@@ -78,7 +76,7 @@ def _site_access(site_id: ResourceId, service: Service, user: dict = Depends(get
     with _service_errors():
         site = service.get_site(site_id)
     departments = _departments(user)
-    if departments is not None and site["department"] not in departments:
+    if site["department"] not in departments:
         raise HTTPException(403, "site department permission required")
     return site
 
@@ -101,11 +99,9 @@ def list_sites(service: Service, user: dict = Depends(get_current_user), departm
     if department is not None:
         with _service_errors():
             require_department(department)
-        if departments is not None and department not in departments:
+        if department not in departments:
             raise HTTPException(403, "department permission required")
         departments = (department,)
-    if departments is None:
-        return service.list_sites()
     items = [site for value in departments for site in service.list_sites(value)]
     return sorted(items, key=lambda item: (item["sort_order"], item["id"]))
 

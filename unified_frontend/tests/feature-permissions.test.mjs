@@ -33,11 +33,25 @@ test('权限被收回后旧网址不可进入，公共页面仍可访问', () =>
   assert.equal(hasPageAccess(null, 'door-detection'), false)
 })
 
-test('管理员保留维护权限，普通账号不显示功能分配入口', () => {
+test('管理员未分配检测功能时仍可配置分配，普通账号没有管理入口', () => {
   const admin = { role: 'admin', departments: ['all'], feature_access: {} }
-  assert.equal(resolvePage(admin, 'phone-detection', 'general_electric'), 'phone-detection')
+  assert.equal(resolvePage(admin, 'phone-detection', 'general_electric'), 'overview')
   assert.equal(hasPageAccess(admin, 'feature-management'), true)
   const groups = [{ id: 'system', items: [{ id: 'feature-management' }, { id: 'alarms' }] }]
   assert.equal(filterNavGroupsByPermission(user, groups)[0].items.length, 1)
   assert.equal(filterNavGroupsByPermission(admin, groups)[0].items.length, 2)
 })
+
+for (const role of ['admin', 'viewer']) {
+  test(`${role} 新分配的功能显示，收回后隐藏且旧网址不可访问`, () => {
+    const account = { ...user, role, departments: role === 'admin' ? ['all'] : user.departments }
+    const groups = [{ id: 'modules', items: [{ id: 'phone-detection' }, { id: 'door-detection' }] }]
+    for (const enabled of [false, true, false]) {
+      const updated = { ...account, feature_access: { general_electric: enabled ? ['detect_phone'] : [] } }
+      assert.equal(hasPageAccess(updated, 'phone-detection', 'general_electric'), enabled)
+      assert.equal(hasPageAccess(updated, 'phone-detection', 'research_institute'), false)
+      assert.equal(resolvePage(updated, 'phone-detection', 'general_electric'), enabled ? 'phone-detection' : 'overview')
+      assert.equal(filterNavGroupsByPermission(updated, groups).length, Number(enabled))
+    }
+  })
+}

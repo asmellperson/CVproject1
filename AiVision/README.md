@@ -68,7 +68,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与千问判定 | `yolo_human`，另通过 HTTP 调用千问 |
 | `features/agv_person_check/` | `agv_person_check` | HTTP 请求触发 ROI 多帧人体检测，任一有效帧有人即判定有人 | `yolo_human` |
 
-事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。普通账号按“事业部＋功能”配对授权，管理员保留全部功能维护权限。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
+事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
 保安行为与安检流程均在同一个注册表和 Orchestrator 下运行，共享平台摄像头、模型与告警设施；没有独立 Web 子应用。
 
@@ -919,7 +919,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-平台注册十一项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警，检测配置、状态、记录及视频提问还校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
+平台注册十一项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警；所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
 
 `departments/orm.py` 定义 `department_feature_access`，每个正式事业部一行，包含功能列表和 `revision`。`DepartmentService.save_feature_settings()` 校验完整事业部集合与正式功能名称，锁定各行并检查版本，再在同一事务中保存；冲突返回 409，不进行部分写入。数据库必须具有完整的七个事业部分配，缺失时明确报错，不提供全部开放的回退或启动时数据补齐。
 

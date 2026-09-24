@@ -36,7 +36,7 @@ export function FeatureManagementSection() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
               <CardTitle>事业部功能分配</CardTitle>
-              <CardDescription>勾选各事业部可访问的检测功能。管理员始终保留全部功能的维护权限。</CardDescription>
+              <CardDescription>勾选各事业部显示的检测功能。管理员和普通账号均按此分配显示检测页面。</CardDescription>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" disabled={busy} onClick={() => dirty ? setConfirmation('reload') : reload()}>
@@ -94,7 +94,7 @@ export function FeatureManagementSection() {
             <AlertDialogTitle>{confirmation === 'save' ? '确认收回功能访问权限' : '放弃未保存的调整？'}</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmation === 'save'
-                ? '以下功能将对对应事业部的普通账号不可见，相关接口访问也会被拒绝。已经启用的检测仍按原配置运行；如需停止，请在检测配置中停用。'
+                ? '以下功能将从对应事业部的检测页面中隐藏，对管理员和普通账号同时生效。已经启用的检测仍按原配置运行；如需停止，请先取消保存并在检测配置中停用。'
                 : '重新加载会丢弃当前勾选结果，并读取服务器上的最新配置。'}
             </AlertDialogDescription>
           </AlertDialogHeader>

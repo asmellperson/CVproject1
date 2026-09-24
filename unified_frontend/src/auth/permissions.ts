@@ -81,13 +81,13 @@ export function hasPageAccess(user: AuthUser | null | undefined, pageId: string,
   if (!pageIds.has(pageId)) return false
   if (pageId === 'access-audit') return user?.capabilities?.view_access_audit === true
   if (pageId === 'overview') return true
-  if (getUserRole(user) === 'admin') return true
-  if (pageId === 'user-management' || pageId === 'feature-management') return false
   if (isDetectionPage(pageId)) {
     const accessible = getAccessibleDepartments(user)
     const departments = department ? accessible.filter((value) => value === department) : accessible
     return departments.some((value) => user?.feature_access[value]?.includes(FEATURE_BY_PAGE[pageId]))
   }
+  if (getUserRole(user) === 'admin') return true
+  if (pageId === 'user-management' || pageId === 'feature-management') return false
   return getUserRole(user) === 'viewer' && getAccessibleDepartments(user).length > 0
 }
 
