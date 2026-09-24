@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { OverviewMascot } from '@/components/OverviewMascot'
+import { OfflineCamerasDialog } from '@/components/OfflineCamerasDialog'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -412,11 +413,21 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
                 <MiniStatusMetric label="能力在线" value={`${scopedStatusSummary.capabilityOnline}/${scopedStatusSummary.capabilityTotal}`} />
                 <MiniStatusMetric label="正在检测" value={`${scopedStatusSummary.capabilityRunning}/${scopedStatusSummary.capabilityTotal}`} />
                 <MiniStatusMetric label="摄像头在线" value={cameraStatusReady ? `${cameraInventorySummary.cameraOnline}/${cameraInventorySummary.cameraTotal}` : overviewState.error ? '加载失败' : '加载中'} />
-                <MiniStatusMetric
-                  label="摄像头离线"
-                  value={cameraStatusReady ? cameraInventorySummary.cameraOffline : overviewState.error ? '加载失败' : '加载中'}
-                  warn={cameraStatusReady && cameraInventorySummary.cameraOffline > 0}
-                />
+                <OfflineCamerasDialog overviewState={overviewState}>
+                  <button
+                    type="button"
+                    aria-label="查看离线摄像头"
+                    disabled={!cameraStatusReady}
+                    className="group rounded-2xl text-left outline-none transition-shadow enabled:hover:ring-2 enabled:hover:ring-blue-200 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed dark:enabled:hover:ring-blue-800"
+                  >
+                    <MiniStatusMetric
+                      label="摄像头离线"
+                      value={cameraStatusReady ? cameraInventorySummary.cameraOffline : overviewState.error ? '加载失败' : '加载中'}
+                      warn={cameraStatusReady && cameraInventorySummary.cameraOffline > 0}
+                      actionable
+                    />
+                  </button>
+                </OfflineCamerasDialog>
               </div>
 
               <div className="mt-5 flex h-[360px] flex-col overflow-hidden rounded-2xl border border-blue-100 bg-[#f8fbff] shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
@@ -970,17 +981,20 @@ function MiniStatusMetric({
   label,
   value,
   warn,
+  actionable,
 }: {
   label: string
   value: string | number
   warn?: boolean
+  actionable?: boolean
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
-      <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className={cn('mt-2 text-2xl font-black', warn ? 'text-amber-600' : 'text-[#071d3d] dark:text-slate-100')}>
+    <span className="block h-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
+      <span className="block text-xs font-medium text-slate-500">{label}</span>
+      <span className={cn('mt-2 flex items-center justify-between gap-2 text-2xl font-black', warn ? 'text-amber-600' : 'text-[#071d3d] dark:text-slate-100')}>
         {value}
-      </div>
-    </div>
+        {actionable && <ArrowRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />}
+      </span>
+    </span>
   )
 }
