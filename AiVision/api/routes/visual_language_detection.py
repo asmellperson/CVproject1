@@ -5,6 +5,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.auth import get_current_user
+from auth.feature_permissions import require_feature_access
 from AiVision.api.deps import get_camera_config_manager, get_optional_orchestrator
 from AiVision.api.routes.cameras import camera_read_department, get_camera_for_user
 from AiVision.core.settings import settings
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/api/visual-language-detection", tags=["visual-langua
 def scoped_camera(key: str, department: str = Query(...), user: dict = Depends(get_current_user),
                   manager=Depends(get_camera_config_manager)):
     scope = camera_read_department(user, department)
+    require_feature_access(user, FEATURE_NAME, scope)
     camera = get_camera_for_user(manager, key, user)
     if camera["department"] != scope:
         raise HTTPException(404, "camera not found in department")

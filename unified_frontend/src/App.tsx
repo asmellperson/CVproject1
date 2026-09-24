@@ -74,6 +74,9 @@ const UserManagementSection = lazy(() =>
 const AccessAuditSection = lazy(() =>
   import('@/sections/AccessAuditSection').then((module) => ({ default: module.AccessAuditSection })),
 )
+const FeatureManagementSection = lazy(() =>
+  import('@/sections/FeatureManagementSection').then((module) => ({ default: module.FeatureManagementSection })),
+)
 
 function getInitialPage() {
   const params = new URLSearchParams(window.location.search)
@@ -182,6 +185,8 @@ function App() {
         return <StatisticsSection />
       case 'user-management':
         return <UserManagementSection />
+      case 'feature-management':
+        return <FeatureManagementSection />
       case 'access-audit':
         return <AccessAuditSection />
       default:

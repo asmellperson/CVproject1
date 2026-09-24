@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { getUserRole } from '@/auth/permissions'
 import { AuthContext } from '@/auth/auth-context'
 import type { AuthContextValue, AuthUser } from '@/auth/auth-context'
+import { useSerialPoll } from '@/hooks/use-serial-poll'
+import { getFeatureAccess, FEATURE_ACCESS_POLL_INTERVAL_MS, FEATURE_ACCESS_TIMEOUT_MS } from '@/lib/feature-settings'
 
 async function readError(response: Response) {
   const text = await response.text().catch(() => '')
@@ -37,6 +39,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshMe = useCallback(async () => {
     setUser(await fetchCurrentUser())
   }, [])
+
+  useSerialPoll(async (signal) => {
+    const requestedUser = user
+    const featureAccess = await getFeatureAccess(signal)
+    if (signal.aborted) return
+    setUser((current) => {
+      // 登录身份或其他刷新结果已变化时，不能用较早的请求覆盖。
+      if (!current || current !== requestedUser) return current
+      return JSON.stringify(current.feature_access) === JSON.stringify(featureAccess)
+        ? current : { ...current, feature_access: featureAccess }
+    })
+  }, {
+    enabled: Boolean(user),
+    restartKey: user?.employee_id,
+    intervalMs: FEATURE_ACCESS_POLL_INTERVAL_MS,
+    timeoutMs: FEATURE_ACCESS_TIMEOUT_MS,
+    onError: (error) => console.error('刷新功能权限失败', error),
+  })
 
   useEffect(() => {
     let cancelled = false

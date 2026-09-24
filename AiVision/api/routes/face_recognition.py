@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from auth.auth import get_current_user, require_admin
-from AiVision.api.routes.cameras import camera_read_department, _camera_departments_for_user
+from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.features.face_recognition.records import get_recognition_image, list_recognition_records
 from AiVision.features.face_recognition.library.service import FaceLibraryService
 from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage, FacePersonUpdate, RecognitionRecordPage
@@ -23,6 +23,7 @@ def get_persons(
     is_allowed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
+    require_feature_access(user, "recognize_face")
     return FaceLibraryService().list_persons(
         page=page, page_size=page_size, keyword=keyword,
         source=source, is_active=is_active, is_allowed=is_allowed,
@@ -45,13 +46,13 @@ def get_records(
     page_size: int = Query(20, ge=1, le=100),
     user: dict = Depends(get_current_user),
 ):
-    camera_read_department(user, department)
+    require_feature_access(user, "recognize_face", department)
     return list_recognition_records(camera_id, page, page_size, department=department)
 
 
 @router.get("/records/{record_id}/image")
 def get_record_image(record_id: int, user: dict = Depends(get_current_user)):
-    departments = None if user.get("role") == "admin" else _camera_departments_for_user(user)
+    departments = None if user.get("role") == "admin" else feature_departments(user, "recognize_face")
     path = get_recognition_image(record_id, departments=departments)
     if path is None:
         raise HTTPException(status_code=404, detail="recognition image not found")

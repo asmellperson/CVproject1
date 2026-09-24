@@ -55,13 +55,14 @@ def runtime_status(
         return status
     cameras = camera_list_response_for_user(camera_config_manager.list_cameras(), user)
     names = {camera["shm_name"] for camera in cameras}
-    ids = {camera["camera_id"] for camera in cameras}
     features = {name for camera in cameras for name, enabled in camera["functions"].items() if enabled}
     consumers = {}
     for name, snapshot in status.get("inference", {}).get("consumers", {}).items():
         if name not in features:
             continue
-        targets = [target for target in snapshot.get("targets", []) if target.get("camera_id") in ids]
+        # 同一账号的其他事业部可能没有该功能，目标统计也必须按功能筛选摄像头。
+        feature_camera_ids = {camera["camera_id"] for camera in cameras if camera["functions"].get(name)}
+        targets = [target for target in snapshot.get("targets", []) if target.get("camera_id") in feature_camera_ids]
         totals = Counter()
         for target in targets:
             totals.update(target.get("counts", {}))

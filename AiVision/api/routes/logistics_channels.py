@@ -1,6 +1,6 @@
 """物流通道 CRUD、成员、运行状态和拼接画面 API。"""
 from __future__ import annotations
-from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from AiVision.departments.department_registry import require_department
 
 import datetime as dt
 from typing import Annotated, Any
@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import feature_departments
 from AiVision.api.deps import (
     get_current_orchestrator,
     get_logistics_channel_service,      # 物流通道配置和成员关系管理器
@@ -41,12 +42,7 @@ def _accessible_departments(user: dict) -> tuple[str, ...] | None:
     """None 表示管理员；空元组表示没有可访问事业部。"""
     if user.get("role") == "admin":
         return None
-    raw_departments = user.get("departments")
-    candidates = raw_departments if isinstance(raw_departments, list) else []
-    departments = {value for value in candidates if isinstance(value, str) and value in DEPARTMENT_SPECS}
-    if user.get("role") != "viewer":
-        return ()
-    return tuple(sorted(departments))
+    return tuple(feature_departments(user, "detect_logistics_single_person"))
 
 
 def _require_feature_access(feature: str) -> str:

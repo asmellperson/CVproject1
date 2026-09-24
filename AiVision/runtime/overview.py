@@ -83,7 +83,7 @@ class OverviewStatus(BaseModel):
     department_summaries: dict[str, OverviewSummary]
 
 
-def build_overview(departments, cameras, logistics_service, guard_service, orchestrator):
+def build_overview(departments, cameras, logistics_service, guard_service, orchestrator, feature_access):
     status = orchestrator.runtime_status() if orchestrator is not None else {}
     running_cameras = set(status.get("running_cameras", []))
     running_features = set(status.get("running_consumers", []))
@@ -94,11 +94,15 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     health = inspection.vlm_runtime.health_status() if inspection is not None else None
     vlm_ready = bool(inspection is not None and inspection.running and health.reachable is True
                      and health.circuit_state != "open")
-    inventory = logistics_service.camera_inventory_status(departments, orchestrator)
+    inventory = logistics_service.camera_inventory_status(
+        [department for department in departments
+         if "detect_logistics_single_person" in feature_access[department]], orchestrator,
+    )
     memberships = {item["camera_id"]: item for item in inventory}
     physical = {}
     for camera in cameras:
-        features = [name for name, enabled in camera["functions"].items() if enabled and name in FEATURE_PAGES]
+        features = [name for name, enabled in camera["functions"].items()
+                    if enabled and name in FEATURE_PAGES and name in feature_access[camera["department"]]]
         member = memberships.get(camera["camera_id"], {})
         links = member.get("memberships", [])
         enabled = camera["enabled"]
@@ -122,6 +126,8 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
     sites = []
     errors = {}
     for department in departments:
+        if "guard_behavior" not in feature_access[department]:
+            continue
         for site in guard_service.list_sites(department):
             sites.append({"id": site["id"], "name": site["name"], "department": department})
             evaluation = guard_runtime.get_site_status(site["id"]) if guard_runtime is not None and guard_runtime.running else None
@@ -137,7 +143,10 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
                     camera.running_capabilities.append("guard-behavior")
     specs = all_specs()
     capabilities = []
+    visible_features = {feature for features in feature_access.values() for feature in features}
     for page, name, feature in CAPABILITIES:
+        if feature not in visible_features:
+            continue
         members = [camera for camera in physical.values() if page in camera.capabilities]
         active = sum(page in camera.running_capabilities for camera in members)
         # AGV 待机时画面仍在线；只有未完成的检测请求计入“正在检测”。
@@ -150,17 +159,17 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
             running=bool(active), model_ready=ready,
         ))
 
-    def summary(items):
+    def summary(items, features):
         online_count = sum(camera.online for camera in items)
         active_pages = {page for camera in items for page in camera.running_capabilities}
         return OverviewSummary(
-            capability_total=len(CAPABILITIES), capability_online=len(CAPABILITIES),
+            capability_total=len(features), capability_online=len(features),
             capability_running=len(active_pages), camera_total=len(items),
             camera_online=online_count, camera_offline=len(items) - online_count,
         )
 
     cameras = list(physical.values())
-    totals = summary(cameras)
+    totals = summary(cameras, visible_features)
     ready = bool(status.get("started"))
     return OverviewStatus(
         generated_at=time(), ok=ready and not errors, level="healthy" if ready and not errors else "degraded",
@@ -170,6 +179,7 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
             camera_count=totals.camera_total, online_camera_count=totals.camera_online,
             model_ready=bool(running_models),
         ), guard_behavior_sites=sites, departments=departments,
-        department_summaries={department: summary([camera for camera in cameras if camera.department == department])
+        department_summaries={department: summary([camera for camera in cameras if camera.department == department],
+                                                  feature_access[department])
                               for department in departments},
     )

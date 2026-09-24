@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, Field
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import feature_departments
 from AiVision.api.deps import get_guard_behavior_runtime, get_guard_behavior_service, get_optional_orchestrator
 from AiVision.api.routes.cameras import encode_frame_to_jpeg, frame_size_headers
 from AiVision.alarms.records.schema import AlarmEventResponse
 from AiVision.alarms.records.queries import event_dict
 from AiVision.alarms.records.orm import AiAlarmEvent
 from AiVision.core.db import get_session
-from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from AiVision.departments.department_registry import require_department
 from AiVision.features.guard_behavior.schema import (
     GuardBehaviorAlarmPolicyResponse, GuardBehaviorAlarmPolicyUpdate,
     GuardBehaviorCameraRoiResponse, GuardBehaviorCameraRoiUpdate,
@@ -58,10 +59,7 @@ class GuardBehaviorSiteStatusResponse(BaseModel):
 def _departments(user: dict) -> tuple[str, ...] | None:
     if user.get("role") == "admin":
         return None
-    raw = user.get("departments")
-    if user.get("role") != "viewer" or not isinstance(raw, list):
-        return ()
-    return tuple(sorted({item for item in raw if isinstance(item, str) and item in DEPARTMENT_SPECS}))
+    return tuple(feature_departments(user, "guard_behavior"))
 
 
 @contextmanager

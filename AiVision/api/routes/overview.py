@@ -2,6 +2,8 @@
 from fastapi import APIRouter, Depends
 
 from auth.auth import get_current_user
+from auth.feature_permissions import feature_departments
+from AiVision.features.registry import all_specs
 from AiVision.api.deps import (
     get_camera_config_manager, get_guard_behavior_service,
     get_logistics_channel_service, get_optional_orchestrator,
@@ -24,4 +26,8 @@ def overview(
     departments = list(DEPARTMENT_SPECS) if user["role"] == "admin" else _camera_departments_for_user(user)
     items = [camera_response_for_user(camera, user) for department in departments
              for camera in cameras.list_cameras(department)]
-    return build_overview(departments, items, logistics, guards, orchestrator)
+    feature_access = {
+        department: [feature for feature in all_specs() if department in feature_departments(user, feature)]
+        for department in departments
+    }
+    return build_overview(departments, items, logistics, guards, orchestrator, feature_access)

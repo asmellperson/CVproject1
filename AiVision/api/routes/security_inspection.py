@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import require_feature_access
 from AiVision.departments.department_registry import require_department
 from AiVision.features.security_inspection.schema import InspectionVerdict, VlmHealth, VlmSettings
 from AiVision.features.security_inspection.service import InspectionService
@@ -32,8 +33,7 @@ def department_access(department: str, user: dict = Depends(get_current_user)) -
         require_department(department)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if user.get("role") != "admin" and (user.get("role") != "viewer" or department not in user.get("departments", [])):
-        raise HTTPException(403, "department permission required")
+    require_feature_access(user, "security_inspection", department)
     return department
 
 

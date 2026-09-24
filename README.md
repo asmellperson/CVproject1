@@ -80,13 +80,13 @@ Fuda_CVPreject_V3/
 | 安检流程规范 | `security_inspection` | `security_inspection` | `security-vlm` |
 | AGV 无人运货 | `agv_person_check` | `agv_person_check` | `agv-person-check` |
 
-所有正式事业部均可使用平台全部功能。事业部表示数据归属与访问范围，不再通过 FeatureSpec 为不同部门分配不同的算法集合。具体摄像头是否参与检测，仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
+各事业部的可访问功能由管理员在“系统管理 → 功能分配”中配置，保存于 MySQL 的 `department_feature_access` 表。普通账号必须同时具有事业部归属权限和该事业部的功能权限；管理员保留全部功能的维护权限。取消分配不会停止检测或删除数据，摄像头是否参与检测仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
 
-平台总览展示十一项能力及对应摄像头，按权限汇总各事业部数据，功能数量随能力目录计算。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
+平台具有十一项检测能力，总览按账号可访问的事业部和功能汇总能力卡片、摄像头入口与功能数量。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
 
 ### 指令驱动智慧安防
 
-所有正式事业部的检测导航首项为“指令驱动智慧安防”，其他功能顺序保持一致。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
+检测导航按功能分配过滤，已分配“指令驱动智慧安防”时该功能位于检测导航首项。摄像头加入功能后由现有 Orchestrator 自动处理，共享帧经 `get_camera_frame_info()` 进入 `features/visual_language_detection/`，再由 `connectors/joyai/client.py` 调用 Adapter；浏览器只访问 AiVision API。
 
 每台摄像头独立使用 `visual-language-{department}-{camera_id}` 会话，默认每秒发送一张新帧，同一摄像头串行处理并跳过重复帧。帧间隔、JPEG 质量、图像宽度、输出长度、采样参数、监控指令、ROI 和报警推送按摄像头保存到 MySQL。共享帧先经公共 ROI 裁剪，再发送给 JoyAI；空 ROI 表示全帧。监控页面使用统一统计卡片展示摄像头状态、启用摄像头数、最近推理耗时和最近结果时间；左侧展示实时画面与突出的最新理解结果，右侧提供聊天式视频问答和事件时间线。问答输入位于底部，本次提问与模型回答以不同气泡展示；静默结果不展示，回复只展示正文。提问响应和事件时间线保留同一帧的采集时间。
 
@@ -136,6 +136,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | --- | --- |
 | 用户账号 | `auth_users` |
 | 最近访问记录 | `auth_access_viewers` |
+| 事业部功能分配 | `department_feature_access` |
 | 摄像头及功能配置 | `ai_camera_config` 及各功能配置表 |
 | 统一告警事件 | `ai_violation_image` |
 | 报警处置与历史 | `ai_alarm_disposition` |
@@ -144,7 +145,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
 
-`admin` 管理配置和账号；`viewer` 按授权事业部访问数据。访问记录页面还要求后端返回 `capabilities.view_access_audit=true`。报警处置接口按报警访问权限授权，并非所有写操作都限定管理员。
+`admin` 管理配置、账号及事业部功能分配；`viewer` 按事业部与功能的配对授权进入检测页面和调用检测接口。分配保存采用事务和版本校验，冲突返回 409；后端请求读取最新权限，已登录页面每 30 秒同步一次，重新进入可见标签页时立即同步。报警记录和统计保留事业部数据权限，不因取消功能分配而隐藏已有历史。访问记录页面还要求后端返回 `capabilities.view_access_audit=true`。报警处置接口按报警访问权限授权，并非所有写操作都限定管理员。
 
 运维脚本复用 `scripts/auth_secret` 并向 AiVision 注入 `AUTH_SECRET`。手动启动也需要配置至少 32 字符的密钥；不要在文档或 Git 中写入真实密钥、数据库密码或带认证信息的视频地址。
 

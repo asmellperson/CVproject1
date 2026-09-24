@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
@@ -79,6 +80,10 @@ def camera_response_for_user(camera: dict[str, Any], user: dict) -> dict[str, An
     # 不是管理员就不让看url
     if user.get("role") != "admin":
         response.pop("url", None)
+        response["functions"] = {
+            feature: enabled for feature, enabled in camera["functions"].items()
+            if camera["department"] in feature_departments(user, feature)
+        }
     # 是管理员就让看所有摄像头相关的参数
     return response
 
@@ -381,6 +386,7 @@ def get_camera_frame_jpg(
         from AiVision.features.registry import get_spec
         if get_spec(feature) is None:
             raise HTTPException(status_code=404, detail="unknown feature")
+        require_feature_access(user, feature, camera["department"])
     return build_camera_frame_response(
         key=camera["shm_name"],
         feature=feature,

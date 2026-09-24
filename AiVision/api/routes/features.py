@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path # Path：定义URL�
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from auth.auth import get_current_user, require_admin
+from auth.feature_permissions import feature_departments, require_feature_access
 from AiVision.api.routes.cameras import get_camera_for_user
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator
 from AiVision.alarms.types import VIOLATION_TYPE_META
@@ -85,7 +86,8 @@ def get_feature_status(
 ):
     """读取指定摄像头的功能运行状态。"""
     _require_spec(feature)
-    get_camera_for_user(camera_config_manager, key, user)                 # 检查用户有没有权限查看这台摄像头：摄像头不存在返回404，用户没有权限访问返回403
+    camera = get_camera_for_user(camera_config_manager, key, user)
+    require_feature_access(user, feature, camera["department"])
     return orchestrator.get_feature_monitor_status(key, feature)          # 去调度器查询功能的运行状态
 
 def create_features_router(
@@ -121,16 +123,18 @@ def create_features_router(
         )
 
     @router.get("", response_model=FeaturesListResponse)
-    def list_features():
-        """返回所有注册功能，形成前端功能菜单"""
+    def list_features(user: dict = Depends(get_current_user)):
+        """仅返回账号至少在一个事业部可访问的功能。"""
         return FeaturesListResponse(
-            features=[_spec_to_meta(s) for s in all_specs().values()]
+            features=[_spec_to_meta(s) for s in all_specs().values() if feature_departments(user, s.name)]
         )
 
     @router.get("/{feature}", response_model=FeatureMetaResponse)
-    def get_feature_meta(feature: Annotated[str, Path()]):
+    def get_feature_meta(feature: Annotated[str, Path()], user: dict = Depends(get_current_user)):
         """返回单个功能的元数据，包含 JSON Schema 供前端按需渲染表单。"""
-        return _spec_to_meta(_require_spec(feature))        # _require_spec:找到具体检测功能的FeatureSpec
+        spec = _require_spec(feature)
+        require_feature_access(user, feature)
+        return _spec_to_meta(spec)
 
     @router.post("/{feature}/cameras")
     def create_feature_camera(
@@ -184,8 +188,8 @@ def create_features_router(
         if feature in LOGISTICS_FEATURES:
             raise HTTPException(status_code=404, detail="物流摄像头配置只通过通道 ROI 接口访问")
         # 读取指定摄像头的功能配置
-        if user.get("role") != "admin":
-            get_camera_for_user(camera_config_manager, shm_name, user)
+        camera = get_camera_for_user(camera_config_manager, shm_name, user)
+        require_feature_access(user, feature, camera["department"])
         result = feature_config_manager.get_config(spec, shm_name)
         if result is None:
             raise HTTPException(status_code=404, detail="camera or config not found")

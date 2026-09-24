@@ -68,7 +68,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与千问判定 | `yolo_human`，另通过 HTTP 调用千问 |
 | `features/agv_person_check/` | `agv_person_check` | HTTP 请求触发 ROI 多帧人体检测，任一有效帧有人即判定有人 | `yolo_human` |
 
-所有正式事业部均可使用上述功能，事业部用于数据归属和访问隔离。FeatureSpec 不再声明事业部白名单。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
+事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。普通账号按“事业部＋功能”配对授权，管理员保留全部功能维护权限。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
 保安行为与安检流程均在同一个注册表和 Orchestrator 下运行，共享平台摄像头、模型与告警设施；没有独立 Web 子应用。
 
@@ -133,7 +133,7 @@ AiVision/
 │   ├── notifications/             # 企业微信、通知图片
 │   ├── records/                   # 告警、MySQL 处置、异步写入与媒体引用
 │   └── evidence/                  # 报警前后视频缓存与编码
-├── departments/                   # 固定事业部目录和平台功能查询
+├── departments/                   # 固定事业部目录、功能分配 ORM、数据契约与配置服务
 ├── core/                          # Settings、数据库、缓存、事件、日志等
 ├── connectors/
 │   ├── hikvision/                  # 海康签名、HTTP 客户端与人员协议
@@ -919,7 +919,11 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-全部正式事业部共用十一项功能。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头、告警和状态；管理员管理配置及账号；访问审计额外检查用户 capability。
+平台注册十一项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警，检测配置、状态、记录及视频提问还校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
+
+`departments/orm.py` 定义 `department_feature_access`，每个正式事业部一行，包含功能列表和 `revision`。`DepartmentService.save_feature_settings()` 校验完整事业部集合与正式功能名称，锁定各行并检查版本，再在同一事务中保存；冲突返回 409，不进行部分写入。数据库必须具有完整的七个事业部分配，缺失时明确报错，不提供全部开放的回退或启动时数据补齐。
+
+`auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
@@ -1039,7 +1043,9 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/models` | 模型路径、加载和重载状态 |
 | PATCH | `/api/models/{model_name}/path` | 保存模型路径并请求后台重载 |
 | GET | `/api/departments` | 事业部列表 |
-| GET | `/api/departments/{name}/features` | 事业部可用功能 |
+| GET | `/api/departments/{name}/features` | 事业部已分配功能 |
+| GET | `/api/departments/feature-access` | 当前账号所属事业部的功能分配 |
+| GET / PUT | `/api/departments/feature-settings` | 管理员读取／整表保存功能分配，提交各行 `revision` |
 
 摄像头响应的 `feature_sort_orders` 按功能保存展示顺序，平台设备的 `sort_order` 独立保留。功能排序请求为 `{ "department": "general_electric", "camera_ids": [3, 1] }`，必须包含该事业部当前功能所有已启用摄像头且不能重复；成功返回 204，集合变化返回 409。排序字段不属于检测 `value`，参数保存及配置复制不会覆盖顺序。物流通道和保安室通过各自成员排序接口管理。
 
@@ -1176,7 +1182,7 @@ python -m AiVision.features.face_recognition.library.embedding
 
 ### 14.1 当前验证入口
 
-仓库已删除原有测试文件及 pytest 项目配置，历史文档里的 `AiVision/tests` 和其他旧测试目录不能作为当前可执行入口。现有验证按修改范围选择：
+功能分配回归入口为 `python -m pytest -q AiVision/tests/test_department_feature_access.py`，使用隔离的内存数据库，覆盖整表保存、版本冲突、非法输入、管理员接口、跨事业部访问及总览／运行状态过滤。其他验证按修改范围选择：
 
 1. 文档改动检查路径、链接、字段与源码，并执行 `git diff --check`。
 2. Python 改动进行语法检查和受影响模块的隔离验证，避免直接导入或启动整套服务连接现场资源。
@@ -1189,7 +1195,7 @@ python -m AiVision.features.face_recognition.library.embedding
 git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 ```
 
-完整启动需要 MySQL；`SQL_ENABLE=false` 不会跳过主入口的数据库准备。文中接口和启动命令用于部署与排障，不代表本次文档更新已执行现场测试。
+完整启动需要 MySQL；`SQL_ENABLE=false` 不会跳过主入口的数据库准备。真实检测仍需摄像头、模型和外部服务环境。
 
 ### 14.2 常见现象与定位入口
 

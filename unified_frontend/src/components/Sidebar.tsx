@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import { navGroups, type NavGroup, type NavItem } from '@/lib/nav'
-import { DEPARTMENTS, DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, type DepartmentId } from '@/auth/permissions'
+import { DEPARTMENTS, DEPARTMENT_LABELS, filterNavGroupsByPermission, getAccessibleDepartments, hasPageAccess, type DepartmentId } from '@/auth/permissions'
 import { useAuth } from '@/auth/useAuth'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent } from 'react'
@@ -545,10 +545,11 @@ export function buildSidebarNavGroups(user: Parameters<typeof filterNavGroupsByP
   return visibleGroups.map((group) => group.id === 'modules' ? {
     ...group,
     items: [],
-    // 各事业部共用检测菜单的定义顺序，并沿用现有事业部访问范围。
+    // 功能必须在当前事业部分配，不能借用账号所属其他事业部的权限。
     children: getAccessibleDepartments(user).map((department) => ({
-      id: department, department, label: DEPARTMENT_LABELS[department], items: group.items,
-    })),
+      id: department, department, label: DEPARTMENT_LABELS[department],
+      items: group.items.filter((item) => hasPageAccess(user, item.id, department)),
+    })).filter((child) => child.items.length > 0),
   } : group)
 }
 

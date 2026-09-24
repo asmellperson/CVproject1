@@ -36,6 +36,7 @@ import { useAuth } from '@/auth/useAuth'
 import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
 import {
   getAccessibleAlarmEventTypes,
+  hasPageAccess,
   isDepartment,
   type DepartmentId,
 } from '@/auth/permissions'
@@ -162,7 +163,7 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const overviewStatus = overviewState.data
   const platformCameras = overviewStatus?.cameras ?? []
   const accessibleAlarmEventTypes = useMemo(() => getAccessibleAlarmEventTypes(user), [user])
-  const visibleStatusCards = overviewStatus?.capabilities ?? moduleEntries.map((entry) => ({
+  const visibleStatusCards = overviewStatus?.capabilities ?? moduleEntries.filter((entry) => hasPageAccess(user, entry.id)).map((entry) => ({
     id: entry.id, name: entry.title,
     camera_count: 0, online_camera_count: 0, running: false, model_ready: false,
   }))

@@ -100,10 +100,18 @@ def get_user_store() -> UserStore:
 
 
 def _public_user(item: dict[str, Any]) -> dict[str, Any]:
-    return {
+    from AiVision.departments.service import department_service
+
+    user = {
         key: item[key]
         for key in ("employee_id", "name", "role", "departments", "auth_version")
     }
+    assignments = department_service.feature_access()
+    user["feature_access"] = {
+        department: features for department, features in assignments.items()
+        if user["role"] == "admin" or department in user["departments"]
+    }
+    return user
 
 
 def _verify_password(password: str, stored_hash: str | None) -> bool:

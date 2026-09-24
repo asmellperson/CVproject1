@@ -28,8 +28,16 @@ export const DETECTION_PAGE_IDS = [
   'agv-person-check',
 ] as const
 export type DetectionPageId = typeof DETECTION_PAGE_IDS[number]
+export const FEATURE_BY_PAGE: Record<DetectionPageId, string> = {
+  'visual-language-detection': 'visual_language_detection',
+  'security-vlm': 'security_inspection', 'guard-behavior': 'guard_behavior',
+  'intrusion-detection': 'blocks', 'door-detection': 'detect_door',
+  'face-detection': 'detect_face', 'face-recognition': 'recognize_face',
+  'human-detection': 'detect_human', 'logistics-single-person': 'detect_logistics_single_person',
+  'phone-detection': 'detect_phone', 'agv-person-check': 'agv_person_check',
+}
 export type UserRole = 'admin' | 'viewer'
-export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management'
+export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management' | 'feature-management'
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'visual-language-detection': ['visual_language_detection'],
@@ -42,7 +50,7 @@ export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'agv-person-check': ['agv_person_check'],
 }
 export const DETECTION_EVENT_TYPES = Object.values(alarmEventTypesByPage).flat()
-const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management'])
+const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management', 'feature-management'])
 
 export function isDepartment(value: unknown): value is DepartmentId {
   return typeof value === 'string' && (DEPARTMENTS as readonly string[]).includes(value)
@@ -69,12 +77,17 @@ export function resolveDepartment(user: AuthUser | null | undefined, requested: 
   return isDepartment(requested) && accessible.includes(requested) ? requested : null
 }
 
-export function hasPageAccess(user: AuthUser | null | undefined, pageId: string) {
+export function hasPageAccess(user: AuthUser | null | undefined, pageId: string, department?: DepartmentId) {
   if (!pageIds.has(pageId)) return false
   if (pageId === 'access-audit') return user?.capabilities?.view_access_audit === true
   if (pageId === 'overview') return true
   if (getUserRole(user) === 'admin') return true
-  if (pageId === 'user-management') return false
+  if (pageId === 'user-management' || pageId === 'feature-management') return false
+  if (isDetectionPage(pageId)) {
+    const accessible = getAccessibleDepartments(user)
+    const departments = department ? accessible.filter((value) => value === department) : accessible
+    return departments.some((value) => user?.feature_access[value]?.includes(FEATURE_BY_PAGE[pageId]))
+  }
   return getUserRole(user) === 'viewer' && getAccessibleDepartments(user).length > 0
 }
 
@@ -83,7 +96,8 @@ export function isDetectionPage(page: string): page is DetectionPageId {
 }
 
 export function resolvePage(user: AuthUser | null | undefined, page: string, department: unknown): PageId {
-  if (!hasPageAccess(user, page) || (isDetectionPage(page) && !resolveDepartment(user, department))) return 'overview'
+  const scope = resolveDepartment(user, department)
+  if (!hasPageAccess(user, page, scope ?? undefined) || (isDetectionPage(page) && !scope)) return 'overview'
   return page as PageId
 }
 

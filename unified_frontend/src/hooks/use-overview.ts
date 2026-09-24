@@ -6,15 +6,18 @@ import { PLATFORM_CAMERAS_CHANGED_EVENT } from '../lib/camera-events'
 import { PLATFORM_RUNTIME_CHANGED_EVENT } from '../lib/runtime-events'
 
 export function useOverview(user: AuthUser | null) {
-  const scope = user ? JSON.stringify([user.employee_id, user.role, [...user.departments].sort()]) : null
+  const scope = user ? JSON.stringify([user.employee_id, user.role, [...user.departments].sort(), user.feature_access]) : null
   const [result, setResult] = useState<{ scope: string; data: OverviewStatus | null; error: string } | null>(null)
   const [revision, setRevision] = useState(0)
   const context = `${scope}:${revision}`
-  const current = useRef({ key: context })
-  if (current.current.key !== context) current.current = { key: context }
-  const requestContext = current.current
+  const current = useRef(context)
+  const requestContext = context
   const mounted = useRef(false)
   const refresh = () => setRevision((value) => value + 1)
+
+  useEffect(() => {
+    current.current = context
+  }, [context])
 
   useEffect(() => {
     mounted.current = true

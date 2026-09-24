@@ -73,6 +73,7 @@ export const navGroups: NavGroup[] = [
     label: '系统管理',
     items: [
       { id: 'user-management', label: '用户管理', icon: UserCog, description: '添加用户、分配角色与事业部、管理账号状态' },
+      { id: 'feature-management', label: '功能分配', icon: ShieldCheck, description: '配置各事业部可访问的检测功能' },
       { id: 'access-audit', label: '访问记录', icon: History, description: '查看最近访问视觉平台的用户' },
     ],
   },
