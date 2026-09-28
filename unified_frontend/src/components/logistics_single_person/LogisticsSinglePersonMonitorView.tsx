@@ -255,9 +255,6 @@ export function LogisticsSinglePersonMonitorView({
             <div className="relative overflow-hidden bg-slate-950">
               <div className="relative aspect-video w-full">{frameContent}</div>
               <div className="pointer-events-none absolute left-3 right-3 top-3 flex flex-wrap gap-2">
-                <GlassPill><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />实时检测</GlassPill>
-                <GlassPill danger={!frameConnected}><span className={cn('h-1.5 w-1.5 rounded-full', frameConnected ? 'bg-emerald-400' : 'bg-rose-300')} />{cameraKey || 'cam'} · {frameConnected ? '在线' : '离线'}</GlassPill>
-                <GlassPill danger={abnormal}>画面人数 {countText}</GlassPill>
                 {abnormal && <GlassPill danger><AlertTriangle className="h-3.5 w-3.5" />人员异常告警</GlassPill>}
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/15" />

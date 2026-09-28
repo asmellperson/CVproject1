@@ -1,7 +1,7 @@
 import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import type { DepartmentId } from '@/auth/permissions'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, RefreshCw, Video } from 'lucide-react'
+import { RefreshCw, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -384,10 +384,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
 
       <CardContent className="bg-[#f8fbff] p-4 dark:bg-slate-950/30">
         <div className="relative overflow-hidden rounded-2xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.18)]">
-          <div className="absolute left-4 top-4 z-[1] flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/72 px-3 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur">
-            <Activity className="h-3.5 w-3.5 text-emerald-400" />
-            实时检测
-          </div>
           <div className="relative aspect-video w-full">
             {frameContent}
         </div>
