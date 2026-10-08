@@ -69,16 +69,19 @@ class AiAlarmEvent(Base):
     )
 
     def __init__(self, *, violation_type: int, feature_name: str, department: str, **kwargs):
+        """创建事件时要求明确且一致的正式告警身份字段。"""
         validate_alarm_identity(violation_type, feature_name, department)
         super().__init__(violation_type=violation_type, feature_name=feature_name, department=department, **kwargs)
 
     def __repr__(self):
+        """以记录 ID 与告警类型提供简短调试标识。"""
         return f"<AiAlarmEvent id={self.id} type={self.violation_type}>"
 
 
 @event.listens_for(AiAlarmEvent, "before_insert")
 def _validate_new_alarm(_mapper, _connection, target: AiAlarmEvent) -> None:
     # 防止对象创建后、真正 INSERT 前被改成缺失或不一致的正式字段；不改变数据库列定义。
+    """INSERT 前再次核对身份，防止构造后被改为缺失或不一致的字段。"""
     validate_alarm_identity(target.violation_type, target.feature_name, target.department)
 
 

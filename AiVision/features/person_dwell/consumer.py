@@ -15,6 +15,7 @@ class HumanConsumer(DwellDetectionConsumer):
     REQUIRED_DETECTION_TYPE = None
 
     def _detection_options(self, cfg: dict) -> tuple:
+        """将人体框筛选阈值和运动匹配参数交给公共逗留检测流程。"""
         return cfg["CONF_THRESHOLD"], cfg["MIN_BOX_AREA"], cfg["ASPECT_RATIO_RANGE"], {
             "center_dist_thr": cfg["CENTER_DIST_THR"],
             "area_ratio_thr": cfg["AREA_RATIO_THR"],

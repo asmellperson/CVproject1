@@ -1,4 +1,7 @@
-"""features/person_dwell/ — 人员违规逗留检测"""
+"""声明 detect_human 人员逗留功能，绑定公共停留检测的具体消费者。
+
+使用 yolo_human 推理，正式告警类型为 5。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import HumanConsumer
 from .orm import HumanConfigORM

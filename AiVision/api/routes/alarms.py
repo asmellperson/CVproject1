@@ -27,6 +27,7 @@ def list_alarms(
     event_types: str | None = None,
     user: dict = Depends(get_current_user),
 ):
+    """先应用账号权限和事件过滤，再按时间倒序限制条数并补入处置摘要。"""
     with get_session() as session:
         query = alarm_query(session, user, department, feature, event_types)
         rows = query.order_by(AiAlarmEvent.create_time.desc(), AiAlarmEvent.id.desc()).limit(limit).all()
@@ -41,12 +42,14 @@ def statistics(
     event_types: str | None = None,
     user: dict = Depends(get_current_user),
 ):
+    """基于相同权限查询计算时间范围内统计，不受最近列表条数限制。"""
     with get_session() as session:
         return alarm_statistics(session, alarm_query(session, user, department, feature, event_types), days)
 
 
 @router.get("/{alarm_id}", response_model=AlarmEventResponse)
 def alarm_detail(alarm_id: int, user: dict = Depends(get_current_user)):
+    """读取告警后核对事业部与事件权限，返回含处置摘要的详情。"""
     with get_session() as session:
         row = session.get(AiAlarmEvent, alarm_id)
         if row is None:

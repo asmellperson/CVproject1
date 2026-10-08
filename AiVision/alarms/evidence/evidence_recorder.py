@@ -1,10 +1,8 @@
-"""
-正常一段报警视频大约是报警前10秒*5 FPS = 50帧 + 报警后10秒*5 FPS=50帧，合起来约20秒、100帧
+"""公共告警取证：维护证据源的 JPEG 历史缓存并后台编码视频。
 
-orchestrator将frame_reader_registry.latest_frames交给EvidenceRecorder，让它持续从latest_frames 取每个摄像头的最新画面。
-
-一个报警视频的完整过程：
-    摄像头持续出画面 -> EvidenceRecorder按5 FPS采样 -> 每帧缩到最大宽度960 -> 压缩成JPEG bytes -> 放进摄像头自己的deque缓存 -> 始终只保留最近约10秒50帧图像
+普通告警组合配置的前录与后录时段；开放时长事件通过令牌管理，使用
+临时顺序缓冲保存完整事件帧。取证源可为摄像头或业务拼图，容量、采样
+频率及最大尺寸由存储配置控制，视频完成状态通过回调写回记录。
 """
 from __future__ import annotations
 
@@ -30,6 +28,7 @@ from AiVision.core.video_encoding import VideoEncodingError, ensure_browser_comp
 # 一次正在录制中的报警视频任务
 @dataclass
 class _ClipTask:
+    """待编码证据任务，普通片段使用内存帧，开放事件使用顺序缓冲。"""
     source_key: str
     video_path: str
     end_time: float            # 当前时间+10秒
@@ -37,6 +36,7 @@ class _ClipTask:
     spool: BinaryIO | None = None
 
 class AlarmEvidenceRecorder:
+    """以固定工作线程和容量限制管理多源视频证据。"""
     def __init__(
         self,
         output_dir: str | Path | None = None,
@@ -50,6 +50,7 @@ class AlarmEvidenceRecorder:
         clock: Callable[[], float] = time.time,
     ) -> None:
         # Storage 配置
+        """解析存储配置并建立缓存、任务容量及队列，构造时不开始采样。"""
         storage = settings.storage
         self.enabled = storage.alarm_clip_enabled if enabled is None else bool(enabled)
         # 前后录的秒数，默认十秒
@@ -100,6 +101,7 @@ class AlarmEvidenceRecorder:
             self._start(frame_provider)
 
     def _start(self, frame_provider: Callable[[], Mapping[str, np.ndarray]]) -> None:
+        """取证启用时建立输出目录并启动定时采样，重复启动不创建额外线程。"""
         if not self.enabled or self._sampler_thread is not None:
             return
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -122,6 +124,7 @@ class AlarmEvidenceRecorder:
             self._stop()
 
     def _stop(self) -> None:
+        """停止采样，取消未闭合事件并排空已接受片段，再关闭编码线程。"""
         with self._lock:
             self._stop_event.set()
         thread = self._sampler_thread
@@ -340,6 +343,7 @@ class AlarmEvidenceRecorder:
                 self._write_queue.put_nowait(task)
 
     def _finish_due_tasks(self, now: float) -> None:
+        """把已到后录截止时间的任务从采集列表转入编码队列。"""
         with self._lock:
             finished = [task for task in self._tasks if now >= task.end_time]
             self._tasks = [task for task in self._tasks if now < task.end_time]
@@ -348,6 +352,7 @@ class AlarmEvidenceRecorder:
 
     @staticmethod
     def _close_spool(spool: BinaryIO) -> None:
+        """关闭事件临时缓冲，记录关闭失败而不中断其他任务清理。"""
         try:
             spool.close()
         except OSError as exc:
@@ -355,12 +360,14 @@ class AlarmEvidenceRecorder:
 
     @staticmethod
     def _append_episode_frame(task: _ClipTask, encoded: bytes) -> None:
+        """按长度前缀写入完整 JPEG，短写视为取证失败。"""
         record = struct.pack("!I", len(encoded)) + encoded
         if task.spool.write(record) != len(record):
             raise OSError("事件证据帧未完整写入")
 
     @staticmethod
     def _task_frames(task: _ClipTask) -> Iterator[bytes]:
+        """统一遍历内存或顺序缓冲帧，截断或非法帧长度显式报错。"""
         if task.spool is None:
             yield from task.frames
             return
@@ -388,6 +395,7 @@ class AlarmEvidenceRecorder:
             self._writer_threads.append(worker)
 
     def _write_loop(self) -> None:
+        """后台编码任务，并在所有退出路径释放缓冲与容量占位。"""
         while True:
             task = self._write_queue.get()
             try:
@@ -471,6 +479,7 @@ class AlarmEvidenceRecorder:
         self._report_status(task.video_path, status)
 
     def _report_status(self, video_path: str, status: str) -> None:
+        """隔离状态回写异常，避免数据库回调故障中断视频编码线程。"""
         callback = self._status_callback
         if callback is not None:
             try:

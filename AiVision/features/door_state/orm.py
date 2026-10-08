@@ -1,6 +1,4 @@
-"""
-features/door_state/orm.py
-"""
+"""门禁帧差检测配置表，持久化背景更新、稳定确认和首次告警阈值。"""
 from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON
 from AiVision.features._shared import defaults
 from AiVision.features._shared.orm import FeatureConfigBase
@@ -10,6 +8,7 @@ _VALUE_DEFAULTS = DoorValueSchema().model_dump()
 
 class DoorConfigORM(FeatureConfigBase):
     # 数据库表名
+    """逐摄像头保存门检测参数；env_threshold 为 NULL 时关闭环境比例过滤。"""
     __tablename__ = "ai_camera_config_detect_door"
     __table_args__ = (
         CheckConstraint("threshold BETWEEN 0 AND 1", name="ck_detect_door_0"),

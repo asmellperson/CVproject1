@@ -1,7 +1,7 @@
-"""
-core/system_config.py
-和setting的区别：setting是读取的.env文件或者环境变量，程序启动时读取，偏"静态部署配置"。
-system_config: MySQL数据库，前端/API运行中可以修改，偏"动态业务配置"
+"""数据库中的系统异常通知策略，与启动时读取的 Settings 分开管理。
+
+AiSystemConfig 按 key 保存 JSON，SystemConfigService 提供默认值补齐、间隔校验和事务写入。
+服务保存不会自行发出异常通知或刷新摄像头配置；运行层和 API 在需要时读取当前策略。
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from AiVision.core.db import Base, session_scope, get_session
 
 
 class AiSystemConfig(Base):
+    """按配置名称保存整块 JSON 的系统配置表，具体字段校验由所属 Service 负责。"""
     __tablename__ = "ai_system_config"
 
     key = Column(String(100), primary_key=True)         # 配置叫什么
@@ -20,6 +21,7 @@ class AiSystemConfig(Base):
 
 # ai_system_config表的业务访问层，目前主要只有异常告警配置
 class SystemConfigService:
+    """读写 exception_alert 通知策略，统一约束微信接收人和重复通知间隔。"""
     EXCEPTION_ALERT_KEY = "exception_alert"               # 数据库key
     DEFAULT_EXCEPTION_ALERT_INTERVAL_MINUTES = 60         # 默认重复告警间隔
     MIN_EXCEPTION_ALERT_INTERVAL_MINUTES = 5              # 最短

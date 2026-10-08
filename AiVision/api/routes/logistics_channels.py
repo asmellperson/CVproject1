@@ -65,6 +65,7 @@ def _query_departments(user: dict, department: str | None) -> tuple[str, ...]:
 
 
 def _require_channel_access(service, feature: str, channel_id: int, user: dict) -> dict:
+    """先校验物流功能和通道存在，再核对通道事业部的功能授权。"""
     _require_feature_access(feature)
     channel = _get_channel_or_404(service, feature, channel_id)
     departments = _accessible_departments(user)
@@ -302,6 +303,7 @@ def get_member_camera_roi(
     user: dict = Depends(get_current_user),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsCameraRoiResponse:
+    """校验通道访问权后返回成员摄像头的唯一 ROI。"""
     _require_channel_access(service, feature, channel_id, user)
     try:
         return LogisticsCameraRoiResponse.model_validate(service.get_camera_roi(feature, channel_id, camera_id))
@@ -321,6 +323,7 @@ def update_member_camera_roi(
     user: dict = Depends(require_admin),
     service=Depends(get_logistics_channel_service),
 ) -> LogisticsCameraRoiResponse:
+    """管理员校验通道访问权后更新成员 ROI，业务冲突按统一规则返回。"""
     _require_channel_access(service, feature, channel_id, user)
     try:
         return LogisticsCameraRoiResponse.model_validate(

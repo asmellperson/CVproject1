@@ -12,11 +12,13 @@ from .constants import EMBEDDING_DIM, MODEL_NAME
 
 
 def photo_signature(pic_uri: str, server_index_code: str) -> str:
+    """对照片地址与服务器标识生成稳定签名，用于判定注册资料是否变化。"""
     payload = json.dumps([pic_uri, server_index_code], ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def encode_embedding(embedding: np.ndarray) -> bytes:
+    """校验有限非零特征向量，并以小端 float32 字节格式持久化。"""
     vector = np.asarray(embedding, dtype="<f4")
     if vector.shape != (EMBEDDING_DIM,) or not np.isfinite(vector).all() or np.linalg.norm(vector) <= 0:
         raise ValueError("人脸特征必须是非零、有限的 512 维向量")
@@ -24,6 +26,7 @@ def encode_embedding(embedding: np.ndarray) -> bytes:
 
 
 def decode_embedding(data: bytes, dimension: int) -> np.ndarray:
+    """核对维度和字节长度后解码为独立数组，同时验证向量有效性。"""
     if dimension != EMBEDDING_DIM or len(data) != dimension * 4:
         raise ValueError("人脸特征维度或字节长度错误")
     vector = np.frombuffer(data, dtype="<f4").copy()
@@ -33,6 +36,7 @@ def decode_embedding(data: bytes, dimension: int) -> np.ndarray:
 
 @dataclass(frozen=True)
 class IndexedPerson:
+    """与索引矩阵行一一对应的人员资料快照。"""
     person_id: int
     person_name: str | None
     job_no: str | None
@@ -44,11 +48,13 @@ class FaceIndex:
     """一次刷新整体替换索引；实时比对只读取内存。"""
 
     def __init__(self):
+        """创建空索引和替换锁，使首次刷新前的匹配也有明确结果。"""
         self._lock = threading.Lock()
         self._people: tuple[IndexedPerson, ...] = ()
         self._matrix = np.empty((0, EMBEDDING_DIM), dtype=np.float32)
 
     def refresh(self) -> int:
+        """加载有效模型及照片签名匹配的在用人员，归一化后整体替换只读索引。"""
         from AiVision.core.db import get_session
         from .orm import FaceEmbedding, FacePerson
 
@@ -74,6 +80,11 @@ class FaceIndex:
         return len(people)
 
     def match(self, embedding: np.ndarray, threshold: float) -> dict:
+        """以归一化向量的余弦相似度选取最佳候选，达到阈值才返回其身份。
+
+        空索引返回未知人员；未达到阈值时仍保留最佳相似度供监控展示，
+        但不暴露候选身份字段。输入向量或阈值不合法时抛出 ValueError。
+        """
         if not np.isfinite(threshold) or not 0 <= threshold <= 1:
             raise ValueError("相似度阈值必须在 0 到 1 之间")
         vector = decode_embedding(encode_embedding(embedding), EMBEDDING_DIM)

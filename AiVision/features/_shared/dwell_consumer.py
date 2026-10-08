@@ -36,6 +36,7 @@ class DwellObservationClock:
     valid: bool = False
 
     def observe(self, now: float) -> None:
+        """仅在连续有效的观测之间累计非负时间，避免中断期间增加停留时长。"""
         if self.valid:
             self.elapsed += max(0.0, now - self.last_success_at)
         self.last_success_at = now
@@ -97,6 +98,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
     BBOX_COLOR_ALARM = (0, 0, 255)               # 告警 — 红框
 
     def __init__(self, *args, **kwargs):
+        """为每路摄像头建立独立的跟踪器、有效观测时钟和监控结果容器。"""
         super().__init__(*args, **kwargs)
         # camera_id → IouTracker
         self._trackers: dict[int, IouTracker] = {}
@@ -104,6 +106,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         self.monitor_status: dict[str, dict] = {}
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        """清理基础状态与停留检测状态，防止摄像头重启后沿用旧轨迹。"""
         super()._clear_camera_state(camera_id, shm_name)
         self._trackers.pop(camera_id, None)
         self._observation_clocks.pop(camera_id, None)
@@ -111,6 +114,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
             self.monitor_status.pop(shm_name, None)
 
     def _on_roi_changed(self, camera_id: int) -> None:
+        """ROI 变化时清空轨迹、时钟和显示结果，使新区域从零开始计时。"""
         super()._on_roi_changed(camera_id)
         self._trackers.pop(camera_id, None)
         self._observation_clocks.pop(camera_id, None)
@@ -118,6 +122,7 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         self.monitor_status.pop(camera_key, None)
 
     def _detection_options(self, cfg: dict) -> tuple:
+        """由具体检测功能提供筛选阈值和跟踪参数，基类不设业务默认值。"""
         raise NotImplementedError
 
     def _process(self, roi, camera_id):
@@ -268,9 +273,11 @@ class DwellDetectionConsumer(BaseFunctionConsumer):
         return frame_copy
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
+        """在摄像头状态锁内读取监控快照；尚无结果时返回 None。"""
         with self._camera_state_lock:
             value = self.monitor_status.get(camera_key)
             return dict(value) if value else None
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
+        """持续分析静止目标，以便停留时间正常累计。"""
         return True

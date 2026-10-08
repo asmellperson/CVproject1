@@ -1,6 +1,8 @@
-"""
-features/_shared/config_manager.py
-所有普通feature的配置管理器，负责根据featurespec找到ORM表，读取/保存某台Camera的某个Feature配置，并在数据库提交后刷新缓存，通知Runtime热更新
+"""普通摄像头功能的配置读取、保存和展示顺序管理。
+
+通过 FeatureSpec 定位 ORM 与 Schema；保存完整校验后的配置，在事务
+提交后刷新缓存并发布事件。物流通道和保安室的成员、策略及 ROI 使用
+各自专用接口，避免通用入口绕过其业务约束。
 """
 from __future__ import annotations
 from typing import Optional
@@ -95,14 +97,22 @@ class FeatureConfigManager:
         shm_name: str,
         payload: dict,
     ) -> Optional[dict]:
-        """按 SPEC 校验并保存配置，补齐全部默认值。
-        
-        普通摄像头级告警功能的 payload 形状如下:
-            {
-                "enable": bool,
-                "value": {功能特有字段},
-                "alarm": {sql, horn, wechat}
-            }
+        """校验并保存普通功能的完整配置，缺失参数按对应 Schema 补齐默认值。
+
+        Args:
+            spec: 指定功能的声明，提供 ORM 和配置校验模型。
+            shm_name: 摄像头查询键，通常为共享内存标识。
+            payload: enable/value 配置；直接告警功能还包含 alarm。
+
+        Returns:
+            保存后重新读取的配置；摄像头不存在时返回 None。
+
+        Raises:
+            ValueError: 配置非法、启用前置条件不满足、喇叭绑定无效，或功能
+                必须通过专用业务接口修改。
+
+        数据库提交成功后才重载缓存并发出配置及启停事件；此阶段失败不代表
+        已经提交的数据库配置被回滚。
         """
         from AiVision.features.logistics_channel.constants import LOGISTICS_FEATURES
         if spec.name == "guard_behavior":

@@ -1,4 +1,4 @@
-"""features/phone_detection/schema.py"""
+"""手机检测参数校验，统一约束模型阈值、人体关联比例和时间窗口。"""
 from pydantic import BaseModel, ConfigDict, Field
 
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
@@ -6,6 +6,7 @@ from AiVision.features._shared import defaults
 from AiVision.features._shared.roi import NormalizedRoi
 
 class PhoneValueSchema(BaseModel):
+    """手机候选筛选与持续确认参数，时间窗口均以秒计。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
@@ -27,6 +28,7 @@ class PhoneValueSchema(BaseModel):
 
 
 class PhoneConfigSchema(BaseModel):
+    """手机检测开关、算法参数及各告警通道配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: PhoneValueSchema = Field(default_factory=PhoneValueSchema)

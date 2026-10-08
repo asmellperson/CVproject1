@@ -2,11 +2,16 @@
 
 
 def check_row_ids(changes, row_ids):
+    """要求赋值计划只引用实际存在的配置行，避免拼错 ID 后静默漏改。"""
     if not isinstance(changes, dict) or set(changes) - {str(value) for value in row_ids}:
         raise ValueError("赋值计划必须按存在的配置行 ID 指定")
 
 
 def apply_row_changes(row, changes, *, allowed_fields):
+    """在源值符合 expected 且字段明确获准时返回应用赋值后的副本。
+
+    每个新值都必须有对应旧值前置条件；任何源值偏差立即停止迁移。
+    """
     result = dict(row)
     if str(row["id"]) not in changes:
         return result

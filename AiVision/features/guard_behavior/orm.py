@@ -13,12 +13,14 @@ from .constants import ALARM_POLICY_DEFAULTS, GUARD_ALARM_TYPES, SITE_POLICY_DEF
 
 
 class _Timestamps:
+    """提供由数据库维护的创建与更新时间。"""
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"),
                         onupdate=text("CURRENT_TIMESTAMP"))
 
 
 class GuardBehaviorSite(_Timestamps, Base):
+    """以事业部内唯一名称标识保安室，聚合成员、检测策略与告警策略。"""
     __tablename__ = "ai_guard_behavior_site"
     __table_args__ = (
         UniqueConstraint("department", "name", name="uq_guard_behavior_site_department_name"),
@@ -42,6 +44,7 @@ class GuardBehaviorSite(_Timestamps, Base):
 
 
 class GuardBehaviorSiteCamera(_Timestamps, Base):
+    """建立摄像头唯一归属，成员参与状态独立于物理摄像头启用状态。"""
     __tablename__ = "ai_guard_behavior_site_camera"
     __table_args__ = (
         UniqueConstraint("site_id", "camera_id", name="uq_guard_behavior_site_camera"),
@@ -61,6 +64,7 @@ class GuardBehaviorSiteCamera(_Timestamps, Base):
 
 
 class GuardBehaviorCameraConfig(CameraFeatureConfigBase):
+    """保存摄像头的功能开关及车辆 ROI，站点共用参数存于策略表。"""
     __tablename__ = "ai_camera_config_guard_behavior"
     __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
@@ -68,6 +72,7 @@ class GuardBehaviorCameraConfig(CameraFeatureConfigBase):
 
 
 class GuardBehaviorSitePolicy(_Timestamps, Base):
+    """每个保安室唯一的检测与时序策略，车辆检查可指定一名摄像头成员。"""
     __tablename__ = "ai_guard_behavior_site_policy"
     __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
@@ -111,6 +116,7 @@ class GuardBehaviorSitePolicy(_Timestamps, Base):
 
 
 class GuardBehaviorAlarmPolicy(_Timestamps, Base):
+    """按保安室和正式告警类型分别保存冷却及通知通道绑定。"""
     __tablename__ = "ai_guard_behavior_alarm_policy"
     __table_args__ = (
         UniqueConstraint("site_id", "violation_type", name="uq_guard_behavior_site_alarm_type"),

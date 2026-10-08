@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/visual-language-detection", tags=["visual-langua
 
 def scoped_camera(key: str, department: str = Query(...), user: dict = Depends(get_current_user),
                   manager=Depends(get_camera_config_manager)):
+    """要求明确事业部，核对功能访问权及摄像头归属后提供资源。"""
     scope = camera_read_department(user, department)
     require_feature_access(user, FEATURE_NAME, scope)
     camera = get_camera_for_user(manager, key, user)
@@ -29,15 +30,18 @@ def scoped_camera(key: str, department: str = Query(...), user: dict = Depends(g
 
 
 def get_consumer(orchestrator=Depends(get_optional_orchestrator)):
+    """返回可选视频理解消费者，平台未就绪时保持配置查询可用。"""
     return orchestrator.consumers.get(FEATURE_NAME) if orchestrator is not None else None
 
 
 def get_service():
+    """提供视频理解事件持久化服务。"""
     return VisualLanguageService()
 
 
 @router.get("/cameras/{key}/status", response_model=VisualLanguageStatus)
 def status(camera=Depends(scoped_camera), consumer=Depends(get_consumer)):
+    """返回摄像头理解状态，并区分功能未启动、未启用和视频离线。"""
     if consumer is None or not consumer.running:
         return VisualLanguageStatus(error="指令驱动智慧安防尚未运行")
     result = consumer.visual_runtime.status(camera["camera_id"])
@@ -51,11 +55,13 @@ def status(camera=Depends(scoped_camera), consumer=Depends(get_consumer)):
 @router.get("/cameras/{key}/events", response_model=VisualLanguageHistory)
 def events(camera=Depends(scoped_camera), limit: int = Query(50, ge=1, le=200),
            before_id: int | None = Query(None, gt=0), service=Depends(get_service)):
+    """按已授权摄像头读取事件历史，支持 ID 游标。"""
     return service.history(camera["camera_id"], camera["department"], limit, before_id)
 
 
 @router.post("/cameras/{key}/questions", response_model=VideoAnswer)
 def ask(payload: VideoQuestion, camera=Depends(scoped_camera), consumer=Depends(get_consumer)):
+    """提交随新画面回答的问题并限时等待，超时取消 Future 并返回 504。"""
     if consumer is None or not camera["enabled"] or not camera["functions"][FEATURE_NAME]:
         raise HTTPException(503, "摄像头未运行或未添加到指令驱动智慧安防")
     try:

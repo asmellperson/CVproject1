@@ -37,6 +37,7 @@ class AsyncViolationWriter:
         Consumer发现告警 -> 写入队列 -> Consumer继续工作 -> 后台线程慢慢保存数据 -> 批量写数据库
     """
     def __init__(self):
+        """读取写入与保留策略，建立有界队列、存储目录和媒体清理器。"""
         self._queue: Queue = Queue(maxsize=1000)       # 最多暂存1000个待处理告警
         self._stop_event = threading.Event()           # 线程控制工具，告诉后台线程该停了
         self._enqueue_lock = threading.Lock()
@@ -229,6 +230,7 @@ class AsyncViolationWriter:
             self._start()
 
     def _start(self):
+        """启动异步记录线程及单实例定期清理任务，启动后立即安排一次清理。"""
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop_event.clear()

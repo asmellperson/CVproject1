@@ -28,6 +28,7 @@ from .schema import (
 
 @contextmanager
 def _write_session():
+    """统一事务边界，将提交或刷新时的完整性冲突转换为可读业务错误。"""
     try:
         with db.session_scope() as session:
             yield session
@@ -37,14 +38,17 @@ def _write_session():
 
 
 def _positive_id(value: int) -> int:
+    """拒绝布尔值、非整数及非正 ID。"""
     if type(value) is not int or value <= 0:
         raise ValueError("ID 必须为正整数")
     return value
 
 
 class GuardBehaviorService:
+    """管理保安室配置事务，并提供脱离数据库会话的运行快照。"""
     @classmethod
     def _site_runtime_snapshot(cls, session, site) -> GuardBehaviorRuntimeSiteConfig:
+        """一次读取成员及策略，校验事业部和功能配置后构造站点快照。"""
         rows = (session.query(GuardBehaviorSiteCamera, AiCameraConfig, GuardBehaviorCameraConfig)
                 .join(AiCameraConfig, GuardBehaviorSiteCamera.camera_id == AiCameraConfig.id)
                 .outerjoin(GuardBehaviorCameraConfig, GuardBehaviorCameraConfig.camera_id == AiCameraConfig.id)
@@ -65,17 +69,20 @@ class GuardBehaviorService:
         )
 
     def get_runtime_site_config(self, site_id: int) -> GuardBehaviorRuntimeSiteConfig | None:
+        """读取指定站点运行配置，不存在时返回 None。"""
         with closing(db.get_session()) as session:
             site = session.get(GuardBehaviorSite, _positive_id(site_id))
             return None if site is None else self._site_runtime_snapshot(session, site)
 
     def list_runtime_site_configs(self) -> list[GuardBehaviorRuntimeSiteConfig]:
+        """按展示顺序生成全部站点的完整运行快照。"""
         with closing(db.get_session()) as session:
             sites = session.query(GuardBehaviorSite).order_by(GuardBehaviorSite.sort_order, GuardBehaviorSite.id).all()
             return [self._site_runtime_snapshot(session, site) for site in sites]
 
     @staticmethod
     def _runtime_query(session):
+        """联合成员、站点、物理摄像头及专用配置，建立单摄运行配置查询。"""
         return (session.query(GuardBehaviorSiteCamera, GuardBehaviorSite, AiCameraConfig,
                               GuardBehaviorCameraConfig, GuardBehaviorSitePolicy)
                 .join(GuardBehaviorSite, GuardBehaviorSiteCamera.site_id == GuardBehaviorSite.id)
@@ -85,6 +92,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _runtime_snapshot(row) -> GuardBehaviorRuntimeCameraConfig:
+        """将联合查询行转换为不可变单摄快照，ROI 不保留可变 ORM 引用。"""
         member, site, camera, config, policy = row
         roi = GuardBehaviorCameraRoiResponse.model_validate(config).vehicle_roi_pos
         return GuardBehaviorRuntimeCameraConfig(
@@ -97,11 +105,13 @@ class GuardBehaviorService:
         )
 
     def get_runtime_camera_config(self, camera_id: int) -> GuardBehaviorRuntimeCameraConfig | None:
+        """按摄像头查询有效成员配置，无完整关联时返回 None。"""
         with closing(db.get_session()) as session:
             row = self._runtime_query(session).filter(AiCameraConfig.id == _positive_id(camera_id)).first()
             return None if row is None else self._runtime_snapshot(row)
 
     def list_runtime_camera_configs(self) -> list[GuardBehaviorRuntimeCameraConfig]:
+        """按站点和成员顺序生成单摄配置快照。"""
         with closing(db.get_session()) as session:
             rows = self._runtime_query(session).order_by(
                 GuardBehaviorSite.id, GuardBehaviorSiteCamera.sort_order, GuardBehaviorSiteCamera.id).all()
@@ -109,6 +119,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _site(session, site_id: int, *, lock: bool = False):
+        """获取必需的站点，可按写入场景加行锁。"""
         site = session.get(GuardBehaviorSite, _positive_id(site_id), with_for_update=lock)
         if site is None:
             raise ValueError("保安室不存在")
@@ -116,6 +127,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _camera(session, camera_id: int):
+        """锁定必需的物理摄像头，序列化涉及该摄像头的成员修改。"""
         camera = session.get(AiCameraConfig, _positive_id(camera_id), with_for_update=True)
         if camera is None:
             raise ValueError("摄像头不存在")
@@ -123,6 +135,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _member(session, site_id: int, camera_id: int, *, lock: bool = False):
+        """验证摄像头确实属于目标站点，可锁定成员行。"""
         query = session.query(GuardBehaviorSiteCamera).filter_by(
             site_id=site_id, camera_id=_positive_id(camera_id))
         if lock:
@@ -134,6 +147,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _policy(session, site_id: int, *, lock: bool = False):
+        """取得必需的站点检测策略，缺失时显式报错。"""
         query = session.query(GuardBehaviorSitePolicy).filter_by(site_id=site_id)
         if lock:
             query = query.with_for_update()
@@ -144,6 +158,7 @@ class GuardBehaviorService:
 
     @staticmethod
     def _camera_config(session, camera_id: int, *, lock: bool = False):
+        """取得专用摄像头配置，避免在缺失配置时使用隐式默认值。"""
         query = session.query(GuardBehaviorCameraConfig).filter_by(camera_id=camera_id)
         if lock:
             query = query.with_for_update()
@@ -154,11 +169,13 @@ class GuardBehaviorService:
 
     @classmethod
     def _protect_vehicle_camera(cls, session, site_id: int, camera_id: int):
+        """阻止禁用或解绑正在承担车辆检查的摄像头。"""
         policy = cls._policy(session, site_id, lock=True)
         if policy.vehicle_inspection_enabled and policy.vehicle_camera_id == camera_id:
             raise ValueError("当前摄像头正在作为车辆出厂检查摄像头，请先关闭或修改车辆检查配置")
 
     def list_sites(self, department: str | None = None) -> list[dict]:
+        """校验可选事业部过滤条件，按配置顺序返回站点。"""
         if department is not None:
             department = require_department(department)
         with closing(db.get_session()) as session:
@@ -169,10 +186,12 @@ class GuardBehaviorService:
                     for site in query.order_by(GuardBehaviorSite.sort_order, GuardBehaviorSite.id).all()]
 
     def get_site(self, site_id: int) -> dict:
+        """读取站点基础信息并转换为响应结构。"""
         with closing(db.get_session()) as session:
             return GuardBehaviorSiteResponse.model_validate(self._site(session, site_id)).model_dump()
 
     def create_site(self, name: str, department: str, *, enabled: bool = True, sort_order: int = 0) -> dict:
+        """在同一事务中创建站点、默认检测策略和完整四类告警策略。"""
         values = GuardBehaviorSiteCreate(
             name=name, department=department, enabled=enabled, sort_order=sort_order,
         ).model_dump()
@@ -187,6 +206,7 @@ class GuardBehaviorService:
             return GuardBehaviorSiteResponse.model_validate(site).model_dump()
 
     def update_site(self, site_id: int, payload: dict) -> dict:
+        """锁定站点，合并局部字段后完整校验，再写入提交的变更。"""
         changes = GuardBehaviorSiteUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:
             site = self._site(session, site_id, lock=True)
@@ -198,6 +218,7 @@ class GuardBehaviorService:
             return GuardBehaviorSiteResponse.model_validate(site).model_dump()
 
     def delete_site(self, site_id: int) -> bool:
+        """关闭成员的保安功能并删除站点关联，不删除物理摄像头。"""
         with _write_session() as session:
             site = session.get(GuardBehaviorSite, _positive_id(site_id), with_for_update=True)
             if site is None:
@@ -212,6 +233,7 @@ class GuardBehaviorService:
             return True
 
     def list_site_cameras(self, site_id: int) -> list[dict]:
+        """按成员顺序返回摄像头及两层启用状态。"""
         with closing(db.get_session()) as session:
             self._site(session, site_id)
             members = (session.query(GuardBehaviorSiteCamera)
@@ -221,6 +243,7 @@ class GuardBehaviorService:
             return [GuardBehaviorMemberResponse.model_validate(member).model_dump() for member in members]
 
     def add_camera(self, site_id: int, camera_id: int) -> dict:
+        """校验事业部、唯一归属和容量，原子建立成员并启用专用功能配置。"""
         camera_id = GuardBehaviorMemberCreate(camera_id=camera_id).camera_id
         with _write_session() as session:
             site = self._site(session, site_id, lock=True)
@@ -246,6 +269,7 @@ class GuardBehaviorService:
             return GuardBehaviorMemberResponse.model_validate(member).model_dump()
 
     def remove_camera(self, site_id: int, camera_id: int) -> None:
+        """保护车辆检查绑定后移除成员，同时关闭该摄像头的保安功能。"""
         with _write_session() as session:
             self._site(session, site_id, lock=True)
             self._camera(session, camera_id)
@@ -255,6 +279,7 @@ class GuardBehaviorService:
             session.delete(member)
 
     def set_camera_enabled(self, site_id: int, camera_id: int, enabled: bool) -> dict:
+        """修改成员参与状态，关闭前保护正在使用的车辆检查摄像头。"""
         enabled = GuardBehaviorMemberEnabledUpdate(enabled=enabled).enabled
         with _write_session() as session:
             self._site(session, site_id, lock=True)
@@ -267,6 +292,7 @@ class GuardBehaviorService:
             return GuardBehaviorMemberResponse.model_validate(member).model_dump()
 
     def reorder_cameras(self, site_id: int, camera_ids: list[int]) -> None:
+        """要求完整且相同的成员集合，在单个事务中重排展示顺序。"""
         camera_ids = GuardBehaviorMemberOrder(camera_ids=camera_ids).camera_ids
         with _write_session() as session:
             self._site(session, site_id, lock=True)
@@ -278,11 +304,13 @@ class GuardBehaviorService:
                 by_camera[camera_id].sort_order = index
 
     def get_policy(self, site_id: int) -> dict:
+        """读取站点当前策略，包括物理摄像头删除后可能为空的引用。"""
         with closing(db.get_session()) as session:
             self._site(session, site_id)
             return GuardBehaviorSitePolicyResponse.model_validate(self._policy(session, site_id)).model_dump()
 
     def update_policy(self, site_id: int, payload: dict) -> dict:
+        """合并并校验完整策略，车辆检查目标必须是同事业部已启用成员。"""
         changes = GuardBehaviorSitePolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:
             site = self._site(session, site_id, lock=True)
@@ -302,6 +330,7 @@ class GuardBehaviorService:
             return GuardBehaviorSitePolicyResponse.model_validate(policy).model_dump()
 
     def get_camera_roi(self, site_id: int, camera_id: int) -> dict:
+        """验证成员归属后读取车辆 ROI。"""
         with closing(db.get_session()) as session:
             self._site(session, site_id)
             self._member(session, site_id, camera_id)
@@ -309,6 +338,7 @@ class GuardBehaviorService:
             return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
 
     def update_camera_roi(self, site_id: int, camera_id: int, payload: dict) -> dict:
+        """锁定站点与摄像头，将校验后的车辆 ROI 写入专用配置。"""
         values = GuardBehaviorCameraRoiUpdate.model_validate(payload)
         with _write_session() as session:
             self._site(session, site_id, lock=True)
@@ -320,6 +350,7 @@ class GuardBehaviorService:
             return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
 
     def list_alarm_policies(self, site_id: int) -> list[dict]:
+        """读取并核对完整四类告警策略，配置缺失时显式失败。"""
         with closing(db.get_session()) as session:
             self._site(session, site_id)
             policies = (session.query(GuardBehaviorAlarmPolicy).filter_by(site_id=site_id)
@@ -329,6 +360,7 @@ class GuardBehaviorService:
             return [GuardBehaviorAlarmPolicyResponse.model_validate(policy).model_dump() for policy in policies]
 
     def update_alarm_policy(self, site_id: int, violation_type: int, payload: dict) -> dict:
+        """合并单类告警配置并验证喇叭绑定，在事务内保存最终策略。"""
         violation_type = require_alarm_type(violation_type)
         changes = GuardBehaviorAlarmPolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:

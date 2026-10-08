@@ -1,9 +1,8 @@
-"""
-alarms/dispatcher.py
-统一告警分发器 — 把"判断该不该告警 + 触发哪些通道"从 Consumer 里抽出来。
-consumer只负责"我检测到了违规"。AlarmDispatcher负责:这个违规应该怎么样报警
-流程:
-    Consumer检测到违规->构造AlarmRequest -> alarm_dispatcher.maybe_dispatch()->cooldown_key()确定谁是哪一种告警 -> 检查冷却 -> execute()【创建告警视频任务->同步触发IP喇叭-> violationwriter有微信save_now,没微信enqueue,wechat queue->_wechat_loop()->JPEG编码->生成告警URL->wechatnotifier.send()】
+"""统一告警冷却、证据选择与喇叭、数据库、企业微信分发。
+
+消费者负责提交已成立的业务异常，分发器按显式冷却主体控制重复通知。
+喇叭和微信使用后台队列；微信卡片需要告警 ID，因此启用微信时会先同步
+保存告警记录，即使独立 SQL 通道关闭也保留卡片所需记录。
 """
 from __future__ import annotations
 import queue
@@ -36,6 +35,7 @@ class AlarmEvidenceRequest:
     episode_token: str | None = None
 
     def __post_init__(self) -> None:
+        """校验证据源、模式和事件令牌，禁止普通片段或截图携带事件令牌。"""
         if not isinstance(self.source_key, str) or not self.source_key.strip():
             raise ValueError("证据源必须是非空字符串")
         if self.mode not in ("clip", "episode", "snapshot"):
@@ -83,6 +83,7 @@ class AlarmRequest:
     evidence: AlarmEvidenceRequest | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        """在请求创建时校验功能、事业部、告警类型与显式冷却身份。"""
         validate_alarm_identity(self.violation_type, self.feature_name, self.department)
         validate_cooldown_identity(self.cooldown_subject_type, self.cooldown_subject_id, self.violation_type)
         if self.evidence is not None and not isinstance(self.evidence, AlarmEvidenceRequest):
@@ -105,6 +106,7 @@ class AlarmDispatcher:
     """
     def __init__(self):
         # ---- 外部依赖（由 Orchestrator 通过 configure() 注入）----
+        """初始化未配置依赖的分发器，以及有界微信队列和受锁冷却表。"""
         self.horn_runtime_manager: HornRuntimeManager | None = None  # 统一管理实例与异步播放
         self.wechat: Optional[WeChatNotifier] = None  # 微信推送客户端
         self.violation_writer = None                  # ViolationWriter，负责 SQL 持久化
@@ -149,6 +151,7 @@ class AlarmDispatcher:
                 self._wechat_started = True
 
     def stop(self):
+        """通知微信线程停止并限时等待，仍在运行时保留已启动标志。"""
         with self._wechat_lifecycle_lock:
             self._wechat_stop_event.set()
             thread = self._wechat_thread
@@ -221,6 +224,7 @@ class AlarmDispatcher:
     # ------------------------------------------------------------------ #
 
     def _cancel_episode(self, req: AlarmRequest) -> None:
+        """取消不再需要的完整事件证据，清理失败仅记录告警。"""
         evidence = req.evidence
         if evidence is not None and evidence.mode == "episode" and evidence.episode_token and self.evidence_recorder:
             try:
@@ -229,6 +233,10 @@ class AlarmDispatcher:
                 logger.warning(f"[Alarm] 事件证据取消失败: {exc}")
 
     def _start_evidence(self, req: AlarmRequest) -> str | None:
+        """按截图、固定片段或完整事件选择取证入口。
+
+        完整事件缺少令牌时不生成替代短片，避免将不完整视频标为完整事件。
+        """
         evidence = req.evidence
         if evidence is None:
             return self.evidence_recorder.start_alarm(req.camera_key or req.camera_name, req.frame)
@@ -242,16 +250,10 @@ class AlarmDispatcher:
         return self.evidence_recorder.start_alarm(evidence.source_key, req.frame)
 
     def _execute(self, req: AlarmRequest):
-        """
-        按 alarm_config 中各通道的 enable 开关，依次触发喇叭、微信、SQL 三条链路。
-        读取alarm配置，判断微信是否可发送，判断SQL是否需要保存，判断是否需要告警证据录像
-        EvidenceRecorder.start_aralm(),horn.play(),SQL(有微信save_now(),没有微信enqueue()),wechat(put_nowait()后台线程发送)
+        """按各通道设置提交喇叭、持久化与微信任务，并隔离通道异常。
 
-
-        设计原则:
-            - 各通道相互独立，单个通道异常不影响其他通道执行。
-            - 微信通过队列异步发送；喇叭同步调用；SQL 通过 ViolationWriter 异步入队。
-            - SQL 遵循 sql.enable；旧请求未携带 sql 配置时保持原有写入行为。
+        喇叭播放只入队；微信卡片需同步取得告警 ID，普通 SQL 记录则异步入队。
+        数据库或证据失败会记录原因，后续通道仍按各自前置条件继续处理。
         """
         # req.alarm_config就是这次检测功能的告警配置
         alarm = req.alarm_config or {}

@@ -10,6 +10,7 @@ from .schema import AlarmDisposition, DispositionUpdate, DISPOSITION_HISTORY_LIM
 
 
 def disposition_dict(row: AiAlarmDisposition) -> dict:
+    """通过正式模型整理处置状态、操作者及历史，并将时间转为 ISO 文本。"""
     return AlarmDisposition(
         alarm_id=str(row.alarm_id), status=row.status, note=row.note,
         updated_at=row.updated_at.isoformat(), updated_by=row.updated_by, history=row.history,
@@ -17,6 +18,7 @@ def disposition_dict(row: AiAlarmDisposition) -> dict:
 
 
 def _query(session, user):
+    """普通用户只查询可访问告警的处置，管理员可查看证据过期后的处置历史。"""
     query = session.query(AiAlarmDisposition)
     # 管理员可以查看已过保留期的报警处置；普通用户需核验报警归属快照。
     if user["role"] != "admin":
@@ -26,6 +28,7 @@ def _query(session, user):
 
 
 def list_dispositions(user: dict, limit: int, cursor: str | None) -> dict:
+    """按告警 ID 升序游标分页，多取一项判断是否还有下一页。"""
     with get_session() as session:
         query = _query(session, user)
         if cursor is not None:
@@ -39,6 +42,7 @@ def list_dispositions(user: dict, limit: int, cursor: str | None) -> dict:
 
 
 def get_disposition(user: dict, alarm_id: str) -> dict:
+    """在用户可见范围内查询处置，不存在或不可见时返回 404。"""
     with get_session() as session:
         row = _query(session, user).filter(AiAlarmDisposition.alarm_id == int(alarm_id)).one_or_none()
         if row is None:
@@ -47,6 +51,10 @@ def get_disposition(user: dict, alarm_id: str) -> dict:
 
 
 def update_disposition(user: dict, payload: DispositionUpdate) -> dict:
+    """先锁告警再锁处置，校验访问权限后追加有界历史并保存当前操作者。
+
+    首次创建与后续更新遵循同一锁顺序，避免并发操作覆盖处置历史。
+    """
     with session_scope() as session:
         # 锁定报警主记录，使首次创建和后续更新按同一顺序串行，避免丢失处置历史。
         alarm = session.query(AiAlarmEvent).filter_by(id=int(payload.alarm_id)).with_for_update().one_or_none()

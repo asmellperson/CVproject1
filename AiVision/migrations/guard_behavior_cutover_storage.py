@@ -15,12 +15,14 @@ from sqlalchemy.engine import make_url
 
 
 def digest(path: Path) -> str:
+    """流式计算文件 SHA-256，供备份和归档完整性核验。"""
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def write_json(path: Path, value) -> None:
     # 快照含真实 RTSP 和旧推送配置，只落入受限的部署备份目录。
+    """独占写入权限为 0600 的迁移快照并同步落盘，拒绝非有限 JSON 数值。"""
     with path.open("x", encoding="utf-8") as stream:
         os.fchmod(stream.fileno(), 0o600)
         json.dump(value, stream, ensure_ascii=False, indent=2, default=str, allow_nan=False)
@@ -29,6 +31,7 @@ def write_json(path: Path, value) -> None:
 
 
 def require_stopped(port: int = 7862) -> None:
+    """检查相关 Python 进程及本机监听端口，发现仍运行的服务即拒绝切换。"""
     for process in Path("/proc").iterdir():
         if not process.name.isdecimal() or int(process.name) == os.getpid():
             continue
@@ -48,6 +51,7 @@ def require_stopped(port: int = 7862) -> None:
 
 
 def backup_database(url, destination: Path) -> None:
+    """按 SQLite 或 MySQL 生成完整数据库备份，失败或空文件时阻止继续迁移。"""
     url = make_url(url)
     if url.get_backend_name() == "sqlite":
         with sqlite3.connect(url.database) as source, sqlite3.connect(destination) as target:
@@ -73,6 +77,10 @@ def backup_database(url, destination: Path) -> None:
 
 def create_backup(directory: Path, *, source_url, target_url, model_config: Path,
                   old_root: Path, snapshot: dict) -> dict:
+    """备份数据库、模型配置、当前工作区源码与数据快照，并生成文件摘要清单。
+
+    已有完整备份只核验后复用；不覆盖未完成的备份目录，避免丢失恢复依据。
+    """
     manifest_path = directory / "backup.json"
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text())
@@ -100,6 +108,7 @@ def create_backup(directory: Path, *, source_url, target_url, model_config: Path
 
 
 def archive_assets(old_root: Path, destination: Path, inventory: list[dict]) -> None:
+    """核对源与目标摘要后复制运行资产并移除源文件，冲突或缺失时停止。"""
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     for entry in inventory:
         relative = Path(entry["path"])
@@ -124,6 +133,7 @@ def archive_assets(old_root: Path, destination: Path, inventory: list[dict]) -> 
 
 def asset_inventory(old_root: Path) -> list[dict]:
     # 源码另有完整备份；媒体、权重、配置、缓存等非源码资产保留原相对路径。
+    """枚举需归档的非源码资产及摘要，保留相对于原运行目录的路径。"""
     return [{"path": str(path.relative_to(old_root)), "sha256": digest(path)}
             for path in sorted(old_root.rglob("*")) if path.is_file()
             and path.suffix not in {".py", ".md", ".toml", ".txt", ".sh", ".pyc"}]

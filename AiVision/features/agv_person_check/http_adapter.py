@@ -9,6 +9,7 @@ class CallbackError(RuntimeError):
 
 
 def render_body(config: HttpConfigSchema, result: PersonCheckResult, *, camera_key: str, request_id: str):
+    """递归替换模板中的完整占位符值，保留结果原本的 JSON 数据类型。"""
     variables = {
         "${result}": config.present_value if result.person_present else config.absent_value,
         "${camera_key}": camera_key,
@@ -16,6 +17,7 @@ def render_body(config: HttpConfigSchema, result: PersonCheckResult, *, camera_k
     }
 
     def render(value):
+        """遍历对象和数组，仅替换与受支持占位符完全相等的字符串。"""
         if isinstance(value, dict):
             return {key: render(child) for key, child in value.items()}
         if isinstance(value, list):

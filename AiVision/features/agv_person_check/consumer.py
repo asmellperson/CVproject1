@@ -11,11 +11,14 @@ from .service import AgvPersonCheckService, CheckRequest, PersonCheckError
 
 
 class AgvPersonCheckConsumer(BaseFunctionConsumer):
+    """复用公共推理和告警能力，以外部请求触发有限窗口的人体检测。"""
     def __init__(self, **kwargs):
+        """建立请求聚合服务，实际采样仍在消费者线程中执行。"""
         super().__init__(**kwargs)
         self.service = AgvPersonCheckService()
 
     def submit(self, camera_key: str) -> CheckRequest:
+        """校验功能和摄像头可用性，按共享帧标识创建检测请求。"""
         with self._camera_state_lock:
             if not self.running:
                 raise PersonCheckError("unavailable", "AGV 检测功能未运行")
@@ -28,9 +31,11 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
 
     def _run(self):
         # 保留统一生命周期和结果路由，只把连续检测改为 HTTP 请求驱动。
+        """将消费者循环交给请求服务，仅为待判定请求调度采样。"""
         self.service.run(self._sample, lambda: self.running, self._on_result)
 
     def _on_result(self, request: CheckRequest, result: PersonCheckResult, frame):
+        """对最终有人判定触发告警，通知失败不改变已完成的检测结果。"""
         if not result.person_present:
             return
         try:
@@ -39,20 +44,28 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
             logger.exception(f"[agv_person_check] 有人告警失败 request_id={request.request_id}")
 
     def stop(self):
+        """停止帧处理并结束尚未完成的检测请求。"""
         super().stop()
         self.service.stop()
 
     def update_config(self, camera_id: int):
+        """先取消旧配置下的请求，再加载新配置，避免混合采样窗口。"""
         with self._camera_state_lock:
             self.service.cancel_camera(camera_id)
             super().update_config(camera_id)
 
     def update_status(self, camera_id: int, enabled: bool):
+        """启用状态改变时取消当前请求，并同步公共消费者状态。"""
         with self._camera_state_lock:
             self.service.cancel_camera(camera_id)
             super().update_status(camera_id, enabled)
 
     def _sample(self, request: CheckRequest):
+        """只接受请求创建后到达、尚未使用且未过期的帧。
+
+        在摄像头锁内核对配置对象身份；配置更换或摄像头失效时结束请求，
+        暂时没有新帧则返回 None，交由调度循环在请求截止前继续尝试。
+        """
         with self._camera_state_lock:
             if request.future.done():
                 return None
@@ -78,6 +91,7 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
             return frame, result[1]
 
     def _process(self, roi, camera_id: int) -> tuple[bool, PersonCheckResult]:
+        """将成功的人体推理转为布尔结果；失败状态抛错，不能作为无人证据。"""
         cfg = self.config_cache[camera_id]
         outcome = self.dispatch_inference_sync(
             camera_id, "yolo_human", roi,
@@ -90,4 +104,5 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
         return False, PersonCheckResult(person_present=bool(outcome["detections"]))
 
     def post_process(self, camera_id: int, result: tuple):
+        """提供包含公共标注的监控画面，检测结果由请求服务独立聚合。"""
         return self._annotated_frame(camera_id)

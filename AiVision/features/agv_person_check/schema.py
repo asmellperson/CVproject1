@@ -16,6 +16,7 @@ TEMPLATE_VARIABLES = frozenset({"${result}", "${camera_key}", "${request_id}"})
 
 
 class HttpConfigSchema(BaseModel):
+    """同步响应或回调模式的协议配置，独立于内部人体判断。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     mode: Literal["sync", "callback"] = "sync"
@@ -29,6 +30,7 @@ class HttpConfigSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_result_values(self):
+        """防止有人与无人被配置为相同 JSON 值，造成接收方无法区分。"""
         if self.present_value is not None and self.absent_value is not None:
             if json.dumps(self.present_value) == json.dumps(self.absent_value):
                 raise ValueError("有人返回值和无人返回值必须不同")
@@ -44,6 +46,7 @@ class HttpConfigSchema(BaseModel):
     @field_validator("callback_url")
     @classmethod
     def validate_url(cls, value: str) -> str:
+        """限制为有效 HTTP 地址，拒绝内嵌凭据、片段和非法端口。"""
         if value:
             parts = urlsplit(value)
             if (parts.scheme not in {"http", "https"} or not parts.hostname
@@ -55,6 +58,7 @@ class HttpConfigSchema(BaseModel):
     @field_validator("headers")
     @classmethod
     def validate_headers(cls, value: dict[str, str]) -> dict[str, str]:
+        """校验 Header 名称及可编码值，拒绝换行注入和开头空白。"""
         for name, content in value.items():
             if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name):
                 raise ValueError("HTTP Header 名称不合法")
@@ -74,6 +78,7 @@ class HttpConfigSchema(BaseModel):
         found = set()
 
         def visit(item):
+            """递归检查占位符位置与名称，禁止把动态变量写入 JSON 键。"""
             if isinstance(item, dict):
                 if any("${" in key for key in item):
                     raise ValueError("模板占位符只能用于 JSON 值")
@@ -94,6 +99,7 @@ class HttpConfigSchema(BaseModel):
 
 
 class AgvPersonCheckValueSchema(BaseModel):
+    """约束多帧无人确认窗口、帧新鲜度和推理超时。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
@@ -109,12 +115,14 @@ class AgvPersonCheckValueSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_window(self):
+        """保证请求窗口长于最少采样间隔与一次推理等待之和。"""
         if self.request_timeout_seconds <= (self.sample_count - 1) * self.cap_interval + self.inference_timeout_seconds:
             raise ValueError("请求超时必须大于采样间隔总时长与单帧推理超时之和")
         return self
 
 
 class AgvPersonCheckConfigSchema(BaseModel):
+    """组合 AGV 检测开关、采样与通信配置及告警通道。"""
     model_config = ConfigDict(extra="forbid", strict=True)
 
     enable: bool = False

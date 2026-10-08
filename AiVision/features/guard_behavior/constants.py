@@ -70,6 +70,7 @@ ALARM_POLICY_DEFAULTS = MappingProxyType({
 
 
 def require_alarm_type(violation_type: int) -> int:
+    """只接受保安室支持的整数告警类型，排除布尔值及其他业务类型。"""
     if type(violation_type) is not int or violation_type not in GUARD_ALARM_TYPES:
         raise ValueError("保安室报警类型必须属于 GUARD_ALARM_TYPES")
     return violation_type

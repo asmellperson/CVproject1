@@ -18,23 +18,28 @@ HEALTH_CHECK_TIMEOUT_SEC = 3
 
 
 class VlmError(RuntimeError):
+    """区分通信、JSON 封装、字段和业务判定错误，供运行状态展示。"""
     def __init__(self, category: Literal["HTTP_ERROR", "JSON_ERROR", "FIELD_ERROR", "RESULT_ERROR"], detail: str):
+        """保留稳定错误分类，同时构造可读异常摘要。"""
         self.category = category
         super().__init__(f"[{category}] {detail}")
 
 
 class _ChatMessage(BaseModel):
+    """约束模型消息中的文本与拒绝字段。"""
     content: str | None
     refusal: str | None = None
 
 
 class _ChatChoice(BaseModel):
+    """描述唯一候选的消息与生成结束原因。"""
     message: _ChatMessage
     finish_reason: str
 
 
 class _ChatCompletion(BaseModel):
     # 传输层只读取单次判定需要的字段，id、usage 等标准元数据不进入业务层。
+    """要求模型响应恰好包含一个候选，避免判定来源不明确。"""
     choices: list[_ChatChoice] = Field(min_length=1, max_length=1)
 
 
@@ -75,6 +80,7 @@ def parse_completion(body: str) -> InspectionVerdict:
 
 
 def encode_frames(frames, settings: VlmSettings) -> list[bytes]:
+    """按最长边限制缩小关键帧并编码 JPEG，编码失败显式抛错。"""
     encoded = []
     for frame in frames:
         height, width = frame.shape[:2]
@@ -89,8 +95,10 @@ def encode_frames(frames, settings: VlmSettings) -> list[bytes]:
 
 
 class VlmClient:
+    """调用内部 Chat Completions 服务，返回经过严格校验的安检判定。"""
     @staticmethod
     def _headers() -> dict[str, str]:
+        """按需从环境注入 Bearer 凭据，不把认证信息写入业务配置。"""
         headers = {"Content-Type": "application/json"}
         api_key = os.environ.get("SECURITY_VLM_API_KEY", "").strip()
         if api_key:
@@ -124,6 +132,11 @@ class VlmClient:
         return VlmHealth(reachable=True)
 
     def judge(self, frames: list[bytes], settings: VlmSettings) -> tuple[InspectionVerdict, float]:
+        """发送至少两张关键帧与固定安检提示词，返回结构化判定及耗时。
+
+        请求关闭重定向和流式输出，HTTP 或响应契约异常通过 VlmError 报告，
+        不能把通信失败解释为安检合格。
+        """
         if len(frames) < 2:
             raise ValueError("至少需要两张关键帧")
         content = [

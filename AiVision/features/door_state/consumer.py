@@ -53,6 +53,7 @@ from AiVision.features._shared.consumer import BaseFunctionConsumer
 class DoorConsumer(BaseFunctionConsumer):
     """门禁检测 — 上一帧/参考背景帧差、连续确认与双阶段告警"""
     def __init__(self, *args, **kwargs):
+        """为每路摄像头隔离参考背景、连续确认和首次告警计时状态。"""
         super().__init__(*args, **kwargs)
         # 上一次处理的灰度图
         self._pre_gray: dict[int, np.ndarray] = {}
@@ -64,6 +65,11 @@ class DoorConsumer(BaseFunctionConsumer):
         self._alarm_state: dict[int, dict] = {}
 
     def _process(self, roi, camera_id):
+        """比较上一帧与参考背景，过滤整体扰动后确认持续的局部变化。
+
+        首帧只建立背景；未出现候选变化时才缓慢更新背景，避免持续开门状态
+        被吸收到参考图中。返回告警候选标志和变化比例、稳定性等监控信息。
+        """
         cfg = self.config_cache[camera_id]
         diff_thr = cfg["diff_threshold"]
         ratio_thr = cfg["threshold"]
@@ -132,6 +138,7 @@ class DoorConsumer(BaseFunctionConsumer):
         return result
 
     def post_process(self, camera_id, result):
+        """在已确认异常的 ROI 上叠加颜色，保留原始监控帧供其他用途使用。"""
         frame = self._annotated_frame(camera_id)
         if frame is None:
             return None
@@ -145,11 +152,13 @@ class DoorConsumer(BaseFunctionConsumer):
         return frame
 
     def _on_roi_changed(self, camera_id: int) -> None:
+        """ROI 改变后丢弃原区域的背景和告警计时，重新建立基准。"""
         super()._on_roi_changed(camera_id)
         for cache in (self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
             cache.pop(camera_id, None)
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        """随摄像头退出清理帧差和告警状态，避免下次启动继承旧背景。"""
         super()._clear_camera_state(camera_id, shm_name)
         for cache in (self._pre_gray, self._bg_gray, self._candidate_state, self._alarm_state):
             cache.pop(camera_id, None)
@@ -175,6 +184,7 @@ class DoorConsumer(BaseFunctionConsumer):
         return state["hits"] >= hits and now - float(state["start"]) >= seconds
 
     def _reset_candidate(self, camera_id: int):
+        """打断连续确认链，后续变化必须重新累计时间与命中次数。"""
         state = self._candidate_state.setdefault(
             camera_id,
             {"start": None, "hits": 0},
@@ -183,6 +193,7 @@ class DoorConsumer(BaseFunctionConsumer):
         state["hits"] = 0
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
+        """允许静止画面持续计时，以确认保持不动的门状态。"""
         return True
 
     def _should_alarm(self, camera_id, result, cfg):

@@ -11,6 +11,7 @@ from typing import TypedDict         # 告诉Python类型检查器，这个字�
 
 
 class AlarmTypeMeta(TypedDict):
+    """正式告警类型的事件标识与展示名称，不代替功能或事业部归属。"""
     event_type: str                    # 比如detect_phone
     label: str                         # 比如手机检测
 

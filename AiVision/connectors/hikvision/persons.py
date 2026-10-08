@@ -15,12 +15,14 @@ PERSON_PICTURE_PATH = "/api/resource/v1/person/picture"
 
 
 class PersonPhoto(BaseModel):
+    """外部人员照片定位信息，保留 picUri/serverIndexCode 别名但不在 repr 中展示。"""
     model_config = ConfigDict(populate_by_name=True, frozen=True)
     pic_uri: str | None = Field(default=None, alias="picUri", repr=False)
     server_index_code: str | None = Field(default=None, alias="serverIndexCode", repr=False)
 
 
 class HikvisionPerson(BaseModel):
+    """经校验的不可变海康人员字段，外部 person_id 需由业务结合平台来源使用。"""
     model_config = ConfigDict(populate_by_name=True, frozen=True)
     person_id: str = Field(alias="personId", min_length=1, repr=False)
     person_name: str | None = Field(default=None, alias="personName", repr=False)
@@ -34,6 +36,7 @@ class HikvisionPerson(BaseModel):
 
 
 class PersonPage(BaseModel):
+    """单页人员响应及分页元数据；全来源完整性仍由同步任务跨页核验。"""
     model_config = ConfigDict(populate_by_name=True, frozen=True)
     total: int = Field(ge=0)
     page_no: int = Field(alias="pageNo", ge=1)
@@ -45,9 +48,11 @@ class HikvisionPersons:
     """外部人员接口。client 的生命周期由调用方管理，可在同一平台复用连接。"""
 
     def __init__(self, client: HikvisionClient):
+        """复用调用方管理的客户端，不另建连接池或承担其关闭责任。"""
         self.client = client
 
     def list_persons(self, page_no: int = 1, page_size: int = 10) -> PersonPage:
+        """查询并校验一页人员，页码与大小必须为正整数；响应结构错误转换为 HikvisionError。"""
         if any(type(value) is not int or value < 1 for value in (page_no, page_size)):
             raise ValueError("page_no and page_size must be positive integers")
         result = self.client.post_json(PERSON_LIST_PATH, {"pageNo": page_no, "pageSize": page_size})
@@ -59,6 +64,7 @@ class HikvisionPersons:
         return page
 
     def get_person(self, person_id: str) -> HikvisionPerson:
+        """按非空外部 personId 查询并校验人员详情，不创建或更新本地人员记录。"""
         if not isinstance(person_id, str) or not person_id.strip():
             raise ValueError("person_id must be a nonempty string")
         result = self.client.post_json(PERSON_INFO_PATH, {"personId": person_id})

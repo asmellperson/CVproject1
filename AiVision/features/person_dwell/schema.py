@@ -1,4 +1,4 @@
-"""features/person_dwell/schema.py"""
+"""人员逗留参数校验，包括人体框宽高比范围与跨帧跟踪稳定性参数。"""
 from typing import List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -7,6 +7,7 @@ from AiVision.features._shared import defaults
 from AiVision.features._shared.roi import NormalizedRoi
 
 class HumanValueSchema(BaseModel):
+    """约束检测、跟踪和停留计时参数，拒绝非有限数值与未知字段。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     CONF_THRESHOLD: float = Field(0.3, ge=0, le=1)
@@ -27,11 +28,13 @@ class HumanValueSchema(BaseModel):
     @field_validator("ASPECT_RATIO_RANGE")
     @classmethod
     def validate_aspect_range(cls, value):
+        """保证宽高比下限非负且不大于上限，避免所有候选框被错误过滤。"""
         if not 0 <= value[0] <= value[1]:
             raise ValueError("宽高比范围必须满足 0 <= 下限 <= 上限")
         return value
 
 class HumanConfigSchema(BaseModel):
+    """包装人员逗留的功能开关、参数和告警配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: HumanValueSchema = Field(default_factory=HumanValueSchema)

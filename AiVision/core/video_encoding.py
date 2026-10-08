@@ -1,6 +1,7 @@
-"""确保生成的告警MP4能被浏览器<video>正常播放
-主要依赖于系统两个指令：ffprobe(检查视频编码格式)
-                       ffmpeg（必要时重新编码）
+"""检查告警 MP4 编码，并在需要时转换成浏览器可播放的 H.264/yuv420p。
+
+通过 ffprobe 探测、ffmpeg 转码，进程内锁避免并发重复处理；先写临时文件再原子替换。
+调用方负责提供已生成的视频及处理 VideoEncodingError，这里不采集视频或判断告警。
 """
 from __future__ import annotations
 

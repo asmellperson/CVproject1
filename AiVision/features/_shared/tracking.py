@@ -1,12 +1,8 @@
-"""
-features/_shared/tracking.py
-通用 IOU 多目标跟踪器
+"""轻量多目标跟踪：综合 IoU、中心距离和面积相似度进行贪心一对一匹配。
 
-上一帧Tracking + 当前检测框，每一对计算IOU 、Center Distance、Area Similarity得到综合分数
-综合分数大于等于0.35按分数从高到底贪心匹配，匹配成功，更新bbox/ velocity / last_seen
-旧 Track 未匹配：lost 按跟踪更新次数加 1，velocity 预测 bbox，超过 MAX_LOST 时删除（默认允许 5 次）
-新Detection未匹配，新建Track，first_seen=当前时间
-
+只有达到配置的 match_score_thr 才参与匹配；丢失轨迹按上一位移预测位置，
+超过 max_lost 次跟踪更新后移除。时间轴可由调用方注入，逗留检测可据此
+排除观测故障期间的时间，避免把无有效画面的间隔算入停留时长。
 """
 from __future__ import annotations
 import time
@@ -48,7 +44,7 @@ class Track:
         new_cx, new_cy = box_center(bbox)
         # 得到位移
         self.velocity = (new_cx - old_cx, new_cy - old_cy)
-        # 检测框平滑Bt​=(1−α)Bt−1​+αBdet​，当前α = 0.7，旧框占 30%，新检测框占 70%(检测框中心会按这个去走)
+        # 按配置权重在历史框与新检测框之间平滑，降低框位置的单帧抖动。
         self.bbox = smooth_box(self.bbox, list(bbox), smooth_alpha)
         self.last_seen = time.time() if now is None else now
         self.lost = 0
@@ -64,24 +60,19 @@ class Track:
     @property
     def dwell_time(self) -> float:
         # 逗留时间
+        """返回轨迹首次出现到最近一次更新之间的观测时长。"""
         return self.last_seen - self.first_seen
 
 class IouTracker:
-    """基于 IoU + 中心点距离 + 面积变化的轻量多目标跟踪器
-    
-    中心点距离：框尺度归一化后采用欧式距离计算（中心位置分数0~1）
-    面积相似度：使用这一帧的面积/上一帧的面积
-    最终匹配分数：0.55*IOU分数 + 0.30* 中心距离分数 + 0.15*面积相似度分数
+    """基于框重叠、归一化中心距离与尺度一致性的多目标跟踪器。
 
-    用法:
+    面积相似度使用较小框面积与较大框面积之比。匹配得分由 IoU、中心距离
+    和面积相似度加权，配置阈值决定候选是否可参与贪心匹配。
+
+    Example:
         tracker = IouTracker(iou_thr=0.3, max_lost=5)
-        for frame in stream:
-            detections = [{"bbox": [...]}, ...]
-            tracks = tracker.update(detections)
-            for tid, track in tracks.items():
-                if track.lost == 0 and track.dwell_time >= 10:
-                    track.alarmed = True
-                # 仅当前可见且 alarmed 的轨迹参与本次告警，通知由分发器控制冷却。
+        tracks = tracker.update([{'bbox': [10, 20, 40, 80]}])
+        visible = {key: track for key, track in tracks.items() if track.lost == 0}
     """
 
     def __init__(
@@ -93,6 +84,7 @@ class IouTracker:
         match_score_thr: float = defaults.MATCH_SCORE_THR,
         smooth_alpha: float = defaults.TRACK_SMOOTH_ALPHA,
     ):
+        """设置匹配、丢失容忍和位置平滑参数，初始化独立的轨迹编号空间。"""
         self.iou_thr = iou_thr
         self.max_lost = max_lost
         self.center_dist_thr = center_dist_thr
@@ -103,16 +95,15 @@ class IouTracker:
         self._next_id = 1
 
     def update(self, detections: list[dict], *, now: float | None = None) -> dict[int, Track]:
-        """
-        用当前帧检测结果刷新所有轨迹。
+        """用当前检测刷新轨迹，未匹配检测创建新轨迹，长期丢失轨迹被移除。
 
-        当前是贪心匹配：
-            会对每一个轨迹，以及当前检测到的每一个框做匹配，达到>=0.35的放进candidates
-            然后按分数从高到低排序，匹配分数最高的（一对一匹配）
-        
-        detections: [{"bbox": [x1,y1,x2,y2], ...}, ...]
-        返回更新后的 {track_id: Track}
-        now：调用方提供的计时秒数；逗留检测使用扣除推理故障间隔的观测时间轴。
+        Args:
+            detections: 含 bbox=[x1, y1, x2, y2] 的检测列表。
+            now: 调用方时间轴上的秒数；省略时使用 time.time()。
+
+        Returns:
+            内部 track_id 到 Track 的映射，包含尚处丢失容忍期的轨迹。
+            调用方统计当前可见目标时应过滤 lost != 0 的轨迹。
         """
         now = time.time() if now is None else now
         used_tracks: set[int] = set()
@@ -149,6 +140,7 @@ class IouTracker:
         return self._tracks
 
     def _match_score(self, track_box: list[float], det_box: list[float]) -> float:
+        """综合重叠、中心距离与面积相似度匹配，先排除明显不相容的候选框。"""
         iou_score = iou(track_box, det_box)
         # 如果 IoU 低于配置的跟踪阈值，那么至少要求“中心还比较近，而且面积还比较像”。
         center_score = 1.0 - min(1.0, center_distance_ratio(track_box, det_box) / max(self.center_dist_thr, 1e-6))
@@ -159,19 +151,24 @@ class IouTracker:
 
     @property
     def tracks(self) -> dict[int, Track]:
+        """返回内部轨迹映射，调用方应避免直接修改跟踪状态。"""
         return self._tracks
 
     def reset(self):
+        """清空轨迹并重置编号，用于配置变更后重新开始跟踪。"""
         self._tracks.clear()
         self._next_id = 1
 
 def box_center(box: list[float]) -> tuple[float, float]:
+    """计算框中心，供空间距离匹配使用。"""
     return ((float(box[0]) + float(box[2])) / 2.0, (float(box[1]) + float(box[3])) / 2.0)
 
 def box_area(box: list[float]) -> float:
+    """计算有效框面积，将倒置边界视为零面积。"""
     return max(0.0, float(box[2]) - float(box[0])) * max(0.0, float(box[3]) - float(box[1]))
 
 def center_distance_ratio(box_a: list[float], box_b: list[float]) -> float:
+    """按第一个框的最大边长归一化中心距离，降低目标尺度变化的影响。"""
     ax, ay = box_center(box_a)
     bx, by = box_center(box_b)
     aw = max(1.0, float(box_a[2]) - float(box_a[0]))
@@ -180,6 +177,7 @@ def center_distance_ratio(box_a: list[float], box_b: list[float]) -> float:
     return (((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5) / scale
 
 def area_similarity(box_a: list[float], box_b: list[float]) -> float:
+    """用较小面积与较大面积之比评估尺度一致性，退化框返回零。"""
     area_a = box_area(box_a)
     area_b = box_area(box_b)
     if area_a <= 0 or area_b <= 0:
@@ -187,6 +185,7 @@ def area_similarity(box_a: list[float], box_b: list[float]) -> float:
     return min(area_a, area_b) / max(area_a, area_b)
 
 def smooth_box(old_box: list[float], new_box: list[float], alpha: float) -> list[float]:
+    """限制平滑权重到零至一，在历史框与新框之间进行线性平滑。"""
     alpha = max(0.0, min(1.0, float(alpha)))
     return [
         float(old_value) * (1.0 - alpha) + float(new_value) * alpha

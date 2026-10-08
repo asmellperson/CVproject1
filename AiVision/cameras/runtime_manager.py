@@ -113,7 +113,7 @@ class CameraRuntimeManager:
         return self._start_one(shm_name, cfg, active_index, frame_seq)
 
     def stop_camera(self, shm_name: str):
-        ""
+        """按摄像头锁停止读帧与采集，停止失败时恢复运行引用，避免遗失仍存活的子进程。"""
         with self._camera_lock(shm_name):
             with self._lock:
                 # 先从运行列表中移除
@@ -165,9 +165,11 @@ class CameraRuntimeManager:
 
     # ---------- 状态查询(供 Orchestrator/API 用) ----------
     def is_running(self, shm_name: str) -> bool:
+        """检查管理器是否登记该运行实例，不单独探测进程存活或最新帧时间。"""
         return shm_name in self._runtimes
 
     def list_running(self) -> list[str]:
+        """返回当前登记的共享内存名列表，供编排器汇总摄像头状态。"""
         return list(self._runtimes.keys())
 
     def configure_runtime_alerts(
@@ -182,6 +184,7 @@ class CameraRuntimeManager:
 
     # ---------- 内部 ----------
     def _camera_lock(self, shm_name: str):
+        """按共享内存名复用可重入锁，使同一路启停串行而不同摄像头仍可独立管理。"""
         with self._lock:
             return self._camera_locks.setdefault(shm_name, threading.RLock())
 
@@ -195,6 +198,10 @@ class CameraRuntimeManager:
 
     def _start_one_locked(self, shm_name: str, cfg, active_index, frame_seq) -> bool:
         # camera总开关关闭就不启动
+        """在单摄像头锁内启动采集并注册帧读取，只有两阶段均成功才登记为运行中。
+
+        配置、探测或首帧失败会通知上层并返回 False；读取注册失败会回收已经启动的采集。
+        """
         if not cfg.get("enable", True):
             logger.info(f"[CameraRuntimeManager] 跳过禁用的摄像头: {shm_name}")
             return False
@@ -294,6 +301,7 @@ class CameraRuntimeManager:
         self._watchdog_thread.start()
 
     def _stop_watchdog(self):
+        """清除监控运行标志并限时等待线程，不在此停止各摄像头采集。"""
         self._watchdog_running = False
         if self._watchdog_thread is not None:
             self._watchdog_thread.join(timeout=2)
@@ -395,7 +403,7 @@ class CameraRuntimeManager:
             )
 
     def _notify_runtime_alert(self, shm_name: str, camera_name: str, event_type: str, detail: str):
-        """"""
+        """按摄像头与事件类型控制通知冷却，再由守护线程调用上层异常处理器。"""
         # 没有上层注入handler，不发通知
         handler = self._runtime_alert_handler
         if handler is None:
@@ -410,6 +418,7 @@ class CameraRuntimeManager:
         self._last_runtime_alerts[key] = now
 
         def _send():
+            """发送已通过冷却判断的异常通知，失败仅记日志，不阻断采集恢复。"""
             try:
                 handler(camera_name, shm_name, event_type, detail)
             except Exception as e:

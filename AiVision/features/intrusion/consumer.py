@@ -1,7 +1,7 @@
-"""
-features/intrusion/consumer.py
-区域入侵检测，
-先用YOLO检测人，再取人体框接近脚底位置作为代表点，判断这个点位于警戒线哪一侧，如果落再配置入侵侧就报警
+"""区域入侵检测：以人体框靠近脚底的代表点判断人员是否处于警戒线指定侧。
+
+检测结果表示入侵侧存在人员，不要求观测到完整跨线过程。ROI 内的检测坐标
+需还原到原帧坐标后，才能与归一化警戒线转换出的像素坐标比较。
 """
 from __future__ import annotations
 import cv2
@@ -89,6 +89,7 @@ class BlocksConsumer(BaseFunctionConsumer):
 
     @classmethod
     def _line_config(cls, config: dict, frame: np.ndarray | None) -> tuple[list[list[float]], int]:
+        """校验归一化警戒线，按当前帧尺寸转换坐标并保留配置的入侵方向。"""
         raw_points = config["line_points"]
         points = LINE_ADAPTER.validate_python(raw_points)
         if frame is not None:
@@ -99,6 +100,7 @@ class BlocksConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _foot_point(bbox, foot_ratio: float) -> list[float] | None:
+        """按高度比例选取人体代表点；检测框缺失或坐标不可转换时返回 None。"""
         if not isinstance(bbox, list) or len(bbox) < 4:
             return None
         try:

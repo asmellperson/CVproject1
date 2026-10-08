@@ -1,4 +1,7 @@
-"""物流通道共享常量与功能白名单。"""
+"""物流通道功能白名单、默认检测参数和成员容量限制。
+
+默认值供配置模型及持久化模型共同使用；运行时以通道已保存策略为准。
+"""
 from __future__ import annotations
 
 from datetime import time

@@ -21,7 +21,9 @@ class FeatureAssignmentConflict(ValueError):
 
 
 class DepartmentService:
+    """连接固定事业部目录与数据库功能分配，按版本号原子保存全量配置。"""
     def __init__(self, session_factory=get_session):
+        """注入 Session 工厂便于隔离事务与测试，构造时不读取数据库。"""
         self._session_factory = session_factory
 
     def list_departments(self) -> list[DepartmentSpec]:

@@ -34,6 +34,7 @@ _CJK_FONT_PATHS = (
 @dataclass(frozen=True)
 class CameraTile:
 
+    """一个拼图格子的画面、摄像头身份、人数事实和占位原因。"""
     camera_id: int
     camera_name: str
     frame: np.ndarray | None
@@ -55,6 +56,7 @@ def layout_for_count(count: int) -> tuple[int, int]:
     return 3, 3
 
 def _validated_size(target_size: tuple[int, int]) -> tuple[int, int]:
+    """校验输出格子尺寸为有界正整数，拒绝布尔值和过大分配。"""
     if not isinstance(target_size, tuple) or len(target_size) != 2:
         raise ValueError("target_size 必须是一个 (宽度，高度) 元组")
     width, height = target_size
@@ -70,6 +72,7 @@ def _validated_size(target_size: tuple[int, int]) -> tuple[int, int]:
     return int(width), int(height)
 
 def _as_bgr(frame: np.ndarray | None) -> np.ndarray:
+    """把有效 uint8 灰度或 BGRA 画面转换为 BGR，三通道输入返回副本。"""
     if not isinstance(frame, np.ndarray) or frame.dtype != np.uint8 or frame.size == 0:
         raise ValueError("frame 必须是一张非空的 uint8 类型图像")
     if frame.ndim == 2:
@@ -112,6 +115,7 @@ def letterbox(
     return np.ascontiguousarray(canvas)
 
 def _display_text(value: object, fallback: str) -> str:
+    """清除控制字符并限制显示长度，空内容使用指定占位文本。"""
     text = str(value or fallback)
     visible = "".join(" " if character in "\n\r" else character for character in text if not unicodedata.category(character).startswith("C"))
     return visible.strip()[:_MAX_TEXT_LENGTH] or fallback
@@ -123,6 +127,7 @@ def _available_font_paths() -> tuple[str, ...]:
 
 @lru_cache(maxsize=32)
 def _load_font(font_path: str | None, size: int):
+    """依次尝试指定或候选字体，失败记录原因并退回 Pillow 默认字体。"""
     candidates = (font_path,) if font_path else _available_font_paths()
     for candidate in candidates:
         try:
@@ -136,6 +141,7 @@ def _load_font(font_path: str | None, size: int):
         return None
 
 def _truncate_for_width(text: str, draw, font, max_width: int | None) -> str:
+    """按实际字体测量宽度截断文本，以省略号保留布局边界。"""
     if max_width is None or max_width <= 0 or draw.textlength(text, font=font) <= max_width:
         return text
     suffix = "…"
@@ -193,6 +199,7 @@ def render_placeholder(camera_name: str, detail: str, target_size: tuple[int, in
     return np.ascontiguousarray(canvas)
 
 def _render_camera_tile(tile: CameraTile, tile_size: tuple[int, int]) -> np.ndarray:
+    """在线有效画面等比缩放，离线或无效帧生成稳定占位格子。"""
     if not tile.online:
         explanation = tile.detail or "offline"
         image = render_placeholder(tile.camera_name, explanation, tile_size)

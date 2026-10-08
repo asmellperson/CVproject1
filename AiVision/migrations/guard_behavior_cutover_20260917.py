@@ -87,6 +87,7 @@ PUBLIC_FIELDS = {
 
 @dataclass
 class PrecheckReport:
+    """收集只读预检的阻断项、字段处置、模型和历史资产计划。"""
     blockers: list[dict] = field(default_factory=list)
     planned_actions: list[dict] = field(default_factory=list)
     sites: list[dict] = field(default_factory=list)
@@ -96,9 +97,11 @@ class PrecheckReport:
     field_dispositions: list[dict] = field(default_factory=list)
 
     def block(self, code: str, detail: str, **identity) -> None:
+        """追加带资源身份的阻断原因，供操作员统一处理。"""
         self.blockers.append({"code": code, "detail": detail, **identity})
 
     def payload(self) -> dict:
+        """汇总预检状态与数量，明确报告只读且未执行计划动作。"""
         return {
             "revision": REVISION, "mode": "preflight", "read_only": True,
             "result": "PRECHECK BLOCKED" if self.blockers else "PRECHECK PASS",
@@ -121,6 +124,7 @@ def redact_url(value: str) -> str:
 
 
 def database_location(url) -> str:
+    """生成不含认证信息的数据库位置说明。"""
     value = make_url(url)
     return str(value.set(username=None, password=None, query={})) if value.get_backend_name() == "sqlite" else (
         f"{value.get_backend_name()}://{value.host}:{value.port or 3306}/{value.database}"
@@ -157,6 +161,7 @@ def read_only_connection(url):
 
 
 def read_tables(connection, names: tuple[str, ...], report: PrecheckReport, label: str) -> dict:
+    """读取已存在的指定表，区分缺少必需源表与尚待创建的目标表。"""
     existing = set(inspect(connection).get_table_names())
     missing = sorted(set(names) - existing)
     required_missing = sorted(set(missing) - set(NEW_TABLES))
@@ -264,10 +269,12 @@ FIELD_CATALOG = {'video': ['source',
 
 
 def field_catalog() -> dict[str, list[str]]:
+    """复制冻结的历史字段目录，允许预检局部补充动态摄像头槽位。"""
     return {key: list(values) for key, values in FIELD_CATALOG.items()}
 
 
 def dispositions(catalog: dict[str, list[str]], report: PrecheckReport) -> None:
+    """为每个历史字段列明迁移、默认值或删除方案，未分类字段阻止切换。"""
     known = {key: ("迁移", f"SitePolicy.{target}") for key, target in POLICY_FIELDS.items()}
     known.update({f"models.{key}": ("迁移", f"公共 model_paths.yaml: {name}，仅列计划，须确认本机路径")
                   for key, (name, _) in MODEL_FIELDS.items()})
@@ -304,6 +311,7 @@ def audit_extra_tables(connection, report: PrecheckReport) -> None:
 
 
 def convert_roi(value, room: dict) -> tuple[list, str]:
+    """只在明确旧画面尺寸时把像素 ROI 归一化，已归一化坐标直接校验。"""
     from AiVision.features._shared.roi import ROI_ADAPTER
     if not isinstance(value, list):
         raise ValueError("ROI 必须为点列表")
@@ -322,6 +330,7 @@ def convert_roi(value, room: dict) -> tuple[list, str]:
 
 
 def plan_cameras(site: dict, cameras: list[dict], target: dict, report: PrecheckReport, claimed: dict) -> list[dict]:
+    """按同事业部完整 RTSP 精确匹配物理摄像头，重复、歧义或跨部冲突均阻断。"""
     result = []
     if len(cameras) > MAX_CAMERAS_PER_SITE:
         report.block("camera_limit", "Site Camera 超过 9 路", site_id=site["id"])
@@ -370,6 +379,11 @@ def plan_cameras(site: dict, cameras: list[dict], target: dict, report: Precheck
 
 
 def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, report: PrecheckReport, env: dict) -> dict:
+    """转换站点检测与告警策略，显式映射旧摄像头槽位并核对公共凭据。
+
+    已有站点以数据库 JSON 为准；非空 ROI 必须能归属到确定摄像头，
+    未知字段、类别偏差或非法参数不会自动猜测修正。
+    """
     from pydantic import ValidationError
     from AiVision.features.guard_behavior.schema import GuardBehaviorSitePolicySchema, GuardBehaviorSitePolicyUpdate, GuardBehaviorRuntimeAlarmPolicy
     sections = {}
@@ -458,6 +472,7 @@ def plan_config(site: dict, config: dict, members: list[dict], catalog: dict, re
 
 
 def inspect_models(plans: list[dict], model_config: Path, old_root: Path, report: PrecheckReport, model_paths: dict | None = None) -> None:
+    """核对公共模型路径有效性、归档目录边界及新旧权重的物理文件一致性。"""
     from AiVision.inference.model_paths import _read_document, validate_model_path
     try:
         source, _ = _read_document(model_config)
@@ -491,6 +506,7 @@ def inspect_models(plans: list[dict], model_config: Path, old_root: Path, report
 
 
 def inspect_history(plans: list[dict], old_root: Path, yaml_config: dict, report: PrecheckReport) -> None:
+    """只读统计历史文件并计算摘要，记录归档范围，不把旧事件直接写入新告警表。"""
     roots = {old_root.resolve()}
     for sections in [yaml_config, *(plan["sections"] for plan in plans)]:
         raw = sections.get("video", {}).get("output_dir")
@@ -531,6 +547,10 @@ def inspect_history(plans: list[dict], old_root: Path, yaml_config: dict, report
 
 
 def preflight(source, target_connection, *, old_root: Path, model_config: Path, guard_config: Path, env: dict, model_paths: dict | None = None) -> dict:
+    """读取源目标快照，集中核对字段、站点、成员、策略、模型及历史资产。
+
+    返回所有可报告阻断项与计划动作，本函数不创建目标表或执行数据写入。
+    """
     from pydantic import ValidationError
     from AiVision.features.guard_behavior.schema import GuardBehaviorSiteCreate
     report = PrecheckReport()
@@ -585,6 +605,11 @@ def preflight(source, target_connection, *, old_root: Path, model_config: Path, 
 
 
 def execute_cutover(args, values, source_url, target_url, model_config, guard_config):
+    """协调停机核验、可复用备份、数据迁移、模型路径保存及资产归档。
+
+    默认仅返回预检；apply 与 verify 要求停机，已存备份必须完整核验。
+    旧表退役独立于数据迁移，仅在 verify 配合 retire 且全部核验成功后执行。
+    """
     from sqlalchemy.orm import Session
     from .guard_behavior_cutover_storage import (
         archive_assets, asset_inventory, create_backup, require_stopped, write_json,
@@ -669,6 +694,7 @@ def execute_cutover(args, values, source_url, target_url, model_config, guard_co
 
 
 def main(argv=None) -> int:
+    """解析预检、应用与核验入口，旧表退役只允许与 verify 组合，输出脱敏结果。"""
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--preflight", action="store_true", help="默认只读计划")

@@ -1,12 +1,8 @@
-"""
-features/_shared/orm.py
-功能配置 ORM 基类
+"""摄像头功能配置的公共 ORM 字段和序列化基类。
 
-_CommonFieldsMixin: 摄像头功能开关、标识与时间戳。
-_AlarmFieldMixin: 声明sql_enable、horn_enable、horn_id 、horn_event_id、wechat_enable、wechat_user等告警字段
-
-用 SQLAlchemy mixin + 抽象基类把这些字段抽出来。
-每个 features/{name}/orm.py 只需要定义自己的特有字段。
+_CommonFieldsMixin 提供摄像头身份、功能开关与时间戳；_AlarmFieldsMixin
+提供直接告警功能所需的冷却和通道参数。具体功能只声明特有业务列，
+通过各基类的字段排除集合生成统一 enable/value 或 enable/value/alarm 结构。
 """
 from __future__ import annotations
 from sqlalchemy import (
@@ -27,6 +23,7 @@ class _AlarmFieldsMixin:
     # declared_attr 会让 SQLAlchemy 在每个真实 ORM 子类生成自己那份 Column
     @declared_attr
     def horn_id(cls):
+        """将喇叭绑定声明为可空外键，设备删除后保留功能配置并清空绑定。"""
         return Column(
             Integer,
             ForeignKey("ai_horn_config.id", ondelete="SET NULL"),    # ondelete="SET NULL"：删除一个喇叭设备不应该把整条记录删掉
@@ -54,6 +51,7 @@ class _CommonFieldsMixin:
 
     @declared_attr
     def camera_id(cls):
+        """限制每个摄像头只有一条该功能配置，摄像头删除时级联清理。"""
         return Column(
             Integer,
             ForeignKey("ai_camera_config.id", ondelete="CASCADE"),
@@ -70,6 +68,7 @@ class CameraFeatureConfigBase(_CommonFieldsMixin, Base):
     _NON_VALUE_COLUMNS = frozenset({"id", "camera_id", "enable", "created_at", "updated_at"})
 
     def to_value_dict(self) -> dict:
+        """导出业务参数，排除当前配置类声明的身份、开关及其他非 value 字段。"""
         return {
             col.name: getattr(self, col.name)
             for col in self.__table__.columns
@@ -86,9 +85,11 @@ class CameraFeatureConfigBase(_CommonFieldsMixin, Base):
             setattr(self, key, val)
 
     def to_config_dict(self) -> dict:
+        """生成缓存与接口共用的 enable/value 配置结构。"""
         return {"enable": self.enable, "value": self.to_value_dict()}
 
     def apply_config_dict(self, config: dict):
+        """将已校验的开关与业务参数写入当前 ORM 对象。"""
         self.enable = config["enable"]
         self.apply_value_dict(config["value"])
 
@@ -115,9 +116,11 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
     cap_interval = Column(Float, default=defaults.CAP_INTERVAL, comment="采集间隔(秒)")
 
     def to_config_dict(self) -> dict:
+        """在基础配置结构中附加各告警通道的开关和参数。"""
         return {**super().to_config_dict(), "alarm": self.to_alarm_dict()}
 
     def apply_config_dict(self, config: dict):
+        """同步应用功能配置及告警配置，提交事务由调用方负责。"""
         super().apply_config_dict(config)
         self.apply_alarm_dict(config["alarm"])
 

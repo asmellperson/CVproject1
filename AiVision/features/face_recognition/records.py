@@ -26,6 +26,7 @@ RECORD_RETRY_SECONDS = 5.0
 
 @dataclass(frozen=True)
 class _RecognitionTask:
+    """固定一帧的记录数据与冷却占位，供后台写入及失败回退使用。"""
     camera_id: int
     values: tuple[dict, ...]
     frame: np.ndarray
@@ -39,6 +40,7 @@ class RecognitionRecorder:
     """Consumer 只筛选、复制和入队；固定 worker 完成一帧的截图与数据库事务。"""
 
     def __init__(self):
+        """建立有界写入队列和摄像头冷却状态，构造时不启动后台线程。"""
         self._recorded_at: dict[tuple[int, int], float] = {}
         self._unknown_recorded_at: dict[int, float] = {}
         self._retry_at = 0.0
@@ -50,6 +52,7 @@ class RecognitionRecorder:
         self._directory = Path(settings.storage.data_path).expanduser().resolve() / "recognize_face"
 
     def start(self) -> None:
+        """在生命周期锁内幂等启动记录线程。"""
         with self._lifecycle_lock:
             if self._thread is not None:
                 return
@@ -57,10 +60,12 @@ class RecognitionRecorder:
             self._start_worker()
 
     def _start_worker(self) -> None:
+        """创建固定后台写入线程，避免截图与数据库操作阻塞推理。"""
         self._thread = threading.Thread(target=self._run, name="face-recognition-writer", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
+        """停止接收阶段后等待队列排空；必要时启动线程处理已接受任务。"""
         with self._lifecycle_lock:
             with self._lock:
                 self._stop_event.set()
@@ -72,6 +77,7 @@ class RecognitionRecorder:
                 self._thread = None
 
     def clear_camera(self, camera_id: int) -> None:
+        """清除摄像头对应的已知人员与未知人员冷却记录。"""
         with self._lock:
             self._recorded_at = {key: value for key, value in self._recorded_at.items() if key[0] != camera_id}
             self._unknown_recorded_at.pop(camera_id, None)
@@ -115,6 +121,7 @@ class RecognitionRecorder:
             return len(values)
 
     def _run(self) -> None:
+        """持续消费记录任务，停止信号到达后仍完成已入队任务。"""
         while not self._stop_event.is_set() or not self._queue.empty():
             try:
                 task = self._queue.get(timeout=0.1)
@@ -126,6 +133,11 @@ class RecognitionRecorder:
                 self._queue.task_done()
 
     def _write(self, task: _RecognitionTask) -> None:
+        """为一帧保存截图并在一个事务中写入识别记录。
+
+        失败时清除孤立截图，并仅回退仍属于本任务的冷却占位，避免覆盖较新的
+        记录状态；错误日志省略 SQL 参数中的人员信息。
+        """
         image_path = None
         try:
             # 复用平台 DATA_PATH、PNG 编码及毫秒时间戳 + UUID 命名规范。
@@ -165,9 +177,11 @@ class RecognitionMediaReferences:
     media_directories = ("recognize_face",)
 
     def __init__(self, session_scope_factory=session_scope):
+        """注入事务上下文，供公共媒体清理器查询与删除数据库引用。"""
         self._session_scope = session_scope_factory
 
     def iter_records(self, before):
+        """按截图聚合引用，以最新引用时间决定保留期限并使用游标分批读取。"""
         cursor = None
         latest = func.max(FaceRecognitionRecord.recognized_at)
         last_id = func.max(FaceRecognitionRecord.id)
@@ -188,6 +202,7 @@ class RecognitionMediaReferences:
                 yield MediaRecord(record_id, timestamp, (path,) if path is not None else ())
 
     def delete_record(self, record, remove_file):
+        """再次核对引用时间，仅在文件可清理且没有更新引用时删除整组记录。"""
         path = record.paths[0] if record.paths else None
         with self._session_scope() as session:
             query = session.query(FaceRecognitionRecord).filter(FaceRecognitionRecord.image_path == path)
@@ -200,6 +215,7 @@ class RecognitionMediaReferences:
         return count
 
     def referenced_paths(self, paths):
+        """批量返回仍被识别记录引用的路径，保护共享截图不被误清理。"""
         with self._session_scope() as session:
             return {str(path) for (path,) in session.query(FaceRecognitionRecord.image_path).filter(
                 FaceRecognitionRecord.image_path.in_([str(path) for path in paths]),
@@ -207,6 +223,7 @@ class RecognitionMediaReferences:
 
 
 def get_recognition_image(record_id: int, *, departments: list[str] | None = None) -> Path | None:
+    """按事业部权限查询记录，并只返回识别存储根目录内实际存在的文件。"""
     from AiVision.cameras.orm import AiCameraConfig
 
     with get_session() as session:
@@ -226,6 +243,7 @@ def get_recognition_image(record_id: int, *, departments: list[str] | None = Non
 
 
 def list_recognition_records(camera_id: int | None, page: int, page_size: int, *, department: str) -> RecognitionRecordPage:
+    """按事业部和可选摄像头过滤，按识别时间及 ID 倒序分页返回记录。"""
     from AiVision.cameras.orm import AiCameraConfig
 
     from AiVision.departments.department_registry import require_department

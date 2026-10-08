@@ -15,15 +15,19 @@ SETTINGS_KEY = "security_inspection"
 
 
 class InspectionService:
+    """持久化模型设置和安检历史，提供按事业部隔离的查询。"""
     def check_model(self, settings: VlmSettings) -> VlmHealth:
+        """执行接口与模型存在性探测，不生成安检内容。"""
         return VlmClient().check_health(settings)
 
     def get_settings(self) -> VlmSettings:
+        """读取已保存设置，尚未配置时返回模型默认设置。"""
         with get_session() as session:
             row = session.get(AiSystemConfig, SETTINGS_KEY)
             return VlmSettings() if row is None else VlmSettings.model_validate(row.value)
 
     def save_settings(self, settings: VlmSettings) -> None:
+        """在事务内创建或替换公共模型设置，运行时重载由调用方负责。"""
         with session_scope() as session:
             row = session.get(AiSystemConfig, SETTINGS_KEY)
             if row is None:
@@ -32,6 +36,7 @@ class InspectionService:
                 row.value = settings.model_dump()
 
     def record(self, task, status: str, verdict=None, error=None, latency=None) -> None:
+        """保存会话身份和判定快照；摄像头已删除时仍保留历史名称和事业部。"""
         with session_scope() as session:
             session.add(
                 InspectionSession(
@@ -50,6 +55,7 @@ class InspectionService:
             )
 
     def history(self, department: str, *, camera_id: int | None, limit: int, offset: int) -> dict:
+        """按事业部及可选摄像头返回历史与统计，合格率只基于成功判定计算。"""
         with get_session() as session:
             query = session.query(InspectionSession).filter_by(department=department)
             if camera_id is not None:

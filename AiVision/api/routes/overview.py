@@ -23,6 +23,7 @@ def overview(
     guards=Depends(get_guard_behavior_service),
     orchestrator=Depends(get_optional_orchestrator),
 ):
+    """按账号事业部及功能分配过滤资源，再统一汇总摄像头、业务对象和服务状态。"""
     departments = list(DEPARTMENT_SPECS) if user["role"] == "admin" else _camera_departments_for_user(user)
     items = [camera_response_for_user(camera, user) for department in departments
              for camera in cameras.list_cameras(department)]

@@ -1,4 +1,4 @@
-"""features/phone_detection/orm.py"""
+"""手机检测配置表，保存人体关联、连续确认和轨迹保留策略。"""
 from sqlalchemy import CheckConstraint, Boolean, Column, Integer, Float, JSON
 from AiVision.features._shared import defaults
 from AiVision.features._shared.orm import FeatureConfigBase
@@ -7,6 +7,7 @@ from .schema import PhoneValueSchema
 _VALUE_DEFAULTS = PhoneValueSchema().model_dump()
 
 class PhoneConfigORM(FeatureConfigBase):
+    """逐摄像头持久化手机判断参数，与公共字段共同组成完整功能配置。"""
     __tablename__ = "ai_camera_config_detect_phone"
     __table_args__ = (
         CheckConstraint("MIN_CONSECUTIVE_HITS >= 1", name="ck_detect_phone_0"),

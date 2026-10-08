@@ -7,6 +7,7 @@ from .schema import BlocksValueSchema
 _VALUE_DEFAULTS = BlocksValueSchema().model_dump()
 
 class BlocksConfigORM(FeatureConfigBase):
+    """保存摄像头的入侵检测区域、警戒线方向和人体置信度阈值。"""
     __tablename__ = "ai_camera_config_blocks"
     __table_args__ = {
         "comment": "摄像头blocks功能配置表",
@@ -22,4 +23,5 @@ class BlocksConfigORM(FeatureConfigBase):
     threshold = Column(Float, nullable=False, default=defaults.BLOCKS_CONFIDENCE, server_default=str(defaults.BLOCKS_CONFIDENCE), comment="人体检测置信度，0~1")
 
     def __repr__(self):
+        """显示摄像头归属与启用状态，辅助定位配置记录。"""
         return f"<BlocksConfig camera_id={self.camera_id} enable={self.enable}>"

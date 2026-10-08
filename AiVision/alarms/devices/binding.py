@@ -8,6 +8,11 @@ MAX_HORN_ID = 2_147_483_647  # 现有数据库 Integer 字段的有符号上限�
 
 
 def validate_horn_binding(session: Session, enabled: bool, horn_id, event_id) -> None:
+    """校验设备和任务 ID，并锁定设备核对存在性与启用状态。
+
+    启用通道必须完整绑定且设备可用；停用通道允许保留设备关联。
+    调用方负责提交事务，本函数不登录设备或播放语音。
+    """
     for field, value in (("horn_id", horn_id), ("horn_event_id", event_id)):
         if value is not None and (type(value) is not int or not 0 < value <= MAX_HORN_ID):
             raise ValueError(f"{field} 必须是 1 到 {MAX_HORN_ID} 之间的整数")

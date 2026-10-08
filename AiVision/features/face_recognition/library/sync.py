@@ -35,6 +35,7 @@ class HikvisionSyncSettings(BaseSettings):
     read_timeout: float = Field(default=DEFAULT_TIMEOUT[1], gt=0, allow_inf_nan=False)
 
     def client_config(self) -> HikvisionConfig:
+        """将环境配置转换为海康客户端参数，密钥仅在构造客户端时解包。"""
         return HikvisionConfig(
             base_url=self.base_url, app_key=self.app_key.get_secret_value(),
             app_secret=self.app_secret.get_secret_value(), artemis_path=self.artemis_path,
@@ -74,12 +75,14 @@ def fetch_persons(persons: HikvisionPersons, *, page_size: int) -> tuple[Hikvisi
 
 
 def sync_source(source: str, persons: HikvisionPersons, service: FaceLibraryService, *, page_size: int) -> SyncCounts:
+    """完整获取来源人员后原子应用快照，分页获取失败时不进入写入阶段。"""
     snapshot = fetch_persons(persons, page_size=page_size)
     return service.apply_snapshot(source, snapshot)
 
 
 def _error_summary(exc: Exception) -> str:
     # 数据库异常原文可能带 SQL 参数，配置异常原文可能带密钥；仅输出安全的错误类别/代码。
+    """生成可记录的错误摘要，省略配置密钥及数据库异常中的人员参数。"""
     if isinstance(exc, ValidationError):
         fields = ", ".join(".".join(map(str, item["loc"])) for item in exc.errors(include_input=False))
         return f"环境配置缺失或不合法：{fields}"
@@ -94,6 +97,10 @@ def _error_summary(exc: Exception) -> str:
 
 def main() -> int:
     # 与 AiVision 主入口使用同一个 .env 位置；已有系统环境变量优先。
+    """依次完整同步两个来源，按来源隔离失败并返回汇总退出码。
+
+    入口加载项目环境、创建缺失的人员表并核验结构，不自动修补已有表。
+    """
     load_dotenv(dotenv_path=_ENV_FILE, override=False)
     try:
         from AiVision.core.db import get_engine

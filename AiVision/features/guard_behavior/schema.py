@@ -23,15 +23,18 @@ HornId = Annotated[int, Field(gt=0, le=MAX_HORN_ID)]
 
 
 class _StrictSchema(BaseModel):
+    """公共校验基类，拒绝未知字段、隐式类型转换与非有限数值。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, from_attributes=True)
 
 
 class _TimestampsResponse(_StrictSchema):
+    """对外提供持久化记录的创建和更新时间。"""
     created_at: datetime
     updated_at: datetime
 
 
 class GuardBehaviorSiteCreate(_StrictSchema):
+    """新建保安室的名称、事业部与初始展示顺序。"""
     name: str = Field(min_length=1, max_length=100)
     department: str
     enabled: bool = True
@@ -40,6 +43,7 @@ class GuardBehaviorSiteCreate(_StrictSchema):
     @field_validator("name")
     @classmethod
     def _name(cls, value: str) -> str:
+        """去除名称首尾空白并拒绝空名称。"""
         value = value.strip()
         if not value:
             raise ValueError("保安室名称不能为空")
@@ -48,45 +52,54 @@ class GuardBehaviorSiteCreate(_StrictSchema):
     @field_validator("department")
     @classmethod
     def _department(cls, value: str) -> str:
+        """要求事业部属于项目正式注册范围。"""
         return require_department(value)
 
 
 class GuardBehaviorSiteUpdate(_StrictSchema):
+    """保安室局部更新字段，未提交字段保留原值。"""
     name: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool | None = None
     sort_order: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _non_null(self):
+        """区分未提交字段与显式 null，拒绝把现有值清为空。"""
         if any(getattr(self, key) is None for key in self.model_fields_set):
             raise ValueError("保安室字段不能为 null")
         return self
 
 
 class GuardBehaviorSiteResponse(GuardBehaviorSiteCreate, _TimestampsResponse):
+    """保安室身份、基本属性及持久化时间的响应结构。"""
     id: PositiveId
 
 
 class GuardBehaviorMemberCreate(_StrictSchema):
+    """通过平台摄像头 ID 建立保安室成员关系。"""
     camera_id: PositiveId
 
 
 class GuardBehaviorMemberEnabledUpdate(_StrictSchema):
+    """只调整成员是否参与保安室检测。"""
     enabled: bool
 
 
 class GuardBehaviorMemberOrder(_StrictSchema):
+    """提交完整成员排列，顺序由 camera_ids 的位置表达。"""
     camera_ids: list[PositiveId] = Field(max_length=MAX_CAMERAS_PER_SITE)
 
     @field_validator("camera_ids")
     @classmethod
     def _unique(cls, values: list[int]) -> list[int]:
+        """拒绝重复摄像头 ID，防止排序覆盖或歧义。"""
         if len(values) != len(set(values)):
             raise ValueError("camera_ids 不可重复")
         return values
 
 
 class GuardBehaviorMemberResponse(_TimestampsResponse):
+    """展开成员和物理摄像头信息，分别暴露两层启用状态。"""
     model_config = ConfigDict(populate_by_name=True)
 
     id: PositiveId
@@ -100,24 +113,29 @@ class GuardBehaviorMemberResponse(_TimestampsResponse):
 
 
 class GuardBehaviorCameraRoiUpdate(_StrictSchema):
+    """校验车辆检测使用的归一化多边形区域。"""
     vehicle_roi_pos: NormalizedRoi
 
 
 class GuardBehaviorCameraRoiResponse(GuardBehaviorCameraRoiUpdate):
+    """返回车辆 ROI、摄像头身份与功能启用状态。"""
     camera_id: PositiveId
     enable: bool
 
 
 class GuardBehaviorCameraValueSchema(_StrictSchema):
+    """摄像头级可配置参数，仅保存车辆 ROI。"""
     vehicle_roi_pos: NormalizedRoi = Field(default_factory=list)
 
 
 class GuardBehaviorCameraConfigSchema(_StrictSchema):
+    """供公共功能配置入口使用的开关与摄像头参数结构。"""
     enable: bool = False
     value: GuardBehaviorCameraValueSchema = Field(default_factory=GuardBehaviorCameraValueSchema)
 
 
 class GuardBehaviorSitePolicyUpdate(_StrictSchema):
+    """检测策略字段及数值约束，服务层以已存配置补齐未提交值。"""
     cap_interval: PositiveSeconds = SITE_POLICY_DEFAULTS["cap_interval"]
     person_confidence_threshold: Probability = SITE_POLICY_DEFAULTS["person_confidence_threshold"]
     phone_confidence_threshold: Probability = SITE_POLICY_DEFAULTS["phone_confidence_threshold"]
@@ -152,8 +170,10 @@ class GuardBehaviorSitePolicyUpdate(_StrictSchema):
 
 
 class GuardBehaviorSitePolicySchema(GuardBehaviorSitePolicyUpdate):
+    """完整策略校验，保证车辆检查开关与选定摄像头一致。"""
     @model_validator(mode="after")
     def _vehicle_camera(self):
+        """启用车辆检查必须选摄像头，关闭时必须清空该选择。"""
         if self.vehicle_inspection_enabled and self.vehicle_camera_id is None:
             raise ValueError("启用车辆检查必须提供 vehicle_camera_id")
         if not self.vehicle_inspection_enabled and self.vehicle_camera_id is not None:
@@ -169,6 +189,7 @@ class GuardBehaviorSitePolicyResponse(GuardBehaviorSitePolicyUpdate, _Timestamps
 
 
 class GuardBehaviorRuntimePolicy(GuardBehaviorSitePolicyUpdate):
+    """不可变的运行策略快照，避免运行线程持有可变 ORM 对象。"""
     model_config = ConfigDict(frozen=True)
 
 
@@ -191,6 +212,7 @@ class GuardBehaviorRuntimeCameraConfig(_StrictSchema):
 
 
 class GuardBehaviorAlarmPolicyUpdate(_StrictSchema):
+    """单类告警的冷却与通道参数，支持仅更新提交的字段。"""
     alarm_interval: PositiveSeconds | None = None
     sql_enable: bool = ALARM_POLICY_DEFAULTS["sql_enable"]
     horn_enable: bool = ALARM_POLICY_DEFAULTS["horn_enable"]
@@ -201,12 +223,14 @@ class GuardBehaviorAlarmPolicyUpdate(_StrictSchema):
 
     @model_validator(mode="after")
     def _non_null_interval(self):
+        """允许不提交冷却参数，但禁止将它显式置为 null。"""
         if "alarm_interval" in self.model_fields_set and self.alarm_interval is None:
             raise ValueError("alarm_interval 不能为 null")
         return self
 
 
 class GuardBehaviorAlarmPolicyResponse(GuardBehaviorAlarmPolicyUpdate, _TimestampsResponse):
+    """含数据库身份与正式告警类型的策略响应。"""
     id: PositiveId
     site_id: PositiveId
     violation_type: int
@@ -215,10 +239,12 @@ class GuardBehaviorAlarmPolicyResponse(GuardBehaviorAlarmPolicyUpdate, _Timestam
     @field_validator("violation_type")
     @classmethod
     def _alarm_type(cls, value: int) -> int:
+        """确保响应策略属于保安室正式告警类型。"""
         return require_alarm_type(value)
 
 
 class GuardBehaviorRuntimeAlarmPolicy(GuardBehaviorAlarmPolicyUpdate):
+    """运行线程使用的不可变告警通道与冷却快照。"""
     model_config = ConfigDict(frozen=True)
     violation_type: int
     alarm_interval: PositiveSeconds
@@ -226,10 +252,12 @@ class GuardBehaviorRuntimeAlarmPolicy(GuardBehaviorAlarmPolicyUpdate):
     @field_validator("violation_type")
     @classmethod
     def _alarm_type(cls, value: int) -> int:
+        """拒绝混入其他功能的告警策略。"""
         return require_alarm_type(value)
 
 
 class GuardBehaviorRuntimeMember(_StrictSchema):
+    """运行时成员快照，保留物理、成员及功能三层开关。"""
     model_config = ConfigDict(frozen=True)
     camera_id: PositiveId
     camera_name: str
@@ -255,10 +283,12 @@ class GuardBehaviorRuntimeSiteConfig(_StrictSchema):
     @field_validator("department")
     @classmethod
     def _department(cls, value: str) -> str:
+        """校验站点快照的事业部身份。"""
         return require_department(value)
 
     @model_validator(mode="after")
     def _complete(self):
+        """要求四类告警策略完整唯一，且摄像头成员无重复并未超限。"""
         if sorted(item.violation_type for item in self.alarm_policies) != list(GUARD_ALARM_TYPES):
             raise ValueError("Site 运行配置必须包含完整且唯一的四类报警策略")
         camera_ids = [member.camera_id for member in self.members]

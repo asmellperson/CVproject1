@@ -11,6 +11,7 @@ NormalizedPoint = Annotated[list[NormalizedCoordinate], Field(min_length=2, max_
 
 
 def _validate_polygon(points: list[list[float]]) -> list[list[float]]:
+    """允许空 ROI 表示全画面；非空多边形必须至少三点且面积非零。"""
     if not points:
         return points
     if len(points) < 3:
@@ -28,6 +29,7 @@ def _validate_polygon(points: list[list[float]]) -> list[list[float]]:
 NormalizedRoi = Annotated[list[NormalizedPoint], AfterValidator(_validate_polygon)]
 
 def _validate_line(points: list[list[float]]) -> list[list[float]]:
+    """允许未配置的空线段；有效线段必须恰好包含两个不同端点。"""
     if points and (len(points) != 2 or points[0] == points[1]):
         raise ValueError("警戒线需要两个不同的归一化端点")
     return points

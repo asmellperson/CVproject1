@@ -12,10 +12,12 @@ from .geometry import validate_polygon
 
 
 class StrictModel(BaseModel):
+    """安检配置的严格基类，拒绝额外字段和非有限数值。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
 class InspectionValue(StrictModel):
+    """安检工位、人体跟踪、交互配对及关键帧采样参数。"""
     staff_rois: dict[str, NormalizedRoi] = Field(default_factory=dict)
     cap_interval: float = Field(0.1, ge=0.05, le=5)
     alarm_interval: float = Field(30.0, ge=0, le=86400)
@@ -38,6 +40,7 @@ class InspectionValue(StrictModel):
     @field_validator("staff_rois")
     @classmethod
     def validate_rois(cls, value):
+        """限制工位数量、名称与顶点数，并拒绝自交或重叠边的区域。"""
         if len(value) > 16:
             raise ValueError("每台摄像头最多设置 16 个工位")
         for name, points in value.items():
@@ -50,6 +53,7 @@ class InspectionValue(StrictModel):
 
     @model_validator(mode="after")
     def validate_intervals(self):
+        """保证区域保持阈值不高于进入阈值，采样间隔短于最长会话时间。"""
         if self.roi_hold_overlap_ratio > self.roi_enter_overlap_ratio:
             raise ValueError("保持区域的重叠阈值不能大于进入阈值")
         if self.keyframe_interval_sec >= self.max_session_seconds:
@@ -58,18 +62,21 @@ class InspectionValue(StrictModel):
 
 
 class InspectionConfig(StrictModel):
+    """组合安检开关、算法参数与统一告警通道。"""
     enable: bool = False
     value: InspectionValue = Field(default_factory=InspectionValue)
     alarm: AlarmConfigSchema = Field(default_factory=AlarmConfigSchema)
 
     @model_validator(mode="after")
     def validate_wechat(self):
+        """启用企业微信时要求非空接收人，避免已启用但无法送达的配置。"""
         if self.alarm.wechat.enable and not self.alarm.wechat.parm.user.strip():
             raise ValueError("启用微信报警时必须填写接收人")
         return self
 
 
 class VlmSettings(StrictModel):
+    """内部判定服务的地址、模型、生成参数及有界任务队列设置。"""
     base_url: str = "http://127.0.0.1:18100/v1"
     model: str = "fuda-qwen36-27b"
     max_tokens: int = Field(2048, ge=128, le=16384)
@@ -84,6 +91,7 @@ class VlmSettings(StrictModel):
     @field_validator("base_url")
     @classmethod
     def validate_url(cls, value):
+        """要求无内嵌凭据、查询和片段的 HTTP 地址，并统一去除尾部斜杠。"""
         url = urlsplit(value)
         if (
             value != value.strip()
@@ -100,12 +108,14 @@ class VlmSettings(StrictModel):
     @field_validator("model")
     @classmethod
     def validate_model(cls, value):
+        """拒绝空名称和首尾空白，保证健康检查与推理使用相同模型标识。"""
         if not value.strip() or value != value.strip():
             raise ValueError("模型名称不能为空或含首尾空白")
         return value
 
 
 class VlmHealth(StrictModel):
+    """表示接口可达性、真实请求成功时间及熔断恢复进度。"""
     reachable: bool | None = None
     checking: bool = False
     last_success: datetime | None = None
@@ -125,6 +135,7 @@ class InspectionVerdict(StrictModel):
     @field_validator("reason")
     @classmethod
     def validate_reason(cls, value):
+        """规范化判定原因并要求实质内容，避免返回只有空白的解释。"""
         value = value.strip()
         if not value:
             raise ValueError("判定原因不能为空")

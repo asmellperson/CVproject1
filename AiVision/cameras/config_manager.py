@@ -149,6 +149,7 @@ class CameraConfigManager:
         """新增摄像头 — 同时为每个已注册 feature 建一行默认空配置(enable=False)"""
         def create_record(session):
             # create_camera_record():真正往数据库里创建摄像头及默认Feature配置
+            """在可重试事务中创建摄像头及默认功能记录，返回提交后通知所需的稳定标识。"""
             cam = self.create_camera_record(session, payload)
             return cam.id, cam.shm_name
 
@@ -184,6 +185,7 @@ class CameraConfigManager:
 
         def create_record(session):
             # create_camera_record会同时给所有功能建默认配置
+            """创建摄像头后仅启用目标功能，并在同一事务内校验完整配置，失败整体回滚。"""
             cam = self.create_camera_record(session, values)
             if not cam.enable:
                 raise ValueError("请先在平台启用该摄像头")
@@ -344,6 +346,7 @@ class CameraConfigManager:
                 raise ValueError(f"{field} 不能为空")
         def update_record(session: Session):
             # 根据key找到真正的AiCameraConfig数据库对象
+            """锁定受影响事业部和摄像头，检查成员绑定限制，保存字段并返回新旧事件快照。"""
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return None
@@ -405,6 +408,7 @@ class CameraConfigManager:
 
     @staticmethod
     def _require_guard_unbound(session, camera_id: int) -> None:
+        """锁定保安室成员关系，已绑定时拒绝删除或改变摄像头事业部，避免破坏业务归属。"""
         from AiVision.features.guard_behavior.orm import GuardBehaviorSiteCamera
         member = session.query(GuardBehaviorSiteCamera.id).filter_by(camera_id=camera_id).with_for_update().first()
         if member is not None:

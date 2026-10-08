@@ -21,16 +21,19 @@ TABLE_CLASSES = (GuardBehaviorSite, GuardBehaviorSiteCamera, GuardBehaviorCamera
 
 
 def table_rows(connection, names) -> dict:
+    """反射并读取明确列出的旧表，生成与旧代码无关的数据快照。"""
     return {name: [dict(row) for row in connection.execute(select(
         Table(name, MetaData(), autoload_with=connection))).mappings()] for name in names}
 
 
 def comparable(rows: dict) -> str:
+    """按表内 ID 和对象键稳定排序，生成快照比较文本。"""
     return json.dumps({key: sorted(value, key=lambda row: row["id"]) for key, value in rows.items()},
                       sort_keys=True, default=str, ensure_ascii=False)
 
 
 def assert_source(connection, snapshot: dict, *, allow_retired=False) -> None:
+    """要求旧表集合及内容仍匹配停机快照，仅显式允许时接受全部旧表已退役。"""
     names = set(snapshot["source"])
     existing = set(inspect(connection).get_table_names()) & names
     if not existing and allow_retired:
@@ -40,6 +43,7 @@ def assert_source(connection, snapshot: dict, *, allow_retired=False) -> None:
 
 
 def create_schema(engine) -> None:
+    """仅创建明确列出的目标表并校验结构，MySQL 建表不受后续数据回滚保护。"""
     from AiVision.core.schema import assert_table_matches
     # MySQL DDL 不可随数据回滚；只创建明确列出的五张表，空表可安全重跑。
     for model in TABLE_CLASSES:
@@ -50,20 +54,27 @@ def create_schema(engine) -> None:
 
 
 def _expect(row, values: dict, label: str) -> None:
+    """核对目标 ORM 对象的指定字段，不存在或不一致时立即停止。"""
     if row is None or any(getattr(row, key) != value for key, value in values.items()):
         raise ValueError(f"{label} 与迁移快照不一致")
 
 
 def _site_values(plan):
+    """提取迁移计划中站点基础属性，避免无关计划字段进入 ORM。"""
     return {key: plan[key] for key in ("name", "department", "enabled", "sort_order")}
 
 
 def _alarm_values(alarm):
+    """提取已确认的告警类型、冷却及通道绑定字段。"""
     return {key: alarm[key] for key in ("violation_type", "alarm_interval", "sql_enable", "horn_enable",
                                        "horn_id", "horn_event_id", "wechat_enable", "wechat_user")}
 
 
 def migrate_data(engine, snapshot: dict) -> dict:
+    """在一个事务内迁移站点、摄像头关联与策略，并在提交前完整核验。
+
+    已存在目标站点时通过镜像验证识别已完成状态；不覆盖部分迁移数据。
+    """
     with Session(engine) as session, session.begin():
         # 已提交但进程未写入结果文件时，依靠快照及完整核验识别完成状态，不重复创建。
         if session.query(GuardBehaviorSite).count():
@@ -107,6 +118,7 @@ def migrate_data(engine, snapshot: dict) -> dict:
 
 
 def verify_data(session: Session, snapshot: dict) -> dict:
+    """逐字段核对摄像头复用、成员、ROI 和策略，并验证目标及物理摄像头总数。"""
     old_cameras = {row["id"]: row for row in snapshot["source"]["guard_room_camera"]}
     mappings = []
     for plan in snapshot["plan"]["sites"]:
@@ -159,6 +171,7 @@ def verify_data(session: Session, snapshot: dict) -> dict:
 
 
 def verify_archive(snapshot: dict, archive: Path) -> int:
+    """核对全部资产摘要以及历史文件条数，返回完整归档的历史记录总数。"""
     for asset in snapshot["assets"]:
         if digest(archive / asset["path"]) != asset["sha256"]:
             raise ValueError("归档资产校验失败")

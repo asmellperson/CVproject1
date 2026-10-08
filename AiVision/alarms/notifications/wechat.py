@@ -68,6 +68,7 @@ class WeChatNotifier:
         agent_id: Optional[int] = None,                # 企业微信应用
     ):
         # 凭据按优先级合并：构造参数 > settings > 环境变量 > 默认值
+        """按既有优先级读取凭据并初始化受锁 Token 缓存，构造时不访问网络。"""
         self.corp_id = corp_id or settings.alarm.wechat_corp_id or os.environ.get("WECHAT_CORP_ID", "")
         self.corp_secret = corp_secret or settings.alarm.wechat_corp_secret or os.environ.get("WECHAT_CORP_SECRET", "")
         self.agent_id = int(agent_id or settings.alarm.wechat_agent_id or os.environ.get("WECHAT_AGENT_ID", 1000050))

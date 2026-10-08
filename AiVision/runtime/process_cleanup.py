@@ -1,9 +1,8 @@
-"""
-runtime/process_cleanup.py
-Aivision启动时，扫描Linux上一轮异常遗留下来的Camera、ModelWorker和ffmpeg进程，把他们清掉，避免新一轮启动发生资源冲突
-调用链：Orchestrator.start() -> 收集当前配置中的camera shm_name\camera RTSP URL\model name
-        ->clean_aivision_residual_processes -> 扫描 /proc -> 读取每个PID cmdline -> _match_process()【Camera[shm]\ModelWorker[model]\ffmpeg + URL + rawvideo】
-        -> 发现残留 -> SIGTERM -> 等3秒 -> 仍存活 -> SIGKILL -> 开启新一轮的Camera/Inference Runtime
+"""Linux 启动前残留进程清理，匹配当前配置对应的采集、模型和 FFmpeg 管线。
+
+扫描 /proc 后按摄像头共享内存名、模型名称及受约束的采集命令匹配，跳过当前进程。
+先 SIGTERM 等待，再按需要 SIGKILL；该过程会真正结束进程，不是只读健康检查。
+输出命令摘要前先脱敏 URL，返回值表示匹配数量，不保证所有对象均成功退出。
 """
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ _URL_QUERY_CREDENTIAL_PATTERN = re.compile(
 # 发现的疑似残留进程
 @dataclass(frozen=True)
 class _ProcessHit:
+    """记录候选进程的 PID、匹配原因和原始命令行；原始命令行必须脱敏后才能输出。"""
     pid: int
     reason: str                           # 为什么属于AiVision
     cmdline: str                          # 这个进程真实的命令行
@@ -81,11 +81,13 @@ def cleanup_aivision_residual_processes(
     return len(hits)
 
 def _redact_cmdline(cmdline: str) -> str:
+    """隐藏 URL 用户信息与敏感查询参数，保留其余命令结构用于排障。"""
     redacted = _URL_USERINFO_PATTERN.sub(r"\1***:***@", cmdline)
     return _URL_QUERY_CREDENTIAL_PATTERN.sub(r"\1***", redacted)
 
 def _find_residual_processes(camera_keys: set[str], urls: set[str], models: set[str]) -> list[_ProcessHit]:
     # 当前Aivision进程PID（不允许杀当前的自己）
+    """扫描 Linux 进程并按当前资源标识匹配候选，跳过自身、不可读条目和重复 PID。"""
     current_pid = os.getpid()
     hits: list[_ProcessHit] = []
     seen: set[int] = set()
@@ -108,6 +110,7 @@ def _find_residual_processes(camera_keys: set[str], urls: set[str], models: set[
     return hits
 
 def _read_cmdline(proc_dir: Path) -> str:
+    """读取 /proc 中的空字节分隔参数；进程消失或无权限时返回空字符串。"""
     try:
         raw = (proc_dir / "cmdline").read_bytes()
     # 扫描/proc的过程中，进程可能刚刚还存在，下一秒自己就退出了，pid突然没了，所以FileNotFoundError, ProcessLookupError直接忽略
@@ -137,7 +140,7 @@ def _match_process(cmdline: str, camera_keys: set[str], urls: set[str], models: 
 
 
 def _is_alive(pid: int) -> bool:
-    """P能不能给PID能不能发送信号"""
+    """通过零号信号检查进程是否仍存在，权限不足按存活处理，避免误判已退出。"""
     try:
         # 这里不是杀进程：signal 0的意义是：检查这个PID是否存在，以及能不能向它发送信号
         os.kill(pid, 0)
@@ -150,7 +153,7 @@ def _is_alive(pid: int) -> bool:
         return True
 
 def _safe_kill(pid: int, sig: signal.Signals):
-    """统一分装发信号"""
+    """向指定 PID 发送退出信号，容忍进程已消失并记录权限等发送失败。"""
     try:
         os.kill(pid, sig)
     # 进程自己没了不报错

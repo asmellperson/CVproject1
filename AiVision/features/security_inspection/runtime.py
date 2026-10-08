@@ -19,6 +19,7 @@ BACKOFF_MAX_SEC = 60
 
 @dataclass(frozen=True)
 class InspectionTask:
+    """异步判定所需的身份、时间、配置代次与已编码关键帧快照。"""
     session_id: str
     camera_id: int
     camera_name: str
@@ -33,7 +34,9 @@ class InspectionTask:
 
 
 class InspectionRuntime:
+    """管理有界公平队列、模型健康检查及失败熔断，隔离网络与检测线程。"""
     def __init__(self, complete, client=None):
+        """注入完成回调与模型客户端，初始化停止状态的队列和健康状态。"""
         self._complete = complete
         self._client = client or VlmClient()
         self._condition = threading.Condition()
@@ -53,11 +56,13 @@ class InspectionRuntime:
         self._half_open_session: str | None = None
 
     def start(self, settings: VlmSettings):
+        """解除停止状态，并按已保存的模型设置配置后台服务。"""
         with self._condition:
             self._stopped = False
         self.configure(settings)
 
     def configure(self, settings: VlmSettings):
+        """替换模型设置并递增代次，取消排队旧任务后调整工作线程和健康检查。"""
         with self._condition:
             self.settings = settings
             self._generation += 1
@@ -87,6 +92,7 @@ class InspectionRuntime:
             self._check_health(settings, generation)
 
     def submit(self, task: InspectionTask):
+        """检查健康状态、熔断与容量，接收任务或立即回报明确失败原因。"""
         with self._condition:
             if self._stopped:
                 error = "安检服务已停止"
@@ -109,6 +115,7 @@ class InspectionRuntime:
         self._finish(task, None, error, None)
 
     def cancel_camera(self, camera_id: int):
+        """移除指定摄像头排队任务，交由工作线程记录取消以避免锁内外部调用。"""
         cancelled = []
         with self._condition:
             for department, cameras in list(self._queues.items()):
@@ -121,6 +128,7 @@ class InspectionRuntime:
             self._condition.notify_all()
 
     def status(self, department: str) -> dict:
+        """返回指定事业部的排队数、执行数和错误，附公共模型健康快照。"""
         with self._condition:
             return {
                 "running": not self._stopped,
@@ -131,6 +139,7 @@ class InspectionRuntime:
             }
 
     def health_status(self) -> VlmHealth:
+        """复制健康状态并实时计算熔断后的剩余重试秒数。"""
         with self._condition:
             return self._health.model_copy(
                 update={
@@ -141,6 +150,7 @@ class InspectionRuntime:
             )
 
     def stop(self):
+        """停止调度并结束排队任务，在共享期限内等待网络线程退出。"""
         with self._condition:
             self._stopped = True
             self._generation += 1
@@ -168,6 +178,7 @@ class InspectionRuntime:
         return tasks
 
     def _record_failure(self, error: str, *, immediate: bool = False) -> list[InspectionTask]:
+        """累计失败并在阈值或立即失败条件下熔断，退避重试并排空等待队列。"""
         self._health.last_error = error
         self._health.consecutive_failures += 1
         if (
@@ -187,6 +198,7 @@ class InspectionRuntime:
         return self._drain_queue()
 
     def _check_loop(self):
+        """按计划时间执行健康探测，网络调用不占用条件锁。"""
         while True:
             with self._condition:
                 if self._stopped:
@@ -199,6 +211,7 @@ class InspectionRuntime:
             self._check_health(settings, generation)
 
     def _check_health(self, settings: VlmSettings, generation: int):
+        """只接受当前代次探测结果；接口恢复后进入半开，等待一次真实判定验证。"""
         with self._condition:
             if generation != self._generation:
                 return
@@ -222,6 +235,11 @@ class InspectionRuntime:
             self._finish(task, None, "千问服务不可用，已取消排队判定", None)
 
     def _run(self, index: int):
+        """按事业部与摄像头轮询执行任务，处理排队超时及模型设置失效。
+
+        真实判定成功才完全关闭熔断；失败可能取消后续排队任务，公共健康状态
+        只保留错误类别，详细错误归入任务所在事业部。
+        """
         while True:
             with self._condition:
                 self._condition.wait_for(
@@ -292,6 +310,7 @@ class InspectionRuntime:
                 self._finish(task, None, "千问服务连续失败，已取消排队判定", None)
 
     def _finish(self, task, verdict, error, latency):
+        """在隔离异常的边界内保存结果，更新部门错误并释放半开试探名额。"""
         try:
             self._complete(task, verdict, error, latency)
         except Exception:

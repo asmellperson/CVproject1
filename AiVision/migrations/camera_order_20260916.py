@@ -63,6 +63,12 @@ def preflight(connection: Connection) -> list[dict]:
 
 
 def run(engine: Engine, *, action: str = "check", backup: Path | None = None) -> dict:
+    """检查、应用或核验事业部内摄像头排序迁移。
+
+    默认 check 只读；apply 要求独占创建备份文件，并在写入前再次核对源数据。
+    MySQL DDL 会隐式提交，调用方须保持停写，失败后依据备份核查而不能假定
+    事务已完全回滚。verify 检查目标结构及各事业部顺序连续性。
+    """
     if action not in {"check", "apply", "verify"}:
         raise ValueError("未知迁移动作")
     with engine.connect() as connection:
@@ -114,6 +120,7 @@ def run(engine: Engine, *, action: str = "check", backup: Path | None = None) ->
 
 
 def main() -> None:
+    """解析离线迁移动作，写入必须显式声明停写并提供专用数据库环境变量。"""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
     for action in ("check", "apply", "verify"):

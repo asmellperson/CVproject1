@@ -1,4 +1,8 @@
-"""Artemis HTTP 传输、错误处理及图片重定向下载。配置由调用方显式注入。"""
+"""海康 Artemis 同步 HTTP 传输、响应校验与受限图片下载。
+
+一个实例对应一个平台；API 与图片下载使用隔离 Session，禁止继承代理或 netrc 凭据。
+客户端不入库或做人脸推理，调用方须通过上下文管理器或 close() 释放连接。
+"""
 from __future__ import annotations
 
 import json
@@ -23,6 +27,7 @@ class HikvisionError(RuntimeError):
     """已脱敏的连接器错误，保留 HTTP 状态和海康业务错误码供调用方处理。"""
 
     def __init__(self, message: str, *, status_code: int | None = None, code: str | None = None):
+        """保存安全错误说明及可选 HTTP/业务错误码，便于调用方分类处理而不暴露原始响应。"""
         super().__init__(message)
         self.status_code = status_code
         self.code = code
@@ -44,6 +49,7 @@ class HikvisionConfig:
     picture_hosts: tuple[str, ...] = ()
 
     def __post_init__(self):
+        """校验平台根地址、凭据、路径、超时与大小限制，配置无效时立即抛出 ValueError。"""
         parts = urlsplit(self.base_url)
         if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password
                 or parts.path not in ("", "/") or parts.query or parts.fragment):
@@ -61,6 +67,7 @@ class HikvisionConfig:
 
 @dataclass(frozen=True)
 class HikvisionResponse:
+    """内部 HTTP 响应快照，保留状态、内容类型、原始字节及跳转信息，敏感字段不参与 repr。"""
     status_code: int
     content_type: str
     body: bytes = field(repr=False)
@@ -78,6 +85,7 @@ class HikvisionPicture:
 
     @property
     def size_bytes(self) -> int:
+        """返回已下载图片的原始字节长度，不解码图像或访问文件。"""
         return len(self.content)
 
 
@@ -85,6 +93,7 @@ class HikvisionClient:
     """同步客户端；一个实例用于一个平台，使用 with 或 close 释放连接。"""
 
     def __init__(self, config: HikvisionConfig):
+        """创建独立 API/图片连接池与签名器，不在构造阶段联网。"""
         self.config = config
         self._signer = ArtemisSigner(config.app_key, config.app_secret)
         self._api_session = requests.Session()
@@ -95,17 +104,21 @@ class HikvisionClient:
         self._closed = False
 
     def __enter__(self) -> HikvisionClient:
+        """返回当前客户端，让调用方在 with 范围内复用连接。"""
         return self
 
     def __exit__(self, *_args) -> None:
+        """退出上下文时关闭两套 Session，业务异常仍向外传播。"""
         self.close()
 
     def close(self) -> None:
+        """关闭 API 与图片连接并标记客户端失效，后续请求会被拒绝。"""
         self._api_session.close()
         self._picture_session.close()
         self._closed = True
 
     def _redact(self, text: str, values: tuple[str, ...] = ()) -> str:
+        """替换凭据、指定敏感字段及图片地址后截断摘要，供日志和业务错误使用。"""
         for value in (self.config.app_key, self.config.app_secret, *values):
             if value:
                 text = text.replace(value, "<redacted>")
@@ -116,6 +129,7 @@ class HikvisionClient:
         self, session: requests.Session, method: str, url: str, *,
         headers: dict[str, str], body: bytes | None = None,
     ) -> HikvisionResponse:
+        """在配置的 TLS/超时和大小限制内读取响应，不自动重定向；网络异常转换成脱敏 HikvisionError。"""
         if self._closed:
             raise HikvisionError("Hikvision client is closed")
         try:
@@ -153,6 +167,7 @@ class HikvisionClient:
         return response
 
     def _check_response(self, response: HikvisionResponse, *, values: tuple[str, ...] = ()) -> dict | None:
+        """同时核对 HTTP 状态与海康业务码，失败脱敏后抛错；成功的非对象响应返回 None。"""
         try:
             payload = json.loads(response.body)
         except (ValueError, UnicodeDecodeError):
@@ -172,6 +187,7 @@ class HikvisionClient:
         return payload if isinstance(payload, dict) else None
 
     def post_json(self, path: str, payload: dict) -> dict:
+        """发送签名 JSON 请求并要求 code=0 且含 data 的响应封装，返回经校验的完整字典。"""
         response = self.post(path, payload)
         values = tuple(value for value in payload.values() if isinstance(value, str))
         result = self._check_response(response, values=values)

@@ -37,7 +37,7 @@ class DatabaseSettings(BaseSettings):
 
     @property                                     # 访问时settings.db.sqlalchemy_url
     def sqlalchemy_url(self) -> str:
-        """把前面的数据库配置组合成SQLAIchemy可以直接使用的连接字符串，比如得到mysql+pymysql://root:123456@127.0.0.1:3306/aivision?charset=utf8mb4"""
+        """按数据库部署字段组合 SQLAlchemy 连接字符串；返回值含认证信息，不应直接写入日志。"""
         return (
             f"mysql+pymysql://{self.user}:{self.password}"
             f"@{self.url}:{self.port}/{self.name}?charset={self.charset}"
@@ -219,6 +219,7 @@ class Settings:
     """
   
     def __init__(self):
+        """从当前环境构造各配置分组；任何必填项缺失或类型校验失败都会中止构造。"""
         self.db      = DatabaseSettings()
         self.storage = StorageSettings()
         self.alarm   = AlarmSettings()
@@ -230,10 +231,10 @@ class Settings:
 # Settings只创建一次，后面重复调用直接返回缓存对象
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """
-    返回全局 Settings 单例（lru_cache 保证只实例化一次）。
+    """返回 lru_cache 缓存的 Settings 实例。
 
-    测试时若需覆盖配置，可调用 get_settings.cache_clear() 后再修改环境变量重新获取。
+    测试可清除缓存并在调整环境后重新获取；已有模块持有的 settings 引用不会
+    因清缓存自动替换，生产环境修改环境变量通常需要重启进程。
     """
     return Settings()
 

@@ -6,4 +6,5 @@ class FaceConsumer(DwellDetectionConsumer):
     REQUIRED_DETECTION_TYPE = "face"
 
     def _detection_options(self, cfg: dict) -> tuple:
+        """使用人脸置信度筛选目标，其余框形状与跟踪参数沿用公共逗留实现。"""
         return cfg["FACE_SCORE_THR"], 0, (None, None), {}

@@ -18,6 +18,7 @@ from AiVision.inference.base_worker import BaseModelWorker
 class YoloDetectorWorker(BaseModelWorker):
     """通用 YOLO 目标检测 Worker"""
     def load_model(self) -> Any:
+        """校验本机权重并在子进程构造 YOLO；多个逻辑模型可共用该实例，任务参数仍分别读取。"""
         from AiVision.inference.model_paths import validate_model_path
         path = validate_model_path(self.model_path)
         from ultralytics import YOLO
@@ -31,11 +32,16 @@ class YoloDetectorWorker(BaseModelWorker):
         return model
 
     def infer(self, model: Any, frame, task_meta: dict) -> list[dict]:
-        """
-        输入：
-            model:加载的YOLO模型
-            frame：当前需要检查的图像
-            task_meta: 这一次任务自己的参数
+        """按任务所属逻辑模型执行目标检测并过滤类别。
+
+        Args:
+            model: 已加载的 YOLO 实例。
+            frame: 全帧或 ROI 的 BGR 图像。
+            task_meta: 必须包含 model_name；conf/iou 可覆盖注册表默认值，imgsz 仅在显式提供时传入。
+
+        Returns:
+            list[dict]: 输入图像坐标中的 bbox、confidence、class_id、type；无框返回空列表。
+                class_labels 优先于统一 type_label，业务告警不在此判断。
         """
         # 让请求方在 task_meta 里覆盖默认 conf/iou（所以任务可以覆盖默认参数）
         from AiVision.inference.model_registry import get_model_spec

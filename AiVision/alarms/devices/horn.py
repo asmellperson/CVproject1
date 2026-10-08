@@ -23,6 +23,7 @@ def _serialized(method):
     """同一设备的认证、心跳和播放串行；停止后的排队调用直接退出。"""
     @wraps(method)
     def guarded(self, *args, **kwargs):
+        """串行执行设备网络操作，并以在途计数准确呈现停止中的状态。"""
         with self._io_lock:
             if self._stop_event.is_set():
                 return False
@@ -176,6 +177,7 @@ class Horn:
             self._state = "stopping"
 
     def snapshot(self) -> dict:
+        """在状态锁内返回在线、心跳及错误快照，区分停止中与完全停止。"""
         with self._state_lock:
             alive = bool(self._heart_thread and self._heart_thread.is_alive())
             state = self._state
@@ -186,6 +188,7 @@ class Horn:
                     "last_seen_at": self._last_seen_at}
 
     def _set_state(self, state: str, error: str | None = None) -> bool:
+        """停止门控生效后拒绝更新状态，在线时刷新最后成功时间。"""
         with self._state_lock:
             if self._stop_event.is_set():
                 return False

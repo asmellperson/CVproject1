@@ -17,11 +17,13 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 class ModelPathUpdateRequest(BaseModel):
+    """固定模型的本机权重路径更新请求，路径有效性由运行服务校验。"""
     model_config = ConfigDict(extra="forbid")
     path: str = Field(..., min_length=1, max_length=4096)
 
 
 class ModelRuntimeResponse(BaseModel):
+    """展示当前进程、已加载路径、共享模型组与自动重启进度。"""
     status: str
     running: bool
     alive: bool
@@ -33,11 +35,13 @@ class ModelRuntimeResponse(BaseModel):
 
 
 class ModelReloadResponse(BaseModel):
+    """区分配置保存后的异步加载状态及失败原因。"""
     status: Literal["idle", "loading", "succeeded", "failed", "not_started"]
     error: str
 
 
 class ModelResponse(BaseModel):
+    """固定模型声明、已配置路径及实际运行状态。"""
     name: str
     type: str
     path: str
@@ -46,6 +50,7 @@ class ModelResponse(BaseModel):
 
 
 class ModelPathSaveResponse(BaseModel):
+    """表示路径已保存及加载是否启动，不代表模型已经成功就绪。"""
     configuration_saved: bool
     name: str
     path: str
@@ -54,6 +59,7 @@ class ModelPathSaveResponse(BaseModel):
 
 @router.get("", response_model=list[ModelResponse])
 def list_models(runtime=Depends(get_inference_runtime_manager)):
+    """查询固定模型列表及状态，配置读取失败时返回服务不可用。"""
     try:
         return runtime.list_models()
     except ValueError as exc:
@@ -67,6 +73,7 @@ def patch_model_path(
     _user: dict = Depends(require_admin),
     runtime=Depends(get_inference_runtime_manager),
 ):
+    """管理员保存本机模型路径并触发关联模型重载，按错误类型返回明确状态。"""
     try:
         return runtime.update_model_path(model_name, payload.path)
     except KeyError as exc:

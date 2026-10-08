@@ -1,4 +1,4 @@
-"""features/face_dwell/schema.py"""
+"""人脸逗留配置校验，时间以秒计，MAX_LOST 以跟踪更新次数计。"""
 from pydantic import BaseModel, ConfigDict, Field
 
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
@@ -6,6 +6,7 @@ from AiVision.features._shared import defaults
 from AiVision.features._shared.roi import NormalizedRoi
 
 class FaceValueSchema(BaseModel):
+    """约束检测置信度、去重与跟踪 IoU，以及逗留和丢失容忍参数。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)
@@ -19,6 +20,7 @@ class FaceValueSchema(BaseModel):
 
 
 class FaceConfigSchema(BaseModel):
+    """人脸逗留的启用开关、检测参数和告警通道配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: FaceValueSchema = Field(default_factory=FaceValueSchema)

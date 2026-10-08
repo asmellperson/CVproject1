@@ -17,11 +17,17 @@ class PhoneConsumer(BaseFunctionConsumer):
     PERSON_MODEL_NAME = "yolo_human"
 
     def __init__(self, *args, **kwargs):
+        """初始化摄像头独立的手机轨迹与编号，隔离多路视频的确认状态。"""
         super().__init__(*args, **kwargs)
         self._tracks: dict[int, dict[int, dict]] = {}
         self._next_track_id: dict[int, int] = {}
 
     def _process(self, roi, camera_id):
+        """检测手机并按可用的人体结果进行关联，再用时间和命中数确认。
+
+        人体关联仅在配置要求且人体模型队列存在时执行；返回是否有已确认
+        候选及候选详情，详情中的检测框仍使用 ROI 坐标。
+        """
         if not self.spec.required_models:
             return False, None
         cfg = self.config_cache[camera_id]
@@ -66,6 +72,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         return any(item.get("confirmed") for item in candidates), candidates
 
     def post_process(self, camera_id, result):
+        """将 ROI 检测框还原到原帧，区分候选手机与已经确认的手机。"""
         frame_copy = self._annotated_frame(camera_id)
         if frame_copy is None:
             return None
@@ -96,9 +103,11 @@ class PhoneConsumer(BaseFunctionConsumer):
         return frame_copy
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
+        """继续检查静止画面，使持续拿手机的行为能够累计确认时间。"""
         return True
 
     def _on_roi_changed(self, camera_id: int) -> None:
+        """区域变更后清空手机轨迹，避免不同坐标空间之间继续匹配。"""
         super()._on_roi_changed(camera_id)
         self._tracks.pop(camera_id, None)
         self._next_track_id.pop(camera_id, None)
@@ -114,6 +123,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         now: float,
         enforce_person: bool,
     ) -> list[dict]:
+        """过滤不符合人体关联要求的框，并附加轨迹、命中次数与确认状态。"""
         out = []
         for det in detections:
             bbox = det.get("bbox", [])
@@ -140,6 +150,7 @@ class PhoneConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _offset_bbox(bbox, offset: tuple[int, int]) -> tuple[float, float, float, float]:
+        """把 ROI 内坐标转换为原帧坐标，供人体关联和跨帧跟踪使用。"""
         ox, oy = offset
         return (
             float(bbox[0]) + ox,
@@ -149,6 +160,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         )
 
     def _is_near_person_hand_region(self, phone_bbox, persons: list[dict], offset: tuple[int, int], cfg: dict) -> bool:
+        """用扩展人体区域判断手机中心或覆盖比例，不依赖真实手部关键点。"""
         expand = cfg["PERSON_EXPAND_RATIO"]
         max_y_ratio = cfg["HAND_REGION_MAX_Y_RATIO"]
         pcx = (phone_bbox[0] + phone_bbox[2]) / 2.0
@@ -172,6 +184,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         return False
 
     def _update_track(self, camera_id: int, bbox, now: float, cfg: dict) -> dict:
+        """匹配首个重叠或邻近轨迹；超过容忍间隔时重新累计持续时间和次数。"""
         tracks = self._tracks.setdefault(camera_id, {})
         match = None
         min_iou = cfg["TRACK_IOU_THRESHOLD"]
@@ -195,6 +208,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         return match
 
     def _prune_tracks(self, camera_id: int, now: float, ttl: float):
+        """按最近观测时间清除过期轨迹，限制历史状态占用。"""
         tracks = self._tracks.get(camera_id)
         if not tracks:
             return
@@ -204,9 +218,11 @@ class PhoneConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _area(bbox) -> float:
+        """计算非负框面积，退化或倒置框按零面积处理。"""
         return max(0.0, float(bbox[2]) - float(bbox[0])) * max(0.0, float(bbox[3]) - float(bbox[1]))
 
     def _intersection_ratio(self, a, b) -> float:
+        """计算交集占第一个框的比例，衡量手机是否落入人体关联区域。"""
         ix1 = max(float(a[0]), float(b[0]))
         iy1 = max(float(a[1]), float(b[1]))
         ix2 = min(float(a[2]), float(b[2]))
@@ -215,6 +231,7 @@ class PhoneConsumer(BaseFunctionConsumer):
         return inter / max(1.0, self._area(a))
 
     def _iou(self, a, b) -> float:
+        """计算框的交并比，以至少一个像素的分母避免除零。"""
         ix1 = max(float(a[0]), float(b[0]))
         iy1 = max(float(a[1]), float(b[1]))
         ix2 = min(float(a[2]), float(b[2]))
@@ -225,6 +242,7 @@ class PhoneConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _center_distance_ratio(a, b) -> float:
+        """按当前框尺寸归一化中心距离，为低重叠的小目标提供匹配依据。"""
         acx = (float(a[0]) + float(a[2])) / 2.0
         acy = (float(a[1]) + float(a[3])) / 2.0
         bcx = (float(b[0]) + float(b[2])) / 2.0

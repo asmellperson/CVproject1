@@ -1,13 +1,8 @@
-"""
-inference/runtime_manager.py
-所有模型Worker的总运行调度器
+"""逻辑模型队列、共享 Worker、在线重载和故障恢复的运行管理器。
 
-负责建队列、查模型配置、启动Worker、判断是否就绪、Worker挂掉后自动恢复、提供运行状态
-
-只启动已注册 Feature 依赖的模型，模型文件路径来自本机配置文件。
-所需模型缺失 / 本机路径未配置时记录失败，由 Watchdog 重试，
-不影响其他模型。Consumer 继续通过推理结果 contract 处理超时或失败。
-
+依据 FeatureSpec 的必需/可选模型与本机路径构建 Worker 分组，同类且设备号、inode
+相同的权重共享进程。必需模型路径失败进入恢复流程，可选模型无有效路径时跳过。
+配置保存与真正加载分开返回；重载保留队列对象并清理受影响任务，Consumer 无需更换队列。
 """
 from __future__ import annotations
 import queue
@@ -47,6 +42,7 @@ class InferenceRuntimeManager:
     """所有推理 Worker 进程的管理器"""
     def __init__(self):
         # model_name → infer_queue (Consumer 投递任务给 Worker)
+        """准备逻辑队列、共享模型映射、重载状态和三类锁；构造时不启动 Worker。"""
         self.infer_queues: dict[str, Queue] = {}
         # function_name → result_queue (Worker 把结果推给对应 Consumer)
         self.result_queues: dict[str, Queue] = {}
@@ -92,6 +88,7 @@ class InferenceRuntimeManager:
             self._start_all()
 
     def _start_all(self):
+        """在生命周期锁保护下构建模型组、启动并等待就绪，再开启 Watchdog；已启用时返回。"""
         if self._active:
             return
         groups, owners = self._build_model_groups()
@@ -153,7 +150,7 @@ class InferenceRuntimeManager:
         self._runtime_alert_handler = handler
 
     def configure_runtime_monitor(self, handler: Callable[[], None] | None) -> None:
-        """注册由现有 watchdog 周期调用的额外运行状态检查。（顺便执行运行状态监控）"""
+        """设置 Watchdog 每轮附带执行的监控回调，传 None 可解除 Consumer 等外部监控。"""
         with self._lock:
             self._runtime_monitor_handler = handler
 
@@ -236,6 +233,7 @@ class InferenceRuntimeManager:
 
     # ---------- Worker 看门狗 ----------
     def _start_watchdog(self) -> None:
+        """在有模型或附加监控需求时启动唯一守护线程，重复调用不另建线程。"""
         with self._lock:
             if not self._model_configs and self._runtime_monitor_handler is None:
                 return
@@ -251,6 +249,7 @@ class InferenceRuntimeManager:
         logger.info("[InferenceRuntimeManager] 模型 Worker 看门狗已启动")
 
     def _stop_watchdog(self) -> None:
+        """发出停止信号并限时等待监控线程；由监控线程自身调用时不 join 自己。"""
         self._watchdog_stop.set()
         with self._lock:
             thread = self._watchdog_thread
@@ -259,6 +258,7 @@ class InferenceRuntimeManager:
             thread.join(timeout=max(1.0, settings.runtime.model_worker_watchdog_interval_seconds * 2))
 
     def _watchdog_loop(self) -> None:
+        """按配置间隔运行存活检查，记录单轮异常后继续下一轮，直到停止信号到达。"""
         interval = settings.runtime.model_worker_watchdog_interval_seconds
         while not self._watchdog_stop.wait(interval):
             try:
@@ -267,6 +267,7 @@ class InferenceRuntimeManager:
                 logger.exception("[InferenceRuntimeManager] 模型 Worker 看门狗异常")
 
     def _watchdog_tick(self, now: float | None = None) -> None:
+        """串行执行模型生命周期检查，再于生命周期锁外调用附加运行监控。"""
         with self._lifecycle_lock:
             self._watchdog_tick_locked(now)
         self._run_runtime_monitor()
@@ -363,6 +364,7 @@ class InferenceRuntimeManager:
                 self._restart_worker(name, model_cfg, attempt, current)
 
     def _run_runtime_monitor(self) -> None:
+        """锁内取得回调后在锁外调用，记录回调错误而不终止模型 Watchdog。"""
         with self._lock:
             handler = self._runtime_monitor_handler
         if handler is None:
@@ -373,6 +375,7 @@ class InferenceRuntimeManager:
             logger.exception("[InferenceRuntimeManager] 附加运行状态检查异常")
 
     def _mark_worker_running(self, state: WorkerWatchdogState, now: float) -> None:
+        """更新稳定运行起点并清理故障状态；连续稳定达到配置时间后才重置重试次数。"""
         with self._lock:
             if state.running_since is None:
                 state.running_since = now
@@ -391,6 +394,7 @@ class InferenceRuntimeManager:
         state: WorkerWatchdogState,
         now: float,
     ) -> str:
+        """按缺失、加载失败、进程退出和就绪超时解释不可用原因，不改变 Worker 状态。"""
         if worker is None:
             return state.last_failure or "worker 不存在"
         if worker.is_failed():
@@ -403,6 +407,7 @@ class InferenceRuntimeManager:
 
     @staticmethod
     def _restart_backoff_seconds(previous_attempts: int) -> float:
+        """由历史重试次数计算指数退避秒数，并用配置上限截断等待时间。"""
         base = settings.runtime.model_worker_restart_backoff_seconds
         maximum = settings.runtime.model_worker_restart_max_backoff_seconds
         return min(base * (2 ** previous_attempts), maximum)
@@ -477,6 +482,7 @@ class InferenceRuntimeManager:
 
     @staticmethod
     def _required_model_names() -> set[str]:
+        """汇总必需模型，发现 Feature 引用未注册名称时抛出 ValueError。"""
         required = {name for spec in all_specs().values() for name in spec.required_models}
         unknown = required - MODEL_SPECS.keys()
         if unknown:
@@ -485,6 +491,7 @@ class InferenceRuntimeManager:
 
     @staticmethod
     def _declared_model_names() -> set[str]:
+        """汇总必需与可选模型并验证注册完整性，避免声明存在但无模型定义。"""
         declared = {name for spec in all_specs().values() for name in spec.model_names}
         unknown = declared - MODEL_SPECS.keys()
         if unknown:
@@ -492,6 +499,11 @@ class InferenceRuntimeManager:
         return declared
 
     def _build_model_groups(self) -> tuple[dict[str, dict], dict[str, str]]:
+        """按 Worker 类型和物理文件身份分组，返回拥有者配置及逻辑模型到拥有者映射。
+
+        路径有效的可选模型参与运行；必需模型即使路径无效也保留独立失败组，
+        让运行状态与 Watchdog 明确报告问题，不把它静默当作未配置的可选项。
+        """
         required = self._required_model_names()
         declared = self._declared_model_names()
         paths = load_model_paths()
@@ -520,6 +532,7 @@ class InferenceRuntimeManager:
         return groups, owners
 
     def list_models(self) -> list[dict]:
+        """合并固定定义、本机路径、Worker 状态和重载结果，包含尚未启动的注册模型。"""
         paths = load_model_paths()
         statuses = {item["model_name"]: item for item in self.runtime_status()["models"]}
         with self._lock:
@@ -535,6 +548,20 @@ class InferenceRuntimeManager:
             } for name, spec in MODEL_SPECS.items()]
 
     def update_model_path(self, name: str, path: str) -> dict:
+        """保存模型路径，并在运行启用且功能声明依赖时发起异步重载。
+
+        Args:
+            name: 已注册逻辑模型名。
+            path: 待验证保存的本机路径。
+
+        Returns:
+            dict: 配置保存结果与 loading/not_started 状态；保存成功不等于模型加载成功。
+
+        Raises:
+            RuntimeError: 上一次重载仍在执行，拒绝并发覆盖配置。
+            KeyError: 模型名未注册。
+            ValueError: 路径或配置校验失败。
+        """
         get_model_spec(name)
         with self._configuration_lock:
             if self._reload_thread is not None and self._reload_thread.is_alive():
@@ -560,6 +587,7 @@ class InferenceRuntimeManager:
             }
 
     def _reload_affected(self, name: str) -> None:
+        """沿新旧共享关系扩展影响集合，停止旧组、清队列并启动新组，逐模型记录重载成败。"""
         affected = {name}
         with self._lifecycle_lock:
             try:
@@ -634,6 +662,7 @@ class InferenceRuntimeManager:
             return worker is not None and worker.is_running()
 
     def list_running(self) -> list[str]:
+        """返回当前共享 Worker 已就绪的逻辑模型名，不把同进程模型折叠为一个名称。"""
         with self._lock:
             return [name for name, owner in self._model_owners.items()
                     if owner in self._workers and self._workers[owner].is_running()]
@@ -707,6 +736,7 @@ class InferenceRuntimeManager:
             return
 
         def _send():
+            """在独立线程调用异常通知，发送失败记日志，避免拖住 Worker 恢复流程。"""
             try:
                 handler(target_name, target_key, event_type, detail)
             except Exception as e:

@@ -9,14 +9,17 @@ ALARM_MEDIA_DIRECTORIES = tuple(str(value) for value in range(1, 11)) + ("alarm_
 
 
 class ViolationMediaCleaner(MediaCleaner):
+    """将告警记录引用接入公共媒体保留与容量清理策略。"""
     media_directories = ALARM_MEDIA_DIRECTORIES
 
     def __init__(self, data_path, *, retention_days: int, max_bytes: int,
                  session_scope_factory=session_scope):
+        """注入事务上下文并注册自身为媒体引用提供者。"""
         self._session_scope = session_scope_factory
         super().__init__(data_path, retention_days=retention_days, max_bytes=max_bytes, references=(self,))
 
     def iter_records(self, before):
+        """按创建时间与 ID 游标分批枚举过期告警及图片、视频路径。"""
         cursor = None
         while True:
             with self._session_scope() as session:
@@ -38,6 +41,7 @@ class ViolationMediaCleaner(MediaCleaner):
                 yield MediaRecord(row.id, row.create_time, tuple(path for path in (row.image_path, row.video_path) if path))
 
     def delete_record(self, record, remove_file):
+        """重读记录及最新视频引用，只有媒体均可清理时才删除数据库记录。"""
         with self._session_scope() as session:
             row = session.get(AiAlarmEvent, record.id)
             if row is None or row.create_time != record.created_at:
@@ -51,6 +55,7 @@ class ViolationMediaCleaner(MediaCleaner):
         return 1
 
     def referenced_paths(self, paths):
+        """批量查找仍被告警图片或视频字段引用的路径，保护有效媒体。"""
         raw_paths = [str(path) for path in paths]
         with self._session_scope() as session:
             image_paths = {str(path) for (path,) in session.query(AiAlarmEvent.image_path).filter(

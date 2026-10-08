@@ -7,6 +7,7 @@ from AiVision.features._shared import defaults
 from AiVision.features._shared.roi import NormalizedRoi, NormalizedLine
 
 class BlocksValueSchema(BaseModel):
+    """严格校验 ROI、警戒线、人体代表点比例和检测周期，拒绝未知参数。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi = Field(default_factory=list)

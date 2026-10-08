@@ -37,11 +37,13 @@ class ChannelPolicyConflict(ValueError):
     """提供所有冲突通道及各成员原值，禁止默选某路策略。"""
 
     def __init__(self, conflicts: list[dict]):
+        """保留所有成员参数冲突详情，供人工确定最终策略后重新迁移。"""
         self.conflicts = conflicts
         super().__init__("通道成员检测参数不一致，必须在部署前明确处理：" + json.dumps(conflicts, ensure_ascii=False))
 
 
 def _rows(connection: Connection, table: Table) -> list[dict]:
+    """按主键读取并严格验证原始布尔值，生成可比较的数据快照。"""
     columns = [
         cast(column, Integer).label(column.name) if isinstance(column.type, Boolean) else column
         for column in table.columns
@@ -57,6 +59,10 @@ def _rows(connection: Connection, table: Table) -> list[dict]:
 
 
 def preflight(connection: Connection) -> dict:
+    """只读核验表结构、引用和成员策略，全部一致才生成通道级转换计划。
+
+    不在冲突成员中任意选取策略；发现差异会汇总后抛出 ChannelPolicyConflict。
+    """
     if connection.dialect.name not in {"mysql", "sqlite"}:
         raise ValueError("仅支持 MySQL 和 SQLite")
     channel_table, camera_table = source_tables()
@@ -172,6 +178,7 @@ def preflight(connection: Connection) -> dict:
 
 
 def _verify(connection: Connection, plan: dict) -> None:
+    """逐表核对目标结构及完整数据，SQLite 额外检查外键完整性。"""
     for table, expected in (
         (LogisticsChannel.__table__, plan["converted_channels"]),
         (
@@ -188,6 +195,11 @@ def _verify(connection: Connection, plan: dict) -> None:
 
 
 def migrate(engine: Engine, *, apply: bool = False, backup: Path | None = None) -> dict:
+    """默认预检；显式应用时先保存独占备份，再把一致的成员策略写入通道。
+
+    MySQL 使用锁表并重新核对源快照，DDL 不具备整批回滚保证；SQLite 在
+    独占事务内重建目标表。结束时释放锁并恢复原有外键检查设置。
+    """
     with engine.connect() as connection:
         sqlite = connection.dialect.name == "sqlite"
         foreign_keys = connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() if sqlite else None
@@ -277,6 +289,7 @@ def migrate(engine: Engine, *, apply: bool = False, backup: Path | None = None) 
 
 
 def main() -> None:
+    """要求专用连接环境变量，应用迁移须显式声明离线并提供备份路径。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--offline", action="store_true", help="确认已停止全部检测服务和配置写入")

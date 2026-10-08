@@ -18,7 +18,9 @@ from .vlm import encode_frames
 
 
 class InspectionConsumer(BaseFunctionConsumer):
+    """跟踪安检区域内的双人交互，将已结束会话提交异步视觉语言判定。"""
     def __init__(self, **kwargs):
+        """接入平台在线状态，建立逐摄像头会话、跟踪器及配置代次。"""
         self._platform_active = kwargs["is_camera_active"]
         kwargs["is_camera_active"] = self._camera_active
         super().__init__(**kwargs)
@@ -30,6 +32,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         self._frame_shapes: dict[int, tuple] = {}
 
     def start(self):
+        """先启动异步判定服务，检测启动失败时回收其后台线程。"""
         self.vlm_runtime.start(self.service.get_settings())
         try:
             super().start()
@@ -38,6 +41,7 @@ class InspectionConsumer(BaseFunctionConsumer):
             raise
 
     def stop(self):
+        """停止检测与异步判定后清空会话及跟踪缓存。"""
         super().stop()
         self.vlm_runtime.stop()
         with self._camera_state_lock:
@@ -46,6 +50,7 @@ class InspectionConsumer(BaseFunctionConsumer):
             self._frame_shapes.clear()
 
     def _invalidate(self, camera_id: int):
+        """递增配置代次并取消待判定任务，使旧帧和旧结果失效。"""
         self._generations[camera_id] = self._generations.get(camera_id, 0) + 1
         self._sessions.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
@@ -53,11 +58,13 @@ class InspectionConsumer(BaseFunctionConsumer):
         self.vlm_runtime.cancel_camera(camera_id)
 
     def update_config(self, camera_id: int):
+        """配置刷新前清空正在累计的交互证据。"""
         with self._camera_state_lock:
             self._invalidate(camera_id)
             super().update_config(camera_id)
 
     def update_status(self, camera_id: int, enabled: bool):
+        """开关变化时使旧任务失效，关闭时同时重置各 ROI 告警冷却。"""
         with self._camera_state_lock:
             self._invalidate(camera_id)
             if not enabled:
@@ -65,6 +72,7 @@ class InspectionConsumer(BaseFunctionConsumer):
             super().update_status(camera_id, enabled)
 
     def _reset_alarm_cooldown(self, camera_id: int):
+        """按摄像头与 ROI 组合身份清理冷却，避免不同区域互相抑制告警。"""
         cfg = self.config_cache.get(camera_id)
         if cfg is None:
             return
@@ -75,6 +83,7 @@ class InspectionConsumer(BaseFunctionConsumer):
                 )
 
     def _camera_active(self, camera_key: str) -> bool:
+        """沿用平台视频在线判断，离线时销毁该路尚在进行的交互状态。"""
         active = self._platform_active(camera_key)
         if not active:
             for camera_id, cfg in self.config_cache.items():
@@ -83,9 +92,11 @@ class InspectionConsumer(BaseFunctionConsumer):
         return active
 
     def _get_roi(self, camera_id, frame):
+        """保留完整帧，由会话管理器分别处理多个安检 ROI。"""
         return frame
 
     def _should_process_now(self, camera_id, cfg):
+        """仅对启用且配置了安检区域的摄像头按采样周期处理。"""
         return bool(
             cfg["camera_enable"]
             and cfg["staff_rois"]
@@ -93,9 +104,14 @@ class InspectionConsumer(BaseFunctionConsumer):
         )
 
     def _process_static_frames(self, camera_id, cfg):
+        """允许静止帧参与交互保持、结束及超时判断。"""
         return True
 
     def _process(self, frame, camera_id):
+        """人体推理和跟踪后推进 ROI 会话，为已结束会话构造带代次的判定任务。
+
+        分辨率变化或推理失败会清空旧会话，避免混用坐标或跨未知时段形成证据。
+        """
         cfg = self.config_cache[camera_id]
         if self._frame_shapes.get(camera_id) != frame.shape:
             self._invalidate(camera_id)
@@ -146,6 +162,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         return False, {"tracks": tracks, "tasks": tasks}
 
     def _after_process(self, camera_id, result):
+        """再次确认任务属于当前配置后提交异步判定，否则记录取消结果。"""
         for task in result[1]["tasks"]:
             with self._camera_state_lock:
                 valid = self._task_is_current(task)
@@ -155,6 +172,7 @@ class InspectionConsumer(BaseFunctionConsumer):
                 self._complete(task, None, "摄像头状态或检测配置已变更", None)
 
     def post_process(self, camera_id, result):
+        """在原帧副本上绘制安检 ROI 和稳定人体轨迹。"""
         frame = self.frame_cache[camera_id].copy()
         for points in self.config_cache[camera_id]["staff_rois"].values():
             cv2.polylines(frame, [roi_to_pixels(points, frame.shape)], True, self.ROI_COLOR, 2)
@@ -177,6 +195,10 @@ class InspectionConsumer(BaseFunctionConsumer):
         )
 
     def _complete(self, task, verdict, error, latency):
+        """记录有效判定历史，只为明确不合格结果生成基于会话关键帧的告警。
+
+        回调到达时与告警前均核对配置代次，过期结果记录为取消而不触发告警。
+        """
         with self._camera_state_lock:
             cfg = self.config_cache[task.camera_id].copy() if self._task_is_current(task) else None
         if cfg is None:
@@ -211,6 +233,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         )
 
     def _alarm_context(self, camera_id, result):
+        """以摄像头和 ROI 作为告警冷却主体，保留会话判定详情。"""
         return {
             **result[1],
             "cooldown_subject_type": "security_inspection_roi",
@@ -220,6 +243,7 @@ class InspectionConsumer(BaseFunctionConsumer):
     @staticmethod
     def _evidence_image(frames: list[bytes]):
         # 只使用已结束会话的关键帧；不能用千问返回时的实时画面替代现场证据。
+        """按时间顺序拼接会话关键帧，保证取证画面对应实际被判定的交互。"""
         width, height = 480, 360
         image = np.zeros((height * math.ceil(len(frames) / 2), width * 2, 3), dtype=np.uint8)
         for index, raw in enumerate(frames):

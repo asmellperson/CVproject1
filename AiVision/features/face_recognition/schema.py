@@ -14,6 +14,7 @@ from AiVision.features.face_recognition.library.constants import (
 
 
 class FaceRecognitionValue(BaseModel):
+    """身份识别阈值、采样周期与记录冷却设置。"""
     model_config = ConfigDict(extra="forbid")
     roi_pos: NormalizedRoi = Field(default_factory=list)
     cap_interval: float = Field(DEFAULT_CAPTURE_INTERVAL, ge=0.1, le=1.0)
@@ -25,6 +26,7 @@ class FaceRecognitionValue(BaseModel):
 
 
 class FaceRecognitionConfigSchema(BaseModel):
+    """组合身份识别开关、算法参数与告警通道配置。"""
     model_config = ConfigDict(extra="forbid")
     enable: bool = False
     value: FaceRecognitionValue = Field(default_factory=FaceRecognitionValue)
@@ -32,6 +34,7 @@ class FaceRecognitionConfigSchema(BaseModel):
 
 
 class FacePersonItem(BaseModel):
+    """人员库对外信息，区分来源同步状态与本地授权状态。"""
     model_config = ConfigDict(from_attributes=True)
     id: int
     hik_source: Literal["one", "two"]
@@ -50,6 +53,7 @@ class FacePersonItem(BaseModel):
 
 
 class FacePersonPage(BaseModel):
+    """人员检索结果及分页信息。"""
     total: int
     page: int
     page_size: int
@@ -57,11 +61,13 @@ class FacePersonPage(BaseModel):
 
 
 class FacePersonUpdate(BaseModel):
+    """仅允许修改人员的本地通行授权，不覆盖来源同步资料。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     is_allowed: bool
 
 
 class RecognitionRecordItem(BaseModel):
+    """识别记录的历史快照及受接口控制的截图入口。"""
     model_config = ConfigDict(from_attributes=True)
     id: int
     camera_id: int
@@ -74,10 +80,12 @@ class RecognitionRecordItem(BaseModel):
     @computed_field
     @property
     def image_url(self) -> str | None:
+        """有截图引用时生成按记录 ID 查询的地址，不直接拼接磁盘路径。"""
         return f"/api/face-recognition/records/{self.id}/image" if self.image_path else None
 
 
 class RecognitionRecordPage(BaseModel):
+    """识别记录分页结果，包含总数与当前页数据。"""
     total: int
     page: int
     page_size: int

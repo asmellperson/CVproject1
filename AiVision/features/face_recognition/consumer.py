@@ -15,7 +15,9 @@ from .records import RecognitionRecorder
 
 
 class FaceRecognitionConsumer(BaseFunctionConsumer):
+    """将逐脸身份匹配与本地通行授权结合，输出监控、告警和识别记录。"""
     def __init__(self, *args, **kwargs):
+        """初始化异步记录器、人员服务及定期刷新的授权 ID 集合。"""
         super().__init__(*args, **kwargs)
         self.monitor_status: dict[str, dict] = {}
         self.recorder = RecognitionRecorder()
@@ -24,6 +26,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         self._authorization_refresh_at = 0.0
 
     def start(self):
+        """先启动记录器，再启动检测；检测启动失败时同步释放记录线程。"""
         self.recorder.start()
         try:
             super().start()
@@ -32,23 +35,32 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
             raise
 
     def stop(self):
+        """停止产生检测结果后排空记录任务。"""
         super().stop()
         self.recorder.stop()
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        """清除摄像头监控结果与识别冷却，避免重启沿用旧状态。"""
         super()._clear_camera_state(camera_id, shm_name)
         self.recorder.clear_camera(camera_id)
         if shm_name:
             self.monitor_status.pop(shm_name, None)
 
     def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
+        """按摄像头配置的采样周期控制识别频率。"""
         interval = float(cfg.get("cap_interval", DEFAULT_CAPTURE_INTERVAL))
         return time.time() - self._last_process_at.get(camera_id, 0.0) >= interval
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
+        """允许静止画面继续识别，使授权变化和记录冷却能及时生效。"""
         return True
 
     def _process(self, roi, camera_id):
+        """识别人脸后查询本地授权，未知或未授权人员均形成告警候选。
+
+        推理失败返回原失败响应；授权缓存刷新失败交由上层处理，避免使用
+        过期权限继续判定。身份匹配与通行授权是两个独立条件。
+        """
         value = self.config_cache[camera_id]
         response = self.dispatch_inference_sync(
             camera_id, "insightface", roi,
@@ -68,6 +80,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         return any(not detection["is_allowed"] for detection in response["detections"]), response
 
     def _alarm_context(self, camera_id: int, result: tuple) -> dict:
+        """从违规人脸中选择告警主体，优先已识别但未授权的人员并保留全部违规详情。"""
         offending = [detection.copy() for detection in result[1]["detections"] if not detection["is_allowed"]]
         # 主主体优先取检测顺序中的首个已识别未授权人员；全为未知人员时取首个。
         primary = next((detection for detection in offending if detection["matched"]), offending[0])
@@ -88,6 +101,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         }
 
     def post_process(self, camera_id, result):
+        """还原人脸框坐标，更新结构化监控状态，并按配置异步保存识别记录。"""
         alarm, response = result
         frame = self._annotated_frame(camera_id)
         if frame is None:
@@ -127,6 +141,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         return frame
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
+        """在摄像头锁内返回监控状态的浅拷贝，未生成状态时返回 None。"""
         with self._camera_state_lock:
             value = self.monitor_status.get(camera_key)
             return dict(value) if value else None

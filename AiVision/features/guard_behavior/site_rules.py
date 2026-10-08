@@ -11,6 +11,7 @@ STALE_INTERVAL_MULTIPLIER = 3.
 
 
 def expected_members(config: GuardBehaviorRuntimeSiteConfig) -> tuple[GuardBehaviorRuntimeMember, ...]:
+    """按显示顺序筛选应参与判断的成员；整个保安室禁用时返回空集合。"""
     if not config.enabled:
         return ()
     return tuple(sorted((member for member in config.members if member.member_enabled and member.feature_enabled),
@@ -18,11 +19,13 @@ def expected_members(config: GuardBehaviorRuntimeSiteConfig) -> tuple[GuardBehav
 
 
 def stale_seconds(config: GuardBehaviorRuntimeSiteConfig) -> float:
+    """结合采样周期计算快照有效期，并保留最低容忍窗口。"""
     return max(MIN_STALE_SECONDS, config.policy.cap_interval * STALE_INTERVAL_MULTIPLIER)
 
 
 def camera_availability(member: GuardBehaviorRuntimeMember, snapshot: GuardCameraSnapshot | None,
                         now: float, stale_after: float, *, physical_online: bool) -> CameraAvailability:
+    """分别核对物理启用、采集在线及核心感知证据，避免把推理失败当离线。"""
     if not member.physical_enabled:
         return CameraAvailability.PHYSICAL_DISABLED
     if not physical_online:
@@ -40,14 +43,20 @@ def camera_availability(member: GuardBehaviorRuntimeMember, snapshot: GuardCamer
 
 @dataclass
 class AbsenceState:
+    """维护连续的全摄像头无人证据及其有效期。"""
     since: float | None = None
     valid_until: float | None = None
 
     def clear(self) -> None:
+        """中断离岗累计，后续必须重新建立完整负证据。"""
         self.since = self.valid_until = None
 
     def evaluate(self, config: GuardBehaviorRuntimeSiteConfig, snapshots: dict[int, GuardCameraSnapshot],
                  states: dict[int, CameraAvailability], now: float) -> SiteRuleDecision:
+        """只有全部预期摄像头持续可用且均无保安时累计离岗时间。
+
+        任一未知状态或快照有效期中断都会重置计时；任一路观察到保安即恢复正常。
+        """
         if not states or any(status != CameraAvailability.READY for status in states.values()):
             # 未知时段打断连续负证据，恢复后不能接着之前的离岗时间报警。
             self.clear()
@@ -69,6 +78,7 @@ class AbsenceState:
 
 def aggregate_positive(rule: Literal["phone", "prone"], snapshots: dict[int, GuardCameraSnapshot],
                        states: dict[int, CameraAvailability]) -> SiteRuleDecision:
+    """汇总手机或趴睡阳性证据，其他摄像头降级时仍允许明确告警成立。"""
     known = [camera_id for camera_id, state in states.items()
              if state == CameraAvailability.READY and getattr(snapshots[camera_id], rule).state != "unknown"]
     offending = [camera_id for camera_id in known if getattr(snapshots[camera_id], rule).state == "alarm"]

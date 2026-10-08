@@ -1,4 +1,8 @@
-"""海康 Artemis 请求签名；签名的 body 必须与实际发送的字节完全一致。"""
+"""Artemis 请求签名，保证参与签名的路径、请求头与 body 字节和真实发送内容一致。
+
+这里只生成认证请求头，不联网、不保存人员信息。调用方在序列化后签名，
+不能在签名完成后重新编码 JSON 或修改已签字段。
+"""
 from __future__ import annotations
 
 import base64
@@ -12,6 +16,7 @@ from email.utils import formatdate
 
 @dataclass(frozen=True)
 class ArtemisSigner:
+    """持有单个平台凭据的签名器，凭据字段从 repr 中隐藏，避免对象日志直接暴露密钥。"""
     app_key: str = field(repr=False)
     app_secret: str = field(repr=False)
 

@@ -5,6 +5,7 @@ from AiVision.core.db import Base
 
 
 class FacePerson(Base):
+    """以来源和来源人员 ID 唯一定位资料，独立保存同步状态与本地通行授权。"""
     __tablename__ = "ai_face_person"
     __table_args__ = (
         UniqueConstraint("hik_source", "hik_person_id", name="uq_face_person_hik_source_person"),

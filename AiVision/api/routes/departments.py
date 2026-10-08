@@ -1,5 +1,7 @@
-"""api/routes/departments.py
-部门管理 API。
+"""事业部目录与检测功能访问分配 API。
+
+普通读取按登录权限提供功能范围，完整分配矩阵的维护仅向管理员开放；
+权限分配不直接改变摄像头检测配置或运行状态。
 """
 from __future__ import annotations
 

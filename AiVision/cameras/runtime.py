@@ -55,6 +55,7 @@ class CameraStreamError(OSError):
 
 
 def _exit_capture_on_signal(_signum, _frame):
+    """使采集子进程通过 SystemExit 退出，进入采集入口的 finally 回收 ffmpeg 与共享内存。"""
     raise SystemExit(0)
 
 class CameraRuntime:
@@ -131,6 +132,16 @@ class CameraRuntime:
 
     # ---------- 生命周期 ----------
     def start(self, active_index, timeout: float = 10.0, max_count: int = 4):
+        """创建采集子进程并等待首帧就绪，重复运行时直接返回。
+
+        Args:
+            active_index: 共享双缓冲活动索引，交给采集子进程发布已完成帧。
+            timeout: 每次等待 ready_event 的秒数，默认 10 秒。
+            max_count: 连续等待次数上限，默认 4 次。
+
+        Raises:
+            TimeoutError: 等待达到上限或子进程提前退出；抛错前尝试停止并回收采集。
+        """
         if self.running:
             return
         # 清理之前的停止/就绪标签
@@ -160,6 +171,7 @@ class CameraRuntime:
                 raise TimeoutError(f"[{self.name}] 摄像头初始化超时")
 
     def stop(self):
+        """通知采集退出，必要时升级为 terminate/kill，确认退出后清理进程组与残留共享内存。"""
         proc = self.proc
         if proc is None or proc.pid is None:
             self.running = False
@@ -187,6 +199,7 @@ class CameraRuntime:
         # 父进程通过独立进程组和共享内存清理兜底
 
     def _kill_capture_group(self, pid: int):
+        """只有子进程确认建立独立进程组后才发送组级 SIGKILL，避免影响主服务进程组。"""
         if self._process_group_ready.is_set():
             try:
                 os.killpg(pid, signal.SIGKILL)
@@ -250,6 +263,7 @@ class CameraRuntime:
         self._start_ffmpeg()
 
     def _stop_ffmpeg(self):
+        """先终止 FFmpeg，等待超时再强制结束，最终关闭 stdout 并清除管线引用。"""
         if self.pipe:
             try:
                 # 等2秒
@@ -303,7 +317,11 @@ class CameraRuntime:
 
     # ---------- 采集主循环 ----------
     def _capture_loop(self, active_index, frame_seq):
-        """"""
+        """持续读取完整 BGR 帧、过滤异常画面并发布双缓冲索引与帧序号。
+
+        流异常在窗口内按重启预算重建 FFmpeg，程序异常向上报告并退出；
+        无论何种退出路径，finally 都尝试结束管线并释放本进程创建的共享内存。
+        """
         try:
             from setproctitle import setproctitle
             setproctitle(f"Camera[{self.shm_name}]")

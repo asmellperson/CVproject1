@@ -11,6 +11,7 @@ from .state import LocalRuleDecision, PhoneDetection, TrackedPerson
 
 @dataclass
 class _PersonState:
+    """单条保安轨迹的手机证据窗口、运动量与姿态累计状态。"""
     last_center: tuple[float, float]
     last_seen_ts: float
     motion_score: float = 0.
@@ -22,31 +23,38 @@ class _PersonState:
     head_down_frames: int = 0
 
     def reset_phone(self) -> None:
+        """打断手机证据链，清除窗口与持续时间。"""
         self.phone_hit_ts.clear()
         self.phone_active_seconds = 0.
         self.last_phone_eval_ts = self.last_phone_positive_ts = None
 
     def reset_prone(self) -> None:
+        """清除低头及趴睡帧计数，避免跨未知时段累计。"""
         self.prone_frames = self.head_down_frames = 0
 
 
 def strongest_decision(decisions: list[LocalRuleDecision]) -> LocalRuleDecision:
     # 已有明确阳性可以成立；其余目标未知时不能宣称全部正常。
+    """优先保留明确告警，其次未知和待确认；仅所有证据正常时得出正常。"""
     priority = {"normal": 0, "pending": 1, "unknown": 2, "alarm": 3}
     return max(decisions, key=lambda item: (priority[item.state], item.confidence, item.duration_seconds),
                default=LocalRuleDecision())
 
 
 class LocalBehaviorState:
+    """按本摄像头轨迹维护局部行为证据，不承担多摄像头业务汇总。"""
     def __init__(self):
+        """创建摄像头独立的人员行为状态集合。"""
         self.person_states: dict[int, _PersonState] = {}
 
     def cleanup(self, now: float, ttl: float) -> None:
+        """移除超过保留期未出现的轨迹状态。"""
         for track_id in list(self.person_states):
             if now - self.person_states[track_id].last_seen_ts > ttl:
                 del self.person_states[track_id]
 
     def mark_unknown(self, now: float, ttl: float) -> None:
+        """观测失效时打断所有行为证据，防止恢复后承接旧计时。"""
         self.cleanup(now, ttl)
         for state in self.person_states.values():
             state.reset_phone()
@@ -58,6 +66,11 @@ class LocalBehaviorState:
         pose_features: dict[int, dict[str, float]], pose_available: bool,
         identity_unknown: bool, policy: GuardBehaviorRuntimePolicy,
     ) -> tuple[LocalRuleDecision, LocalRuleDecision]:
+        """结合身份、手机和姿态结果更新轨迹，再分别聚合手机与趴睡判断。
+
+        无稳定轨迹、身份不明或推理失败时明确输出未知；明确异常仍可优先
+        于其他目标的未知状态成立。
+        """
         self.cleanup(now, policy.state_ttl_seconds)
         present_ids = {person.track_id for person in guards}
         for track_id, state in self.person_states.items():
@@ -95,6 +108,7 @@ class LocalBehaviorState:
 
     @staticmethod
     def _phone_rule(state, person, phones, features, now, policy) -> LocalRuleDecision:
+        """通过人体邻近关系、窗口命中数和宽限期累计手机行为证据。"""
         x1, y1, x2, y2 = person.bbox
         height = max(1., y2 - y1)
         # Pose 可选；无关键点时使用同一人体框的几何头部位置。
@@ -131,6 +145,7 @@ class LocalBehaviorState:
 
     @staticmethod
     def _prone_rule(state, person, features, fps, frame_height, policy) -> LocalRuleDecision:
+        """用低运动量、低头及人体高度比例积累趴睡证据，以 FPS 换算持续时长。"""
         height_ratio = max(1., person.bbox[3] - person.bbox[1]) / max(1, frame_height)
         head_down_ratio = features["head_down_ratio"]
         head_down = head_down_ratio >= policy.prone_head_down_ratio_threshold

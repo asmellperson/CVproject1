@@ -39,6 +39,7 @@ class AiCameraConfig(Base):
 
     def __repr__(self):
         # Python打印当前对象的时候会输出什么
+        """只展示主键、名称、启用与事业部信息，不把含认证的摄像头地址放进对象表示。"""
         return f"<AiCameraConfig id={self.id} name={self.name!r} enable={self.enable} dept={self.department!r}>"
 
 

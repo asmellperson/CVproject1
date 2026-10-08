@@ -24,10 +24,13 @@ class HornInUseError(ValueError):
 
 
 class HornService:
+    """隔离设备配置持久化与运行实例管理，提交后才触发热同步。"""
     def __init__(self, runtime_manager=None):
+        """注入可选运行管理器，默认实例在需要同步时延迟取得。"""
         self._runtime_manager = runtime_manager
 
     def _sync_after_commit(self, horn_id: int):
+        """通知运行管理器重新读取指定设备的已提交配置。"""
         runtime = self._runtime_manager
         if runtime is None:
             from .runtime_manager import horn_runtime_manager

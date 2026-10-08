@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class EmbeddingCounts:
+    """按海康来源累计特征生成、跳过和失败数量。"""
     total: int = 0
     generated: int = 0
     skipped: int = 0
@@ -35,6 +36,11 @@ def generate_embeddings(
     service: FaceLibraryService, recognizer: InsightFaceRecognizer,
     persons: dict[str, HikvisionPersons], *, model_name: str = MODEL_NAME,
 ) -> dict[str, EmbeddingCounts]:
+    """增量更新在用人员的特征，每张注册照片必须恰好包含一张人脸。
+
+    模型和照片签名均未变化时跳过；单个人员失败会计入统计并继续处理
+    其余人员，写入时由服务再次核对照片是否在生成期间发生变化。
+    """
     counts = {source: EmbeddingCounts() for source in HIKVISION_SOURCES}
     for candidate in service.list_embedding_candidates():
         result = counts[candidate.hik_source]
@@ -70,6 +76,7 @@ def generate_embeddings(
 
 
 def main() -> int:
+    """校验数据库结构并加载模型及海康连接，运行特征生成并以退出码报告失败。"""
     load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
     try:
         from AiVision.core.db import Base, get_engine

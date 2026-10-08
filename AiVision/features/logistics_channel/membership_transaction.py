@@ -40,18 +40,22 @@ class _MembershipDiscovery:
 
     @property
     def member_ids(self) -> tuple[int, ...]:
+        """返回预查询成员 ID，供正式事务锁定同一组关联。"""
         return tuple(member.member_id for member in self.members)
 
     @property
     def member_channel_ids(self) -> tuple[int, ...]:
+        """返回预查询成员所属通道，确定第一层加锁范围。"""
         return tuple(member.channel_id for member in self.members)
 
     @property
     def member_camera_ids(self) -> tuple[int, ...]:
+        """返回预查询涉及的摄像头，确定第二层加锁范围。"""
         return tuple(member.camera_id for member in self.members)
 
     @property
     def expected_pairs(self) -> set[tuple[int, int]]:
+        """记录成员与通道配对，用于加锁后发现归属已被并发修改。"""
         return {(member.member_id, member.channel_id) for member in self.members}
 
 @dataclass(frozen=True)

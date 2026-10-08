@@ -6,6 +6,7 @@ from AiVision.core.db import Base
 
 
 class DepartmentFeatureAccess(Base):
+    """每个正式事业部的一行功能分配，revision 用于阻止并发编辑覆盖，不控制检测启停。"""
     __tablename__ = "department_feature_access"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="ck_department_feature_revision"),

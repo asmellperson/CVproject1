@@ -1,4 +1,8 @@
-"""制服分类模型只输出正类概率，业务阈值由调用方处理。"""
+"""对人体裁图执行制服分类，向保安感知层提供 uniform 概率。
+
+模型架构固定且离线加载，检查 checkpoint 类别映射与参数一致性，优先使用可用 CUDA。
+是否认定为保安、概率保持多久属于业务规则，本模块只返回分类置信度。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +14,9 @@ _MODEL_ARCHITECTURE = "convnextv2_tiny.fcmae_ft_in22k_in1k"
 
 
 class UniformClassifierWorker(BaseModelWorker):
+    """封装离线分类权重、图像预处理和制服正类索引的 Worker。"""
     def load_model(self) -> Any:
+        """验证 checkpoint 字段与连续类别索引，严格载入本地模型并准备推理变换；无效权重报错。"""
         from AiVision.inference.model_paths import validate_model_path
 
         path = validate_model_path(self.model_path, model_type="timm_classifier")
@@ -48,6 +54,7 @@ class UniformClassifierWorker(BaseModelWorker):
         return model
 
     def infer(self, model: Any, frame, task_meta: dict) -> list[dict]:
+        """将 BGR 人体 crop 转成 RGB 并分类，校验 logits 形状后返回 uniform 的 softmax 概率。"""
         import cv2
         import torch
         from PIL import Image

@@ -1,6 +1,7 @@
-"""
-/inference/contracts.py
-统一规定模型推理结果应该长什么样，以及失败状态叫什么
+"""Consumer、Worker 与结果路由器共享的推理结果契约。
+
+status 区分成功空检测、执行错误、队列丢弃、超时与不可用；error_code 细分原因。
+统一结果保留请求身份，便于按 request_id 匹配并校验来源。这里不执行推理或业务判定。
 """
 from __future__ import annotations
 
@@ -42,7 +43,19 @@ def build_inference_result(
     error_message: str | None = None,
     inference_ms: float | None = None,
 ) -> dict[str, Any]:
-    """无论模型成功还是失败。都统一生成同一种结果结构"""
+    """构造带任务身份的统一结果，不校验状态枚举或检测项内容。
+
+    Args:
+        task: 原任务或身份字典，缺失身份字段会写为 None。
+        status: 推理状态，调用方应使用本模块的状态常量。
+        detections: 检测列表；None 转成新的空列表，已有列表不复制。
+        error_code: 失败原因标识，成功时通常为 None。
+        error_message: 可供排障的错误说明。
+        inference_ms: 模型执行耗时，单位毫秒；未测量时为 None。
+
+    Returns:
+        dict: 包含五个身份字段、状态、检测、错误与耗时的统一结构。
+    """
     return {
         # 前五个字段从task继承
         "roi_id": task.get("roi_id"),

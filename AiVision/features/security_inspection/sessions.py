@@ -11,17 +11,20 @@ from .schema import InspectionValue
 
 
 def bbox_center(box):
+    """返回人体框中心，供配对距离及运动量计算。"""
     x1, y1, x2, y2 = box
     return ((x1 + x2) / 2, (y1 + y2) / 2)
 
 
 def bbox_distance(a, b):
+    """计算两个人体框中心间的欧氏距离。"""
     ax, ay = bbox_center(a)
     bx, by = bbox_center(b)
     return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
 
 def bbox_iou(a, b):
+    """计算人体框重叠程度，用于外观匹配时的位置约束。"""
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
     ix1, iy1 = (max(ax1, bx1), max(ay1, by1))
@@ -53,6 +56,7 @@ def compute_fingerprint(frame, box):
     lower = crop[mid:]
 
     def hist(img):
+        """分别归一化 HSV 直方图，空裁图返回固定维度零向量。"""
         if img.size == 0:
             return np.zeros(48, dtype=np.float32)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -86,6 +90,7 @@ class TrackHist:
 
 @dataclass
 class PairSession:
+    """保存一次人员交互的双人外观、位置、时间边界及关键帧。"""
     session_id: str
     roi_name: str
     fp_a: Dict
@@ -102,6 +107,7 @@ class PairSession:
 
 @dataclass
 class RoiState:
+    """隔离一个 ROI 的轨迹历史、候选配对与当前交互会话。"""
     track_hists: Dict[int, TrackHist] = field(default_factory=dict)
     candidate_pair: Optional[Tuple[int, int]] = None
     candidate_hold: int = 0
@@ -109,7 +115,9 @@ class RoiState:
 
 
 class PairSessionManager:
+    """从人体轨迹确认交互配对，用外观指纹跟随并采集判定关键帧。"""
     def __init__(self, config: InspectionValue):
+        """固定当前配置的配对、丢失容忍和关键帧策略，建立独立 ROI 状态。"""
         self.start_hold = config.pair_start_hold_frames
         self.fp_lost_seconds = config.fingerprint_lost_seconds
         self.no_interact_seconds = config.no_interact_seconds
@@ -125,6 +133,7 @@ class PairSessionManager:
         self.roi_states: dict[str, RoiState] = {}
 
     def _tracks_for_roi(self, tracks, roi, active):
+        """按会话是否已开始选择进入或保持阈值，减少边缘出入抖动。"""
         threshold = self.roi_hold_overlap_ratio if active else self.roi_enter_overlap_ratio
         return [
             track
@@ -133,6 +142,7 @@ class PairSessionManager:
         ]
 
     def _update_track_hist(self, st: RoiState, tracks_in_roi, now):
+        """维护人体近期位置历史，并移除长期未出现的轨迹。"""
         for t in tracks_in_roi:
             tid = t["track_id"]
             if tid not in st.track_hists:
@@ -145,6 +155,7 @@ class PairSessionManager:
             del st.track_hists[tid]
 
     def _recent_motion(self, st: RoiState, tid, now):
+        """使用最近一秒内的首末中心位移衡量运动量。"""
         th = st.track_hists.get(tid)
         if th is None or len(th.boxes) < 2:
             return 0.0
@@ -156,6 +167,7 @@ class PairSessionManager:
         return ((cx1 - cx0) ** 2 + (cy1 - cy0) ** 2) ** 0.5
 
     def _find_interacting_pair(self, st: RoiState, tracks_in_roi, now):
+        """根据相对距离与运动差异选择最可信的双人交互候选。"""
         if len(tracks_in_roi) < 2:
             return None
         best = None
@@ -203,6 +215,7 @@ class PairSessionManager:
             return (None, None, False, False)
 
         def score(cand, last_box, sim):
+            """综合外观相似度与历史框重叠，为身份重关联候选排序。"""
             box = cand[0]
             iou = bbox_iou(box, last_box)
             return 0.7 * sim + 0.3 * iou
@@ -231,6 +244,7 @@ class PairSessionManager:
 
     @staticmethod
     def _ema_fp(old, new, alpha=0.1):
+        """缓慢更新上下身外观和高度特征，减轻单帧外观波动。"""
         return {
             "upper": (1 - alpha) * old["upper"] + alpha * new["upper"],
             "lower": (1 - alpha) * old["lower"] + alpha * new["lower"],
@@ -238,6 +252,7 @@ class PairSessionManager:
         }
 
     def _still_interacting(self, box_a, box_b):
+        """使用比启动更宽松的距离阈值维持已有交互。"""
         if box_a is None or box_b is None:
             return False
         dist = bbox_distance(box_a, box_b)
@@ -250,6 +265,7 @@ class PairSessionManager:
         return True
 
     def _crop_pair(self, frame, box_a, box_b):
+        """截取双人联合范围并加入边距，复制图像以独立保存关键帧。"""
         if box_a is None and box_b is None:
             return None
         boxes = [b for b in (box_a, box_b) if b is not None]
@@ -265,6 +281,11 @@ class PairSessionManager:
         return frame[y1:y2, x1:x2].copy()
 
     def step(self, frame, tracks, rois, now: float):
+        """推进各 ROI 的配对会话，返回已结束且至少含两张关键帧的会话。
+
+        候选需持续命中才启动；外观失配、交互中断或最大时长到达均结束会话。
+        仅在两人同时找回时采样，并限制关键帧间隔和总数量。
+        """
         completed = []
         for name, roi in rois.items():
             if name not in self.roi_states:

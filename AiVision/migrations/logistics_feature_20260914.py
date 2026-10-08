@@ -86,6 +86,7 @@ def source_table():
 
 
 def _validated_row(row, table):
+    """只把合法数据库布尔域零或一转换为 bool，拒绝空值和其他数值。"""
     result = dict(row)
     # MySQL BOOLEAN 反射为 TINYINT；只接受数据库布尔域 0/1，不更改业务值。
     for column in table.columns:
@@ -99,6 +100,7 @@ def _validated_row(row, table):
 
 def _read_rows(connection, table):
     # 读取布尔列的原始数值，避免 SQLAlchemy 将非法 2 自动映射成 True。
+    """以整数读取布尔列，避免 ORM 自动转换掩盖源数据中的非法值。"""
     columns = [cast(c, Integer).label(c.name) if isinstance(c.type, Boolean) else c for c in table.columns]
     return connection.execute(select(*columns)).mappings()
 
@@ -261,6 +263,7 @@ def migrate(engine, *, value_changes=None, apply=False):
 
 
 def main():
+    """从专用环境变量创建连接，默认只检查，显式 apply 才执行结构迁移。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url-env", default="MIGRATION_DATABASE_URL")
     parser.add_argument("--apply", action="store_true")

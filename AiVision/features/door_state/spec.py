@@ -1,4 +1,7 @@
-"""features/door_state/ — 门禁状态检测"""
+"""声明 detect_door 功能的消费者、配置表和校验模型。
+
+门状态由帧差算法判断，无需加载推理模型；正式告警类型为 2。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 # 从当前的 door_state 目录导入三个类
 from .consumer import DoorConsumer

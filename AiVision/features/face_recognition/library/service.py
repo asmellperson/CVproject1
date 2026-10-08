@@ -18,6 +18,7 @@ from .orm import FaceEmbedding, FacePerson
 
 @dataclass(frozen=True)
 class EmbeddingCandidate:
+    """生成特征所需的人员与照片元数据，照片定位信息不参与 repr 输出。"""
     person_id: int
     hik_source: str
     pic_uri: str | None = field(repr=False)
@@ -28,6 +29,7 @@ class EmbeddingCandidate:
 
 @dataclass(frozen=True)
 class SyncCounts:
+    """完整来源快照写入后的新增、更新、未变化和停用计数。"""
     total: int
     inserted: int = 0
     updated: int = 0
@@ -36,7 +38,9 @@ class SyncCounts:
 
 
 class FaceLibraryService:
+    """管理人员资料、通行授权及特征写入，保持数据库事务边界。"""
     def list_embedding_candidates(self) -> list[EmbeddingCandidate]:
+        """列出在用人员及现有特征元数据，由生成任务判断是否需要重建。"""
         with get_session() as session:
             rows = session.query(FacePerson, FaceEmbedding).outerjoin(
                 FaceEmbedding, FaceEmbedding.person_id == FacePerson.id,
@@ -48,6 +52,7 @@ class FaceLibraryService:
             ) for person, embedding in rows]
 
     def save_embedding(self, person_id: int, embedding, *, model_name: str, signature: str) -> None:
+        """锁定人员并重新核对照片签名，防止把旧照片生成的特征写回新资料。"""
         data = encode_embedding(embedding)
         with session_scope() as session:
             person = session.query(FacePerson).filter_by(id=person_id).with_for_update().one()
@@ -66,10 +71,12 @@ class FaceLibraryService:
 
     @staticmethod
     def _require_source(source: str) -> None:
+        """限制查询和写入使用已支持的海康来源标识。"""
         if source not in HIKVISION_SOURCES:
             raise ValueError("hik_source must be one or two")
 
     def get_person(self, source: str, person_id: str) -> FacePerson | None:
+        """按来源复合身份查询人员，避免不同平台的相同人员 ID 冲突。"""
         self._require_source(source)
         with get_session() as session:
             return session.query(FacePerson).filter_by(hik_source=source, hik_person_id=person_id).one_or_none()
@@ -78,6 +85,7 @@ class FaceLibraryService:
         self, *, page: int = 1, page_size: int = 20, keyword: str | None = None,
         source: str | None = None, is_active: bool | None = None, is_allowed: bool | None = None,
     ) -> FacePersonPage:
+        """按来源、状态及转义后的关键字筛选人员，校验分页范围后返回稳定顺序。"""
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("页码必须大于零，每页数量须为 1～100")
         if source is not None:
@@ -103,6 +111,7 @@ class FaceLibraryService:
             )
 
     def update_person_allowed(self, person_id: int, is_allowed: bool) -> FacePersonItem | None:
+        """锁定并修改本地授权，提交后重新读取实际保存结果；人员不存在时返回 None。"""
         with session_scope() as session:
             person = session.get(FacePerson, person_id, with_for_update=True)
             if person is None:
@@ -114,6 +123,7 @@ class FaceLibraryService:
             return FacePersonItem.model_validate(person) if person is not None else None
 
     def get_allowed_person_ids(self) -> set[int]:
+        """仅返回仍在用且明确获准通行的人员 ID。"""
         with get_session() as session:
             return set(session.scalars(select(FacePerson.id).where(
                 FacePerson.is_active.is_(True), FacePerson.is_allowed.is_(True),

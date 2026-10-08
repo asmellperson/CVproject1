@@ -1,4 +1,4 @@
-"""features/person_dwell/orm.py"""
+"""人员逗留配置表，按摄像头保存人体筛选、轨迹匹配及停留阈值。"""
 from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON
 from AiVision.features._shared import defaults
 from AiVision.features._shared.orm import FeatureConfigBase

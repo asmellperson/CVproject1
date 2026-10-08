@@ -1,4 +1,7 @@
-"""保安行为检测的正式 Feature 契约。"""
+"""保安行为检测的正式 Feature 契约，关联单摄消费者和专用配置模型。
+
+单摄层只产生感知证据；跨摄像头规则及正式告警由保安室运行层负责。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .constants import GUARD_ALARM_TYPES
 from .consumer import GuardBehaviorConsumer

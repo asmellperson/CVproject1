@@ -1,12 +1,7 @@
-"""
-物流通道的“配置管理器 + 数据库业务规则层”
-负责
-    查通道
-    新建/修改/删除通道
-    camera加入/移除/从一个通道移到另一个通道
-    保证数据库事务安全
-    通过成员事务模块处理并发/死锁
-    修改成功红通知Runtime刷新
+"""物流通道配置和成员管理的事务入口。
+
+统一校验事业部、成员容量及唯一归属；成员变更通过专用事务层固定
+加锁顺序并处理并发重试。只有数据库提交成功后才刷新缓存和通知运行时。
 """
 from __future__ import annotations
 from AiVision.departments.department_registry import require_department
@@ -61,6 +56,7 @@ class _PendingNotification:
 class LogisticsChannelService(MembershipTransaction):
     """物流通道配置与摄像头成员管理入口。"""
     def list_channels(self, feature_name: str, departments: list[str] | tuple[str, ...] | None = None) -> dict:
+        """按功能及可选事业部范围返回有序通道列表，并通过响应模型校验。"""
         feature_name = require_logistics_feature(feature_name)
         session = get_session()
         try:
@@ -183,6 +179,7 @@ class LogisticsChannelService(MembershipTransaction):
             raise ValueError("通道名称不能为空")
         # 创建
         def create(session):
+            """在写事务中核对名称唯一性并返回新通道 ID。"""
             duplicate = (
                 session.query(LogisticsChannel)
                 .filter_by(feature_name=feature_name, department=department, name=normalized_name)
@@ -221,6 +218,7 @@ class LogisticsChannelService(MembershipTransaction):
 
         def delete(session, discovery):
             # 重新查询并锁住本次删除涉及的 Channel / Camera / Member
+            """锁定关联后关闭成员功能、删除绑定与通道，返回提交后通知所需身份。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -280,6 +278,7 @@ class LogisticsChannelService(MembershipTransaction):
 
         def update(session):
             # 对目标通道做数据库锁
+            """锁定通道，合并保存元数据及配置，并校验最终配置与喇叭绑定。"""
             channels = self._lock_channels(session, [channel_id])
             channel = channels.get(channel_id)
             if channel is None or channel.feature_name != feature_name:
@@ -322,12 +321,14 @@ class LogisticsChannelService(MembershipTransaction):
         feature_name = require_logistics_feature(feature_name)
 
         def discover():
+            """预查询目标通道和摄像头的全部关联，确定正式事务锁集合。"""
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
         def add(session, discovery):
+            """锁定后重查归属及事业部，建立成员并启用对应功能。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -378,9 +379,11 @@ class LogisticsChannelService(MembershipTransaction):
         values = LogisticsChannelMemberCreate.model_validate(payload).model_dump(exclude_unset=True)
 
         def discover():
+            """发现目标通道成员范围，供新摄像头绑定时核对容量。"""
             return self._discover_memberships(channel_ids=(channel_id,))
 
         def create_and_bind(session, discovery):
+            """在同一事务中新建同事业部摄像头并插入通道成员。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -426,12 +429,14 @@ class LogisticsChannelService(MembershipTransaction):
         feature_name = require_logistics_feature(feature_name)
 
         def discover():
+            """发现源归属与目标通道，保证移动时两侧均纳入加锁范围。"""
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(target_channel_id,),
             )
 
         def move(session, discovery):
+            """锁定源目标关系后移动唯一成员，保留成员开关并追加到目标末尾。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -501,9 +506,11 @@ class LogisticsChannelService(MembershipTransaction):
             raise ValueError("camera_ids 不可重复")
 
         def discover():
+            """预查询通道完整成员集合，以发现排序期间发生的并发增删。"""
             return self._discover_memberships(channel_ids=(channel_id,))
 
         def reorder(session, discovery):
+            """要求请求恰好覆盖当前成员集合，再按输入顺序写入排序值。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -539,12 +546,14 @@ class LogisticsChannelService(MembershipTransaction):
         feature_name = require_logistics_feature(feature_name)
 
         def discover():
+            """确定成员开关修改涉及的通道与摄像头锁集合。"""
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
         def update(session, discovery):
+            """确认成员仍在目标通道后只修改成员参与开关。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -581,12 +590,14 @@ class LogisticsChannelService(MembershipTransaction):
         feature_name = require_logistics_feature(feature_name)
 
         def discover():
+            """发现解绑涉及的全部关联，避免与移动等操作使用不同锁范围。"""
             return self._discover_memberships(
                 camera_ids=(camera_id,),
                 channel_ids=(channel_id,),
             )
 
         def remove(session, discovery):
+            """删除成员并关闭对应功能，返回提交后清理运行状态所需身份。"""
             state = self._lock_membership_state(
                 session,
                 discovery,
@@ -626,6 +637,7 @@ class LogisticsChannelService(MembershipTransaction):
 
 
     def get_camera_roi(self, feature_name: str, channel_id: int, camera_id: int) -> dict:
+        """校验功能、通道成员及事业部后读取该摄像头唯一 ROI。"""
         feature_name = require_logistics_feature(feature_name)
         config_class = all_specs()[feature_name].orm_class
         session = get_session()
@@ -652,14 +664,17 @@ class LogisticsChannelService(MembershipTransaction):
             session.close()
 
     def update_camera_roi(self, feature_name: str, channel_id: int, camera_id: int, payload: dict) -> dict:
+        """在成员事务内保存 ROI，提交后发布配置刷新通知。"""
         feature_name = require_logistics_feature(feature_name)
         values = LogisticsCameraRoiUpdate.model_validate(payload).model_dump()
 
         def discover():
+            """预查询 ROI 保存期间需要保护的成员关系。"""
             return self._discover_memberships(camera_ids=(camera_id,), channel_ids=(channel_id,))
 
         def update(session, discovery):
             # 沿用成员写事务的锁顺序，防止 ROI 保存期间被解绑、移动或改变摄像头归属。
+            """锁定并重新核对归属，再写 ROI，防止保存期间被解绑或移动。"""
             state = self._lock_membership_state(
                 session, discovery,
                 required_channel_ids=(channel_id,), required_camera_ids=(camera_id,),
@@ -691,6 +706,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _camera_roi_response(camera: AiCameraConfig, config: CameraFeatureConfigBase) -> dict:
+        """返回最小摄像头身份及校验后的归一化 ROI。"""
         return LogisticsCameraRoiResponse.model_validate({
             "camera": {"id": camera.id, "name": camera.name, "shm_name": camera.shm_name, "enable": camera.enable},
             "roi_pos": config.roi_pos,
@@ -768,6 +784,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _query_channel(session, feature_name: str, channel_id: int):
+        """按功能和通道 ID 查询，并预加载成员供详情转换。"""
         return (
             session.query(LogisticsChannel)
             .options(selectinload(LogisticsChannel.cameras))
@@ -779,6 +796,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _channel_integrity_value_error(exc: IntegrityError) -> ValueError:
+        """把数据库名称唯一约束等冲突转换为稳定业务提示。"""
         message = str(exc.orig or exc).lower()
         if (
             "uq_logistics_channel_feature_department_name" in message
@@ -792,6 +810,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @classmethod
     def _binding_integrity_value_error(cls, exc: IntegrityError) -> ValueError:
+        """区分摄像头资源冲突、通道重名和一般绑定约束错误。"""
         message = str(exc.orig or exc).lower()
         if "ai_camera_config" in message or "shm_name" in message:
             return _camera_integrity_value_error(exc)
@@ -815,16 +834,19 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _detail(channel: LogisticsChannel) -> dict:
+        """将通道 ORM 与已加载成员转换为完整响应结构。"""
         return LogisticsChannelDetailResponse.model_validate(channel).model_dump(mode="python")
 
     @staticmethod
     def _require_capacity(members: list[LogisticsChannelCamera], channel_id: int) -> None:
+        """按当前锁定成员数量检查通道容量，停用成员仍占用名额。"""
         member_count = sum(member.channel_id == channel_id for member in members)
         if member_count >= MAX_CAMERAS_PER_CHANNEL:
             raise ValueError(f"每个物流通道最多绑定 {MAX_CAMERAS_PER_CHANNEL} 路摄像头")
 
     @staticmethod
     def _next_sort_order(members: list[LogisticsChannelCamera], channel_id: int) -> int:
+        """在现有最大排序值之后追加新成员。"""
         sort_orders = [
             member.sort_order
             for member in members
@@ -833,6 +855,7 @@ class LogisticsChannelService(MembershipTransaction):
         return 0 if not sort_orders else max(sort_orders) + 1
 
     def _insert_locked_member(self, session, feature_name, channel, camera, members) -> None:
+        """再次核对事业部和容量，建立启用成员并同步功能开关。"""
         self._require_camera_department(camera, channel)
         self._require_capacity(members, channel.id)
         session.add(LogisticsChannelCamera(
@@ -846,6 +869,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _require_camera_department(camera: AiCameraConfig, channel: LogisticsChannel) -> None:
+        """拒绝未指定事业部或与通道事业部不一致的摄像头。"""
         if not camera.department:
             raise ValueError("摄像头 department 为空，请先明确摄像头事业部")
         if camera.department != channel.department:
@@ -853,6 +877,7 @@ class LogisticsChannelService(MembershipTransaction):
 
     @staticmethod
     def _set_feature_enabled(session, feature_name: str, camera_id: int, enabled: bool):
+        """创建缺失的逐摄像头配置或更新其功能开关，由外层事务提交。"""
         spec = all_specs()[feature_name]
         cfg = session.query(spec.orm_class).filter_by(camera_id=camera_id).first()
         if cfg is None:

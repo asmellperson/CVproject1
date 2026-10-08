@@ -86,6 +86,11 @@ class BaseFunctionConsumer(ABC):
         is_camera_active,                           # callable(shm_name) -> bool，查询摄像头是否在线
         runtime_alert_handler: Callable[[str, str, str, str], None] | None = None,
     ):
+        """绑定功能、推理队列和帧来源，初始化路由器及各摄像头状态。
+
+        构造过程不启动消费线程；start 才建立运行生命周期。摄像头状态、
+        提交过程和生命周期使用不同锁，避免停止操作与推理注册相互干扰。
+        """
         self.spec = spec
         self.feature_name = spec.name
         self.infer_dict = infer_dict                    # Consumer通往Worker的入口
@@ -249,6 +254,7 @@ class BaseFunctionConsumer(ABC):
             self._reset_alarm_cooldown(camera_id)
 
     def _reset_alarm_cooldown(self, camera_id: int):
+        """重置本功能在指定摄像头上的所有告警类型冷却状态。"""
         for violation_type in self.spec.alarm_types:
             alarm_dispatcher.reset_cooldown(camera_id, violation_type)
 
@@ -377,11 +383,13 @@ class BaseFunctionConsumer(ABC):
         target_name: str | None = None,
         target_key: str | None = None,
     ):
+        """通过后台线程发送运行状态通知，避免通知服务阻塞检测循环。"""
         handler = self.runtime_alert_handler
         if handler is None:
             return
 
         def _send():
+            """调用运行状态处理器，并记录通知失败而不影响业务检测。"""
             try:
                 handler(
                     target_name or self.feature_name,
@@ -581,12 +589,7 @@ class BaseFunctionConsumer(ABC):
         return float(cfg["cap_interval"])
 
     def _process_static_frames(self, camera_id: int, cfg: dict) -> bool:
-        """
-        控制在画面无显著变化时是否仍按 cap_interval 周期处理。
-
-        默认 False：帧差类功能（blocks、detect_door）依赖画面变化驱动处理。
-        逗留/目标追踪类功能应重写为 True，否则静止目标的逗留时间无法持续累积。
-        """
+        """声明是否继续处理静止画面，默认关闭，由需要连续计时的子类覆盖。"""
         return False
 
     def _should_process_now(self, camera_id: int, cfg: dict) -> bool:
@@ -674,7 +677,12 @@ class BaseFunctionConsumer(ABC):
         task_meta: Optional[dict] = None,
         timeout: float = 0.8,
     ) -> dict:
-        """启动后投递当前摄像头唯一 ROI，通过结果路由器等待本请求的结果。"""
+        """提交推理任务并等待与任务标识匹配的结果。
+
+        先注册等待者再入队，避免快速返回的结果丢失；退出路径统一注销等待者。
+        模型队列缺失、队列拥塞、超时和非法响应均转为统一结果状态，
+        调用方应检查状态后再解释 detections，不能把推理失败当作未检测到目标。
+        """
         import queue as _q
 
         request_id = f"{self.feature_name}:{camera_id}:{uuid4().hex}"

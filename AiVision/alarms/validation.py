@@ -4,6 +4,7 @@ from .types import VIOLATION_TYPE_META
 
 
 def _validate_alarm_type(violation_type: int) -> None:
+    """要求告警类型是正式注册整数，拒绝布尔值和未知编号。"""
     if type(violation_type) is not int or violation_type not in VIOLATION_TYPE_META:
         raise ValueError("新告警 violation_type 必须是正式报警类型注册表中的整数")
 
@@ -17,6 +18,7 @@ def validate_cooldown_identity(cooldown_subject_type: str, cooldown_subject_id: 
 
 
 def validate_alarm_identity(violation_type: int, feature_name: str, department: str) -> None:
+    """要求调用方明确给出功能及事业部，并核对告警类型属于该功能声明。"""
     _validate_alarm_type(violation_type)
     if not isinstance(feature_name, str) or not feature_name.strip() or feature_name != feature_name.strip():
         raise ValueError("新告警必须明确提供 feature_name")

@@ -10,6 +10,7 @@ from types import MappingProxyType
 
 @dataclass(frozen=True)
 class DepartmentSpec:
+    """不可变事业部定义；name 用于持久化与权限，display_name 用于展示。"""
     name: str
     display_name: str
 

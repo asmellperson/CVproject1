@@ -32,18 +32,26 @@ from .constants import PERSON_DEDUP_IOU_THRESHOLD
 
 class LogisticsConsumerRuntime(Protocol):
     """单路检测向通道运行时读取配置、发布快照和请求汇总的注入接口。"""
-    def camera_should_run(self, feature_name: str, camera_id: int) -> bool: ...
+    def camera_should_run(self, feature_name: str, camera_id: int) -> bool:
+        """声明摄像头当前是否属于需要运行的有效通道成员。"""
+        ...
 
-    def detection_config_for_camera(self, feature_name: str, camera_id: int) -> LogisticsDetectionConfig | None: ...
+    def detection_config_for_camera(self, feature_name: str, camera_id: int) -> LogisticsDetectionConfig | None:
+        """返回摄像头所属通道共享的检测策略，无有效归属时返回 None。"""
+        ...
 
     def update_camera_snapshot(
         self,
         feature_name: str,
         snapshot: CameraSnapshot,
         annotated_frame: np.ndarray | None,
-    ) -> None: ...
+    ) -> None:
+        """接收单摄计数事实及可选标注帧，供通道聚合和预览使用。"""
+        ...
 
-    def evaluate_after_camera_update(self, feature_name: str, camera_id: int) -> None: ...
+    def evaluate_after_camera_update(self, feature_name: str, camera_id: int) -> None:
+        """要求运行时在新单摄结果发布后重新汇总所属通道。"""
+        ...
 
 def build_monitor_snapshot(result: tuple, updated_at: float | None = None) -> dict:
     """当前摄像头唯一 ROI 的监控状态。"""
@@ -66,6 +74,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
     ROI_COLOR_UNKNOWN = (0, 165, 255)
 
     def __init__(self, *args, logistics_runtime: LogisticsConsumerRuntime | None = None, **kwargs):
+        """要求注入通道运行时，防止脱离多摄聚合直接进行单路告警。"""
         if logistics_runtime is None:
             raise RuntimeError(
                 f"{type(self).__name__} 缺少 LogisticsChannelRuntime 注入；"
@@ -76,11 +85,13 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         self.monitor_status: dict[str, dict] = {}
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        """随基础状态清理当前共享帧标识的监控结果。"""
         super()._clear_camera_state(camera_id, shm_name)
         if shm_name:
             self.monitor_status.pop(shm_name, None)
 
     def _processing_interval_seconds(self, camera_id: int, cfg: dict) -> float | None:
+        """使用通道统一采样周期，无有效通道配置时不提供周期。"""
         detection = self.logistics_runtime.detection_config_for_camera(self.feature_name, camera_id)
         return None if detection is None else detection.cap_interval
 
@@ -119,6 +130,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _unknown_roi_result() -> tuple[bool, dict]:
+        """构造人数未知结果，避免推理或配置不可用被误计为零人。"""
         return False, {
             "reason": "unknown",
             "person_count": None,
@@ -212,6 +224,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         return annotated
 
     def _camera_online(self, camera_key: str) -> bool:
+        """查询注入的采集状态；缺少检查器或帧标识时沿用可用假定。"""
         checker = getattr(self, "is_camera_active", None)
         if not camera_key or not callable(checker):
             return True
@@ -223,6 +236,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         detections: tuple[PersonDetection, ...],
         count: int | None,
     ) -> None:
+        """绘制去重后的原帧人体框，多人时使用异常颜色。"""
         color = self.BBOX_COLOR_ABNORMAL if count is not None and count >= 2 else self.BBOX_COLOR_NORMAL
         for detection in detections:
             x1, y1, x2, y2 = (int(value) for value in detection.bbox)
@@ -239,6 +253,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
 
     @classmethod
     def _color_for_reason(cls, reason: str) -> tuple[int, int, int]:
+        """用颜色区分明确人数异常、未知和正常状态。"""
         if reason in {"empty", "multiple"}:
             return cls.ROI_COLOR_ABNORMAL
         if reason == "unknown":
@@ -247,6 +262,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _label_for(reason: str, count) -> str:
+        """生成人数状态标签，未知人数不显示为零。"""
         if reason == "empty":
             return "EMPTY count=0"
         if reason == "multiple":
@@ -257,6 +273,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _snapshot_reason(count: int | None) -> str:
+        """把可选人数映射为未知、无人、单人或多人局部状态。"""
         if count is None:
             return "unknown"
         if count == 0:
@@ -266,6 +283,7 @@ class LogisticsSinglePersonConsumer(BaseFunctionConsumer):
         return "multiple"
 
     def get_monitor_status(self, camera_key: str) -> dict | None:
+        """返回监控字典的浅拷贝，未产生结果时返回 None。"""
         value = self.monitor_status.get(camera_key)
         return dict(value) if value else None
 

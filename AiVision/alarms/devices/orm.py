@@ -4,6 +4,7 @@ from AiVision.core.db import Base    # 所有ORM表模型的父类
 
 # AiHornConfig：喇叭设备配置表在Python里的ORM映射（Python 类 AiHornConfig <--> MySQL 表 ai_horn_config）
 class AiHornConfig(Base):
+    """保存独立喇叭设备及认证资料，公开响应由服务层剔除密码。"""
     __tablename__ = "ai_horn_config"
     # 建表参数
     __table_args__ = {
@@ -35,4 +36,5 @@ class AiHornConfig(Base):
     )
 
     def __repr__(self):
+        """仅显示设备 ID 和名称，避免调试输出泄露凭据。"""
         return f"<AiHornConfig id={self.id} name={self.name!r}>"

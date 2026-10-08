@@ -1,4 +1,8 @@
-"""内置功能的唯一注册入口；包路径与持久化业务标识分离。"""
+"""内置检测功能的静态注册入口。
+
+启动时校验功能名称与告警类型的唯一性，供配置、推理依赖和告警路由
+共享同一份功能声明；功能发现以显式注册列表为准。
+"""
 from AiVision.alarms.types import VIOLATION_TYPE_META
 
 from ._shared.spec import FeatureSpec
@@ -31,6 +35,7 @@ _BUILTIN_SPECS = (
 
 
 def _build_registry(specs: tuple[FeatureSpec, ...]) -> dict[str, FeatureSpec]:
+    """校验功能名和告警类型归属后建立注册表，冲突时立即拒绝初始化。"""
     registry = {}
     alarm_owners: dict[int, str] = {}
     for spec in specs:
@@ -65,6 +70,7 @@ def all_specs() -> dict[str, FeatureSpec]:
 
 
 def get_spec(name: str) -> FeatureSpec | None:
+    """按功能名查询声明；未注册名称返回 None，由调用方决定是否报错。"""
     return _REGISTRY.get(name)
 
 

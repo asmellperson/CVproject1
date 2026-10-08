@@ -8,6 +8,7 @@ DISPOSITION_HISTORY_LIMIT = 20
 
 
 def _validate_alarm_id(value: str) -> str:
+    """在字符串格式校验之后限制 ID 不超过数据库无符号 64 位范围。"""
     if int(value) > 2**64 - 1:
         raise ValueError("报警 ID 超出范围")
     return value
@@ -17,12 +18,14 @@ AlarmId = Annotated[str, Field(strict=True, pattern=r"^[1-9][0-9]{0,19}$"), Afte
 
 
 class DispositionActor(BaseModel):
+    """保留处置发生时的员工编号和姓名快照。"""
     model_config = ConfigDict(strict=True, extra="forbid")
     employee_id: str
     name: str
 
 
 class DispositionChange(BaseModel):
+    """一次处置状态、备注、时间及操作者的历史快照。"""
     model_config = ConfigDict(strict=True, extra="forbid")
     status: DispositionStatus
     note: str
@@ -31,11 +34,13 @@ class DispositionChange(BaseModel):
 
 
 class AlarmDisposition(DispositionChange):
+    """当前处置及其有限历史，告警 ID 使用字符串避免前端整数精度损失。"""
     alarm_id: AlarmId
     history: list[DispositionChange]
 
 
 class DispositionUpdate(BaseModel):
+    """更新处置状态与备注的严格请求结构。"""
     model_config = ConfigDict(strict=True, extra="forbid")
     alarm_id: AlarmId
     status: DispositionStatus
@@ -43,6 +48,7 @@ class DispositionUpdate(BaseModel):
 
 
 class DispositionPage(BaseModel):
+    """处置列表和下一页告警 ID 游标。"""
     items: list[AlarmDisposition]
     next_cursor: AlarmId | None
 
@@ -89,6 +95,7 @@ class AlarmEventResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 class AlarmListResponse(BaseModel):
+    """统一告警事件列表，列表项包含处置摘要。"""
     model_config = ConfigDict(extra="forbid")
 
 

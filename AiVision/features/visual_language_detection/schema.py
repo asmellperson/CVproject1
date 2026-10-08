@@ -13,6 +13,7 @@ FEATURE_NAME = "visual_language_detection"
 
 
 class VisualLanguageValue(BaseModel):
+    """逐摄像头的视频理解参数，约束图像尺寸、生成采样及观察提示词。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, str_strip_whitespace=True)
 
     cap_interval: float = Field(1.0, ge=0.1, le=300)
@@ -30,6 +31,7 @@ class VisualLanguageValue(BaseModel):
 
 
 class VisualLanguageConfig(BaseModel):
+    """组合视觉理解开关、参数和告警通道配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     enable: bool = False
     value: VisualLanguageValue = Field(default_factory=VisualLanguageValue)
@@ -37,17 +39,20 @@ class VisualLanguageConfig(BaseModel):
 
 
 class VideoQuestion(BaseModel):
+    """单次视频提问，自动清理首尾空白并限制长度。"""
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     question: str = Field(min_length=1, max_length=2000)
 
 
 class VideoAnswer(BaseModel):
+    """视频回答及对应画面的采集时间，模型静默时文本可为空。"""
     text: str | None
     latency_seconds: float
     captured_at: datetime
 
 
 class VisualLanguageStatus(BaseModel):
+    """当前摄像头的视频理解进度、最近结果和处理错误。"""
     processed_frames: int = 0
     latest_result: str | None = None
     latest_result_at: datetime | None = None
@@ -56,6 +61,7 @@ class VisualLanguageStatus(BaseModel):
 
 
 class VisualLanguageEvent(BaseModel):
+    """持久化观察、提问或错误的对外事件结构。"""
     model_config = ConfigDict(from_attributes=True)
     id: int
     kind: Literal["observation", "question", "error"]
@@ -66,4 +72,5 @@ class VisualLanguageEvent(BaseModel):
 
 
 class VisualLanguageHistory(BaseModel):
+    """视觉理解事件列表，游标通过事件 ID 继续读取。"""
     items: list[VisualLanguageEvent]

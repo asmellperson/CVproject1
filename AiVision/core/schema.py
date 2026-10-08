@@ -1,10 +1,15 @@
-"""只读数据库结构核验；不在服务启动时转换历史表或数据。"""
+"""只读核对数据库实际结构与 ORM 声明，拒绝将结构差异当作正常启动。
+
+检查列、类型、默认值、主键、索引、外键与 CHECK；必要的反射表示差异先做规范化。
+本模块不执行 ALTER 或转换历史数据，结构不一致应由明确的离线迁移处理。
+"""
 import re
 
 from sqlalchemy import CheckConstraint, String, UniqueConstraint, inspect
 
 
 def _default(value):
+    """规范化反射默认值的引号、括号、NULL 与数字表示，减少数据库表达差异造成的误判。"""
     if value is None:
         return None
     value = str(value).strip("()'\"").lower()
@@ -17,6 +22,7 @@ def _default(value):
 
 
 def _type(column_type, dialect):
+    """按当前数据库方言编译类型，忽略字符串继承排序规则并统一常见布尔/整数别名。"""
     if isinstance(column_type, String):
         # MySQL 反射可能显式携带继承的字符集/排序规则；它们不是 VARCHAR 长度等类型属性。
         column_type = column_type.copy()
@@ -28,6 +34,7 @@ def _type(column_type, dialect):
 
 
 def _expression(value):
+    """去掉表达式空白、标识符引号和括号并转小写，供约束文本比较使用。"""
     return re.sub(r"[\s`\"()]+", "", str(value)).lower()
 
 

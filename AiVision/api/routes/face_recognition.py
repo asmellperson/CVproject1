@@ -23,6 +23,7 @@ def get_persons(
     is_allowed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
+    """具备人脸识别功能访问权后查询平台人员库，支持来源及授权状态过滤。"""
     require_feature_access(user, "recognize_face")
     return FaceLibraryService().list_persons(
         page=page, page_size=page_size, keyword=keyword,
@@ -32,6 +33,7 @@ def get_persons(
 
 @router.patch("/persons/{person_id}", response_model=FacePersonItem)
 def update_person(person_id: int, payload: FacePersonUpdate, _user: dict = Depends(require_admin)):
+    """仅管理员可修改人员本地通行授权，人员不存在时返回 404。"""
     person = FaceLibraryService().update_person_allowed(person_id, payload.is_allowed)
     if person is None:
         raise HTTPException(status_code=404, detail="person not found")
@@ -46,12 +48,14 @@ def get_records(
     page_size: int = Query(20, ge=1, le=100),
     user: dict = Depends(get_current_user),
 ):
+    """要求明确事业部并校验功能权限，再分页读取识别记录。"""
     require_feature_access(user, "recognize_face", department)
     return list_recognition_records(camera_id, page, page_size, department=department)
 
 
 @router.get("/records/{record_id}/image")
 def get_record_image(record_id: int, user: dict = Depends(get_current_user)):
+    """仅返回账号授权事业部内的记录截图，并禁止客户端缓存。"""
     departments = feature_departments(user, "recognize_face")
     path = get_recognition_image(record_id, departments=departments)
     if path is None:

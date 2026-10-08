@@ -11,6 +11,7 @@ from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePe
 
 
 class FaceRecognitionConfig(FeatureConfigBase):
+    """持久化摄像头的人脸检测、身份匹配阈值和识别记录策略。"""
     __tablename__ = "ai_camera_config_recognize_face"
 
     roi_pos = Column(JSON, nullable=False, default=list)
@@ -25,6 +26,7 @@ class FaceRecognitionConfig(FeatureConfigBase):
 
 
 class FaceRecognitionRecord(Base):
+    """保存识别时的姓名、相似度和截图；人员删除后仍保留历史快照。"""
     __tablename__ = "ai_face_recognition_record"
     __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 

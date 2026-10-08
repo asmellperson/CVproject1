@@ -16,7 +16,7 @@ FFPROBE_TIMEOUT_SECONDS = 8.0
 _RTSP_CREDENTIALS = re.compile(r"(rtsp://)[^/@\s]+@")
 
 class CameraProbeError(RuntimeError):
-    """"""
+    """统一表达探测程序、视频流或分辨率解析失败，供摄像头启动流程分类处理。"""
 
 def _redact_rtsp_credentials(value: str) -> str:
     """把错误信息里的RTSP账号密码脱敏，将账号密码改为***:***"""

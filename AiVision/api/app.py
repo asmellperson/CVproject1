@@ -1,3 +1,8 @@
+"""AiVision 原生 HTTP 应用的组装入口。
+
+挂载功能路由、认证中间件及统一异常处理，未处理异常可通过独立线程
+发送运行告警。检测线程和模型生命周期由 Orchestrator 管理。
+"""
 from __future__ import annotations
 
 import threading
@@ -137,6 +142,7 @@ def create_app() -> FastAPI:
     # 定义全局异常处理器，捕获没有被其他代码处理掉的异常
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
+        """记录未处理请求异常并按配置通知，对客户端仅返回统一内部错误。"""
         logger.exception(f"[API] 未处理异常: {request.method} {request.url.path}: {exc}")
         # 调用_send_api_exception_alert()
         _send_api_exception_alert(request.url.path, str(exc))
@@ -146,6 +152,7 @@ def create_app() -> FastAPI:
     # 根路径接口，告诉访问者这个服务是什么
     @app.get("/")
     def root():
+        """提供服务身份、版本与 API 文档入口。"""
         return {"name": "AiVision", "version": "2.0.0", "docs": "/docs"}
 
     # 注册所有普通API

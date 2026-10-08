@@ -20,6 +20,7 @@ class FrameReaderRegistry:
     """一个FrameReaderRegistry里面管理很多摄像头 — 每台摄像头开一个读取线程"""
     def __init__(self):
         # shm_name → ((shm_0, frame_0), (shm_1, frame_1), active_index, frame_seq)
+        """准备共享内存视图、逐路线程及最新帧缓存；此时不连接共享内存或启动读取。"""
         self._shm_views: dict[str, tuple] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._stop_events: dict[str, threading.Event] = {}
@@ -112,6 +113,7 @@ class FrameReaderRegistry:
                 self.unregister(shm_name)
 
     def is_active(self, shm_name: str) -> bool:
+        """检查摄像头共享内存是否已登记；这不是帧新鲜度或采集进程存活的独立证明。"""
         with self._lock:
             return shm_name in self._shm_views
 
@@ -171,6 +173,7 @@ class FrameReaderRegistry:
 
     @staticmethod
     def _close_shms(shm_name: str, shms):
+        """关闭当前进程持有的共享内存视图，失败逐块记录；不在读取端 unlink 采集端资源。"""
         for shm in shms:
             try:
                 shm.close()

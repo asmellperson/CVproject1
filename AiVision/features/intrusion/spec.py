@@ -1,4 +1,7 @@
-"""features/intrusion/ — 区域入侵检测功能"""
+"""将区域入侵功能注册为 blocks，关联配置模型与 BlocksConsumer。
+
+依赖 yolo_human 模型，正式告警类型为 1；目录名 intrusion 不作为配置键。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import BlocksConsumer
 from .orm import BlocksConfigORM

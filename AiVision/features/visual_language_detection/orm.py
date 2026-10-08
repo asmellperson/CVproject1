@@ -11,6 +11,7 @@ _DEFAULTS = VisualLanguageValue().model_dump()
 
 
 class VisualLanguageConfigORM(FeatureConfigBase):
+    """保存摄像头 ROI、发送周期、图像编码与观察提示词配置。"""
     __tablename__ = "ai_camera_config_visual_language_detection"
 
     roi_pos = Column(JSON, nullable=False, default=list)
@@ -24,6 +25,7 @@ class VisualLanguageConfigORM(FeatureConfigBase):
 
 
 class VisualLanguageEventORM(Base):
+    """按摄像头和事业部保存观察、提问及错误事件，记录实际采集时刻。"""
     __tablename__ = "ai_visual_language_event"
     __table_args__ = (Index("ix_visual_language_camera_time", "department", "camera_id", "captured_at"),)
 

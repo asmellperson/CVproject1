@@ -1,3 +1,7 @@
+"""注册安检流程检测功能，关联逐摄像头配置、消费者与推理依赖。
+
+人体检测发现交互会话，内部视觉语言服务对会话关键帧作最终判定。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import InspectionConsumer
 from .orm import InspectionCameraConfig

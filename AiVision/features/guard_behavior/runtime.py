@@ -30,6 +30,7 @@ SiteRuleName = Literal["absence", "phone", "prone", "vehicle"]
 
 @dataclass
 class SiteRuntimeState:
+    """保存单个保安室的配置、离岗计时、车辆事件与取证令牌。"""
     config: GuardBehaviorRuntimeSiteConfig
     absence: AbsenceState = field(default_factory=AbsenceState)
     vehicle: VehicleEpisodeTracker = field(default_factory=VehicleEpisodeTracker)
@@ -39,8 +40,10 @@ class SiteRuntimeState:
 
 
 class GuardBehaviorSiteRuntime:
+    """聚合多摄像头证据，统一管理保安室判断、预览及告警取证。"""
     def __init__(self, *, service, dispatcher, evidence_recorder, is_camera_active: Callable[[str], bool],
                  clock=time.time, start_background=True):
+        """注入配置服务、统一告警和取证实例，构造时仅建立状态容器。"""
         if dispatcher.evidence_recorder is not None and dispatcher.evidence_recorder is not evidence_recorder:
             raise ValueError("SiteRuntime 与 Dispatcher 必须使用同一个公共 Evidence 实例")
         self.service, self.dispatcher, self.evidence = service, dispatcher, evidence_recorder
@@ -56,6 +59,7 @@ class GuardBehaviorSiteRuntime:
         self.running = False
 
     def start(self) -> None:
+        """校验依赖和摄像头唯一归属，加载配置后启动可选后台评估线程。"""
         with self._lifecycle_lock:
             # Orchestrator 先构造 Runtime，再配置 Dispatcher；启动前才要求依赖完整且一致。
             if self.evidence is None or self.dispatcher.evidence_recorder is not self.evidence:
@@ -80,6 +84,7 @@ class GuardBehaviorSiteRuntime:
                     raise
 
     def stop(self) -> None:
+        """终止评估线程并清理站点取证，等待超时时显式抛错。"""
         with self._lifecycle_lock:
             self.running = False
             self._stop_event.set()
@@ -93,6 +98,7 @@ class GuardBehaviorSiteRuntime:
                     self.remove_site(site_id)
 
     def reload_site(self, site_id: int) -> None:
+        """校验新配置及成员占用，清理旧事件后重新建立保安室状态。"""
         config = self.service.get_runtime_site_config(site_id)
         with self._lock:
             if config is not None:
@@ -108,6 +114,7 @@ class GuardBehaviorSiteRuntime:
                 self.sites[site_id] = SiteRuntimeState(config)
 
     def remove_site(self, site_id: int) -> None:
+        """取消事件并清除成员与保安室帧源，防止解绑后遗留证据缓存。"""
         with self._lock:
             state = self.sites.pop(site_id, None)
             if state is None:
@@ -121,6 +128,11 @@ class GuardBehaviorSiteRuntime:
             self.evidence.clear_source(self._site_source(site_id))
 
     def update_camera_snapshot(self, snapshot: GuardCameraSnapshot, annotated_frame: np.ndarray) -> bool:
+        """接收身份、尺寸和时间一致的新快照，复制帧并更新取证缓存。
+
+        乱序或重复快照不覆盖已有结果；未知观测立即打断连续负证据，
+        避免该快照在定时评估前被后续正常结果覆盖。
+        """
         with self._lock:
             state = self.sites.get(snapshot.site_id)
             if not self.running or state is None:
@@ -163,6 +175,7 @@ class GuardBehaviorSiteRuntime:
             return True
 
     def evaluate_after_camera_update(self, site_id: int) -> SiteEvaluation | None:
+        """按同一评估时刻汇总四类规则与健康状态，完成告警分发后释放闭合事件令牌。"""
         with self._lock:
             state = self.sites.get(site_id)
             if not self.running or state is None:
@@ -206,6 +219,7 @@ class GuardBehaviorSiteRuntime:
 
     def _dispatch_evaluation(self, state: SiteRuntimeState, completed: tuple[VehicleEpisodeOutcome, ...],
                              now: float) -> None:
+        """采样站点拼图并分发成立的规则告警，对不告警的闭合车辆事件取消取证。"""
         site_id, config, evaluation = state.config.site_id, state.config, state.evaluation
         source = self._site_source(site_id)
         if self.evidence.should_sample(source, now):
@@ -226,6 +240,7 @@ class GuardBehaviorSiteRuntime:
 
     def _evaluate_vehicle(self, state: SiteRuntimeState, camera_states: dict[int, CameraAvailability],
                           now: float) -> tuple[SiteRuleDecision, tuple[VehicleEpisodeOutcome, ...]]:
+        """要求指定摄像头具有完整证据后推进车辆事件，观测缺口使事件保持未知。"""
         config, policy = state.config, state.config.policy
         if not config.enabled or not policy.vehicle_inspection_enabled:
             return SiteRuleDecision("unavailable", "idle", "车辆检查未启用"), ()
@@ -253,6 +268,7 @@ class GuardBehaviorSiteRuntime:
 
     @staticmethod
     def _vehicle_alarm(config: GuardBehaviorRuntimeSiteConfig, outcome: VehicleEpisodeOutcome) -> SiteRuleDecision:
+        """将完整的未检查车辆事件转换为站点规则告警，并指定取证摄像头。"""
         camera_id = config.policy.vehicle_camera_id
         return SiteRuleDecision("available", "alarm", "车辆离开前未观察到保安靠近",
                                 camera_id, (camera_id,), outcome.confidence, outcome.ended_at - outcome.started_at)
@@ -260,6 +276,7 @@ class GuardBehaviorSiteRuntime:
     def _dispatch(self, state: SiteRuntimeState, violation_type: int, rule: SiteRuleName,
                   decision: SiteRuleDecision, *, episode: VehicleEpisodeOutcome | None = None,
                   token: str | None = None) -> None:
+        """按站点告警策略构造统一请求，以站点为冷却主体并选择规则对应证据源。"""
         config = state.config
         policy = next(policy for policy in config.alarm_policies if policy.violation_type == violation_type)
         if not (policy.sql_enable or policy.wechat_enable or policy.horn_enable):
@@ -297,6 +314,7 @@ class GuardBehaviorSiteRuntime:
             raise
 
     def _camera_evidence(self, camera_id: int, rule: SiteRuleName) -> dict:
+        """提取告警涉及摄像头的事实快照，手机和趴睡附带局部规则详情。"""
         snapshot = self.latest_snapshots[camera_id]
         values = {"camera_id": camera_id, "camera_name": snapshot.camera_name,
                   "guard_present": snapshot.guard_present}
@@ -305,6 +323,7 @@ class GuardBehaviorSiteRuntime:
         return values
 
     def get_site_frame(self, site_id: int) -> np.ndarray | None:
+        """按成员顺序等比拼接预览，缺失画面保留占位并标明当前可用性。"""
         with self._lock:
             state = self.sites.get(site_id)
             members = expected_members(state.config) if state is not None else ()
@@ -336,6 +355,7 @@ class GuardBehaviorSiteRuntime:
                     for member in state.config.members} if state is not None else {}
 
     def get_site_status(self, site_id: int) -> SiteEvaluation | None:
+        """返回最新评估快照并复制可变映射，未评估或站点不存在时返回 None。"""
         with self._lock:
             state = self.sites.get(site_id)
             evaluation = state.evaluation if state is not None else None
@@ -343,19 +363,23 @@ class GuardBehaviorSiteRuntime:
                            camera_metrics=dict(evaluation.camera_metrics)) if evaluation is not None else None
 
     def _cancel_episodes(self, state: SiteRuntimeState) -> None:
+        """取消站点持有的全部事件取证并清空令牌映射。"""
         for token in state.episode_tokens.values():
             self.evidence.cancel_episode(token)
         state.episode_tokens.clear()
 
     @staticmethod
     def _camera_source(camera_id: int) -> str:
+        """生成稳定的单摄像头取证源标识。"""
         return f"guard_behavior/camera/{camera_id}"
 
     @staticmethod
     def _site_source(site_id: int) -> str:
+        """生成稳定的保安室拼图取证源标识。"""
         return f"guard_behavior/site/{site_id}"
 
     def _run(self) -> None:
+        """定时评估各站点，单站点失败记录错误后继续处理其他站点。"""
         while not self._stop_event.wait(EVALUATION_INTERVAL_SECONDS):
             with self._lock:
                 site_ids = tuple(self.sites)

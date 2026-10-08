@@ -10,6 +10,7 @@ _DEFAULTS = InspectionValue().model_dump()
 
 
 class InspectionCameraConfig(FeatureConfigBase):
+    """持久化逐摄像头的安检工位、交互识别和采样配置。"""
     __tablename__ = "ai_camera_config_security_inspection"
 
     staff_rois = Column(JSON, nullable=False, default=dict)
@@ -31,6 +32,7 @@ class InspectionCameraConfig(FeatureConfigBase):
 
 
 class InspectionSession(Base):
+    """保存全部会话的成功、失败或取消记录；摄像头删除后保留历史快照。"""
     __tablename__ = "ai_security_inspection_session"
     __table_args__ = (Index("ix_inspection_department_time", "department", "started_at"),)
 

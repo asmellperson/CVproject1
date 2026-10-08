@@ -23,12 +23,14 @@ from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, Logist
 
 @dataclass(frozen=True)
 class _CameraInfo:
+    """通道运行时所需的摄像头身份与共享帧键快照。"""
     camera_id: int
     name: str
     shm_name: str
 
 @dataclass(frozen=True)
 class _ChannelConfig:
+    """已解析的通道配置，统一保存成员、检测策略、时间段与告警设置。"""
     feature_name: str
     department: str
     channel_id: int
@@ -45,6 +47,7 @@ class _ChannelConfig:
 
 @dataclass(frozen=True)
 class _ChannelView:
+    """同一配置代次下取得的成员快照和预览帧集合。"""
     channel: _ChannelConfig
     generation: int
     snapshots: tuple[CameraSnapshot | None, ...]
@@ -52,6 +55,7 @@ class _ChannelView:
 
 @dataclass(frozen=True)
 class _PreparedView:
+    """为一次评估准备的有效性、单摄状态和拼图输入。"""
     channel: _ChannelConfig
     generation: int
     snapshots: tuple[CameraSnapshot, ...]
@@ -61,6 +65,7 @@ class _PreparedView:
 
 @dataclass(frozen=True)
 class _IncidentWork:
+    """离开状态锁后执行的告警工作，携带代次及令牌以防止过期分发。"""
     key: tuple[str, int]
     generation: int
     token: int
@@ -89,6 +94,11 @@ class LogisticsChannelRuntime:
         start_background: bool = True,
         stop_timeout_seconds: float = 2.0,
     ) -> None:
+        """注入配置、帧来源、时钟和告警依赖，建立按功能隔离的运行状态。
+
+        较慢的读取、拼图和分发在锁外执行，配置代次与事件令牌用于再次核对
+        结果是否仍有效。构造过程不启动巡检线程。
+        """
         self._service = channel_service
         self._dispatcher = dispatcher
         self._camera_provider = camera_provider or (
@@ -127,6 +137,7 @@ class LogisticsChannelRuntime:
         self._running = False
 
     def start(self) -> None:
+        """幂等启动巡检，上一线程尚未退出时拒绝重复启动。"""
         thread = None
         with self._lifecycle_lock:
             with self._lock:
@@ -160,6 +171,7 @@ class LogisticsChannelRuntime:
         logger.info("[LogisticsChannelRuntime] 已启动")
 
     def stop(self) -> None:
+        """停止巡检并等待退出，确认线程终止后才清理全部状态。"""
         with self._lifecycle_lock:
             with self._lock:
                 self._running = False
@@ -212,6 +224,7 @@ class LogisticsChannelRuntime:
         snapshot: CameraSnapshot,
         annotated_frame: np.ndarray | None,
     ) -> None:
+        """保存单摄事实并复制有效标注帧，未启动时接收结果会记录警告。"""
         feature_name = require_logistics_feature(feature_name)
         frame_copy = None
         if isinstance(annotated_frame, np.ndarray) and annotated_frame.size:
@@ -232,6 +245,7 @@ class LogisticsChannelRuntime:
         feature_name: str,
         camera_id: int,
     ) -> ChannelDecision | None:
+        """查找摄像头当前归属通道并触发汇总，未绑定时返回 None。"""
         feature_name = require_logistics_feature(feature_name)
         self._ensure_feature_loaded(feature_name)
         with self._lock:
@@ -317,6 +331,7 @@ class LogisticsChannelRuntime:
         )
 
     def get_channel_status(self, feature_name: str, channel_id: int) -> dict | None:
+        """返回隔离可变容器的最新通道状态，未评估时返回 None。"""
         feature_name = require_logistics_feature(feature_name)
         with self._lock:
             value = self._statuses.get((feature_name, channel_id))
@@ -339,6 +354,7 @@ class LogisticsChannelRuntime:
         return frame.copy()
 
     def _snapshot_channel(self, feature_name: str, channel_id: int) -> _ChannelView | None:
+        """锁内固定配置和检测结果，锁外补充原始预览并复制图像。"""
         self._ensure_feature_loaded(feature_name)
         with self._lock:
             channel = self._channels.get((feature_name, channel_id))
@@ -381,6 +397,7 @@ class LogisticsChannelRuntime:
         )
 
     def _prepare_view(self, view: _ChannelView, now: float) -> _PreparedView:
+        """结合在线状态、结果时效和检测时间段构造监控状态及拼图输入。"""
         active = self._channel_is_active(view.channel)
         snapshots: list[CameraSnapshot] = []
         states: dict[str, dict] = {}
@@ -438,6 +455,11 @@ class LogisticsChannelRuntime:
         prepared: _PreparedView,
         now: float,
     ) -> tuple[ChannelDecision, _IncidentWork | None, bool] | None:
+        """在当前配置代次内推进连续异常计时，并预占一次待分发事件。
+
+        相同异常已成功告警或正在分发时不重复创建工作；恢复正常仅结束事件，
+        不会清除分发器记录的实际告警冷却时间。
+        """
         base = classify_channel(
             prepared.snapshots,
             now=now,
@@ -490,6 +512,7 @@ class LogisticsChannelRuntime:
             )
 
     def _execute_incident(self, work: _IncidentWork) -> None:
+        """锁外生成证据并尝试分发，仅将仍有效且成功分发的事件标为活跃。"""
         frame = self._compose(work.channel, work.tiles)
         request = self._build_alarm_request(
             work.channel,
@@ -524,6 +547,7 @@ class LogisticsChannelRuntime:
                     self._channel_frames[work.key] = frame
 
     def _incident_is_current(self, work: _IncidentWork) -> bool:
+        """同时核对配置代次、配置对象与待分发令牌。"""
         with self._lock:
             return (
                 self._channel_is_current_locked(work.channel, work.generation)
@@ -532,6 +556,7 @@ class LogisticsChannelRuntime:
             )
 
     def _ensure_feature_loaded(self, feature_name: str) -> None:
+        """锁外读取配置并按代次安装，连续并发变更超过重试次数时显式失败。"""
         for _attempt in range(3):
             with self._lock:
                 if feature_name in self._loaded_features:
@@ -548,6 +573,7 @@ class LogisticsChannelRuntime:
         raise RuntimeError(f"物流通道配置持续变化，无法加载 feature={feature_name}")
 
     def _read_feature(self, feature_name: str) -> tuple[_ChannelConfig, ...]:
+        """读取功能下的通道列表和详情，跳过读取期间已删除的通道。"""
         response = self._service.list_channels(feature_name)
         channels = []
         for summary in response["items"]:
@@ -557,6 +583,7 @@ class LogisticsChannelRuntime:
         return tuple(channels)
 
     def _parse_channel(self, detail: dict) -> _ChannelConfig:
+        """只选启用成员，按顺序构造摄像头身份与通道统一策略快照。"""
         config = detail["config"]
         cameras = []
         members = sorted(
@@ -597,6 +624,7 @@ class LogisticsChannelRuntime:
         )
 
     def _evaluation_loop(self) -> None:
+        """周期评估通道，使无新帧时也能及时暴露过期状态。"""
         interval = max(0.25, min(1.0, self._stale_seconds / 2.0))
         while not self._stop_event.wait(interval):
             try:
@@ -618,6 +646,7 @@ class LogisticsChannelRuntime:
         feature_name: str,
         channels: tuple[_ChannelConfig, ...],
     ) -> None:
+        """调用方持锁时替换功能的通道及摄像头归属索引。"""
         for key in [key for key in self._channels if key[0] == feature_name]:
             self._channels.pop(key, None)
         for key in [key for key in self._camera_channels if key[0] == feature_name]:
@@ -629,6 +658,7 @@ class LogisticsChannelRuntime:
         self._loaded_features.add(feature_name)
 
     def _invalidate_feature_locked(self, feature_name: str) -> None:
+        """递增代次并移除配置索引，使锁外旧评估结果自动失效。"""
         self._generations[feature_name] += 1
         self._loaded_features.discard(feature_name)
         for key in [key for key in self._channels if key[0] == feature_name]:
@@ -637,18 +667,21 @@ class LogisticsChannelRuntime:
             self._camera_channels.pop(key, None)
 
     def _channel_is_current_locked(self, channel: _ChannelConfig, generation: int) -> bool:
+        """通过代次和对象身份确认通道快照仍属于当前配置。"""
         return (
             self._generations[channel.feature_name] == generation
             and self._channels.get((channel.feature_name, channel.channel_id)) is channel
         )
 
     def _channel_is_active(self, channel: _ChannelConfig) -> bool:
+        """按本地时间判断启用通道是否处于含首尾边界的检测时段。"""
         if not channel.enabled:
             return False
         local_time = self._wall_time_provider().timetz().replace(tzinfo=None)
         return channel.detection_start <= local_time <= channel.detection_end
 
     def _camera_online(self, camera: _CameraInfo) -> bool:
+        """查询物理采集状态，查询异常记录原因并按离线处理。"""
         try:
             return bool(self._is_camera_active(camera.shm_name))
         except Exception as exc:
@@ -664,6 +697,7 @@ class LogisticsChannelRuntime:
         has_snapshot: bool,
         now: float,
     ) -> tuple[str, str | None]:
+        """区分离线、等待、过期、推理未知和非法人数，再映射有效人数状态。"""
         if not snapshot.online:
             return "unknown", "offline"
         if not has_snapshot:
@@ -690,6 +724,7 @@ class LogisticsChannelRuntime:
         channel: _ChannelConfig,
         tiles: tuple[CameraTile, ...],
     ) -> np.ndarray | None:
+        """调用拼图器，缺少成员或输入错误时记录情况并返回 None。"""
         if not tiles:
             return None
         try:
@@ -708,6 +743,7 @@ class LogisticsChannelRuntime:
         states: dict[str, dict],
         now: float,
     ) -> dict:
+        """组合通道结论和各成员证据，形成监控接口共享结构。"""
         return {
             "feature_name": channel.feature_name,
             "channel_id": channel.channel_id,
@@ -732,6 +768,11 @@ class LogisticsChannelRuntime:
         frame: np.ndarray | None,
         now: float,
     ) -> AlarmRequest:
+        """以通道作为告警与冷却主体，保留各摄像头人数和异常起止时间。
+
+        拼图不可用时使用空白证据并在元数据记录原因；camera_id 字段在该请求中
+        承载通道 ID，主体类型明确标识物流通道。
+        """
         metadata = {
             "feature_name": channel.feature_name,
             "channel_id": channel.channel_id,
@@ -786,14 +827,17 @@ class LogisticsChannelRuntime:
 
     @staticmethod
     def _evidence_key(channel: _ChannelConfig) -> str:
+        """生成包含功能和通道身份的独立取证源键。"""
         return f"logistics_channel:{channel.feature_name}:{channel.channel_id}"
 
     def _clear_incident_locked(self, key: tuple[str, int]) -> bool:
+        """结束活跃及待处理事件，不修改分发器冷却记录。"""
         active = self._active_incidents.pop(key, None) is not None
         self._pending_incidents.pop(key, None)
         return active
 
     def _reset_non_alarm_locked(self, channel: _ChannelConfig, reason: str) -> bool:
+        """重置连续异常状态并发布指定的非告警原因。"""
         key = (channel.feature_name, channel.channel_id)
         state = self._states.get(key)
         if state is not None:
@@ -810,6 +854,7 @@ class LogisticsChannelRuntime:
         return reset
 
     def _clear_channel_state_locked(self, channel: _ChannelConfig) -> None:
+        """移除指定通道的计时、监控、拼图和事件状态。"""
         key = (channel.feature_name, channel.channel_id)
         self._states.pop(key, None)
         self._statuses.pop(key, None)
@@ -818,6 +863,7 @@ class LogisticsChannelRuntime:
         self._pending_incidents.pop(key, None)
 
     def _clear_all_state_locked(self) -> None:
+        """运行时停止后清空全部配置索引、帧与业务状态。"""
         self._channels.clear()
         self._camera_channels.clear()
         self._loaded_features.clear()
@@ -836,12 +882,14 @@ class LogisticsChannelRuntime:
         return violation_type
 
     def _reset_cooldown(self, channel: _ChannelConfig) -> None:
+        """按通道主体和功能告警类型显式重置分发器冷却。"""
         self._dispatcher.reset_subject_cooldown(
             "logistics_channel", str(channel.channel_id), self._violation_type_provider(channel.feature_name)
         )
 
     @staticmethod
     def _copy_status(value: dict | None) -> dict | None:
+        """复制状态中会被调用方访问的列表与字典，避免外部修改内部快照。"""
         if value is None:
             return None
         copied = dict(value)
@@ -855,6 +903,7 @@ class LogisticsChannelRuntime:
 
     @staticmethod
     def _finite_number(value: object) -> bool:
+        """验证时间等数值有限且不是布尔值。"""
         return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 

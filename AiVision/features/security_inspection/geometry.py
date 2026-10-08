@@ -9,6 +9,7 @@ Polygon = list[Point]
 
 
 def _point_on_segment(point: Sequence[float], start: Sequence[float], end: Sequence[float]) -> bool:
+    """以随坐标尺度变化的容差判断点在线段上，包含端点。"""
     px, py = point
     x1, y1 = start
     x2, y2 = end
@@ -27,6 +28,7 @@ def _clip_polygon_to_rect(polygon: Polygon, rect: Sequence[float]) -> Polygon:
     x1, y1, x2, y2 = rect
 
     def clip(vertices: Polygon, inside, intersection) -> Polygon:
+        """按单个边界保留内侧顶点并补入交点，供矩形四边依次裁剪。"""
         if not vertices:
             return []
         result: Polygon = []
@@ -45,6 +47,7 @@ def _clip_polygon_to_rect(polygon: Polygon, rect: Sequence[float]) -> Polygon:
         return result
 
     def at_x(start: Point, end: Point, x: float) -> Point:
+        """求线段与竖直边界的交点，避免近似竖直线段除零。"""
         dx = end[0] - start[0]
         if abs(dx) <= 1e-12:
             return [x, start[1]]
@@ -52,6 +55,7 @@ def _clip_polygon_to_rect(polygon: Polygon, rect: Sequence[float]) -> Polygon:
         return [x, start[1] + ratio * (end[1] - start[1])]
 
     def at_y(start: Point, end: Point, y: float) -> Point:
+        """求线段与水平边界的交点，避免近似水平线段除零。"""
         dy = end[1] - start[1]
         if abs(dy) <= 1e-12:
             return [start[0], y]
@@ -65,10 +69,12 @@ def _clip_polygon_to_rect(polygon: Polygon, rect: Sequence[float]) -> Polygon:
 
 
 def _cross(start: Point, end: Point, point: Point) -> float:
+    """用有向叉积表示点在线段的哪一侧。"""
     return (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (point[0] - start[0])
 
 
 def _segments_intersect_or_touch(first_start: Point, first_end: Point, second_start: Point, second_end: Point) -> bool:
+    """判定线段穿越、端点接触或共线重叠，供简单多边形校验。"""
     crosses = (
         _cross(first_start, first_end, second_start),
         _cross(first_start, first_end, second_end),
@@ -92,6 +98,7 @@ def _segments_intersect_or_touch(first_start: Point, first_end: Point, second_st
 
 
 def validate_polygon(name: str, points: Polygon) -> None:
+    """拒绝重复顶点、重叠相邻边和非相邻边接触或自交。"""
     unique_points = {tuple(point) for point in points}
     if len(unique_points) < 3:
         raise ValueError(f"ROI '{name}': 少于 3 个唯一顶点")
@@ -121,6 +128,7 @@ def validate_polygon(name: str, points: Polygon) -> None:
 
 
 def bbox_in_roi(box, polygon, threshold):
+    """人体框中心在区域内或区域覆盖框面积达到阈值时，视为进入 ROI。"""
     x1, y1, x2, y2 = box
     area = (x2 - x1) * (y2 - y1)
     if x2 <= x1 or y2 <= y1:

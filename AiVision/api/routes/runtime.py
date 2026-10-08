@@ -1,6 +1,7 @@
-"""
-api/routes/runtime.py
-运行状态、健康检查接口。
+"""平台健康检查与运行状态查询入口。
+
+从 Orchestrator 读取生命周期、模型和工作进程状态，供管理页面与外部
+监控使用；查询本身不负责启动或重启检测服务。
 """
 from __future__ import annotations
 

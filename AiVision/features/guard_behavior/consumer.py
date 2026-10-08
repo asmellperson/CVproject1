@@ -38,6 +38,7 @@ PHONE_DEDUPLICATION_IOU = .5
 
 
 def _box(detection: dict) -> tuple[float, float, float, float]:
+    """验证检测框为有限且具有正面积的原始坐标，拒绝损坏的模型结果。"""
     values = tuple(float(value) for value in detection["bbox"])
     if len(values) != 4 or not all(math.isfinite(value) for value in values):
         raise ValueError("检测框必须包含四个有限数值")
@@ -47,6 +48,7 @@ def _box(detection: dict) -> tuple[float, float, float, float]:
 
 
 def _confidence(detection: dict) -> float:
+    """要求模型概率为零至一的有限数值，防止非法结果进入状态判断。"""
     value = float(detection["confidence"])
     if not math.isfinite(value) or not 0 <= value <= 1:
         raise ValueError("模型概率必须在 0~1 内")
@@ -54,6 +56,7 @@ def _confidence(detection: dict) -> float:
 
 
 def _crop(frame, bbox, *, horizontal, top, bottom):
+    """按人体尺寸扩展裁图并裁到帧边界，返回图像及原帧偏移。"""
     x1, y1, x2, y2 = map(int, bbox)
     width, height = max(1, x2 - x1), max(1, y2 - y1)
     x1, y1 = max(0, x1 - int(width * horizontal)), max(0, y1 - int(height * top))
@@ -64,6 +67,7 @@ def _crop(frame, bbox, *, horizontal, top, bottom):
 
 
 def _phone_detections(detections, person, offset) -> list[PhoneDetection]:
+    """过滤非手机及相对人体过大的检测框，再还原为原帧坐标。"""
     width = max(1., person.bbox[2] - person.bbox[0])
     height = max(1., person.bbox[3] - person.bbox[1])
     phones = []
@@ -94,7 +98,9 @@ def _deduplicate_phones(phones: list[PhoneDetection]) -> list[PhoneDetection]:
 
 
 class GuardBehaviorConsumer(BaseFunctionConsumer):
+    """执行人体、制服、手机、姿态和车辆感知，向保安室层发布单摄证据。"""
     def __init__(self, *args, guard_config_provider, model_running_provider, snapshot_sink=None, **kwargs):
+        """注入配置、模型状态与快照接收器，隔离各摄像头跨帧状态。"""
         super().__init__(*args, **kwargs)
         self.guard_config_provider = guard_config_provider
         self.model_running_provider = model_running_provider
@@ -106,6 +112,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         self.latest_snapshots: dict[int, GuardCameraSnapshot] = {}
 
     def _install_config(self, camera_id: int, config) -> None:
+        """先清除旧状态，再校验并安装启用的运行配置，避免配置变更继承旧证据。"""
         old = self.config_cache.pop(camera_id, {})
         self._clear_camera_state(camera_id, old.get("shm_name"))
         self._runtime_configs.pop(camera_id, None)
@@ -120,6 +127,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
             self.config_cache[camera_id] = {"shm_name": config.shm_name}
 
     def _load_initial_configs(self):
+        """从专用配置服务取得快照，在摄像头锁内整体替换本地配置。"""
         configs = self.guard_config_provider.list_runtime_camera_configs()
         with self._camera_state_lock:
             for camera_id in list(self.config_cache):
@@ -128,19 +136,23 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                 self._install_config(config.camera_id, config)
 
     def reload_camera_config(self, camera_id: int) -> None:
+        """重新读取指定摄像头的保安室配置并重建其状态。"""
         with self._camera_state_lock:
             self._install_config(camera_id, self.guard_config_provider.get_runtime_camera_config(camera_id))
 
     def update_config(self, camera_id: int):
+        """将公共配置更新入口转交保安室专用加载流程。"""
         self.reload_camera_config(camera_id)
 
     def update_status(self, camera_id: int, enabled: bool):
+        """启用时加载专用配置，禁用时移除摄像头状态。"""
         if enabled:
             self.reload_camera_config(camera_id)
         else:
             self.remove_camera(camera_id)
 
     def remove_camera(self, camera_id: int, shm_name: str | None = None):
+        """移除配置、感知记忆及共享标识下的预览结果。"""
         with self._camera_state_lock:
             self._install_config(camera_id, None)
             if shm_name:
@@ -148,6 +160,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                 self.result_updated_at.pop(shm_name, None)
 
     def _clear_camera_state(self, camera_id: int, shm_name: str | None):
+        """清除跟踪、制服、行为与快照缓存，使重新加入的摄像头从零开始。"""
         super()._clear_camera_state(camera_id, shm_name)
         # 所有跨帧状态都随 Camera 解绑或禁用销毁，重新加入不能继承旧判断。
         self._trackers.pop(camera_id, None)
@@ -156,21 +169,26 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         self.latest_snapshots.pop(camera_id, None)
 
     def stop(self):
+        """先停止消费，再在状态锁内清空全部运行配置与时序证据。"""
         super().stop()
         with self._camera_state_lock:
             for camera_id in list(self.config_cache):
                 self._install_config(camera_id, None)
 
     def _get_roi(self, camera_id, frame):
+        """保留原帧供多模型共同感知，车辆 ROI 在车辆解析阶段单独应用。"""
         return frame
 
     def _process_static_frames(self, camera_id, cfg):
+        """静止画面仍需连续检测，以支持在岗和行为持续时间判断。"""
         return True
 
     def _processing_interval_seconds(self, camera_id, cfg):
+        """使用所属保安室策略的采样周期。"""
         return self._runtime_configs[camera_id].policy.cap_interval
 
     def _should_process_now(self, camera_id, cfg):
+        """按上次处理时间与保安室采样周期控制推理频率。"""
         return time() - self._last_process_at.get(camera_id, 0.) >= self._processing_interval_seconds(camera_id, cfg)
 
     def _handle_alarm(self, camera_id, result, frame):
@@ -178,6 +196,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         return None
 
     def _infer(self, camera_id, model, frame, meta, states, parse):
+        """检查模型运行状态、执行推理并校验结果，按模型记录不可用或错误状态。"""
         if not self.model_running_provider(model):
             states[model] = "unavailable"
             return None
@@ -200,11 +219,13 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _uniform_probability(detections):
+        """要求制服模型返回唯一制服正类概率，拒绝格式含糊的分类结果。"""
         if len(detections) != 1 or detections[0]["type"] != "uniform":
             raise ValueError("制服模型必须返回唯一正类概率")
         return _confidence(detections[0])
 
     def _persons(self, detections, camera_id, frame, config):
+        """筛选并校验人体框，交由摄像头独立的 ByteTrack 分配轨迹。"""
         from .tracking import CameraByteTracker
 
         persons = [{"bbox": _box(item), "confidence": _confidence(item)}
@@ -214,11 +235,13 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
         return self._trackers[camera_id].update(persons, frame.shape)
 
     def _vehicles(self, camera_id, frame, config, states):
+        """仅在指定的车辆检查摄像头执行车辆模型，保留不可用与无人车的区别。"""
         policy = config.policy
         if not policy.vehicle_inspection_enabled or policy.vehicle_camera_id != camera_id:
             return VehicleObservation(False)
 
         def parse(detections):
+            """以车辆框底边中心是否位于 ROI 内筛选车辆，保留原始类别。"""
             polygon = roi_to_pixels([list(point) for point in config.vehicle_roi_pos], frame.shape)
             vehicles = []
             for item in detections:
@@ -239,6 +262,12 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                                   None if vehicles is not None else "车辆模型不可用或推理失败")
 
     def _process(self, roi, camera_id):
+        """生成单帧人体身份与局部行为事实，失败环节显式保留未知状态。
+
+        先检测人体并跟踪，再用制服概率确认保安；手机仅采信保安裁图结果，
+        姿态用于局部行为规则。存在保安与人数完全已知分别判断，避免未知身份
+        被当作不存在。最终告警由保安室运行层统一决定。
+        """
         config = self._runtime_configs[camera_id]
         policy, now = config.policy, monotonic()
         self.frame_cache[camera_id] = roi
@@ -321,6 +350,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
                                        phone, prone, vehicle, states)
 
     def post_process(self, camera_id, result):
+        """绘制局部结果，分别缓存图像与纯数据快照，再将两者交给保安室运行层。"""
         detail = result[1]
         config = self._runtime_configs[camera_id]
         annotated = self.frame_cache[camera_id].copy()
@@ -355,6 +385,7 @@ class GuardBehaviorConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _draw_box(frame, bbox, color, label):
+        """将检测框与简短标签绘制到传入的标注帧上。"""
         x1, y1, x2, y2 = map(int, bbox)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, label, (x1, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, .45, color, 1)

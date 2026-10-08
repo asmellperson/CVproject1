@@ -218,6 +218,7 @@ def alarm_query(session, user: dict, department=None, feature=None, event_types=
 
 
 def require_alarm_access(row: AiAlarmEvent, user: dict) -> None:
+    """同时核对事业部及事件类型授权，不满足时抛出 403。"""
     departments = alarm_departments(user)
     allowed = allowed_alarm_event_types(user, departments or ())
     if ((departments is not None and row.department not in departments)
@@ -226,6 +227,7 @@ def require_alarm_access(row: AiAlarmEvent, user: dict) -> None:
 
 
 def alarm_items(session, rows: list[AiAlarmEvent]) -> list[dict]:
+    """批量取得处置摘要并合并事件响应，避免逐条查询造成额外数据库开销。"""
     if not rows:
         return []
     dispositions = {row.alarm_id: row for row in session.query(AiAlarmDisposition).filter(
@@ -275,6 +277,7 @@ def alarm_statistics(session, query, days: int) -> dict:
     ).limit(8)]
 
     def bucket(label, value, counts):
+        """把数据库按告警类型的计数转换为总数及正式事件标识分项。"""
         return {label: value, "total": sum(counts.values()), **{
             _meta(kind)["event_type"]: count for kind, count in counts.items()
         }}

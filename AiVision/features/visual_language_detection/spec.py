@@ -1,4 +1,7 @@
-"""全部正式事业部共享的指令驱动智慧安防能力。"""
+"""注册全部正式事业部共享的指令驱动智慧安防能力。
+
+公共消费者管理摄像头配置，独立 HTTP 运行时按摄像头隔离视频上下文。
+"""
 
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import VisualLanguageConsumer

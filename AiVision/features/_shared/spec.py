@@ -28,8 +28,10 @@ class FeatureSpec:
 
     @property
     def model_names(self) -> tuple[str, ...]:
+        """按声明顺序合并必需模型与可选模型，去重后供运行时建立队列。"""
         return tuple(dict.fromkeys((*self.required_models, *self.optional_models)))
 
     def __repr__(self) -> str:
+        """展示功能名称与模型依赖，便于排查注册信息。"""
         models = list(self.model_names) or "无"
         return f"<FeatureSpec name={self.name!r} display={self.display_name!r} models={models}>"

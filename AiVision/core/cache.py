@@ -1,13 +1,8 @@
-"""
-core/cache.py
-功能配置内存缓存 — 避免每次推理/告警循环反复查数据库。
+"""摄像头与功能配置的进程内缓存，减少检测循环重复查询数据库。
 
-旧代码硬编码了 5 个 ORM 表:
-    for fc in session.query(AiCameraConfigBlocks).all(): ...
-    for fc in session.query(AiCameraConfigDetectFace).all(): ...
-    ...
-
-新代码通过 features 注册表反射,加新功能时缓存自动覆盖。
+通过 features.registry 的 FeatureSpec 查找各功能配置表，并把摄像头名称、共享内存名、
+事业部和总开关注入运行配置。服务提交数据后需显式刷新；直接修改数据库不会自动更新缓存。
+缓存不保存视频帧，也不是跨进程共享对象，读取到的内部字典不应由业务原地修改。
 """
 from __future__ import annotations
 import threading
@@ -39,6 +34,7 @@ class ConfigCache:
 
     def __init__(self):
         # {camera_id: dict} — 摄像头基础信息，由 _load_cameras() 填充
+        """准备摄像头和功能两级字典、写锁与初始化标记；首次查库由 init() 显式触发。"""
         self._camera_cache: dict[int, dict] = {}
         # {(camera_id, feature_name): dict} — 功能配置，由 _load_function_configs() 填充
         self._function_cache: dict[tuple[int, str], dict] = {}  # 缓存层将摄像头配置和Feature配置合并为完整运行配置
@@ -46,12 +42,9 @@ class ConfigCache:
         self._initialized = False       # 防止 init() 被重复调用
 
     def init(self):
-        """
-        启动时一次性全量加载，须在 features 注册表初始化完成后调用。
+        """按注册表全量加载摄像头与功能配置，成功后标记已初始化；重复调用直接返回。
 
-        _load_function_configs() 依赖 features.all_specs() 做反射，
-        若在注册完成前调用将漏载部分功能配置。
-        重复调用时幂等（_initialized 守护）。
+        功能元数据来自 features.registry.all_specs()，数据库读取异常继续传播。
         """
         if self._initialized:
             return

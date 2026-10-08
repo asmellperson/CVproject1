@@ -9,6 +9,7 @@ _DEFAULTS = AgvPersonCheckValueSchema().model_dump()
 
 
 class AgvPersonCheckConfigORM(FeatureConfigBase):
+    """按摄像头保存采样窗口、推理阈值和外部 HTTP 协议配置。"""
     __tablename__ = "ai_camera_config_agv_person_check"
     __table_args__ = (
         CheckConstraint("sample_count >= 2 AND sample_count <= 30", name="ck_agv_person_check_sample_count"),

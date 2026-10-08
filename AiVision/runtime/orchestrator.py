@@ -477,6 +477,7 @@ class Orchestrator:
                 self._sync_camera_process_state(camera["shm_name"])
 
     def refresh_guard_camera(self, camera_id: int) -> None:
+        """重载摄像头所属保安室的聚合与感知状态；已无所属 Site 时清理 Consumer 中的旧配置。"""
         config = self.guard_behavior_service.get_runtime_camera_config(camera_id)
         if config is not None:
             self.refresh_guard_site(config.site_id, (camera_id,))

@@ -1,7 +1,8 @@
-"""
-core/db.py
-SQLAlchemy 引擎、会话、Base 声明。
-所有 ORM 类都继承自这里的 Base。
+"""共享 SQLAlchemy Base、延迟创建的连接池与 Session 生命周期。
+
+所有业务 ORM 复用同一份 metadata，实际表注册和启动核验由 runtime/bootstrap.py 完成。
+get_session() 的调用方负责关闭；写操作可用 session_scope() 统一提交、回滚和释放。
+Session 不应跨线程共享，flush 也不代表事务已提交。
 """
 from __future__ import annotations
 import contextlib
@@ -147,12 +148,10 @@ def _ensure_database_exists():
         temp_engine.dispose()  # 释放临时连接，不污染全局连接池
 
 def dispose():
-    """
-    优雅关闭全局数据库连接池。
+    """释放当前 Engine 的连接池并清空 Engine/Session 工厂引用，允许之后重新创建。
 
-    等待所有连接归还后关闭连接池，并将全局单例重置为 None，
-    允许下次调用 get_engine() 时重新初始化（如测试场景的 teardown）。
-    进程退出时由 Orchestrator 调用，确保连接资源被正确释放。
+    业务线程和在用 Session 应由所属模块先关闭；本方法不等待所有业务完成，
+    也不能代替摄像头、推理、写入器等运行资源各自的 stop()。
     """
     global _engine, _session_factory
     if _engine is not None:

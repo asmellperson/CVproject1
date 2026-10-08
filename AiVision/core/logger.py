@@ -35,6 +35,7 @@ class _Logger:
     """
 
     def __init__(self):
+        """构造普通日志与独立功能调试日志器，并在此时读取 DEBUG_FEATURES 白名单。"""
         self._logger = logging.getLogger("aivision")
         self._logger.setLevel(logging.INFO)  # 默认 INFO，debug 由白名单单独控制
         self._feature_debug_logger = logging.getLogger("aivision.feature_debug")
@@ -73,12 +74,22 @@ class _Logger:
             self._feature_debug_logger.debug(f"[{feature}] {msg}", stacklevel=2)
     # =============  对原生logger的简单封装  ==================
     # stacklevel=2:日志来源往调用栈上找一层，这样日志能定位真正调用位置。
-    def debug(self, msg: str):     self._logger.debug(msg, stacklevel=2)            # 调试信息
-    def info(self, msg: str):      self._logger.info(msg, stacklevel=2)             # 普通运行信息
-    def warning(self, msg: str):   self._logger.warning(msg, stacklevel=2)          # 异常但是还能继续
+    def debug(self, msg: str):
+        """输出普通 DEBUG 日志，受普通 logger 级别限制；stacklevel 指向业务调用位置。"""
+        self._logger.debug(msg, stacklevel=2)            # 调试信息
+    def info(self, msg: str):
+        """记录常规运行信息，并将日志来源定位到调用此包装器的业务代码。"""
+        self._logger.info(msg, stacklevel=2)             # 普通运行信息
+    def warning(self, msg: str):
+        """记录可继续处理的异常或降级信息，保留业务调用处的文件与行号。"""
+        self._logger.warning(msg, stacklevel=2)          # 异常但是还能继续
     # error与exception的区别：error：只记错误信息，exception：记错误信息+traceback
-    def error(self, msg: str):     self._logger.error(msg, stacklevel=2)            # 明确错误
-    def exception(self, msg: str): self._logger.exception(msg, stacklevel=2)        # 错误 + python异常堆栈
+    def error(self, msg: str):
+        """记录操作失败信息；本入口不自动附加当前异常堆栈。"""
+        self._logger.error(msg, stacklevel=2)            # 明确错误
+    def exception(self, msg: str):
+        """在异常处理块中记录错误及当前堆栈，来源定位到业务调用处。"""
+        self._logger.exception(msg, stacklevel=2)        # 错误 + python异常堆栈
 
 
 # 模块级全局单例，全项目统一通过此实例输出日志

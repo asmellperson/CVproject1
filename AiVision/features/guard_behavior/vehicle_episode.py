@@ -20,6 +20,7 @@ def bbox_distance(first: BBox, second: BBox) -> float:
 
 @dataclass
 class _Episode:
+    """车辆从首次出现到离场的局部事件，保留检查和观测不确定性。"""
     episode_id: str
     class_id: int
     first_bbox: BBox
@@ -35,6 +36,7 @@ class _Episode:
 
 @dataclass(frozen=True)
 class _RecentChecked:
+    """短期保留已检查车辆的位置，支持遮挡后一次性的事实转移。"""
     class_id: int
     bbox: BBox
     last_seen_at: float
@@ -42,6 +44,7 @@ class _RecentChecked:
 
 @dataclass(frozen=True)
 class VehicleEpisodeOutcome:
+    """已闭合车辆事件的检查、方向和证据完整性结果。"""
     episode_id: str
     class_id: int
     first_bbox: BBox
@@ -55,17 +58,20 @@ class VehicleEpisodeOutcome:
 
     @property
     def should_alarm(self) -> bool:
+        """仅对未检查、方向符合且观测完整的事件触发告警。"""
         return not self.inspected and self.direction_matches and not self.uncertain
 
 
 @dataclass(frozen=True)
 class VehicleEpisodeUpdate:
+    """一次状态推进中新开始的事件 ID 与已经结束的事件结果。"""
     started: tuple[str, ...] = ()
     completed: tuple[VehicleEpisodeOutcome, ...] = ()
 
 
 @dataclass
 class VehicleEpisodeTracker:
+    """按单摄像头车辆框维护事件，不推断跨摄像头身份。"""
     _episodes: dict[str, _Episode] = field(default_factory=dict)
     _recent_checked: list[_RecentChecked] = field(default_factory=list)
     _last_snapshot_at: float | None = None
@@ -73,10 +79,12 @@ class VehicleEpisodeTracker:
 
     @property
     def monitoring(self) -> bool:
+        """表明当前是否仍有尚未闭合的车辆事件。"""
         return bool(self._episodes)
 
     def mark_unknown(self) -> None:
         # 不完整的观察区间不能证明整段事件都无人检查，直到场景清空才重新采信负证据。
+        """标记观测缺口并废弃可转移检查事实，直到场景清空才恢复负证据可信度。"""
         self.uncertain = True
         self._recent_checked.clear()
         for episode in self._episodes.values():
@@ -84,6 +92,7 @@ class VehicleEpisodeTracker:
 
     def update(self, snapshot: GuardCameraSnapshot, now: float,
                policy: GuardBehaviorRuntimePolicy) -> VehicleEpisodeUpdate:
+        """只用新快照更新车辆位置，结合缺席超时关闭事件并记录保安靠近事实。"""
         started = []
         fresh = self._last_snapshot_at is None or snapshot.updated_at > self._last_snapshot_at
         observed_at = snapshot.updated_at if fresh else now
@@ -121,6 +130,7 @@ class VehicleEpisodeTracker:
 
     def _associate(self, detections: tuple[VehicleDetection, ...], observed_at: float,
                    policy: GuardBehaviorRuntimePolicy) -> dict[int, str]:
+        """按同类车辆的 IoU 贪心一对一匹配，排除已经遮挡超时的事件。"""
         candidates = []
         for index, vehicle in enumerate(detections):
             for episode in self._episodes.values():
@@ -139,6 +149,7 @@ class VehicleEpisodeTracker:
         return matched
 
     def _take_recent_checked(self, vehicle: VehicleDetection) -> bool:
+        """将近期检查事实转移给同类同位置车辆一次，避免复制到多个目标。"""
         candidates = [(bbox_iou(vehicle.bbox, item.bbox), index)
                       for index, item in enumerate(self._recent_checked) if item.class_id == vehicle.class_id]
         if not candidates:
@@ -151,6 +162,7 @@ class VehicleEpisodeTracker:
         return True
 
     def _close_departed(self, now: float, policy: GuardBehaviorRuntimePolicy) -> list[VehicleEpisodeOutcome]:
+        """已观察到缺席且超过遮挡时限后闭合事件，防止重复评估旧快照制造离场。"""
         completed = []
         for episode_id, episode in tuple(self._episodes.items()):
             # 至少观察到一帧车辆缺席；不能因同一张快照被定时评估而制造离场。
@@ -169,6 +181,7 @@ class VehicleEpisodeTracker:
 
     @staticmethod
     def _direction_matches(episode: _Episode, policy: GuardBehaviorRuntimePolicy) -> bool:
+        """按首末位置的归一化位移核对离场方向，忽略不足最小幅度的抖动。"""
         direction = policy.vehicle_exit_direction
         if direction == "any":
             return True

@@ -21,6 +21,7 @@ class VideoUnavailable(RuntimeError):
 
 @dataclass
 class _CameraState:
+    """单摄像头的视频会话、帧去重信息、待答问题和监控状态。"""
     config: dict
     session_id: str
     initialized: bool = False
@@ -33,7 +34,9 @@ class _CameraState:
 
 
 class VisualLanguageRuntime:
+    """以线程池并行处理摄像头，同时保证每路会话最多一个在途请求。"""
     def __init__(self, frame_info_provider, prepare_frame, dispatch_observation):
+        """绑定模型客户端、事件服务与帧回调，线程池在 start 时创建。"""
         self.client = JoyAIClient()
         self.service = VisualLanguageService()
         self._frame_info_provider = frame_info_provider
@@ -45,6 +48,7 @@ class VisualLanguageRuntime:
         self._executor: ThreadPoolExecutor | None = None
 
     def start(self):
+        """幂等创建固定容量的 HTTP 工作线程池。"""
         with self._lock:
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(
@@ -52,6 +56,7 @@ class VisualLanguageRuntime:
                 )
 
     def stop(self):
+        """使全部会话失效并等待在途任务和远端会话清理结束。"""
         with self._lock:
             for camera_id in list(self._states):
                 self.invalidate(camera_id)
@@ -60,6 +65,7 @@ class VisualLanguageRuntime:
             executor.shutdown(wait=True)
 
     def _state(self, camera_id: int, config: dict) -> _CameraState:
+        """按事业部与摄像头构造稳定会话标识，首次访问时创建本地状态。"""
         state = self._states.get(camera_id)
         if state is None:
             state = _CameraState(config=config, session_id=f"visual-language-{config['department']}-{camera_id}")
@@ -67,6 +73,7 @@ class VisualLanguageRuntime:
         return state
 
     def invalidate(self, camera_id: int):
+        """移除状态并结束待答问题，在途任务完成后再重置同名远端会话。"""
         with self._lock:
             state = self._states.pop(camera_id, None)
             if state is None:
@@ -79,6 +86,7 @@ class VisualLanguageRuntime:
                 self._executor.submit(self._retire, camera_id, state)
 
     def _retire(self, camera_id: int, state: _CameraState):
+        """清理远端视频会话，无论清理是否成功都释放该摄像头的在途标志。"""
         try:
             self.client.reset(state.session_id)
         except JoyAIError as exc:
@@ -88,6 +96,7 @@ class VisualLanguageRuntime:
                 self._inflight.discard(camera_id)
 
     def ready(self, camera_id: int, config: dict) -> bool:
+        """检查执行器、单摄串行约束和发送周期是否允许下一次任务。"""
         with self._lock:
             state = self._states.get(camera_id)
             return bool(
@@ -96,6 +105,7 @@ class VisualLanguageRuntime:
             )
 
     def offer(self, camera_id: int, config: dict, frame, captured_at: float):
+        """按帧对象和采集时间去重，提交摄像头任务并预占在途位置。"""
         with self._lock:
             if not self.ready(camera_id, config):
                 return
@@ -111,6 +121,7 @@ class VisualLanguageRuntime:
             self._executor.submit(self._execute, camera_id, state, question)
 
     def ask(self, camera_id: int, config: dict, question: str) -> Future:
+        """登记一个待答问题并返回 Future，每路只允许一个尚未完成的问题。"""
         with self._lock:
             if self._executor is None:
                 raise VideoUnavailable("指令驱动智慧安防未运行")
@@ -122,14 +133,21 @@ class VisualLanguageRuntime:
             return future
 
     def status(self, camera_id: int) -> VisualLanguageStatus:
+        """复制当前监控状态，尚未建立会话时返回空初始状态。"""
         with self._lock:
             state = self._states.get(camera_id)
             return state.status.model_copy() if state is not None else VisualLanguageStatus()
 
     def _current(self, camera_id: int, state: _CameraState) -> bool:
+        """检查状态对象仍属于当前运行时，用于丢弃失效任务结果。"""
         return self._executor is not None and self._states.get(camera_id) is state
 
     def _execute(self, camera_id: int, state: _CameraState, question):
+        """发送前重新取最新帧，裁剪编码后更新远端视频上下文和本地事件。
+
+        问题随新帧发送；配置失效后丢弃结果并清理旧会话。异常结束当前问题，
+        重复相同错误不反复写入事件，最终路径保证释放摄像头在途占用。
+        """
         timestamp = datetime.now()
         question_consumed = False
         try:

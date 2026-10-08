@@ -1,4 +1,4 @@
-"""features/door_state/schema.py"""
+"""门检测请求校验：约束变化比例、确认次数和计时参数的有效范围。"""
 from pydantic import BaseModel, ConfigDict, Field
 
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
@@ -26,6 +26,7 @@ class DoorValueSchema(BaseModel):
 
 
 class DoorConfigSchema(BaseModel):
+    """统一包装门检测开关、算法参数与独立告警通道配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     # 一份完整的配置由下面三个键组成
     enable: bool = False                  # 是否启用门检测，默认关闭

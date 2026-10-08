@@ -1,4 +1,7 @@
-"""features/face_dwell/ — 人脸逗留检测"""
+"""声明 detect_face 人脸逗留功能及正式告警类型 4。
+
+仅依赖 insightface_detection；人员身份识别由独立的人脸识别功能负责。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import FaceConsumer
 from .orm import FaceConfigORM

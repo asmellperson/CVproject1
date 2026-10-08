@@ -1,4 +1,7 @@
-"""features/logistics_channel/ — 物流通道单人检测"""
+"""声明物流通道单人检测功能及其单摄消费者。
+
+逐路消费者产生人数快照，统一通道运行时负责多摄汇总、持续时间与告警。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 
 from .consumer import LogisticsSinglePersonConsumer

@@ -21,6 +21,7 @@ from .constants import (
 
 
 class LogisticsSinglePersonConfigORM(CameraFeatureConfigBase):
+    """逐摄像头仅保存 ROI，人体判断参数由所属通道统一持有。"""
     __tablename__ = "ai_camera_config_detect_logistics_single_person"
 
     roi_pos = Column(JSON, nullable=False, default=list)

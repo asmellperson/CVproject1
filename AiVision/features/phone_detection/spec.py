@@ -1,4 +1,7 @@
-"""features/phone_detection/ — 手机检测"""
+"""声明 detect_phone 手机使用检测功能及正式告警类型 3。
+
+必需模型为 yolo_phone；消费者在人体模型可用时可进一步约束人体关联。
+"""
 from AiVision.features._shared.spec import FeatureSpec
 from .consumer import PhoneConsumer
 from .orm import PhoneConfigORM

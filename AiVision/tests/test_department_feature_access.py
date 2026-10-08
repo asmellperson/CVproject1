@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch, tmp_path):
     # 测试只使用内存数据库，不读取或连接部署环境的 MySQL。
+    """为测试注入独立配置和临时存储路径，避免读取部署数据库设置。"""
     for key, value in {
         "MYSQL_DB_URL": "127.0.0.1", "MYSQL_DB_USER": "test",
         "MYSQL_DB_PASSWORD": "test", "MYSQL_DB_NAME": "test",
@@ -23,6 +24,7 @@ def isolated_settings(monkeypatch, tmp_path):
 
 @pytest.fixture
 def service(isolated_settings):
+    """构造仅含权限分配表的内存数据库，每项测试结束后释放引擎。"""
     from AiVision.departments.department_registry import DEPARTMENT_SPECS
     from AiVision.departments.orm import DepartmentFeatureAccess
     from AiVision.departments.service import DepartmentService
@@ -38,6 +40,7 @@ def service(isolated_settings):
 
 
 def viewer():
+    """提供两个事业部权限不同的账号，用于验证授权不会跨部借用。"""
     return {
         "role": "viewer", "departments": ["general_electric", "research_institute"],
         "feature_access": {"general_electric": ["detect_door"], "research_institute": ["detect_phone"]},
@@ -45,6 +48,7 @@ def viewer():
 
 
 def test_save_empty_assignment_and_atomic_conflict(service):
+    """验证可清空分配，且版本冲突会原子拒绝整批写入。"""
     from AiVision.departments.service import FeatureAssignmentConflict
 
     original = service.assignments()
@@ -62,6 +66,7 @@ def test_save_empty_assignment_and_atomic_conflict(service):
 
 @pytest.mark.parametrize("invalid", ["unknown_feature", "duplicate_feature", "missing_department", "duplicate_department"])
 def test_reject_invalid_assignment_without_partial_write(service, invalid):
+    """验证未知功能、重复项或部门集合错误均不产生部分更新。"""
     assignments = service.assignments()
     if invalid == "unknown_feature":
         assignments[0].features = ["invalid"]
@@ -77,6 +82,7 @@ def test_reject_invalid_assignment_without_partial_write(service, invalid):
 
 
 def test_missing_database_assignment_does_not_grant_all(service):
+    """确保权限持久化数据缺失时失败，而不是默认放开全部功能。"""
     from AiVision.departments.orm import DepartmentFeatureAccess
 
     with service._session_factory.begin() as session:
@@ -87,6 +93,7 @@ def test_missing_database_assignment_does_not_grant_all(service):
 
 @pytest.mark.parametrize("role", ["viewer", "admin"])
 def test_exact_department_permission_for_all_roles(role):
+    """验证各角色均按具体事业部功能分配授权，管理员也不跨部借用分配。"""
     from auth.feature_permissions import feature_departments, require_feature_access
 
     user = viewer()
@@ -101,6 +108,7 @@ def test_exact_department_permission_for_all_roles(role):
 
 
 def test_settings_api_admin_only_and_revision_conflict(service):
+    """验证矩阵管理限管理员访问、权限读取禁缓存且过期版本返回冲突。"""
     from auth.auth import get_current_user
     from AiVision.api.deps import get_department_service
     from AiVision.api.routes.departments import router
@@ -125,6 +133,7 @@ def test_settings_api_admin_only_and_revision_conflict(service):
 
 @pytest.mark.parametrize("role", ["viewer", "admin"])
 def test_camera_and_specialized_routes_reject_cross_department(role):
+    """验证摄像头响应及专用路由都拒绝跨事业部功能访问。"""
     from AiVision.api.routes.cameras import camera_response_for_user, get_camera_frame_jpg
     from AiVision.api.routes.features import get_feature_status
     from AiVision.api.routes.security_inspection import department_access
@@ -153,6 +162,7 @@ def test_camera_and_specialized_routes_reject_cross_department(role):
 
 
 def test_overview_filters_features_counts_and_resource_links():
+    """验证总览计数和资源查询均受功能分配限制。"""
     from AiVision.runtime.overview import build_overview
 
     queried = []
@@ -170,6 +180,7 @@ def test_overview_filters_features_counts_and_resource_links():
 
 @pytest.mark.parametrize("role", ["viewer", "admin"])
 def test_runtime_targets_do_not_borrow_other_department_permission(role):
+    """验证运行时目标和汇总仅计算获准事业部的数据。"""
     from AiVision.api.routes.runtime import runtime_status
 
     cameras = [
@@ -188,6 +199,7 @@ def test_runtime_targets_do_not_borrow_other_department_permission(role):
 
 
 def test_admin_assignment_save_updates_overview_and_keeps_full_catalog(service):
+    """验证清空或恢复分配立即反映到总览，同时管理员始终能读取完整功能目录。"""
     from auth.auth import get_current_user
     from AiVision.api.deps import get_department_service
     from AiVision.api.routes.departments import router
@@ -195,6 +207,7 @@ def test_admin_assignment_save_updates_overview_and_keeps_full_catalog(service):
     from AiVision.features.registry import all_specs
 
     def admin():
+        """每次请求从服务读取最新分配，模拟管理员权限刷新。"""
         return {"role": "admin", "departments": ["all"], "feature_access": service.feature_access()}
 
     app = FastAPI()

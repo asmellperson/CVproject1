@@ -1,13 +1,7 @@
-"""
-api/routes/features.py
-通用功能配置 API
+"""通用检测功能元数据、逐摄配置及运行状态 API。
 
-1 个路由处理所有功能。前端访问:
-    GET  /api/features                         → 列出所有 feature 元数据
-    GET  /api/features/{feature}               → 单个 feature 元数据
-    GET  /api/features/{feature}/configs/{cam} → 读单个摄像头的配置
-    PUT  /api/features/{feature}/configs/{cam} → 写单个摄像头的配置
-    GET  /api/features/{feature}/cameras/{cam}/status → 读功能运行状态
+路由从 FeatureSpec 获得模型声明和 JSON Schema，并结合事业部功能分配
+控制访问。摄像头身份与配置写入由服务层负责，专用业务配置沿用各自路由。
 """
 from __future__ import annotations
 from typing import Annotated                                # 给一个普通Python类型额外附加FastAPI参数说明

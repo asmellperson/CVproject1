@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/exception-alert", tags=["exception-alert"])
 # 定义系统异常告警配置的数据模型，包含三个字段：
 # BaseModel主要作用：1、接收前端传来的JSON；2、检查字段类型；3、自动转成Python对象
 class ExceptionAlertSettings(BaseModel):
+    """系统运行异常的企业微信开关、接收对象和重复通知间隔。"""
     wechat_enable: bool = False                              # 是否开启'系统异常'的启用微信停止
     wechat_user: str = ""                                    # 微信用户ID，多个用户用逗号分隔
     repeat_interval_minutes: int = 60                        # 重复告警的间隔时间

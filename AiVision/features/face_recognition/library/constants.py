@@ -1,4 +1,7 @@
-"""人脸身份识别使用的正式模型及默认参数。"""
+"""人脸身份识别共用的模型标识、特征维度与默认参数。
+
+特征生成和在线索引必须使用一致的模型与维度，避免不同向量空间混合比对。
+"""
 
 from AiVision.inference.insightface_detector import DETECTION_MODEL_FILE
 

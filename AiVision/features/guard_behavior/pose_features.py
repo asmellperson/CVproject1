@@ -16,6 +16,7 @@ POSE_MATCH_IOU = 0.3
 
 
 def bbox_iou(a: BBox, b: BBox) -> float:
+    """计算非负交并比，退化框或无有效并集时返回零。"""
     width = max(0., min(a[2], b[2]) - max(a[0], b[0]))
     height = max(0., min(a[3], b[3]) - max(a[1], b[1]))
     intersection = width * height
@@ -24,6 +25,7 @@ def bbox_iou(a: BBox, b: BBox) -> float:
 
 
 def extract_pose_features(person: TrackedPerson, keypoints: list) -> dict[str, float] | None:
+    """校验 COCO 关键点并提取人体框内的相对姿态；关键点置信度不足返回 None。"""
     if len(keypoints) != 17 or any(len(point) != 3 for point in keypoints):
         raise ValueError("Pose 必须包含 17 个三维关键点")
     if any(not math.isfinite(float(value)) for point in keypoints for value in point):
@@ -46,6 +48,7 @@ def extract_pose_features(person: TrackedPerson, keypoints: list) -> dict[str, f
 
 
 def match_pose_features(persons: list[TrackedPerson], detections: list[dict]) -> dict[int, dict[str, float]]:
+    """按最大框重叠为稳定保安轨迹选择姿态，低于匹配门槛的目标保持无特征。"""
     features = {}
     for person in persons:
         if person.track_id is None or not detections:

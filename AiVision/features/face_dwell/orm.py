@@ -1,4 +1,4 @@
-"""features/face_dwell/orm.py"""
+"""人脸逗留配置持久化，区分检测去重、跨帧匹配与轨迹丢失容忍。"""
 from sqlalchemy import CheckConstraint, Column, Integer, Float, JSON
 from AiVision.features._shared import defaults
 from AiVision.features._shared.orm import FeatureConfigBase
@@ -7,6 +7,7 @@ from .schema import FaceValueSchema
 _VALUE_DEFAULTS = FaceValueSchema().model_dump()
 
 class FaceConfigORM(FeatureConfigBase):
+    """保存每路摄像头的 ROI、人脸阈值和逗留计时参数。"""
     __tablename__ = "ai_camera_config_detect_face"
     __table_args__ = (
         CheckConstraint("DETECTION_IOU_THR BETWEEN 0 AND 1", name="ck_detect_face_0"),

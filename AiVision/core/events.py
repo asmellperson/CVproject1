@@ -1,14 +1,8 @@
-"""
-core/events.py
-配置变更事件总线 — pub/sub 模式,系统内部各组件用它传递配置变更通知。
+"""进程内同步配置事件总线，支持精确、前缀与通配符订阅。
 
-事件流转:
-    API/Service 层调用 publish() →
-    core.cache.ConfigCache 刷新缓存 →
-    Orchestrator 路由到对应 Worker/Consumer →
-    Worker/Consumer 热更新内部状态
-
-线程安全:监听器读写在锁内,事件回调在锁外执行(避免回调中再发事件死锁)。
+服务完成数据库事务和必要缓存刷新后发布事件，运行层再按类型刷新对应资源。
+总线本身不提交数据库、刷新缓存或创建后台线程；慢操作需由监听方安排。
+监听集合在锁内复制、回调在锁外执行，同一监听器被多种规则命中时只调用一次。
 """
 from __future__ import annotations
 import threading
@@ -54,6 +48,7 @@ class ConfigEventBus:
     """
     def __init__(self):
         # 精确匹配表: {change_type → [listener, ...]}
+        """初始化三类订阅容器与保护锁，不创建事件消费线程或持久化队列。"""
         self._listeners: dict[str, list[Callable]] = {}
         # 前缀匹配表: [(prefix, listener), ...]，按注册顺序线性扫描
         self._prefix_listeners: list[tuple[str, Callable]] = []
@@ -106,16 +101,7 @@ class ConfigEventBus:
                 self._wildcard_listeners.append(listener)
 
     def unsubscribe(self, change_type: str, listener: Callable):
-        """
-        注销精确匹配监听器。
-
-        listener 不在列表中时静默忽略（不抛异常），便于组件在任意时刻安全注销。
-        当前仅支持注销精确匹配监听器；前缀与通配符监听器暂不支持注销。
-
-        Args:
-            change_type: 注册时使用的事件类型。
-            listener   : 要移除的监听器引用，须与注册时传入的对象相同。
-        """
+        """移除指定事件的精确订阅，未注册时不报错；前缀和通配符订阅使用各自注销方法。"""
         with self._lock:
             if change_type in self._listeners:
                 try:
@@ -124,6 +110,7 @@ class ConfigEventBus:
                     pass  # 未找到，静默忽略
 
     def unsubscribe_prefix(self, prefix: str, listener: Callable):
+        """取消一组前缀与监听器的订阅，重复取消或不存在时忽略，便于运行实例退出清理。"""
         with self._lock:
             subscription = (prefix, listener)
             try:
@@ -132,6 +119,7 @@ class ConfigEventBus:
                 pass
 
     def unsubscribe_wildcard(self, listener: Callable):
+        """移除全量事件监听器，未注册时忽略；不影响同一回调的其他订阅方式。"""
         with self._lock:
             try:
                 self._wildcard_listeners.remove(listener)

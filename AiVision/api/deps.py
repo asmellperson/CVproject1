@@ -55,6 +55,7 @@ def get_horn_runtime_manager():
 
 
 def get_guard_behavior_service():
+    """优先复用编排器服务，编排器尚未就绪时仍允许访问配置事务。"""
     from AiVision.features.guard_behavior.service import GuardBehaviorService
     orchestrator = get_optional_orchestrator()
     return orchestrator.guard_behavior_service if orchestrator is not None else GuardBehaviorService()
@@ -62,6 +63,7 @@ def get_guard_behavior_service():
 
 def get_optional_orchestrator():
     # 配置 API 在编排器启动前也可用；此时没有运行数据需要刷新。
+    """尝试取得编排器，尚未创建时返回 None 供配置接口降级使用。"""
     from AiVision.runtime.orchestrator import get_orchestrator
     try:
         return get_orchestrator()
@@ -70,5 +72,6 @@ def get_optional_orchestrator():
 
 
 def get_guard_behavior_runtime():
+    """提供可选保安室运行时，未启动阶段由接口返回不可用状态。"""
     orchestrator = get_optional_orchestrator()
     return orchestrator.guard_behavior_runtime if orchestrator is not None else None

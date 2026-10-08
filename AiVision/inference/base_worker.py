@@ -1,13 +1,8 @@
-"""
-inference/base_worker.py
-推理 Worker 抽象基类 — 定义 ModelWorker 的通用骨架。
+"""模型 Worker 的子进程生命周期、队列读取与统一结果封装。
 
-每个物理权重对应一个独立子进程,从逻辑模型队列取任务、跑推理、
-按 function_name 把结果分发到对应 result_queue。
-
-子类只需实现:
-    load_model() - 加载模型
-    infer(frame) - 跑一次推理,返回 list[dict] 检测结果
+同一 Worker 可轮询多个逻辑模型输入队列，在一个子进程中复用加载后的物理模型。
+子类实现 load_model() 与 infer(model, frame, task_meta)，基类包装错误并按
+function_name 写回功能结果队列；请求级匹配由主进程的 result_router.py 完成。
 """
 from __future__ import annotations
 import multiprocessing as mp
@@ -38,6 +33,7 @@ class BaseModelWorker(ABC):
         model_name: str,
         model_path: str,
     ):
+        """保存输入/结果队列与权重配置，创建跨进程状态信号；此时不加载模型或启动进程。"""
         self.infer_queues = infer_queues
         self._queue_names = tuple(infer_queues)
         self._queue_cursor = 0
@@ -55,6 +51,7 @@ class BaseModelWorker(ABC):
         self._failure_message = mp.Array("c", 4096)
 
     def failure_message(self) -> str:
+        """读取子进程写入的加载失败摘要，以替换字符容忍截断后的 UTF-8 字节。"""
         return self._failure_message.value.decode("utf-8", errors="replace")
 
     # ---------- 子类必须实现 ----------
@@ -73,6 +70,7 @@ class BaseModelWorker(ABC):
     # ---------- 生命周期 ----------
     def start(self):
         # 如果Worker已经活着，就不创建
+        """清空上一轮就绪/失败标志并启动守护子进程；已有存活进程时直接返回。"""
         if self._proc is not None and self._proc.is_alive():
             return
         # 否则，清理上一轮，然后开始子进程
@@ -90,6 +88,7 @@ class BaseModelWorker(ABC):
 
     def stop(self):
         # 告诉Worker不要再取任务
+        """先通知停止，超时后依次 terminate/kill 并等待；仍不能退出时抛出 RuntimeError。"""
         self._stop_event.set()
         if self._proc is not None:
             self._proc.join(timeout=5)         # 等5秒
@@ -122,6 +121,7 @@ class BaseModelWorker(ABC):
         return self.is_alive() and self.is_ready() and not self.is_failed()
 
     def _next_task(self) -> dict | None:
+        """轮询逻辑模型队列并推进游标，避免固定首队列饥饿；以队列名覆盖任务 model_name。"""
         for _ in self._queue_names:
             name = self._queue_names[self._queue_cursor]
             self._queue_cursor = (self._queue_cursor + 1) % len(self._queue_names)
@@ -159,6 +159,11 @@ class BaseModelWorker(ABC):
     # ---------- 主循环(子进程内) ----------
     def _run(self):
         # 设置进程名，如ModelWorker[yolo_human]
+        """在子进程加载模型并持续推理，加载失败通过共享状态报告后退出。
+
+        单次推理错误由 _execute_task() 包装，不终止后续任务；目标结果队列不存在或
+        写入超时时丢弃该结果，请求方通过自身超时结束等待。
+        """
         from setproctitle import setproctitle
         setproctitle(f"ModelWorker[{self.model_name}]")
 

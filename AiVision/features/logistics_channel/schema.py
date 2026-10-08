@@ -33,12 +33,14 @@ class LogisticsSinglePersonConfigSchema(BaseModel):
 
 
 class LogisticsCameraRoiUpdate(BaseModel):
+    """逐摄像头唯一 ROI 的严格更新请求。"""
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
     roi_pos: NormalizedRoi
 
 
 class LogisticsCameraIdentity(BaseModel):
+    """ROI 编辑与预览所需的最小摄像头身份。"""
     model_config = ConfigDict(extra="forbid")
 
     id: int
@@ -48,6 +50,7 @@ class LogisticsCameraIdentity(BaseModel):
 
 
 class LogisticsCameraRoiResponse(LogisticsCameraRoiUpdate):
+    """返回摄像头身份及其归一化 ROI。"""
     camera: LogisticsCameraIdentity
 
 
@@ -59,6 +62,7 @@ LogisticsChannelStatusReason = Literal[
 ]
 
 class LogisticsChannelAlarmChannel(BaseModel):
+    """通道喇叭开关和设备事件绑定参数。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: bool = False
@@ -67,17 +71,20 @@ class LogisticsChannelAlarmChannel(BaseModel):
 
     @model_validator(mode="after")
     def _validate_enabled_horn(self) -> "LogisticsChannelAlarmChannel":
+        """喇叭启用时必须同时具备设备与事件 ID。"""
         if self.enabled and (self.horn_id is None or self.horn_event_id is None):
             raise ValueError("启用喇叭告警时必须提供 horn_id 和 horn_event_id")
         return self
 
 class LogisticsChannelWechatChannel(BaseModel):
+    """通道企业微信通知开关和接收对象。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: bool = False
     user: str = ""
 
 class LogisticsChannelAlarm(BaseModel):
+    """组合数据库、喇叭和企业微信三个通知通道。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     sql_enable: bool = False
@@ -85,12 +92,14 @@ class LogisticsChannelAlarm(BaseModel):
     wechat: LogisticsChannelWechatChannel = Field(default_factory=LogisticsChannelWechatChannel)
 
 class LogisticsChannelCreate(BaseModel):
+    """新建通道的名称与所属事业部。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     name: str = Field(min_length=1, max_length=100)
     department: str = Field(min_length=1, max_length=100)
 
 class LogisticsChannelUpdate(BaseModel):
+    """通道名称、启用状态和排序的局部修改。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -98,6 +107,7 @@ class LogisticsChannelUpdate(BaseModel):
     sort_order: int | None = None
 
 class LogisticsChannelConfigUpdate(BaseModel):
+    """通道统一检测时段、人体筛选、宽限期及告警策略。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     detection_start: time = DEFAULT_DETECTION_START
@@ -120,6 +130,7 @@ class LogisticsChannelConfigUpdate(BaseModel):
     @model_validator(mode="after")
     def _validate_aspect_ratio(self) -> LogisticsChannelConfigUpdate:
         # 局部更新先校验明确提交的范围，服务层再与数据库保留值合并校验。
+        """同时提交范围两端时直接校验，单端更新留给服务层合并校验。"""
         if {"min_aspect_ratio", "max_aspect_ratio"} <= self.model_fields_set:
             if self.max_aspect_ratio < self.min_aspect_ratio:
                 raise ValueError("max_aspect_ratio 不得小于 min_aspect_ratio")
@@ -127,6 +138,7 @@ class LogisticsChannelConfigUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_detection_window(self) -> "LogisticsChannelConfigUpdate":
+        """拒绝带时区的时刻，同时提交起止值时要求同日起点早于终点。"""
         if (
             self.detection_start.tzinfo is not None
             or self.detection_start.utcoffset() is not None
@@ -146,6 +158,7 @@ class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
 
 
 class LogisticsChannelMemberCreate(BaseModel):
+    """互斥支持绑定已有摄像头与新建摄像头后绑定两种请求。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     camera_id: int | None = Field(default=None, gt=0)
@@ -156,6 +169,7 @@ class LogisticsChannelMemberCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_camera_input_mode(self) -> "LogisticsChannelMemberCreate":
+        """禁止混用已有 ID 和新建字段，新建时必须同时给出名称及地址。"""
         has_existing_camera = self.camera_id is not None
         has_new_camera = self.name is not None or self.url is not None
         if has_existing_camera == has_new_camera:
@@ -170,6 +184,7 @@ class LogisticsChannelMemberCreate(BaseModel):
         return self
 
 class LogisticsChannelMemberOrder(BaseModel):
+    """完整摄像头排列请求，受通道最大容量限制。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     camera_ids: list[Annotated[int, Field(gt=0)]] = Field(
@@ -179,6 +194,7 @@ class LogisticsChannelMemberOrder(BaseModel):
 
     @model_validator(mode="after")
     def _validate_unique_camera_ids(self) -> "LogisticsChannelMemberOrder":
+        """拒绝重复成员 ID，避免排序覆盖。"""
         if len(set(self.camera_ids)) != len(self.camera_ids):
             raise ValueError("camera_ids 不可重复")
         return self
@@ -191,6 +207,7 @@ class LogisticsChannelMemberEnabledUpdate(BaseModel):
     enabled: bool
 
 class LogisticsChannelMemberResponse(BaseModel):
+    """通道成员关系、独立开关和顺序的响应结构。"""
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -202,11 +219,13 @@ class LogisticsChannelMemberResponse(BaseModel):
     updated_at: datetime | None = None
 
 class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
+    """从通道 ORM 展开完整配置，并复用配置约束核验已存值。"""
     model_config = ConfigDict(from_attributes=True, extra="forbid", allow_inf_nan=False)
 
     @model_validator(mode="before")
     @classmethod
     def _adapt_channel_orm(cls, value: Any) -> Any:
+        """把扁平数据库告警字段组织为前端需要的嵌套通道配置。"""
         if isinstance(value, dict) or not hasattr(value, "detection_start"):
             return value
         return {
@@ -246,6 +265,7 @@ class LogisticsChannelStatusResponse(BaseModel):
     updated_at: datetime | None = None
 
 class LogisticsChannelResponse(BaseModel):
+    """通道基础信息，不携带完整成员与运行快照。"""
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -258,9 +278,11 @@ class LogisticsChannelResponse(BaseModel):
     updated_at: datetime | None = None
 
 class LogisticsChannelListResponse(BaseModel):
+    """指定查询范围的通道列表。"""
     items: list[LogisticsChannelResponse]
 
 class LogisticsCameraInventoryMembership(BaseModel):
+    """摄像头在某物流功能下的通道归属及参与状态。"""
     feature_name: LogisticsFeatureName
     channel_id: int
     channel_name: str
@@ -268,6 +290,7 @@ class LogisticsCameraInventoryMembership(BaseModel):
     online: bool
 
 class LogisticsCameraInventoryItem(BaseModel):
+    """摄像头清单项，汇总资源身份、在线状态及所有物流归属。"""
     camera_id: int
     name: str
     shm_name: str
@@ -277,9 +300,11 @@ class LogisticsCameraInventoryItem(BaseModel):
     memberships: list[LogisticsCameraInventoryMembership] = Field(default_factory=list)
 
 class LogisticsCameraInventoryResponse(BaseModel):
+    """供总览和配置清单共享的摄像头集合。"""
     items: list[LogisticsCameraInventoryItem] = Field(default_factory=list)
 
 class LogisticsChannelDetailResponse(LogisticsChannelResponse):
+    """组合基础信息、检测配置、成员与可选运行状态。"""
     config: LogisticsChannelConfigResponse
     members: list[LogisticsChannelMemberResponse] = Field(default_factory=list)
     status: LogisticsChannelStatusResponse | None = None
@@ -287,6 +312,7 @@ class LogisticsChannelDetailResponse(LogisticsChannelResponse):
     @model_validator(mode="before")
     @classmethod
     def _adapt_channel_orm(cls, value: Any) -> Any:
+        """将通道记录与成员关系组装为详情校验输入。"""
         if isinstance(value, dict) or not hasattr(value, "feature_name"):
             return value
         return {
@@ -336,6 +362,7 @@ class LogisticsChannelRuntimeStatusResponse(BaseModel):
     updated_at: float | None = None
 
 class LogisticsChannelAlarmResponse(BaseModel):
+    """以物流通道为主体的告警历史，包含证据地址与详细元数据。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     id: str
@@ -349,29 +376,34 @@ class LogisticsChannelAlarmResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 class LogisticsChannelAlarmListResponse(BaseModel):
+    """物流通道告警列表响应。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     items: list[LogisticsChannelAlarmResponse] = Field(default_factory=list)
 
 class LogisticsChannelStatisticsSummary(BaseModel):
+    """查询范围内总告警数及今日告警数。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     total: int = Field(ge=0)
     today: int = Field(ge=0)
 
 class LogisticsChannelDailyStatistic(BaseModel):
+    """单个日期的告警数量。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     day: str
     count: int = Field(ge=0)
 
 class LogisticsChannelStatisticsResponse(BaseModel):
+    """组合汇总数和逐日分布的统计结果。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     summary: LogisticsChannelStatisticsSummary
     daily: list[LogisticsChannelDailyStatistic] = Field(default_factory=list)
 
 class LogisticsChannelOkResponse(BaseModel):
+    """无额外返回数据的通道操作成功标志。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     ok: bool

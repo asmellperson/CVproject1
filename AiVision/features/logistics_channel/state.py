@@ -42,6 +42,7 @@ class ChannelDecision:
 
 @dataclass(frozen=True)
 class PersonDetection:
+    """原帧坐标的人体检测事实，可保留来源 ROI 以稳定去重顺序。"""
     bbox: tuple[float, float, float, float]
     confidence: float
     source_roi: int | None = None
@@ -95,6 +96,7 @@ def classify_channel(
 class ChannelPresenceState:
     """异常持续时间计时器"""
     def __init__(self) -> None:
+        """初始化连续异常原因和时间边界，不累计正常或未知时段。"""
         self._reason: ChannelReason | None = None
         self._started_at: float | None = None
         self._last_evaluated_at: float | None = None
@@ -107,6 +109,11 @@ class ChannelPresenceState:
         empty_grace_seconds: float,
         multi_grace_seconds: float,
     ) -> ChannelDecision:
+        """对无人或多人状态分别累计连续时间，达到对应宽限阈值才报警。
+
+        原因变化、时钟倒退会重新计时；正常、未知、未配置和未启用状态均清空
+        历史累计，不能跨越无效观测延续异常时长。
+        """
         if (
             not _is_finite_number(now)
             or not _is_finite_number(empty_grace_seconds)
@@ -201,29 +208,35 @@ def deduplicate_person_detections(
 class CameraSnapshotStore:
     """按功能和摄像头编号隔离的线程安全不可变快照仓库。"""
     def __init__(self) -> None:
+        """建立按功能与摄像头隔离的受锁快照映射。"""
         self._lock = RLock()
         self._snapshots: dict[tuple[str, int], CameraSnapshot] = {}
 
     def upsert(self, feature_name: str, snapshot: CameraSnapshot) -> CameraSnapshot:
+        """原子替换指定功能的单摄快照；时间顺序由调用方保障。"""
         with self._lock:
             self._snapshots[(feature_name, snapshot.camera_id)] = snapshot
             return snapshot
 
     def get(self, feature_name: str, camera_id: int) -> CameraSnapshot | None:
+        """读取当前不可变快照，尚无结果时返回 None。"""
         with self._lock:
             return self._snapshots.get((feature_name, camera_id))
 
     def remove(self, feature_name: str, camera_id: int) -> CameraSnapshot | None:
+        """移除单摄快照并返回原值，方便运行时清理。"""
         with self._lock:
             return self._snapshots.pop((feature_name, camera_id), None)
 
     def clear_feature(self, feature_name: str) -> tuple[CameraSnapshot, ...]:
+        """一次移除指定功能的全部快照，保留其他功能状态。"""
         with self._lock:
             keys = [key for key in self._snapshots if key[0] == feature_name]
             removed = tuple(self._snapshots.pop(key) for key in keys)
             return removed
 
 def _decision(reason: ChannelReason, *, offending_camera_ids: tuple[int, ...] = ()) -> ChannelDecision:
+    """构造尚未开始累计的非告警结论，并保留涉及的摄像头。"""
     return ChannelDecision(
         reason=reason,
         alarm=False,
@@ -233,16 +246,20 @@ def _decision(reason: ChannelReason, *, offending_camera_ids: tuple[int, ...] = 
     )
 
 def _is_valid_bbox(bbox: tuple[float, float, float, float]) -> bool:
+    """要求四个有限坐标及正面积，排除退化框。"""
     if len(bbox) != 4 or not all(_is_finite_number(coordinate) for coordinate in bbox):
         return False
     x1, y1, x2, y2 = bbox
     return x2 > x1 and y2 > y1
 
 def _is_valid_confidence(confidence: float) -> bool:
+    """校验人体置信度是零至一的有限数值。"""
     return _is_finite_number(confidence) and 0 <= confidence <= 1
 
 def _is_finite_number(value: object) -> bool:
+    """接受有限整数或浮点数，显式排除布尔值。"""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 def _detection_sort_key(detection: PersonDetection) -> tuple[float, tuple[float, float, float, float], int]:
+    """按置信度、坐标和来源排序，使相同输入的 NMS 结果可重复。"""
     return (-detection.confidence, detection.bbox, -1 if detection.source_roi is None else detection.source_roi)

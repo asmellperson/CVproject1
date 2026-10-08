@@ -36,6 +36,7 @@ INTEGER_CHANGES = {"detect_face": "MAX_LOST", "detect_phone": "MIN_CONSECUTIVE_H
 
 
 def specs():
+    """构造该历史版本的迁移契约，局部补入历史人体表而不污染正式功能注册表。"""
     global _legacy_human_orm
     from AiVision.alarms.devices import orm as alarm_orm  # noqa: F401
     from AiVision.cameras import orm as camera_orm  # noqa: F401
@@ -65,6 +66,7 @@ def specs():
 
 
 def _integer(value, location):
+    """仅接受可精确表示为整数的有限数值，禁止布尔值或静默截断。"""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value != int(value):
         raise ValueError(f"{location}: 必须是整数，禁止截断")
     return int(value)
@@ -279,6 +281,7 @@ def write_schema(path: Path):
 
 
 def main():
+    """读取显式数据库和逐行赋值计划；默认检查，亦可仅导出目标建表 SQL。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url-env", default="MIGRATION_DATABASE_URL")
     parser.add_argument("--iou-values", type=Path)

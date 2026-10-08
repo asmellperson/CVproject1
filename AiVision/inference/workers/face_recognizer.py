@@ -1,4 +1,8 @@
-"""只加载本地 buffalo_l ONNX 文件；注册照片与实时摄像头共用推理实现。"""
+"""本地人脸特征提取与实时人员匹配 Worker。
+
+InsightFaceRecognizer 由注册照片生成任务和实时 Worker 共用，加载 buffalo_l 检测与识别文件。
+Worker 周期刷新 FaceIndex，逐脸匹配；人员是否被授权仍由 Consumer 读取本地授权集合判断。
+"""
 from __future__ import annotations
 
 import time
@@ -19,7 +23,9 @@ from AiVision.inference.insightface_detector import (
 
 
 class InsightFaceRecognizer:
+    """持有检测与识别 Session，负责对齐和特征提取，不直接管理人员数据库。"""
     def __init__(self, model_path: str):
+        """验证模型目录中的必要文件，分别加载检测和识别 Session 并完成设备准备。"""
         from AiVision.inference.model_paths import validate_model_path
 
         directory = Path(validate_model_path(model_path, model_type="insightface"))
@@ -30,6 +36,7 @@ class InsightFaceRecognizer:
         self.recognizer.prepare(ctx_id=0)
 
     def get_faces(self, frame: np.ndarray, *, detection_threshold: float = DEFAULT_DETECTION_THRESHOLD) -> list:
+        """为 BGR 图像中的每张人脸提取特征并返回 Face 列表；无脸返回空列表，缺少对齐关键点报错。"""
         from insightface.app.common import Face
 
         boxes, landmarks = self.detector.detect(
@@ -46,7 +53,9 @@ class InsightFaceRecognizer:
 
 
 class FaceRecognizerWorker(BaseModelWorker):
+    """把人脸特征与定期刷新的人脸底库匹配，返回身份及相似度的 Worker。"""
     def load_model(self) -> InsightFaceRecognizer:
+        """加载模型并首次刷新人员索引，记录刷新时刻；失败会阻止 Worker 就绪。"""
         model = InsightFaceRecognizer(self.model_path)
         self.index = FaceIndex()
         count = self.index.refresh()
@@ -56,6 +65,10 @@ class FaceRecognizerWorker(BaseModelWorker):
         return model
 
     def infer(self, model: InsightFaceRecognizer, frame, task_meta: dict) -> list[dict]:
+        """按任务阈值逐脸匹配，索引刷新失败时拒绝使用旧索引完成本次推理。
+
+        返回 ROI 坐标中的人脸框、分数和匹配字段；摄像头允许多脸，不应用注册照片的单脸限制。
+        """
         now = time.monotonic()
         if now - self._index_refreshed_at >= INDEX_REFRESH_SECONDS:
             self._index_refreshed_at = now

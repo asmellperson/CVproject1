@@ -19,6 +19,7 @@ _ERROR_STATUS = {"busy": 409, "not_found": 404, "cancelled": 409, "timeout": 504
 
 
 def get_agv_consumer(orchestrator: Annotated[Any, Depends(get_current_orchestrator)]) -> AgvPersonCheckConsumer:
+    """取得运行中的 AGV 消费者，未运行时返回 503。"""
     consumer = orchestrator.consumers.get("agv_person_check")
     if consumer is None or not consumer.running:
         raise HTTPException(status_code=503, detail="AGV 检测功能未运行")
@@ -26,6 +27,7 @@ def get_agv_consumer(orchestrator: Annotated[Any, Depends(get_current_orchestrat
 
 
 async def _wait_result(request: CheckRequest):
+    """在请求剩余期限内异步等待判定，不让客户端取消直接取消跨线程 Future。"""
     future = asyncio.wrap_future(request.future)
     try:
         result = await asyncio.wait_for(
@@ -42,6 +44,7 @@ async def _wait_result(request: CheckRequest):
 
 
 async def _deliver_callback(consumer: AgvPersonCheckConsumer, request: CheckRequest):
+    """等待成功判定后执行配置回调，并在成功或失败后统一释放请求容量。"""
     try:
         result = await _wait_result(request)
         body = render_body(request.config.http, result, camera_key=request.camera_key, request_id=request.request_id)

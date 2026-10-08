@@ -11,12 +11,15 @@ from AiVision.core.settings import settings
 
 
 def _load_configs(horn_id=None):
+    """延迟导入服务并读取内部运行配置，避免模块初始化的循环依赖。"""
     from .service import horn_service
     return horn_service.runtime_configs(horn_id)
 
 
 class HornRuntimeManager:
+    """管理设备认证和心跳生命周期，以有界队列异步播放语音。"""
     def __init__(self, config_loader=None, horn_factory=Horn):
+        """注入配置读取和设备工厂，构造时不启动网络操作或线程。"""
         self._load = config_loader or _load_configs
         self._factory = horn_factory
         self._lock = threading.RLock()
@@ -32,10 +35,12 @@ class HornRuntimeManager:
 
     @staticmethod
     def _credentials(config):
+        """提取设备认证所需字段，仅供内部实例比较和连接。"""
         return {"horn_url": config["url"], "username": config["username"],
                 "password": config["password"]}
 
     def start(self):
+        """创建本轮播放和同步线程，再读取已提交设备配置。"""
         with self._sync_lock:
             with self._lock:
                 if self._active:
@@ -53,6 +58,7 @@ class HornRuntimeManager:
         self.sync()
 
     def _retire(self, horn_id):
+        """立即关闭旧设备入口并保留引用，供停止状态查询和资源回收。"""
         entry = self._entries.pop(horn_id, None)
         if entry:
             entry[1].request_stop()
@@ -97,12 +103,14 @@ class HornRuntimeManager:
                 logger.warning("[HornRuntime] 配置同步失败，已关闭旧实例，等待重试")
 
     def _reconcile_loop(self, stop):
+        """周期重新核对数据库配置，使失败同步能够自动重试。"""
         while not stop.wait(settings.alarm.horn_reconcile_interval_seconds):
             if stop.is_set():
                 return
             self.sync()
 
     def enqueue_play(self, horn_id: int, event_id: str | int) -> bool:
+        """非阻塞接收当前运行设备的播放任务，队列已满或设备不可用时返回 False。"""
         with self._lock:
             entry = self._entries.get(horn_id)
             if not self._active or entry is None:
@@ -115,6 +123,7 @@ class HornRuntimeManager:
                 return False
 
     def _play_loop(self, stop, jobs):
+        """只执行未过期且仍对应当前设备实例的任务，防止配置更换后播放旧任务。"""
         while not stop.is_set():
             try:
                 horn_id, horn, event_id, queued_at = jobs.get(timeout=0.1)
@@ -133,6 +142,7 @@ class HornRuntimeManager:
                 jobs.task_done()
 
     def status(self, config: dict) -> dict:
+        """综合当前实例、同步错误和退役实例，生成设备的准确生命周期状态。"""
         with self._lock:
             device_id = config["id"]
             entry = self._entries.get(device_id)
@@ -147,6 +157,7 @@ class HornRuntimeManager:
                     ("pending" if self._active else "not_started")}
 
     def test_connection(self, config: dict) -> dict:
+        """优先复用同凭据运行实例，否则创建不启动心跳的临时连接探测。"""
         credentials = self._credentials(config)
         with self._lock:
             entry = self._entries.get(config.get("id"))
@@ -165,6 +176,7 @@ class HornRuntimeManager:
             probe.request_stop()
 
     def stop(self):
+        """关闭设备入口、丢弃待播任务，并在共享期限内等待后台与在途请求结束。"""
         with self._sync_lock:
             with self._lock:
                 self._active = False

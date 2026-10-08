@@ -1,4 +1,8 @@
-"""总览从本进程配置服务与运行快照生成，摄像头按物理设备计数。"""
+"""按账号可访问事业部与功能生成平台总览，不额外调用内部 HTTP 服务。
+
+从摄像头配置、通道/保安室关系和运行快照合并物理设备，避免同摄像头多能力重复计数。
+在线、模型就绪与正在检测分别统计，尤其 AGV 待机在线不计为正在执行请求。
+"""
 from time import time
 from typing import Literal
 
@@ -26,6 +30,7 @@ FEATURE_PAGES = {feature: page for page, _name, feature in CAPABILITIES}
 
 
 class OverviewCamera(BaseModel):
+    """一个物理摄像头的总览项，分别列出配置能力、运行能力与通道/保安室关联。"""
     key: str
     camera_id: int
     name: str
@@ -41,6 +46,7 @@ class OverviewCamera(BaseModel):
 
 
 class OverviewCapability(BaseModel):
+    """一种可见功能的设备数量、运行状态及模型就绪摘要。"""
     id: str
     name: str
     camera_count: int
@@ -50,6 +56,7 @@ class OverviewCapability(BaseModel):
 
 
 class OverviewServiceStatus(BaseModel):
+    """HTTP 可访问与检测引擎运行状态的汇总，二者不要求同时为真。"""
     online: bool
     running: bool = False
     error: str | None = None
@@ -59,6 +66,7 @@ class OverviewServiceStatus(BaseModel):
 
 
 class OverviewSummary(BaseModel):
+    """能力和物理摄像头的汇总计数，供平台与各事业部共用。"""
     capability_total: int
     capability_online: int
     capability_running: int
@@ -68,6 +76,7 @@ class OverviewSummary(BaseModel):
 
 
 class OverviewStatus(BaseModel):
+    """带生成时刻、资源完整性、服务状态和分事业部计数的完整总览响应。"""
     generated_at: float
     ok: bool
     level: Literal["healthy", "degraded", "down"]
@@ -84,6 +93,11 @@ class OverviewStatus(BaseModel):
 
 
 def build_overview(departments, cameras, logistics_service, guard_service, orchestrator, feature_access):
+    """从已授权资源和本进程运行状态生成总览快照，不启动摄像头或模型。
+
+    调用方提供事业部、摄像头、通道/保安室服务、可选编排器及功能分配。
+    安检计入外部服务健康，AGV 仅将尚未完成的请求计为检测中；返回 OverviewStatus。
+    """
     status = orchestrator.runtime_status() if orchestrator is not None else {}
     running_cameras = set(status.get("running_cameras", []))
     running_features = set(status.get("running_consumers", []))
@@ -160,6 +174,7 @@ def build_overview(departments, cameras, logistics_service, guard_service, orche
         ))
 
     def summary(items, features):
+        """对已经筛选的设备与功能集合计数，以物理摄像头和运行页面集合去重。"""
         online_count = sum(camera.online for camera in items)
         active_pages = {page for camera in items for page in camera.running_capabilities}
         return OverviewSummary(

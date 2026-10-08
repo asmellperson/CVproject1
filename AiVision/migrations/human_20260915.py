@@ -38,29 +38,35 @@ ALARM_COLUMNS = ("id", "violation_type", "feature_name", "department", "event_me
 
 
 def _json_default(value):
+    """为备份显式编码 datetime，其他未知类型直接报错。"""
     if isinstance(value, dt.datetime):
         return {"__datetime__": value.isoformat()}
     raise TypeError(f"unsupported backup value: {type(value).__name__}")
 
 
 def _encode(value):
+    """使用稳定键顺序序列化迁移镜像，供摘要及精确比较使用。"""
     return json.dumps(value, default=_json_default, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _decode(value):
+    """恢复备份中的 datetime 标记，保持写回数据库所需类型。"""
     return json.loads(value, object_hook=lambda obj: dt.datetime.fromisoformat(obj["__datetime__"])
                       if set(obj) == {"__datetime__"} else obj)
 
 
 def _contains_old(value):
+    """检查序列化内容是否仍含旧功能标识，供未知引用预检。"""
     return OLD in _encode(value)
 
 
 def _table(connection, name):
+    """反射指定现有表结构，不创建或修改数据库对象。"""
     return Table(name, MetaData(), autoload_with=connection)
 
 
 def _rows(connection, table, columns=None):
+    """按主键读取可比较行快照，布尔列保留原始数值以发现非法数据。"""
     columns = list(columns or table.columns.keys())
     # 禁止 SQLAlchemy BOOLEAN 把非法 2 静默变为 True。
     selected = [cast(table.c[name], Integer).label(name) if isinstance(table.c[name].type, Boolean)
@@ -69,13 +75,16 @@ def _rows(connection, table, columns=None):
 
 
 def _default_row():
+    """从正式 Schema 与 ORM 生成业务默认值，不包含主键等元字段。"""
     row = SPEC.orm_class()
     row.apply_config_dict(SPEC.config_schema().model_dump())
     return {c.name: getattr(row, c.name) for c in row.__table__.columns if c.name not in META_FIELDS}
 
 
 def _is_default(row, dialect):
+    """比较记录是否等同业务默认值，仅处理已明确的浮点精度及关闭微信时空值语义。"""
     def equal(actual, expected):
+        """对 MySQL 浮点列按单精度字节比较，避免存储舍入造成伪差异。"""
         if dialect == "mysql" and isinstance(expected, float) and isinstance(actual, (int, float)):
             return struct.pack("f", actual) == struct.pack("f", expected)
         return actual == expected
@@ -88,6 +97,7 @@ def _is_default(row, dialect):
 
 
 def _validate_config(row, table_name):
+    """验证原始布尔域及最终人体配置，错误信息仅暴露表与行身份。"""
     values = dict(row)
     for column in SPEC.orm_class.__table__.columns:
         if isinstance(column.type, Boolean):
@@ -102,6 +112,7 @@ def _validate_config(row, table_name):
 
 
 def _check_schema(connection, *, source_required=True):
+    """核验预期结构、存储引擎及引用，遇到触发器或未知关联时停止自动迁移。"""
     inspector = inspect(connection)
     names = set(inspector.get_table_names())
     required = {CAMERAS, TARGET, ALARMS} | ({SOURCE} if source_required else set())
@@ -343,16 +354,19 @@ def check_auth_database(path: Path | None):
 
 
 def _verify_auth(path, expected):
+    """重新比对认证库快照，防止迁移期间切换数据库或改变权限。"""
     if check_auth_database(path) != expected:
         raise ValueError("认证库路径或数据与预检镜像不一致，保持停写并重新核查")
 
 
 def _identity(engine):
+    """以非凭据连接要素生成数据库指纹，绑定备份与目标实例。"""
     url = engine.url
     return hashlib.sha256(_encode([url.drivername, url.host, url.port, url.database]).encode()).hexdigest()
 
 
 def _save_backup(path, plan):
+    """独占创建仅属主可读写的备份，附内容摘要并同步落盘。"""
     encoded = _encode(plan).encode("utf-8")
     envelope = _encode({"sha256": hashlib.sha256(encoded).hexdigest(), "payload": encoded.decode("utf-8")})
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -363,6 +377,7 @@ def _save_backup(path, plan):
 
 
 def _load_backup(path, engine):
+    """验证备份摘要、迁移版本及数据库身份后恢复镜像。"""
     envelope = json.loads(Path(path).read_text(encoding="utf-8"))
     if hashlib.sha256(envelope["payload"].encode()).hexdigest() != envelope["sha256"]:
         raise ValueError("备份校验和不一致")
@@ -373,6 +388,7 @@ def _load_backup(path, engine):
 
 
 def _verify(connection, snapshot, *, allow_source_absent=False):
+    """逐表比较指定镜像，只有明确允许时才接受旧源表已经移除。"""
     names = set(inspect(connection).get_table_names())
     for name, expected in snapshot.items():
         if name == SOURCE and name not in names and allow_source_absent:
@@ -384,6 +400,7 @@ def _verify(connection, snapshot, *, allow_source_absent=False):
 
 
 def _write_changes(connection, before, after):
+    """按主键应用精确行差异，只更新发生变化的列并保留无关字段。"""
     for name, rows in after.items():
         old = {row["id"]: row for row in before[name]}
         new = {row["id"]: row for row in rows}
@@ -400,6 +417,11 @@ def _write_changes(connection, before, after):
 
 
 def run(engine, *, action="check", backup=None, auth_db=None):
+    """执行检查、应用、核验、恢复或独立移除旧表的离线流程。
+
+    应用前保存前后镜像并核对认证库；恢复要求当前状态完全符合迁移后镜像。
+    删除旧表是单独动作，MySQL DDL 可能自动提交，不能以数据事务回滚代替备份。
+    """
     auth = check_auth_database(auth_db)
     with engine.connect() as connection:
         if connection.dialect.name == "sqlite":
@@ -449,6 +471,7 @@ def run(engine, *, action="check", backup=None, auth_db=None):
 
 
 def main():
+    """要求显式认证库和专用数据库地址，写动作必须声明 offline，错误输出隐藏驱动参数。"""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
     for action in ("check", "apply", "verify", "restore", "drop-old"):
