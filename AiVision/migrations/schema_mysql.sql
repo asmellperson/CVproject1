@@ -598,3 +598,17 @@ CREATE TABLE ai_visual_language_event (
 );
 
 CREATE INDEX ix_visual_language_camera_time ON ai_visual_language_event (department, camera_id, captured_at);
+
+CREATE TABLE auth_external_clients (
+    id VARCHAR(32) NOT NULL,
+    name VARCHAR(128) NOT NULL,
+    key_digest VARCHAR(64) NOT NULL,
+    departments JSON NOT NULL,
+    scopes JSON NOT NULL,
+    enabled BOOL NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE utf8mb4_bin;

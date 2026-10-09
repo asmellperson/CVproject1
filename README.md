@@ -128,13 +128,18 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 - 只有不合规结果进入业务告警，证据使用该 session 的关键帧拼图；告警冷却按摄像头和工位隔离。
 - 运行时提供模型健康检查、连续失败熔断和自动恢复状态。
 
+外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置。外部接口使用独立 `X-API-Key` 凭证，按事业部和读写权限授权，复用平台数据及配置热更新；凭证由受控服务端或代理保管。接口字段和调用示例见[安检外部 API 文档](docs/security-inspection-external-api.md)。
+
 ## 4. 认证、权限与数据
 
 [auth/api.py](auth/api.py) 提供登录、登出、当前用户、修改密码、用户管理和访问审计接口，由 AiVision 的 `create_app()` 注册。浏览器通过 Cookie 维持登录，前端请求携带 `credentials: 'include'`；接口返回 `401` 时清空前端登录状态。
 
+[auth/external.py](auth/external.py) 校验外部系统凭证；管理员通过 `/api/admin/external-clients` 管理授权、有效期、启停和轮换。密钥摘要保存于 `auth_external_clients`，明文仅在创建和轮换时返回。外部凭证不授予人员账号接口或全局模型设置的访问权限。
+
 | 数据 | MySQL 表 / 存储 |
 | --- | --- |
 | 用户账号 | `auth_users` |
+| 外部系统凭证摘要与授权 | `auth_external_clients` |
 | 最近访问记录 | `auth_access_viewers` |
 | 事业部功能分配 | `department_feature_access` |
 | 摄像头及功能配置 | `ai_camera_config` 及各功能配置表 |
@@ -167,6 +172,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | `/api/logistics-channels/*` | 通道与成员管理、状态及拼图 |
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
 | `/api/security-inspection/*` | 安检历史、运行状态与千问设置 |
+| `/api/external/security-inspection/*` | 独立系统凭证认证的安检展示和摄像头配置接口 |
 | `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |
 | `/api/face-recognition/records` | 身份识别记录 |
 | `/api/horns`、`/api/exception-alert` | 喇叭与系统异常通知 |

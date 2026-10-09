@@ -20,6 +20,18 @@ def get_current_orchestrator():
             detail=str(exc),
         ) from exc
 
+
+def get_inspection_service():
+    """平台与外部接口共用安检持久化服务。"""
+    from AiVision.features.security_inspection.service import InspectionService
+    return InspectionService()
+
+
+def get_inspection_consumer():
+    """允许在检测尚未启动时查询配置、历史和不可用状态。"""
+    orchestrator = get_optional_orchestrator()
+    return orchestrator.consumers.get("security_inspection") if orchestrator is not None else None
+
 # ---------------获取各种配置服务------------------------------
 def get_camera_config_manager():
     """获取摄像头配置服务"""

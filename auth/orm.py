@@ -54,3 +54,25 @@ class AccessViewer(Base):
     first_seen_at = Column(DATETIME(fsp=6), nullable=False)
     last_seen_at = Column(DATETIME(fsp=6), nullable=False, index=True)
     visit_count = Column(Integer, nullable=False, default=1)
+
+
+class ExternalClient(Base):
+    """外部系统凭证只保存摘要；停用、轮换和授权变更在下一次请求生效。"""
+
+    __tablename__ = "auth_external_clients"
+    __table_args__ = {
+        "mysql_engine": "InnoDB",
+        "mysql_charset": "utf8mb4",
+        "mysql_collate": "utf8mb4_bin",
+    }
+
+    id = Column(String(32), primary_key=True)
+    name = Column(String(128), nullable=False)
+    key_digest = Column(String(64), nullable=False)
+    departments = Column(JSON, nullable=False)
+    scopes = Column(JSON, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    expires_at = Column(DATETIME(fsp=6), nullable=False)
+    created_by = Column(String(64), nullable=False)
+    created_at = Column(DATETIME(fsp=6), nullable=False, default=utc_now)
+    updated_at = Column(DATETIME(fsp=6), nullable=False, default=utc_now, onupdate=utc_now)

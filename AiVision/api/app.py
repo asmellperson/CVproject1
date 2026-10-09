@@ -14,6 +14,8 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse                         # 手工构造JSON HTTP响应
 
 from auth.api import router as auth_router
+from auth.external import EXTERNAL_API_PREFIX
+from auth.external_api import router as external_clients_router
 from auth.auth import AuthError, get_current_user_from_request     # 认证模块
 
 # 拿取每个API文件里的路由，最后统一注册到FastAPI
@@ -22,6 +24,7 @@ from AiVision.api.routes.alarms import router as alarms_router              # �
 from AiVision.api.routes.cameras import router as cameras_router            # 对外公开、不要求普通认证的报警资源
 from AiVision.api.routes.departments import router as departments_router
 from AiVision.api.routes.exception_alerts import router as exception_alerts_router
+from AiVision.api.routes.external import router as external_router
 from AiVision.api.routes.features import router as features_router
 from AiVision.api.routes.face_recognition import router as face_recognition_router
 from AiVision.api.routes.logistics_channels import router as logistics_channels_router
@@ -125,6 +128,11 @@ def create_app() -> FastAPI:
             call_next:继续往后走
         """
         path = request.url.path
+        if path.startswith(EXTERNAL_API_PREFIX + "/"):
+            # 外部路由统一依赖系统凭证校验；不把服务身份伪装成人员账号。
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
         # 先列出公共接口
         public_paths = {"/api/runtime/health", "/api/auth/login", "/api/auth/logout"}
         # 服务探针不读取业务数据，无需登录；业务接口仍按原认证流程处理。
@@ -157,6 +165,8 @@ def create_app() -> FastAPI:
 
     # 注册所有普通API
     app.include_router(auth_router)
+    app.include_router(external_clients_router)
+    app.include_router(external_router)
     app.include_router(runtime_router)
     app.include_router(exception_alerts_router)
     app.include_router(cameras_router)

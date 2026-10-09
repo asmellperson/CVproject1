@@ -83,6 +83,7 @@ AiVision/
 │   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
 │   └── routes/                     # 摄像头、功能、模型、告警、通道等 API
+│       └── external/               # 系统凭证认证的外部接口，安检复用现有业务服务
 ├── runtime/
 │   ├── bootstrap.py                # 启动阶段 ORM 注册、建表与结构核验
 │   ├── orchestrator.py             # 总编排、配置事件路由、运行状态聚合
@@ -925,6 +926,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
+`api/routes/external/` 的全部路由统一依赖 `auth/external.py` 校验 `X-API-Key`，不使用人员 Cookie/JWT。凭证表 `auth_external_clients` 保存摘要、事业部、操作权限和有效期，每次请求重新校验；管理员使用 `/api/admin/external-clients` 管理凭证。安检外部接口同时校验事业部当前功能分配，配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，操作日志记录服务身份及资源标识。
+
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
 `/api/runtime/health`、登录和登出是公开接口；`/api/public/alarms/...` 的通知图片需签名及有效期校验，其余告警媒体仍需登录和授权。`AUTH_SECRET` 由运行环境提供，运维脚本从 `scripts/auth_secret` 注入。
@@ -1125,6 +1128,24 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
 
 `/api/overview` 的能力目录包含全部十一项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
+
+### 12.5 安检外部对接
+
+前缀为 `/api/external/security-inspection`，通过 `X-API-Key` 验证系统身份。除事业部列表与配置 Schema 外，下面的业务查询均要求 `department` 参数。
+
+| 方法 | 后缀 | 用途 |
+| --- | --- | --- |
+| GET | `/departments` | 凭证当前可访问的安检事业部 |
+| GET | `/cameras` | 摄像头列表，可用 `enabled_only` 筛选 |
+| GET | `/status`、`/history` | 与平台一致的状态、会话和累计统计 |
+| GET | `/cameras/{shm_name}/frame.jpg` | 安检标注帧；`annotated=false` 返回绘制 ROI 的原始帧 |
+| GET / PUT | `/cameras/{shm_name}/config` | 读取 / 完整保存摄像头安检配置 |
+| GET | `/config-schema` | 默认配置和字段约束 |
+| GET | `/horns` | 配置写权限可读取的共享喇叭绑定选项 |
+
+外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。
+
+部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端只负责展示、配置交互和屏幕适配；长期凭证由受控服务端或代理保管。
 
 ## 13. 人脸库同步与特征生成
 

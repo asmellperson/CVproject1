@@ -22,7 +22,7 @@ def bootstrap_database():
         GuardBehaviorSite, GuardBehaviorSiteCamera,
         GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
     )
-    from auth.orm import AuthUser, AccessViewer
+    from auth.orm import AuthUser, AccessViewer, ExternalClient
     from AiVision.core.schema import assert_table_matches
 
     specs = all_specs()  # 注册表及其他业务 ORM 必须在创建表之前完成导入。
@@ -35,7 +35,7 @@ def bootstrap_database():
             LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding,
             GuardBehaviorSite, GuardBehaviorSiteCamera,
             GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
-            InspectionSession, VisualLanguageEventORM, AuthUser, AccessViewer, AiAlarmDisposition,
+            InspectionSession, VisualLanguageEventORM, AuthUser, AccessViewer, ExternalClient, AiAlarmDisposition,
         ):
             assert_table_matches(connection, model.__table__)
     logger.info("[DB] 功能配置和业务表结构核验通过")

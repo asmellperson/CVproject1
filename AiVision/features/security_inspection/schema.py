@@ -140,3 +140,49 @@ class InspectionVerdict(StrictModel):
         if not value:
             raise ValueError("判定原因不能为空")
         return value
+
+
+class InspectionStats(BaseModel):
+    """查询范围内的全部会话统计，合规率只基于成功判定。"""
+    total: int
+    compliant: int
+    non_compliant: int
+    error: int
+    cancelled: int
+    rate: float
+
+
+class SessionResponse(BaseModel):
+    """平台和外部接口共用的会话历史契约。"""
+    session_id: str
+    camera_id: int | None
+    camera_name: str
+    roi_name: str
+    started_at: str
+    ended_at: str
+    duration_sec: float
+    status: Literal["compliant", "non_compliant", "error", "cancelled"]
+    verdict: InspectionVerdict | None
+    error: str | None
+    latency_sec: float | None
+
+
+class HistoryResponse(BaseModel):
+    """统计独立于分页，items 只包含当前页。"""
+    stats: InspectionStats
+    items: list[SessionResponse]
+
+
+class StatusResponse(BaseModel):
+    """事业部任务数和全局模型健康状态。"""
+    running: bool
+    queue: int
+    active: int
+    error: str | None
+    vlm: VlmHealth
+
+
+class SettingsResponse(BaseModel):
+    """仅供平台管理员维护的全局模型设置。"""
+    settings: VlmSettings
+    vlm: VlmHealth

@@ -8,7 +8,7 @@ from AiVision.core.db import get_session, session_scope
 from AiVision.core.system_config import AiSystemConfig
 from AiVision.cameras.orm import AiCameraConfig
 from .orm import InspectionSession
-from .schema import VlmHealth, VlmSettings
+from .schema import StatusResponse, VlmHealth, VlmSettings
 from .vlm import VlmClient
 
 SETTINGS_KEY = "security_inspection"
@@ -16,6 +16,19 @@ SETTINGS_KEY = "security_inspection"
 
 class InspectionService:
     """持久化模型设置和安检历史，提供按事业部隔离的查询。"""
+    @staticmethod
+    def runtime_status(department: str, consumer) -> StatusResponse:
+        """两类 API 使用相同的状态口径，未启动时仍可明确返回状态。"""
+        if consumer is None:
+            return StatusResponse(
+                running=False, queue=0, active=0,
+                error="安检处理器未运行，请检查人体模型状态", vlm=VlmHealth(),
+            )
+        result = dict(consumer.vlm_runtime.status(department))
+        if not consumer.running:
+            result.update(running=False, error="安检处理器未运行，请检查人体模型状态")
+        return StatusResponse.model_validate(result)
+
     def check_model(self, settings: VlmSettings) -> VlmHealth:
         """执行接口与模型存在性探测，不生成安检内容。"""
         return VlmClient().check_health(settings)

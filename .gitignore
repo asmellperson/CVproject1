@@ -299,6 +299,7 @@ db_backups/
 !AiVision/migrations/schema_mysql.sql
 !AiVision/migrations/agv_person_check_alarms_20260920.sql
 !AiVision/migrations/visual_language_detection_roi_alarms_20260922.sql
+!AiVision/migrations/external_clients_20261009.sql
 
 # ======================
 # Real local config / users / secrets

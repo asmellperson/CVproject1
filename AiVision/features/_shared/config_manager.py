@@ -21,6 +21,10 @@ class FeatureCameraOrderConflict(ValueError):
     """功能摄像头集合变化，需重新加载后再排序。"""
 
 
+class FeatureCameraScopeConflict(ValueError):
+    """授权检查后摄像头归属变化，必须重新读取资源再保存。"""
+
+
 class FeatureConfigManager:
     """所有功能配置的 CRUD 入口。
     
@@ -28,7 +32,7 @@ class FeatureConfigManager:
     """
 
     # ---------- Read ----------
-    def get_config(self, spec: FeatureSpec, shm_name: str) -> Optional[dict]:
+    def get_config(self, spec: FeatureSpec, shm_name: str | int) -> Optional[dict]:
         """读取指定摄像头的指定功能配置。
         
         返回前端需要的统一格式:
@@ -94,8 +98,10 @@ class FeatureConfigManager:
     def save_config(
         self,
         spec: FeatureSpec,
-        shm_name: str,
+        shm_name: str | int,
         payload: dict,
+        *,
+        expected_department: str | None = None,
     ) -> Optional[dict]:
         """校验并保存普通功能的完整配置，缺失参数按对应 Schema 补齐默认值。
 
@@ -103,6 +109,7 @@ class FeatureConfigManager:
             spec: 指定功能的声明，提供 ORM 和配置校验模型。
             shm_name: 摄像头查询键，通常为共享内存标识。
             payload: enable/value 配置；直接告警功能还包含 alarm。
+            expected_department: 外部授权通过的事业部，在锁定资源后复核归属。
 
         Returns:
             保存后重新读取的配置；摄像头不存在时返回 None。
@@ -127,6 +134,8 @@ class FeatureConfigManager:
 
             # 锁住摄像头，保证启用期间事业部归属有效。
             session.refresh(camera, with_for_update=True)
+            if expected_department is not None and camera.department != expected_department:
+                raise FeatureCameraScopeConflict("摄像头所属事业部已变化，请重新读取配置")
             cfg = (
                 session.query(spec.orm_class)
                 .filter_by(camera_id=camera.id)
@@ -180,7 +189,7 @@ class FeatureConfigManager:
 
     # ---------- Helpers ----------
     @staticmethod
-    def _get_camera_by_key(session, key: str) -> Optional[AiCameraConfig]:
+    def _get_camera_by_key(session, key: str | int) -> Optional[AiCameraConfig]:
         """字符串按 shm_name / name / 数字 id 或 'camera_{id}' 的优先级查询"""
         return get_camera_by_key(session, key)
 
