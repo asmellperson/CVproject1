@@ -192,6 +192,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const alarmTypeOptions = useMemo(
     () =>
       [
+        { eventType: 'security_fence_forbidden', label: '围栏禁入时段有人', icon: <ShieldAlert className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
+        { eventType: 'security_fence_unauthorized', label: '围栏非白名单人员', icon: <ShieldAlert className="w-6 h-6 text-orange-600" />, valueClassName: 'text-orange-600' },
         { eventType: 'blocks', label: '区域入侵', icon: <Radar className="w-6 h-6 text-red-600" />, valueClassName: 'text-red-600' },
         { eventType: 'detect_door', label: '大门开关', icon: <DoorOpen className="w-6 h-6 text-amber-600" />, valueClassName: 'text-amber-600' },
         { eventType: 'detect_face', label: '人脸逗留检测', icon: <ScanFace className="w-6 h-6 text-violet-600" />, valueClassName: 'text-violet-600' },
@@ -209,6 +211,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
 
   const getAlarmBadge = (type: string) => {
     switch (type) {
+      case 'security_fence_forbidden': return <Badge variant="destructive">围栏禁入时段有人</Badge>
+      case 'security_fence_unauthorized': return <Badge variant="destructive">围栏非白名单人员</Badge>
       case 'blocks':
         return <Badge variant="destructive">区域入侵</Badge>
       case 'detect_door':

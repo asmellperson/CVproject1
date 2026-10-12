@@ -1,6 +1,6 @@
 # AiVision：多摄像头视觉检测与告警后端
 
-AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十一项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
+AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模型推理、十二项原生检测功能、总览、告警、统计、处置和证据保存。它通过 FastAPI 直接向统一前端提供接口，并加载项目根目录的 `auth` 模块处理认证、账号和访问审计。
 
 本文按当前源码整理（2026-09-20）。重点是**一帧图像如何变成检测结果和告警、各算法实际判定什么，以及模块之间如何协作**。文中的默认值来自代码声明；实际运行值以本机配置文件、数据库配置和运行状态接口为准。
 
@@ -30,7 +30,7 @@ AiVision 是福达视觉平台唯一业务后端，负责摄像头采集、模�
 flowchart LR
     UI[统一前端 unified_frontend] --> API[AiVision FastAPI :7862]
     API --> Auth[auth 认证 / 用户 / 访问审计]
-    API --> Features[十一项原生检测功能]
+    API --> Features[十二项原生检测功能]
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
@@ -50,7 +50,7 @@ flowchart LR
 
 平台级部署与其他服务关系见[项目根 README](../README.md)。
 
-### 1.2 十一项原生功能
+### 1.2 十二项原生功能
 
 Python 目录名用于组织代码，业务标识用于 API、数据库、缓存和前端查询。接入时应使用表中的业务标识。
 
@@ -62,6 +62,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/face_dwell/` | `detect_face` | 人脸检测、跟踪与逗留计时 | `insightface_detection` |
 | `features/person_dwell/` | `detect_human` | 人体检测、跟踪与逗留计时 | `yolo_human` |
 | `features/phone_detection/` | `detect_phone` | 手机候选、人体关联与持续确认 | `yolo_phone`，人体关联时调用 `yolo_human` |
+| `features/security_fence/` | `security_fence` | 每日禁入时段与独立白名单准入 | `yolo_human`；白名单时段调用 `insightface` |
 | `features/face_recognition/` | `recognize_face` | 人脸对齐、特征与底库相似度匹配 | `insightface` |
 | `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测与通道联合判定 | `yolo_human` |
 | `features/guard_behavior/` | `guard_behavior` | 单路感知与保安室规则汇总 | 必需 `yolo_guard_person_phone`、`guard_uniform`；可选 `yolo_guard_pose`、`yolo_vehicle` |
@@ -83,7 +84,7 @@ AiVision/
 │   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
 │   └── routes/                     # 摄像头、功能、模型、告警、通道等 API
-│       └── external/               # 系统凭证认证的外部接口，安检复用现有业务服务
+│       └── external/               # 系统凭证认证的安检和围栏接口，复用平台业务服务
 ├── runtime/
 │   ├── bootstrap.py                # 启动阶段 ORM 注册、建表与结构核验
 │   ├── orchestrator.py             # 总编排、配置事件路由、运行状态聚合
@@ -105,7 +106,7 @@ AiVision/
 │   ├── insightface_detector.py     # InsightFace 检测和 GPU 模型加载
 │   └── workers/                    # YOLO、人脸检测、人脸身份识别
 ├── features/
-│   ├── registry.py                 # 十一项功能唯一显式注册入口
+│   ├── registry.py                 # 十二项功能唯一显式注册入口
 │   ├── _shared/
 │   │   ├── spec.py                 # FeatureSpec 元数据
 │   │   ├── consumer.py             # 公共帧处理、推理调用和告警衔接
@@ -123,6 +124,7 @@ AiVision/
 │   ├── person_dwell/               # 人员逗留
 │   ├── phone_detection/            # 手机使用检测
 │   ├── agv_person_check/           # AGV 请求调度、人体检测和 HTTP 协议适配
+│   ├── security_fence/             # 围栏时段、身份状态机、独立白名单及查询服务
 │   ├── face_recognition/           # 身份识别、识别记录
 │   │   └── library/                # 人员同步、照片特征和内存索引
 │   ├── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
@@ -196,7 +198,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十一项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
+十二项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -313,7 +315,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | `alarm_types` | 该功能拥有的告警类型元组 |
 | `model_names` | 必需与可选模型合并去重后的只读属性 |
 
-[registry.py](features/registry.py) 显式导入十一项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
+[registry.py](features/registry.py) 显式导入十二项 SPEC，并提供 `all_specs()`、`get_spec()`、`list_orm_classes()`。重复功能标识、非法/重复告警类型、跨功能重复拥有告警类型或 SPEC 导入失败会直接报错。功能包的 `__init__.py` 不承担扫描和自动注册职责。
 
 ### 5.2 配置分为三类
 
@@ -718,6 +720,21 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 通道默认人数置信度 `0.3`、`model_iou_threshold=0.3`、`cap_interval=0.2` 秒，检测策略对成员统一生效。同画面附加去重的 IoU 阈值为 `0.5`。
 
+### 7.8 警戒围栏：`security_fence`
+
+`features/security_fence/consumer.py` 通过共享队列先检测完整画面人体，白名单时段再调用 InsightFace；`runtime.py` 管理逐摄像头轨迹、身份确认和区域规则；`service.py` 提供平台与外部接口共用的状态、人员选择和报警查询。`schema.py`、`orm.py`、`spec.py` 分别定义契约、独立配置表和功能注册。
+
+- 每日禁入区间默认 `22:00–08:00`，时区默认 `Asia/Shanghai`，开始包含、结束不包含；支持跨午夜，起止相同表示全天禁入。剩余时段执行白名单规则。
+- `roi_pos` 是归一化多边形，空数组表示全画面；按人体框底边中心判定是否进入区域。身份在完整画面建立，可以在进入 ROI 前捕获入口正脸。
+- 每台摄像头独立保存 `allowed_person_ids`，引用共享 `ai_face_person`，不修改该人员的 `is_allowed`。保存时校验人员引用仍存在。
+- 默认连续 3 次合格人脸观测确认身份。尺寸至少 80 像素、Laplacian 清晰度至少 60、关键点偏转指标不超过 0.35；相似度达到 0.5 匹配库内人员，未匹配且相似度不超过 0.3 可确认为库外人员，中间区域保持待核验。阈值按摄像头配置，需现场标定。
+- 无脸、模糊或遮挡不会按超时变成非白名单。已经确认的身份在可靠轨迹中保留；丢失一帧、间隔超过默认 2 秒、分辨率变化或人员重叠后撤销身份，重新积累证据。跟踪不跨摄像头。
+- 禁入时段不依赖人脸推理，有人即报警；其余时段模型失败、索引为空或白名单缺少可用特征时显示异常，不能据此把人认成陌生人。底库刷新复用现有人脸索引的周期。
+- 同一轨迹的持续异常只分发一次；离开区域、异常原因变化或重建轨迹后可形成下一次报警。冷却主体为 `fence_track`，含摄像头、运行代次和轨迹 ID，防止多人互相抑制；轨迹结束和检测停止时回收冷却状态。
+- 默认开启 SQL 报警记录，禁入时段类型为 `15`，非白名单类型为 `16`；持久化主体为摄像头，元数据包含该次人员框、身份和原因。截图访问需要平台登录或对应外部凭证。
+
+平台通过 `GET/PUT /api/features/security_fence/configs/{key}` 保存 `{enable, value, alarm}`，启停与配置变化走现有事件热更新。状态超过 5 秒、摄像头离线、检测未运行或规则时段已切换时，接口不返回旧人数和旧身份结论。检测异常且没有确定报警时 `alarm=null`。实际部署需要验证相机位置、光照和多人出入，画面识别不替代强制门禁核验。
+
 ## 8. 告警分发、证据与媒体清理
 
 ### 8.1 告警流水线
@@ -750,7 +767,7 @@ Consumer / 通道状态机满足规则
 - 原因 `reason` 和结构化 `event_metadata`。
 - 图片路径、视频路径、视频状态和创建时间。
 
-业务告警类型：入侵 `1`、门状态 `2`、手机 `3`、人脸逗留 `4`、人员逗留 `5`、物流通道 `6`、保安离岗/手机/趴睡/车辆检查 `8–11`、安检不合规 `12`。类型表还定义身份识别 `7`，但识别 Consumer 使用独立记录流程。记录写入检查类型、功能、事业部与主体身份。
+业务告警类型：入侵 `1`、门状态 `2`、手机 `3`、人脸逗留 `4`、人员逗留 `5`、物流通道 `6`、保安离岗/手机/趴睡/车辆检查 `8–11`、安检不合规 `12`。围栏禁入时段为 `15`，围栏非白名单为 `16`。类型表还定义身份识别 `7`，但识别 Consumer 使用独立记录流程。记录写入检查类型、功能、事业部与主体身份。
 
 普通配置可以分别开启数据库、喇叭和企微。**企微通知需要持久化记录用于卡片跳转**，因此开启有效企微通知时，即使普通 SQL 渠道关闭，也会保存相应事件。识别记录使用单独的记录流程。
 
@@ -896,6 +913,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 报警处置 | `ai_alarm_disposition` | 状态、备注、处理人及最近 20 次历史 |
 | 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
 | 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
+| 围栏配置与独立白名单 | `ai_camera_config_security_fence` | 逐摄像头时段、ROI、人员引用及报警策略 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
 | 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
@@ -920,7 +938,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | `haoda_company` | 皓达子公司 |
 | `fulida_company` | 福力达子公司 |
 
-平台注册十一项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警；所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
+平台注册十二项检测功能，事业部可访问的功能由管理员配置。认证由 [auth/auth.py](../auth/auth.py) 提供，路由在 [auth/api.py](../auth/api.py)，随 AiVision 注册。普通用户按授权事业部访问摄像头和告警；所有角色读取检测配置、状态、记录及视频提问时均校验该事业部的功能分配；管理员管理配置、账号及功能分配；访问审计额外检查用户 capability。
 
 `departments/orm.py` 定义 `department_feature_access`，每个正式事业部一行，包含功能列表和 `revision`。`DepartmentService.save_feature_settings()` 校验完整事业部集合与正式功能名称，锁定各行并检查版本，再在同一事务中保存；冲突返回 409，不进行部分写入。数据库必须具有完整的七个事业部分配，缺失时明确报错，不提供全部开放的回退或启动时数据补齐。
 
@@ -1127,7 +1145,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
 
-`/api/overview` 的能力目录包含全部十一项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
+`/api/overview` 的能力目录包含全部十二项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 
 ### 12.5 安检外部对接
 
@@ -1146,6 +1164,22 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。
 
 部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端只负责展示、配置交互和屏幕适配；长期凭证由受控服务端或代理保管。
+
+### 12.6 围栏平台与外部对接
+
+平台登录接口：`GET /api/security-fence/cameras/{key}/status`、`GET /api/security-fence/persons`；人员查询要求 `department`，支持 `keyword`、`page`、`page_size` 与重复的 `person_ids` 查询参数。
+
+外部前缀 `/api/external/security-fence` 要求请求头 `X-API-Key`、`security_fence:read` 权限及当前事业部功能授权。除 `/departments` 外均要求 `department`。
+
+| 方法 | 相对路径 | 用途 |
+| --- | --- | --- |
+| GET | `/departments`、`/cameras` | 授权事业部及摄像头，默认只列启用的围栏摄像头 |
+| GET | `/status`、`/cameras/{shm_name}/status` | 事业部围栏状态列表 / 单摄像头状态 |
+| GET | `/cameras/{shm_name}/frame.jpg` | 标注或原始 JPEG 画面 |
+| GET | `/history` | 分页报警记录与按原因统计 |
+| GET | `/alarms/{alarm_id}`、`/alarms/{alarm_id}/image` | 报警详情 / 受权限保护的截图 |
+
+外部凭证不授予围栏配置、白名单修改和人员库访问。配置由平台管理员管理；参数、状态语义和请求示例见[围栏外部 API 文档](../docs/security-fence-external-api.md)。
 
 ## 13. 人脸库同步与特征生成
 

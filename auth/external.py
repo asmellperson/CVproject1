@@ -3,7 +3,7 @@
 from fastapi import Depends, HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
-from auth.external_schema import ExternalClientInfo, INSPECTION_READ, INSPECTION_WRITE
+from auth.external_schema import ExternalClientInfo, INSPECTION_READ, INSPECTION_WRITE, FENCE_READ
 from auth.external_store import ExternalCredentialError, external_client_store
 
 EXTERNAL_API_PREFIX = "/api/external"
@@ -38,6 +38,12 @@ def inspection_reader(
 ) -> ExternalClientInfo:
     if INSPECTION_READ not in client.scopes:
         raise HTTPException(403, "凭证未获安检读取权限")
+    return client
+
+
+def fence_reader(client: ExternalClientInfo = Depends(get_external_client)) -> ExternalClientInfo:
+    if FENCE_READ not in client.scopes:
+        raise HTTPException(403, "凭证未获围栏读取权限")
     return client
 
 

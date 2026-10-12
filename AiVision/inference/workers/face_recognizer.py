@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import cv2
 
 from AiVision.core.logger import logger
 from AiVision.features.face_recognition.library.constants import (
@@ -78,6 +79,8 @@ class FaceRecognizerWorker(BaseModelWorker):
             logger.info(f"[FaceRecognizer] 已刷新索引，有效人员数 {count}")
         if not self._index_available:
             raise RuntimeError("人员特征索引刷新失败，等待下一次刷新")
+        if "required_person_ids" in task_meta:
+            self.index.require_people(task_meta["required_person_ids"])
         threshold = float(task_meta.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD))
         detection_threshold = float(task_meta.get("conf", DEFAULT_DETECTION_THRESHOLD))
         detections = []
@@ -88,4 +91,18 @@ class FaceRecognizerWorker(BaseModelWorker):
                 "bbox": [float(value) for value in face.bbox],
                 "confidence": float(face.det_score), "class_id": 0, "type": "face_identity", **result,
             })
+            if task_meta.get("include_face_quality"):
+                detections[-1]["quality"] = self._face_quality(face, frame)
         return detections
+
+    @staticmethod
+    def _face_quality(face, frame) -> dict:
+        """返回尺寸、清晰度及关键点对称性，业务层决定是否足以判断身份。"""
+        x1, y1, x2, y2 = np.asarray(face.bbox, dtype=int)
+        crop = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
+        sharpness = float(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()) if crop.size else 0.0
+        left, right, nose = np.asarray(face.kps, dtype=float)[:3]
+        eye_distance = float(np.linalg.norm(right - left))
+        left_distance, right_distance = np.linalg.norm(nose - left), np.linalg.norm(nose - right)
+        asymmetry = float(abs(left_distance - right_distance) / max(eye_distance, 1.0))
+        return {"size": float(min(x2 - x1, y2 - y1)), "sharpness": sharpness, "asymmetry": asymmetry}

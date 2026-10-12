@@ -31,13 +31,14 @@ import {
 import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
 import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
+import { FenceStatusPanel } from './security_fence/FenceStatusPanel'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
   rawPreview?: boolean
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -383,6 +384,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       </CardHeader>
 
       <CardContent className="bg-[#f8fbff] p-4 dark:bg-slate-950/30">
+        {presentation === 'security-fence' && <FenceStatusPanel key={selectedCamera} cameraKey={selectedCamera} />}
         <div className="relative overflow-hidden rounded-2xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.18)]">
           <div className="relative aspect-video w-full">
             {frameContent}

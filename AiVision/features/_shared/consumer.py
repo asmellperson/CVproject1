@@ -550,7 +550,7 @@ class BaseFunctionConsumer(ABC):
             "cooldown_subject_id": str(camera_id),
             **self._alarm_context(camera_id, result),
         }
-        alarm_dispatcher.maybe_dispatch(
+        return alarm_dispatcher.maybe_dispatch(
             AlarmRequest(
                 feature_name=self.feature_name,
                 camera_id=camera_id,

@@ -10,7 +10,8 @@ from AiVision.departments.department_registry import DEPARTMENT_SPECS
 INSPECTION_FEATURE = "security_inspection"
 INSPECTION_READ = "security_inspection:read"
 INSPECTION_WRITE = "security_inspection:config:write"
-ExternalScope = Literal["security_inspection:read", "security_inspection:config:write"]
+FENCE_READ = "security_fence:read"
+ExternalScope = Literal["security_inspection:read", "security_inspection:config:write", "security_fence:read"]
 
 
 class ExternalClientCreate(BaseModel):
@@ -20,7 +21,7 @@ class ExternalClientCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     departments: list[str] = Field(min_length=1, max_length=len(DEPARTMENT_SPECS))
     scopes: list[ExternalScope] = Field(
-        default_factory=lambda: [INSPECTION_READ], min_length=1, max_length=2
+        default_factory=lambda: [INSPECTION_READ], min_length=1, max_length=3
     )
     expires_at: AwareDatetime
 
@@ -44,8 +45,10 @@ class ExternalClientCreate(BaseModel):
     @classmethod
     def validate_scopes(cls, value):
         """配置写入以读取为前提，便于先读完整配置再保存。"""
-        if len(value) != len(set(value)) or INSPECTION_READ not in value:
-            raise ValueError("权限不能重复，且必须包含安检读取权限")
+        if len(value) != len(set(value)):
+            raise ValueError("权限不能重复")
+        if INSPECTION_WRITE in value and INSPECTION_READ not in value:
+            raise ValueError("安检配置修改权限必须同时包含安检读取权限")
         return value
 
     @field_validator("expires_at")

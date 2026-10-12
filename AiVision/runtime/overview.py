@@ -18,6 +18,7 @@ CAPABILITIES = (
     ("security-vlm", "安检流程规范检测", "security_inspection"),
     ("guard-behavior", "保安行为规范检测", "guard_behavior"),
     ("intrusion-detection", "区域入侵检测", "blocks"),
+    ("security-fence", "警戒围栏", "security_fence"),
     ("door-detection", "大门开关异常检测", "detect_door"),
     ("face-detection", "人脸逗留检测", "detect_face"),
     ("face-recognition", "人脸身份识别", "recognize_face"),

@@ -1,0 +1,152 @@
+"""复用人体及身份推理队列，围栏独立管理状态和告警事件。"""
+from copy import deepcopy
+from datetime import datetime, timezone
+import time
+
+import cv2
+
+from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.alarms.dispatcher import alarm_dispatcher
+from .runtime import FenceRuntime, current_mode
+from .schema import FenceValue, FORBIDDEN_ALARM, UNAUTHORIZED_ALARM
+
+
+class FenceConsumer(BaseFunctionConsumer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.runtimes: dict[int, FenceRuntime] = {}
+        self.monitor_status: dict[str, dict] = {}
+        self.processed_frames: dict[int, object] = {}
+        self.alarm_subjects: dict[int, set[str]] = {}
+
+    def stop(self):
+        super().stop()
+        with self._camera_state_lock:
+            for camera_id, config in self.config_cache.items():
+                self._clear_camera_state(camera_id, config.get("shm_name"))
+
+    def update_config(self, camera_id):
+        with self._camera_state_lock:
+            super().update_config(camera_id)
+            self.runtimes.pop(camera_id, None)
+            self.processed_frames.pop(camera_id, None)
+            key = self.config_cache.get(camera_id, {}).get("shm_name")
+            if key:
+                self.monitor_status.pop(key, None)
+
+    def _clear_camera_state(self, camera_id, shm_name):
+        super()._clear_camera_state(camera_id, shm_name)
+        self.runtimes.pop(camera_id, None)
+        self.processed_frames.pop(camera_id, None)
+        if shm_name:
+            self.monitor_status.pop(shm_name, None)
+        self._reset_alarm_cooldown(camera_id)
+
+    def _reset_alarm_cooldown(self, camera_id):
+        super()._reset_alarm_cooldown(camera_id)
+        for subject in self.alarm_subjects.pop(camera_id, set()):
+            self._release_subject(subject)
+
+    def _release_subject(self, subject):
+        for kind in self.spec.alarm_types:
+            alarm_dispatcher.reset_subject_cooldown("fence_track", subject, kind)
+
+    def update_status(self, camera_id, enabled):
+        with self._camera_state_lock:
+            key = self.config_cache.get(camera_id, {}).get("shm_name")
+            super().update_status(camera_id, enabled)
+            if camera_id not in self.config_cache:
+                self._clear_camera_state(camera_id, key)
+
+    def _get_roi(self, camera_id, frame):
+        # 在全画面建立身份，进入警戒 ROI 后再执行准入规则，避免裁掉入口正脸。
+        return frame
+
+    def _process_static_frames(self, camera_id, cfg):
+        return True
+
+    def _should_process_now(self, camera_id, cfg):
+        frame = self.latest_frames.get(cfg["shm_name"])
+        return (frame is not self.processed_frames.get(camera_id)
+                and time.time() - self._last_process_at.get(camera_id, 0) >= cfg["cap_interval"])
+
+    def _process(self, roi, camera_id):
+        cfg = self.config_cache[camera_id]
+        runtime = self.runtimes.get(camera_id)
+        if runtime is None:
+            value = FenceValue.model_validate({key: cfg[key] for key in FenceValue.model_fields})
+            runtime = self.runtimes[camera_id] = FenceRuntime(value)
+        self.processed_frames[camera_id] = roi
+        now = datetime.now(timezone.utc)
+        mode = current_mode(runtime.config, now)
+        people = self.dispatch_inference_sync(camera_id, "yolo_human", roi, task_meta={"conf": cfg["threshold"]})
+        error = None
+        faces = []
+        if people["status"] != "ok":
+            runtime.clear()
+            persons = []
+            error = "人体检测暂不可用"
+        else:
+            if people["detections"] and mode == "whitelist":
+                response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
+                    "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
+                    "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
+                })
+                if response["status"] == "ok":
+                    faces = response["detections"]
+                else:
+                    # 人员底库或推理失败不是非白名单；撤销缓存，显式报告检测异常。
+                    runtime.identities.clear()
+                    error = "身份识别或白名单人脸特征暂不可用"
+            persons = runtime.update(people["detections"], faces, roi.shape, now=now, monotonic=time.monotonic())
+        detail = {
+            "mode": mode, "persons": [person.model_dump() for person in persons],
+            "count": sum(person.in_roi for person in persons) if people["status"] == "ok" else None,
+            "pending_count": sum(person.in_roi and person.identity == "pending" for person in persons) if people["status"] == "ok" else None,
+            "alarm": any(person.alarm for person in persons), "error": error,
+            "frame_width": roi.shape[1], "frame_height": roi.shape[0], "updated_at_s": time.time(),
+        }
+        return detail["alarm"], detail
+
+    def post_process(self, camera_id, result):
+        frame = self._annotated_frame(camera_id)
+        detail = result[1]
+        self.monitor_status[self.config_cache[camera_id]["shm_name"]] = detail
+        if frame is not None:
+            for person in detail["persons"]:
+                x1, y1, x2, y2 = map(int, person["bbox"])
+                color = (0, 0, 255) if person["alarm"] else (0, 180, 255) if person["identity"] == "pending" else (60, 200, 80)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f'#{person["track_id"]} {person["identity"]}', (x1, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        return frame
+
+    def _handle_alarm(self, camera_id, result, frame, *, config=None):
+        runtime = self.runtimes[camera_id]
+        current = {f"{camera_id}:{runtime.generation}:{person['track_id']}" for person in result[1]["persons"]}
+        subjects = self.alarm_subjects.setdefault(camera_id, set())
+        for subject in subjects - current:
+            self._release_subject(subject)
+        subjects.intersection_update(current)
+        for person in result[1]["persons"]:
+            if not person["alarm"] or runtime.notified.get(person["track_id"]) == person["reason"]:
+                continue
+            if super()._handle_alarm(camera_id, (True, person), frame, config=config):
+                runtime.notified[person["track_id"]] = person["reason"]
+                subjects.add(f"{camera_id}:{runtime.generation}:{person['track_id']}")
+
+    def _alarm_violation_type(self, camera_id, result, cfg):
+        return FORBIDDEN_ALARM if result[1]["reason"] == "forbidden_time" else UNAUTHORIZED_ALARM
+
+    def _alarm_context(self, camera_id, result):
+        cfg, person = self.config_cache[camera_id], result[1]
+        return {
+            "cooldown_subject_type": "fence_track",
+            "cooldown_subject_id": f"{camera_id}:{self.runtimes[camera_id].generation}:{person['track_id']}",
+            "subject_type": "camera", "subject_id": cfg["shm_name"], "subject_name": cfg["name"],
+            "reason": person["reason"],
+            "metadata": {"camera_name": cfg["name"], "person": person},
+        }
+
+    def get_monitor_status(self, camera_key):
+        with self._camera_state_lock:
+            return deepcopy(self.monitor_status.get(camera_key))

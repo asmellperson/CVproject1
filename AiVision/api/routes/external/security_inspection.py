@@ -15,7 +15,8 @@ from AiVision.api.deps import (
     get_inspection_service,
 )
 from AiVision.api.routes.cameras import build_camera_frame_response
-from AiVision.departments.department_registry import DEPARTMENT_SPECS, require_department
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+from .common import CameraResponse, DepartmentResponse, require_feature_department, scoped_camera as find_scoped_camera
 from AiVision.features._shared.config_manager import FeatureCameraScopeConflict, feature_config_manager
 from AiVision.features.registry import get_spec
 from AiVision.features.security_inspection.schema import (
@@ -29,26 +30,6 @@ from auth.external_schema import ExternalClientInfo, INSPECTION_FEATURE
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/security-inspection", tags=["external-security-inspection"])
-
-
-class DepartmentResponse(BaseModel):
-    name: str
-    display_name: str
-
-
-class CameraResponse(BaseModel):
-    """仅返回安检展示所需字段，屏蔽视频源地址及其他功能配置。"""
-
-    id: str
-    camera_id: int
-    name: str
-    shm_name: str
-    department: str
-    enabled: bool
-    fps: float | None = None
-    sort_order: int
-    feature_sort_orders: dict[str, int]
-    functions: dict[str, bool]
 
 
 class ConfigCameraResponse(BaseModel):
@@ -106,13 +87,7 @@ def department_access(
     service=Depends(get_department_service),
 ) -> str:
     """同时检查凭证授权与平台当前功能分配。"""
-    try:
-        require_department(department)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if department not in client.departments or INSPECTION_FEATURE not in service.feature_access().get(department, []):
-        raise HTTPException(403, "凭证无权访问此事业部的安检功能")
-    return department
+    return require_feature_department(department, client, INSPECTION_FEATURE, service)
 
 
 def scoped_camera(
@@ -121,12 +96,7 @@ def scoped_camera(
     manager=Depends(get_camera_config_manager),
 ) -> dict:
     """以真实资源归属授权，外部接口只接受 shm_name，避免别名歧义。"""
-    camera = manager.get_camera(shm_name)
-    if camera is None or camera["shm_name"] != shm_name:
-        raise HTTPException(404, "camera not found")
-    if camera["department"] != department:
-        raise HTTPException(403, "摄像头不属于获准访问的事业部")
-    return camera
+    return find_scoped_camera(manager, shm_name, department)
 
 
 @router.get("/departments", response_model=list[DepartmentResponse])

@@ -1,6 +1,6 @@
 # 福达视觉平台
 
-福达视觉平台将摄像头管理、十一项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
+福达视觉平台将摄像头管理、十二项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
 
 本文按当前源码整理（2026-09-20）。算法、配置和 API 细节见 [AiVision README](AiVision/README.md)，部署操作见 [运行手册](run_guide.txt)。本机的 `unified_frontend/info.md` 提供页面与组件导览，该文件按现有 Git 忽略规则在本地维护。
 
@@ -50,7 +50,7 @@ Fuda_CVPreject_V3/
 │   ├── runtime/            # 数据库 bootstrap、资源编排和总览
 │   ├── cameras/            # 配置、FFmpeg 采集和帧读取
 │   ├── inference/          # 模型注册、共享 Worker 和后台重载
-│   ├── features/           # 十一项原生检测功能
+│   ├── features/           # 十二项原生检测功能
 │   ├── alarms/             # 记录、处置、证据、设备和通知
 │   ├── departments/        # 固定事业部目录
 │   ├── core/               # 环境配置、数据库、日志、缓存和事件
@@ -74,6 +74,7 @@ Fuda_CVPreject_V3/
 | 人脸逗留 | `face_dwell` | `detect_face` | `face-detection` |
 | 人员违规逗留 | `person_dwell` | `detect_human` | `human-detection` |
 | 手机使用 | `phone_detection` | `detect_phone` | `phone-detection` |
+| 警戒围栏 | `security_fence` | `security_fence` | `security-fence` |
 | 人脸身份识别 | `face_recognition` | `recognize_face` | `face-recognition` |
 | 物流通道单人 | `logistics_channel` | `detect_logistics_single_person` | `logistics-single-person` |
 | 保安行为规范 | `guard_behavior` | `guard_behavior` | `guard-behavior` |
@@ -82,7 +83,7 @@ Fuda_CVPreject_V3/
 
 各事业部的可访问功能由管理员在“系统管理 → 功能分配”中配置，保存于 MySQL 的 `department_feature_access` 表。管理员和普通账号进入检测页面均遵守事业部功能分配；管理员可查看全部事业部并修改分配，普通账号还需具有对应事业部的归属权限。取消分配不会停止检测或删除数据，摄像头是否参与检测仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
 
-平台具有十一项检测能力，总览按账号可访问的事业部和功能汇总能力卡片、摄像头入口与功能数量。点击平台汇总中的“摄像头离线”可查看未在线设备的名称、所属事业部和状态，列表区分离线与已停用，并随总览刷新。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
+平台具有十二项检测能力，总览按账号可访问的事业部和功能汇总能力卡片、摄像头入口与功能数量。点击平台汇总中的“摄像头离线”可查看未在线设备的名称、所属事业部和状态，列表区分离线与已停用，并随总览刷新。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
 
 ### 指令驱动智慧安防
 
@@ -105,6 +106,14 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 区域入侵使用人体框与警戒线侧别；门状态使用图像差分；人脸与人员逗留使用跟踪和持续时间；手机检测使用候选关联与持续确认；身份识别使用 InsightFace 和人员特征库，记录识别结果，不产生普通违规告警。
 
 模型名称和 Worker 类型由 `inference/model_registry.py` 固定注册，本机权重路径保存在 `AiVision/config/model_paths.yaml`。同一物理权重且 Worker 类型相同的逻辑模型可以共用进程。保存模型路径后需检查后台重载状态，HTTP `202` 只表示配置已接受。
+
+### 警戒围栏
+
+`security_fence` 按摄像头保存每日禁入时段、时区、警戒 ROI 和独立白名单。禁入时段内 ROI 有人即报警；其余时间复用 InsightFace 和共享人员特征库，连续有效人脸证据确认非白名单后报警。未露出可识别人脸或相似度不确定时显示“身份待核验”，不按超时报警。白名单不会修改原有人脸身份识别的通行授权。
+
+身份识别使用完整画面，人员进入 ROI 后执行区域规则；确认的身份仅在连续可靠的单摄像头跟踪中保留。轨迹丢失、人员重叠、配置变化或推理异常会重新核验。围栏页面沿用其他检测页的实时监控、报警记录、摄像头管理、参数、ROI、模型和报警设置。
+
+大屏通过 `/api/external/security-fence` 读取摄像头、画面、实时状态及报警历史，凭证需要 `security_fence:read` 权限和对应事业部授权。接入方式见[围栏外部 API 文档](docs/security-fence-external-api.md)。摄像头安装后应验证入口正脸像素、光照、多人遮挡及跟踪效果；该功能不保证未露出可识别人脸的人员一定触发身份报警。
 
 ### 物流通道
 
@@ -147,6 +156,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 报警处置与历史 | `ai_alarm_disposition` |
 | 安检 session | `ai_security_inspection_session` |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
+| 围栏时段、ROI 与独立白名单 | `ai_camera_config_security_fence` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
 
@@ -171,6 +181,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | `/api/alarm-dispositions` | 报警处置 |
 | `/api/logistics-channels/*` | 通道与成员管理、状态及拼图 |
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
+| `/api/security-fence/*`、`/api/external/security-fence/*` | 围栏平台状态与人员选择 / 大屏只读接口 |
 | `/api/security-inspection/*` | 安检历史、运行状态与千问设置 |
 | `/api/external/security-inspection/*` | 独立系统凭证认证的安检展示和摄像头配置接口 |
 | `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |

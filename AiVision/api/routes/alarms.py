@@ -83,6 +83,8 @@ def public_alarm_image(alarm_id: int, request: Request, thumbnail_token: str | N
         row = session.get(AiAlarmEvent, alarm_id)
         if row is None:
             raise HTTPException(status_code=404, detail="alarm not found")
+        if row.feature_name == "security_fence":
+            return alarm_image(alarm_id, get_current_user(request))
         if row.violation_type == 5 or row.feature_name == "detect_human":
             if thumbnail_token is not None:
                 # 已携带登录身份时仍执行事业部检查，不让链接绕过用户权限。

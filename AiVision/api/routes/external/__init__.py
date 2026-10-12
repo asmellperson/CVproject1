@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends
 
 from auth.external import EXTERNAL_API_PREFIX, get_external_client
 from .security_inspection import router as inspection_router
+from .security_fence import router as fence_router
 
 router = APIRouter(prefix=EXTERNAL_API_PREFIX, dependencies=[Depends(get_external_client)])
 router.include_router(inspection_router)
+router.include_router(fence_router)
