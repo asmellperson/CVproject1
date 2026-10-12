@@ -1,6 +1,6 @@
 import type { DepartmentId } from '@/auth/permissions'
 import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
-import { apiGet, apiPut } from '@/lib/api'
+import { apiGet, apiPut, apiUrl } from '@/lib/api'
 
 export const INSPECTION_FEATURE = 'security_inspection'
 export type RoiMap = Record<string, [number, number][]>
@@ -69,11 +69,16 @@ export type InspectionSession = {
   verdict: { compliant: boolean; confidence: number; reason: string } | null
   error: string | null
   latency_sec: number | null
+  has_image: boolean
 }
 export type InspectionHistory = {
+  retention_days: number
   stats: { total: number; compliant: number; non_compliant: number; error: number; cancelled: number; rate: number }
   items: InspectionSession[]
 }
+
+export const inspectionImageUrl = (department: DepartmentId, sessionId: string) =>
+  apiUrl(`/security-inspection/history/${encodeURIComponent(sessionId)}/image.jpg?${new URLSearchParams({ department })}`)
 
 export function getInspectionHistory(department: DepartmentId, limit: number, offset: number, cameraId?: number, signal?: AbortSignal) {
   const params = new URLSearchParams({ department, limit: String(limit), offset: String(offset) })

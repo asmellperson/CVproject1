@@ -4,8 +4,9 @@ from __future__ import annotations
 from AiVision.core.db import session_scope
 from AiVision.core.media_cleanup import CLEANUP_BATCH_SIZE, MediaCleaner, MediaRecord
 from .orm import AiAlarmEvent
+from ..types import VIOLATION_TYPE_META
 
-ALARM_MEDIA_DIRECTORIES = tuple(str(value) for value in range(1, 11)) + ("alarm_clips",)
+ALARM_MEDIA_DIRECTORIES = tuple(str(value) for value in sorted(VIOLATION_TYPE_META)) + ("alarm_clips",)
 
 
 class ViolationMediaCleaner(MediaCleaner):

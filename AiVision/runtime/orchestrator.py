@@ -45,6 +45,7 @@ from AiVision.features.logistics_channel.runtime import LogisticsChannelRuntime
 from AiVision.features.logistics_channel.service import logistics_channel_service
 from AiVision.features.guard_behavior.runtime import GuardBehaviorSiteRuntime
 from AiVision.features.guard_behavior.service import GuardBehaviorService
+from AiVision.features.security_inspection.service import InspectionService
 from AiVision.alarms.devices.runtime_manager import horn_runtime_manager                   # 喇叭设备
 from AiVision.alarms.records.service import violation_writer                  # 写入违规记录
 from AiVision.alarms.evidence.evidence_recorder import alarm_evidence_recorder  # 保存告警前后视频证据
@@ -169,6 +170,7 @@ class Orchestrator:
 
         # 4) 违规图片写入
         violation_writer.configure_media_cleanup(RecognitionMediaReferences())
+        violation_writer.configure_database_cleanup(InspectionService().cleanup_history)
         violation_writer.start()          # 共用其媒体清理调度；识别记录仍由自己的 Consumer 异步写入
 
         # 5) 告警通道

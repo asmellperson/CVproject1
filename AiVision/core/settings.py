@@ -52,8 +52,8 @@ class StorageSettings(BaseSettings):
     data_path           : 违规截图等文件的根目录（必填）。
     max_event_count     : 异步写入器单批最大入库数量。
     flush_interval_seconds: 写入任务的批量落盘间隔（秒）。  即使还没攒够max_event_count,多久也要强制刷一次
-    alarm_media_retention_days: 报警媒体和人脸识别截图共用的保留天数。
-    alarm_media_max_gb  : 报警媒体和人脸识别截图的合计容量上限（GB）。
+    alarm_media_retention_days: 报警媒体、识别截图与安检会话共用的保留天数，至少 31 天。
+    alarm_media_max_gb  : 报警媒体和人脸识别截图的合计容量告警阈值（GB），不会触发提前删除。
     alarm_media_cleanup_interval_minutes: 清理任务运行间隔（分钟）。
     """
     data_path: str              = Field(...,  alias="DATA_PATH")
@@ -62,8 +62,8 @@ class StorageSettings(BaseSettings):
     recognition_record_queue_size: int = Field(32, ge=1, alias="RECOGNITION_RECORD_QUEUE_SIZE")
     alarm_db_write_attempts: int = Field(3, ge=1, alias="ALARM_DB_WRITE_ATTEMPTS")
     alarm_db_retry_backoff_seconds: float = Field(0.5, ge=0, alias="ALARM_DB_RETRY_BACKOFF_SECONDS")
-    alarm_media_retention_days: int = Field(7, alias="ALARM_MEDIA_RETENTION_DAYS")
-    alarm_media_max_gb: float = Field(10.0, alias="ALARM_MEDIA_MAX_GB")
+    alarm_media_retention_days: int = Field(31, ge=31, alias="ALARM_MEDIA_RETENTION_DAYS")
+    alarm_media_max_gb: float = Field(10.0, ge=0, alias="ALARM_MEDIA_MAX_GB")
     alarm_media_cleanup_interval_minutes: int = Field(
         60,
         alias="ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES",

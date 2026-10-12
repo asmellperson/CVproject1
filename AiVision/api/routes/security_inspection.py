@@ -1,6 +1,6 @@
 """安检历史、运行状态和全局模型参数；摄像头和检测参数复用公共 API。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from auth.auth import get_current_user, require_admin
 from auth.feature_permissions import require_feature_access
@@ -32,6 +32,26 @@ def history(
 ):
     """在已授权事业部内查询可选摄像头的分页会话历史。"""
     return service.history(department, camera_id=camera_id, limit=limit, offset=offset)
+
+
+def build_inspection_image_response(service: InspectionService, department: str, session_id: str) -> Response:
+    """两类认证入口复用同一证据读取响应，禁止客户端缓存已过期或已撤权的图片。"""
+    result = service.image(department, session_id)
+    if result is None:
+        raise HTTPException(404, "安检证据不存在或已过期")
+    data, media_type = result
+    return Response(data, media_type=media_type, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/history/{session_id}/image.jpg", response_class=Response,
+            responses={200: {"content": {"image/jpeg": {}}}})
+def history_image(
+    session_id: str,
+    department: str = Depends(department_access),
+    service=Depends(get_inspection_service),
+):
+    """通过人员会话及安检功能权限读取当前事业部的证据。"""
+    return build_inspection_image_response(service, department, session_id)
 
 
 @router.get("/status", response_model=StatusResponse)

@@ -51,6 +51,7 @@ Content-Type: application/json
 | 获取所选事业部的摄像头 | GET | `/cameras` |
 | 显示摄像头画面 | GET | `/cameras/{shm_name}/frame.jpg` |
 | 显示安检记录、合规数量和合规率 | GET | `/history` |
+| 获取不合规记录的抓拍图像 | GET | `/history/{session_id}/image.jpg` |
 | 显示检测运行状态 | GET | `/status` |
 | 打开配置表单，读取当前配置 | GET | `/cameras/{shm_name}/config` |
 | 保存检测开关、区域、参数和报警设置 | PUT | `/cameras/{shm_name}/config` |
@@ -167,7 +168,7 @@ X-API-Key: {API_KEY}
 
 ## 5. 获取安检记录和统计
 
-一次安检过程对应一条记录。这个接口同时提供统计卡片数据和记录列表。
+一次安检过程对应一条记录。这个接口同时提供最近 31 天的统计卡片数据和记录列表，按安检开始时间计算滚动窗口。
 
 ```http
 GET {API_BASE}/history?department=general_electric&limit=20&offset=0
@@ -187,6 +188,7 @@ X-API-Key: {API_KEY}
 
 ```json
 {
+  "retention_days": 31,
   "stats": {
     "total": 12,
     "compliant": 8,
@@ -211,7 +213,8 @@ X-API-Key: {API_KEY}
         "reason": "安检动作不完整"
       },
       "error": null,
-      "latency_sec": 2.5
+      "latency_sec": 2.5,
+      "has_image": true
     }
   ]
 }
@@ -230,7 +233,7 @@ X-API-Key: {API_KEY}
 
 合规率计算方式：`合规次数 ÷（合规次数 + 不合规次数）× 100`，保留一位小数；没有成功判定的记录时为 `0`。
 
-**这些是所选事业部、所选摄像头的累计统计，不是今日统计。** 翻页只影响 `items`，不影响 `stats`。当前接口没有日期筛选和每日趋势数据。
+**统计和列表采用同一滚动保留窗口，默认最近 31 天，不是自然月或全部历史。** `retention_days` 返回实际保留天数；翻页只影响 `items`，不影响 `stats`。接口没有自定义日期筛选和每日趋势数据。
 
 ### 记录列表怎么展示
 
@@ -250,6 +253,7 @@ X-API-Key: {API_KEY}
 | `verdict.reason` | string | 判定原因，可直接显示在详情或结果说明中 |
 | `error` | string / null | 判定失败时的错误信息 |
 | `latency_sec` | number / null | AI 判定耗时，单位秒，不是安检持续时长 |
+| `has_image` | boolean | 是否有数据库抓拍图像，列表响应不携带图片二进制 |
 
 | `status` | 建议显示文字 |
 | --- | --- |
@@ -263,6 +267,23 @@ X-API-Key: {API_KEY}
 `started_at` 和 `ended_at` 是不带时区后缀的时间，例如 `2026-10-09T16:00:00`。页面可显示为 `2026-10-09 16:00:00`；不要自行追加 `Z` 当作 UTC 时间转换。
 
 展示页可在上一次请求完成后，间隔约 2 秒刷新一次统计和第一页记录。
+
+### 获取不合规抓拍图像
+
+```http
+GET {API_BASE}/history/{session_id}/image.jpg?department=general_electric
+X-API-Key: {API_KEY}
+```
+
+仅当 `has_image=true` 时请求，`session_id` 应进行 URL 编码。成功返回 JPEG 二进制和 `Cache-Control: no-store`；不存在、过期或指定事业部内找不到图片时返回 404。请求未授权事业部返回 403。外部前端可通过受控后端代理，或带请求头获取 Blob 后展示；普通 `<img>` 不能设置 API Key。
+
+图像是该次安检关键帧拼图，与不合规 session 在同一事务保存，报警冷却或通知开关不影响留存。已有历史原图不存在时 `has_image=false`，应显示“无留存图片”。
+
+### 数据库只读对接
+
+受控后端也可使用授权的只读数据库连接，自行筛选事业部和最近 31 天。统计以 `ai_security_inspection_session` 为准，具体原因取 JSON 字段 `verdict.reason`，时长为 `ended_at - started_at`；总量包含四种状态，合规率分母只含合规与不合规。查询的本地时区须与服务一致。
+
+不合规明细筛选 `status='non_compliant'`，按 `session_id` 左关联 `ai_security_inspection_session_image`；`image_data` 是 JPEG 字节，`media_type` 是 `image/jpeg`。先分页查询文字和是否有图，再按需读取单条图片，避免列表一次加载大量 BLOB。过滤条件使用 `started_at >= NOW() - INTERVAL 31 DAY`，不要依赖每小时清理任务恰好已经执行。
 
 ## 6. 获取检测运行状态
 

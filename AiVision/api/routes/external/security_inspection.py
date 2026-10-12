@@ -15,6 +15,7 @@ from AiVision.api.deps import (
     get_inspection_service,
 )
 from AiVision.api.routes.cameras import build_camera_frame_response
+from AiVision.api.routes.security_inspection import build_inspection_image_response
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
 from .common import CameraResponse, DepartmentResponse, require_feature_department, scoped_camera as find_scoped_camera
 from AiVision.features._shared.config_manager import FeatureCameraScopeConflict, feature_config_manager
@@ -150,6 +151,17 @@ def history(
 ):
     """只查询获准事业部的历史；统计覆盖该范围全部记录，不受分页影响。"""
     return service.history(department, camera_id=camera_id, limit=limit, offset=offset)
+
+
+@router.get("/history/{session_id}/image.jpg", response_class=Response,
+            responses={200: {"content": {"image/jpeg": {}}}})
+def history_image(
+    session_id: str,
+    department: str = Depends(department_access),
+    service=Depends(get_inspection_service),
+):
+    """使用外部只读凭证获取会话证据，保留事业部隔离。"""
+    return build_inspection_image_response(service, department, session_id)
 
 
 @router.get("/cameras/{shm_name}/frame.jpg", response_class=Response, responses={200: {"content": {"image/jpeg": {}}}})

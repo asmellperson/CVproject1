@@ -32,6 +32,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
   const [selected, setSelected] = useState('')
   const [status, setStatus] = useState<InspectionStatus | null>(null)
   const [stats, setStats] = useState<History['stats'] | null>(null)
+  const [retentionDays, setRetentionDays] = useState(31)
   const [error, setError] = useState('')
   const [singleView, setSingleView] = useState(false)
   const [configVersion, setConfigVersion] = useState(0)
@@ -44,6 +45,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
     ])
     if (signal.aborted) return
     setCameras(nextCameras); setStatus(nextStatus); setStats(history.stats); setError('')
+    setRetentionDays(history.retention_days)
   }, { intervalMs: 2000, timeoutMs: 10000, restartKey: department,
     onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)) })
   const refreshCameras = async (preferred?: string) => {
@@ -68,7 +70,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
         </CardHeader>
         <CardContent className="space-y-6 p-5 lg:p-6 2xl:space-y-8 2xl:p-8">
           <section className="space-y-3 2xl:space-y-4">
-            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">数据汇总</h3>
+            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">数据汇总 · 最近 {retentionDays} 天</h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-4">
               <StatCard title="总 session" value={stats?.total ?? 0} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
               <StatCard title="合规" value={stats?.compliant ?? 0} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />

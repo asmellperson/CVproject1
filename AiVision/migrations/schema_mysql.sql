@@ -555,6 +555,34 @@ CREATE TABLE ai_camera_config_security_inspection (
 
 CREATE UNIQUE INDEX ix_ai_camera_config_security_inspection_camera_id ON ai_camera_config_security_inspection (camera_id);
 
+CREATE TABLE ai_security_inspection_session (
+	session_id VARCHAR(128) NOT NULL,
+	camera_id INTEGER,
+	camera_name VARCHAR(100) NOT NULL,
+	department VARCHAR(100) NOT NULL,
+	roi_name VARCHAR(100) NOT NULL,
+	started_at DATETIME NOT NULL,
+	ended_at DATETIME NOT NULL,
+	status VARCHAR(20) NOT NULL,
+	verdict JSON,
+	error TEXT,
+	latency_sec FLOAT,
+	PRIMARY KEY (session_id),
+	FOREIGN KEY(camera_id) REFERENCES ai_camera_config (id) ON DELETE SET NULL
+);
+
+CREATE INDEX ix_ai_security_inspection_session_camera_id ON ai_security_inspection_session (camera_id);
+CREATE INDEX ix_inspection_department_time ON ai_security_inspection_session (department, started_at);
+CREATE INDEX ix_inspection_started_at ON ai_security_inspection_session (started_at);
+
+CREATE TABLE ai_security_inspection_session_image (
+	session_id VARCHAR(128) NOT NULL,
+	image_data MEDIUMBLOB NOT NULL,
+	media_type VARCHAR(32) NOT NULL,
+	PRIMARY KEY (session_id),
+	FOREIGN KEY(session_id) REFERENCES ai_security_inspection_session (session_id) ON DELETE CASCADE
+);
+
 CREATE TABLE ai_camera_config_visual_language_detection (
 	roi_pos JSON NOT NULL,
 	cap_interval FLOAT NOT NULL,

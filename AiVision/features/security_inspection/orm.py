@@ -1,6 +1,7 @@
 """摄像头配置和全部安检会话的持久化。"""
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 
 from AiVision.core.db import Base
 from AiVision.features._shared.orm import FeatureConfigBase
@@ -34,7 +35,10 @@ class InspectionCameraConfig(FeatureConfigBase):
 class InspectionSession(Base):
     """保存全部会话的成功、失败或取消记录；摄像头删除后保留历史快照。"""
     __tablename__ = "ai_security_inspection_session"
-    __table_args__ = (Index("ix_inspection_department_time", "department", "started_at"),)
+    __table_args__ = (
+        Index("ix_inspection_department_time", "department", "started_at"),
+        Index("ix_inspection_started_at", "started_at"),
+    )
 
     session_id = Column(String(128), primary_key=True)
     camera_id = Column(Integer, ForeignKey("ai_camera_config.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -47,3 +51,14 @@ class InspectionSession(Base):
     verdict = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     latency_sec = Column(Float, nullable=True)
+
+
+class InspectionSessionImage(Base):
+    """每条不合规会话的 JPEG 证据；与会话一起提交、过期后随会话删除。"""
+    __tablename__ = "ai_security_inspection_session_image"
+
+    session_id = Column(
+        String(128), ForeignKey("ai_security_inspection_session.session_id", ondelete="CASCADE"), primary_key=True,
+    )
+    image_data = Column(LargeBinary().with_variant(MEDIUMBLOB(), "mysql"), nullable=False)
+    media_type = Column(String(32), nullable=False)

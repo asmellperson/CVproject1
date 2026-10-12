@@ -135,6 +135,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 - 全局模型地址及调度参数通过 `/api/security-inspection/settings` 保存；默认地址为 `http://127.0.0.1:18100/v1`，模型名为 `fuda-qwen36-27b`。
 - 模型最终返回 `compliant`、`confidence`、`reason`；历史状态区分合规、不合规、错误和取消。
 - 只有不合规结果进入业务告警，证据使用该 session 的关键帧拼图；告警冷却按摄像头和工位隔离。
+- 安检历史和统计采用滚动最近 31 天。每条不合规 session 与 JPEG 证据在同一数据库事务中保存，图片不受通知开关或报警冷却影响；历史列表支持查看证据。
 - 运行时提供模型健康检查、连续失败熔断和自动恢复状态。
 
 外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置。外部接口使用独立 `X-API-Key` 凭证，按事业部和读写权限授权，复用平台数据及配置热更新；凭证由受控服务端或代理保管。接口字段和调用示例见[安检外部 API 文档](docs/security-inspection-external-api.md)。
@@ -155,10 +156,13 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 统一告警事件 | `ai_violation_image` |
 | 报警处置与历史 | `ai_alarm_disposition` |
 | 安检 session | `ai_security_inspection_session` |
+| 安检不合规图片 | `ai_security_inspection_session_image`，按 `session_id` 关联的 JPEG 二进制 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
 | 围栏时段、ROI 与独立白名单 | `ai_camera_config_security_fence` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
+
+报警媒体、识别截图和安检 session 默认保留 31 天，启动后及每 60 分钟清理过期数据。安检数据库图片随 session 删除。磁盘媒体的 `ALARM_MEDIA_MAX_GB=10` 是容量告警阈值，超限不会提前删除保留期内证据；数据库 BLOB 不计入磁盘媒体阈值。磁盘报警目录由正式报警类型注册表统一确定。
 
 `admin` 管理配置、账号及事业部功能分配；所有角色均按事业部与功能的配对授权进入检测页面和读取检测数据。分配保存采用事务和版本校验，冲突返回 409；后端请求读取最新权限，已登录页面每 30 秒同步一次，重新进入可见标签页时立即同步。报警记录和统计保留事业部数据权限，不因取消功能分配而隐藏已有历史。访问记录页面还要求后端返回 `capabilities.view_access_audit=true`。报警处置接口按报警访问权限授权，并非所有写操作都限定管理员。
 
@@ -259,7 +263,7 @@ npm --prefix unified_frontend run lint
 npm --prefix unified_frontend run build
 ```
 
-当前仓库已删除原有测试文件及 pytest 项目配置，不应继续使用历史文档中的 `AiVision/tests`、`unified_backend/tests` 或前端 `tests/*.mjs` 命令。功能修改应按实际影响选择静态检查、接口验证和现场验证；文档中的命令不代表本次已经执行。
+后端回归测试位于 `AiVision/tests/`，功能修改按实际影响选择测试、静态检查和现场验证。安检存储与留存策略可执行 `python -m pytest -q AiVision/tests/test_security_inspection_retention.py`，使用内存数据库和临时图片，不连接现场 MySQL。
 
 纯文档修改可执行：
 

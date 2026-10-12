@@ -4,7 +4,7 @@ alarms/records/service.py
 设计原则:
     - Consumer 调 enqueue() 后立即返回(磁盘写入和 SQL 提交都异步)
     - 满 N 条或超 M 秒批量提交
-    - 定时清理过期或超过容量上限的报警图片和关联记录
+    - 定时清理过期报警图片和关联记录，容量超限只告警
 """
 from __future__ import annotations
 import datetime
@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from copy import deepcopy
+from collections.abc import Callable
 from pathlib import Path
 from queue import Queue, Empty, Full      # 线程之间使用的队列
 
@@ -44,6 +45,7 @@ class AsyncViolationWriter:
         self._lifecycle_lock = threading.Lock()
         self._thread: threading.Thread | None = None   # 真正负责处理告警Queue的后台线程
         self._scheduler: BackgroundScheduler | None = None # 定时任务调度器（定期清理旧告警图片和视频）
+        self._database_cleanup: tuple[Callable[[], int], ...] = ()
 
         # 从settings读配置
         self._batch_size = settings.storage.max_event_count       # 攒多少条以后一次性写数据库
@@ -51,7 +53,7 @@ class AsyncViolationWriter:
         self._write_attempts = settings.storage.alarm_db_write_attempts
         self._retry_backoff = settings.storage.alarm_db_retry_backoff_seconds
         self._data_path = Path(settings.storage.data_path).expanduser().resolve()   # 数据存的地址
-        self._retention_days = max(1, int(settings.storage.alarm_media_retention_days))    # 告警媒体至少保留一天
+        self._retention_days = settings.storage.alarm_media_retention_days
         self._max_media_bytes = max(
             0,
             int(float(settings.storage.alarm_media_max_gb) * GIB),
@@ -62,7 +64,7 @@ class AsyncViolationWriter:
         )
         # 创建目录
         self._data_path.mkdir(parents=True, exist_ok=True)
-        # 创建Cleaner，它负责检查旧图片和视频，超过保存天数或者总容量超过上限，旧删除旧媒体，并且同步处理数据库记录
+        # 清理过期文件和记录；容量超限只告警，保留期内证据不能提前删除。
         self._media_cleaner = ViolationMediaCleaner(
             self._data_path,
             retention_days=self._retention_days,
@@ -71,8 +73,12 @@ class AsyncViolationWriter:
 
     # ---------- 公开接口 ----------
     def configure_media_cleanup(self, *references: MediaReferences) -> None:
-        """在平台启动时接入业务引用，共用现有 scheduler、保留策略和总容量。"""
+        """在平台启动时接入业务引用，共用现有 scheduler、保留策略和容量告警。"""
         self._media_cleaner.set_additional_references(references)
+
+    def configure_database_cleanup(self, *callbacks: Callable[[], int]) -> None:
+        """注册业务数据库清理任务，复用平台调度器且不依赖检测功能是否运行。"""
+        self._database_cleanup = callbacks
 
     def enqueue(
         self,
@@ -249,6 +255,12 @@ class AsyncViolationWriter:
             max_instances=1,                # 最多同时有一个清理任务
             coalesce=True,                  # 程序阻塞错过好几次执行时间，会合并成一次执行
         )
+        for index, callback in enumerate(self._database_cleanup):
+            self._scheduler.add_job(
+                callback, "interval", minutes=self._cleanup_interval_minutes,
+                next_run_time=datetime.datetime.now(pytz.timezone("Asia/Shanghai")),
+                id=f"cleanup_business_database_{index}", max_instances=1, coalesce=True,
+            )
         # scheduler开始工作
         self._scheduler.start()
         logger.info(

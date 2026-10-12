@@ -1,15 +1,14 @@
 """消费平台视频帧与人体推理结果，维护逐路安检状态。"""
 
-import math
 import time
 
 import cv2
-import numpy as np
 
 from AiVision.alarms.dispatcher import AlarmEvidenceRequest, alarm_dispatcher
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.features.guard_behavior.tracking import CameraByteTracker
+from .evidence import build_evidence_image, encode_evidence_image
 from .runtime import InspectionRuntime, InspectionTask
 from .schema import InspectionValue
 from .service import InspectionService
@@ -205,10 +204,12 @@ class InspectionConsumer(BaseFunctionConsumer):
             self.service.record(task, "cancelled", error="摄像头状态或检测配置已变更")
             return
         status = "error" if error else ("compliant" if verdict.compliant else "non_compliant")
-        self.service.record(task, status, verdict, error, latency)
+        frame = build_evidence_image(task.frames) if status == "non_compliant" else None
+        image_data = encode_evidence_image(frame) if frame is not None else None
+        # 会话和证据先原子入库，后续渠道关闭或冷却不会丢掉这次不合规的图片。
+        self.service.record(task, status, verdict, error, latency, image_data=image_data)
         if status != "non_compliant":
             return
-        frame = self._evidence_image(task.frames)
         with self._camera_state_lock:
             if not self._task_is_current(task):
                 return
@@ -239,18 +240,3 @@ class InspectionConsumer(BaseFunctionConsumer):
             "cooldown_subject_type": "security_inspection_roi",
             "cooldown_subject_id": f"{camera_id}:{result[1]['metadata']['roi_name']}",
         }
-
-    @staticmethod
-    def _evidence_image(frames: list[bytes]):
-        # 只使用已结束会话的关键帧；不能用千问返回时的实时画面替代现场证据。
-        """按时间顺序拼接会话关键帧，保证取证画面对应实际被判定的交互。"""
-        width, height = 480, 360
-        image = np.zeros((height * math.ceil(len(frames) / 2), width * 2, 3), dtype=np.uint8)
-        for index, raw in enumerate(frames):
-            frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-            scale = min(width / frame.shape[1], height / frame.shape[0])
-            frame = cv2.resize(frame, (max(1, int(frame.shape[1] * scale)), max(1, int(frame.shape[0] * scale))))
-            x, y = (index % 2) * width, (index // 2) * height
-            image[y : y + frame.shape[0], x : x + frame.shape[1]] = frame
-            cv2.putText(image, str(index + 1), (x + 8, y + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        return image

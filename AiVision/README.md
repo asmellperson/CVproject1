@@ -794,7 +794,10 @@ Consumer / 通道状态机满足规则
 - `AsyncViolationWriter` 负责图片/记录保存、批量处理、数据库重试和相关清理；企微卡片需要记录时走即时保存入口。
 - 喇叭通过设备 ID 和语音任务 ID 绑定，运行管理器处理播放队列、心跳、冷却和设备配置变化。
 - 企业微信在独立线程中发送；通知图片和公开缩略图由专门模块处理。
-- 媒体清理按保留时间和容量控制，主配置默认 `7` 天、`10 GB`、每 `60` 分钟检查。告警和识别图片通过媒体引用接口协调清理。
+- `ALARM_MEDIA_RETENTION_DAYS` 默认 `31`、最小 `31`，覆盖报警图片、视频、识别截图及安检 session；启动后立即清理，此后每 `ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES=60` 分钟执行。只删除严格早于保留截止时间的数据。
+- `ALARM_MEDIA_MAX_GB=10` 是磁盘媒体容量告警阈值，超限只记录告警，不提前删除保留期内证据。该数值不包括数据库 BLOB，需按实际日增量准备磁盘与数据库空间。
+- 报警受管目录从 `alarms/types.py` 的全部正式类型生成，并包含 `alarm_clips`；人脸识别截图通过媒体引用接口参与清理。路径越界及符号链接仍禁止删除。
+- 安检数据库清理由同一平台调度器独立执行，不依赖摄像头或模型是否运行，失败由调度器记录并在下一周期重试。
 - API、摄像头、Worker 和 Consumer 的运行异常有独立异常通知配置，不等同于检测业务告警。
 
 ## 9. 保安行为与安检流程
@@ -827,7 +830,7 @@ Consumer / 通道状态机满足规则
 平台最新帧 → 共享 yolo_human → 摄像头独立 ByteTrack
            → 命名工位 ROI → 双人交互 session → JPEG 关键帧
            → 按事业部/摄像头轮询的有界队列 → 千问 Chat Completions
-           → 严格校验 verdict → MySQL session 历史
+           → 严格校验 verdict → MySQL session 历史（不合规时与 JPEG 证据原子提交）
            → non_compliant 时提交统一告警与关键帧拼图
 ```
 
@@ -857,6 +860,10 @@ Consumer / 通道状态机满足规则
 `InspectionRuntime` 使用后台线程执行网络调用，按部门和摄像头轮询调度。健康检查默认每 30 秒运行；连续判定失败 3 次或健康检查失败会开启熔断，按 5–60 秒退避检查恢复。接口重新可达后进入半开状态，须一次真实判定成功才恢复正常并发。
 
 历史状态为 `compliant`、`non_compliant`、`error`、`cancelled`。只有不合规结果触发类型 `12` 的业务告警，错误不会冒充不合规；各工位独立冷却。历史写入和网络请求均避免长时间占用摄像头状态锁。
+
+会话、统计和证据读取统一按 `started_at` 过滤滚动最近 31 天。合规率为合规数除以合规数与不合规数之和，失败和取消只计入总量。过期会话按时间索引每批 500 条删除，关联数据库图片同步删除；分页和统计不会加载 BLOB。
+
+`evidence.py` 将会话关键帧拼图编码为 JPEG，`service.py` 将不合规会话与 `ai_security_inspection_session_image.image_data` 在同一事务中保存。图片表以 `session_id` 为主键及级联外键，`media_type` 为 `image/jpeg`，MySQL 类型为 `MEDIUMBLOB`。缺图或写入失败时事务不提交，并由运行时记录保存失败。SQL 通知开关、告警冷却及磁盘媒体清理不影响这份证据；统一报警通道仍按各自配置分发。
 
 安检没有独立采集进程、FrameHub、外部 Worker Python 或旧版预算配置；原生 Consumer 随 Orchestrator 管理，通过摄像头/功能开关决定是否产生检测任务。
 
@@ -915,6 +922,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
 | 围栏配置与独立白名单 | `ai_camera_config_security_fence` | 逐摄像头时段、ROI、人员引用及报警策略 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
+| 安检数据库图片 | `ai_security_inspection_session_image` | 与不合规 session 一对一关联的 JPEG 二进制，随会话过期删除 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
 | 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
@@ -957,6 +965,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 - 人员逗留合并说明见 [human_20260915.md](migrations/human_20260915.md)。
 - 模型路径迁移后不再使用 `ai_model`，但升级不会自动 DROP 历史表。
 - 源码和接口已统一，不能据此推断某个现场数据库已经完成迁移。
+
+安检结构和图片回填使用 `python -m AiVision.migrations.security_inspection_retention_20261012 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，准备时间索引、图片表并回填最近 31 天仍存在的安检原图。脚本读取 `AiVision/.env`，可重复执行，不覆盖已有数据库图片，也不删除历史数据；缺失或损坏的原图会记录原因并返回未回填数量。启动配置中的 `ALARM_MEDIA_RETENTION_DAYS` 必须至少为 31；启动后的定时任务负责清理过期记录。
 
 ## 11. 环境准备与启动
 
@@ -1132,7 +1142,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/api/security-inspection/history` | 按事业部及可选摄像头查询 session 历史 |
+| GET | `/api/security-inspection/history` | 按事业部及可选摄像头查询最近 31 天的 session 与统计 |
+| GET | `/api/security-inspection/history/{session_id}/image.jpg` | 按事业部授权读取保留期内数据库证据 |
 | GET | `/api/security-inspection/status` | 处理器、队列与千问健康状态 |
 | GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局千问设置 |
 | GET | `/api/overview` | 平台、事业部、能力和摄像头总览 |
@@ -1155,7 +1166,8 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | --- | --- | --- |
 | GET | `/departments` | 凭证当前可访问的安检事业部 |
 | GET | `/cameras` | 摄像头列表，可用 `enabled_only` 筛选 |
-| GET | `/status`、`/history` | 与平台一致的状态、会话和累计统计 |
+| GET | `/status`、`/history` | 与平台一致的状态、最近 31 天会话及统计 |
+| GET | `/history/{session_id}/image.jpg` | 读取授权事业部内的数据库 JPEG 证据 |
 | GET | `/cameras/{shm_name}/frame.jpg` | 安检标注帧；`annotated=false` 返回绘制 ROI 的原始帧 |
 | GET / PUT | `/cameras/{shm_name}/config` | 读取 / 完整保存摄像头安检配置 |
 | GET | `/config-schema` | 默认配置和字段约束 |

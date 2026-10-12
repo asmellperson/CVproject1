@@ -165,12 +165,14 @@ class SessionResponse(BaseModel):
     verdict: InspectionVerdict | None
     error: str | None
     latency_sec: float | None
+    has_image: bool
 
 
 class HistoryResponse(BaseModel):
     """统计独立于分页，items 只包含当前页。"""
     stats: InspectionStats
     items: list[SessionResponse]
+    retention_days: int
 
 
 class StatusResponse(BaseModel):

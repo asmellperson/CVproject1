@@ -1,13 +1,12 @@
-"""多个业务共用的媒体保留时间、容量配额与安全删除流程。
+"""多个业务共用的媒体保留时间、容量告警与安全删除流程。
 
 业务通过 MediaReferences 提供记录、引用和事务删除，清理器只在声明的媒体子目录工作。
-先处理过期记录和无引用文件，再按时间归并执行容量限制；近期文件与不安全路径保留。
+只删除超过保留期的记录和无引用文件；容量超限仅告警，不提前删除保留期内证据。
 本模块会实际删除文件，调用方应在受控生命周期中调度，而不是在包导入时执行。
 """
 from __future__ import annotations
 
 import datetime
-import heapq
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -19,7 +18,6 @@ from AiVision.core.logger import logger
 MEDIA_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".mp4"})
 GIB = 1024 ** 3
 CLEANUP_BATCH_SIZE = 500
-QUOTA_GRACE_SECONDS = 10 * 60
 
 
 @dataclass
@@ -46,7 +44,7 @@ class MediaReferences(Protocol):
     media_directories: tuple[str, ...]
 
     def iter_records(self, before: datetime.datetime) -> Iterator[MediaRecord]:
-        """按时间升序分批提供 before 之前的记录，供保留时间清理与跨业务归并。"""
+        """按时间升序分批提供 before 之前的记录，供保留时间清理。"""
         ...
 
     def referenced_paths(self, paths: list[Path]) -> set[str]:
@@ -84,7 +82,7 @@ class MediaCleaner:
             self._references = combined
 
     def cleanup(self, now: datetime.datetime | None = None) -> MediaCleanupStats:
-        """执行一次过期与超容量清理并返回统计；已有清理在运行则跳过。
+        """执行过期清理和容量检查；已有清理在运行则跳过。
 
         Args:
             now: 用于计算保留截止时间的本地时间，默认当前时间，便于确定性验证。
@@ -104,7 +102,7 @@ class MediaCleaner:
                     self._delete_record(source, record, stats)
             for _, source, path in self._orphan_candidates(cutoff.timestamp()):
                 self._remove_file(path, stats, source.media_directories)
-            self._enforce_size_limit(stats, cleanup_now)
+            self._report_capacity()
             self._remove_empty_directories()
             logger.info(
                 f"[MediaCleanup] 清理完成 records={stats.removed_records} files={stats.removed_files} "
@@ -123,11 +121,6 @@ class MediaCleaner:
         count = source.delete_record(record, lambda path: self._remove_file(path, stats, source.media_directories))
         stats.removed_records += count
 
-    def _record_candidates(self, source: MediaReferences, before: datetime.datetime):
-        """将业务有序记录转换为时间戳候选，供容量限制跨业务合并。"""
-        for record in source.iter_records(before):
-            yield record.created_at.timestamp(), source, record
-
     def _orphan_candidates(self, before_timestamp: float):
         """分批核对磁盘文件的数据库引用，仅产生早于截止时间且无引用的媒体候选。"""
         candidates = sorted(self._media_files(), key=self._safe_mtime)
@@ -145,32 +138,15 @@ class MediaCleaner:
                 if str(path) not in referenced and modified_at < before_timestamp:
                     yield modified_at, owners[path], path
 
-    def _enforce_size_limit(self, stats: MediaCleanupStats, now: datetime.datetime) -> None:
-        """超配额时按时间合并记录与孤儿文件并删除，保留宽限期内或无法安全删除的媒体。"""
+    def _report_capacity(self) -> None:
+        """保留期限优先于容量阈值，超限提示扩容而不丢弃期限内证据。"""
         if self.max_bytes <= 0:
             return
         total_bytes = self._media_size()
-        if total_bytes <= self.max_bytes:
-            return
-        cutoff = now - datetime.timedelta(seconds=QUOTA_GRACE_SECONDS)
-        # 所有业务和孤儿文件共用容量，按时间归并；每种数据库仍自行分页。
-        candidates = heapq.merge(
-            *(self._record_candidates(source, cutoff) for source in self._references),
-            self._orphan_candidates(cutoff.timestamp()), key=lambda candidate: candidate[0],
-        )
-        for _, source, candidate in candidates:
-            if total_bytes <= self.max_bytes:
-                break
-            before_bytes = stats.removed_bytes
-            if isinstance(candidate, MediaRecord):
-                self._delete_record(source, candidate, stats)
-            else:
-                self._remove_file(candidate, stats, source.media_directories)
-            total_bytes -= stats.removed_bytes - before_bytes
         if total_bytes > self.max_bytes:
             logger.warning(
-                "[MediaCleanup] 仍超过容量上限，保留近期或无法安全删除的媒体 "
-                f"current_gb={total_bytes / GIB:.2f} max_gb={self.max_bytes / GIB:.2f}"
+                "[MediaCleanup] 媒体容量超过告警阈值，请检查存储空间；保留期内媒体不会提前删除 "
+                f"current_gb={total_bytes / GIB:.2f} threshold_gb={self.max_bytes / GIB:.2f}"
             )
 
     def _remove_file(self, path: str | Path, stats: MediaCleanupStats, directories: tuple[str, ...]) -> bool:
