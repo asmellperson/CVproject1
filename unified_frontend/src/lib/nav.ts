@@ -34,7 +34,6 @@ export type NavGroup = {
 }
 
 export const detectionNavItems: NavItem[] = [
-  { id: 'security-fence', label: '警戒围栏', icon: ShieldCheck, description: '每日时段警戒、独立白名单与人员身份监控' },
   { id: 'visual-language-detection', label: '指令驱动智慧安防', icon: MessageSquareText, description: '通过自然语言定义监控任务，持续理解视频场景，并在目标事件发生时自动触发告警。' },
   { id: 'security-vlm', label: '安检流程规范检测', icon: ShieldAlert, description: '安检流程规范监控与 ROI 配置' },
   { id: 'guard-behavior', label: '保安行为规范检测', icon: ShieldCheck, description: '保安行为规范监控与配置' },
@@ -46,6 +45,7 @@ export const detectionNavItems: NavItem[] = [
   { id: 'logistics-single-person', label: '物流通道单人检测', icon: UsersRound, description: '物流通道单人监控与配置入口' },
   { id: 'phone-detection', label: '手机使用检测', icon: Smartphone, description: '手机检测监控与配置入口' },
   { id: 'agv-person-check', label: 'AGV无人运货检测', icon: Truck, description: '实时画面与 AGV 请求触发检测配置' },
+  { id: 'security-fence', label: '警戒围栏', icon: ShieldCheck, description: '每日时段警戒、独立白名单与人员身份监控' },
 ]
 
 export const navGroups: NavGroup[] = [

@@ -22,10 +22,10 @@ export const DEPARTMENT_LABELS: Record<DepartmentId, string> = {
   fulida_company: '福力达子公司',
 }
 export const DETECTION_PAGE_IDS = [
-  'visual-language-detection', 'security-fence',
+  'visual-language-detection',
   'security-vlm', 'guard-behavior', 'intrusion-detection', 'door-detection',
   'face-detection', 'face-recognition', 'human-detection', 'logistics-single-person', 'phone-detection',
-  'agv-person-check',
+  'agv-person-check', 'security-fence',
 ] as const
 export type DetectionPageId = typeof DETECTION_PAGE_IDS[number]
 export const FEATURE_BY_PAGE: Record<DetectionPageId, string> = {

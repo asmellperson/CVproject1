@@ -11,7 +11,6 @@ type DetectionPageHeaderProps = {
   monitorValue?: string
   configValue?: string
   recordsValue?: string
-  recordsLabel?: string
 }
 
 export function DetectionPageHeader({
@@ -22,7 +21,6 @@ export function DetectionPageHeader({
   monitorValue = 'monitor',
   configValue = 'config',
   recordsValue,
-  recordsLabel = '识别记录',
 }: DetectionPageHeaderProps) {
   return (
     <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -48,7 +46,7 @@ export function DetectionPageHeader({
             <Video className="h-4 w-4" />
             实时监控
           </TabsTrigger>
-          {recordsValue && <TabsTrigger value={recordsValue} className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"><History className="h-4 w-4" />{recordsLabel}</TabsTrigger>}
+          {recordsValue && <TabsTrigger value={recordsValue} className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"><History className="h-4 w-4" />识别记录</TabsTrigger>}
           <TabsTrigger
             value={configValue}
             className="h-10 gap-2 rounded-xl px-4 text-slate-500 shadow-none data-[state=active]:bg-[#0B1226] data-[state=active]:text-white data-[state=active]:shadow-md"
