@@ -83,12 +83,13 @@ class InspectionConsumer(BaseFunctionConsumer):
 
     def _camera_active(self, camera_key: str) -> bool:
         """沿用平台视频在线判断，离线时销毁该路尚在进行的交互状态。"""
-        active = self._platform_active(camera_key)
-        if not active:
-            for camera_id, cfg in self.config_cache.items():
-                if cfg["shm_name"] == camera_key and camera_id in self._sessions:
-                    self._invalidate(camera_id)
-        return active
+        with self._camera_state_lock:
+            active = self._platform_active(camera_key)
+            if not active:
+                for camera_id, cfg in self.config_cache.items():
+                    if cfg["shm_name"] == camera_key and camera_id in self._sessions:
+                        self._invalidate(camera_id)
+            return active
 
     def _get_roi(self, camera_id, frame):
         """保留完整帧，由会话管理器分别处理多个安检 ROI。"""
@@ -115,10 +116,12 @@ class InspectionConsumer(BaseFunctionConsumer):
         if self._frame_shapes.get(camera_id) != frame.shape:
             self._invalidate(camera_id)
             self._frame_shapes[camera_id] = frame.shape
-        if camera_id not in self._sessions:
+        if camera_id not in self._sessions or camera_id not in self._trackers:
             values = InspectionValue.model_validate({name: cfg[name] for name in InspectionValue.model_fields})
-            self._sessions[camera_id] = PairSessionManager(values)
-            self._trackers[camera_id] = CameraByteTracker(fps=1 / values.cap_interval)
+            # 两个对象全部构造成功后才发布，初始化失败不能留下半套摄像头状态。
+            tracker = CameraByteTracker(fps=1 / values.cap_interval)
+            session = PairSessionManager(values)
+            self._sessions[camera_id], self._trackers[camera_id] = session, tracker
         result = self.dispatch_inference_sync(
             camera_id, "yolo_human", frame, {name: cfg[name] for name in ("conf", "iou", "imgsz")}
         )

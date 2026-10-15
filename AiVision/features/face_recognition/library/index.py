@@ -84,8 +84,10 @@ class FaceIndex:
         """所选白名单必须具有有效特征；正常加载的空库可以识别为未知人员。"""
         with self._lock:
             available = {person.person_id for person in self._people}
-        if not set(person_ids) <= available:
-            raise RuntimeError("所选白名单缺少有效人脸特征")
+        missing = sorted(set(person_ids) - available)
+        if missing:
+            identifiers = ",".join(str(person_id) for person_id in missing[:20])
+            raise RuntimeError(f"白名单缺少有效人脸特征，共 {len(missing)} 人，人员编号（最多20项）：{identifiers}")
 
     def match(self, embedding: np.ndarray, threshold: float) -> dict:
         """以归一化向量的余弦相似度选取最佳候选，达到阈值才返回其身份。

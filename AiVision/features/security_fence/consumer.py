@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import cv2
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
+from AiVision.core.settings import settings
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 from .runtime import FenceRuntime, current_mode
@@ -19,6 +20,8 @@ class FenceConsumer(BaseFunctionConsumer):
         self.monitor_status: dict[str, dict] = {}
         self.processed_frames: dict[int, object] = {}
         self.alarm_subjects: dict[int, set[str]] = {}
+        self.unidentified_subjects: dict[int, set[str]] = {}
+        self.unidentified_slots: dict[int, dict[int, int]] = {}
 
     def stop(self):
         super().stop()
@@ -45,8 +48,12 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _reset_alarm_cooldown(self, camera_id):
         super()._reset_alarm_cooldown(camera_id)
+        self.unidentified_slots.pop(camera_id, None)
         for subject in self.alarm_subjects.pop(camera_id, set()):
             self._release_subject(subject)
+        for subject in self.unidentified_subjects.pop(camera_id, set()):
+            for kind in self.spec.alarm_types:
+                alarm_dispatcher.reset_subject_cooldown("fence_unidentified", subject, kind)
 
     def _release_subject(self, subject):
         for kind in self.spec.alarm_types:
@@ -85,13 +92,13 @@ class FenceConsumer(BaseFunctionConsumer):
         response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
             "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
             "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
-        })
+        }, timeout=settings.runtime.fence_inference_timeout_seconds)
         errors = []
         faces = response["detections"] if response["status"] == "ok" else []
         if response["status"] != "ok":
             # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
             runtime.identities.clear()
-            errors.append("身份识别或白名单人脸特征暂不可用")
+            errors.append(f"人脸身份识别失败（{response['status']}）：{response.get('error_message') or response.get('error_code') or '未返回失败原因'}")
         if people["status"] != "ok":
             # 暂时没有可靠观测时撤销身份，不把同一报警事件当成新事件。
             runtime.identities.clear()
@@ -126,6 +133,11 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _handle_alarm(self, camera_id, result, frame, *, config=None):
         runtime = self.runtimes[camera_id]
+        unidentified = sorted(
+            (person for person in result[1]["persons"] if person["alarm"] and person["person_id"] is None),
+            key=lambda person: person["bbox"][0],
+        )
+        self.unidentified_slots[camera_id] = {person["track_id"]: slot for slot, person in enumerate(unidentified)}
         current = {f"{camera_id}:{event.key}" for event in runtime.events.values()}
         subjects = self.alarm_subjects.setdefault(camera_id, set())
         for subject in subjects - current:
@@ -168,10 +180,17 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _alarm_context(self, camera_id, result):
         cfg, person = self.config_cache[camera_id], result[1]
-        event = self.runtimes[camera_id].events[person["track_id"]]
+        runtime = self.runtimes[camera_id]
+        event = runtime.events[person["track_id"]]
+        subject_type, subject_id = "fence_event", f"{camera_id}:{event.key}"
+        if person["person_id"] is None:
+            # 无身份依据时不能把新轨迹视为新人；按当前可见违规人数共享冷却，保留多人分别报警。
+            subject_type = "fence_unidentified"
+            subject_id = f"{camera_id}:{self.unidentified_slots[camera_id][person['track_id']]}"
+            self.unidentified_subjects.setdefault(camera_id, set()).add(subject_id)
         return {
-            "cooldown_subject_type": "fence_event",
-            "cooldown_subject_id": f"{camera_id}:{event.key}",
+            "cooldown_subject_type": subject_type,
+            "cooldown_subject_id": subject_id,
             "subject_type": "camera", "subject_id": cfg["shm_name"], "subject_name": cfg["name"],
             "reason": person["reason"],
             "metadata": {"camera_name": cfg["name"], "person": person,

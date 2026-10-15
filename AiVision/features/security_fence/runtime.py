@@ -179,7 +179,9 @@ class FenceRuntime:
         previous = self.identities
         sources: dict[int, int | None] = {tid: tid for tid in previous}
         for tid, person_id in observed.items():
-            candidates = [key for key, identity in previous.items() if identity.candidate == person_id]
+            candidates = [key for key, identity in previous.items()
+                          if identity.candidate == person_id
+                          or (key in self.events and self.events[key].candidate == person_id)]
             if counts[person_id] == 1 and len(candidates) == 1:
                 sources[tid] = candidates[0]
         moved = {source for tid, source in sources.items() if source != tid}

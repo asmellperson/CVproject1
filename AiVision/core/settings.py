@@ -126,6 +126,7 @@ class RuntimeSettings(BaseSettings):
     场景中，应用层已经存在并发，继续按全机核心数并行会造成线程争抢。
     """
     opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")      # 限制OpenCV自己内部最多开多少CPU线程
+    fence_inference_timeout_seconds: float = Field(5.0, gt=0, le=30, alias="FENCE_INFERENCE_TIMEOUT_SECONDS")
     slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")   # 一次获取摄像头画面超过多少秒，就记慢请求日志
     # 物流通道状态多久没更新，就认为他过旧
     logistics_status_stale_seconds: float = Field(
