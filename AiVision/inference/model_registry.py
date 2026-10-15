@@ -48,7 +48,7 @@ MODEL_SPECS = MappingProxyType({
         ModelSpec("insightface", FaceRecognizerWorker, "face_identity", conf=DEFAULT_DETECTION_THRESHOLD, type="insightface"),
         ModelSpec("guard_uniform", UniformClassifierWorker, "uniform", type="timm_classifier"),
         ModelSpec("yolo_guard_pose", YoloPoseWorker, "pose", type="yolo_pose"),
-        ModelSpec("yolo_vehicle", YoloDetectorWorker, "vehicle", (1, 2, 3)),
+        ModelSpec("yolo_vehicle", YoloDetectorWorker, "vehicle", (2,)),
     )
 })
 

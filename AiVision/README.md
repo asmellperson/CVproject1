@@ -379,7 +379,7 @@ HTTP 保存请求
 | `yolo_guard_person_phone` | `YoloDetectorWorker` | `guard_object`，类别 `0/1` | 人体/手机权重 |
 | `guard_uniform` | `UniformClassifierWorker` | `uniform` | 制服分类权重 |
 | `yolo_guard_pose` | `YoloPoseWorker` | `pose` | 姿态模型 |
-| `yolo_vehicle` | `YoloDetectorWorker` | `vehicle`，过滤类别 `1/2/3` | 车辆检测权重 |
+| `yolo_vehicle` | `YoloDetectorWorker` | `vehicle`，仅保留类别 `2` | 车辆检测权重 |
 
 人体/手机权重约定 `0=person`、`1=phone`；车辆模型使用自身的类别映射。换权重时必须检查对应模型的类别，不能把同一数字跨权重解释为同一对象。千问不在本地模型 Worker 注册表中，通过安检设置和 HTTP 客户端管理。
 
