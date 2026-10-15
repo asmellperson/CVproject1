@@ -81,31 +81,28 @@ class FenceConsumer(BaseFunctionConsumer):
         now = datetime.now(timezone.utc)
         mode = current_mode(runtime.config, now)
         people = self.dispatch_inference_sync(camera_id, "yolo_human", roi, task_meta={"conf": cfg["threshold"]})
-        error = None
-        faces = []
+        # 人脸识别独立执行，避免近景只检测到人脸时被人体检测结果短路。
+        response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
+            "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
+            "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
+        })
+        errors = []
+        faces = response["detections"] if response["status"] == "ok" else []
+        if response["status"] != "ok":
+            # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
+            runtime.identities.clear()
+            errors.append("身份识别或白名单人脸特征暂不可用")
         if people["status"] != "ok":
             runtime.clear()
             persons = []
-            error = "人体检测暂不可用"
+            errors.append("人体检测暂不可用")
         else:
-            if people["detections"]:
-                # 两种时段都检索完整人员索引；白名单只参与准入判定，不限制身份匹配范围。
-                response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
-                    "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
-                    "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
-                })
-                if response["status"] == "ok":
-                    faces = response["detections"]
-                else:
-                    # 人员底库或推理失败不是非白名单；撤销缓存，显式报告检测异常。
-                    runtime.identities.clear()
-                    error = "身份识别或白名单人脸特征暂不可用"
             persons = runtime.update(people["detections"], faces, roi.shape, now=now, monotonic=time.monotonic())
         detail = {
-            "mode": mode, "persons": [person.model_dump() for person in persons],
+            "mode": mode, "persons": [person.model_dump() for person in persons], "faces": faces,
             "count": sum(person.in_roi for person in persons) if people["status"] == "ok" else None,
             "pending_count": sum(person.in_roi and person.identity == "pending" for person in persons) if people["status"] == "ok" else None,
-            "alarm": any(person.alarm for person in persons), "error": error,
+            "alarm": any(person.alarm for person in persons), "error": "；".join(errors) or None,
             "frame_width": roi.shape[1], "frame_height": roi.shape[0], "updated_at_s": time.time(),
         }
         return detail["alarm"], detail
@@ -120,6 +117,10 @@ class FenceConsumer(BaseFunctionConsumer):
                 color = (0, 0, 255) if person["alarm"] else (0, 180, 255) if person["identity"] == "pending" else (60, 200, 80)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, f'#{person["track_id"]} {person["identity"]}', (x1, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            # 人脸检测框与人体准入结论分开绘制，待核验也能看到真实检测结果。
+            for face in detail["faces"]:
+                x1, y1, x2, y2 = map(int, face["bbox"])
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 200, 0), 2)
         return frame
 
     def _handle_alarm(self, camera_id, result, frame, *, config=None):

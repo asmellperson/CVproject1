@@ -57,7 +57,7 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
                 onChange={(event) => update((current) => ({ ...current, numbers: { ...current.numbers, [key]: event.target.value } }))} />
             </div>)}
           </>}
-          <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">无法看清人脸时保持待核验，不按超时报警。身份匹配与未匹配阈值之间的结果不作准入结论；跟踪中断或人员重叠时重新核验。</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">库内身份按人脸匹配结果确认；尺寸、清晰度、偏转和未匹配阈值用于确认库外未知人员。身份确认帧数在连续可靠的轨迹内累计，单次无人脸不清零；跟踪中断或多人身份关联不明时重新核验。没有有效身份依据时保持待核验，不按超时报警。</p>
         </DetectionConfigCardContent>
       </Card>{saveBar}
     </FeatureConfigGate></TabsContent>

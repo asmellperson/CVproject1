@@ -85,11 +85,12 @@ class FenceRuntime:
         polygon = roi_to_pixels(self.config.roi_pos, shape)
         mode = current_mode(self.config, now)
         allowed = set(self.config.allowed_person_ids)
-        ambiguous = {
+        overlapping = {
             tid for tid, track in tracks.items()
             if any(other != tid and iou(track.bbox, item.bbox) >= self.config.tracking_overlap_threshold
                    for other, item in tracks.items())
         }
+        ambiguous: set[int] = set()
         associations: dict[int, list[dict]] = {}
         for face in faces:
             x1, y1, x2, y2 = face["bbox"]
@@ -103,17 +104,16 @@ class FenceRuntime:
         persons = []
         for tid, track in tracks.items():
             identity = self.identities[tid]
-            if tid in ambiguous:
+            observations = associations.get(tid, [])
+            if tid in ambiguous or len(observations) > 1:
+                # 一张脸对应多个人体或一个人体关联多张脸时，不能传播通行身份。
                 identity = self.identities[tid] = Identity()
-            else:
-                observations = associations.get(tid, [])
-                if len(observations) > 1:
-                    # 单个人体框关联到多张脸时，不能沿用其中任一人的通行身份。
-                    identity = self.identities[tid] = Identity()
-                elif len(observations) == 1 and self._usable_face(observations[0]):
-                    identity.observe(observations[0], self.config)
-                elif not identity.confirmed:
-                    identity.observations = 0
+            elif len(observations) == 1 and self._usable_face(observations[0]):
+                identity.observe(observations[0], self.config)
+            elif tid in overlapping:
+                # 人体重叠且没有可靠的当帧人脸时，撤销可能被跟踪交换的旧身份。
+                identity = self.identities[tid] = Identity()
+            # 连续可靠的独立轨迹允许累计有效观测，单次无人脸不抹掉已有证据。
             x1, y1, x2, y2 = track.bbox
             # 地面区域以人体框底边中心判定，避免身体探入造成区域误判。
             in_roi = cv2.pointPolygonTest(polygon, ((x1 + x2) / 2, y2), False) >= 0
@@ -137,6 +137,9 @@ class FenceRuntime:
         return persons
 
     def _usable_face(self, face: dict) -> bool:
+        """库内匹配沿用共享识别结论，库外未知身份需要额外质量依据。"""
+        if face["matched"]:
+            return True
         quality = face.get("quality")
         return bool(quality and quality["size"] >= self.config.min_face_size
                     and quality["sharpness"] >= self.config.min_face_sharpness
