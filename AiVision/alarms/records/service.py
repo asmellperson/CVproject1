@@ -7,29 +7,45 @@ alarms/records/service.py
     - 定时清理过期报警图片和关联记录，容量超限只告警
 """
 from __future__ import annotations
+
 import datetime
 import json
 import os
 import threading
 import time
 import uuid
-from copy import deepcopy
 from collections.abc import Callable
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
-from queue import Queue, Empty, Full      # 线程之间使用的队列
+from queue import Empty, Full, Queue  # 线程之间使用的队列
 
 import cv2
 import numpy as np
-from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.exc import SQLAlchemyError
 
 from AiVision.core.db import session_scope
 from AiVision.core.logger import logger
 from AiVision.core.media_cleanup import GIB, MediaCleanupStats, MediaReferences
 from AiVision.core.settings import settings
+
+from ..validation import validate_alarm_identity
 from .cleanup import ViolationMediaCleaner
 from .orm import AiAlarmEvent
-from ..validation import validate_alarm_identity
+
+
+@dataclass(frozen=True)
+class _MetadataPatch:
+    """用事件唯一键关联后续识别结果，避免异步入库尚未生成数据库 ID 的竞态。"""
+
+    event_key: str
+    feature_name: str
+    department: str
+    camera_no: str
+    metadata: dict
+
 
 class AsyncViolationWriter:
     """
@@ -124,6 +140,25 @@ class AsyncViolationWriter:
                 self._queue.put_nowait(item)
             except Full:
                 logger.warning(f"[ViolationWriter] 告警队列已满，丢弃本条入库请求 feature={feature_name} camera={camera_no}")
+
+    def enqueue_metadata_patch(
+        self, *, event_key: str, feature_name: str, department: str, camera_no: str, metadata: dict,
+    ) -> bool:
+        """与首次写入共用 FIFO 队列；入队失败由调用方在后续检测中重试。"""
+        if not all((event_key, feature_name, department, camera_no)) or "event_key" in metadata:
+            raise ValueError("元数据补全必须指定事件及归属，不能修改事件唯一键")
+        patch = _MetadataPatch(event_key, feature_name, department, camera_no, deepcopy(metadata))
+        with self._enqueue_lock:
+            if self._stop_event.is_set():
+                logger.warning(f"[ViolationWriter] 已停止接收元数据补全 event={event_key}")
+                return False
+            try:
+                self._queue.put_nowait(patch)
+                return True
+            except Full:
+                logger.warning(f"[ViolationWriter] 元数据补全队列已满 event={event_key}")
+                return False
+
     def save_now(
         self,
         *,
@@ -301,6 +336,17 @@ class AsyncViolationWriter:
             try:
                 # 从enqueue塞进去的Queue里拿一条告警
                 item = self._queue.get(timeout=0.5)
+                if isinstance(item, _MetadataPatch):
+                    # 首次报警可能尚在批次中；先提交，再补全同一行，禁止生成替代报警。
+                    if batch:
+                        self._complete_batch(batch)
+                        batch.clear()
+                        last_flush = time.monotonic()
+                    try:
+                        self._apply_metadata_patch(item)
+                    finally:
+                        self._queue.task_done()
+                    continue
                 # 写入磁盘（先写磁盘再考虑数据库）
                 row = self._save_alarm_snapshot(item)
                 if row is not None:
@@ -325,6 +371,30 @@ class AsyncViolationWriter:
         # 退出时提交当前batch
         if batch:
             self._complete_batch(batch)
+
+    def _apply_metadata_patch(self, patch: _MetadataPatch) -> None:
+        """只更新相同功能、事业部、摄像头及事件的元数据，保留原始时间与证据。"""
+        for attempt in range(self._write_attempts):
+            try:
+                with session_scope() as session:
+                    row = (
+                        session.query(AiAlarmEvent)
+                        .filter_by(feature_name=patch.feature_name, department=patch.department, camera_no=patch.camera_no)
+                        .filter(AiAlarmEvent.event_metadata["event_key"].as_string() == patch.event_key)
+                        .with_for_update().one_or_none()
+                    )
+                    if row is None:
+                        raise LookupError("未找到需要补全的报警记录")
+                    row.event_metadata = {**(row.event_metadata or {}), **patch.metadata}
+                return
+            except (SQLAlchemyError, LookupError) as exc:
+                logger.warning(
+                    f"[ViolationWriter] 元数据补全失败 event={patch.event_key} "
+                    f"attempt={attempt + 1}/{self._write_attempts}: {exc}"
+                )
+                if attempt + 1 < self._write_attempts:
+                    time.sleep(self._retry_backoff * (2 ** attempt))
+        logger.error(f"[ViolationWriter] 元数据补全重试耗尽 event={patch.event_key}")
 
     def _save_alarm_snapshot(self, item: dict) -> dict | None:
         """同步写盘 — 返回供 DB 入库的行字典,失败返回 None"""

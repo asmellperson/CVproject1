@@ -86,8 +86,8 @@ X-API-Key: <对接凭证>
 | `disabled` / `offline` | 摄像头或功能停用 / 采集离线 |
 | `waiting` / `stale` | 检测尚未产出结果 / 快照超过 5 秒或已跨规则时段 |
 | `error` | 人体推理、人脸推理或人员特征库异常，说明在 `error` 字段 |
-| `mode=forbidden` | 当前为禁入时段，ROI 有人即报警，包括白名单 |
-| `mode=whitelist` | 其余时段，确认非白名单后报警 |
+| `mode=forbidden` | 当前为禁入时段，ROI 有人即形成异常时间报警，包括白名单；同时执行全库身份识别 |
+| `mode=whitelist` | 其余时段，全库识别后白名单放行，确认库内非白名单或库外未知人员时形成异常人员报警 |
 | `count` / `pending_count` | ROI 内人体数 / 其中待核验人数；无有效人数结果时为 `null` |
 | `alarm` | 当前是否存在确定违规；无有效判定或识别异常且无确定报警时为 `null` |
 | `persons` | 全画面可见轨迹；通过 `in_roi` 区分是否位于警戒区 |
@@ -113,7 +113,7 @@ X-API-Key: <对接凭证>
 - `limit` 默认 100，范围 1–500；`offset` 默认 0，不能为负。
 - 返回 `{total, by_reason, items}`；统计针对完整筛选范围，不仅统计当前页，记录按时间和 ID 倒序。
 
-单条记录包含 `id`、`camera_key`、`camera_name`、`department`、`reason`、`created_at`、`person`、`image_url`。`person` 结构同状态中的人员项，代表报警发生时的快照；`image_url` 是需要同一凭证授权的相对地址。`created_at` 含时区。禁止把响应中的图片路径改为平台公开截图地址来绕过鉴权。
+单条记录包含 `id`、`camera_key`、`camera_name`、`department`、`reason`、`created_at`、`person`、`image_url`。`person` 结构同状态中的人员项，位置与违规原因来自首次报警快照；禁入报警首次身份待核验时，持续违规期间确认的身份会补全到同一记录，`id`、`created_at` 和证据不变。库外人员的 `person_id=null`、`person_name="未知人员"`；待核验人员的姓名仍为 `null`，不能当作已确认库外人员。`image_url` 是需要同一凭证授权的相对地址，`created_at` 含时区。禁止把响应中的图片路径改为平台公开截图地址来绕过鉴权。
 
 | `reason` | 含义 | 统一报警类型 |
 | --- | --- | --- |

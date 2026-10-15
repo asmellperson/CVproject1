@@ -1,14 +1,15 @@
 """复用人体及身份推理队列，围栏独立管理状态和告警事件。"""
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
-import time
 
 import cv2
 
-from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.alarms.dispatcher import alarm_dispatcher
+from AiVision.features._shared.consumer import BaseFunctionConsumer
+
 from .runtime import FenceRuntime, current_mode
-from .schema import FenceValue, FORBIDDEN_ALARM, UNAUTHORIZED_ALARM
+from .schema import FORBIDDEN_ALARM, UNAUTHORIZED_ALARM, FencePerson, FenceValue
 
 
 class FenceConsumer(BaseFunctionConsumer):
@@ -87,7 +88,8 @@ class FenceConsumer(BaseFunctionConsumer):
             persons = []
             error = "人体检测暂不可用"
         else:
-            if people["detections"] and mode == "whitelist":
+            if people["detections"]:
+                # 两种时段都检索完整人员索引；白名单只参与准入判定，不限制身份匹配范围。
                 response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
                     "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
                     "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
@@ -128,11 +130,34 @@ class FenceConsumer(BaseFunctionConsumer):
             self._release_subject(subject)
         subjects.intersection_update(current)
         for person in result[1]["persons"]:
-            if not person["alarm"] or runtime.notified.get(person["track_id"]) == person["reason"]:
+            if not person["alarm"]:
+                continue
+            event = runtime.events[person["track_id"]]
+            if event.dispatched:
+                self._complete_alarm_identity(camera_id, event, person, config=config)
                 continue
             if super()._handle_alarm(camera_id, (True, person), frame, config=config):
-                runtime.notified[person["track_id"]] = person["reason"]
+                event.dispatched = True
+                event.person = FencePerson.model_validate(person)
                 subjects.add(f"{camera_id}:{runtime.generation}:{person['track_id']}")
+
+    def _complete_alarm_identity(self, camera_id, event, person, *, config=None):
+        """补全原报警的身份，不重新触发喇叭、截图或新增报警记录。"""
+        if event.person.identity != "pending" or person["identity"] == "pending":
+            return
+        cfg = self.config_cache[camera_id] if config is None else config
+        writer = alarm_dispatcher.violation_writer
+        if writer is None or not (cfg.get("sql_enable") or cfg.get("wechat_enable")):
+            return
+        # 保留首次违规的位置、原因和截图，只补充后续确认的身份字段。
+        identified = event.person.model_copy(update={key: person[key] for key in (
+            "identity", "person_id", "person_name", "similarity",
+        )})
+        if writer.enqueue_metadata_patch(
+            event_key=event.key, feature_name=self.feature_name, department=cfg["department"],
+            camera_no=cfg["shm_name"], metadata={"person": identified.model_dump()},
+        ):
+            event.person = identified
 
     def _alarm_violation_type(self, camera_id, result, cfg):
         return FORBIDDEN_ALARM if result[1]["reason"] == "forbidden_time" else UNAUTHORIZED_ALARM
@@ -144,7 +169,8 @@ class FenceConsumer(BaseFunctionConsumer):
             "cooldown_subject_id": f"{camera_id}:{self.runtimes[camera_id].generation}:{person['track_id']}",
             "subject_type": "camera", "subject_id": cfg["shm_name"], "subject_name": cfg["name"],
             "reason": person["reason"],
-            "metadata": {"camera_name": cfg["name"], "person": person},
+            "metadata": {"camera_name": cfg["name"], "person": person,
+                         "event_key": self.runtimes[camera_id].events[person["track_id"]].key},
         }
 
     def get_monitor_status(self, camera_key):

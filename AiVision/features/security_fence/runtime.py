@@ -1,13 +1,14 @@
 """单摄像头人员身份状态机，不依赖数据库、HTTP 或模型加载。"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import cv2
 
 from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.features._shared.tracking import IouTracker, iou
+
 from .schema import FencePerson, FenceValue
 
 
@@ -44,7 +45,16 @@ class Identity:
         if self.observations >= config.confirmation_frames:
             self.confirmed = True
             self.person_id = candidate or None
-            self.name = face["person_name"] if candidate else None
+            self.name = face["person_name"] if candidate else "未知人员"
+
+
+@dataclass
+class FenceEvent:
+    """连续违规只生成一个事件，首次报警待核验时允许补全身份。"""
+
+    person: FencePerson
+    key: str = field(default_factory=lambda: uuid4().hex)
+    dispatched: bool = False
 
 
 class FenceRuntime:
@@ -53,7 +63,7 @@ class FenceRuntime:
         # 身份不能跨丢失轨迹传播；共享跟踪器仅关联连续可见的人员。
         self.tracker = IouTracker(max_lost=0, smooth_alpha=1.0)
         self.identities: dict[int, Identity] = {}
-        self.notified: dict[int, str] = {}
+        self.events: dict[int, FenceEvent] = {}
         self.last_seen: float | None = None
         self.shape: tuple[int, ...] | None = None
         self.generation = uuid4().hex
@@ -62,7 +72,7 @@ class FenceRuntime:
         self.generation = uuid4().hex
         self.tracker.reset()
         self.identities.clear()
-        self.notified.clear()
+        self.events.clear()
         self.last_seen = None
 
     def update(self, detections: list[dict], faces: list[dict], shape: tuple[int, ...], *, now: datetime, monotonic: float) -> list[FencePerson]:
@@ -71,7 +81,7 @@ class FenceRuntime:
         self.shape, self.last_seen = shape, monotonic
         tracks = self.tracker.update(detections, now=monotonic)
         self.identities = {tid: self.identities.get(tid, Identity()) for tid in tracks}
-        self.notified = {tid: reason for tid, reason in self.notified.items() if tid in tracks}
+        self.events = {tid: event for tid, event in self.events.items() if tid in tracks}
         polygon = roi_to_pixels(self.config.roi_pos, shape)
         mode = current_mode(self.config, now)
         allowed = set(self.config.allowed_person_ids)
@@ -113,13 +123,17 @@ class FenceRuntime:
                 reason = "forbidden_time"
             elif in_roi and state == "unauthorized":
                 reason = "unauthorized" if identity.person_id else "unknown_face"
-            if reason != self.notified.get(tid):
-                self.notified.pop(tid, None)
-            persons.append(FencePerson(
+            person = FencePerson(
                 track_id=tid, bbox=track.bbox, in_roi=in_roi, identity=state,
                 person_id=identity.person_id, person_name=identity.name, similarity=identity.similarity,
                 alarm=reason is not None, reason=reason,
-            ))
+            )
+            event = self.events.get(tid)
+            if reason is None:
+                self.events.pop(tid, None)
+            elif event is None or event.person.reason != reason:
+                self.events[tid] = FenceEvent(person=person.model_copy(deep=True))
+            persons.append(person)
         return persons
 
     def _usable_face(self, face: dict) -> bool:

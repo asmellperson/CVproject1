@@ -56,6 +56,7 @@ class FaceIndex:
     def refresh(self) -> int:
         """加载有效模型及照片签名匹配的在用人员，归一化后整体替换只读索引。"""
         from AiVision.core.db import get_session
+
         from .orm import FaceEmbedding, FacePerson
 
         people, vectors = [], []
@@ -80,11 +81,11 @@ class FaceIndex:
         return len(people)
 
     def require_people(self, person_ids: list[int]) -> None:
-        """围栏判定陌生人前，必须确认底库非空且所选白名单特征全部可用。"""
+        """所选白名单必须具有有效特征；正常加载的空库可以识别为未知人员。"""
         with self._lock:
             available = {person.person_id for person in self._people}
-        if not available or not set(person_ids) <= available:
-            raise RuntimeError("人员底库为空或所选白名单缺少有效人脸特征")
+        if not set(person_ids) <= available:
+            raise RuntimeError("所选白名单缺少有效人脸特征")
 
     def match(self, embedding: np.ndarray, threshold: float) -> dict:
         """以归一化向量的余弦相似度选取最佳候选，达到阈值才返回其身份。
