@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Activity, Camera, RefreshCw, ScanFace, ShieldAlert, UserCheck, UsersRound, Video } from 'lucide-react'
-import type { DepartmentId } from '@/auth/permissions'
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { StatCard } from '@/components/feature_dashboard/FeatureDashboardMonitorView'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
 import { Badge } from '@/components/ui/badge'
@@ -12,11 +12,10 @@ import { getAiVisionCameraKey, type AiVisionCamera } from '@/lib/aivision'
 import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import { FENCE_FEATURE } from './api'
 import { useFenceStatus } from './useFenceStatus'
+import { FENCE_IDENTITY_LABELS, FENCE_REASON_LABELS, fencePersonName } from './presentation'
 
 const CARD_CLASS = 'rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900'
 const STATES = { disabled: '未启用', offline: '视频离线', waiting: '等待检测', stale: '结果过期', error: '检测异常', ready: '检测中' }
-const IDENTITIES = { pending: '身份待核验', allowed: '白名单', unauthorized: '非白名单' }
-const REASONS: Record<string, string> = { forbidden_time: '异常时间出没', unauthorized: '异常人员出没', unknown_face: '异常人员出没（未知人员）' }
 
 export function FenceMonitorView({
   department, cameras, selectedCamera, loading, message, frameConnected, frameContent, onSelectCamera, onRefreshCameras,
@@ -60,19 +59,22 @@ export function FenceMonitorView({
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><ScanFace className="h-4 w-4" />当前识别结果</CardTitle></CardHeader>
             <CardContent className="space-y-3 px-5 pb-5">
+              <p className="text-sm text-slate-500 dark:text-slate-400">所属事业部：{DEPARTMENT_LABELS[department]}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400">区域内 {status?.count ?? '—'} 人 · 待核验 {status?.pending_count ?? '—'} 人</p>
               {status?.alarm && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40">报警：警戒区域内存在{status.mode === 'forbidden' ? '禁入时段出没人员' : '非白名单或未知人员'}。</p>}
               {persons.map((person) => (
                 <div key={person.track_id} className={`rounded-xl border p-3 ${person.alarm ? 'border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40' : person.identity === 'pending' ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40' : 'border-slate-200 dark:border-slate-700'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="break-words font-medium text-slate-950 dark:text-slate-100">{person.person_name || `人员 ${person.track_id}`}</p>
-                      <Badge variant="outline" className={`mt-1 ${person.alarm ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-400' : person.identity === 'pending' ? 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400' : person.identity === 'allowed' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400' : 'border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400'}`}>{person.identity === 'unauthorized' && person.person_id == null ? '未知人员' : IDENTITIES[person.identity]}</Badge>
+                      <p className="break-words font-medium text-slate-950 dark:text-slate-100">{fencePersonName(person)}</p>
+                      <Badge variant="outline" className={`mt-1 ${person.alarm ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-400' : person.identity === 'pending' ? 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400' : person.identity === 'allowed' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400' : 'border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400'}`}>{person.identity === 'unauthorized' && person.person_id == null ? '未知人员' : FENCE_IDENTITY_LABELS[person.identity]}</Badge>
                     </div>
                     <span className="shrink-0 font-mono text-sm text-slate-600 dark:text-slate-300" aria-label="相似度">{person.similarity == null ? '—' : `${(person.similarity * 100).toFixed(1)}%`}</span>
                   </div>
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{person.in_roi ? '警戒区域内' : '警戒区域外'}</p>
-                  {person.alarm && person.reason && <p className="mt-1 text-xs font-medium text-red-700 dark:text-red-400">{REASONS[person.reason]}</p>}
+                  {person.job_no && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">工号：{person.job_no}</p>}
+                  {person.org_index_code && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">组织编码：{person.org_index_code}</p>}
+                  {person.alarm && person.reason && <p className="mt-1 text-xs font-medium text-red-700 dark:text-red-400">{FENCE_REASON_LABELS[person.reason]}</p>}
                 </div>
               ))}
               {!persons.length && <p className="text-sm text-slate-500 dark:text-slate-400">{status?.state === 'ready' ? '当前画面未检测到人员' : '等待有效识别结果'}</p>}

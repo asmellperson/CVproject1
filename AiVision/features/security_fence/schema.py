@@ -71,6 +71,8 @@ class FencePerson(BaseModel):
     identity: Literal["pending", "allowed", "unauthorized"]
     person_id: int | None = None
     person_name: str | None = None
+    job_no: str | None = None
+    org_index_code: str | None = None
     similarity: float | None = None
     alarm: bool = False
     reason: Literal["forbidden_time", "unauthorized", "unknown_face"] | None = None

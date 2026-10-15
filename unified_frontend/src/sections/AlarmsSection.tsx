@@ -41,6 +41,9 @@ import { alarmVideoUrl } from '@/lib/api'
 import { useAuth } from '@/auth/useAuth'
 import { getAccessibleAlarmEventTypes } from '@/auth/permissions'
 import { buildUrlWithoutAlarmId, findInitialAlarm } from './AlarmsSection.initialAlarm'
+import { useDepartmentCatalog } from '@/hooks/use-department-catalog'
+import { FENCE_FEATURE } from '@/components/security_fence/api'
+import { alarmReasonText, fenceAlarmPerson, fencePersonName } from '@/components/security_fence/presentation'
 
 type AlarmsSectionProps = {
   initialAlarmId?: string
@@ -59,10 +62,12 @@ function alarmSubjectTypeLabel(subjectType?: string) {
 
 export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const { user } = useAuth()
+  const { labels: departmentLabels } = useDepartmentCatalog(Boolean(user))
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('open')
   const [selectedAlarm, setSelectedAlarm] = useState<AlarmEvent | null>(null)
+  const selectedPerson = selectedAlarm ? fenceAlarmPerson(selectedAlarm) : null
   const [dispositionNote, setDispositionNote] = useState('')
   const [dispositionError, setDispositionError] = useState('')
   const [dispositionBusy, setDispositionBusy] = useState<AlarmDispositionStatus | null>(null)
@@ -112,13 +117,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   useEffect(() => {
     if (!selectedAlarm) return
     const refreshed = alarms.find((alarm) => alarm.id === selectedAlarm.id)
-    if (
-      refreshed
-      && (
-        refreshed.video_status !== selectedAlarm.video_status
-        || refreshed.video_url !== selectedAlarm.video_url
-      )
-    ) {
+    if (refreshed && refreshed !== selectedAlarm) {
       setSelectedAlarm(refreshed)
     }
   }, [alarms, selectedAlarm])
@@ -149,8 +148,13 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
   const filteredAlarms = useMemo(
     () =>
       alarms.filter((alarm) => {
+        const person = fenceAlarmPerson(alarm)
         const matchesSearch =
-          (alarm.reason || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (alarmReasonText(alarm) || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (person?.person_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (person?.job_no || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (person?.org_index_code || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (departmentLabels[alarm.department || ''] || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.subject_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
           (alarm.subject_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -164,7 +168,7 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
           (statusFilter === 'open' ? status === 'pending' || status === 'acknowledged' : status === statusFilter)
         return matchesSearch && matchesType && matchesStatus
       }),
-    [alarms, searchQuery, effectiveTypeFilter, statusFilter],
+    [alarms, searchQuery, effectiveTypeFilter, statusFilter, departmentLabels],
   )
 
   const totalPages = Math.max(1, Math.ceil(filteredAlarms.length / itemsPerPage))
@@ -394,6 +398,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               <TableRow>
                 <TableHead>类型</TableHead>
                 <TableHead>告警主体</TableHead>
+                <TableHead>人员</TableHead>
+                <TableHead>所属事业部</TableHead>
                 <TableHead>说明</TableHead>
                 <TableHead>处置状态</TableHead>
                 <TableHead>时间</TableHead>
@@ -401,11 +407,18 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginatedAlarms.map((alarm) => (
+              {paginatedAlarms.map((alarm) => {
+                const person = fenceAlarmPerson(alarm)
+                return (
                 <TableRow key={alarm.id}>
                   <TableCell>{getAlarmBadge(alarm.event_type)}</TableCell>
                   <TableCell className="max-w-[12rem] truncate">{alarmSubjectName(alarm)}</TableCell>
-                  <TableCell className="max-w-xs truncate">{alarm.reason || '-'}</TableCell>
+                  <TableCell className="max-w-[12rem]">
+                    <span>{alarm.feature_name === FENCE_FEATURE ? fencePersonName(person) : '—'}</span>
+                    {person?.job_no && <span className="block text-xs text-slate-500">工号：{person.job_no}</span>}
+                  </TableCell>
+                  <TableCell>{departmentLabels[alarm.department || ''] || alarm.department || '未分配事业部'}</TableCell>
+                  <TableCell className="max-w-xs truncate">{alarmReasonText(alarm) || '-'}</TableCell>
                   <TableCell>{getDispositionBadge(alarm.disposition_status || 'pending')}</TableCell>
                   <TableCell className="text-sm text-slate-500">{formatTime(alarm.created_at)}</TableCell>
                   <TableCell>
@@ -419,7 +432,8 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
 
@@ -477,9 +491,19 @@ export function AlarmsSection({ initialAlarmId = '' }: AlarmsSectionProps) {
                   <span className="text-slate-500">主体标识：</span>
                   {selectedAlarm.subject_id || selectedAlarm.camera_no || '-'}
                 </div>
+                <div>
+                  <span className="text-slate-500">所属事业部：</span>
+                  {departmentLabels[selectedAlarm.department || ''] || selectedAlarm.department || '未分配事业部'}
+                </div>
+                {selectedAlarm.feature_name === FENCE_FEATURE && <>
+                  <div><span className="text-slate-500">识别人员：</span>{fencePersonName(selectedPerson)}</div>
+                  <div><span className="text-slate-500">人员编号：</span>{selectedPerson?.person_id ?? '—'}</div>
+                  <div><span className="text-slate-500">工号：</span>{selectedPerson?.job_no || '—'}</div>
+                  <div><span className="text-slate-500">人员组织编码：</span>{selectedPerson?.org_index_code || '—'}</div>
+                </>}
               </div>
 
-              <div className="rounded-lg border bg-slate-50 p-3 text-sm">{selectedAlarm.reason || '-'}</div>
+              <div className="rounded-lg border bg-slate-50 p-3 text-sm">{alarmReasonText(selectedAlarm) || '-'}</div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex flex-wrap items-center justify-between gap-3">

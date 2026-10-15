@@ -50,7 +50,7 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _release_subject(self, subject):
         for kind in self.spec.alarm_types:
-            alarm_dispatcher.reset_subject_cooldown("fence_track", subject, kind)
+            alarm_dispatcher.reset_subject_cooldown("fence_event", subject, kind)
 
     def update_status(self, camera_id, enabled):
         with self._camera_state_lock:
@@ -93,7 +93,8 @@ class FenceConsumer(BaseFunctionConsumer):
             runtime.identities.clear()
             errors.append("身份识别或白名单人脸特征暂不可用")
         if people["status"] != "ok":
-            runtime.clear()
+            # 暂时没有可靠观测时撤销身份，不把同一报警事件当成新事件。
+            runtime.identities.clear()
             persons = []
             errors.append("人体检测暂不可用")
         else:
@@ -125,7 +126,7 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _handle_alarm(self, camera_id, result, frame, *, config=None):
         runtime = self.runtimes[camera_id]
-        current = {f"{camera_id}:{runtime.generation}:{person['track_id']}" for person in result[1]["persons"]}
+        current = {f"{camera_id}:{event.key}" for event in runtime.events.values()}
         subjects = self.alarm_subjects.setdefault(camera_id, set())
         for subject in subjects - current:
             self._release_subject(subject)
@@ -140,11 +141,13 @@ class FenceConsumer(BaseFunctionConsumer):
             if super()._handle_alarm(camera_id, (True, person), frame, config=config):
                 event.dispatched = True
                 event.person = FencePerson.model_validate(person)
-                subjects.add(f"{camera_id}:{runtime.generation}:{person['track_id']}")
+                subjects.add(f"{camera_id}:{event.key}")
 
     def _complete_alarm_identity(self, camera_id, event, person, *, config=None):
         """补全原报警的身份，不重新触发喇叭、截图或新增报警记录。"""
-        if event.person.identity != "pending" or person["identity"] == "pending":
+        if person["identity"] == "pending":
+            return
+        if event.person.identity != "pending" and not (event.person.person_id is None and person["person_id"] is not None):
             return
         cfg = self.config_cache[camera_id] if config is None else config
         writer = alarm_dispatcher.violation_writer
@@ -152,7 +155,7 @@ class FenceConsumer(BaseFunctionConsumer):
             return
         # 保留首次违规的位置、原因和截图，只补充后续确认的身份字段。
         identified = event.person.model_copy(update={key: person[key] for key in (
-            "identity", "person_id", "person_name", "similarity",
+            "identity", "person_id", "person_name", "job_no", "org_index_code", "similarity",
         )})
         if writer.enqueue_metadata_patch(
             event_key=event.key, feature_name=self.feature_name, department=cfg["department"],
@@ -165,13 +168,14 @@ class FenceConsumer(BaseFunctionConsumer):
 
     def _alarm_context(self, camera_id, result):
         cfg, person = self.config_cache[camera_id], result[1]
+        event = self.runtimes[camera_id].events[person["track_id"]]
         return {
-            "cooldown_subject_type": "fence_track",
-            "cooldown_subject_id": f"{camera_id}:{self.runtimes[camera_id].generation}:{person['track_id']}",
+            "cooldown_subject_type": "fence_event",
+            "cooldown_subject_id": f"{camera_id}:{event.key}",
             "subject_type": "camera", "subject_id": cfg["shm_name"], "subject_name": cfg["name"],
             "reason": person["reason"],
             "metadata": {"camera_name": cfg["name"], "person": person,
-                         "event_key": self.runtimes[camera_id].events[person["track_id"]].key},
+                         "event_key": event.key},
         }
 
     def get_monitor_status(self, camera_key):

@@ -25,7 +25,8 @@ export type FenceValue = Record<NumberField, number> & {
 export type FenceConfig = AiVisionFeatureConfig & { value: FenceValue; alarm: NormalizedFeatureAlarmConfig }
 export type FencePerson = {
   track_id: number; bbox: number[]; in_roi: boolean; identity: 'pending' | 'allowed' | 'unauthorized'
-  person_id: number | null; person_name: string | null; similarity: number | null; alarm: boolean; reason: string | null
+  person_id: number | null; person_name: string | null; job_no: string | null; org_index_code: string | null
+  similarity: number | null; alarm: boolean; reason: string | null
 }
 export type FenceStatus = {
   camera_key: string; state: 'disabled' | 'offline' | 'waiting' | 'stale' | 'error' | 'ready'
