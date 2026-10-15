@@ -31,7 +31,7 @@ import {
 import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboardAlarms'
 import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
-import { FenceStatusPanel } from './security_fence/FenceStatusPanel'
+import { FenceMonitorView } from './security_fence/FenceMonitorView'
 
 type AiVisionMonitorProps = {
   title: string
@@ -268,6 +268,14 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     />
   }
 
+  if (presentation === 'security-fence') {
+    return <FenceMonitorView department={department}
+      cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
+      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
+    />
+  }
+
   if (presentation === 'visual-language') {
     return <VisualLanguageMonitorView key={`${department}:${selectedCamera}`} department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
@@ -384,7 +392,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       </CardHeader>
 
       <CardContent className="bg-[#f8fbff] p-4 dark:bg-slate-950/30">
-        {presentation === 'security-fence' && <FenceStatusPanel key={selectedCamera} cameraKey={selectedCamera} />}
         <div className="relative overflow-hidden rounded-2xl border border-slate-900/10 bg-slate-950 shadow-[0_18px_42px_rgba(2,8,23,0.18)]">
           <div className="relative aspect-video w-full">
             {frameContent}
