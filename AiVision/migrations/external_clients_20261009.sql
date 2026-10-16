@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS auth_external_clients (
     departments JSON NOT NULL,
     scopes JSON NOT NULL,
     enabled BOOL NOT NULL,
-    expires_at DATETIME(6) NOT NULL,
+    expires_at DATETIME(6) NULL,
     created_by VARCHAR(64) NOT NULL,
     created_at DATETIME(6) NOT NULL,
     updated_at DATETIME(6) NOT NULL,

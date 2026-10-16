@@ -954,7 +954,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
-`api/routes/external/` 的全部路由统一依赖 `auth/external.py` 校验 `X-API-Key`，不使用人员 Cookie/JWT。凭证表 `auth_external_clients` 保存摘要、事业部、操作权限和有效期，每次请求重新校验；管理员使用 `/api/admin/external-clients` 管理凭证。安检外部接口同时校验事业部当前功能分配，配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，操作日志记录服务身份及资源标识。
+`api/routes/external/` 的全部路由统一依赖 `auth/external.py` 校验 `X-API-Key`，不使用人员 Cookie/JWT。凭证表 `auth_external_clients` 保存摘要、事业部、操作权限和有效期，每次请求重新校验；管理员使用 `/api/admin/external-clients` 管理凭证。`expires_at` 必须明确提交，带时区的未来时间表示到期失效，`null` 表示永久有效；永久凭证仍校验授权、启停和密钥摘要。安检外部接口同时校验事业部当前功能分配，配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，操作日志记录服务身份及资源标识。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
@@ -1176,7 +1176,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/config-schema` | 默认配置和字段约束 |
 | GET | `/horns` | 配置写权限可读取的共享喇叭绑定选项 |
 
-外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。
+外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。凭证表的 `expires_at` 必须允许 `NULL`；已有表可在启动前执行 `migrations/external_clients_expiration_20261016.sql` 放宽该字段的非空约束。
 
 部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端只负责展示、配置交互和屏幕适配；长期凭证由受控服务端或代理保管。
 

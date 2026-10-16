@@ -20,13 +20,15 @@ X-API-Key: <对接凭证>
 ```json
 {
   "name": "室内围栏大屏",
-  "departments": ["general_electric"],
+  "departments": ["general_electric", "electronics_electrician", "electrical_components"],
   "scopes": ["security_fence:read"],
-  "expires_at": "2027-01-01T00:00:00+08:00"
+  "expires_at": null
 }
 ```
 
-有效期必须晚于创建时间。返回 `client` 元数据和 `api_key`，明文只在创建或轮换时返回一次。沿用平台凭证管理接口查询、修改授权、停用和轮换；停用、撤权、过期和轮换在后续请求立即生效。数据库只保存密钥摘要。
+`expires_at` 必须明确提交：`null` 表示永不过期；有限有效期使用带时区的未来时间，例如 `"2027-01-01T00:00:00+08:00"`。示例仅授权通用电气、电子电工、电气部件三个事业部。返回 `client` 元数据和 `api_key`，明文只在创建或轮换时返回一次。沿用平台凭证管理接口查询、修改授权、停用和轮换；停用、撤权、过期和轮换在后续请求立即生效。永久凭证仍受事业部和功能分配约束，也可停用或轮换。数据库只保存密钥摘要。
+
+凭证表的 `expires_at` 字段必须允许 `NULL`；已有表在启动服务前执行 `AiVision/migrations/external_clients_expiration_20261016.sql` 准备该字段。
 
 ## 接口目录
 

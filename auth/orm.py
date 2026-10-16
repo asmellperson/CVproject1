@@ -72,7 +72,7 @@ class ExternalClient(Base):
     departments = Column(JSON, nullable=False)
     scopes = Column(JSON, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
-    expires_at = Column(DATETIME(fsp=6), nullable=False)
+    expires_at = Column(DATETIME(fsp=6), nullable=True)
     created_by = Column(String(64), nullable=False)
     created_at = Column(DATETIME(fsp=6), nullable=False, default=utc_now)
     updated_at = Column(DATETIME(fsp=6), nullable=False, default=utc_now, onupdate=utc_now)

@@ -148,7 +148,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 
 [auth/api.py](auth/api.py) 提供登录、登出、当前用户、修改密码、用户管理和访问审计接口，由 AiVision 的 `create_app()` 注册。浏览器通过 Cookie 维持登录，前端请求携带 `credentials: 'include'`；接口返回 `401` 时清空前端登录状态。
 
-[auth/external.py](auth/external.py) 校验外部系统凭证；管理员通过 `/api/admin/external-clients` 管理授权、有效期、启停和轮换。密钥摘要保存于 `auth_external_clients`，明文仅在创建和轮换时返回。外部凭证不授予人员账号接口或全局模型设置的访问权限。
+[auth/external.py](auth/external.py) 校验外部系统凭证；管理员通过 `/api/admin/external-clients` 管理授权、有效期、启停和轮换。创建或修改凭证时必须明确提交 `expires_at`：带时区的未来时间表示到期失效，`null` 表示永久有效。永久凭证仍受事业部、操作权限、启停和轮换约束。密钥摘要保存于 `auth_external_clients`，明文仅在创建和轮换时返回。外部凭证不授予人员账号接口或全局模型设置的访问权限。
 
 | 数据 | MySQL 表 / 存储 |
 | --- | --- |

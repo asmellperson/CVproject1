@@ -38,7 +38,7 @@ def _info(row: ExternalClient) -> ExternalClientInfo:
         departments=row.departments,
         scopes=row.scopes,
         enabled=row.enabled,
-        expires_at=row.expires_at.replace(tzinfo=timezone.utc),
+        expires_at=row.expires_at.replace(tzinfo=timezone.utc) if row.expires_at is not None else None,
         created_by=row.created_by,
         created_at=row.created_at.replace(tzinfo=timezone.utc),
         updated_at=row.updated_at.replace(tzinfo=timezone.utc),
@@ -79,7 +79,7 @@ class ExternalClientStore:
                 departments=payload.departments,
                 scopes=payload.scopes,
                 enabled=True,
-                expires_at=payload.expires_at.replace(tzinfo=None),
+                expires_at=payload.expires_at.replace(tzinfo=None) if payload.expires_at is not None else None,
                 created_by=actor,
             )
             session.add(row)
@@ -101,7 +101,7 @@ class ExternalClientStore:
             row = self._locked(session, client_id)
             for field in ("name", "departments", "scopes", "enabled"):
                 setattr(row, field, getattr(payload, field))
-            row.expires_at = payload.expires_at.replace(tzinfo=None)
+            row.expires_at = payload.expires_at.replace(tzinfo=None) if payload.expires_at is not None else None
             session.flush()
             result = _info(row)
         return result
@@ -132,7 +132,7 @@ class ExternalClientStore:
             if (
                 row is None
                 or not row.enabled
-                or row.expires_at <= utc_now()
+                or (row.expires_at is not None and row.expires_at <= utc_now())
                 or not hmac.compare_digest(
                     row.key_digest, hashlib.sha256(api_key.encode("ascii")).hexdigest()
                 )

@@ -15,7 +15,7 @@ ExternalScope = Literal["security_inspection:read", "security_inspection:config:
 
 
 class ExternalClientCreate(BaseModel):
-    """创建凭证时必须明确事业部和有效期，默认只允许读取。"""
+    """创建凭证时必须明确事业部和有效期，null 表示永不过期。"""
 
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=128)
@@ -23,7 +23,7 @@ class ExternalClientCreate(BaseModel):
     scopes: list[ExternalScope] = Field(
         default_factory=lambda: [INSPECTION_READ], min_length=1, max_length=3
     )
-    expires_at: AwareDatetime
+    expires_at: AwareDatetime | None = Field(description="到期时间，传 null 表示永不过期")
 
     @field_validator("name")
     @classmethod
@@ -54,7 +54,9 @@ class ExternalClientCreate(BaseModel):
     @field_validator("expires_at")
     @classmethod
     def validate_expiration(cls, value):
-        """统一使用带时区的未来时间，拒绝创建已经过期的凭证。"""
+        """永久凭证显式传 null，其余凭证必须指定带时区的未来时间。"""
+        if value is None:
+            return None
         if value <= datetime.now(timezone.utc):
             raise ValueError("有效期必须晚于当前时间")
         return value.astimezone(timezone.utc)
@@ -81,7 +83,7 @@ class ExternalClientInfo(BaseModel):
     departments: list[str]
     scopes: list[ExternalScope]
     enabled: bool
-    expires_at: datetime
+    expires_at: datetime | None
     created_by: str
     created_at: datetime
     updated_at: datetime
