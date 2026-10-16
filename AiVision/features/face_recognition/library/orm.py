@@ -5,7 +5,7 @@ from AiVision.core.db import Base
 
 
 class FacePerson(Base):
-    """以来源和来源人员 ID 唯一定位资料，独立保存同步状态与本地通行授权。"""
+    """以来源和来源人员 ID 唯一定位共享资料，不承载事业部通行权限。"""
     __tablename__ = "ai_face_person"
     __table_args__ = (
         UniqueConstraint("hik_source", "hik_person_id", name="uq_face_person_hik_source_person"),
@@ -22,14 +22,22 @@ class FacePerson(Base):
     pic_uri = Column(Text, nullable=True, comment="原始 personPhoto.picUri")
     server_index_code = Column(String(64), nullable=True, comment="原始 personPhoto.serverIndexCode")
     is_active = Column(Boolean, nullable=False, default=True, comment="最近完整同步中是否存在")
-    is_allowed = Column(
-        Boolean, nullable=False, default=False, server_default=text("0"), comment="是否允许通行",
-    )
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
         TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"),
     )
     last_synced_at = Column(TIMESTAMP, nullable=False, comment="最近一次实际写入同步时间")
+
+
+class FacePersonAuthorization(Base):
+    """一行代表人员在指定事业部获准通行，同一事业部的摄像头共用。"""
+
+    __tablename__ = "ai_face_person_authorization"
+    __table_args__ = {"comment": "事业部人脸识别通行白名单", "mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+
+    department = Column(String(64), primary_key=True, comment="授权事业部")
+    person_id = Column(Integer, ForeignKey("ai_face_person.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
 class FaceEmbedding(Base):

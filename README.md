@@ -105,6 +105,8 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 
 区域入侵使用人体框与警戒线侧别；门状态使用图像差分；人脸与人员逗留使用跟踪和持续时间；手机检测使用候选关联与持续确认；身份识别使用 InsightFace 和人员特征库，记录识别结果，不产生普通违规告警。
 
+人脸身份识别共用人员资料和特征库，通行白名单按事业部独立保存。同一事业部的所有人脸识别摄像头共用该事业部白名单，添加或取消授权只影响当前事业部。
+
 模型名称和 Worker 类型由 `inference/model_registry.py` 固定注册，本机权重路径保存在 `AiVision/config/model_paths.yaml`。同一物理权重且 Worker 类型相同的逻辑模型可以共用进程。保存模型路径后需检查后台重载状态，HTTP `202` 只表示配置已接受。
 
 ### 警戒围栏
@@ -164,6 +166,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
 | 围栏时段、ROI 与独立白名单 | `ai_camera_config_security_fence` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
+| 人脸识别事业部通行白名单 | `ai_face_person_authorization` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
 
 报警媒体、识别截图和安检 session 默认保留 31 天，启动后及每 60 分钟清理过期数据。安检数据库图片随 session 删除。磁盘媒体的 `ALARM_MEDIA_MAX_GB=10` 是容量告警阈值，超限不会提前删除保留期内证据；数据库 BLOB 不计入磁盘媒体阈值。磁盘报警目录由正式报警类型注册表统一确定。

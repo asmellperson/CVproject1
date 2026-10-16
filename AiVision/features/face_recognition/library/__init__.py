@@ -8,7 +8,7 @@ features/face_recognition/library/：人员底库与特征索引
 一、先分清来源、照片和特征
 
     HIKVISION_SOURCES：one、two 两个外部来源，外部人员标识需要结合来源理解。
-    人员资料：姓名、工号、照片引用等本地快照，以及本地授权等业务状态。
+    人员资料：姓名、工号、照片引用等本地快照；通行授权按事业部独立保存。
     注册特征：从有效单人照片提取的向量，关联模型名称和照片签名。
     FaceIndex：供实时匹配使用的内存索引，刷新时读取数据库，匹配时不逐脸查库。
     PersonSyncError：完整性或生成流程中的业务异常，错误内容避免包含完整人员字段。
@@ -16,10 +16,10 @@ features/face_recognition/library/：人员底库与特征索引
 二、每个文件负责什么
 
     constants.py：特征模型标识、匹配与刷新等公共参数。
-    orm.py：FacePerson、FaceEmbedding 等人员和特征表。
+    orm.py：FacePerson、FaceEmbedding 及 FacePersonAuthorization 事业部授权表。
     service.py：FaceLibraryService，人员查询、授权修改、特征候选和特征保存。
         apply_snapshot() 以单个来源的完整人员快照为输入，在一个事务中更新。
-        get_allowed_person_ids() 提供当前授权集合，供识别 Consumer 使用。
+        get_allowed_person_ids(department) 提供指定事业部授权集合，供识别 Consumer 使用。
     sync.py：海康来源配置、全量分页核验和手动同步入口。
         fetch_persons() 检查页码、总数、缺页和重复 ID，完整获取后再提交快照。
         HikvisionSyncSettings 分别读取 HIKVISION_ONE_ / HIKVISION_TWO_ 配置。

@@ -25,14 +25,14 @@ import { useFacePersons, useRecognitionConfig } from './useRecognitionConfig'
 const AiVisionRoiEditor = lazy(() => import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })))
 const AiVisionModelConfig = lazy(() => import('@/components/AiVisionModelConfig').then((module) => ({ default: module.AiVisionModelConfig })))
 
-function FacePersonPermissions() {
-  const state = useFacePersons()
+function FacePersonPermissions({ department }: { department: DepartmentId }) {
+  const state = useFacePersons(department)
   const [keyword, setKeyword] = useState('')
   const saving = state.savingId !== null
   const pages = state.result ? Math.max(1, Math.ceil(state.result.total / state.result.page_size)) : 1
   return (
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title="人员权限" description={state.isAdmin ? '管理同步人员的通行权限；新同步人员默认不允许通行。' : '查看同步人员及通行权限；仅管理员可以修改允许状态。'} />
+      <DetectionConfigCardHeader icon={UserCheck} tone="emerald" title="人员权限" description={state.isAdmin ? '管理当前事业部的通行白名单，同事业部的摄像头共用；未添加的人员默认不允许通行。' : '查看当前事业部的通行白名单；仅管理员可以修改允许状态。'} />
       <DetectionConfigCardContent className="space-y-4">
         <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => {
           event.preventDefault()
@@ -77,7 +77,7 @@ function FacePersonPermissions() {
                 <TableCell>{person.hik_person_id}</TableCell><TableCell>海康 {person.hik_source}</TableCell>
                 <TableCell>{person.server_index_code || '—'}</TableCell><TableCell className="whitespace-nowrap">{person.is_active ? '已激活' : '已停用'}</TableCell>
                 <TableCell><div className="flex items-center gap-2 whitespace-nowrap">
-                  <Switch aria-label={`${person.person_name || person.hik_person_id}允许通行`} checked={person.is_allowed} disabled={!state.isAdmin || saving} onCheckedChange={(allowed) => { void state.setPersonAllowed(person.id, allowed) }} />
+                  <Switch aria-label={`${person.person_name || person.hik_person_id}允许通行`} checked={person.is_allowed} disabled={!state.isAdmin || saving || state.loading} onCheckedChange={(allowed) => { void state.setPersonAllowed(person.id, allowed) }} />
                   <span>{state.savingId === person.id ? '保存中…' : person.is_allowed ? '允许' : '不允许'}</span>
                 </div></TableCell>
                 <TableCell className="whitespace-nowrap">{new Date(person.last_synced_at).toLocaleString('zh-CN', { hour12: false })}</TableCell>
@@ -176,7 +176,7 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
         <DetectionSaveBar message={state.message} loading={state.loading} saving={state.saving} disabled={!state.canSave || Boolean(state.hornError)} onReload={() => state.loadConfig(state.cameraKey)} onSave={state.save} />
         <HornDeviceManager />
       </TabsContent>
-      <TabsContent value="persons"><FacePersonPermissions /></TabsContent>
+      <TabsContent value="persons"><FacePersonPermissions key={department} department={department} /></TabsContent>
     </Tabs>
   )
 }

@@ -34,7 +34,7 @@ class FaceRecognitionConfigSchema(BaseModel):
 
 
 class FacePersonItem(BaseModel):
-    """人员库对外信息，区分来源同步状态与本地授权状态。"""
+    """共享人员资料及所查询事业部的通行授权状态。"""
     model_config = ConfigDict(from_attributes=True)
     id: int
     hik_source: Literal["one", "two"]
@@ -61,7 +61,7 @@ class FacePersonPage(BaseModel):
 
 
 class FacePersonUpdate(BaseModel):
-    """仅允许修改人员的本地通行授权，不覆盖来源同步资料。"""
+    """仅修改请求中指定事业部的通行授权，不覆盖来源同步资料。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     is_allowed: bool
 

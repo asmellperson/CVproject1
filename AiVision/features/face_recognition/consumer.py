@@ -5,6 +5,7 @@ import time
 
 import cv2
 
+from AiVision.departments.department_registry import require_department
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features.face_recognition.library.constants import (
     AUTHORIZATION_REFRESH_SECONDS, DEFAULT_CAPTURE_INTERVAL, DEFAULT_DETECTION_THRESHOLD, DEFAULT_RECORD_COOLDOWN_SECONDS,
@@ -22,8 +23,8 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         self.monitor_status: dict[str, dict] = {}
         self.recorder = RecognitionRecorder()
         self.library = FaceLibraryService()
-        self._allowed_person_ids: set[int] = set()
-        self._authorization_refresh_at = 0.0
+        self._allowed_person_ids: dict[str, set[int]] = {}
+        self._authorization_refresh_at: dict[str, float] = {}
 
     def start(self):
         """先启动记录器，再启动检测；检测启动失败时同步释放记录线程。"""
@@ -62,6 +63,7 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         过期权限继续判定。身份匹配与通行授权是两个独立条件。
         """
         value = self.config_cache[camera_id]
+        department = require_department(value.get("department"))
         response = self.dispatch_inference_sync(
             camera_id, "insightface", roi,
             task_meta={
@@ -71,12 +73,14 @@ class FaceRecognitionConsumer(BaseFunctionConsumer):
         )
         if response["status"] != "ok":
             return False, response
-        if time.monotonic() >= self._authorization_refresh_at:
-            # 整个 Consumer 共用 ID 集合；刷新失败交给基类记录异常，不使用过期权限判定。
-            self._allowed_person_ids = self.library.get_allowed_person_ids()
-            self._authorization_refresh_at = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
+        if time.monotonic() >= self._authorization_refresh_at.get(department, 0.0):
+            # 同事业部共用缓存，跨事业部独立刷新；失败时不使用过期权限判定。
+            self._allowed_person_ids[department] = self.library.get_allowed_person_ids(department)
+            self._authorization_refresh_at[department] = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
         for detection in response["detections"]:
-            detection["is_allowed"] = bool(detection["matched"] and detection["person_id"] in self._allowed_person_ids)
+            detection["is_allowed"] = bool(
+                detection["matched"] and detection["person_id"] in self._allowed_person_ids[department]
+            )
         return any(not detection["is_allowed"] for detection in response["detections"]), response
 
     def _alarm_context(self, camera_id: int, result: tuple) -> dict:

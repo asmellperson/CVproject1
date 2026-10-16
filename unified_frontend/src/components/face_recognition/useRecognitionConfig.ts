@@ -12,9 +12,9 @@ import { FACE_FEATURE, getFacePersons, updateFacePerson, type FacePersonPage } f
 
 const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
 
-export function useFacePersons() {
+export function useFacePersons(department: DepartmentId) {
   const { isAdmin } = useAuth()
-  const [query, setQuery] = useState<Parameters<typeof getFacePersons>[0]>({ page: 1, page_size: 20 })
+  const [query, setQuery] = useState<Parameters<typeof getFacePersons>[1]>({ page: 1, page_size: 20 })
   const [result, setResult] = useState<FacePersonPage | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<number | null>(null)
@@ -31,7 +31,7 @@ export function useFacePersons() {
     setError('')
     setMessage('')
     try {
-      const page = await getFacePersons(query, controller.signal)
+      const page = await getFacePersons(department, query, controller.signal)
       if (controller.signal.aborted) return false
       const lastPage = Math.max(1, Math.ceil(page.total / page.page_size))
       if (query.page > lastPage) {
@@ -49,7 +49,7 @@ export function useFacePersons() {
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [query])
+  }, [department, query])
 
   useEffect(() => {
     void loadPersons()
@@ -66,7 +66,7 @@ export function useFacePersons() {
     setError('')
     setMessage('')
     try {
-      await updateFacePerson(personId, isAllowed, controller.signal)
+      await updateFacePerson(department, personId, isAllowed, controller.signal)
       if (controller.signal.aborted) return
       if (await loadPersons()) setMessage('通行权限已保存，人员状态已重新读取。')
     } catch (cause) {

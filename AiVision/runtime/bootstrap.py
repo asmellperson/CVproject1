@@ -15,7 +15,7 @@ def bootstrap_database():
     from AiVision.cameras import orm as _camera_orm  # noqa: F401
     from AiVision.features.logistics_channel.orm import LogisticsChannel, LogisticsChannelCamera
     from AiVision.alarms.records.orm import AiAlarmDisposition
-    from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson
+    from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson, FacePersonAuthorization
     from AiVision.features.security_inspection.orm import InspectionSession, InspectionSessionImage
     from AiVision.features.visual_language_detection.orm import VisualLanguageEventORM
     from AiVision.features.guard_behavior.orm import (
@@ -32,7 +32,7 @@ def bootstrap_database():
         for spec in specs.values():
             assert_table_matches(connection, spec.orm_class.__table__)
         for model in (
-            LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding,
+            LogisticsChannel, LogisticsChannelCamera, FacePerson, FaceEmbedding, FacePersonAuthorization,
             GuardBehaviorSite, GuardBehaviorSiteCamera,
             GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
             InspectionSession, InspectionSessionImage, VisualLanguageEventORM,

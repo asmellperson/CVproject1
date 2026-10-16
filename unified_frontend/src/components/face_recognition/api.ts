@@ -90,7 +90,7 @@ export function getRecognitionRecords(department: DepartmentId, page: number, ca
   return requestRecognition<RecognitionRecordPage>(`face-recognition/records?${params}`, { signal })
 }
 
-export function getFacePersons(query: {
+export function getFacePersons(department: DepartmentId, query: {
   page: number
   page_size: number
   keyword?: string
@@ -98,7 +98,7 @@ export function getFacePersons(query: {
   is_active?: boolean
   is_allowed?: boolean
 }, signal?: AbortSignal) {
-  const params = new URLSearchParams({ page: String(query.page), page_size: String(query.page_size) })
+  const params = new URLSearchParams({ department, page: String(query.page), page_size: String(query.page_size) })
   if (query.keyword) params.set('keyword', query.keyword)
   if (query.source) params.set('source', query.source)
   if (query.is_active !== undefined) params.set('is_active', String(query.is_active))
@@ -106,8 +106,9 @@ export function getFacePersons(query: {
   return requestRecognition<FacePersonPage>(`face-recognition/persons?${params}`, { signal })
 }
 
-export function updateFacePerson(personId: number, isAllowed: boolean, signal?: AbortSignal) {
-  return requestRecognition<FacePerson>(`face-recognition/persons/${personId}`, {
+export function updateFacePerson(department: DepartmentId, personId: number, isAllowed: boolean, signal?: AbortSignal) {
+  const params = new URLSearchParams({ department })
+  return requestRecognition<FacePerson>(`face-recognition/persons/${personId}?${params}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ is_allowed: isAllowed }), signal,
   })

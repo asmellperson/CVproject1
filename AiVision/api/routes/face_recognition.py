@@ -1,4 +1,4 @@
-"""按摄像头事业部隔离的识别记录与平台统一人员权限接口。"""
+"""按事业部隔离人脸识别通行授权和识别记录。"""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/face-recognition", tags=["face-recognition"])
 
 @router.get("/persons", response_model=FacePersonPage)
 def get_persons(
+    department: str = Query(...),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     keyword: str | None = Query(None, max_length=255),
@@ -23,18 +24,23 @@ def get_persons(
     is_allowed: bool | None = None,
     user: dict = Depends(get_current_user),
 ):
-    """具备人脸识别功能访问权后查询平台人员库，支持来源及授权状态过滤。"""
-    require_feature_access(user, "recognize_face")
+    """校验具体事业部的功能权限，返回该事业部的通行授权状态。"""
+    require_feature_access(user, "recognize_face", department)
     return FaceLibraryService().list_persons(
+        department=department,
         page=page, page_size=page_size, keyword=keyword,
         source=source, is_active=is_active, is_allowed=is_allowed,
     )
 
 
 @router.patch("/persons/{person_id}", response_model=FacePersonItem)
-def update_person(person_id: int, payload: FacePersonUpdate, _user: dict = Depends(require_admin)):
-    """仅管理员可修改人员本地通行授权，人员不存在时返回 404。"""
-    person = FaceLibraryService().update_person_allowed(person_id, payload.is_allowed)
+def update_person(
+    person_id: int, payload: FacePersonUpdate,
+    department: str = Query(...), user: dict = Depends(require_admin),
+):
+    """管理员仅可修改已分配人脸识别功能的指定事业部白名单。"""
+    require_feature_access(user, "recognize_face", department)
+    person = FaceLibraryService().update_person_allowed(person_id, payload.is_allowed, department=department)
     if person is None:
         raise HTTPException(status_code=404, detail="person not found")
     return person

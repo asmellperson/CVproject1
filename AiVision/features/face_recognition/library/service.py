@@ -8,12 +8,13 @@ from sqlalchemy import func, or_, select
 
 from AiVision.connectors.hikvision import HikvisionPerson
 from AiVision.core.db import get_session, session_scope
+from AiVision.departments.department_registry import require_department
 from AiVision.features.face_recognition.schema import FacePersonItem, FacePersonPage
 
 from . import HIKVISION_SOURCES, PersonSyncError
 from .constants import EMBEDDING_DIM
 from .index import encode_embedding, photo_signature
-from .orm import FaceEmbedding, FacePerson
+from .orm import FaceEmbedding, FacePerson, FacePersonAuthorization
 
 
 @dataclass(frozen=True)
@@ -81,23 +82,37 @@ class FaceLibraryService:
         with get_session() as session:
             return session.query(FacePerson).filter_by(hik_source=source, hik_person_id=person_id).one_or_none()
 
+    @staticmethod
+    def _person_query(session, department: str):
+        """人员资料共享，允许状态只由当前事业部的授权行决定。"""
+        return session.query(
+            *FacePerson.__table__.columns,
+            FacePersonAuthorization.person_id.is_not(None).label("is_allowed"),
+        ).select_from(FacePerson).outerjoin(
+            FacePersonAuthorization,
+            (FacePersonAuthorization.person_id == FacePerson.id)
+            & (FacePersonAuthorization.department == department),
+        )
+
     def list_persons(
-        self, *, page: int = 1, page_size: int = 20, keyword: str | None = None,
+        self, *, department: str, page: int = 1, page_size: int = 20, keyword: str | None = None,
         source: str | None = None, is_active: bool | None = None, is_allowed: bool | None = None,
     ) -> FacePersonPage:
-        """按来源、状态及转义后的关键字筛选人员，校验分页范围后返回稳定顺序。"""
+        """按来源、当前事业部授权及关键字筛选人员，分页计数沿用相同条件。"""
+        require_department(department)
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("页码必须大于零，每页数量须为 1～100")
         if source is not None:
             self._require_source(source)
         with get_session() as session:
-            query = session.query(FacePerson)
+            query = self._person_query(session, department)
             if source is not None:
-                query = query.filter_by(hik_source=source)
+                query = query.filter(FacePerson.hik_source == source)
             if is_active is not None:
-                query = query.filter_by(is_active=is_active)
+                query = query.filter(FacePerson.is_active.is_(is_active))
             if is_allowed is not None:
-                query = query.filter_by(is_allowed=is_allowed)
+                query = query.filter(FacePersonAuthorization.person_id.is_not(None) if is_allowed
+                                     else FacePersonAuthorization.person_id.is_(None))
             if keyword and keyword.strip():
                 query = query.filter(or_(*(column.icontains(keyword.strip(), autoescape=True) for column in (
                     FacePerson.person_name, FacePerson.job_no, FacePerson.person_code,
@@ -110,23 +125,29 @@ class FaceLibraryService:
                 items=[FacePersonItem.model_validate(person) for person in persons],
             )
 
-    def update_person_allowed(self, person_id: int, is_allowed: bool) -> FacePersonItem | None:
-        """锁定并修改本地授权，提交后重新读取实际保存结果；人员不存在时返回 None。"""
+    def update_person_allowed(self, person_id: int, is_allowed: bool, *, department: str) -> FacePersonItem | None:
+        """只增删指定事业部授权，锁定人员以串行化并发增删，提交后回读结果。"""
+        require_department(department)
         with session_scope() as session:
             person = session.get(FacePerson, person_id, with_for_update=True)
             if person is None:
                 return None
-            person.is_allowed = is_allowed
+            authorization = session.get(FacePersonAuthorization, (department, person_id))
+            if is_allowed and authorization is None:
+                session.add(FacePersonAuthorization(department=department, person_id=person_id))
+            elif not is_allowed and authorization is not None:
+                session.delete(authorization)
         # 提交后重新读取数据库状态，响应包含实际保存值和时间戳。
         with get_session() as session:
-            person = session.get(FacePerson, person_id)
+            person = self._person_query(session, department).filter(FacePerson.id == person_id).one_or_none()
             return FacePersonItem.model_validate(person) if person is not None else None
 
-    def get_allowed_person_ids(self) -> set[int]:
-        """仅返回仍在用且明确获准通行的人员 ID。"""
+    def get_allowed_person_ids(self, department: str) -> set[int]:
+        """仅返回当前事业部内仍在用且获准通行的人员 ID。"""
+        require_department(department)
         with get_session() as session:
-            return set(session.scalars(select(FacePerson.id).where(
-                FacePerson.is_active.is_(True), FacePerson.is_allowed.is_(True),
+            return set(session.scalars(select(FacePerson.id).join(FacePersonAuthorization).where(
+                FacePerson.is_active.is_(True), FacePersonAuthorization.department == department,
             )))
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:
@@ -151,7 +172,7 @@ class FaceLibraryService:
             synced_at = session.scalar(select(func.current_timestamp()))
             for person in persons:
                 photo = person.person_photo
-                # 同步仅覆盖来源字段；本地 is_allowed 在停用、重新激活和重同步时均保留。
+                # 同步仅覆盖来源字段，事业部通行授权独立保存，不受重同步和停用影响。
                 values = {
                     "person_name": person.person_name,
                     "person_code": person.person_code,
