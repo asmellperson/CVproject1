@@ -843,7 +843,7 @@ Consumer / 通道状态机满足规则
 | 字段 | 默认值 |
 | --- | --- |
 | `base_url` | `http://127.0.0.1:18100/v1` |
-| `model` | `fuda-qwen36-27b` |
+| `model` | `fuda-qwen38-27b` |
 | `api_timeout_sec` / `queue_timeout_sec` | `45` / `60` 秒 |
 | `max_concurrent` / `queue_capacity` | `3` / `32` |
 | `max_tokens` / `temperature` | `2048` / `0.1` |
