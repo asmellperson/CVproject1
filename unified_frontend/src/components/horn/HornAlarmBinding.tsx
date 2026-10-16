@@ -64,7 +64,7 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
           value={value.parm.horn_event_id == null ? '' : String(value.parm.horn_event_id)} disabled={readOnly}
           onChange={(event) => onChange({ ...value, parm: { ...value.parm,
             horn_event_id: event.target.value === '' ? null : Number(event.target.value),
-          } })} placeholder="填写设备中已有的语音任务 ID" />
+          } })} placeholder="填写设备素材库中的音频文件 ID" />
       </div>
     </div>
     {state ? <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">设备状态
@@ -78,6 +78,6 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         : devices === null ? <p role="status" className="text-xs text-slate-500">正在读取喇叭设备...</p>
           : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在旁边的“喇叭配置”中管理。</p> : null}
     {warning ? <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p> : null}
-    <p className="text-xs text-slate-500 dark:text-slate-400">语音任务需已在设备中配置。修改后保存当前检测配置生效。</p>
+    <p className="text-xs text-slate-500 dark:text-slate-400">海康设备填写素材库中的音频文件 ID；音频需先在设备中上传。修改后保存当前检测配置生效。</p>
   </div>
 }

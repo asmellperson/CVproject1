@@ -201,6 +201,8 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 
 接口字段以路由源码和运行实例的 `/docs`、`/openapi.json` 为准。
 
+现场喇叭使用海康 ISAPI 网络音柱（如 DS-QA6C301），设备地址填写 HTTP/HTTPS 网页管理根地址和实际端口，账号密码使用设备自身凭据。连接测试只读取设备信息，不保存配置或播放声音；报警绑定中的语音任务 ID 对应设备素材库的音频文件 ID。
+
 ## 6. 环境准备与启动
 
 准备 Python `>=3.10,<3.12`、Node.js 20 环境、MySQL、FFmpeg/ffprobe，以及本机可用的模型权重。Python 依赖和 GPU 人脸环境说明见 [AiVision 环境准备](AiVision/README.md#11-环境准备与启动)。
