@@ -7,6 +7,38 @@ import re
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from AiVision.departments.department_registry import require_department
+
+
+class HornReference(BaseModel):
+    """只返回定位绑定所需的信息，不包含摄像头地址或设备凭据。"""
+    key: str
+    kind: Literal["camera", "logistics_channel", "guard_site"]
+    feature: str
+    feature_label: str
+    department: str | None
+    department_label: str
+    resource_id: int
+    resource_name: str
+    detection_enabled: bool
+    horn_enabled: bool
+    audio_id: int | None
+    alarm_label: str | None = None
+
+
+class HornUsage(BaseModel):
+    """删除前查看全部引用，包括停用配置，并以版本防止误删新出现的绑定。"""
+    horn_id: int
+    device_enabled: bool
+    references: list[HornReference]
+    revision: str
+
+
+class HornDeleteRequest(BaseModel):
+    """管理员确认引用清单后，显式解除已停用设备的绑定。"""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    detach_bindings: bool = False
+    expected_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class HornSipWrite(BaseModel):
@@ -77,6 +109,12 @@ class HornFields(BaseModel):
     """设备配置公共校验，错误响应隐藏原始输入以保护凭据。"""
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
+    @field_validator("department", check_fields=False)
+    @classmethod
+    def device_department(cls, value):
+        """新建和归属调整只能选择正式事业部，不能写入全局设备。"""
+        return require_department(value)
+
     @field_validator("name", "username", check_fields=False)
     @classmethod
     def nonblank(cls, value):
@@ -129,6 +167,7 @@ class HornFields(BaseModel):
 class HornCreate(HornFields):
     """创建设备所需信息，密码使用 SecretStr 避免默认展示。"""
     name: str = Field(min_length=1, max_length=100)
+    department: str
     url: str = Field(min_length=1, max_length=500)
     username: str = Field(default="admin", min_length=1, max_length=100)
     password: SecretStr = Field(min_length=1, max_length=200)
@@ -140,6 +179,7 @@ class HornCreate(HornFields):
 class HornUpdate(HornFields):
     """设备局部更新请求，密码保留策略由服务层决定。"""
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    department: str | None = None
     url: str | None = Field(default=None, min_length=1, max_length=500)
     username: str | None = Field(default=None, min_length=1, max_length=100)
     password: SecretStr | None = Field(default=None, max_length=200)
@@ -171,6 +211,7 @@ class HornResponse(BaseModel):
     """设备公开响应仅提供 password_set，不返回密码本身。"""
     id: int
     name: str
+    department: str | None
     url: str
     username: str
     password_set: bool

@@ -18,9 +18,17 @@ from urllib.parse import urlsplit, urlunsplit
 from AiVision.core.db import session_scope, get_session          # session_scope:自动提交，异常回退，以及最后关闭与数据库的会话，get_session:自己创建一个数据Session
 from .schema import HornCreate, HornUpdate
 from .orm import AiHornConfig                           # 数据库里的配置
+from .references import collect_references, usage_snapshot, notify_detached
+
+_UNSCOPED = object()
 
 class HornInUseError(ValueError):
     """设备仍被告警配置引用，不允许删除。"""
+
+    def __init__(self, message, usage):
+        """保留可公开的引用快照，让前端可以重新展示准确影响范围。"""
+        super().__init__(message)
+        self.usage = usage
 
 
 class HornConfigError(ValueError):
@@ -41,13 +49,17 @@ class HornService:
             runtime = horn_runtime_manager
         runtime.sync(horn_id)
 
-    def list_horns(self, enabled_only: bool = False) -> list[dict]:
-        """查询所有喇叭配置"""
+    def list_horns(self, enabled_only: bool = False, *, department: str | None = None, unassigned: bool = False) -> list[dict]:
+        """按事业部或待分配范围查询，内部运行服务可读取全部配置。"""
         # 创建数据库会话
         session = get_session()
         try:
             # 构建查询对象q
             q = session.query(AiHornConfig)
+            if unassigned:
+                q = q.filter(AiHornConfig.department.is_(None))
+            elif department is not None:
+                q = q.filter(AiHornConfig.department == department)
             # 查询语句
             if enabled_only:
                 q = q.filter(AiHornConfig.enable.is_(True))
@@ -74,6 +86,7 @@ class HornService:
             # 内存对象
             h = AiHornConfig(
                 name=payload["name"],
+                department=payload["department"],
                 url=payload["url"],
                 username=payload.get("username", "admin"),
                 password=payload["password"],
@@ -90,15 +103,15 @@ class HornService:
         self._sync_after_commit(result["id"])
         return result
 
-    def update_horn(self, horn_id: int, payload: dict) -> Optional[dict]:
+    def update_horn(self, horn_id: int, payload: dict, *, expected_department=_UNSCOPED) -> Optional[dict]:
         """更新数据库"""
         payload = HornUpdate.model_validate(payload).write_values()
         with session_scope() as session:
             h = session.get(AiHornConfig, horn_id, with_for_update=True)
-            if h is None:
+            if h is None or (expected_department is not _UNSCOPED and h.department != expected_department):
                 return None
             # 这些字段允许被修改
-            for f in ("name", "url", "username", "password", "description"):
+            for f in ("name", "url", "username", "password", "description", "department"):
                 # 只有payload里真正传来的字段才改
                 if f in payload and (f != "password" or payload[f]):
                     setattr(h, f, payload[f])
@@ -107,34 +120,50 @@ class HornService:
             # 单独处理enable
             if "enable" in payload:
                 h.enable = bool(payload["enable"])
+            if "department" in payload:
+                references = collect_references(session, horn_id)
+                if any(item.department != h.department for _, item in references):
+                    raise HornConfigError("存在其他事业部的喇叭绑定，请先查看引用并解除绑定后调整归属")
             self._validate_sip_identity(session, h)
             result = self._to_dict(h)
         self._sync_after_commit(horn_id)
         return result
 
-    def delete_horn(self, horn_id: int) -> bool:
-        """删除喇叭"""
+    def get_usage(self, horn_id: int):
+        """管理员可查看关闭告警、停用检测以及跨页面保留的全部引用。"""
+        session = get_session()
+        try:
+            horn = session.get(AiHornConfig, horn_id)
+            return usage_snapshot(horn, collect_references(session, horn_id)) if horn else None
+        finally:
+            session.close()
+
+    def delete_horn(self, horn_id: int, *, detach_bindings: bool = False, expected_revision: str | None = None,
+                    expected_department=_UNSCOPED) -> bool:
+        """显式确认后，在同一事务中关闭绑定的喇叭告警并删除已停用设备。"""
+        detached = []
         with session_scope() as session:
             h = session.get(AiHornConfig, horn_id, with_for_update=True)
-            if h is None:
+            if h is None or (expected_department is not _UNSCOPED and h.department != expected_department):
                 return False
-            from AiVision.features.registry import all_specs
-            from AiVision.features._shared.orm import FeatureConfigBase
-            from AiVision.features.logistics_channel.orm import LogisticsChannel
-            from AiVision.features.guard_behavior.orm import GuardBehaviorAlarmPolicy
-
-            # 包括停用的功能/通道配置；存在引用时不依赖外键 SET NULL 隐式解绑。
-            models = [
-                spec.orm_class for spec in all_specs().values()
-                if issubclass(spec.orm_class, FeatureConfigBase)
-            ]
-            models.append(LogisticsChannel)
-            models.append(GuardBehaviorAlarmPolicy)
-            for model in models:
-                if session.query(model).filter(model.horn_id == horn_id).with_for_update().first() is not None:
-                    raise HornInUseError("喇叭仍被功能或物流通道配置引用，请先解除绑定")
+            references = collect_references(session, horn_id, lock=True)
+            usage = usage_snapshot(h, references)
+            if expected_revision is not None and expected_revision != usage.revision:
+                raise HornInUseError("引用或设备状态已变化，请查看最新清单后重新确认", usage)
+            if references:
+                if not detach_bindings or expected_revision is None:
+                    raise HornInUseError("设备仍有保留的报警绑定，请查看引用后确认解除绑定并删除", usage)
+                if h.enable:
+                    raise HornInUseError("请先停用喇叭，再确认解除以下绑定并删除", usage)
+                for row, item in references:
+                    row.horn_enable = False
+                    row.horn_id = None
+                    row.horn_event_id = None
+                    detached.append(item)
+                session.flush()
             session.delete(h)
         self._sync_after_commit(horn_id)
+        notify_detached(detached)
         return True
 
     # ---------- Runtime ----------
@@ -162,6 +191,7 @@ class HornService:
         return {
             "id": h.id,
             "name": h.name,
+            "department": h.department,
             "url": public_url,
             "username": h.username,
             "password_set": bool(h.password),

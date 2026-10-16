@@ -9,9 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import type { HornConnectionInput, HornConnectionResult, HornDevice, HornWrite } from '@/lib/horns'
 import { DEFAULT_HORN_SIP, hornConnectionPayload, hornDraft, hornWritePayload, validateHornDraft } from './hornDeviceForm'
+import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 
 type Props = {
   device: HornDevice | null
+  department: DepartmentId
   busy: boolean
   error: string
   onClose: () => void
@@ -19,8 +21,8 @@ type Props = {
   onTest: (payload: HornConnectionInput) => Promise<HornConnectionResult | undefined>
 }
 
-export function HornDeviceDialog({ device, busy, error, onClose, onSave, onTest }: Props) {
-  const [draft, setDraft] = useState(() => hornDraft(device))
+export function HornDeviceDialog({ device, department, busy, error, onClose, onSave, onTest }: Props) {
+  const [draft, setDraft] = useState(() => hornDraft(device, department))
   const [validationError, setValidationError] = useState('')
   const [testResult, setTestResult] = useState<HornConnectionResult | undefined>()
   const [operation, setOperation] = useState<'save' | 'test' | null>(null)
@@ -63,7 +65,7 @@ export function HornDeviceDialog({ device, busy, error, onClose, onSave, onTest 
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" showCloseButton={!disabled}>
         <DialogHeader>
           <DialogTitle>{device ? '编辑喇叭设备' : '新增喇叭设备'}</DialogTitle>
-          <DialogDescription>这是全局设备，所有检测页面共享此配置。测试连接不会播放声音或保存修改。</DialogDescription>
+          <DialogDescription>归属 {DEPARTMENT_LABELS[draft.department]}，供本事业部的检测配置使用。测试连接不会播放声音或保存修改。</DialogDescription>
         </DialogHeader>
         <form id="horn-device-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); void submit() }}>
           <div className="space-y-2">

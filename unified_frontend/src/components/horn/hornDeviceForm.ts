@@ -1,4 +1,5 @@
 import type { HornConnectionInput, HornDevice, HornState, HornWrite } from '@/lib/horns'
+import type { DepartmentId } from '@/auth/permissions'
 
 export const DEFAULT_HORN_SIP = { username: '10000', auth_id: '10000', port: 5060, password: '' }
 
@@ -7,9 +8,10 @@ export const HORN_STATE_LABELS: Record<HornState, string> = {
   disabled: '已停用', stopping: '停止中', stopped: '已停止', pending: '等待同步', not_started: '服务未启动',
 }
 
-export function hornDraft(device: HornDevice | null): HornWrite & { password: string } {
+export function hornDraft(device: HornDevice | null, department: DepartmentId): HornWrite & { password: string } {
   return {
     name: device?.name ?? '', url: device?.url ?? '', username: device?.username ?? 'admin',
+    department: device?.department ?? department,
     password: '', enable: device?.enable ?? false, description: device?.description ?? '',
     sip: device ? (device.sip ? { username: device.sip.username, auth_id: device.sip.auth_id, port: device.sip.port, password: '' } : null)
       : { ...DEFAULT_HORN_SIP },
@@ -44,6 +46,7 @@ export function validateHornDraft(draft: HornWrite, editing: boolean, connection
 export function hornWritePayload(draft: HornWrite): HornWrite {
   return {
     name: draft.name.trim(), url: draft.url.trim(), username: draft.username.trim(),
+    department: draft.department,
     enable: draft.enable, description: draft.description?.trim() || null,
     // 编辑留空时不发送 password，密码中的有效空格不做 trim。
     ...(draft.password ? { password: draft.password } : {}),

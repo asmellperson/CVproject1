@@ -811,6 +811,10 @@ Consumer / 通道状态机满足规则
 
 `audio.py` 校验上传的 AAC 并通过 FFmpeg 预转码，默认上限 10 MB、60 秒。原音频及 A-law 文件保存在 `DATA_PATH/horn_audio`，不参与报警证据的周期清理；被检测配置引用的素材需解绑后才能删除。手动试播和真实报警复用 `Horn.play()`。设备音频模式调用 `PUT /ISAPI/AccessControl/EventCardLinkageCfg/CustomAudio/{音频文件ID}/play?format=json`，同时检查 HTTP 与 ISAPI 业务状态。API 只返回密码设置状态和脱敏错误。
 
+设备配置具有独立的 `department` 归属。管理员设备接口必须指定 `department`，未归属设备通过 `unassigned=true` 单独读取和分配；设备详情、状态、编辑、删除和试播均核对请求范围，编辑与删除在事务内再次复核。普通检测、物流通道、保安室以及外部安检的喇叭选项和绑定校验遵守同一归属规则。SIP 服务及音频素材库仍为平台共享资源。
+
+`references.py` 收集普通功能、物流通道和保安室的全部喇叭引用，返回事业部、功能、资源名称及告警和检测启停状态。删除默认保留引用保护；管理员对已停用设备提交 `detach_bindings=true` 和清单的 `expected_revision` 后，在同一事务内关闭这些配置的喇叭告警、清空设备及音频绑定并删除设备，提交后定向刷新缓存与运行状态。清单或设备身份变化会返回 409 和最新引用快照。
+
 ## 9. 保安行为与安检流程
 
 ### 9.1 保安行为：`guard_behavior`
@@ -935,7 +939,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 安检数据库图片 | `ai_security_inspection_session_image` | 与不合规 session 一对一关联的 JPEG 二进制，随会话过期删除 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
-| 喇叭设备 | `ai_horn_config` | 设备连接、SIP 身份和运行配置 |
+| 喇叭设备 | `ai_horn_config` | 事业部归属、设备连接、SIP 身份和运行配置 |
 | 喇叭音频 | `ai_horn_audio`、`DATA_PATH/horn_audio` | 已验证 AAC 的元数据、原文件和预转码音频 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
 | 人脸识别通行白名单 | `ai_face_person_authorization` | 按事业部和人员保存授权，同事业部摄像头共用 |
@@ -983,7 +987,9 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 安检结构和图片回填使用 `python -m AiVision.migrations.security_inspection_retention_20261012 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，准备时间索引、图片表并回填最近 31 天仍存在的安检原图。脚本读取 `AiVision/.env`，可重复执行，不覆盖已有数据库图片，也不删除历史数据；缺失或损坏的原图会记录原因并返回未回填数量。启动配置中的 `ALARM_MEDIA_RETENTION_DAYS` 必须至少为 31；启动后的定时任务负责清理过期记录。
 
-喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 只读核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备 `ai_horn_config.sip_config` 和 `ai_horn_audio`。脚本读取 `AiVision/.env`，可重复执行，保留已有设备、凭据和报警绑定；空库由正常启动流程或 `schema_mysql.sql` 建表。
+喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 只读核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备 `ai_horn_config.department` 及索引、`sip_config` 和 `ai_horn_audio`。脚本读取 `AiVision/.env`，可重复执行，保留已有设备、凭据和报警绑定；空库由正常启动流程或 `schema_mysql.sql` 建表。
+
+旧设备默认保留为待分配。应用时可同时指定 `--legacy-department <事业部代码> --legacy-device-url <设备管理根地址>`，只为该地址对应的设备写入归属，其他旧设备保留待分配。已有绑定必须属于指定事业部，否则工具会要求先在前端核对和整理引用，不自动改动其他事业部的告警。
 
 ## 11. 环境准备与启动
 
@@ -1115,8 +1121,9 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET / POST | `/api/alarm-dispositions` | 游标分页读取 / 更新处置 |
 | GET | `/api/alarm-dispositions/{alarm_id}` | 单条处置及历史 |
 | GET / PUT | `/api/exception-alert` | 系统异常通知配置 |
-| GET / POST | `/api/horns` | 喇叭列表 / 新建 |
-| GET / PATCH / DELETE | `/api/horns/{horn_id}` | 喇叭详情 / 修改 / 删除 |
+| GET / POST | `/api/horns` | 按 `department` 列表 / 新建时提交归属；`unassigned=true` 读取待分配设备 |
+| GET / PATCH / DELETE | `/api/horns/{horn_id}` | 指定归属范围读取 / 修改 / 删除；确认解绑删除时提交 `detach_bindings`、`expected_revision` |
+| GET | `/api/horns/{horn_id}/references` | 指定归属范围读取所有引用和删除确认版本 |
 | POST | `/api/horns/test-connection` | 设备连接测试 |
 | GET / PUT | `/api/horns/sip-server` | 平台 SIP 服务参数和监听状态 |
 | GET / POST | `/api/horns/audio` | 服务器音频列表 / 上传 AAC 二进制，文件名由 URL 编码的 `X-Audio-Filename` 传入 |
@@ -1198,7 +1205,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/cameras/{shm_name}/frame.jpg` | 安检标注帧；`annotated=false` 返回绘制 ROI 的原始帧 |
 | GET / PUT | `/cameras/{shm_name}/config` | 读取 / 完整保存摄像头安检配置 |
 | GET | `/config-schema` | 默认配置和字段约束 |
-| GET | `/horns` | 配置写权限可读取的共享喇叭绑定选项 |
+| GET | `/horns` | 配置写权限可读取的当前授权事业部喇叭选项 |
 
 外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。凭证表的 `expires_at` 必须允许 `NULL`；已有表可在启动前执行 `migrations/external_clients_expiration_20261016.sql` 放宽该字段的非空约束。
 

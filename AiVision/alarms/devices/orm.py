@@ -17,6 +17,7 @@ class AiHornConfig(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     # nullable=False：不能是None。也就是喇叭必须有名字，unique=True名字不能重复
     name = Column(String(100), nullable=False, unique=True, index=True)
+    department = Column(String(100), nullable=True, index=True)
     # 喇叭设备的网络地址
     url = Column(String(500), nullable=False)
     # 访问这个喇叭地址的用户名和密码

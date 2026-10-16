@@ -294,7 +294,7 @@ class LogisticsChannelService(MembershipTransaction):
             if config_values:
                 # 局部更新必须与数据库中保留的字段一起校验，失败时回滚整个事务。
                 LogisticsChannelConfigResponse.model_validate(channel)
-                validate_horn_binding(session, channel.horn_enable, channel.horn_id, channel.horn_event_id)
+                validate_horn_binding(session, channel.horn_enable, channel.horn_id, channel.horn_event_id, department=channel.department)
             # 把ORM改动发送到数据库
             session.flush()
             return True

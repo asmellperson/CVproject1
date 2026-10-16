@@ -8,7 +8,7 @@ import type { useHornAudioCatalog } from './useHornAudioCatalog'
 export function HornAudioLibrary({ catalog }: { catalog: ReturnType<typeof useHornAudioCatalog> }) {
   const id = useId()
   return <div className="space-y-4 rounded-xl border border-[#E8ECF5] bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-    <h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><FileAudio className="h-4 w-4 text-violet-500" />报警音频库</h3>
+    <h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><FileAudio className="h-4 w-4 text-violet-500" />共享音频库</h3>
     <div className="space-y-2">
       <Label htmlFor={id} className="flex items-center gap-2"><Upload className="h-4 w-4" />{catalog.busy ? '正在处理音频...' : '上传 AAC 音频'}</Label>
       <Input id={id} type="file" accept=".aac,audio/aac,audio/x-aac" disabled={catalog.busy} onChange={(event) => {
@@ -16,7 +16,7 @@ export function HornAudioLibrary({ catalog }: { catalog: ReturnType<typeof useHo
         if (file) void catalog.upload(file)
         event.target.value = ''
       }} />
-      <p className="text-xs text-slate-500 dark:text-slate-400">音频保存在本服务器，上传时会校验能否解码。上传后可在各喇叭下方试播，也可用于检测报警绑定。</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">平台统一保存音频，各事业部可选用。上传后在设备列表点击“试播”，也可在报警推送中绑定。</p>
     </div>
     {catalog.error || catalog.loadError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{catalog.error || catalog.loadError}</p> : null}
     {catalog.files === null ? <p role="status" className="text-sm text-slate-500">正在读取音频...</p>

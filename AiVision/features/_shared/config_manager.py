@@ -159,7 +159,7 @@ class FeatureConfigManager:
                 session.flush()
             cfg.apply_config_dict(payload)
             if isinstance(cfg, FeatureConfigBase):
-                validate_horn_binding(session, cfg.horn_enable, cfg.horn_id, cfg.horn_event_id)
+                validate_horn_binding(session, cfg.horn_enable, cfg.horn_id, cfg.horn_event_id, department=camera.department)
 
             # 提交后刷新缓存 + 发事件
             camera_id = camera.id

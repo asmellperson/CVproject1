@@ -364,14 +364,14 @@ class GuardBehaviorService:
         violation_type = require_alarm_type(violation_type)
         changes = GuardBehaviorAlarmPolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:
-            self._site(session, site_id, lock=True)
+            site = self._site(session, site_id, lock=True)
             policy = (session.query(GuardBehaviorAlarmPolicy)
                       .filter_by(site_id=site_id, violation_type=violation_type).with_for_update().first())
             if policy is None:
                 raise ValueError("保安室缺少该报警策略")
             values = {key: getattr(policy, key) for key in GuardBehaviorAlarmPolicyUpdate.model_fields}
             values = GuardBehaviorAlarmPolicyUpdate.model_validate({**values, **changes}).model_dump()
-            validate_horn_binding(session, values["horn_enable"], values["horn_id"], values["horn_event_id"])
+            validate_horn_binding(session, values["horn_enable"], values["horn_id"], values["horn_event_id"], department=site.department)
             for key, value in values.items():
                 setattr(policy, key, value)
             session.flush()

@@ -16,11 +16,13 @@ from AiVision.alarms.devices.schema import (
     HornConnectionResult, HornConnectionTest, HornCreate, HornResponse,
     HornRuntimeStatus, HornUpdate,
     HornAudioResponse, HornPlaybackTest, HornPlaybackResult, SipServerConfig, SipServerResponse,
+    HornUsage, HornDeleteRequest,
 )
 from AiVision.alarms.devices.service import HornInUseError, HornConfigError
 from AiVision.alarms.devices.audio import HornAudioError
 from AiVision.alarms.devices.sip_protocol import SipAudioError
 from AiVision.core.settings import settings
+from AiVision.departments import require_department
 
 
 class HornRoute(APIRoute):
@@ -37,8 +39,8 @@ class HornRoute(APIRoute):
                 errors = [{"loc": error["loc"], "type": error["type"],
                            "msg": "喇叭配置字段无效"} for error in exc.errors()]
                 return JSONResponse(status_code=422, content={"detail": errors})
-            except HornInUseError:
-                raise HTTPException(409, "喇叭仍被功能或物流通道配置引用，请先解除绑定") from None
+            except HornInUseError as exc:
+                raise HTTPException(409, {"message": str(exc), "usage": exc.usage.model_dump()}) from None
             except (HornAudioError, HornConfigError) as exc:
                 raise HTTPException(422, str(exc)) from None
             except SipAudioError as exc:
@@ -61,10 +63,22 @@ router = APIRouter(prefix="/api/horns", tags=["horns"], route_class=HornRoute,
                    dependencies=[Depends(require_admin)])
 
 
-def _require_horn(service, horn_id):
+def _horn_scope(department: str | None = None, unassigned: bool = False):
+    """管理员仍须明确当前事业部；未归属设备仅通过独立清理入口读取。"""
+    if unassigned and department is not None:
+        raise HTTPException(422, "事业部和待分配范围不能同时指定")
+    if not unassigned:
+        try:
+            department = require_department(department)
+        except ValueError:
+            raise HTTPException(422, "请选择当前事业部") from None
+    return {"department": department, "unassigned": unassigned}
+
+
+def _require_horn(service, horn_id, scope):
     """取得设备公开配置，不存在时统一返回 404。"""
     config = service.get_horn(horn_id)
-    if config is None:
+    if config is None or config["department"] != scope["department"]:
         raise HTTPException(404, "喇叭不存在")
     return config
 
@@ -75,9 +89,9 @@ def _response(config, runtime):
 
 
 @router.get("", response_model=list[HornResponse])
-def list_horns(service=Depends(get_horn_service), runtime=Depends(get_horn_runtime_manager)):
+def list_horns(scope=Depends(_horn_scope), service=Depends(get_horn_service), runtime=Depends(get_horn_runtime_manager)):
     """列出设备公开配置及当前运行状态。"""
-    return [_response(config, runtime) for config in service.list_horns()]
+    return [_response(config, runtime) for config in service.list_horns(**scope)]
 
 
 @router.post("", response_model=HornResponse, status_code=201)
@@ -89,11 +103,12 @@ def create_horn(payload: HornCreate, service=Depends(get_horn_service),
 
 @router.post("/test-connection", response_model=HornConnectionResult)
 def test_connection(payload: HornConnectionTest, service=Depends(get_horn_service),
-                    runtime=Depends(get_horn_runtime_manager)):
+                    runtime=Depends(get_horn_runtime_manager), department: str | None = None, unassigned: bool = False):
     """合并已存或临时连接参数，仅检查认证，不保存、不启动心跳也不播放。"""
     values = payload.write_values()
     horn_id = values.pop("horn_id", None)
     if horn_id is not None:
+        _require_horn(service, horn_id, _horn_scope(department, unassigned))
         configs = service.runtime_configs(horn_id)
         if not configs:
             raise HTTPException(404, "喇叭不存在")
@@ -150,8 +165,9 @@ def delete_audio(audio_id: int, service=Depends(get_horn_audio_service)):
 
 @router.post("/{horn_id}/test-play", response_model=HornPlaybackResult)
 def test_play(horn_id: int, payload: HornPlaybackTest, service=Depends(get_horn_service),
-              runtime=Depends(get_horn_runtime_manager)):
+              runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
     """手动试播与真实报警复用同一个控制器，明确报告音频发送结果。"""
+    _require_horn(service, horn_id, scope)
     configs = service.runtime_configs(horn_id)
     if not configs:
         raise HTTPException(404, "喇叭不存在")
@@ -165,31 +181,44 @@ def test_play(horn_id: int, payload: HornPlaybackTest, service=Depends(get_horn_
 
 @router.get("/{horn_id}", response_model=HornResponse)
 def get_horn(horn_id: int, service=Depends(get_horn_service),
-             runtime=Depends(get_horn_runtime_manager)):
+             runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
     """返回指定设备公开配置和实时状态。"""
-    return _response(_require_horn(service, horn_id), runtime)
+    return _response(_require_horn(service, horn_id, scope), runtime)
 
 
 @router.patch("/{horn_id}", response_model=HornResponse)
 def update_horn(horn_id: int, payload: HornUpdate, service=Depends(get_horn_service),
-                runtime=Depends(get_horn_runtime_manager)):
+                runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
     """保存明确提交的设备字段并返回实际配置及同步状态。"""
-    config = service.update_horn(horn_id, payload.write_values())
+    _require_horn(service, horn_id, scope)
+    config = service.update_horn(horn_id, payload.write_values(), expected_department=scope["department"])
     if config is None:
         raise HTTPException(404, "喇叭不存在")
     return _response(config, runtime)
 
 
 @router.delete("/{horn_id}", status_code=204)
-def delete_horn(horn_id: int, service=Depends(get_horn_service)):
-    """删除无业务引用的设备，成功返回 204，不存在返回 404。"""
-    if not service.delete_horn(horn_id):
+def delete_horn(horn_id: int, payload: HornDeleteRequest | None = None,
+                service=Depends(get_horn_service), scope=Depends(_horn_scope)):
+    """删除设备；有引用时须明确确认解绑，成功返回 204，不存在返回 404。"""
+    _require_horn(service, horn_id, scope)
+    if not service.delete_horn(horn_id, expected_department=scope["department"], **(payload.model_dump() if payload else {})):
         raise HTTPException(404, "喇叭不存在")
     return Response(status_code=204)
 
 
 @router.get("/{horn_id}/status", response_model=HornRuntimeStatus)
 def horn_status(horn_id: int, service=Depends(get_horn_service),
-                runtime=Depends(get_horn_runtime_manager)):
+                runtime=Depends(get_horn_runtime_manager), scope=Depends(_horn_scope)):
     """确认设备存在后读取运行状态，不触发设备网络操作。"""
-    return runtime.status(_require_horn(service, horn_id))
+    return runtime.status(_require_horn(service, horn_id, scope))
+
+
+@router.get("/{horn_id}/references", response_model=HornUsage)
+def horn_references(horn_id: int, service=Depends(get_horn_service), scope=Depends(_horn_scope)):
+    """展示当前范围设备的全部引用，帮助定位关闭告警后保留的绑定。"""
+    _require_horn(service, horn_id, scope)
+    usage = service.get_usage(horn_id)
+    if usage is None:
+        raise HTTPException(404, "喇叭不存在")
+    return usage

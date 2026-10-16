@@ -78,6 +78,7 @@ CREATE TABLE ai_horn_audio (
 CREATE TABLE ai_horn_config (
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	name VARCHAR(100) NOT NULL,
+	department VARCHAR(100),
 	url VARCHAR(500) NOT NULL,
 	username VARCHAR(100) NOT NULL,
 	password VARCHAR(200) NOT NULL,
@@ -88,6 +89,8 @@ CREATE TABLE ai_horn_config (
 	updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
 	PRIMARY KEY (id)
 )CHARSET=utf8mb4 COMMENT='喇叭设备配置表' ENGINE=InnoDB;
+
+CREATE INDEX ix_ai_horn_config_department ON ai_horn_config (department);
 
 CREATE INDEX ix_ai_horn_config_enable ON ai_horn_config (enable);
 

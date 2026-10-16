@@ -9,6 +9,7 @@ import { useOverview } from '@/hooks/use-overview'
 import { useAuth } from '@/auth/useAuth'
 import { isDetectionPage, resolveDepartment, resolvePage, type DepartmentId } from '@/auth/permissions'
 import type { AuthUser } from '@/auth/auth-context'
+import { DetectionDepartmentContext } from '@/components/detection/DetectionDepartmentContext'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'aivision:sidebar-width-v2'
 const DEFAULT_SIDEBAR_WIDTH = 272
@@ -254,7 +255,9 @@ function App() {
         <Topbar currentPage={activePage} onToggleSidebar={handleToggleSidebar} />
         <main id="app-main-content" className="min-w-0 px-3 py-4 sm:px-4 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           <div className="w-full min-w-0">
-            <Suspense key={`${activePage}:${currentDepartment}`} fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
+            <DetectionDepartmentContext.Provider value={currentDepartment}>
+              <Suspense key={`${activePage}:${currentDepartment}`} fallback={<PageLoadingFallback />}>{renderContent()}</Suspense>
+            </DetectionDepartmentContext.Provider>
           </div>
         </main>
       </div>

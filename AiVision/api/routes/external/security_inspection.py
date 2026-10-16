@@ -229,5 +229,5 @@ def config_schema(_client: ExternalClientInfo = Depends(inspection_reader)):
 
 @router.get("/horns", response_model=list[HornChoiceResponse], dependencies=[Depends(inspection_writer)])
 def horn_choices(department: str = Depends(department_access), service=Depends(get_horn_service)):
-    """列出平台共享喇叭的绑定选项；语音任务 ID 由设备管理员提供。"""
-    return service.list_horns()
+    """按已授权事业部返回喇叭选项，避免外部配置绑定其他事业部设备。"""
+    return service.list_horns(department=department)

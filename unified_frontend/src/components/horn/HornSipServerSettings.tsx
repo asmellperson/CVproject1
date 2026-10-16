@@ -11,7 +11,7 @@ export function HornSipServerSettings() {
   const { draft, server } = state
   return <div className="space-y-4 rounded-xl border border-[#E8ECF5] bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><Radio className="h-4 w-4 text-violet-500" />SIP 服务</h3>
+      <h3 className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><Radio className="h-4 w-4 text-violet-500" />平台 SIP 服务</h3>
       <Badge variant="outline">{server?.running ? '正在监听' : server?.enabled ? '未启动' : '已停用'}</Badge>
     </div>
     {draft ? <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void state.save() }}>
