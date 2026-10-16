@@ -79,8 +79,6 @@ class FaceRecognizerWorker(BaseModelWorker):
             logger.info(f"[FaceRecognizer] 已刷新索引，有效人员数 {count}")
         if not self._index_available:
             raise RuntimeError("人员特征索引刷新失败，等待下一次刷新")
-        if "required_person_ids" in task_meta:
-            self.index.require_people(task_meta["required_person_ids"])
         threshold = float(task_meta.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD))
         detection_threshold = float(task_meta.get("conf", DEFAULT_DETECTION_THRESHOLD))
         detections = []

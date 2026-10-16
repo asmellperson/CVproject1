@@ -47,6 +47,7 @@ class SipAudioServer:
         self._calls: dict[str, SipCall] = {}
         self._nonces: dict[str, dict] = {}
         self._registered: dict[int, float] = {}
+        self._registration_errors: dict[int, str] = {}
         self._error: str | None = None
         self.generation = 0
 
@@ -81,6 +82,7 @@ class SipAudioServer:
             self._socket = candidate
             self._config = config.model_copy()
             self._registered.clear()
+            self._registration_errors.clear()
             self._nonces.clear()
             self._error = None
             self.generation += 1
@@ -108,6 +110,7 @@ class SipAudioServer:
                     raise SipAudioError("已有设备使用相同的喇叭地址和 SIP 账户，请检查设备配置")
             if self._devices.get(device.id) != device:
                 self._registered.pop(device.id, None)
+                self._registration_errors.pop(device.id, None)
             self._devices[device.id] = device
 
     def remove_device(self, horn_id: int) -> None:
@@ -115,11 +118,19 @@ class SipAudioServer:
         with self._lock:
             self._devices.pop(horn_id, None)
             self._registered.pop(horn_id, None)
+            self._registration_errors.pop(horn_id, None)
 
     def registered(self, horn_id: int) -> bool:
         """只在实际完成密码校验的 REGISTER 有效期内返回真。"""
         with self._lock:
             return self._registered.get(horn_id, 0) > time.monotonic()
+
+    def registration_error(self, horn_id: int) -> str:
+        """按设备返回注册阶段的具体原因，不包含摘要、密码或原始控制报文。"""
+        with self._lock:
+            return self._registration_errors.get(horn_id) or (
+                "未收到喇叭 SIP 注册请求，请检查设备能否访问平台 SIP 地址和 UDP 端口，及服务器防火墙"
+            )
 
     def send(self, data: bytes, peer: tuple[str, int]) -> None:
         """只发送控制报文；底层异常转换为不含凭据的提示。"""
@@ -171,6 +182,9 @@ class SipAudioServer:
             device = next((item for item in self._devices.values()
                            if identity and item.host == peer[0] and item.username == identity[1]), None)
             if device is None:
+                for item in self._devices.values():
+                    if item.host == peer[0]:
+                        self._registration_errors[item.id] = "喇叭 SIP 注册账户与平台配置不一致，请核对 SIP 账户"
                 return
             now = time.monotonic()
             self._nonces = {key: value for key, value in self._nonces.items() if value["until"] > now}
@@ -193,6 +207,10 @@ class SipAudioServer:
                 valid = hmac.compare_digest(fields.get("response", ""), expected)
                 valid = valid and (int(nc, 16) > nonce["nc"] or fingerprint == nonce.get("fingerprint"))
             if not valid:
+                self._registration_errors[device.id] = (
+                    "喇叭 SIP 密码或认证 ID 校验失败，请核对平台保存的 SIP 注册凭据"
+                    if fields else "已收到喇叭 SIP 注册请求，正在等待设备回复密码认证，请稍后重试"
+                )
                 if len(self._nonces) >= 512:
                     self._nonces.pop(next(iter(self._nonces)))
                 token = secrets.token_hex(24)
@@ -207,6 +225,10 @@ class SipAudioServer:
                 self.send(response(message, 400), peer)
                 return
             self._registered[device.id] = now + expires if expires else 0
+            if expires:
+                self._registration_errors.pop(device.id, None)
+            else:
+                self._registration_errors[device.id] = "喇叭已注销 SIP 注册，等待重新注册"
             extra = {"Expires": str(expires)}
             if "contact" in message.headers:
                 extra["Contact"] = message.headers["contact"]
@@ -240,6 +262,7 @@ class SipAudioServer:
                 self._socket.close()
                 self._socket = None
             self._registered.clear()
+            self._registration_errors.clear()
         if self._thread is not None:
             self._thread.join(timeout=1)
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
+import xml.etree.ElementTree as ET
 
 import pytest
 import requests
@@ -272,3 +274,135 @@ def test_stop_during_authentication_prevents_online_state_and_playback(monkeypat
     assert device.snapshot()["online"] is False
     assert device.play(1) is False
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(("enabled", "restart", "expected_states"), [
+    (True, True, ["false", "true"]), (True, False, ["true"]), (False, True, ["true"]),
+])
+def test_sip_recovery_reenables_channel_and_preserves_device_settings(monkeypatch, enabled, restart, expected_states):
+    """只在恢复未注册的通道时触发重新启用，且保留海康默认 XML 命名空间与其他配置。"""
+    from AiVision.alarms.devices.hikvision import HikvisionSpeakerClient
+
+    namespace = "http://www.hikvision.com/ver20/XMLSchema"
+    original = (f'<SIPServer xmlns="{namespace}"><localPort>5060</localPort><Standard>'
+                f'<enabled>{str(enabled).lower()}</enabled><expires>3600</expires>'
+                '</Standard><vendorOption>preserved</vendorOption></SIPServer>').encode()
+    writes = []
+
+    def send(adapter, request, **_kwargs):
+        if request.method == "GET":
+            return response_for(adapter, request, body=original)
+        assert b"ns0:" not in request.body
+        root = ET.fromstring(request.body)
+        standard = root.find(f"{{{namespace}}}Standard")
+        writes.append(standard.find(f"{{{namespace}}}enabled").text)
+        assert standard.find(f"{{{namespace}}}expires").text == "3600"
+        assert root.find(f"{{{namespace}}}vendorOption").text == "preserved"
+        assert standard.find(f"{{{namespace}}}registrarPort").text == "5062"
+        assert standard.find(f"{{{namespace}}}password").text == "test-sip-password"
+        return response_for(adapter, request, body=b'<ResponseStatus><statusCode>1</statusCode></ResponseStatus>')
+
+    monkeypatch.setattr(HTTPAdapter, "send", send)
+    client = HikvisionSpeakerClient(CONFIG["url"], CONFIG["username"], CONFIG["password"], 5)
+    client.configure_sip({"address": "192.0.2.10", "port": 5062}, {
+        "username": "speaker", "auth_id": "speaker-auth", "password": "test-sip-password", "port": 5060,
+    }, restart_registration=restart)
+    assert writes == expected_states
+
+
+@pytest.fixture
+def sip_registration(monkeypatch):
+    """执行正式 REGISTER 摘要认证，仅替换 UDP 发送，不访问真实喇叭。"""
+    from AiVision.alarms.devices.sip_protocol import parse_message
+    from AiVision.alarms.devices.sip_server import SipAudioServer
+
+    server, responses = SipAudioServer(), []
+    config = {"id": 1, "url": "http://192.0.2.20", "enable": True, "sip": {
+        "username": "speaker", "auth_id": "speaker-auth", "password": "test-sip-password", "port": 5060,
+    }}
+    server.set_device(config)
+    monkeypatch.setattr(server, "send", lambda data, _peer: responses.append(parse_message(data)))
+    return server, config, responses
+
+
+def register_sip(server, responses, *, username="speaker", auth_id="speaker", password="test-sip-password"):
+    """模拟设备按服务端挑战回复 Digest，覆盖固件使用账户或认证 ID 两种情况。"""
+    from AiVision.alarms.devices.sip_protocol import SipMessage, authorization
+
+    uri = "sip:192.0.2.10:5062"
+    message = SipMessage(f"REGISTER {uri} SIP/2.0", {
+        "via": "SIP/2.0/UDP 192.0.2.20:5060;branch=z9hG4bK-test",
+        "from": f"<sip:{username}@192.0.2.10>;tag=test", "to": f"<sip:{username}@192.0.2.10>",
+        "call-id": "test-registration", "cseq": "1 REGISTER", "expires": "3600",
+    })
+    peer = ("192.0.2.20", 5060)
+    server._register(message, peer)
+    assert responses[-1].status == 401
+    message.headers["authorization"] = authorization(
+        responses[-1].headers["www-authenticate"], auth_id, password, "REGISTER", uri,
+    )
+    message.headers["cseq"] = "2 REGISTER"
+    server._register(message, peer)
+    return responses[-1].status
+
+
+@pytest.mark.parametrize("auth_id", ["speaker", "speaker-auth"])
+def test_sip_registration_accepts_supported_digest_identities(sip_registration, auth_id):
+    """注册通过真实密码校验后才可用，两种海康摘要账户形式均能工作。"""
+    server, _config, responses = sip_registration
+    assert "未收到" in server.registration_error(1)
+    assert register_sip(server, responses, auth_id=auth_id) == 200
+    assert server.registered(1)
+
+
+def test_sip_registration_distinguishes_account_and_password_failures(sip_registration):
+    """拒绝错误账户和密码，错误信息不含密码，正确注册后不保留旧失败状态。"""
+    from AiVision.alarms.devices.sip_protocol import SipMessage
+
+    server, _config, responses = sip_registration
+    server._register(SipMessage("REGISTER sip:192.0.2.10 SIP/2.0", {"to": "<sip:other@192.0.2.10>"}),
+                     ("192.0.2.20", 5060))
+    assert "账户" in server.registration_error(1)
+    assert not responses and not server.registered(1)
+    assert register_sip(server, responses, password="incorrect-test-password") == 401
+    assert "认证" in server.registration_error(1)
+    assert "test-password" not in server.registration_error(1)
+    assert not server.registered(1)
+    assert register_sip(server, responses) == 200
+    assert server.registered(1)
+    server.remove_device(1)
+    assert not server.registered(1)
+    assert "未收到" in server.registration_error(1)
+
+
+def test_sip_retries_after_registration_timeout_and_server_restart(sip_registration, monkeypatch):
+    """首次超时后仍触发注册恢复；平台重启或注册过期时重试，正常心跳不反复启停。"""
+    from AiVision.alarms.devices import horn as module
+    from AiVision.alarms.devices.sip_protocol import SipAudioError
+
+    server, config, responses = sip_registration
+    server.generation = 1
+    monkeypatch.setattr(module, "horn_sip_service", SimpleNamespace(
+        server=server, ensure_started=lambda: {"running": True, "address": "192.0.2.10", "port": 5062},
+    ))
+    monkeypatch.setattr(module.settings.alarm, "horn_sip_call_timeout", 0.001)
+    device = module.Horn({"id": 1, "horn_url": config["url"], "sip": config["sip"]}, connect_on_init=False)
+    attempts = []
+
+    def configure(_server, _sip, *, restart_registration):
+        attempts.append(restart_registration)
+        if len(attempts) > 1:
+            assert register_sip(server, responses) == 200
+
+    monkeypatch.setattr(device._client, "configure_sip", configure)
+    with pytest.raises(SipAudioError, match="未收到"):
+        device.prepare_sip()
+    assert not device.snapshot()["sip_ready"]
+    assert device.prepare_sip()
+    assert device.prepare_sip()
+    assert len(attempts) == 2
+    server.stop()
+    server.generation += 1
+    assert device.prepare_sip()
+    assert device.snapshot()["sip_ready"]
+    assert attempts == [True, True, True]

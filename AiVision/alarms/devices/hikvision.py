@@ -89,8 +89,8 @@ class HikvisionSpeakerClient:
                 f"语音播放失败：设备拒绝播放（ISAPI 状态 {data['statusCode']}），请检查音频文件 ID、设备素材和播放权限"
             )
 
-    def configure_sip(self, server: dict, sip: dict) -> None:
-        """按平台保存值配置设备 SIP，保留其他设备参数，不改动网页登录密码。"""
+    def configure_sip(self, server: dict, sip: dict, *, restart_registration: bool = False) -> None:
+        """同步 SIP 参数；平台重启丢失注册状态时重新启用通道，促使设备立即注册。"""
         response = self._request("GET", SIP_CONFIG_PATH, "读取 SIP 配置")
         try:
             root = ET.fromstring(response.content)
@@ -101,6 +101,8 @@ class HikvisionSpeakerClient:
             standard = root.find(namespace + "Standard")
             if root.tag.rsplit("}", 1)[-1] != "SIPServer" or standard is None:
                 raise ValueError("不支持的 SIP 配置结构")
+            enabled = standard.find(namespace + "enabled")
+            was_enabled = enabled is not None and (enabled.text or "").strip().lower() == "true"
             changes = {"enabled": "true", "registrar": server["address"], "registrarPort": str(server["port"]),
                        "proxy": server["address"], "proxyPort": str(server["port"]), "transportType": "UDP",
                        "userName": sip["username"], "authID": sip["auth_id"], "password": sip["password"]}
@@ -121,6 +123,14 @@ class HikvisionSpeakerClient:
             payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         except (ET.ParseError, ValueError, KeyError):
             raise HikvisionSpeakerError("SIP 配置失败：设备未提供有效的 SIP 配置接口") from None
+        if restart_registration and was_enabled:
+            # 仅重复保存相同参数可能不触发 REGISTER，不能等待设备一小时后的续注册。
+            standard.find(namespace + "enabled").text = "false"
+            self._save_sip(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        self._save_sip(payload)
+
+    def _save_sip(self, payload: bytes) -> None:
+        """每次启停或参数写入都核对设备业务响应，避免把保存失败当作同步完成。"""
         result = self._request("PUT", SIP_CONFIG_PATH, "同步 SIP 配置", data=payload,
                                headers={"Content-Type": "application/xml"})
         try:

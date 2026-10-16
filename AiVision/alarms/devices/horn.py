@@ -238,16 +238,18 @@ class Horn:
             raise SipAudioError("请先在喇叭配置中设置并启用 SIP 服务")
         horn_sip_service.server.set_device({"id": self._id, "url": self.url, "enable": True, "sip": self._sip})
         generation = horn_sip_service.server.generation
-        if generation != self._sip_generation:
-            self._client.configure_sip(server, self._sip)
-            self._sip_generation = generation
+        registered = horn_sip_service.server.registered(self._id)
+        if generation != self._sip_generation or not registered:
+            self._client.configure_sip(server, self._sip, restart_registration=not registered)
         # 设备应用 SIP 配置需要时间，注册完成前发 INVITE 会被设备拒绝。
         deadline = time.monotonic() + settings.alarm.horn_sip_call_timeout
         while not horn_sip_service.server.registered(self._id):
             if self._stop_event.wait(0.1):
                 return False
             if time.monotonic() >= deadline:
-                raise SipAudioError("喇叭 SIP 注册未完成，请检查注册密码、账户、服务器地址和 UDP 端口")
+                raise SipAudioError(horn_sip_service.server.registration_error(self._id))
+        # 完成注册才记住同步代次，失败后的心跳和试播仍会主动恢复注册。
+        self._sip_generation = generation
         with self._state_lock:
             self._sip_ready = not self._stop_event.is_set()
         return self._sip_ready

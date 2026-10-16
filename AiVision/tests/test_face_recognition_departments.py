@@ -1,8 +1,10 @@
-"""人脸识别白名单的事业部隔离、接口授权、识别判定与离线迁移回归。"""
-from datetime import datetime
+"""人脸识别与围栏的白名单判定、事业部隔离、接口授权与离线迁移回归。"""
+from datetime import datetime, timezone
 from queue import Queue
+import time
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -182,6 +184,87 @@ def test_consumer_does_not_reuse_expired_permissions_when_refresh_fails(library,
     monkeypatch.setattr(consumer.library, "get_allowed_person_ids", unavailable)
     with pytest.raises(RuntimeError, match="database unavailable"):
         consumer._process(None, 1)
+
+
+@pytest.fixture
+def fence_recognition(library, monkeypatch):
+    """使用实际部分人员特征索引和围栏状态机，只替换图像模型与数据库连接。"""
+    from AiVision.core import db
+    from AiVision.features.face_recognition.library import service
+    from AiVision.features.face_recognition.library.constants import EMBEDDING_DIM, MODEL_NAME
+    from AiVision.features.face_recognition.library.index import FaceIndex, encode_embedding, photo_signature
+    from AiVision.features.face_recognition.library.orm import FaceEmbedding, FacePerson
+    from AiVision.features.security_fence import consumer as module
+    from AiVision.features.security_fence.schema import FenceValue
+    from AiVision.inference.workers.face_recognizer import FaceRecognizerWorker
+
+    vector = np.eye(1, EMBEDDING_DIM, dtype=np.float32)[0]
+    with service.get_session() as session:
+        FaceEmbedding.__table__.create(session.get_bind())
+        person = session.get(FacePerson, 1)
+        person.pic_uri, person.server_index_code = "test-photo", "test-server"
+        session.add(FaceEmbedding(
+            person_id=1, embedding=encode_embedding(vector), embedding_dim=EMBEDDING_DIM,
+            model_name=MODEL_NAME, photo_signature=photo_signature(person.pic_uri, person.server_index_code),
+        ))
+        session.commit()
+    monkeypatch.setattr(db, "get_session", service.get_session)
+    # 跳过进程控制资源，直接执行正式 Worker 的索引与逐脸推理逻辑。
+    worker = object.__new__(FaceRecognizerWorker)
+    worker.index = FaceIndex()
+    assert worker.index.refresh() == 1
+    worker._index_refreshed_at, worker._index_available = time.monotonic(), True
+    face = SimpleNamespace(
+        normed_embedding=vector, bbox=np.array([20, 20, 140, 140]), det_score=0.99,
+        kps=np.array([[50, 60], [110, 60], [80, 90]]),
+    )
+    model = SimpleNamespace(get_faces=lambda *_args, **_kwargs: [face])
+    consumer = module.FenceConsumer(SimpleNamespace(name="security_fence"), {}, Queue(), {}, lambda _key: True)
+    consumer.config_cache = {1: FenceValue(allowed_person_ids=[1, 2], confirmation_frames=2).model_dump()}
+    clock = datetime(2026, 10, 16, 4, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(module, "datetime", SimpleNamespace(now=lambda _timezone: clock))
+
+    def dispatch(_camera, name, image, *, task_meta, **_kwargs):
+        """模拟人体检测输出，人脸部分执行正式 Worker 和有效人员索引。"""
+        detections = ([{"bbox": [0, 0, 180, 230], "confidence": 0.99}]
+                      if name == "yolo_human" else worker.infer(model, image, task_meta))
+        return {"status": "ok", "detections": detections}
+
+    monkeypatch.setattr(consumer, "dispatch_inference_sync", dispatch)
+    image = np.random.default_rng(0).integers(0, 256, (240, 320, 3), dtype=np.uint8)
+    return consumer, worker, face, image
+
+
+@pytest.mark.parametrize("matched", [True, False])
+def test_fence_uses_available_features_when_another_whitelisted_person_has_none(fence_recognition, matched):
+    """白名单中有人无特征时，已有身份仍可放行，未匹配人脸仍按未知人员判定。"""
+    consumer, _worker, face, image = fence_recognition
+    if not matched:
+        face.normed_embedding = np.roll(face.normed_embedding, 1)
+    consumer._process(image, 1)
+    alarm, detail = consumer._process(image, 1)
+    assert detail["error"] is None
+    assert len(detail["faces"]) == 1
+    assert alarm is not matched
+    person = detail["persons"][0]
+    assert person["identity"] == ("allowed" if matched else "unauthorized")
+    assert person["person_id"] == (1 if matched else None)
+    assert person["reason"] == (None if matched else "unknown_face")
+
+
+def test_face_worker_still_rejects_failed_index_refresh(fence_recognition, monkeypatch):
+    """取消名单完整性检查后，真实索引故障仍须报错，不能继续使用旧索引。"""
+    _consumer, worker, _face, image = fence_recognition
+    worker._index_refreshed_at = 0
+
+    def unavailable():
+        raise RuntimeError("测试索引读取失败")
+
+    monkeypatch.setattr(worker.index, "refresh", unavailable)
+    with pytest.raises(RuntimeError, match="测试索引读取失败"):
+        worker.infer(SimpleNamespace(), image, {})
+    with pytest.raises(RuntimeError, match="人员特征索引刷新失败"):
+        worker.infer(SimpleNamespace(), image, {})
 
 
 @pytest.fixture

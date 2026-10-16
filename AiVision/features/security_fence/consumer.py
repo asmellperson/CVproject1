@@ -89,9 +89,10 @@ class FenceConsumer(BaseFunctionConsumer):
         mode = current_mode(runtime.config, now)
         people = self.dispatch_inference_sync(camera_id, "yolo_human", roi, task_meta={"conf": cfg["threshold"]})
         # 人脸识别独立执行，避免近景只检测到人脸时被人体检测结果短路。
+        # 白名单仅用于匹配后的准入判断，单个人员缺少特征不阻塞整路识别。
         response = self.dispatch_inference_sync(camera_id, "insightface", roi, task_meta={
             "conf": cfg["detection_threshold"], "similarity_threshold": cfg["similarity_threshold"],
-            "include_face_quality": True, "required_person_ids": cfg["allowed_person_ids"],
+            "include_face_quality": True,
         }, timeout=settings.runtime.fence_inference_timeout_seconds)
         errors = []
         faces = response["detections"] if response["status"] == "ok" else []
