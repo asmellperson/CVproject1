@@ -2,9 +2,75 @@
 from __future__ import annotations
 
 from typing import Literal
+from ipaddress import IPv4Address
+import re
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+
+
+class HornSipWrite(BaseModel):
+    """单台喇叭的 SIP 身份；写入密码不会进入公开响应。"""
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    username: str = Field(min_length=1, max_length=64)
+    auth_id: str = Field(min_length=1, max_length=64)
+    password: SecretStr | None = Field(default=None, max_length=128)
+    port: int = Field(default=5060, ge=1, le=65535, strict=True)
+
+    @field_validator("username", "auth_id")
+    @classmethod
+    def sip_identifier(cls, value: str) -> str:
+        """SIP 标识只允许 URI 安全字符，防止报文头注入。"""
+        if not re.fullmatch(r"[A-Za-z0-9_.+\-]{1,64}", value):
+            raise ValueError("SIP 账户和认证 ID 只能包含字母、数字、下划线、点、加号或减号")
+        return value
+
+
+class HornSipResponse(BaseModel):
+    """设备 SIP 公开参数，密码仅暴露是否已设置。"""
+    username: str
+    auth_id: str
+    port: int
+    password_set: bool
+
+
+class SipServerConfig(BaseModel):
+    """本平台 SIP 服务，保存后立即使用固定 UDP 监听端口。"""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool = False
+    address: str = ""
+    port: int = Field(default=5062, ge=1024, le=65535)
+
+    @field_validator("address")
+    @classmethod
+    def server_address(cls, value: str) -> str:
+        """公告地址应是喇叭能访问的服务器 IPv4 地址。"""
+        if not value:
+            return ""
+        address = IPv4Address(value)
+        if address.is_unspecified or address.is_multicast or address.is_loopback:
+            raise ValueError("请填写喇叭可以访问的服务器局域网 IPv4 地址")
+        return str(address)
+
+
+class SipServerResponse(SipServerConfig):
+    """保存配置与本机监听状态分别展示，不能把保存成功当作服务在线。"""
+    running: bool = False
+    last_error: str | None = None
+
+
+class HornAudioResponse(BaseModel):
+    """上传并转码成功后才公开的音频素材。"""
+    id: int
+    name: str
+    size: int
+    duration: float
+
+
+class HornPlaybackTest(BaseModel):
+    """对指定喇叭试播一个已经保存的音频 ID。"""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    audio_id: int = Field(gt=0, le=2_147_483_647)
 
 
 class HornFields(BaseModel):
@@ -51,6 +117,12 @@ class HornFields(BaseModel):
         values = self.model_dump(exclude_unset=True)
         if isinstance(values.get("password"), SecretStr):
             values["password"] = values["password"].get_secret_value()
+        sip = getattr(self, "sip", None)
+        if sip is not None:
+            # SIP 对象整体替换时仍须包含默认本地端口，空密码由服务层保留。
+            values["sip"] = sip.model_dump(exclude={"password"})
+            if sip.password is not None:
+                values["sip"]["password"] = sip.password.get_secret_value()
         return values
 
 
@@ -62,6 +134,7 @@ class HornCreate(HornFields):
     password: SecretStr = Field(min_length=1, max_length=200)
     enable: bool = True
     description: str | None = Field(default=None, max_length=10000)
+    sip: HornSipWrite | None = None
 
 
 class HornUpdate(HornFields):
@@ -72,6 +145,7 @@ class HornUpdate(HornFields):
     password: SecretStr | None = Field(default=None, max_length=200)
     enable: bool | None = None
     description: str | None = Field(default=None, max_length=10000)
+    sip: HornSipWrite | None = None
 
 
 class HornConnectionTest(HornFields):
@@ -89,6 +163,8 @@ class HornRuntimeStatus(BaseModel):
     heartbeat_alive: bool = False
     last_error: str | None = None
     last_seen_at: float | None = None
+    sip_ready: bool = False
+    playing: bool = False
 
 
 class HornResponse(BaseModel):
@@ -100,6 +176,7 @@ class HornResponse(BaseModel):
     password_set: bool
     enable: bool
     description: str | None
+    sip: HornSipResponse | None = None
     runtime: HornRuntimeStatus
 
 
@@ -107,3 +184,8 @@ class HornConnectionResult(BaseModel):
     """一次连接测试的成功标志及运行状态快照。"""
     success: bool
     runtime: HornRuntimeStatus
+
+
+class HornPlaybackResult(HornConnectionResult):
+    """实际发送结束后返回结果，现场是否出声仍由用户确认。"""
+    message: str

@@ -95,6 +95,12 @@ class AlarmSettings(BaseSettings):
     horn_queue_size: int = Field(100, gt=0, alias="HORN_QUEUE_SIZE")
     horn_queue_ttl_seconds: float = Field(10.0, gt=0, alias="HORN_QUEUE_TTL_SECONDS")
     horn_reconcile_interval_seconds: float = Field(5.0, gt=0, alias="HORN_RECONCILE_INTERVAL_SECONDS")
+    horn_playback_workers: int = Field(4, ge=1, le=16, alias="HORN_PLAYBACK_WORKERS")
+    horn_audio_max_bytes: int = Field(10 * 1024 * 1024, gt=0, alias="HORN_AUDIO_MAX_BYTES")
+    horn_audio_max_seconds: float = Field(60.0, gt=0, le=300, alias="HORN_AUDIO_MAX_SECONDS")
+    horn_audio_convert_timeout: float = Field(20.0, gt=0, alias="HORN_AUDIO_CONVERT_TIMEOUT")
+    horn_sip_call_timeout: float = Field(10.0, gt=0, le=30, alias="HORN_SIP_CALL_TIMEOUT")
+    horn_audio_ffmpeg: str = Field("ffmpeg", alias="HORN_AUDIO_FFMPEG")
     wechat_enable: bool     = Field(True,        alias="WECHAT_ENABLE")           # 企业微信
     wechat_corp_id: str     = Field("",          alias="WECHAT_CORP_ID")          # 企业ID
     wechat_corp_secret: str = Field("",          alias="WECHAT_CORP_SECRET")      # 应用Secrect

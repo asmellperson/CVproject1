@@ -23,6 +23,10 @@ class HornInUseError(ValueError):
     """设备仍被告警配置引用，不允许删除。"""
 
 
+class HornConfigError(ValueError):
+    """可公开的设备业务配置错误。"""
+
+
 class HornService:
     """隔离设备配置持久化与运行实例管理，提交后才触发热同步。"""
     def __init__(self, runtime_manager=None):
@@ -73,6 +77,7 @@ class HornService:
                 url=payload["url"],
                 username=payload.get("username", "admin"),
                 password=payload["password"],
+                sip_config=self._sip_values(payload.get("sip")),
                 enable=bool(payload.get("enable", True)),
                 description=payload.get("description"),
             )
@@ -80,6 +85,7 @@ class HornService:
             session.add(h)
             # 构造SQL语句
             session.flush()
+            self._validate_sip_identity(session, h)
             result = self._to_dict(h)
         self._sync_after_commit(result["id"])
         return result
@@ -96,9 +102,12 @@ class HornService:
                 # 只有payload里真正传来的字段才改
                 if f in payload and (f != "password" or payload[f]):
                     setattr(h, f, payload[f])
+            if "sip" in payload:
+                h.sip_config = self._sip_values(payload["sip"], h.sip_config)
             # 单独处理enable
             if "enable" in payload:
                 h.enable = bool(payload["enable"])
+            self._validate_sip_identity(session, h)
             result = self._to_dict(h)
         self._sync_after_commit(horn_id)
         return result
@@ -112,6 +121,7 @@ class HornService:
             from AiVision.features.registry import all_specs
             from AiVision.features._shared.orm import FeatureConfigBase
             from AiVision.features.logistics_channel.orm import LogisticsChannel
+            from AiVision.features.guard_behavior.orm import GuardBehaviorAlarmPolicy
 
             # 包括停用的功能/通道配置；存在引用时不依赖外键 SET NULL 隐式解绑。
             models = [
@@ -119,6 +129,7 @@ class HornService:
                 if issubclass(spec.orm_class, FeatureConfigBase)
             ]
             models.append(LogisticsChannel)
+            models.append(GuardBehaviorAlarmPolicy)
             for model in models:
                 if session.query(model).filter(model.horn_id == horn_id).with_for_update().first() is not None:
                     raise HornInUseError("喇叭仍被功能或物流通道配置引用，请先解除绑定")
@@ -134,7 +145,7 @@ class HornService:
             query = session.query(AiHornConfig)
             if horn_id is not None:
                 query = query.filter(AiHornConfig.id == horn_id)
-            return [dict(self._to_dict(h), url=h.url, password=h.password) for h in query.all()]
+            return [dict(self._to_dict(h), url=h.url, password=h.password, sip=h.sip_config) for h in query.all()]
         finally:
             session.close()
 
@@ -156,7 +167,34 @@ class HornService:
             "password_set": bool(h.password),
             "enable": bool(h.enable),
             "description": h.description,
+            "sip": ({"username": h.sip_config["username"], "auth_id": h.sip_config["auth_id"],
+                     "port": h.sip_config["port"], "password_set": bool(h.sip_config.get("password"))}
+                    if h.sip_config else None),
         }
+
+    @staticmethod
+    def _validate_sip_identity(session, horn):
+        """同一地址与 SIP 账户只能启用一条记录，冲突在提交前反馈给管理员。"""
+        if not horn.enable or not horn.sip_config:
+            return
+        host = urlsplit(horn.url).hostname
+        others = session.query(AiHornConfig).filter(AiHornConfig.id != horn.id, AiHornConfig.enable.is_(True)).all()
+        for other in others:
+            if (other.sip_config and urlsplit(other.url).hostname == host
+                    and other.sip_config["username"] == horn.sip_config["username"]):
+                raise HornConfigError("已有启用设备使用相同的喇叭地址和 SIP 账户，请检查设备配置")
+
+    @staticmethod
+    def _sip_values(value, previous=None):
+        """编辑时空密码保留原值；新启用 SIP 必须明确提供注册密码。"""
+        if value is None:
+            return None
+        value = dict(value)
+        if not value.get("password"):
+            value["password"] = (previous or {}).get("password")
+        if not value.get("password"):
+            raise HornConfigError("请设置 SIP 注册密码")
+        return value
 
 
 horn_service = HornService()

@@ -64,12 +64,24 @@ CREATE TABLE ai_guard_behavior_site (
 
 CREATE INDEX ix_ai_guard_behavior_site_department ON ai_guard_behavior_site (department);
 
+CREATE TABLE ai_horn_audio (
+	id INTEGER NOT NULL AUTO_INCREMENT,
+	name VARCHAR(255) NOT NULL,
+	storage_key VARCHAR(64) NOT NULL,
+	size INTEGER NOT NULL,
+	duration FLOAT NOT NULL,
+	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	UNIQUE (storage_key)
+)CHARSET=utf8mb4 ENGINE=InnoDB;
+
 CREATE TABLE ai_horn_config (
 	id INTEGER NOT NULL AUTO_INCREMENT,
 	name VARCHAR(100) NOT NULL,
 	url VARCHAR(500) NOT NULL,
 	username VARCHAR(100) NOT NULL,
 	password VARCHAR(200) NOT NULL,
+	sip_config JSON,
 	enable BOOL,
 	description TEXT,
 	created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,

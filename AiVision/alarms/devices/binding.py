@@ -1,7 +1,7 @@
 """普通功能和物流通道共用的喇叭绑定校验，不进行设备网络操作。"""
 from sqlalchemy.orm import Session
 
-from .orm import AiHornConfig
+from .orm import AiHornAudio, AiHornConfig
 
 
 MAX_HORN_ID = 2_147_483_647  # 现有数据库 Integer 字段的有符号上限。
@@ -27,3 +27,5 @@ def validate_horn_binding(session: Session, enabled: bool, horn_id, event_id) ->
         raise ValueError(f"喇叭设备 #{horn_id} 不存在，请重新选择或清除绑定")
     if enabled and not horn.enable:
         raise ValueError(f"喇叭设备 #{horn_id} 已停用，请选择已启用设备或关闭喇叭告警")
+    if enabled and horn.sip_config and session.get(AiHornAudio, event_id, with_for_update=True) is None:
+        raise ValueError("所选服务器音频不存在，请重新上传或选择音频")

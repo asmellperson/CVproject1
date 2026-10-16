@@ -1,19 +1,26 @@
-"""管理员现场喇叭配置、状态及无声连接测试。"""
-from fastapi import APIRouter, Depends, HTTPException, Response
+"""管理员喇叭配置、SIP 服务、AAC 素材和现场试播。"""
+from urllib.parse import unquote
+
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from auth.auth import require_admin
-from AiVision.api.deps import get_horn_runtime_manager, get_horn_service
+from AiVision.api.deps import get_horn_runtime_manager, get_horn_service, get_horn_audio_service, get_horn_sip_service
 from AiVision.core.logger import logger
 from AiVision.alarms.devices.schema import (
     HornConnectionResult, HornConnectionTest, HornCreate, HornResponse,
     HornRuntimeStatus, HornUpdate,
+    HornAudioResponse, HornPlaybackTest, HornPlaybackResult, SipServerConfig, SipServerResponse,
 )
-from AiVision.alarms.devices.service import HornInUseError
+from AiVision.alarms.devices.service import HornInUseError, HornConfigError
+from AiVision.alarms.devices.audio import HornAudioError
+from AiVision.alarms.devices.sip_protocol import SipAudioError
+from AiVision.core.settings import settings
 
 
 class HornRoute(APIRoute):
@@ -32,6 +39,10 @@ class HornRoute(APIRoute):
                 return JSONResponse(status_code=422, content={"detail": errors})
             except HornInUseError:
                 raise HTTPException(409, "喇叭仍被功能或物流通道配置引用，请先解除绑定") from None
+            except (HornAudioError, HornConfigError) as exc:
+                raise HTTPException(422, str(exc)) from None
+            except SipAudioError as exc:
+                raise HTTPException(409, str(exc)) from None
             except IntegrityError:
                 raise HTTPException(409, "喇叭名称重复或配置存在关联冲突") from None
             except SQLAlchemyError:
@@ -97,6 +108,59 @@ def test_connection(payload: HornConnectionTest, service=Depends(get_horn_servic
     # 同步路由由 FastAPI 在线程池执行；永远不调用保存、心跳启动或播放接口。
     result = runtime.test_connection(config)
     return {"success": bool(result.get("online")), "runtime": result}
+
+
+@router.get("/sip-server", response_model=SipServerResponse)
+def get_sip_server(service=Depends(get_horn_sip_service)):
+    """读取集中 SIP 服务参数和实际监听状态。"""
+    return service.public()
+
+
+@router.put("/sip-server", response_model=SipServerResponse)
+def save_sip_server(payload: SipServerConfig, service=Depends(get_horn_sip_service)):
+    """保存并应用前端设置的本机地址与 UDP 端口。"""
+    return service.save(payload)
+
+
+@router.get("/audio", response_model=list[HornAudioResponse])
+def list_audio(service=Depends(get_horn_audio_service)):
+    """全局音频供所有设备和检测配置复用。"""
+    return service.list_audio()
+
+
+@router.post("/audio", response_model=HornAudioResponse, status_code=201)
+async def upload_audio(request: Request, service=Depends(get_horn_audio_service)):
+    """流式限制上传大小，AAC 转码交给线程池，不阻塞 API 事件循环。"""
+    filename = unquote(request.headers.get("x-audio-filename", ""))
+    content = bytearray()
+    async for chunk in request.stream():
+        if len(content) + len(chunk) > settings.alarm.horn_audio_max_bytes:
+            raise HTTPException(413, "音频超过服务器允许的上传大小")
+        content.extend(chunk)
+    return await run_in_threadpool(service.upload, filename, bytes(content))
+
+
+@router.delete("/audio/{audio_id}", status_code=204)
+def delete_audio(audio_id: int, service=Depends(get_horn_audio_service)):
+    """删除未被检测配置引用的服务器素材。"""
+    if not service.delete(audio_id):
+        raise HTTPException(404, "音频素材不存在")
+    return Response(status_code=204)
+
+
+@router.post("/{horn_id}/test-play", response_model=HornPlaybackResult)
+def test_play(horn_id: int, payload: HornPlaybackTest, service=Depends(get_horn_service),
+              runtime=Depends(get_horn_runtime_manager)):
+    """手动试播与真实报警复用同一个控制器，明确报告音频发送结果。"""
+    configs = service.runtime_configs(horn_id)
+    if not configs:
+        raise HTTPException(404, "喇叭不存在")
+    config = configs[0]
+    if not config["enable"]:
+        raise HTTPException(409, "喇叭已停用，请启用设备后试播")
+    result = runtime.test_play(config, payload.audio_id)
+    return {**result, "message": ("音频已发送至所选喇叭，请现场确认声音内容。" if result["success"]
+                                else result["runtime"].get("last_error") or "喇叭未完成播放，请检查设备状态")}
 
 
 @router.get("/{horn_id}", response_model=HornResponse)

@@ -9,6 +9,8 @@ import { Switch } from '@/components/ui/switch'
 import { HORN_STATE_LABELS } from './hornDeviceForm'
 import { MAX_HORN_ID, validateHornBinding, type HornBinding } from '@/lib/horn-alarm-binding'
 import { useHornCatalog } from './useHornCatalog'
+import { useHornAudioCatalog } from './useHornAudioCatalog'
+import { HornPlaybackControl } from './HornPlaybackControl'
 
 type Props = {
   value: HornBinding
@@ -21,9 +23,11 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
   const { isAdmin } = useAuth()
   const fieldId = useId()
   const { devices, error: loadError } = useHornCatalog(isAdmin)
+  const audio = useHornAudioCatalog(isAdmin)
   const selectedId = value.parm.horn_id
   const selected = devices?.find((device) => device.id === selectedId)
-  const validation = validateHornBinding(value, isAdmin ? (loadError ? null : devices) : undefined)
+  const validation = validateHornBinding(value, isAdmin ? (loadError ? null : devices) : undefined,
+    isAdmin ? (audio.loadError ? null : audio.files) : undefined)
   const readOnly = disabled || !isAdmin
   const warning = validation || (selected && !selected.enable ? '已绑定设备已停用，原绑定已保留；关闭喇叭告警后可保存。' : '')
   const state = selected ? (!selected.enable ? 'disabled' : selected.runtime.state) : null
@@ -45,7 +49,7 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         <Select value={selectedId == null ? 'none' : String(selectedId)} disabled={readOnly}
           onValueChange={(id) => {
             if (id !== 'none' && !devices?.some((device) => device.id === Number(id) && device.enable)) return
-            onChange({ ...value, parm: { ...value.parm, horn_id: id === 'none' ? null : Number(id) } })
+            onChange({ ...value, parm: { ...value.parm, horn_id: id === 'none' ? null : Number(id), horn_event_id: null } })
           }}>
           <SelectTrigger id={`${fieldId}-device`} className="w-full"><SelectValue placeholder="请选择已启用的设备" /></SelectTrigger>
           <SelectContent>
@@ -59,12 +63,20 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         </Select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor={`${fieldId}-task`}>语音任务 ID</Label>
-        <Input id={`${fieldId}-task`} type="number" min={1} max={MAX_HORN_ID} step={1}
+        <Label htmlFor={`${fieldId}-task`}>{selected?.sip ? '报警音频' : '设备音频 ID'}</Label>
+        {selected?.sip ? <Select value={value.parm.horn_event_id == null ? 'none' : String(value.parm.horn_event_id)} disabled={readOnly}
+          onValueChange={(id) => onChange({ ...value, parm: { ...value.parm, horn_event_id: id === 'none' ? null : Number(id) } })}>
+          <SelectTrigger id={`${fieldId}-task`} className="w-full"><SelectValue placeholder="请选择已上传的 AAC 音频" /></SelectTrigger>
+          <SelectContent><SelectItem value="none">未选择音频</SelectItem>
+            {value.parm.horn_event_id != null && !audio.files?.some((file) => file.id === value.parm.horn_event_id)
+              ? <SelectItem value={String(value.parm.horn_event_id)} disabled>音频 #{String(value.parm.horn_event_id)}（待确认）</SelectItem> : null}
+            {audio.files?.map((file) => <SelectItem key={file.id} value={String(file.id)}>{file.name}（{file.duration.toFixed(1)} 秒）</SelectItem>)}
+          </SelectContent>
+        </Select> : <Input id={`${fieldId}-task`} type="number" min={1} max={MAX_HORN_ID} step={1}
           value={value.parm.horn_event_id == null ? '' : String(value.parm.horn_event_id)} disabled={readOnly}
           onChange={(event) => onChange({ ...value, parm: { ...value.parm,
             horn_event_id: event.target.value === '' ? null : Number(event.target.value),
-          } })} placeholder="填写设备素材库中的音频文件 ID" />
+          } })} placeholder="填写设备素材库中的音频文件 ID" />}
       </div>
     </div>
     {state ? <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">设备状态
@@ -78,6 +90,11 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
         : devices === null ? <p role="status" className="text-xs text-slate-500">正在读取喇叭设备...</p>
           : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在旁边的“喇叭配置”中管理。</p> : null}
     {warning ? <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p> : null}
-    <p className="text-xs text-slate-500 dark:text-slate-400">海康设备填写素材库中的音频文件 ID；音频需先在设备中上传。修改后保存当前检测配置生效。</p>
+    {selected && isAdmin ? <HornPlaybackControl device={selected}
+      audioId={typeof value.parm.horn_event_id === 'number' ? value.parm.horn_event_id : null}
+      duration={audio.files?.find((file) => file.id === value.parm.horn_event_id)?.duration} disabled={readOnly || Boolean(validation)} /> : null}
+    <p className="text-xs text-slate-500 dark:text-slate-400">{selected?.sip
+      ? '在“喇叭配置”上传 AAC 后选择报警音频，异常检测会由服务器通过 SIP 发送给所选喇叭。'
+      : '设备已有音频使用素材库中的文件 ID。'}修改后保存当前检测配置生效；试播会实际播放声音。</p>
   </div>
 }

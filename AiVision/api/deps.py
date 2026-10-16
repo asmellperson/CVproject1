@@ -66,6 +66,18 @@ def get_horn_runtime_manager():
     return horn_runtime_manager
 
 
+def get_horn_audio_service():
+    """取得受管服务器 AAC 素材库。"""
+    from AiVision.alarms.devices.audio import horn_audio_service
+    return horn_audio_service
+
+
+def get_horn_sip_service():
+    """取得平台共享的 SIP 配置与运行服务。"""
+    from AiVision.alarms.devices.sip_service import horn_sip_service
+    return horn_sip_service
+
+
 def get_guard_behavior_service():
     """优先复用编排器服务，编排器尚未就绪时仍允许访问配置事务。"""
     from AiVision.features.guard_behavior.service import GuardBehaviorService

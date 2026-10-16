@@ -10,6 +10,7 @@ from requests.auth import HTTPDigestAuth
 
 DEVICE_INFO_PATH = "ISAPI/System/deviceInfo"
 CUSTOM_AUDIO_PLAY_PATH = "ISAPI/AccessControl/EventCardLinkageCfg/CustomAudio/{audio_id}/play?format=json"
+SIP_CONFIG_PATH = "ISAPI/System/Network/SIP/1"
 
 
 class HikvisionSpeakerError(RuntimeError):
@@ -87,3 +88,45 @@ class HikvisionSpeakerClient:
             raise HikvisionSpeakerError(
                 f"语音播放失败：设备拒绝播放（ISAPI 状态 {data['statusCode']}），请检查音频文件 ID、设备素材和播放权限"
             )
+
+    def configure_sip(self, server: dict, sip: dict) -> None:
+        """按平台保存值配置设备 SIP，保留其他设备参数，不改动网页登录密码。"""
+        response = self._request("GET", SIP_CONFIG_PATH, "读取 SIP 配置")
+        try:
+            root = ET.fromstring(response.content)
+            namespace = root.tag.split("}", 1)[0] + "}" if "}" in root.tag else ""
+            if namespace:
+                # 海康固件要求默认命名空间，ElementTree 的 ns0 前缀会导致 HTTP 400。
+                ET.register_namespace("", namespace[1:-1])
+            standard = root.find(namespace + "Standard")
+            if root.tag.rsplit("}", 1)[-1] != "SIPServer" or standard is None:
+                raise ValueError("不支持的 SIP 配置结构")
+            changes = {"enabled": "true", "registrar": server["address"], "registrarPort": str(server["port"]),
+                       "proxy": server["address"], "proxyPort": str(server["port"]), "transportType": "UDP",
+                       "userName": sip["username"], "authID": sip["auth_id"], "password": sip["password"]}
+            for name, value in changes.items():
+                node = standard.find(namespace + name)
+                if node is None:
+                    node = ET.SubElement(standard, namespace + name)
+                node.text = value
+            local_port = root.find(namespace + "localPort")
+            if local_port is None:
+                local_port = ET.SubElement(root, namespace + "localPort")
+            local_port.text = str(sip["port"])
+            codecs = standard.find(namespace + "audioCompressionTypeList")
+            if codecs is None:
+                codecs = ET.SubElement(standard, namespace + "audioCompressionTypeList")
+            codecs.clear()
+            ET.SubElement(codecs, namespace + "audioCompressionType").text = "G.711alaw"
+            payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        except (ET.ParseError, ValueError, KeyError):
+            raise HikvisionSpeakerError("SIP 配置失败：设备未提供有效的 SIP 配置接口") from None
+        result = self._request("PUT", SIP_CONFIG_PATH, "同步 SIP 配置", data=payload,
+                               headers={"Content-Type": "application/xml"})
+        try:
+            status = ET.fromstring(result.content)
+            code = next((node.text for node in status.iter() if node.tag.rsplit("}", 1)[-1] == "statusCode"), None)
+            if status.tag.rsplit("}", 1)[-1] != "ResponseStatus" or code != "1":
+                raise ValueError("设备拒绝配置")
+        except (ET.ParseError, ValueError):
+            raise HikvisionSpeakerError("SIP 配置失败：设备未确认保存，请检查 SIP 账户和密码要求") from None

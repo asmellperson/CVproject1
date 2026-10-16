@@ -6,6 +6,7 @@ import threading
 import time
 
 from AiVision.alarms.devices.horn import Horn
+from AiVision.alarms.devices.sip_service import horn_sip_service
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 
@@ -31,16 +32,18 @@ class HornRuntimeManager:
         self._active = False
         self._stop = threading.Event()
         self._queue = queue.Queue(maxsize=settings.alarm.horn_queue_size)
+        self._pending: dict[int, Horn] = {}
         self._threads: list[threading.Thread] = []
 
     @staticmethod
     def _credentials(config):
         """提取设备认证所需字段，仅供内部实例比较和连接。"""
-        return {"horn_url": config["url"], "username": config["username"],
-                "password": config["password"]}
+        return {"id": config.get("id"), "horn_url": config["url"], "username": config["username"],
+                "password": config["password"], "sip": config.get("sip")}
 
     def start(self):
         """创建本轮播放和同步线程，再读取已提交设备配置。"""
+        horn_sip_service.start()
         with self._sync_lock:
             with self._lock:
                 if self._active:
@@ -48,10 +51,12 @@ class HornRuntimeManager:
                 self._active = True
                 self._stop = threading.Event()
                 self._queue = queue.Queue(maxsize=settings.alarm.horn_queue_size)
+                self._pending.clear()
                 stop, jobs = self._stop, self._queue
                 self._threads = [
-                    threading.Thread(target=self._play_loop, args=(stop, jobs), daemon=True, name="horn-playback"),
                     threading.Thread(target=self._reconcile_loop, args=(stop,), daemon=True, name="horn-reconcile"),
+                    *(threading.Thread(target=self._play_loop, args=(stop, jobs), daemon=True, name=f"horn-playback-{index}")
+                      for index in range(settings.alarm.horn_playback_workers)),
                 ]
                 for thread in self._threads:
                     thread.start()
@@ -60,6 +65,8 @@ class HornRuntimeManager:
     def _retire(self, horn_id):
         """立即关闭旧设备入口并保留引用，供停止状态查询和资源回收。"""
         entry = self._entries.pop(horn_id, None)
+        self._pending.pop(horn_id, None)
+        horn_sip_service.server.remove_device(horn_id)
         if entry:
             entry[1].request_stop()
             self._retired.append((horn_id, entry[1]))
@@ -77,16 +84,24 @@ class HornRuntimeManager:
                     for device_id in ids:
                         cfg = configs.get(device_id)
                         old = self._entries.get(device_id)
-                        if cfg is None or not cfg["enable"]:
+                        try:
+                            if cfg is None or not cfg["enable"]:
+                                self._retire(device_id)
+                            elif old is None or self._credentials(old[0]) != self._credentials(cfg):
+                                self._retire(device_id)
+                                horn_sip_service.server.set_device(cfg)
+                                horn = self._factory(self._credentials(cfg), connect_on_init=False)
+                                self._entries[device_id] = (cfg, horn)
+                                horn.start_heartbeat()
+                            else:
+                                horn_sip_service.server.set_device(cfg)
+                                self._entries[device_id] = (cfg, old[1])
+                            self._failures.discard(device_id)
+                        except Exception:
+                            # 一台喇叭的地址或身份错误不能中断其他设备的报警。
                             self._retire(device_id)
-                        elif old is None or self._credentials(old[0]) != self._credentials(cfg):
-                            self._retire(device_id)
-                            horn = self._factory(self._credentials(cfg), connect_on_init=False)
-                            self._entries[device_id] = (cfg, horn)
-                            horn.start_heartbeat()
-                        else:
-                            self._entries[device_id] = (cfg, old[1])
-                        self._failures.discard(device_id)
+                            self._failures.add(device_id)
+                            logger.warning(f"[HornRuntime] 喇叭 {device_id} 配置同步失败，等待重试")
                     if horn_id is None:
                         self._sync_failed = False
                     self._retired = [(key, horn) for key, horn in self._retired
@@ -115,8 +130,12 @@ class HornRuntimeManager:
             entry = self._entries.get(horn_id)
             if not self._active or entry is None:
                 return False
+            if self._pending.get(horn_id) is entry[1]:
+                # 同台喇叭只保留一项待播或在播任务，避免长音频占满所有工作线程。
+                return False
             try:
                 self._queue.put_nowait((horn_id, entry[1], event_id, time.monotonic()))
+                self._pending[horn_id] = entry[1]
                 return True
             except queue.Full:
                 logger.warning("[HornRuntime] 播放队列已满，本次喇叭告警跳过")
@@ -139,6 +158,9 @@ class HornRuntimeManager:
             except Exception:
                 logger.warning("[HornRuntime] 播放任务失败")
             finally:
+                with self._lock:
+                    if self._pending.get(horn_id) is horn:
+                        self._pending.pop(horn_id, None)
                 jobs.task_done()
 
     def status(self, config: dict) -> dict:
@@ -181,6 +203,7 @@ class HornRuntimeManager:
             with self._lock:
                 self._active = False
                 self._stop.set()
+                self._pending.clear()
                 for horn_id in list(self._entries):
                     self._retire(horn_id)
                 retired, threads = list(self._retired), list(self._threads)
@@ -199,6 +222,23 @@ class HornRuntimeManager:
             horn.snapshot()["state"] == "stopping" for _, horn in retired
         ):
             logger.warning("[HornRuntime] 停止门控已关闭，等待在途 HTTP 请求结束")
+        horn_sip_service.server.stop()
+
+    def test_play(self, config: dict, audio_id: int) -> dict:
+        """试播复用正式播放路径，不写检测绑定、不绕过设备停用和停止门控。"""
+        credentials = self._credentials(config)
+        with self._lock:
+            entry = self._entries.get(config["id"])
+            horn = entry[1] if entry and self._credentials(entry[0]) == credentials else None
+        probe = horn is None
+        if probe:
+            horn = self._factory(credentials, connect_on_init=False)
+        try:
+            success = bool(horn.play(audio_id, preview=True))
+            return {"success": success, "runtime": horn.snapshot()}
+        finally:
+            if probe:
+                horn.request_stop()
 
 
 horn_runtime_manager = HornRuntimeManager()

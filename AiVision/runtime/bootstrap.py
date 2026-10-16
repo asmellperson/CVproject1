@@ -37,6 +37,7 @@ def bootstrap_database():
             GuardBehaviorSitePolicy, GuardBehaviorAlarmPolicy,
             InspectionSession, InspectionSessionImage, VisualLanguageEventORM,
             AuthUser, AccessViewer, ExternalClient, AiAlarmDisposition,
+            _alarm_device_orm.AiHornConfig, _alarm_device_orm.AiHornAudio,
         ):
             assert_table_matches(connection, model.__table__)
     logger.info("[DB] 功能配置和业务表结构核验通过")

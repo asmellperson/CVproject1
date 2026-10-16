@@ -1,9 +1,8 @@
 """
 alarms/devices/horn.py
-IP 喇叭设备控制 — 通过 HTTP API 触发语音告警。
-AlarmDispatcher 将播放任务交给 HornRuntimeManager，后台调用 horn.play(event_id) 请求设备播放预录语音
-封装海康 ISAPI 认证、在线检查和带冷却的预录音频播放。
-connect() 与周期在线检查只读取设备信息；play(event_id) 使用设备素材库的音频文件 ID。
+IP 喇叭控制器，按设备配置播放服务器 AAC 或设备内置音频。
+AlarmDispatcher 经 HornRuntimeManager 调用 play(event_id)，SIP 模式读取服务器素材并发送 RTP，
+设备音频模式使用 ISAPI 素材 ID。连接测试只读；后台运行和试播负责同步 SIP 参数。
 """
 from __future__ import annotations
 from functools import wraps
@@ -11,6 +10,9 @@ import threading                  # 心跳线程+play()并发锁
 import time                       # 告警冷却时间
 
 from AiVision.alarms.devices.hikvision import HikvisionSpeakerClient, HikvisionSpeakerError
+from AiVision.alarms.devices.audio import horn_audio_service, HornAudioError
+from AiVision.alarms.devices.sip_protocol import SipAudioError
+from AiVision.alarms.devices.sip_service import horn_sip_service
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 
@@ -40,7 +42,7 @@ class Horn:
     生命周期:
         1. __init__ 时自动调用 connect()，通过 ISAPI 摘要认证读取设备信息。
         2. 调用 start_heartbeat() 启动周期在线检查线程。
-        3. 业务层通过 play(event_id) 触发预录制语音；内置冷却防抖避免短时重复播放。
+        3. 业务层通过 play(event_id) 播放所选素材；内置冷却防抖避免短时重复播放。
         4. 进程退出前可调用 stop_heartbeat() 优雅终止保活线程。
 
     线程安全:
@@ -56,6 +58,11 @@ class Horn:
         # 喇叭设备自己的登录账号密码
         self.username: str = config.get("username", "admin")
         self.password: str = config.get("password") or ""
+        self._id = config.get("id")
+        self._sip = config.get("sip")
+        self._sip_generation = -1
+        self._sip_ready = False
+        self._playing = False
 
         self.status: bool = False           # 设备当前是否处于可用状态
 
@@ -117,7 +124,7 @@ class Horn:
     # ------------------------------------------------------------------ #
     def start_heartbeat(self):
         """
-        启动后台检查线程，每隔 _heart_interval 秒只读检查设备在线状态。
+        启动后台线程，检查设备在线状态并同步平台保存的 SIP 参数。
         外部调用时，Horn(config)本身只是登录，真正启动心跳的是 HornRuntimeManager
         幂等：线程已存活时重复调用无副作用。
         """
@@ -148,6 +155,7 @@ class Horn:
             self._stop_event.set()
             self.status = False
             self._state = "stopping"
+            self._sip_ready = False
 
     def snapshot(self) -> dict:
         """在状态锁内返回在线、心跳及错误快照，区分停止中与完全停止。"""
@@ -158,7 +166,8 @@ class Horn:
                 state = "stopping" if alive or self._inflight else "stopped"
             return {"state": state, "online": self.status,
                     "heartbeat_alive": alive, "last_error": self._last_error,
-                    "last_seen_at": self._last_seen_at}
+                    "last_seen_at": self._last_seen_at,
+                    "sip_ready": self._sip_ready, "playing": self._playing}
 
     def _set_state(self, state: str, error: str | None = None) -> bool:
         """停止门控生效后拒绝更新状态，在线时刷新最后成功时间。"""
@@ -190,6 +199,11 @@ class Horn:
         while not self._stop_event.is_set():
             try:
                 self._send_heart()
+                if self.status and self._sip:
+                    self.prepare_sip()
+            except (SipAudioError, HikvisionSpeakerError) as exc:
+                self._sip_ready = False
+                self._set_state("offline", str(exc))
             except Exception as exc:
                 self._set_state("offline", f"在线检查执行失败（{type(exc).__name__}）")
             # 只要其他线程调用_stop_event.set()，它就立即醒，并且退出循环
@@ -213,20 +227,45 @@ class Horn:
             self._set_state("offline", f"在线检查执行失败（{type(exc).__name__}）")
         return False
 
+    @_serialized
+    def prepare_sip(self):
+        """仅后台启用或明确试播时同步设备；无声连接测试仍只读取设备信息。"""
+        if not self._sip:
+            return True
+        self._sip_ready = False
+        server = horn_sip_service.ensure_started()
+        if not server["running"]:
+            raise SipAudioError("请先在喇叭配置中设置并启用 SIP 服务")
+        horn_sip_service.server.set_device({"id": self._id, "url": self.url, "enable": True, "sip": self._sip})
+        generation = horn_sip_service.server.generation
+        if generation != self._sip_generation:
+            self._client.configure_sip(server, self._sip)
+            self._sip_generation = generation
+        # 设备应用 SIP 配置需要时间，注册完成前发 INVITE 会被设备拒绝。
+        deadline = time.monotonic() + settings.alarm.horn_sip_call_timeout
+        while not horn_sip_service.server.registered(self._id):
+            if self._stop_event.wait(0.1):
+                return False
+            if time.monotonic() >= deadline:
+                raise SipAudioError("喇叭 SIP 注册未完成，请检查注册密码、账户、服务器地址和 UDP 端口")
+        with self._state_lock:
+            self._sip_ready = not self._stop_event.is_set()
+        return self._sip_ready
+
     # ------------------------------------------------------------------ #
     #  告警触发                                                             #
     # ------------------------------------------------------------------ #
     @_serialized
-    def play(self, event_id: str | int, *, expires_at: float | None = None):
+    def play(self, event_id: str | int, *, expires_at: float | None = None, preview: bool = False):
         """
-        触发设备上预录制的语音任务。
+        按设备的播放模式执行服务器素材或设备内置语音。
 
         冷却防抖:
             同一实例在 _cooldown 秒内的重复调用会被静默丢弃，
             防止连续告警事件导致语音叠放或设备过载。
 
         Args:
-            event_id: 海康设备素材库中已上传的音频文件 ID。
+            event_id: SIP 模式为服务器音频 ID，设备模式为 ISAPI 素材 ID。
 
         Note:
             HTTP 请求失败时仅记录警告日志，不向调用方抛出异常，
@@ -240,17 +279,29 @@ class Horn:
 
         now = time.time()
         with self._lock:
-            if now - self._last_trigger < self._cooldown:
+            if not preview and now - self._last_trigger < self._cooldown:
                 return  # 仍在冷却期，静默丢弃
             self._last_trigger = now  # 占位，防止并发重入
 
         if self._stop_event.is_set() or (expires_at is not None and time.monotonic() >= expires_at):
             return False
         try:
-            self._client.play(event_id)
+            with self._state_lock:
+                self._playing = True
+            if self._sip:
+                audio = horn_audio_service.read_encoded(int(event_id))
+                self.prepare_sip()
+                if self._stop_event.is_set():
+                    return False
+                horn_sip_service.server.play(self._id, audio, self._stop_event, expires_at=expires_at)
+            else:
+                self._client.play(event_id)
             return self._set_state("online")
-        except HikvisionSpeakerError as exc:
+        except (HikvisionSpeakerError, SipAudioError, HornAudioError) as exc:
             self._set_state("offline", str(exc))
         except Exception as exc:
             self._set_state("offline", f"语音播放执行失败（{type(exc).__name__}）")
+        finally:
+            with self._state_lock:
+                self._playing = False
         return False

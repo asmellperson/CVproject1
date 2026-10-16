@@ -5,9 +5,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import type { HornConnectionInput, HornConnectionResult, HornDevice, HornWrite } from '@/lib/horns'
-import { hornConnectionPayload, hornDraft, hornWritePayload, validateHornDraft } from './hornDeviceForm'
+import { DEFAULT_HORN_SIP, hornConnectionPayload, hornDraft, hornWritePayload, validateHornDraft } from './hornDeviceForm'
 
 type Props = {
   device: HornDevice | null
@@ -32,7 +33,7 @@ export function HornDeviceDialog({ device, busy, error, onClose, onSave, onTest 
 
   const submit = async () => {
     if (disabled) return
-    const problem = validateHornDraft(draft, device !== null)
+    const problem = validateHornDraft(draft, device !== null, false, device?.sip?.password_set)
     setValidationError(problem ?? '')
     if (problem) return
     setOperation('save')
@@ -71,10 +72,37 @@ export function HornDeviceDialog({ device, busy, error, onClose, onSave, onTest 
               onChange={(event) => change({ name: event.target.value })} placeholder="例如：一号厂房喇叭" />
           </div>
           <div className="space-y-2">
+            <Label htmlFor="horn-mode">播放方式</Label>
+            <Select value={draft.sip ? 'sip' : 'device'} disabled={disabled}
+              onValueChange={(value) => change({ sip: value === 'sip' ? { ...DEFAULT_HORN_SIP } : null })}>
+              <SelectTrigger id="horn-mode" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="sip">服务器音频（SIP）</SelectItem><SelectItem value="device">设备已有音频（ISAPI）</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="horn-url">设备地址</Label>
             <Input id="horn-url" value={draft.url} maxLength={500} disabled={disabled} autoComplete="off"
               onChange={(event) => change({ url: event.target.value })} placeholder="http://192.168.1.100" />
           </div>
+          {draft.sip ? <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">这台喇叭的 SIP 配置</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="horn-sip-user">SIP 账户</Label>
+                <Input id="horn-sip-user" value={draft.sip.username} maxLength={64} disabled={disabled} autoComplete="off"
+                  onChange={(event) => change({ sip: { ...draft.sip!, username: event.target.value } })} /></div>
+              <div className="space-y-2"><Label htmlFor="horn-sip-auth">SIP 认证 ID</Label>
+                <Input id="horn-sip-auth" value={draft.sip.auth_id} maxLength={64} disabled={disabled} autoComplete="off"
+                  onChange={(event) => change({ sip: { ...draft.sip!, auth_id: event.target.value } })} /></div>
+              <div className="space-y-2"><Label htmlFor="horn-sip-port">喇叭本地 SIP 端口</Label>
+                <Input id="horn-sip-port" type="number" min={1} max={65535} value={draft.sip.port} disabled={disabled}
+                  onChange={(event) => change({ sip: { ...draft.sip!, port: Number(event.target.value) } })} /></div>
+              <div className="space-y-2"><Label htmlFor="horn-sip-password">SIP 注册密码</Label>
+                <Input id="horn-sip-password" type="password" value={draft.sip.password ?? ''} maxLength={128} disabled={disabled} autoComplete="new-password"
+                  placeholder={device?.sip?.password_set ? '留空保留已保存的 SIP 密码' : '请输入 SIP 密码'}
+                  onChange={(event) => change({ sip: { ...draft.sip!, password: event.target.value } })} /></div>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">SIP 服务地址和监听端口在“喇叭配置”的 SIP 服务中统一设置。保存并启用设备后，平台自动将这些参数同步到喇叭；按设备地址和 SIP 账户定位。</p>
+          </div> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="horn-username">用户名</Label>

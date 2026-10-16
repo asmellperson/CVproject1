@@ -132,7 +132,7 @@ AiVision/
 │   └── security_inspection/        # 工位 ROI、会话、千问调度与历史
 ├── alarms/
 │   ├── dispatcher.py              # 统一告警分发与冷却
-│   ├── devices/                   # 喇叭配置、绑定、运行队列与心跳
+│   ├── devices/                   # 喇叭配置、AAC 素材、SIP/RTP、绑定与播放队列
 │   ├── notifications/             # 企业微信、通知图片
 │   ├── records/                   # 告警、MySQL 处置、异步写入与媒体引用
 │   └── evidence/                  # 报警前后视频缓存与编码
@@ -797,7 +797,7 @@ Consumer / 通道状态机满足规则
 ### 8.4 后台写入、通知和清理
 
 - `AsyncViolationWriter` 负责图片/记录保存、批量处理、数据库重试和相关清理；企微卡片需要记录时走即时保存入口。
-- 喇叭通过设备 ID 和语音任务 ID 绑定，语音任务 ID 对应海康音柱素材库中的音频文件 ID；音频需先在设备管理页面上传。运行管理器处理播放队列、周期在线检查、冷却和设备配置变化。
+- 喇叭按设备 ID 和音频 ID 绑定。SIP 模式的音频 ID 引用服务器 AAC 素材，设备音频模式引用海康素材库的整数文件 ID。运行管理器处理播放队列、周期在线检查、冷却和配置变化；同台喇叭串行播放，不同设备可由独立工作线程发送。
 - 企业微信在独立线程中发送；通知图片和公开缩略图由专门模块处理。
 - `ALARM_MEDIA_RETENTION_DAYS` 默认 `31`、最小 `31`，覆盖报警图片、视频、识别截图及安检 session；启动后立即清理，此后每 `ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES=60` 分钟执行。只删除严格早于保留截止时间的数据。
 - `ALARM_MEDIA_MAX_GB=10` 是磁盘媒体容量告警阈值，超限只记录告警，不提前删除保留期内证据。该数值不包括数据库 BLOB，需按实际日增量准备磁盘与数据库空间。
@@ -805,7 +805,11 @@ Consumer / 通道状态机满足规则
 - 安检数据库清理由同一平台调度器独立执行，不依赖摄像头或模型是否运行，失败由调度器记录并在下一周期重试。
 - API、摄像头、Worker 和 Consumer 的运行异常有独立异常通知配置，不等同于检测业务告警。
 
-`alarms/devices/hikvision.py` 封装海康网络音柱（如 DS-QA6C301）的 ISAPI 协议。设备使用 Digest 摘要认证，连接测试和周期在线检查只读取 `GET /ISAPI/System/deviceInfo`；播放使用 `PUT /ISAPI/AccessControl/EventCardLinkageCfg/CustomAudio/{音频文件ID}/play?format=json`，同时检查 HTTP 与 ISAPI 业务状态。设备请求直连局域网，不使用服务器外网代理；HTTPS 保留证书校验。设备地址须填写网页管理根地址及实际端口。连接测试不保存配置、不启动周期检查，也不播放声音；认证、超时、证书和接口错误通过脱敏运行状态返回。
+`alarms/devices/hikvision.py` 封装海康网络音柱（如 DS-QA6C301）的 ISAPI 摘要认证和 SIP 配置。设备地址填写网页管理根地址及实际端口。设备请求直连局域网，不使用服务器外网代理，HTTPS 保留证书校验。连接测试只读取 `GET /ISAPI/System/deviceInfo`，不保存配置、不启动周期检查，也不播放声音。启用设备后，后台将平台保存的 SIP 服务地址、端口、账户、认证 ID 和密码同步到 `ISAPI/System/Network/SIP/1`。
+
+`sip_service.py` 将平台 SIP 地址和 UDP 端口保存到系统配置表，`sip_server.py` 维护常驻 UDP 注册服务及按设备隔离的呼叫。注册使用 Digest 验证，只允许配置中的设备 IP 和账户；呼叫及媒体发送均限定到所选喇叭。喇叭完成注册并接听后，平台按 20 ms 发送 G.711 A-law / 8 kHz RTP，结束后挂断。默认 SIP 端口为 UDP `5062`，HTTP API 使用自己的端口；服务器与设备间须允许 SIP 控制和 RTP 音频的 UDP 通信。
+
+`audio.py` 校验上传的 AAC 并通过 FFmpeg 预转码，默认上限 10 MB、60 秒。原音频及 A-law 文件保存在 `DATA_PATH/horn_audio`，不参与报警证据的周期清理；被检测配置引用的素材需解绑后才能删除。手动试播和真实报警复用 `Horn.play()`。设备音频模式调用 `PUT /ISAPI/AccessControl/EventCardLinkageCfg/CustomAudio/{音频文件ID}/play?format=json`，同时检查 HTTP 与 ISAPI 业务状态。API 只返回密码设置状态和脱敏错误。
 
 ## 9. 保安行为与安检流程
 
@@ -931,7 +935,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 安检数据库图片 | `ai_security_inspection_session_image` | 与不合规 session 一对一关联的 JPEG 二进制，随会话过期删除 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |
-| 喇叭设备 | `ai_horn_config` | 设备连接和运行配置 |
+| 喇叭设备 | `ai_horn_config` | 设备连接、SIP 身份和运行配置 |
+| 喇叭音频 | `ai_horn_audio`、`DATA_PATH/horn_audio` | 已验证 AAC 的元数据、原文件和预转码音频 |
 | 人员底库与特征 | `ai_face_person`、`ai_face_embedding` | 人员元数据、照片签名和 512 维特征 |
 | 人脸识别通行白名单 | `ai_face_person_authorization` | 按事业部和人员保存授权，同事业部摄像头共用 |
 | 图片和视频 | `DATA_PATH` 及相关模块目录 | 数据库存引用，媒体文件落磁盘 |
@@ -977,6 +982,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 - 源码和接口已统一，不能据此推断某个现场数据库已经完成迁移。
 
 安检结构和图片回填使用 `python -m AiVision.migrations.security_inspection_retention_20261012 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，准备时间索引、图片表并回填最近 31 天仍存在的安检原图。脚本读取 `AiVision/.env`，可重复执行，不覆盖已有数据库图片，也不删除历史数据；缺失或损坏的原图会记录原因并返回未回填数量。启动配置中的 `ALARM_MEDIA_RETENTION_DAYS` 必须至少为 31；启动后的定时任务负责清理过期记录。
+
+喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 只读核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备 `ai_horn_config.sip_config` 和 `ai_horn_audio`。脚本读取 `AiVision/.env`，可重复执行，保留已有设备、凭据和报警绑定；空库由正常启动流程或 `schema_mysql.sql` 建表。
 
 ## 11. 环境准备与启动
 
@@ -1030,6 +1037,9 @@ ffprobe -version
 | `OPENCV_NUM_THREADS` | 主进程 OpenCV 线程数，默认 `4` |
 | `FENCE_INFERENCE_TIMEOUT_SECONDS` | 围栏人脸识别等待上限，默认 `5` 秒，最大 `30` 秒 |
 | `WECHAT_ENABLE` / `HORN_ENABLE` | 全局通知渠道开关；还需配置具体功能/通道及设备 |
+| `HORN_AUDIO_MAX_BYTES` / `HORN_AUDIO_MAX_SECONDS` | AAC 上传大小 / 时长上限，默认 `10485760` 字节 / `60` 秒 |
+| `HORN_AUDIO_FFMPEG` / `HORN_AUDIO_CONVERT_TIMEOUT` | FFmpeg 可执行路径 / 转码超时，默认 `ffmpeg` / `20` 秒 |
+| `HORN_PLAYBACK_WORKERS` / `HORN_SIP_CALL_TIMEOUT` | 并行播放工作线程 / SIP 注册与接听等待上限，默认 `4` / `10` 秒 |
 | `WECHAT_CORP_ID/CORP_SECRET/AGENT_ID` | 企业微信配置 |
 | `WECHAT_CARD_BASE_URL` | 通知卡片可访问的站点地址 |
 | `MODEL_WORKER_READY_TIMEOUT` | 模型就绪等待，默认 `60` 秒 |
@@ -1108,6 +1118,10 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET / POST | `/api/horns` | 喇叭列表 / 新建 |
 | GET / PATCH / DELETE | `/api/horns/{horn_id}` | 喇叭详情 / 修改 / 删除 |
 | POST | `/api/horns/test-connection` | 设备连接测试 |
+| GET / PUT | `/api/horns/sip-server` | 平台 SIP 服务参数和监听状态 |
+| GET / POST | `/api/horns/audio` | 服务器音频列表 / 上传 AAC 二进制，文件名由 URL 编码的 `X-Audio-Filename` 传入 |
+| DELETE | `/api/horns/audio/{audio_id}` | 删除未被检测配置引用的音频 |
+| POST | `/api/horns/{horn_id}/test-play` | 实际试播，提交 `audio_id` 并返回发送结果 |
 | GET | `/api/horns/{horn_id}/status` | 喇叭运行状态 |
 | GET | `/api/face-recognition/records` | 身份识别记录 |
 | GET | `/api/face-recognition/records/{record_id}/image` | 识别图片 |

@@ -12,10 +12,15 @@ import type { HornDevice } from '@/lib/horns'
 import { HornDeviceDialog } from './HornDeviceDialog'
 import { HORN_STATE_LABELS } from './hornDeviceForm'
 import { useHornDevices } from './useHornDevices'
+import { useHornAudioCatalog } from './useHornAudioCatalog'
+import { HornSipServerSettings } from './HornSipServerSettings'
+import { HornAudioLibrary } from './HornAudioLibrary'
+import { HornDevicePlayback } from './HornPlaybackControl'
 
 export function HornDeviceManager() {
   const { isAdmin } = useAuth()
   const devices = useHornDevices(isAdmin)
+  const audio = useHornAudioCatalog(isAdmin)
   const [editor, setEditor] = useState<{ device: HornDevice | null } | null>(null)
   const [connectionMessage, setConnectionMessage] = useState('')
 
@@ -65,6 +70,8 @@ export function HornDeviceManager() {
           </>}
         />
         <DetectionConfigCardContent className="space-y-4">
+          <HornSipServerSettings />
+          <HornAudioLibrary catalog={audio} />
           {devices.error || devices.loadError ? <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{devices.error || devices.loadError}</p> : null}
           {devices.message || connectionMessage ? <p role="status" className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-950/40 dark:text-slate-300">{devices.message || connectionMessage}</p> : null}
           {devices.loading && devices.devices.length === 0 ? <p role="status" className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">正在读取喇叭设备...</p>
@@ -92,9 +99,13 @@ export function HornDeviceManager() {
                 <div className="min-w-0"><dt className="text-xs text-slate-500 dark:text-slate-400">设备地址</dt><dd className="mt-1 break-all text-slate-700 dark:text-slate-200">{device.url}</dd></div>
                 <div><dt className="text-xs text-slate-500 dark:text-slate-400">用户名</dt><dd className="mt-1 break-all text-slate-700 dark:text-slate-200">{device.username}</dd></div>
                 <div><dt className="text-xs text-slate-500 dark:text-slate-400">密码</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{device.password_set ? '已设置' : '未设置'}</dd></div>
+                <div><dt className="text-xs text-slate-500 dark:text-slate-400">播放方式</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{device.sip ? '服务器音频（SIP）' : '设备已有音频'}</dd></div>
+                {device.sip ? <><div><dt className="text-xs text-slate-500 dark:text-slate-400">SIP 账户 / 本地端口</dt><dd className="mt-1 break-all text-slate-700 dark:text-slate-200">{device.sip.username} / {device.sip.port}</dd></div>
+                  <div><dt className="text-xs text-slate-500 dark:text-slate-400">SIP 参数同步</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{device.runtime.sip_ready ? '已就绪' : '等待同步'}</dd></div></> : null}
                 <div className="sm:col-span-3"><dt className="text-xs text-slate-500 dark:text-slate-400">备注</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-700 dark:text-slate-200">{device.description || '—'}</dd></div>
               </dl>
               {device.runtime.last_error ? <p className="text-sm text-rose-600 dark:text-rose-300">{device.runtime.last_error}</p> : null}
+              <HornDevicePlayback device={device} files={audio.files ?? []} disabled={devices.busy} />
               <div className="flex flex-wrap justify-end gap-2">
                 <Button size="sm" variant="outline" disabled={devices.busy} onClick={() => void testConnection(device)}><PlugZap className="h-4 w-4" />测试连接</Button>
                 <Button size="sm" variant="outline" disabled={devices.busy} onClick={() => void edit(device.id)}><Pencil className="h-4 w-4" />编辑</Button>
