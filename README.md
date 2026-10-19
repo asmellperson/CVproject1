@@ -138,6 +138,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 `InspectionConsumer` 从平台帧缓存取图，调用共享 `yolo_human`，按命名工位 ROI 跟踪双人交互、生成 session 并抽取关键帧。后台 `InspectionRuntime` 按事业部和摄像头轮询调度千问请求，检测线程不等待网络判定。
 
 - 摄像头开关、工位 ROI、检测参数和告警配置通过公共摄像头/功能 API 保存到 MySQL。
+- ROI 配置页显示摄像头原始画面；新增工位并绘制、保存区域后，检测生成安检标注画面。
 - 全局模型地址及调度参数通过 `/api/security-inspection/settings` 保存；默认地址为 `http://127.0.0.1:18100/v1`，模型名为 `fuda-qwen38-27b`。
 - 模型最终返回 `compliant`、`confidence`、`reason`；历史状态区分合规、不合规、错误和取消。
 - 只有不合规结果进入业务告警，证据使用该 session 的关键帧拼图；告警冷却按摄像头和工位隔离。

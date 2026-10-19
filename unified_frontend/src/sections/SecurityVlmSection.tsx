@@ -104,7 +104,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
         </Card></TabsContent>
         {(['roi', 'parameters', 'alarm'] as const).map((tab) => <TabsContent key={tab} value={tab} className="space-y-4">
           <Select value={current?.shm_name || ''} onValueChange={setSelected}><SelectTrigger className="w-64"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
-            <SelectContent>{cameras.map((camera) => <SelectItem key={camera.shm_name} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent></Select>
+            <SelectContent>{enabled.map((camera) => <SelectItem key={camera.shm_name} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent></Select>
           {current ? <InspectionConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} />
             : <p className="p-6 text-sm text-slate-500">请先添加摄像头</p>}
         </TabsContent>)}

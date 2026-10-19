@@ -1193,7 +1193,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | POST | `/api/admin/users/{employee_id}/reset-password` | 重置密码 |
 | GET | `/api/admin/access-audit` | 有权限的访问记录 |
 
-安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`，画面使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection`。检测启停通过公共配置完成。
+安检摄像头配置使用 `/api/features/security_inspection/configs/{shm_name}`。ROI 绘制使用 `/api/cameras/{key}/frame.jpg` 读取原始画面，无需预先配置工位；监控使用 `/api/cameras/{key}/frame.jpg?feature=security_inspection` 读取工位配置生效后生成的安检标注画面。检测启停通过公共配置完成。
 
 `/api/overview` 的能力目录包含全部十二项功能，各事业部的功能总数由该目录计算，摄像头按物理设备去重。AGV 的在线摄像头数取采集状态；运行状态由 `AgvPersonCheckService.detecting_camera_ids()` 提供，只统计尚未完成判定的请求，待机和等待 HTTP 回调均不计入“正在检测”。
 

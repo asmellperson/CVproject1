@@ -76,11 +76,14 @@ export function InspectionConfiguration({ cameraKey, tab }: { cameraKey: string;
       actions={<><Button variant="outline" size="sm" disabled={disabled || Object.keys(rois).length >= 16} onClick={add}><Plus className="h-4 w-4" />新增</Button>
         <Button variant="outline" size="sm" disabled={disabled || !roiName} onClick={remove}><Trash2 className="h-4 w-4" />删除</Button></>} />
     <DetectionConfigCardContent className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      {roiName ? <AiVisionRoiEditor key={roiName} title={roiName} cameraKey={cameraKey} mode="polygon" roiJson={JSON.stringify(rois[roiName])}
-        disabled={disabled} saving={saving} message={message}
-        onChange={(json) => setConfig({ ...config, value: { ...config.value, staff_rois: { ...rois, [roiName]: JSON.parse(json) } } })}
+      <AiVisionRoiEditor key={roiName || 'preview'} title={roiName || '摄像头原始预览'} cameraKey={cameraKey} mode="polygon" roiJson={JSON.stringify(rois[roiName] || [])}
+        disabled={disabled || !roiName} saving={saving} emptyRoiLabel="尚未配置工位区域"
+        message={message || (!roiName ? '请点击“新增”创建工位，再在画面上绘制区域并保存。' : '')}
+        onChange={(json) => {
+          if (!roiName) return
+          setConfig({ ...config, value: { ...config.value, staff_rois: { ...rois, [roiName]: JSON.parse(json) } } })
+        }}
         onSave={() => void save()} />
-        : <div className="rounded-lg bg-slate-950 p-16 text-center text-sm text-slate-400">暂无工位，请新增后绘制。</div>}
       <div className="space-y-3">{Object.entries(rois).map(([name, points]) => <button key={name} onClick={() => setRoiName(name)}
         className={`w-full rounded-lg border p-3 text-left ${roiName === name ? 'border-blue-500 bg-blue-50 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
         <span className="block text-sm font-semibold">{name}</span><span className="text-xs text-slate-500">{points.length >= 3 ? `${points.length} 个顶点` : '未设置'}</span>

@@ -25,6 +25,7 @@ type AiVisionRoiEditorProps = {
   disabled?: boolean
   saving?: boolean
   message?: string
+  emptyRoiLabel?: string
   minRoiArea?: number
   onChange: (roiJson: string) => void
   onSave: () => void
@@ -75,6 +76,7 @@ export function AiVisionRoiEditor({
   disabled,
   saving,
   message,
+  emptyRoiLabel = '全画面检测（未限定 ROI）',
   minRoiArea = DEFAULT_MIN_ROI_AREA,
   onChange,
   onSave,
@@ -307,7 +309,7 @@ export function AiVisionRoiEditor({
                   ? `警戒线: [${Math.round(points[0].x)}, ${Math.round(points[0].y)}] -> [${Math.round(points[1].x)}, ${Math.round(points[1].y)}]`
                   : `端点数: ${points.length}/2`
                 : points.length === 0 && !coordinateError
-                ? '全画面检测（未限定 ROI）'
+                ? emptyRoiLabel
                 : bbox.length === 4
                 ? `区域: [${bbox.join(', ')}] · 面积: ${Math.round(roiArea)} px²`
                 : mode === 'polygon'
