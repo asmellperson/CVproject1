@@ -217,6 +217,8 @@ flowchart TD
 
 ## 4. 摄像头到检测结果的数据流
 
+摄像头 `shm_name` 统一使用 `camera_<摄像头ID>`。`POST /api/cameras` 和功能页面创建入口可省略 `shm_name`，由 `CameraConfigManager.create_camera_record()` 在同一事务内取得主键并生成；显式传入时必须与实际主键一致，冲突或不一致会回滚创建。功能配置、物流通道、保安室和检测记录通过摄像头 ID 关联。
+
 ### 4.1 从 RTSP 到最新帧
 
 ```text

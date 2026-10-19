@@ -288,11 +288,8 @@ class CameraConfigManager:
         # 主动检查重复
         if session.query(AiCameraConfig).filter_by(name=name).first():
             raise ValueError(f"name 已存在: {name}")
-        if shm_name and session.query(AiCameraConfig).filter_by(shm_name=shm_name).first():
-            raise ValueError(f"shm_name 已存在: {shm_name}")
-
-        # shm_name 非空且唯一，先用随机内部标识拿到自增 ID，再稳定替换为 camera_<id>。
-        pending_shm = shm_name or f"__pending_camera_{uuid4().hex}"
+        # 先在事务内取得自增 ID，避免前端名称或时间戳决定永久共享内存标识。
+        pending_shm = f"__pending_camera_{uuid4().hex}"
         cam = AiCameraConfig(
             name=name, url=url, shm_name=pending_shm,
             fps=fps, max_restart=max_restart, enable=enable,
@@ -302,17 +299,17 @@ class CameraConfigManager:
         session.add(cam)
         # 把当前SQL发给数据库，让数据库生成ID等信息
         session.flush()
-        # 自动生成稳定shm_name
-        if not shm_name:
-            stable_shm = f"camera_{cam.id}"
-            conflict = (
-                session.query(AiCameraConfig)
-                .filter(AiCameraConfig.shm_name == stable_shm, AiCameraConfig.id != cam.id)
-                .first()
-            )
-            if conflict is not None:
-                raise ValueError(f"shm_name 已存在: {stable_shm}")
-            cam.shm_name = stable_shm
+        stable_shm = f"camera_{cam.id}"
+        if shm_name and shm_name != stable_shm:
+            raise ValueError("shm_name 必须与摄像头 ID 一致，请省略该字段由系统生成")
+        conflict = (
+            session.query(AiCameraConfig)
+            .filter(AiCameraConfig.shm_name == stable_shm, AiCameraConfig.id != cam.id)
+            .first()
+        )
+        if conflict is not None:
+            raise ValueError(f"shm_name 已存在: {stable_shm}")
+        cam.shm_name = stable_shm
         # 创建所有功能默认配置
         for spec in all_specs().values():
             defaults = spec.config_schema().model_dump()

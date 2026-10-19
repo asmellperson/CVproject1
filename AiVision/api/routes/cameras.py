@@ -34,10 +34,10 @@ _jpeg_cache_order: list[tuple[Any, ...]] = []  # 记录加入顺序，超过128�
 # 平台总览：name + url + fps + department
 # 检测功能：name + url + fps +department
 class CameraCreateRequest(BaseModel):
-    """平台摄像头创建参数，要求明确事业部与共享内存标识。"""
+    """平台摄像头创建参数；共享内存标识由系统按摄像头 ID 生成。"""
     name: str = Field(..., min_length=1)
     url: str = Field(..., min_length=1)
-    shm_name: str = Field(..., min_length=1)
+    shm_name: str | None = Field(None, pattern=r"^camera_[1-9][0-9]*$")
     fps: int = Field(5, gt=0)
     enabled: bool | None = None
     department: str

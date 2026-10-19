@@ -121,15 +121,6 @@ function getAlarmLocation(alarm: AlarmEvent) {
   return alarm.subject_name || '未知位置'
 }
 
-function makeAiVisionShmName(alias: string) {
-  const base = alias
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-  return `${base || 'camera'}_${Date.now().toString(36)}`
-}
-
 export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
   const { user, isAdmin } = useAuth()
   const [alarmOverview, setAlarmOverview] = useState<{ user: typeof user; data: OverviewState } | null>(null)
@@ -295,10 +286,9 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
       return
     }
 
-    const generatedShmName = makeAiVisionShmName(name)
     const actionKey = cameraDialogMode === 'edit' && cameraToEdit
       ? getAiVisionCameraKey(cameraToEdit)
-      : `aivision:${generatedShmName}`
+      : 'aivision:create'
     setCameraActionKey(actionKey)
     setCameraFormError('')
     try {
@@ -308,7 +298,6 @@ export function HomeSection({ onNavigate, overviewState }: HomeSectionProps) {
         await createAiVisionCamera({
           name,
           url,
-          shm_name: generatedShmName,
           fps,
           enabled: true,
           department: cameraDepartment,

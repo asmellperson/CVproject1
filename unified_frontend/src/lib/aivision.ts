@@ -38,7 +38,7 @@ export type AiVisionFeatureMeta = {
 export type CreateAiVisionCameraPayload = {
   name: string
   url: string
-  shm_name: string
+  shm_name?: string
   fps?: number
   enabled?: boolean
   department: DepartmentId
