@@ -64,6 +64,10 @@ class DeleteCameraArguments(StrictModel):
     expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class AskUserArguments(StrictModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
 TOOL_MODELS = {
     "capabilities": (EmptyArguments, "查询可操作类别、功能、部门及一厂二厂别名"),
     "list_resources": (ListArguments, "搜索真实资源，名称有歧义时列出候选并向用户澄清；支持分页"),
@@ -73,6 +77,7 @@ TOOL_MODELS = {
     "add_camera": (AddCameraArguments, "新建摄像头，自动生成 camera_数字；凭据引用仅有效30分钟，普通功能或物流通道可同事务启用"),
     "bind_camera": (BindCameraArguments, "把平台已有摄像头加入同部门物流通道或保安室；保安室可先新建再绑定"),
     "delete_camera": (DeleteCameraArguments, "仅在用户明确删除摄像头时使用；先读取并提供版本，删除摄像头及其检测配置，不可撤销"),
+    "ask_user": (AskUserArguments, "目标有歧义、缺少参数或需要用户选择时询问；不会执行配置操作，不能当作操作完成报告"),
 }
 
 
@@ -116,6 +121,8 @@ class AssistantTools:
         catalog = self.catalog()
         if name == "capabilities":
             return catalog.capabilities()
+        if name == "ask_user":
+            return {"question": args.question}
         if name == "list_resources":
             return catalog.find(**args.model_dump())
         if name == "read_configurations":
@@ -168,7 +175,8 @@ class AssistantTools:
             desired = public_configuration(to_jsonable_python(full))
             delta = configuration_diff(resource.config, desired)
             if not delta:
-                results.append({"resource_key": change.resource_key, "status": "unchanged", "detail": "配置已是目标值"})
+                results.append({"resource_key": change.resource_key, "resource_name": resource.reference.name,
+                                "status": "unchanged", "detail": "配置已是目标值"})
                 continue
             action, execute = assistant_service.begin_action(self.turn_id, resource.reference, resource.config, delta)
             if not execute:
@@ -267,6 +275,8 @@ class AssistantTools:
                                                          expected_department=ref.department)
             if not deleted:
                 raise ConfigurationConflict("摄像头已被其他操作删除，本次未执行删除")
+            if camera_config_manager.get_camera(camera_id) is not None:
+                raise ConfigurationConflict("删除后核对失败：摄像头仍然存在，不能报告删除成功")
             actual, status, detail = {"state": "已删除"}, "saved", "摄像头及其检测配置已删除，并发出热更新事件；此操作不可撤销"
         except Exception as exc:
             detail = tool_error(exc)

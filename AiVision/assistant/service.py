@@ -171,6 +171,13 @@ class AssistantService:
             return session.scalar(select(AssistantAction.id).where(AssistantAction.turn_id == turn_id).limit(1)) is not None
 
     @staticmethod
+    def actions(turn_id: int) -> list[ActionResponse]:
+        with get_session() as session:
+            rows = session.scalars(select(AssistantAction).where(AssistantAction.turn_id == turn_id)
+                                   .order_by(AssistantAction.created_at, AssistantAction.id))
+            return [action_response(row) for row in rows]
+
+    @staticmethod
     def find_action(turn_id: int, resource_key: str) -> ActionResponse | None:
         with get_session() as session:
             row = session.scalar(select(AssistantAction).where(

@@ -5,14 +5,14 @@ import re
 from pydantic import ValidationError
 
 from AiVision.connectors.qwen.client import QwenError
-from .schema import AgentDecision
+from .schema import AgentDecision, RequestPlan
 
 
 class ToolCallFormatError(QwenError):
     """工具指令格式有误，允许模型纠正一次，未执行任何业务操作。"""
 
 
-def parse_decision(raw: str) -> AgentDecision:
+def completion_content(raw: str) -> str:
     try:
         response = json.loads(raw)
         if not isinstance(response, dict) or len(response["choices"]) != 1:
@@ -42,8 +42,24 @@ def parse_decision(raw: str) -> AgentDecision:
         content = content.strip()
     if not content:
         raise QwenError("福达AI只返回了思考内容，没有回复正文，请重试。")
+    return content
+
+
+def json_content(content: str) -> str:
     fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", content, flags=re.DOTALL | re.IGNORECASE)
-    candidate = fenced[1].strip() if fenced else content
+    return fenced[1].strip() if fenced else content
+
+
+def parse_plan(raw: str) -> RequestPlan:
+    try:
+        return RequestPlan.model_validate_json(json_content(completion_content(raw)))
+    except ValidationError as exc:
+        raise QwenError("福达AI未能明确本轮任务类型，尚未执行配置操作，请重新描述你的需求。") from exc
+
+
+def parse_decision(raw: str) -> AgentDecision:
+    content = completion_content(raw)
+    candidate = json_content(content)
     try:
         decision = json.loads(candidate)
     except ValueError as exc:

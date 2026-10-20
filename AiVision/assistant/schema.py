@@ -83,6 +83,23 @@ class ConversationResponse(StrictModel):
     hidden_turns: int = 0
 
 
+MutationTool = Literal["update_configurations", "undo_configuration", "add_camera", "bind_camera", "delete_camera"]
+
+
+class RequestPlan(StrictModel):
+    """先区分聊天与业务任务，业务任务不能凭模型正文结束为成功。"""
+    mode: Literal["chat", "query", "change"]
+    operations: list[MutationTool] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def check_operations(self):
+        if (self.mode == "change") != bool(self.operations):
+            raise ValueError("配置任务必须列出操作，聊天和查询不能携带配置操作")
+        if len(self.operations) != len(set(self.operations)):
+            raise ValueError("操作类别不能重复")
+        return self
+
+
 class AgentDecision(StrictModel):
     """模型只能选择登记工具或回答；参数还须通过工具自己的严格合同。"""
     action: str

@@ -202,7 +202,14 @@ class ConfigurationCatalog:
             from .native_resources import find_native_resources
             refs = find_native_resources(self, kind, departments, parent_key)
         needle = query.casefold().strip()
-        refs = [ref for ref in refs if not needle or needle in (ref.name + " " + ref.key + " " + (ref.identifier or "")).casefold()]
+        matches = []
+        for ref in refs:
+            department_spec = DEPARTMENT_SPECS.get(ref.department)
+            department_name = department_spec.display_name if department_spec else ""
+            searchable = " ".join((ref.name, ref.key, ref.identifier or "", department_name + ref.name))
+            if not needle or needle in searchable.casefold():
+                matches.append(ref)
+        refs = matches
         return {"items": [ref.model_dump() for ref in refs[offset:offset + limit]], "total": len(refs),
                 "next_offset": offset + limit if offset + limit < len(refs) else None}
 
