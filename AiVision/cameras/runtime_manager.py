@@ -34,11 +34,13 @@ camera的跨进程共享对象：
     只有当前图片的像素信息。其他都没有
 """
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import time
 from typing import Callable
 
 from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 from .runtime import CameraRuntime
 from .frame_reader import frame_reader_registry
 
@@ -78,23 +80,38 @@ class CameraRuntimeManager:
         logger.info(f"[CameraRuntimeManager] 初始化了 {len(self._shared_configs)} 个摄像头共享配置")
 
     def start_all(self):
-        """启动所有已配置且 enable=True 的摄像头
-        逻辑：
-            遍历所有_shared_configs -》 _start_one() -》 每台间隔0.3秒 -》 全部处理完 -》 启动watchdog
-        """
-        self._stopping = False
-        for shm_name, (cfg, active_index, frame_seq) in list(self._shared_configs.items()):
-            self._start_one(shm_name, cfg, active_index, frame_seq)
-            time.sleep(0.3)  # 错开启动峰值
-        self._start_watchdog()
-        logger.info(f"[CameraRuntimeManager] 启动了 {len(self._runtimes)} 个采集进程")
+        """有限并行启动已启用的摄像头，全部尝试完成后交给看门狗维护。"""
+        started_at = time.monotonic()
+        with self._lock:
+            self._stopping = False
+        configs = [
+            (shm_name, cfg, active_index, frame_seq)
+            for shm_name, (cfg, active_index, frame_seq) in list(self._shared_configs.items())
+            if cfg.get("enable", True)
+        ]
+        workers = settings.runtime.camera_start_workers
+        if configs:
+            # 每路仍由自己的生命周期锁保护；慢设备不再阻塞其他启动槽位。
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="camera-start") as executor:
+                futures = [executor.submit(self._start_one, *config) for config in configs]
+                for future in as_completed(futures):
+                    future.result()
+        with self._lock:
+            if not self._stopping:
+                self._start_watchdog()
+        logger.info(
+            f"[CameraRuntimeManager] 摄像头启动阶段完成: 启用 {len(configs)} 路, "
+            f"运行 {len(self._runtimes)} 路, 并行上限 {workers}, "
+            f"耗时 {time.monotonic() - started_at:.1f}s"
+        )
 
     def stop_all(self):
         """
         逻辑：
             先禁止新启动并停止watchdog -》 遍历所有已配置/运行中的Camera -》 stop_camera
         """
-        self._stopping = True
+        with self._lock:
+            self._stopping = True
         self._stop_watchdog()
         for shm_name in set(self._shared_configs) | set(self._runtimes):
             self.stop_camera(shm_name)

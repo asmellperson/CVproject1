@@ -91,6 +91,7 @@ class InferenceRuntimeManager:
         """在生命周期锁保护下构建模型组、启动并等待就绪，再开启 Watchdog；已启用时返回。"""
         if self._active:
             return
+        started_at = time.monotonic()
         groups, owners = self._build_model_groups()
         models = list(groups.values())
         with self._lock:
@@ -117,7 +118,7 @@ class InferenceRuntimeManager:
         self._start_watchdog()
         logger.info(
             f"[InferenceRuntimeManager] 模型就绪 {len(self.list_running())}/{total_workers}: "
-            f"{self.list_running()}"
+            f"{self.list_running()}, 耗时 {time.monotonic() - started_at:.1f}s"
         )
 
     def stop_all(self):

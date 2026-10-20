@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import signal
+import time
 from pathlib import Path
 from types import FrameType
 
@@ -93,6 +94,7 @@ def main() -> None:
     清理回调定义之前的初始化失败不进入下方 finally；已进入运行阶段的失败
     会尝试清理，但部分启动资源是否能完整回收仍取决于各运行模块的 stop() 实现。
     """
+    started_at = time.monotonic()
     # 先解析参数，--help 或参数错误可在加载数据库、模型等依赖之前结束进程。
     parser = argparse.ArgumentParser(description="AiVision FastAPI Server")
     parser.add_argument("--host", default=None, help="覆盖 API_HOST")
@@ -121,8 +123,11 @@ def main() -> None:
         f"[main] OpenCV 线程限制 配置需求={settings.runtime.opencv_threads} "
         f"实际={actual_opencv_threads}"
     )
+    logger.info(f"[main] 模块准备完成,耗时 {time.monotonic() - started_at:.1f}s")
     # 先创建缺失表并核验结构，数据库准备失败时尚未创建 Manager 或启动采集/推理。
+    database_started_at = time.monotonic()
     bootstrap_database()
+    logger.info(f"[main] 数据库准备完成,耗时 {time.monotonic() - database_started_at:.1f}s")
     # Manager 启动独立服务进程，为运行模块提供跨进程共享对象的代理与管理能力。
     mp_manager = mp.Manager()
     # 获取并保存全局编排器；构造运行对象和真正调用 start() 启动检测是两个阶段。
@@ -172,6 +177,10 @@ def main() -> None:
     # 清理保护从这里开始；上面的数据库、Manager、编排器初始化及信号注册不在其中。
     try:
         orchestrator.start()
+        logger.info(
+            f"[main] 运行资源准备完成,启动总耗时 {time.monotonic() - started_at:.1f}s, "
+            f"即将监听 {args.host or settings.api.host}:{args.port or settings.api.port}"
+        )
 
         # 检测启动返回后才进入 HTTP 服务；uvicorn.run() 在服务运行期间阻塞此流程。
         uvicorn.run(
