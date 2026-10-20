@@ -749,7 +749,7 @@ class Orchestrator:
             if callable(live_preview):
                 if not raw_is_fresh:
                     return None, raw_updated_at
-                frame, _preview_updated_at = live_preview(shm_name, raw, now=now)
+                frame = live_preview(shm_name, raw, now=now)
                 # 标注会因过期或时段切换消失，合成图缓存不能只依赖原始帧时间。
                 return frame, now if frame is not None else raw_updated_at
             # 从Consumer中拿标注画面

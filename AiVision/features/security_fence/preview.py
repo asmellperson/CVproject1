@@ -66,10 +66,10 @@ class FencePreview:
         entry = self._entry(camera_key)
         return deepcopy(entry.detail) if entry is not None else None
 
-    def render(self, camera_key: str, frame, *, now: float):
+    def render(self, camera_key: str, frame, *, now: float) -> np.ndarray | None:
         entry = self._entry(camera_key)
         if entry is None:
-            return None, 0.0
+            return None
         annotated = frame.copy()
         polygon = roi_to_pixels(entry.value.roi_pos, frame.shape)
         polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])
@@ -84,5 +84,5 @@ class FencePreview:
         # 渲染期间发生停用或配置替换时，不发布旧配置的画面。
         current = self._entry(camera_key)
         if current is None or current.value is not entry.value:
-            return None, 0.0
-        return annotated, updated_at
+            return None
+        return annotated

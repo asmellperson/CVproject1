@@ -30,8 +30,8 @@ def preview(monkeypatch, tmp_path):
 
 
 def test_raw_picture_keeps_updating_while_inference_has_not_finished(preview):
-    first, _ = preview.cache.render("camera_80", preview.raw, now=100.0)
-    second, _ = preview.cache.render("camera_80", np.full_like(preview.raw, 25), now=103.0)
+    first = preview.cache.render("camera_80", preview.raw, now=100.0)
+    second = preview.cache.render("camera_80", np.full_like(preview.raw, 25), now=103.0)
     assert first is not None and second is not None
     assert first[80, 90].tolist() == [7, 7, 7]
     assert second[80, 90].tolist() == [25, 25, 25]
@@ -41,8 +41,7 @@ def test_raw_picture_keeps_updating_while_inference_has_not_finished(preview):
 
 def test_recent_detections_overlay_the_latest_picture_and_preserve_face_boxes(preview):
     preview.cache.publish(80, preview.detail)
-    frame, updated = preview.cache.render("camera_80", preview.raw, now=103.0)
-    assert updated == 100.0
+    frame = preview.cache.render("camera_80", preview.raw, now=103.0)
     assert frame[50, 20].tolist() == [0, 0, 255]
     assert frame[32, 24].tolist() == [255, 200, 0]
     assert np.all(preview.raw == 7)
@@ -51,7 +50,7 @@ def test_recent_detections_overlay_the_latest_picture_and_preserve_face_boxes(pr
 @pytest.mark.parametrize("now", [106.0, 99.0])
 def test_expired_or_future_identity_is_not_drawn_but_live_video_remains(preview, now):
     preview.cache.publish(80, preview.detail)
-    frame, _ = preview.cache.render("camera_80", preview.raw, now=now)
+    frame = preview.cache.render("camera_80", preview.raw, now=now)
     assert frame is not None
     assert frame[50, 20].tolist() == [7, 7, 7]
     assert frame[32, 24].tolist() == [7, 7, 7]
@@ -59,11 +58,11 @@ def test_expired_or_future_identity_is_not_drawn_but_live_video_remains(preview,
 
 def test_resolution_or_rule_period_change_does_not_reuse_old_identity(preview):
     preview.cache.publish(80, preview.detail)
-    resized, _ = preview.cache.render("camera_80", np.full((200, 240, 3), 7, dtype=np.uint8), now=101.0)
+    resized = preview.cache.render("camera_80", np.full((200, 240, 3), 7, dtype=np.uint8), now=101.0)
     assert resized[50, 20].tolist() == [7, 7, 7]
     changed = {**preview.detail, "mode": "whitelist"}
     preview.cache.publish(80, changed)
-    frame, _ = preview.cache.render("camera_80", preview.raw, now=101.0)
+    frame = preview.cache.render("camera_80", preview.raw, now=101.0)
     assert frame[50, 20].tolist() == [7, 7, 7]
 
 
@@ -75,9 +74,9 @@ def test_config_update_disable_and_different_cameras_clear_old_results(preview):
     preview.cache.configure(80, {**preview.config, "roi_pos": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9]]})
     assert preview.cache.status("camera_80") is None
     preview.cache.configure(80, {**preview.config, "camera_enable": False})
-    assert preview.cache.render("camera_80", preview.raw, now=101.0) == (None, 0.0)
+    assert preview.cache.render("camera_80", preview.raw, now=101.0) is None
     preview.cache.configure(83, None)
-    assert preview.cache.render("camera_83", preview.raw, now=101.0) == (None, 0.0)
+    assert preview.cache.render("camera_83", preview.raw, now=101.0) is None
 
 
 def test_status_and_published_data_are_independent_snapshots(preview):
@@ -106,7 +105,7 @@ def test_preview_and_status_do_not_wait_for_consumer_inference_lock(preview, mon
     consumer._camera_state_lock = InferenceLock()
     preview.cache.publish(80, preview.detail)
     assert consumer.get_monitor_status("camera_80")["count"] == 1
-    frame, _ = consumer.get_live_preview("camera_80", preview.raw, now=103.0)
+    frame = consumer.get_live_preview("camera_80", preview.raw, now=103.0)
     assert frame is not None
 
 
@@ -181,11 +180,14 @@ def test_consumer_lifecycle_publishes_config_and_invalidates_disabled_preview(pr
     assert consumer.get_monitor_status("camera_80")["count"] == 1
     consumer.update_config(80)
     assert consumer.get_monitor_status("camera_80") is None
-    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0)[0] is not None
+    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0) is not None
     consumer.update_status(80, False)
-    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0)[0] is None
+    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0) is None
     consumer.update_status(80, True)
-    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0)[0] is not None
+    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0) is not None
+    monkeypatch.setattr(config_cache, "get_function_config", lambda *args: None)
+    consumer.update_config(80)
+    assert consumer.get_live_preview("camera_80", preview.raw, now=103.0) is None
 
 
 def test_disable_during_render_does_not_return_previous_configuration(preview, monkeypatch):
@@ -193,4 +195,4 @@ def test_disable_during_render_does_not_return_previous_configuration(preview, m
 
     preview.cache.publish(80, preview.detail)
     monkeypatch.setattr(module, "draw_fence_detections", lambda *args: preview.cache.configure(80, None))
-    assert preview.cache.render("camera_80", preview.raw, now=101.0) == (None, 0.0)
+    assert preview.cache.render("camera_80", preview.raw, now=101.0) is None

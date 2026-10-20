@@ -197,10 +197,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
 
         const blob = await response.blob()
         const nextFrameSrc = await buffer.prepare(blob, controller.signal)
-        if (requestTimeoutId) {
-          clearTimeout(requestTimeoutId)
-          requestTimeoutId = undefined
-        }
         if (cancelled) return
 
         hasFrame = true

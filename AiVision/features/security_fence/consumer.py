@@ -35,9 +35,11 @@ class FenceConsumer(BaseFunctionConsumer):
     def update_config(self, camera_id):
         with self._camera_state_lock:
             super().update_config(camera_id)
+            if camera_id not in self.config_cache:
+                return
             self.runtimes.pop(camera_id, None)
             self.processed_frames.pop(camera_id, None)
-            self.preview.configure(camera_id, self.config_cache.get(camera_id))
+            self.preview.configure(camera_id, self.config_cache[camera_id])
 
     def _clear_camera_state(self, camera_id, shm_name):
         super()._clear_camera_state(camera_id, shm_name)
@@ -63,9 +65,10 @@ class FenceConsumer(BaseFunctionConsumer):
         with self._camera_state_lock:
             key = self.config_cache.get(camera_id, {}).get("shm_name")
             super().update_status(camera_id, enabled)
-            self.preview.configure(camera_id, self.config_cache.get(camera_id))
             if camera_id not in self.config_cache:
                 self._clear_camera_state(camera_id, key)
+            else:
+                self.preview.configure(camera_id, self.config_cache[camera_id])
 
     def _get_roi(self, camera_id, frame):
         # 在全画面建立身份，进入警戒 ROI 后再执行准入规则，避免裁掉入口正脸。
