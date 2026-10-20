@@ -19,7 +19,7 @@ export function AssistantSettingsDialog({ open, onOpenChange }: { open: boolean;
     return () => controller.abort()
   }, [open])
   return <Dialog open={open} onOpenChange={(value) => { if (!busy) onOpenChange(value) }}><DialogContent>
-    <DialogHeader><DialogTitle>千问助手设置</DialogTitle><DialogDescription>未独立保存时使用安检的模型连接。模型服务需要支持 JSON 格式输出。</DialogDescription></DialogHeader>
+    <DialogHeader><DialogTitle>福达AI助手设置</DialogTitle><DialogDescription>未独立保存时使用安检的模型连接。普通聊天直接回复，配置操作由工具校验执行。</DialogDescription></DialogHeader>
     <form className="space-y-4" onSubmit={(event) => {
       event.preventDefault()
       if (!draft || busy) return

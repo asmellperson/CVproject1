@@ -13,7 +13,7 @@ class StrictModel(BaseModel):
 
 
 class AssistantSettings(QwenConnectionSettings):
-    """默认共用安检的千问连接；独立保存的连接设置对后续对话生效。"""
+    """默认共用安检的福达AI连接；独立保存的连接设置对后续对话生效。"""
 
 
 class SessionCreate(StrictModel):

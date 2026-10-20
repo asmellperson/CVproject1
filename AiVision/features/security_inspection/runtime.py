@@ -97,11 +97,11 @@ class InspectionRuntime:
             if self._stopped:
                 error = "安检服务已停止"
             elif self._health.circuit_state == "open":
-                error = "千问服务暂不可用，等待自动恢复检查"
+                error = "福达AI服务暂不可用，等待自动恢复检查"
             elif self._health.reachable is not True:
-                error = "千问接口尚未通过健康检查，未提交判定"
+                error = "福达AI接口尚未通过健康检查，未提交判定"
             elif self._health.circuit_state == "half_open" and self._half_open_session is not None:
-                error = "千问服务正在验证恢复，暂不接收其他判定"
+                error = "福达AI服务正在验证恢复，暂不接收其他判定"
             elif self._queued + len(self._cancelled) >= self.settings.queue_capacity:
                 error = "安检判定队列已满"
             else:
@@ -232,7 +232,7 @@ class InspectionRuntime:
                 self._next_check_at = time.monotonic() + HEALTH_CHECK_INTERVAL_SEC
             self._condition.notify_all()
         for task in tasks:
-            self._finish(task, None, "千问服务不可用，已取消排队判定", None)
+            self._finish(task, None, "福达AI服务不可用，已取消排队判定", None)
 
     def _run(self, index: int):
         """按事业部与摄像头轮询执行任务，处理排队超时及模型设置失效。
@@ -290,7 +290,7 @@ class InspectionRuntime:
                         if not self._stopped and generation == self._generation:
                             # 模型响应可能含当前部门的图像描述，公共健康状态仅暴露错误类别。
                             category = exc.category if isinstance(exc, VlmError) else type(exc).__name__
-                            cancelled = self._record_failure(f"千问判定请求失败（{category}）")
+                            cancelled = self._record_failure(f"福达AI判定请求失败（{category}）")
                 else:
                     with self._condition:
                         if not self._stopped and generation == self._generation:
@@ -307,7 +307,7 @@ class InspectionRuntime:
             with self._condition:
                 self._active.pop(task.session_id, None)
             for task in cancelled:
-                self._finish(task, None, "千问服务连续失败，已取消排队判定", None)
+                self._finish(task, None, "福达AI服务连续失败，已取消排队判定", None)
 
     def _finish(self, task, verdict, error, latency):
         """在隔离异常的边界内保存结果，更新部门错误并释放半开试探名额。"""

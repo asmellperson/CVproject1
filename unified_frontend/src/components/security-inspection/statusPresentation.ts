@@ -7,11 +7,11 @@ export function inspectionStatusPresentation(status: InspectionStatus | null, re
   const health = status.vlm
   if (health.circuit_state === 'open') {
     const retry = health.checking ? '正在重新检查连接' : `${health.retry_after_sec} 秒后自动检查连接`
-    return { label: '千问不可用，已暂停判定', error: `${health.last_error}；${retry}。` }
+    return { label: '福达AI不可用，已暂停判定', error: `${health.last_error}；${retry}。` }
   }
-  if (health.reachable === null) return { label: '正在检查千问连接', error: '' }
-  if (health.reachable === false) return { label: '千问接口不可用', error: health.last_error || '' }
-  if (health.circuit_state === 'half_open') return { label: '千问恢复验证中', error: '' }
+  if (health.reachable === null) return { label: '正在检查福达AI连接', error: '' }
+  if (health.reachable === false) return { label: '福达AI接口不可用', error: health.last_error || '' }
+  if (health.circuit_state === 'half_open') return { label: '福达AI恢复验证中', error: '' }
   if (health.last_error || status.error) return { label: '判定服务异常', error: health.last_error || status.error || '' }
-  return { label: health.last_success ? '检测服务就绪' : '千问接口可达，等待首次判定', error: '' }
+  return { label: health.last_success ? '检测服务就绪' : '福达AI接口可达，等待首次判定', error: '' }
 }

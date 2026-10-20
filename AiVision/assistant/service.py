@@ -165,9 +165,22 @@ class AssistantService:
             turn.status, turn.answer, turn.progress = status, answer, ""
             session.get(AssistantSession, turn.session_id).updated_at = datetime.now()
 
+    @staticmethod
+    def has_actions(turn_id: int) -> bool:
+        with get_session() as session:
+            return session.scalar(select(AssistantAction.id).where(AssistantAction.turn_id == turn_id).limit(1)) is not None
+
+    @staticmethod
+    def find_action(turn_id: int, resource_key: str) -> ActionResponse | None:
+        with get_session() as session:
+            row = session.scalar(select(AssistantAction).where(
+                AssistantAction.turn_id == turn_id, AssistantAction.resource_key == resource_key,
+            ))
+            return action_response(row) if row is not None else None
+
     def begin_action(self, turn_id: int, reference, before: dict, changes: dict) -> tuple[ActionResponse, bool]:
         identity = {"resource": reference.key}
-        if reference.kind not in {"camera_creation", "camera_binding"}:
+        if reference.kind not in {"camera_creation", "camera_binding", "camera_deletion"}:
             identity.update(before=before, changes=changes)
         operation_key = configuration_revision(identity)
         with session_scope() as session:

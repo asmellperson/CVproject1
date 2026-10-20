@@ -34,7 +34,7 @@ flowchart LR
     API --> Records[总览 / 告警 / 统计 / 处置]
     Auth --> DB
     Records --> DB
-    Features --> Qwen[安检关键帧 → 内部千问]
+    Features --> Qwen[安检关键帧 → 内部福达AI]
     Features --> Cameras[摄像头采集与帧缓存]
     Features --> Models[共享模型推理进程]
     Features --> Alarms[告警分发与证据保存]
@@ -67,7 +67,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 | `features/face_recognition/` | `recognize_face` | 人脸对齐、特征与底库相似度匹配 | `insightface` |
 | `features/logistics_channel/` | `detect_logistics_single_person` | 单路人数检测与通道联合判定 | `yolo_human` |
 | `features/guard_behavior/` | `guard_behavior` | 单路感知与保安室规则汇总 | 必需 `yolo_guard_person_phone`、`guard_uniform`；可选 `yolo_guard_pose`、`yolo_vehicle` |
-| `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与千问判定 | `yolo_human`，另通过 HTTP 调用千问 |
+| `features/security_inspection/` | `security_inspection` | 人员交互会话、关键帧与福达AI判定 | `yolo_human`，另通过 HTTP 调用福达AI |
 | `features/agv_person_check/` | `agv_person_check` | HTTP 请求触发 ROI 多帧人体检测，任一有效帧有人即判定有人 | `yolo_human` |
 
 事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
@@ -131,7 +131,7 @@ AiVision/
 │   │   └── library/                # 人员同步、照片特征和内存索引
 │   ├── logistics_channel/          # 通道配置、成员、快照、状态机和拼图
 │   ├── guard_behavior/             # 保安室、感知、规则、成员和告警策略
-│   └── security_inspection/        # 工位 ROI、会话、千问调度与历史
+│   └── security_inspection/        # 工位 ROI、会话、福达AI调度与历史
 ├── alarms/
 │   ├── dispatcher.py              # 统一告警分发与冷却
 │   ├── devices/                   # 喇叭配置、AAC 素材、SIP/RTP、绑定与播放队列
@@ -144,7 +144,7 @@ AiVision/
 ├── connectors/
 │   ├── hikvision/                  # 海康签名、HTTP 客户端与人员协议
 │   ├── joyai/                     # JoyAI Adapter 客户端和响应清洗
-│   └── qwen/                      # 千问连接校验、Chat Completions 和共享请求预算
+│   └── qwen/                      # 福达AI连接校验、Chat Completions 和共享请求预算
 ├── config/model_paths.example.yaml
 ├── migrations/                    # 显式离线迁移
 ├── .env.example                   # 主服务环境变量模板
@@ -195,7 +195,7 @@ flowchart TD
 3. 主启动会先准备业务运行资源，再启动 HTTP 服务。模型等待时间会影响端口开始响应的时间。
 4. 摄像头按总开关和功能启用关系启动；启动时还会整理共享内存名称、补齐默认功能配置。探测与首帧等待使用有限并行，`CAMERA_START_WORKERS` 默认 `4`，范围 `1～16`；每路仍独立管理启停与失败重试。
 5. 模型运行管理器按注册模型建立物理 Worker 分组；并非只为当前开启的摄像头临时加载一个模型。
-6. 保安行为通过专用运行时汇总摄像头快照；安检 Consumer 管理千问调度线程。各功能依照配置和模型就绪情况参与检测。
+6. 保安行为通过专用运行时汇总摄像头快照；安检 Consumer 管理福达AI调度线程。各功能依照配置和模型就绪情况参与检测。
 7. `SIGINT`、`SIGTERM` 和主循环退出会进入资源清理，停止 Consumer、运行时、模型、告警服务、采集及共享管理器。
 
 `bootstrap_database()` 的职责是准备数据库结构；业务采集与推理由 Orchestrator 启动。已有业务字段转换和历史数据合并通过离线迁移完成，主启动不会代替迁移脚本修改这些业务语义。
@@ -204,7 +204,7 @@ flowchart TD
 
 ### 3.2 进程和线程如何组织
 
-十三项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有千问请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
+十三项功能共用摄像头采集和 Consumer 生命周期；本机模型使用共享推理流水线。保安室、物流通道有独立的汇总调度，安检另有福达AI请求和健康检查线程，指令驱动智慧安防通过后台线程调用 JoyAI Adapter。
 
 | 执行单元 | 数量/粒度 | 作用 |
 | --- | --- | --- |
@@ -216,7 +216,7 @@ flowchart TD
 | 帧读取线程 | 每路已注册摄像头一个 | 把共享内存中的新帧复制到主进程缓存 |
 | 模型 Worker 进程 | 每组可共享物理模型一个 | 加载权重并轮询逻辑模型队列 |
 | Consumer 线程 | 每个成功启动的功能一个 | 遍历该功能已启用的摄像头并执行检测 |
-| 后台服务线程 | 按模块创建 | 通道/保安室评估、千问调度与健康检查、模型监控、写入、视频编码和通知 |
+| 后台服务线程 | 按模块创建 | 通道/保安室评估、福达AI调度与健康检查、模型监控、写入、视频编码和通知 |
 
 同一功能的 Consumer 在一个线程中依次处理多路摄像头，并同步等待当前推理结果。因此路数、模型耗时和超时等待会共同影响该功能的更新频率。
 
@@ -332,7 +332,7 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 | --- | --- | --- | --- |
 | 部署环境 | `AiVision/.env` / 进程环境 | 数据库、存储目录、API 端口、全局通知开关 | 通常重启后生效 |
 | 本机模型路径 | `config/model_paths.yaml` | YOLO 权重、人脸检测文件、身份模型目录 | 模型路径 API 保存后后台重载 |
-| 业务配置 | MySQL | 摄像头、ROI、阈值、通道、保安室、千问参数和设备绑定 | 对应管理接口保存并刷新运行时 |
+| 业务配置 | MySQL | 摄像头、ROI、阈值、通道、保安室、福达AI参数和设备绑定 | 对应管理接口保存并刷新运行时 |
 
 普通检测配置的 HTTP 结构如下；`value` 的内容由各功能 Schema 定义：
 
@@ -371,7 +371,7 @@ HTTP 保存请求
 
 `ConfigEventBus` 是主进程内的同步回调总线，支持精确、前缀及通配订阅。它不是跨进程消息中间件；模型进程接收的是推理任务中携带的参数。
 
-摄像头、通道和保安室必须属于正式事业部，成员关系需保持事业部一致。保安室接口在事务提交后显式刷新运行时；千问设置保存后重新配置调度器，并取消旧设置下排队的判定。
+摄像头、通道和保安室必须属于正式事业部，成员关系需保持事业部一致。保安室接口在事务提交后显式刷新运行时；福达AI设置保存后重新配置调度器，并取消旧设置下排队的判定。
 
 ## 6. 模型推理与模型管理
 
@@ -390,7 +390,7 @@ HTTP 保存请求
 | `yolo_guard_pose` | `YoloPoseWorker` | `pose` | 姿态模型 |
 | `yolo_vehicle` | `YoloDetectorWorker` | `vehicle`，仅保留类别 `2` | 车辆检测权重 |
 
-人体/手机权重约定 `0=person`、`1=phone`；车辆模型使用自身的类别映射。换权重时必须检查对应模型的类别，不能把同一数字跨权重解释为同一对象。千问不在本地模型 Worker 注册表中，通过安检设置和 HTTP 客户端管理。
+人体/手机权重约定 `0=person`、`1=phone`；车辆模型使用自身的类别映射。换权重时必须检查对应模型的类别，不能把同一数字跨权重解释为同一对象。福达AI不在本地模型 Worker 注册表中，通过安检设置和 HTTP 客户端管理。
 
 ### 6.2 一份权重如何共享
 
@@ -881,14 +881,14 @@ Consumer / 通道状态机满足规则
 ```text
 平台最新帧 → 共享 yolo_human → 摄像头独立 ByteTrack
            → 命名工位 ROI → 双人交互 session → JPEG 关键帧
-           → 按事业部/摄像头轮询的有界队列 → 千问 Chat Completions
+           → 按事业部/摄像头轮询的有界队列 → 福达AI Chat Completions
            → 严格校验 verdict → MySQL session 历史（不合规时与 JPEG 证据原子提交）
            → non_compliant 时提交统一告警与关键帧拼图
 ```
 
 摄像头、开关、ROI、检测参数和告警配置复用公共 API。`staff_rois` 使用归一化坐标，单台摄像头最多 16 个工位，每个工位 3–64 个顶点；不同工位使用不同名称。跟踪器和会话全部构造成功后才写入摄像头状态，初始化失败可在下一帧重试。在线检查导致的离线清理与检测处理使用同一状态锁。配置更新、禁用、分辨率变化或推理失败时，会清理相关跟踪/会话，旧配置的异步结果不能继续产生新告警。
 
-全局千问设置通过 `/api/security-inspection/settings` 存入数据库，主要默认值如下：
+全局福达AI设置通过 `/api/security-inspection/settings` 存入数据库，主要默认值如下：
 
 | 字段 | 默认值 |
 | --- | --- |
@@ -899,7 +899,7 @@ Consumer / 通道状态机满足规则
 | `max_tokens` / `temperature` | `2048` / `0.1` |
 | `image_max_side` / `image_jpeg_quality` | `960` / `85` |
 
-可选认证通过环境变量 `SECURITY_VLM_API_KEY` 提供，模型地址不允许携带用户名或密码。内部千问服务需独立可用，项目启动脚本不启动它。
+可选认证通过环境变量 `SECURITY_VLM_API_KEY` 提供，模型地址不允许携带用户名或密码。内部福达AI服务需独立可用，项目启动脚本不启动它。
 
 客户端先检查 `/models` 中是否存在配置的模型，再向 `/chat/completions` 提交关键帧和提示词。返回内容严格转换为 `InspectionVerdict`：
 
@@ -959,15 +959,19 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 以上接口复用 `camera_read_department`、`get_camera_for_user` 和现有账号角色；管理员可访问全部正式事业部，viewer 只能访问授权事业部。查看画面、结果、事件和提问均允许 viewer 使用；公共配置写接口只允许管理员。
 
-### 平台配置助手
+### 福达AI助手
 
-`assistant/resources.py` 通过真实业务 Schema 暴露资源及可编辑字段，`native_resources.py` 适配物流、保安室和喇叭，`global_resources.py` 适配模型设置、异常通知、模型路径、部门功能分配与 SIP 服务。`tools.py` 执行配置查询、局部更新、参数撤销、摄像头创建及成员绑定，统一保留审计；`service.py` 管理会话和幂等请求，`runtime.py` 在有界线程池中运行 JSON 工具循环。模型不直接访问 SQL、文件系统或命令行。
+`assistant/resources.py` 通过真实业务 Schema 暴露资源及可编辑字段，`native_resources.py` 适配物流、保安室和喇叭，`global_resources.py` 适配模型设置、异常通知、模型路径、部门功能分配与 SIP 服务。`tools.py` 执行配置查询、局部更新、参数撤销、摄像头创建、删除及成员绑定，统一保留审计；`service.py` 管理会话和幂等请求，`runtime.py` 在有界线程池中协调聊天与工具执行，`responses.py` 区分自然语言回复和严格工具指令。模型不直接访问 SQL、文件系统或命令行。
+
+福达AI助手默认使用轻松亲切、适度俏皮的聊天语气，闲聊不调用业务工具。完整聊天正文直接保存，封闭的思考区块不展示；只有完整且符合合同的工具指令能够进入业务执行，格式异常最多让模型纠正一次。输出长度截断、空正文及接口格式错误分别反馈原因。历史对话保留自然语言，操作记录作为独立数据上下文提供，失败提示仅在当前轮确有操作记录时提示核对。
 
 每个工具重新校验登录和最新权限，配置写入仅允许管理员。会话仅所属工号可访问，单部门会话不能操作其他部门或全局资源；权限收回后隐藏超出当前授权的历史对话。读取配置生成版本哈希，保存服务在资源事务锁内核对读取值，避免覆盖并发编辑。批量操作按资源独立提交，已经成功的操作不因后续失败而自动回滚，结果逐项记录；重复 HTTP 请求沿用原任务，不重复执行。平台重启会把未完成任务标记为中断，不自动重放写入。
 
 `assistant/secrets.py` 在用户消息进入模型和数据库前保护 RTSP 和标记的账号密码。完整 RTSP 使用用户给定的地址；IP、账号、密码模式通过固定端口及路径默认值组装并编码凭据。只提供一厂名称时须进一步区分通用电气和新材院。摄像头建档复用 `CameraConfigManager`；普通功能及物流通道支持创建时启用，保安室使用创建后绑定。已有摄像头的连接凭据仍由原管理页面维护。
 
-`connectors/qwen/` 复用安检的连接合同和 JSON 协议，认证由环境变量提供。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接千问；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
+`delete_camera` 要求本轮已读取目标摄像头，并携带相同版本；删除服务在摄像头行锁内再次核对基础配置及部门。摄像头与其功能配置在同一事务删除，物流成员由外键清理，通道保留；已绑定保安室时拒绝删除。删除使用独立审计类型 `camera_deletion`，同一任务重复调用返回已有结果；提交异常时回读核对状态，禁止自动重放不明确的删除。删除不支持参数撤销，成功结果通过原缓存及 `camera_removed` 事件同步运行层。
+
+`connectors/qwen/` 复用连接合同、Chat Completions 和请求并发预算，认证由环境变量提供。助手请求不施加 `response_format` 约束，安检判定显式使用 `json_mode=True` 请求 JSON 输出，两类业务分别解析回复。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接福达AI；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
 
 物流通道的 `config.alarm_schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天全天。日历独立于 `detection_start/end`，计划外仍推进检测状态和画面，只阻止报警分发，接口返回 `alarm_suppressed=true`。星期从周一 `0` 到周日 `6`，空列表表示始终不报警，时段须在同一天内。配置在关联表持久化，通过原通道事件热更新；已有通道无需修改原列。
 
@@ -1049,7 +1053,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 - 项目声明 Python `>=3.10,<3.12`，可使用现有 `aivision` 环境。
 - 安装主依赖，准备可用的 MySQL、FFmpeg 和 ffprobe。
-- 准备本地 YOLO、制服、姿态和 InsightFace 模型；使用安检时准备可访问的内部千问服务。
+- 准备本地 YOLO、制服、姿态和 InsightFace 模型；使用安检时准备可访问的内部福达AI服务。
 - `DATA_PATH` 必须可写；部署系统需要支持当前采集代码使用的进程和共享内存机制。
 
 **人脸模型的运行要求：**当前 `load_insightface_model()` 明确要求 `CUDAExecutionProvider`，并关闭静默 CPU fallback。仅安装 CPU ONNX Runtime 不能满足当前人脸 Worker 的运行方式。
@@ -1074,7 +1078,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-保安行为和安检使用同一个 Python 环境；千问客户端使用 `requests`，无需旧版 `dashscope` 或独立 Worker 解释器。上述基础安装命令不包含完整人脸 GPU 环境配置。ByteTrack 相关依赖当前固定为 `ultralytics==8.4.124` 和 `lap==0.5.13`，以依赖声明为准。
+保安行为和安检使用同一个 Python 环境；福达AI客户端使用 `requests`，无需旧版 `dashscope` 或独立 Worker 解释器。上述基础安装命令不包含完整人脸 GPU 环境配置。ByteTrack 相关依赖当前固定为 `ultralytics==8.4.124` 和 `lap==0.5.13`，以依赖声明为准。
 
 ### 11.3 关键环境配置
 
@@ -1091,8 +1095,8 @@ ffprobe -version
 | `AUTH_TOKEN_EXPIRE_HOURS` | 登录有效期设置，模板为 `never` |
 | `PLATFORM_OWNER_EMPLOYEE_ID` | 访问审计等能力的所有者账号配置 |
 | `ACCESS_AUDIT_RETENTION_DAYS` | 访问审计保留天数，模板为 `90` |
-| `SECURITY_VLM_API_KEY` | 内部千问接口需要认证时配置 |
-| `QWEN_MAX_CONCURRENT_REQUESTS` | 安检与助手共享的千问请求上限，默认 `3` |
+| `SECURITY_VLM_API_KEY` | 内部福达AI接口需要认证时配置 |
+| `QWEN_MAX_CONCURRENT_REQUESTS` | 安检与助手共享的福达AI请求上限，默认 `3` |
 | `ASSISTANT_WORKERS` / `ASSISTANT_QUEUE_CAPACITY` | 助手工作线程 / 排队容量，默认 `1` / `16` |
 | `ASSISTANT_MAX_ROUNDS` / `ASSISTANT_MAX_CHANGES` | 单次任务的工具轮数 / 资源操作数量上限，默认 `24` / `100` |
 | `ASSISTANT_HISTORY_TURNS` | 提供给模型的历史对话轮数，默认 `6` |
@@ -1133,7 +1137,7 @@ python -m AiVision.main
 curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 ```
 
-健康响应中的 `ok` 表示“Orchestrator 已启动且至少一个逻辑模型就绪”，不等于所有模型、摄像头或千问接口都正常。确认完整运行状态还要查看 `/api/runtime/status`、`/api/models` 和各功能状态。
+健康响应中的 `ok` 表示“Orchestrator 已启动且至少一个逻辑模型就绪”，不等于所有模型、摄像头或福达AI接口都正常。确认完整运行状态还要查看 `/api/runtime/status`、`/api/models` 和各功能状态。
 
 启动会使用实际摄像头、模型和通知配置。首次现场验证可先关闭业务通知渠道，确认画面、判定和归属后再开启所需渠道。
 
@@ -1235,15 +1239,15 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | PATCH | `/api/face-recognition/persons/{person_id}?department=...` | 管理员以 `{"is_allowed": true/false}` 设置指定事业部通行授权 |
 | GET | `/api/security-inspection/history` | 按事业部及可选摄像头查询最近 31 天的 session 与统计 |
 | GET | `/api/security-inspection/history/{session_id}/image.jpg` | 按事业部授权读取保留期内数据库证据 |
-| GET | `/api/security-inspection/status` | 处理器、队列与千问健康状态 |
-| GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局千问设置 |
+| GET | `/api/security-inspection/status` | 处理器、队列与福达AI健康状态 |
+| GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局福达AI设置 |
 | GET | `/api/overview` | 平台、事业部、能力和摄像头总览 |
 | GET | `/api/assistant/capabilities` | 当前账号的部门、功能及配置能力目录 |
 | GET / POST | `/api/assistant/sessions` | 当前账号、指定部门的会话列表 / 新建会话 |
 | GET | `/api/assistant/sessions/{id}` | 最近100轮可访问对话、任务和操作记录 |
 | POST | `/api/assistant/sessions/{id}/messages` | 用 UUID `request_id` 和 `text` 提交异步任务，返回 `202` |
 | POST | `/api/assistant/sessions/{id}/turns/{turn_id}/cancel` | 请求停止后续操作，已经保存的配置保留 |
-| GET / PUT | `/api/assistant/settings` | 管理员读取 / 保存助手千问连接及生成设置 |
+| GET / PUT | `/api/assistant/settings` | 管理员读取 / 保存助手福达AI连接及生成设置 |
 | POST | `/api/auth/login`、`/api/auth/logout`、`/api/auth/password` | 登录、退出和改密 |
 | GET | `/api/auth/me` | 当前用户 |
 | GET / POST | `/api/admin/users` | 用户列表 / 创建 |
@@ -1272,7 +1276,7 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/config-schema` | 默认配置和字段约束 |
 | GET | `/horns` | 配置写权限可读取的当前授权事业部喇叭选项 |
 
-外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局千问设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。凭证表的 `expires_at` 必须允许 `NULL`；已有表可在启动前执行 `migrations/external_clients_expiration_20261016.sql` 放宽该字段的非空约束。
+外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局福达AI设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。凭证表的 `expires_at` 必须允许 `NULL`；已有表可在启动前执行 `migrations/external_clients_expiration_20261016.sql` 放宽该字段的非空约束。
 
 部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端只负责展示、配置交互和屏幕适配；长期凭证由受控服务端或代理保管。
 
@@ -1353,7 +1357,7 @@ python -m AiVision.features.face_recognition.library.embedding
 1. 文档改动检查路径、链接、字段与源码，并执行 `git diff --check`。
 2. Python 改动进行语法检查和受影响模块的隔离验证，避免直接导入或启动整套服务连接现场资源。
 3. 在已准备的环境检查健康接口、登录后的业务 API 和配置保存结果。
-4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和千问，静态检查不能替代现场验证。
+4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和福达AI，静态检查不能替代现场验证。
 
 在项目根目录检查文档：
 
@@ -1383,7 +1387,7 @@ git diff --check -- README.md unified_frontend/info.md AiVision/README.md
 | 模型路径已保存但功能异常 | 查看 `reload.status` 和 Worker `runtime`，202 不代表加载成功 |
 | 告警视频暂不可用 | `pending` 是否仍收集后置帧，任务容量、FFmpeg 编码、磁盘权限和 `failed` 日志 |
 | 保安行为规则不可用 | 保安室/成员开关、必需/可选模型、摄像头快照与规则状态 |
-| 安检持续 error | 工位关键帧、千问地址/模型、健康检查、熔断、响应字段和排队状态 |
+| 安检持续 error | 工位关键帧、福达AI地址/模型、健康检查、熔断、响应字段和排队状态 |
 | 登录或处置读取失败 | `auth_users`、`auth_access_viewers`、`ai_alarm_disposition` 表结构、授权和后端日志 |
 
 ### 14.3 调参顺序

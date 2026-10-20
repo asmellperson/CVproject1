@@ -1,4 +1,4 @@
-"""本地千问连接与生成参数，供不同业务复用同一套校验。"""
+"""本地福达AI连接与生成参数，供不同业务复用同一套校验。"""
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator

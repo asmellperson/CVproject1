@@ -20,7 +20,7 @@ api/routes/：按业务组织的 HTTP 路由
 
     logistics_channels.py：物流通道、成员、ROI、通道监控和运行状态。
     guard_behavior.py：保安室、成员、规则、告警策略与监控。
-    security_inspection.py：安检配置、千问服务检查、状态和历史。
+    security_inspection.py：安检配置、福达AI服务检查、状态和历史。
     agv_person_check.py：触发 AGV 人体检测，等待结果并衔接配置的回调协议。
     face_recognition.py：人员库、人员授权、身份识别配置及识别记录。
     visual_language_detection.py：指令驱动智慧安防设置、结果、事件和视频提问。

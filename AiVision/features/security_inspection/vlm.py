@@ -1,4 +1,4 @@
-"""内部千问客户端；只接受约定的 Chat Completions JSON 响应。"""
+"""内部福达AI客户端；只接受约定的 Chat Completions JSON 响应。"""
 
 import base64
 import re
@@ -54,7 +54,7 @@ def parse_completion(body: str) -> InspectionVerdict:
         content = choice.message.content
         if content is None:
             raise VlmError("RESULT_ERROR", "模型未返回判定内容")
-        # 千问关闭思考时仍可能输出空 think 标签；只接纳这个完整的空前缀。
+        # 福达AI关闭思考时仍可能输出空 think 标签；只接纳这个完整的空前缀。
         content = re.sub(r"\A<think>\s*</think>\s*", "", content.strip(), count=1)
         fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", content, flags=re.DOTALL | re.IGNORECASE)
         if fenced:
@@ -105,19 +105,19 @@ class VlmClient:
                 allow_redirects=False,
             ) as response:
                 if response.status_code != 200:
-                    raise RuntimeError(f"千问健康检查返回 HTTP {response.status_code}")
+                    raise RuntimeError(f"福达AI健康检查返回 HTTP {response.status_code}")
                 if not any(model["id"] == settings.model for model in response.json()["data"]):
-                    raise RuntimeError("千问接口未提供已配置的模型")
+                    raise RuntimeError("福达AI接口未提供已配置的模型")
         except Exception as exc:
-            logger.warning(f"[security_inspection] 千问健康检查失败：{type(exc).__name__}: {exc}")
+            logger.warning(f"[security_inspection] 福达AI健康检查失败：{type(exc).__name__}: {exc}")
             if isinstance(exc, requests.Timeout):
-                error = "千问接口连接或响应超时"
+                error = "福达AI接口连接或响应超时"
             elif isinstance(exc, requests.ConnectionError):
-                error = "无法连接千问接口，请检查模型服务和地址"
+                error = "无法连接福达AI接口，请检查模型服务和地址"
             elif isinstance(exc, RuntimeError):
                 error = str(exc)
             else:
-                error = "千问健康检查响应格式无效"
+                error = "福达AI健康检查响应格式无效"
             return VlmHealth(reachable=False, last_error=error)
         return VlmHealth(reachable=True)
 
@@ -143,6 +143,7 @@ class VlmClient:
                 messages=[{"role": "system", "content": VLM_SYSTEM_PROMPT},
                           {"role": "user", "content": content}],
                 max_tokens=settings.max_tokens, temperature=settings.temperature, timeout=settings.api_timeout_sec,
+                json_mode=True,
             )
         except QwenError as exc:
             raise VlmError("HTTP_ERROR", str(exc)) from exc

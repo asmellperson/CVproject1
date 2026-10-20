@@ -15,7 +15,7 @@ from .resources import ConfigurationResource
 from .schema import AssistantSettings, ResourceReference, StrictModel
 
 
-LABELS = {"inspection_settings": "安检模型设置", "assistant_settings": "平台助手模型设置",
+LABELS = {"inspection_settings": "安检模型设置", "assistant_settings": "福达AI助手模型设置",
           "exception_alerts": "系统异常通知", "horn_sip": "平台 SIP 服务"}
 
 

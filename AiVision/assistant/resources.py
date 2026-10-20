@@ -19,7 +19,7 @@ from .schema import ConfigurationResponse, ResourceReference
 
 RESOURCE_KINDS = {
     "feature": "普通检测的摄像头功能参数、启停、ROI 和报警设置，需指定 feature",
-    "camera": "平台摄像头的名称、采集帧率、重连次数和启停",
+    "camera": "平台摄像头的名称、采集帧率、重连次数和启停；删除使用 delete_camera",
     "logistics": "物流通道检测参数、检测时段、报警日历、通知和宽限时间",
     "logistics_roi": "物流通道成员的 ROI，需指定物流通道 parent_key",
     "logistics_member": "物流摄像头是否参与通道检测，需指定 parent_key",
@@ -29,8 +29,8 @@ RESOURCE_KINDS = {
     "guard_roi": "保安室摄像头车辆 ROI，需指定 parent_key",
     "guard_member": "保安室成员参与状态，需指定 parent_key",
     "horn": "喇叭名称、启停和说明",
-    "inspection_settings": "安检千问连接、生成、采样和队列设置，管理员全局配置",
-    "assistant_settings": "平台助手的千问连接和生成设置，管理员全局配置",
+    "inspection_settings": "安检福达AI连接、生成、采样和队列设置，管理员全局配置",
+    "assistant_settings": "福达AI助手的模型连接和生成设置，管理员全局配置",
     "exception_alerts": "系统异常企微开关、接收对象和重复通知间隔，管理员全局配置",
     "model_path": "本机模型权重路径，保存后异步加载，管理员全局配置",
     "department_features": "事业部允许访问的检测功能列表，管理员配置",
@@ -230,7 +230,8 @@ class ConfigurationCatalog:
             if camera is None:
                 raise HTTPException(404, "资源不可访问或不存在")
             self.require_department(camera["department"])
-            ref = ResourceReference(key=key, kind="camera", name=camera["name"], department=camera["department"])
+            ref = ResourceReference(key=key, kind="camera", name=camera["name"], department=camera["department"],
+                                    identifier=camera["shm_name"])
             raw = {field: camera[field] for field in CameraParameters.model_fields}
 
             def save(full, patch, previous):

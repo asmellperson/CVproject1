@@ -1,4 +1,4 @@
-"""安检配置与内部千问返回值的唯一契约。"""
+"""安检配置与内部福达AI返回值的唯一契约。"""
 
 from datetime import datetime
 from typing import Literal

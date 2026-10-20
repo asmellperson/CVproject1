@@ -418,13 +418,17 @@ class CameraConfigManager:
         if member is not None:
             raise ValueError("摄像头已绑定保安室，请先解除绑定后再删除或修改事业部")
 
-    def delete_camera(self, key: str) -> bool:
+    def delete_camera(self, key: str | int, *, expected_values: dict | None = None,
+                      expected_department: str | None = None) -> bool:
         """删除一台摄像头"""
         with session_scope() as session:
             cam = self._get_orm_by_key(session, key)
             if cam is None:
                 return False
             session.refresh(cam, with_for_update=True)
+            if expected_department is not None and cam.department != expected_department:
+                raise CameraOrderConflict("摄像头归属已变化，请重新读取配置")
+            require_configuration_values(self._event_snapshot(cam), expected_values)
             self._require_guard_unbound(session, cam.id)
             cam_id, cam_shm = cam.id, cam.shm_name
             for spec in all_specs().values():

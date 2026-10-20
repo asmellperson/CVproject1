@@ -1,4 +1,4 @@
-"""平台助手 API：账号私有会话、异步指令与管理员模型设置。"""
+"""福达AI助手 API：账号私有会话、异步指令与管理员模型设置。"""
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth.auth import get_current_user, get_current_user_from_request, require_admin

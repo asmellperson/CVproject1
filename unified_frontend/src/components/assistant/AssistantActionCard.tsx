@@ -1,7 +1,7 @@
 import type { AssistantAction } from './types'
 
 const labels: Record<string, string> = { name: '名称', fps: '采集 FPS', enabled: '启用', enable: '启用', max_restart: '重连次数',
-  alarm_interval: '报警间隔', detection_start: '检测开始', detection_end: '检测结束', weekdays: '报警星期', start: '报警开始', end: '报警结束' }
+  alarm_interval: '报警间隔', detection_start: '检测开始', detection_end: '检测结束', weekdays: '报警星期', start: '报警开始', end: '报警结束', state: '摄像头状态' }
 const statusLabels: Record<AssistantAction['status'], string> = { saved: '已保存', executing: '正在执行', failed: '执行失败', unknown: '结果待核对', changed: '保存后已有变化' }
 
 function fields(value: Record<string, unknown>, prefix = ''): string[] {
@@ -20,7 +20,7 @@ function at(value: Record<string, unknown> | null, path: string): string {
 export function AssistantActionCard({ action }: { action: AssistantAction }) {
   return <details className="overflow-hidden rounded-xl border border-slate-200 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
     <summary className="cursor-pointer px-3 py-3 leading-5">
-      <span className={action.status === 'saved' ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'font-medium text-amber-700 dark:text-amber-400'}>{statusLabels[action.status]}</span>
+      <span className={action.status === 'saved' ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'font-medium text-amber-700 dark:text-amber-400'}>{action.status === 'saved' && action.resource.kind === 'camera_deletion' ? '已删除' : statusLabels[action.status]}</span>
       <span className="ml-2 break-words text-slate-700 dark:text-slate-200">{action.resource.name}</span>
     </summary>
     <div className="space-y-3 border-t border-slate-100 p-3 dark:border-slate-800">

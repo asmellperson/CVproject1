@@ -59,14 +59,20 @@ class BindCameraArguments(StrictModel):
     parent_key: str = Field(description="已读取的物流通道或保安室 key")
 
 
+class DeleteCameraArguments(StrictModel):
+    camera_key: str = Field(pattern=r"^camera:[1-9][0-9]*$")
+    expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 TOOL_MODELS = {
     "capabilities": (EmptyArguments, "查询可操作类别、功能、部门及一厂二厂别名"),
     "list_resources": (ListArguments, "搜索真实资源，名称有歧义时列出候选并向用户澄清；支持分页"),
     "read_configurations": (ReadArguments, "读取当前值、版本及严格字段 Schema，修改前必须读取"),
     "update_configurations": (UpdateArguments, "按已读取版本局部修改，保留其他字段；每项独立事务，结果逐项报告"),
-    "undo_configuration": (UndoArguments, "撤销当前会话的一次已成功参数修改；被别人改过则拒绝覆盖，不撤销创建或绑定"),
+    "undo_configuration": (UndoArguments, "撤销当前会话的一次已成功参数修改；被别人改过则拒绝覆盖，不撤销创建、绑定或删除"),
     "add_camera": (AddCameraArguments, "新建摄像头，自动生成 camera_数字；凭据引用仅有效30分钟，普通功能或物流通道可同事务启用"),
     "bind_camera": (BindCameraArguments, "把平台已有摄像头加入同部门物流通道或保安室；保安室可先新建再绑定"),
+    "delete_camera": (DeleteCameraArguments, "仅在用户明确删除摄像头时使用；先读取并提供版本，删除摄像头及其检测配置，不可撤销"),
 }
 
 
@@ -121,7 +127,7 @@ class AssistantTools:
             return self.update(args.changes)
         if name == "undo_configuration":
             previous = assistant_service.action(args.action_id, self.session_id, self.load_user())
-            if previous.status != "saved" or previous.after is None or previous.resource.kind == "camera_creation" or previous.resource.kind == "camera_binding":
+            if previous.status != "saved" or previous.after is None or previous.resource.kind in {"camera_creation", "camera_binding", "camera_deletion"}:
                 raise ValueError("此记录不是可撤销的已保存参数修改")
             resource = self.catalog(write=True).resolve(previous.resource.key)
             if resource.config != previous.after:
@@ -131,6 +137,8 @@ class AssistantTools:
                                                     patch=configuration_diff(previous.after, previous.before))])
         if name == "add_camera":
             return self.add_camera(args)
+        if name == "delete_camera":
+            return self.delete_camera(args)
         return self.bind_camera(args)
 
     def count_changes(self, count):
@@ -232,6 +240,51 @@ class AssistantTools:
             # 创建的提交结果可能已经成功，禁止模型凭异常直接再次创建。
             detail = f"创建未完成结果确认（{type(exc).__name__}），请查询摄像头列表核对，禁止直接重试"
             return assistant_service.finish_action(action.id, "unknown", None, detail).model_dump(mode="json")
+
+    def delete_camera(self, args):
+        catalog = self.catalog(write=True)
+        if self.read_versions.get(args.camera_key) != args.expected_revision:
+            raise ConfigurationConflict("删除前必须先读取当前摄像头配置")
+        action_key = "delete:" + args.camera_key
+        previous = assistant_service.find_action(self.turn_id, action_key)
+        if previous is not None:
+            catalog.require_department(previous.resource.department)
+            return previous.model_dump(mode="json")
+        resource = catalog.resolve(args.camera_key)
+        if resource.revision != args.expected_revision:
+            raise ConfigurationConflict("摄像头配置已变化，删除前请重新读取")
+        self.count_changes(1)
+        ref = resource.reference.model_copy(update={"key": action_key, "kind": "camera_deletion"})
+        action, execute = assistant_service.begin_action(self.turn_id, ref,
+            {**resource.config, "state": "存在"}, {"state": "已删除"})
+        if not execute:
+            return action.model_dump(mode="json")
+        camera_id = int(args.camera_key.split(":")[1])
+        actual, status = None, "failed"
+        try:
+            self.catalog(write=True).require_department(ref.department)
+            deleted = camera_config_manager.delete_camera(camera_id, expected_values=resource.raw_config,
+                                                         expected_department=ref.department)
+            if not deleted:
+                raise ConfigurationConflict("摄像头已被其他操作删除，本次未执行删除")
+            actual, status, detail = {"state": "已删除"}, "saved", "摄像头及其检测配置已删除，并发出热更新事件；此操作不可撤销"
+        except Exception as exc:
+            detail = tool_error(exc)
+            try:
+                # 提交后通知失败也可能已经删除，回读实际状态，避免重复执行。
+                catalog = ConfigurationCatalog(self.load_user(), self.department, self.orchestrator)
+                camera = camera_config_manager.get_camera(camera_id)
+                if camera is None:
+                    actual = {"state": "已删除"}
+                    if not isinstance(exc, (ValueError, HTTPException)):
+                        status, detail = "saved", "摄像头已删除，运行时刷新未确认：" + detail
+                else:
+                    catalog.require_department(camera["department"])
+                    actual = {**public_configuration(camera), "state": "存在"}
+            except Exception as read_error:
+                status = "unknown"
+                detail += "；结果核对失败：" + tool_error(read_error)
+        return assistant_service.finish_action(action.id, status, actual, detail).model_dump(mode="json")
 
     def bind_camera(self, args):
         catalog = self.catalog(write=True)

@@ -30,10 +30,10 @@ export function AssistantChat({ department, isAdmin }: { department: DepartmentI
       </CardContent>
     </Card>
     <Card className="min-w-0 gap-0 overflow-hidden rounded-2xl dark:border-slate-800 dark:bg-slate-900">
-      <CardHeader className="border-b border-slate-100 pb-5 dark:border-slate-800"><CardTitle className="flex items-center gap-2 text-base"><MessageSquareText className="h-5 w-5 text-blue-600 dark:text-blue-400" />平台助手</CardTitle><p className="text-xs text-slate-500 dark:text-slate-400">{isAdmin ? '用自然语言查询和修改配置，操作结果保留记录。' : '当前账号可查询已授权部门配置，修改需要管理员权限。'}</p></CardHeader>
+      <CardHeader className="border-b border-slate-100 pb-5 dark:border-slate-800"><CardTitle className="flex items-center gap-2 text-base"><MessageSquareText className="h-5 w-5 text-blue-600 dark:text-blue-400" />福达AI助手</CardTitle><p className="text-xs text-slate-500 dark:text-slate-400">{isAdmin ? '想聊天、查配置、调参数，都可以和我说。' : '可以陪你聊天，也能查询已授权部门配置；修改需要管理员权限。'}</p></CardHeader>
       <CardContent className="p-0">
-        <div ref={messages} role="log" aria-label="平台助手对话" aria-live="polite" className="h-[min(58vh,38rem)] min-h-80 space-y-6 overflow-y-auto bg-slate-50/70 p-4 dark:bg-slate-950/30 sm:p-5">
-          {!turns.length && <div className="flex h-full flex-col items-center justify-center gap-3 text-center"><Bot className="h-9 w-9 text-blue-600 dark:text-blue-400" /><p className="text-sm font-medium">告诉我你想处理什么</p><p className="max-w-md text-xs leading-6 text-slate-500 dark:text-slate-400">例如：把二厂物流出口摄像头重命名为“物流出口东侧”，FPS 改成 8。<br />也可以查询参数、调整检测阈值，或设置物流通道周末不报警。</p></div>}
+        <div ref={messages} role="log" aria-label="福达AI助手对话" aria-live="polite" className="h-[min(58vh,38rem)] min-h-80 space-y-6 overflow-y-auto bg-slate-50/70 p-4 dark:bg-slate-950/30 sm:p-5">
+          {!turns.length && <div className="flex h-full flex-col items-center justify-center gap-3 text-center"><Bot className="h-9 w-9 text-blue-600 dark:text-blue-400" /><p className="text-sm font-medium">嗨，我是福达AI助手 👋</p><p className="max-w-md text-xs leading-6 text-slate-500 dark:text-slate-400">可以随便聊聊，也可以让我帮你办事。<br />例如：把二厂物流出口摄像头的 FPS 改成 8，或设置物流通道周末不报警。</p></div>}
           {!!state.conversation?.hidden_turns && <p className="text-center text-xs text-amber-700 dark:text-amber-400">部分历史记录因账号权限变化已隐藏。</p>}
           {turns.map((turn) => <div key={turn.id} className="space-y-4">
             <div className="flex justify-end gap-2"><p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-[#1B3FA0] px-4 py-3 text-sm leading-6 text-white dark:bg-blue-700">{turn.question}</p><UserRound className="mt-2 h-6 w-6 shrink-0 text-blue-600 dark:text-blue-400" /></div>
@@ -46,11 +46,11 @@ export function AssistantChat({ department, isAdmin }: { department: DepartmentI
         </div>
         <form className="space-y-3 border-t border-slate-100 p-4 dark:border-slate-800" onSubmit={(event) => { event.preventDefault(); void state.send(draft).then((sent) => { if (sent) setDraft('') }) }}>
           {state.error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{state.error}</p>}
-          <Label htmlFor="assistant-message" className="sr-only">给平台助手的指令</Label>
-          <Textarea id="assistant-message" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4000} rows={3} disabled={state.sending || !!state.activeTurn || state.loading} placeholder="请写明部门、摄像头或通道，以及希望修改的内容…" className="resize-none rounded-xl bg-slate-50 dark:bg-slate-950/50" />
+          <Label htmlFor="assistant-message" className="sr-only">和福达AI助手说点什么</Label>
+          <Textarea id="assistant-message" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4000} rows={3} disabled={state.sending || !!state.activeTurn || state.loading} placeholder="聊点什么？也可以告诉我想调整哪个部门的摄像头、通道和参数…" className="resize-none rounded-xl bg-slate-50 dark:bg-slate-950/50" />
           <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-slate-500 dark:text-slate-400">账号、密码请注明字段名；连接信息仅暂存服务器内存，引用闲置 30 分钟失效。</p>
             {state.activeTurn ? <Button type="button" variant="outline" className="shrink-0 gap-2" onClick={() => void state.cancel()}><Square className="h-4 w-4" />停止任务</Button>
-              : <Button type="submit" className="shrink-0 gap-2 rounded-xl" disabled={!draft.trim() || state.sending || state.loading}><Send className="h-4 w-4" />{state.sending ? '发送中…' : '发送指令'}</Button>}
+              : <Button type="submit" className="shrink-0 gap-2 rounded-xl" disabled={!draft.trim() || state.sending || state.loading}><Send className="h-4 w-4" />{state.sending ? '发送中…' : '发送消息'}</Button>}
           </div>
         </form>
       </CardContent>

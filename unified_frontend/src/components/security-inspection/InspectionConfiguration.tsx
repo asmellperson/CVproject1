@@ -110,13 +110,13 @@ function VlmConfiguration() {
       const result = await saveVlmSettings(settings)
       setSettings(result.settings)
       setMessage(result.vlm.reachable === false ? `设置已保存；${result.vlm.last_error}`
-        : result.vlm.reachable === true ? '设置已保存，千问接口可达' : '设置已保存，正在检查千问连接')
+        : result.vlm.reachable === true ? '设置已保存，福达AI接口可达' : '设置已保存，正在检查福达AI连接')
     }
     catch (error) { setMessage(`保存失败：${String(error)}`) }
     finally { setSaving(false) }
   }
   return <Card className={DETECTION_CONFIG_CARD_CLASS}>
-    <DetectionConfigCardHeader icon={Settings2} tone="blue" title="千问判定设置" description="所有部门和摄像头共用的内部模型服务设置。" />
+    <DetectionConfigCardHeader icon={Settings2} tone="blue" title="福达AI判定设置" description="所有部门和摄像头共用的内部模型服务设置。" />
     <DetectionConfigCardContent className="space-y-4">
       {settings && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {(['base_url', 'model'] as const).map((key) => <div key={key} className="space-y-2"><Label htmlFor={`vlm-${key}`}>{key === 'base_url' ? '模型接口地址' : '模型名称'}</Label>
