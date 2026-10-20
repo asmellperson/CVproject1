@@ -49,9 +49,7 @@ departments/：事业部目录与功能分配
 
 六、修改后怎么验证
 
-    在项目根目录运行已配置环境中的权限回归：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_department_feature_access.py
-    并检查版本冲突、缺失分配、跨事业部访问、管理员访问及配置撤回后的页面权限。
+    检查版本冲突、缺失分配、跨事业部访问、管理员访问及配置撤回后的页面权限。
 """
 from .department_registry import DEPARTMENT_SPECS, DepartmentSpec, require_department
 

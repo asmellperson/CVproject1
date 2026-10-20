@@ -205,13 +205,6 @@ Camera 负责“摄像头怎么配置、怎么拉流、画面怎么交给别人�
 
 八、修改后怎么验证
 
-    在项目根目录、已配置测试环境的 aivision Python 环境中运行：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_camera_probe.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_camera_frame_response.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_orchestrator_camera_update.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_orchestrator_camera_frame.py
-    如果涉及摄像头建档、事务、功能绑定或物流成员，还要运行
-    test_logistics_channel_service.py 和 test_logistics_channel_api.py 中的相关测试。
-    自动化测试使用替身、临时数据库或共享内存；真实视频源仍需在部署机器验证首帧、
-    连续取帧、断流恢复，以及停止/删除后的资源回收。
+    在部署环境验证首帧、连续取帧、断流恢复，以及停止/删除后的资源回收。
+    涉及摄像头建档、事务、功能绑定或物流成员时，同时核对配置保存与热更新。
 """

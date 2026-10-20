@@ -142,12 +142,7 @@ alarms/devices/：喇叭设备配置、检测绑定校验、运行管理与设�
     修改设备协议：到 alarms/devices/horn.py；生命周期、热同步、队列策略在本包管理器中。
     不要在每个 Consumer 内各建 Horn，否则同一设备会出现重复登录、心跳和冷却状态。
 
-    在项目根目录、已配置测试环境的 Python 中运行：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_backend.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_runtime_manager.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_binding.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_alarm_horn.py
-    自动化测试使用临时数据库和模拟设备，真实安装后再确认协议、任务 ID 与发声效果。
+    在部署环境确认设备连通性、认证、绑定、任务 ID 与发声效果。
 六、horn.py：单个 IP 喇叭的登录、保活与播放
 
     Horn(config, connect_on_init=True)：保存 horn_url、username、password 等连接参数。

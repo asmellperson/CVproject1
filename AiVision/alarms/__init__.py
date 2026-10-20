@@ -91,16 +91,10 @@
 四、修改时从哪里入手、怎样验证
 
     改业务何时触发：修改具体 Consumer / 物流规则；改设备选择与绑定：修改配置服务。
-    改通道分发、冷却、写入参数：检查 dispatcher.py 及 SQL/证据/微信回归测试。
+    改通道分发、冷却、写入参数：检查 dispatcher.py 及 SQL/证据/微信的运行结果。
     改设备协议：检查 devices/horn.py 的登录失败恢复、心跳、停止门控、无声测试和播放冷却。
     改消息内容或 token：检查 notifications/wechat.py、卡片 URL 与系统异常纯文本两种入口。
     不要把管理员设备 CRUD 或前端表单逻辑加入 Dispatcher，也不要在 Consumer 中直连设备。
 
-    在项目根目录、已配置测试环境的 Python 中运行：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_alarm_horn.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_binding.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_wechat_news_card.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_alarm_config_hot_update.py
-    涉及运行实例启停还要跑 test_horn_runtime_manager.py；涉及物流主体与拼接证据，
-    还要跑 test_logistics_channel_runtime.py 和相应告警 API、证据测试。
+    按实际改动验证告警入库、主体归属、配置热更新、证据生成、通知发送与运行实例启停。
 """

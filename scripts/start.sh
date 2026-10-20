@@ -927,7 +927,7 @@ start_one() {
 #   - `$2`（Shell 字符串）：第 2 个位置参数
 # 返回：Shell 状态码；0 表示成功，非 0 表示失败。
 # 调用关系：
-#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数；`scripts/tests/test_service_topology.sh` 的脚本流程调用本函数
+#   - 调用方：`scripts/start.sh` 的脚本流程调用本函数
 #   - 内部调用：`detect_health_tool`、`detect_tmux_env_support`、`ensure_auth_secret`、`err`、`fail`、`log`、`miss`、`ok`、`port_listening`、`start_one`
 #          等共 11 个调用。
 # 副作用/注意事项：会读取或修改 Shell 变量并输出运行信息；可能创建、覆盖、移动文件或修改文件权限；可能启动、停止或检查外部进程/服务；失败时通过 Shell 返回码影响上层流程。

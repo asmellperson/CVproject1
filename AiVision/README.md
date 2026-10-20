@@ -1322,7 +1322,7 @@ python -m AiVision.features.face_recognition.library.embedding
 
 ### 14.1 当前验证入口
 
-功能分配回归入口为 `python -m pytest -q AiVision/tests/test_department_feature_access.py`，使用隔离的内存数据库，覆盖整表保存、版本冲突、非法输入、管理员接口、跨事业部访问及总览／运行状态过滤。其他验证按修改范围选择：
+验证按修改范围选择，涉及功能分配时核对整表保存、版本冲突、非法输入、管理员接口、跨事业部访问及总览／运行状态过滤：
 
 1. 文档改动检查路径、链接、字段与源码，并执行 `git diff --check`。
 2. Python 改动进行语法检查和受影响模块的隔离验证，避免直接导入或启动整套服务连接现场资源。

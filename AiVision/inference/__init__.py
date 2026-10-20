@@ -194,14 +194,7 @@ Inference 将 Consumer 送来的图片交给模型推理，再把检测结果送
 
 八、修改后怎么验证
 
-    在项目根目录、已配置测试环境的 aivision Python 环境中运行：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_model_registry.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_inference_outcomes.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_inference_runtime_manager_watchdog.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_model_api.py
-    同时运行受影响 Consumer / API 的测试。
-    若涉及页面模型配置，在 unified_frontend/ 下运行：
-        node --test tests/aivision-model-api.test.mjs
-        npm run build
-    这些自动化测试使用替身或临时文件；实际权重还需在部署机器确认能加载并完成推理。
+    核对模型注册、推理结果、故障恢复和 /api/models 的 runtime、reload 状态，
+    并验证受影响 Consumer / API 的行为。涉及页面模型配置时，在 unified_frontend/
+    下运行 npm run build。实际权重需在部署机器确认能加载并完成推理。
 """

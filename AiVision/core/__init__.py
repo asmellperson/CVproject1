@@ -207,13 +207,8 @@ api 负责 HTTP 请求与权限；不要因为名称叫 core，就把所有业�
     新增配置事件要同时检查发布点、提交顺序、监听器注册与退出时解绑。
     新增检测功能先完成 FeatureSpec 注册，缓存会按注册表发现其 ORM。
 
-    本目录改动可能影响启动、事务和所有检测功能，验证应按影响范围选择：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_core_regressions.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_alarm_config_hot_update.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_wechat_news_card.py
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests/test_horn_binding.py
-    事务/启动等公共行为变化时，在项目根目录、已配置测试环境的 Python 中运行：
-        python -m pytest -q -c AiVision/pyproject.toml AiVision/tests unified_backend/tests
+    本目录改动可能影响启动、事务和所有检测功能，验证应按影响范围核对启动、
+    配置热更新、事务提交顺序、告警通知和设备绑定。
     仅补充本文件说明时，检查 Python 语法及除文档字符串外的 AST 一致性即可；
     不需要为了验证注释而启动生产数据库、模型、摄像头或外部通知。
 """

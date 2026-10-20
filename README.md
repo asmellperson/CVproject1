@@ -296,7 +296,7 @@ npm --prefix unified_frontend run lint
 npm --prefix unified_frontend run build
 ```
 
-后端回归测试位于 `AiVision/tests/`，功能修改按实际影响选择测试、静态检查和现场验证。安检存储与留存策略可执行 `python -m pytest -q AiVision/tests/test_security_inspection_retention.py`，使用内存数据库和临时图片，不连接现场 MySQL。
+后端改动按实际影响进行 Python 语法检查、接口验证与现场验证，重点核对权限、配置保存、资源生命周期和业务判定。
 
 纯文档修改可执行：
 
