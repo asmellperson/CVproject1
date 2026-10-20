@@ -45,6 +45,7 @@ const FaceDetectionSection = lazy(() =>
   import('@/sections/FaceDetectionSection').then((module) => ({ default: module.FaceDetectionSection })),
 )
 const SecurityFenceSection = lazy(() => import('@/sections/SecurityFenceSection').then((module) => ({ default: module.SecurityFenceSection })))
+const TailgatingSection = lazy(() => import('@/sections/TailgatingSection').then((module) => ({ default: module.TailgatingSection })))
 const FaceRecognitionSection = lazy(() =>
   import('@/sections/FaceRecognitionSection').then((module) => ({ default: module.FaceRecognitionSection })),
 )
@@ -173,6 +174,8 @@ function App() {
         return currentDepartment && <FaceDetectionSection department={currentDepartment} />
       case 'security-fence':
         return currentDepartment && <SecurityFenceSection key={currentDepartment} department={currentDepartment} />
+      case 'tailgating-detection':
+        return currentDepartment && <TailgatingSection key={currentDepartment} department={currentDepartment} />
       case 'face-recognition':
         return currentDepartment && <FaceRecognitionSection department={currentDepartment} />
       case 'human-detection':

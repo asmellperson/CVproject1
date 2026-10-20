@@ -18,12 +18,14 @@ from .security_inspection.spec import SPEC as security_inspection_spec
 from .agv_person_check.spec import SPEC as agv_person_check_spec
 from .visual_language_detection.spec import SPEC as visual_language_detection_spec
 from .security_fence.spec import SPEC as security_fence_spec
+from .tailgating.spec import SPEC as tailgating_spec
 
 # 保持原注册表的展示/遍历顺序；新增功能须在这里明确登记。
 _BUILTIN_SPECS = (
     visual_language_detection_spec,
     intrusion_spec,
     security_fence_spec,
+    tailgating_spec,
     door_state_spec,
     face_dwell_spec,
     person_dwell_spec,

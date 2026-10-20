@@ -401,9 +401,9 @@ class Orchestrator:
             # 这次修改需不需要重启摄像头进程（rtsp流以及摄像头的禁用什么的需要重启或者关闭，名称什么的不需要）
             if self._camera_update_requires_restart(event):
                 self._restart_or_stop_camera(event.camera_name)
-            else:
-                self._refresh_consumer_camera_config(cam_id)           # 通知Consumer重新读取即可
-                logger.info(f"[Orchestrator] 摄像头展示信息已热更新 cam_id={cam_id} shm={event.camera_name}")
+            # 启停、地址或帧率变化也必须同步配置，防止继续使用旧部门和预览状态。
+            self._refresh_consumer_camera_config(cam_id)
+            logger.info(f"[Orchestrator] 摄像头配置已热更新 cam_id={cam_id} shm={event.camera_name}")
             return
         if change == "camera_removed":
             if cam_id is not None:

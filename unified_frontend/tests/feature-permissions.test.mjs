@@ -16,6 +16,13 @@ const user = {
   feature_access: { general_electric: ['detect_door'], research_institute: ['detect_phone'] },
 }
 
+test('非法闯闸功能按当前事业部分配，权限收回后立即拒绝入口', () => {
+  const granted = { ...user, feature_access: { general_electric: ['tailgating'], research_institute: [] } }
+  assert.equal(resolvePage(granted, 'tailgating-detection', 'general_electric'), 'tailgating-detection')
+  assert.equal(resolvePage(granted, 'tailgating-detection', 'research_institute'), 'overview')
+  assert.equal(resolvePage({ ...granted, feature_access: {} }, 'tailgating-detection', 'general_electric'), 'overview')
+})
+
 test('多事业部账号按当前事业部校验功能', () => {
   assert.equal(hasPageAccess(user, 'phone-detection'), true)
   assert.equal(hasPageAccess(user, 'phone-detection', 'general_electric'), false)

@@ -34,6 +34,7 @@ VIOLATION_TYPE_META: dict[int, AlarmTypeMeta] = {
     14: {"event_type": "visual_language_detection", "label": "指令驱动智慧安防"},
     15: {"event_type": "security_fence_forbidden", "label": "围栏禁入时段有人"},
     16: {"event_type": "security_fence_unauthorized", "label": "围栏非白名单人员"},
+    17: {"event_type": "tailgating", "label": "非法闯闸（尾随）"},
 }
 
 # 未知类型的默认显示信息

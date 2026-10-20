@@ -1,6 +1,6 @@
 # 福达视觉平台
 
-福达视觉平台将摄像头管理、十二项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
+福达视觉平台将摄像头管理、十三项视觉检测、告警证据、统计和用户管理整合在一个系统中。当前运行结构是 **React/Vite 前端 + AiVision 唯一业务后端**；认证模块 `auth` 由 AiVision 加载，共用 MySQL。
 
 本文按当前源码整理（2026-09-20）。算法、配置和 API 细节见 [AiVision README](AiVision/README.md)，部署操作见 [运行手册](run_guide.txt)。本机的 `unified_frontend/info.md` 提供页面与组件导览，该文件按现有 Git 忽略规则在本地维护。
 
@@ -32,7 +32,7 @@ flowchart LR
 
 项目站点地址为 `https://aicv.fudar.com/`，网关部署需把请求转发至前端入口。Vite 的 `/api` 代理默认指向 `http://127.0.0.1:7862`，由 `VITE_AIVISION_TARGET` 覆盖；配置中也保留 `/ws` 的 WebSocket 代理。
 
-当前仓库已没有独立的 `unified_backend`、Guard Room 或 Security VLM Web 服务。保安行为与安检流程均在 `AiVision/features/` 中注册，使用同一套摄像头、推理、数据库和告警设施。内部千问是安检依赖的模型服务，不由这两个 tmux 服务的启停脚本管理。
+保安行为与安检流程均在 `AiVision/features/` 中注册，使用同一套摄像头、推理、数据库和告警设施。内部千问是安检依赖的模型服务，由独立的运维入口管理。
 
 ## 2. 仓库目录
 
@@ -50,7 +50,7 @@ Fuda_CVPreject_V3/
 │   ├── runtime/            # 数据库 bootstrap、资源编排和总览
 │   ├── cameras/            # 配置、FFmpeg 采集和帧读取
 │   ├── inference/          # 模型注册、共享 Worker 和后台重载
-│   ├── features/           # 十二项原生检测功能
+│   ├── features/           # 十三项原生检测功能
 │   ├── alarms/             # 记录、处置、证据、设备和通知
 │   ├── departments/        # 固定事业部目录
 │   ├── core/               # 环境配置、数据库、日志、缓存和事件
@@ -75,6 +75,7 @@ Fuda_CVPreject_V3/
 | 人员违规逗留 | `person_dwell` | `detect_human` | `human-detection` |
 | 手机使用 | `phone_detection` | `detect_phone` | `phone-detection` |
 | 警戒围栏 | `security_fence` | `security_fence` | `security-fence` |
+| 非法闯闸检测 | `tailgating` | `tailgating` | `tailgating-detection` |
 | 人脸身份识别 | `face_recognition` | `recognize_face` | `face-recognition` |
 | 物流通道单人 | `logistics_channel` | `detect_logistics_single_person` | `logistics-single-person` |
 | 保安行为规范 | `guard_behavior` | `guard_behavior` | `guard-behavior` |
@@ -83,7 +84,7 @@ Fuda_CVPreject_V3/
 
 各事业部的可访问功能由管理员在“系统管理 → 功能分配”中配置，保存于 MySQL 的 `department_feature_access` 表。管理员和普通账号进入检测页面均遵守事业部功能分配；管理员可查看全部事业部并修改分配，普通账号还需具有对应事业部的归属权限。取消分配不会停止检测或删除数据，摄像头是否参与检测仍取决于摄像头、功能及通道/保安室成员的开关和运行状态。
 
-平台具有十二项检测能力，总览按账号可访问的事业部和功能汇总能力卡片、摄像头入口与功能数量。点击平台汇总中的“摄像头离线”可查看未在线设备的名称、所属事业部和状态，列表区分离线与已停用，并随总览刷新。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
+平台具有十三项检测能力，总览按账号可访问的事业部和功能汇总能力卡片、摄像头入口与功能数量。点击平台汇总中的“摄像头离线”可查看未在线设备的名称、所属事业部和状态，列表区分离线与已停用，并随总览刷新。AGV 摄像头待机时仍计入在线设备；只有尚未完成的检测请求计入“正在检测”，判定完成后即退出该统计。
 
 ### 指令驱动智慧安防
 
@@ -122,6 +123,12 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 围栏页面沿用其他检测页的实时监控和配置管理两个标签；监控区左侧展示摄像头选择和当前识别结果，右侧展示实时画面，支持拖动调整宽度，窄屏自动上下排列。配置包含摄像头、参数、ROI、模型和报警设置，报警间隔位于“报警推送”。报警统一在“数据中心 → 报警记录”中查看、筛选和处置，显示姓名、工号和摄像头所属事业部；详情另显示人员组织编码。人员库未提供部门名称，组织编码不等同于摄像头事业部。
 
 大屏通过 `/api/external/security-fence` 读取摄像头、画面、实时状态及报警历史，凭证需要 `security_fence:read` 权限和对应事业部授权。接入方式见[围栏外部 API 文档](docs/security-fence-external-api.md)。摄像头安装后应验证入口正脸像素、光照、多人遮挡及跟踪效果；该功能不保证未露出可识别人脸的人员一定触发身份报警。
+
+### 非法闯闸
+
+`tailgating` 使用共享人体模型跟踪完整画面，只有两个不同人员同向通过有限计数线，并在同一 ROI 内连续共同出现达到确认时间，才触发尾随报警。默认共同出现确认时间为 0.3 秒；共同出现结束后的关联窗口默认 3 秒，用于等待双方完成过线。同组人员的一次通行只记录一次，三人及以上同行合并为同组事件，独立事件分别报警，元数据保存轨迹编号、方向和共同出现时间。
+
+配置按摄像头保存在 `ai_camera_config_tailgating`，默认停用，由管理员在“功能分配”中开放给目标事业部。摄像头加入功能后需保存 ROI、计数线和监测方向；参数与启停经现有事务、缓存和事件总线热更新。画面使用最新采集帧，状态查询不等待推理锁；采样间隔超过配置上限、推理失败、分辨率变化或配置变更时清除旧通行状态。实际部署需用闸机录像验证方向、贴身遮挡与检测采样频率。
 
 ### 物流通道
 
@@ -168,6 +175,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | 安检不合规图片 | `ai_security_inspection_session_image`，按 `session_id` 关联的 JPEG 二进制 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
 | 围栏时段、ROI 与独立白名单 | `ai_camera_config_security_fence` |
+| 闸机 ROI、计数线与共同出现规则 | `ai_camera_config_tailgating` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 人脸识别事业部通行白名单 | `ai_face_person_authorization` |
 | 证据文件 | 本机 `DATA_PATH`，数据库保存引用 |
@@ -198,6 +206,7 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 | `/api/logistics-channels/*` | 通道与成员管理、状态及拼图 |
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
 | `/api/security-fence/*`、`/api/external/security-fence/*` | 围栏平台状态与人员选择 / 大屏只读接口 |
+| `/api/tailgating/cameras/{key}/status` | 非法闯闸实时状态、轨迹与通行事件 |
 | `/api/security-inspection/*` | 安检历史、运行状态与千问设置 |
 | `/api/external/security-inspection/*` | 独立系统凭证认证的安检展示和摄像头配置接口 |
 | `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |

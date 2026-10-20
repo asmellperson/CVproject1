@@ -6,6 +6,7 @@ from AiVision.departments.department_registry import DEPARTMENT_SPECS
 DETECTION_EVENT_TYPES = frozenset({
     "security_inspection", "visual_language_detection",
     "security_fence_forbidden", "security_fence_unauthorized",
+    "tailgating",
     "guard_absent", "guard_phone_use", "guard_prone_sleep", "guard_vehicle_inspection_missing",
     "blocks", "detect_door", "detect_face", "recognize_face", "detect_human",
     "detect_logistics_single_person", "detect_phone", "agv_person_check",

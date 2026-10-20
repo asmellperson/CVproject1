@@ -33,13 +33,14 @@ import { useFeatureDashboardAlarms } from './feature_dashboard/useFeatureDashboa
 import { FaceRecognitionMonitorView } from './face_recognition/FaceRecognitionMonitorView'
 import { VisualLanguageMonitorView } from './visual_language_detection/VisualLanguageMonitorView'
 import { FenceMonitorView } from './security_fence/FenceMonitorView'
+import { TailgatingMonitorView } from './tailgating/TailgatingMonitorView'
 
 type AiVisionMonitorProps = {
   title: string
   feature: string
   department: DepartmentId
   rawPreview?: boolean
-  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence'
+  presentation?: 'default' | 'logistics-single-person' | 'human-dwell' | 'feature-dashboard' | 'face-identity' | 'visual-language' | 'security-fence' | 'tailgating'
 }
 
 const FRAME_REFRESH_MS = 200
@@ -57,6 +58,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const frameKey = `${department}:${feature}:${selectedCamera}:${rawPreview}`
   const frameSrc = frameState?.key === frameKey ? frameState.src : ''
   const frameConnected = frameState?.key === frameKey && frameState.connected
+  const needsFeatureValue = ['logistics-single-person', 'human-dwell', 'feature-dashboard'].includes(presentation)
 
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
@@ -114,7 +116,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   }, [selectedCamera])
 
   useEffect(() => {
-    if (!selectedCamera) {
+    if (!selectedCamera || !needsFeatureValue) {
       setFeatureValueState(null)
       return
     }
@@ -131,7 +133,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     return () => {
       cancelled = true
     }
-  }, [feature, selectedCamera])
+  }, [feature, needsFeatureValue, selectedCamera])
 
   useEffect(() => {
     refreshCameras()
@@ -265,6 +267,14 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   if (presentation === 'face-identity') {
     return <FaceRecognitionMonitorView
         department={department}
+      cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
+      frameConnected={frameConnected} frameContent={frameContent}
+      onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
+    />
+  }
+
+  if (presentation === 'tailgating') {
+    return <TailgatingMonitorView department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
       frameConnected={frameConnected} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
