@@ -662,3 +662,60 @@ CREATE TABLE auth_external_clients (
     updated_at DATETIME(6) NOT NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE utf8mb4_bin;
+
+CREATE TABLE ai_assistant_session (
+	id VARCHAR(36) NOT NULL,
+	employee_id VARCHAR(100) NOT NULL,
+	department VARCHAR(100),
+	title VARCHAR(100) NOT NULL,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL,
+	PRIMARY KEY (id)
+);
+
+CREATE INDEX ix_assistant_session_owner ON ai_assistant_session (employee_id, updated_at);
+
+CREATE TABLE ai_assistant_turn (
+	id BIGINT NOT NULL AUTO_INCREMENT,
+	session_id VARCHAR(36) NOT NULL,
+	request_id VARCHAR(36) NOT NULL,
+	question TEXT NOT NULL,
+	answer TEXT NOT NULL,
+	status VARCHAR(20) NOT NULL,
+	progress VARCHAR(255) NOT NULL,
+	access_scope JSON NOT NULL,
+	cancel_requested INTEGER NOT NULL,
+	created_at DATETIME NOT NULL,
+	PRIMARY KEY (id),
+	FOREIGN KEY(session_id) REFERENCES ai_assistant_session (id) ON DELETE CASCADE,
+	UNIQUE (request_id)
+);
+
+CREATE INDEX ix_assistant_turn_session ON ai_assistant_turn (session_id, id);
+
+CREATE TABLE ai_assistant_action (
+	id VARCHAR(36) NOT NULL,
+	turn_id BIGINT NOT NULL,
+	resource_key VARCHAR(200) NOT NULL,
+	operation_key VARCHAR(64) NOT NULL,
+	resource JSON NOT NULL,
+	status VARCHAR(30) NOT NULL,
+	`before` JSON NOT NULL,
+	after JSON,
+	changes JSON NOT NULL,
+	detail TEXT NOT NULL,
+	created_at DATETIME NOT NULL,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_assistant_action_operation UNIQUE (turn_id, operation_key),
+	FOREIGN KEY(turn_id) REFERENCES ai_assistant_turn (id) ON DELETE CASCADE
+);
+
+CREATE TABLE ai_logistics_alarm_schedule (
+	channel_id INTEGER NOT NULL,
+	weekdays JSON NOT NULL,
+	start TIME NOT NULL,
+	end TIME NOT NULL,
+	timezone VARCHAR(100) NOT NULL,
+	PRIMARY KEY (channel_id),
+	FOREIGN KEY(channel_id) REFERENCES ai_logistics_channel (id) ON DELETE CASCADE
+);

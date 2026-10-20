@@ -139,10 +139,12 @@ AiVision/
 │   ├── records/                   # 告警、MySQL 处置、异步写入与媒体引用
 │   └── evidence/                  # 报警前后视频缓存与编码
 ├── departments/                   # 固定事业部目录、功能分配 ORM、数据契约与配置服务
+├── assistant/                     # 账号私有对话、配置能力目录、后台工具执行和审计
 ├── core/                          # Settings、数据库、缓存、事件、日志等
 ├── connectors/
 │   ├── hikvision/                  # 海康签名、HTTP 客户端与人员协议
-│   └── joyai/                     # JoyAI Adapter 客户端和响应清洗
+│   ├── joyai/                     # JoyAI Adapter 客户端和响应清洗
+│   └── qwen/                      # 千问连接校验、Chat Completions 和共享请求预算
 ├── config/model_paths.example.yaml
 ├── migrations/                    # 显式离线迁移
 ├── .env.example                   # 主服务环境变量模板
@@ -957,6 +959,18 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 以上接口复用 `camera_read_department`、`get_camera_for_user` 和现有账号角色；管理员可访问全部正式事业部，viewer 只能访问授权事业部。查看画面、结果、事件和提问均允许 viewer 使用；公共配置写接口只允许管理员。
 
+### 平台配置助手
+
+`assistant/resources.py` 通过真实业务 Schema 暴露资源及可编辑字段，`native_resources.py` 适配物流、保安室和喇叭，`global_resources.py` 适配模型设置、异常通知、模型路径、部门功能分配与 SIP 服务。`tools.py` 执行配置查询、局部更新、参数撤销、摄像头创建及成员绑定，统一保留审计；`service.py` 管理会话和幂等请求，`runtime.py` 在有界线程池中运行 JSON 工具循环。模型不直接访问 SQL、文件系统或命令行。
+
+每个工具重新校验登录和最新权限，配置写入仅允许管理员。会话仅所属工号可访问，单部门会话不能操作其他部门或全局资源；权限收回后隐藏超出当前授权的历史对话。读取配置生成版本哈希，保存服务在资源事务锁内核对读取值，避免覆盖并发编辑。批量操作按资源独立提交，已经成功的操作不因后续失败而自动回滚，结果逐项记录；重复 HTTP 请求沿用原任务，不重复执行。平台重启会把未完成任务标记为中断，不自动重放写入。
+
+`assistant/secrets.py` 在用户消息进入模型和数据库前保护 RTSP 和标记的账号密码。完整 RTSP 使用用户给定的地址；IP、账号、密码模式通过固定端口及路径默认值组装并编码凭据。只提供一厂名称时须进一步区分通用电气和新材院。摄像头建档复用 `CameraConfigManager`；普通功能及物流通道支持创建时启用，保安室使用创建后绑定。已有摄像头的连接凭据仍由原管理页面维护。
+
+`connectors/qwen/` 复用安检的连接合同和 JSON 协议，认证由环境变量提供。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接千问；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
+
+物流通道的 `config.alarm_schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天全天。日历独立于 `detection_start/end`，计划外仍推进检测状态和画面，只阻止报警分发，接口返回 `alarm_suppressed=true`。星期从周一 `0` 到周日 `6`，空列表表示始终不报警，时段须在同一天内。配置在关联表持久化，通过原通道事件热更新；已有通道无需修改原列。
+
 ## 10. 数据存储与权限边界
 
 ### 10.1 主模块存储
@@ -966,6 +980,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 摄像头 | `ai_camera_config` / `cameras/orm.py` | 视频源、名称、事业部、采集参数和总开关 |
 | 各功能配置 | 各功能 `orm.py` | 按 `camera_id` 关联；算法参数、ROI 和功能启用状态 |
 | 物流通道与成员 | `ai_logistics_channel`、`ai_logistics_channel_camera` | 通道配置、成员关系和排序 |
+| 物流报警日历 | `ai_logistics_alarm_schedule` | 独立的报警星期、每日时段和时区，缺少记录时默认全天 |
+| 助手对话与操作 | `ai_assistant_session`、`ai_assistant_turn`、`ai_assistant_action` | 会话归属、请求幂等、执行状态及参数前后值 |
 | 告警事件 | `ai_violation_image` | 功能/事业部/主体快照及证据引用 |
 | 报警处置 | `ai_alarm_disposition` | 状态、备注、处理人及最近 20 次历史 |
 | 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
@@ -1076,6 +1092,10 @@ ffprobe -version
 | `PLATFORM_OWNER_EMPLOYEE_ID` | 访问审计等能力的所有者账号配置 |
 | `ACCESS_AUDIT_RETENTION_DAYS` | 访问审计保留天数，模板为 `90` |
 | `SECURITY_VLM_API_KEY` | 内部千问接口需要认证时配置 |
+| `QWEN_MAX_CONCURRENT_REQUESTS` | 安检与助手共享的千问请求上限，默认 `3` |
+| `ASSISTANT_WORKERS` / `ASSISTANT_QUEUE_CAPACITY` | 助手工作线程 / 排队容量，默认 `1` / `16` |
+| `ASSISTANT_MAX_ROUNDS` / `ASSISTANT_MAX_CHANGES` | 单次任务的工具轮数 / 资源操作数量上限，默认 `24` / `100` |
+| `ASSISTANT_HISTORY_TURNS` | 提供给模型的历史对话轮数，默认 `6` |
 | `OPENCV_NUM_THREADS` | 主进程 OpenCV 线程数，默认 `4` |
 | `CAMERA_START_WORKERS` | 同时探测与等待首帧的摄像头路数，默认 `4`，范围 `1～16` |
 | `FENCE_INFERENCE_TIMEOUT_SECONDS` | 围栏人脸识别等待上限，默认 `5` 秒，最大 `30` 秒 |
@@ -1218,6 +1238,12 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/api/security-inspection/status` | 处理器、队列与千问健康状态 |
 | GET / PUT | `/api/security-inspection/settings` | 管理员读取 / 保存全局千问设置 |
 | GET | `/api/overview` | 平台、事业部、能力和摄像头总览 |
+| GET | `/api/assistant/capabilities` | 当前账号的部门、功能及配置能力目录 |
+| GET / POST | `/api/assistant/sessions` | 当前账号、指定部门的会话列表 / 新建会话 |
+| GET | `/api/assistant/sessions/{id}` | 最近100轮可访问对话、任务和操作记录 |
+| POST | `/api/assistant/sessions/{id}/messages` | 用 UUID `request_id` 和 `text` 提交异步任务，返回 `202` |
+| POST | `/api/assistant/sessions/{id}/turns/{turn_id}/cancel` | 请求停止后续操作，已经保存的配置保留 |
+| GET / PUT | `/api/assistant/settings` | 管理员读取 / 保存助手千问连接及生成设置 |
 | POST | `/api/auth/login`、`/api/auth/logout`、`/api/auth/password` | 登录、退出和改密 |
 | GET | `/api/auth/me` | 当前用户 |
 | GET / POST | `/api/admin/users` | 用户列表 / 创建 |

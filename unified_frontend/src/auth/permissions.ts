@@ -39,7 +39,7 @@ export const FEATURE_BY_PAGE: Record<DetectionPageId, string> = {
   'phone-detection': 'detect_phone', 'agv-person-check': 'agv_person_check',
 }
 export type UserRole = 'admin' | 'viewer'
-export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management' | 'feature-management'
+export type PageId = DetectionPageId | 'overview' | 'alarms' | 'statistics' | 'access-audit' | 'user-management' | 'feature-management' | 'assistant'
 
 export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'visual-language-detection': ['visual_language_detection'],
@@ -54,7 +54,7 @@ export const alarmEventTypesByPage: Record<DetectionPageId, string[]> = {
   'agv-person-check': ['agv_person_check'],
 }
 export const DETECTION_EVENT_TYPES = Object.values(alarmEventTypesByPage).flat()
-const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management', 'feature-management'])
+const pageIds = new Set<string>([...DETECTION_PAGE_IDS, 'overview', 'alarms', 'statistics', 'access-audit', 'user-management', 'feature-management', 'assistant'])
 
 export function isDepartment(value: unknown): value is DepartmentId {
   return typeof value === 'string' && (DEPARTMENTS as readonly string[]).includes(value)

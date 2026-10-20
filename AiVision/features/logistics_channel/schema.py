@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from AiVision.features._shared.roi import NormalizedRoi
+from .alarm_schedule import LogisticsAlarmSchedule
 from AiVision.alarms.devices.binding import MAX_HORN_ID
 from AiVision.features._shared import defaults
 from .constants import (
@@ -126,6 +127,7 @@ class LogisticsChannelConfigUpdate(BaseModel):
     multi_grace_seconds: float = Field(default=DEFAULT_MULTI_GRACE_SECONDS, ge=0)
     alarm_interval: float = Field(default=defaults.ALARM_INTERVAL, gt=0)
     alarm: LogisticsChannelAlarm = Field(default_factory=LogisticsChannelAlarm)
+    alarm_schedule: LogisticsAlarmSchedule = Field(default_factory=LogisticsAlarmSchedule)
 
     @model_validator(mode="after")
     def _validate_aspect_ratio(self) -> LogisticsChannelConfigUpdate:
@@ -240,6 +242,7 @@ class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
             "empty_grace_seconds": value.empty_grace_seconds,
             "multi_grace_seconds": value.multi_grace_seconds,
             "alarm_interval": value.alarm_interval,
+            "alarm_schedule": value.alarm_schedule or LogisticsAlarmSchedule(),
             "alarm": {
                 "sql_enable": value.sql_enable,
                 "horn": {
@@ -353,6 +356,7 @@ class LogisticsChannelRuntimeStatusResponse(BaseModel):
     channel_name: str
     reason: LogisticsChannelStatusReason
     alarm: bool
+    alarm_suppressed: bool
     duration_seconds: float | None = Field(default=None, ge=0)
     threshold_seconds: float | None = Field(default=None, ge=0)
     camera_ids: list[int] = Field(default_factory=list)

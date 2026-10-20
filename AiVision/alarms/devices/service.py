@@ -16,6 +16,7 @@ from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from AiVision.core.db import session_scope, get_session          # session_scope:自动提交，异常回退，以及最后关闭与数据库的会话，get_session:自己创建一个数据Session
+from AiVision.core.config_revision import require_configuration_values
 from .schema import HornCreate, HornUpdate
 from .orm import AiHornConfig                           # 数据库里的配置
 from .references import collect_references, usage_snapshot, notify_detached
@@ -103,13 +104,15 @@ class HornService:
         self._sync_after_commit(result["id"])
         return result
 
-    def update_horn(self, horn_id: int, payload: dict, *, expected_department=_UNSCOPED) -> Optional[dict]:
+    def update_horn(self, horn_id: int, payload: dict, *, expected_department=_UNSCOPED,
+                    expected_values: dict | None = None) -> Optional[dict]:
         """更新数据库"""
         payload = HornUpdate.model_validate(payload).write_values()
         with session_scope() as session:
             h = session.get(AiHornConfig, horn_id, with_for_update=True)
             if h is None or (expected_department is not _UNSCOPED and h.department != expected_department):
                 return None
+            require_configuration_values(self._to_dict(h), expected_values)
             # 这些字段允许被修改
             for f in ("name", "url", "username", "password", "description", "department"):
                 # 只有payload里真正传来的字段才改

@@ -134,6 +134,12 @@ class RuntimeSettings(BaseSettings):
     opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")      # 限制OpenCV自己内部最多开多少CPU线程
     # 限制同时探测和等待首帧的路数，避免离线设备串行拖慢整个平台启动。
     camera_start_workers: int = Field(4, ge=1, le=16, alias="CAMERA_START_WORKERS")
+    qwen_max_concurrent_requests: int = Field(3, ge=1, le=16, alias="QWEN_MAX_CONCURRENT_REQUESTS")
+    assistant_workers: int = Field(1, ge=1, le=4, alias="ASSISTANT_WORKERS")
+    assistant_queue_capacity: int = Field(16, ge=1, le=64, alias="ASSISTANT_QUEUE_CAPACITY")
+    assistant_max_rounds: int = Field(24, ge=1, le=48, alias="ASSISTANT_MAX_ROUNDS")
+    assistant_max_changes: int = Field(100, ge=1, le=200, alias="ASSISTANT_MAX_CHANGES")
+    assistant_history_turns: int = Field(6, ge=0, le=20, alias="ASSISTANT_HISTORY_TURNS")
     fence_inference_timeout_seconds: float = Field(5.0, gt=0, le=30, alias="FENCE_INFERENCE_TIMEOUT_SECONDS")
     slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")   # 一次获取摄像头画面超过多少秒，就记慢请求日志
     # 物流通道状态多久没更新，就认为他过旧

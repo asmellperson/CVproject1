@@ -95,6 +95,18 @@ class LogisticsChannel(Base):
         passive_deletes=True,
         order_by="LogisticsChannelCamera.sort_order, LogisticsChannelCamera.id",
     )
+    alarm_schedule = relationship("LogisticsChannelAlarmSchedule", uselist=False,
+                                  cascade="all, delete-orphan", passive_deletes=True)
+
+
+class LogisticsChannelAlarmSchedule(Base):
+    """独立表为已有通道提供默认全天报警计划，不改变既有通道列和配置值。"""
+    __tablename__ = "ai_logistics_alarm_schedule"
+    channel_id = Column(Integer, ForeignKey("ai_logistics_channel.id", ondelete="CASCADE"), primary_key=True)
+    weekdays = Column(JSON, nullable=False, default=lambda: list(range(7)))
+    start = Column(Time, nullable=False)
+    end = Column(Time, nullable=False)
+    timezone = Column(String(100), nullable=False, default="Asia/Shanghai")
 
 class LogisticsChannelCamera(Base):
     """物流通道与摄像头的成员关系。"""

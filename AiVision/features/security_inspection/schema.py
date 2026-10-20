@@ -2,12 +2,12 @@
 
 from datetime import datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from AiVision.features._shared.alarm_schema import AlarmConfigSchema
 from AiVision.features._shared.roi import NormalizedRoi
+from AiVision.connectors.qwen.schema import QwenConnectionSettings
 from .geometry import validate_polygon
 
 
@@ -75,44 +75,13 @@ class InspectionConfig(StrictModel):
         return self
 
 
-class VlmSettings(StrictModel):
+class VlmSettings(QwenConnectionSettings):
     """内部判定服务的地址、模型、生成参数及有界任务队列设置。"""
-    base_url: str = "http://127.0.0.1:18100/v1"
-    model: str = "fuda-qwen38-27b"
-    max_tokens: int = Field(2048, ge=128, le=16384)
-    temperature: float = Field(0.1, ge=0, le=2)
-    api_timeout_sec: float = Field(45.0, ge=1, le=180)
     queue_timeout_sec: float = Field(60.0, ge=1, le=600)
     max_concurrent: int = Field(3, ge=1, le=16)
     queue_capacity: int = Field(32, ge=1, le=256)
     image_max_side: int = Field(960, ge=160, le=1920)
     image_jpeg_quality: int = Field(85, ge=30, le=100)
-
-    @field_validator("base_url")
-    @classmethod
-    def validate_url(cls, value):
-        """要求无内嵌凭据、查询和片段的 HTTP 地址，并统一去除尾部斜杠。"""
-        url = urlsplit(value)
-        if (
-            value != value.strip()
-            or url.scheme not in {"http", "https"}
-            or not url.hostname
-            or url.username
-            or url.password
-            or url.query
-            or url.fragment
-        ):
-            raise ValueError("模型地址必须为不含认证信息的 HTTP(S) 地址")
-        return value.rstrip("/")
-
-    @field_validator("model")
-    @classmethod
-    def validate_model(cls, value):
-        """拒绝空名称和首尾空白，保证健康检查与推理使用相同模型标识。"""
-        if not value.strip() or value != value.strip():
-            raise ValueError("模型名称不能为空或含首尾空白")
-        return value
-
 
 class VlmHealth(StrictModel):
     """表示接口可达性、真实请求成功时间及熔断恢复进度。"""

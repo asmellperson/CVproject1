@@ -8,6 +8,7 @@ from sqlalchemy.orm import joinedload
 from AiVision.alarms.devices.binding import validate_horn_binding
 from AiVision.cameras.orm import AiCameraConfig
 from AiVision.core import db
+from AiVision.core.config_revision import configuration_values, require_configuration_values
 from AiVision.departments.department_registry import require_department
 from .constants import GUARD_ALARM_TYPES, MAX_CAMERAS_PER_SITE, SITE_POLICY_DEFAULTS, require_alarm_type
 from .orm import (
@@ -205,12 +206,13 @@ class GuardBehaviorService:
             session.flush()
             return GuardBehaviorSiteResponse.model_validate(site).model_dump()
 
-    def update_site(self, site_id: int, payload: dict) -> dict:
+    def update_site(self, site_id: int, payload: dict, *, expected_values: dict | None = None) -> dict:
         """锁定站点，合并局部字段后完整校验，再写入提交的变更。"""
         changes = GuardBehaviorSiteUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:
             site = self._site(session, site_id, lock=True)
             values = {key: getattr(site, key) for key in GuardBehaviorSiteCreate.model_fields}
+            require_configuration_values(values, expected_values)
             values = GuardBehaviorSiteCreate.model_validate({**values, **changes}).model_dump()
             for key in changes:
                 setattr(site, key, values[key])
@@ -278,13 +280,15 @@ class GuardBehaviorService:
             self._camera_config(session, camera_id, lock=True).enable = False
             session.delete(member)
 
-    def set_camera_enabled(self, site_id: int, camera_id: int, enabled: bool) -> dict:
+    def set_camera_enabled(self, site_id: int, camera_id: int, enabled: bool,
+                           *, expected_values: dict | None = None) -> dict:
         """修改成员参与状态，关闭前保护正在使用的车辆检查摄像头。"""
         enabled = GuardBehaviorMemberEnabledUpdate(enabled=enabled).enabled
         with _write_session() as session:
             self._site(session, site_id, lock=True)
             self._camera(session, camera_id)
             member = self._member(session, site_id, camera_id, lock=True)
+            require_configuration_values({"enabled": bool(member.enabled)}, expected_values)
             if not enabled:
                 self._protect_vehicle_camera(session, site_id, camera_id)
             member.enabled = enabled
@@ -309,13 +313,14 @@ class GuardBehaviorService:
             self._site(session, site_id)
             return GuardBehaviorSitePolicyResponse.model_validate(self._policy(session, site_id)).model_dump()
 
-    def update_policy(self, site_id: int, payload: dict) -> dict:
+    def update_policy(self, site_id: int, payload: dict, *, expected_values: dict | None = None) -> dict:
         """合并并校验完整策略，车辆检查目标必须是同事业部已启用成员。"""
         changes = GuardBehaviorSitePolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
         with _write_session() as session:
             site = self._site(session, site_id, lock=True)
             policy = self._policy(session, site_id, lock=True)
             values = {key: getattr(policy, key) for key in SITE_POLICY_DEFAULTS}
+            require_configuration_values(values, expected_values)
             values = GuardBehaviorSitePolicySchema.model_validate({**values, **changes}).model_dump()
             if values["vehicle_inspection_enabled"]:
                 camera = self._camera(session, values["vehicle_camera_id"])
@@ -337,7 +342,8 @@ class GuardBehaviorService:
             config = self._camera_config(session, camera_id)
             return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
 
-    def update_camera_roi(self, site_id: int, camera_id: int, payload: dict) -> dict:
+    def update_camera_roi(self, site_id: int, camera_id: int, payload: dict,
+                          *, expected_values: dict | None = None) -> dict:
         """锁定站点与摄像头，将校验后的车辆 ROI 写入专用配置。"""
         values = GuardBehaviorCameraRoiUpdate.model_validate(payload)
         with _write_session() as session:
@@ -345,6 +351,7 @@ class GuardBehaviorService:
             self._camera(session, camera_id)
             self._member(session, site_id, camera_id, lock=True)
             config = self._camera_config(session, camera_id, lock=True)
+            require_configuration_values(configuration_values(config, GuardBehaviorCameraRoiUpdate.model_fields), expected_values)
             config.vehicle_roi_pos = values.vehicle_roi_pos
             session.flush()
             return GuardBehaviorCameraRoiResponse.model_validate(config).model_dump()
@@ -359,7 +366,8 @@ class GuardBehaviorService:
                 raise ValueError("保安室必须具有完整的四类报警策略")
             return [GuardBehaviorAlarmPolicyResponse.model_validate(policy).model_dump() for policy in policies]
 
-    def update_alarm_policy(self, site_id: int, violation_type: int, payload: dict) -> dict:
+    def update_alarm_policy(self, site_id: int, violation_type: int, payload: dict,
+                            *, expected_values: dict | None = None) -> dict:
         """合并单类告警配置并验证喇叭绑定，在事务内保存最终策略。"""
         violation_type = require_alarm_type(violation_type)
         changes = GuardBehaviorAlarmPolicyUpdate.model_validate(payload).model_dump(exclude_unset=True)
@@ -370,6 +378,7 @@ class GuardBehaviorService:
             if policy is None:
                 raise ValueError("保安室缺少该报警策略")
             values = {key: getattr(policy, key) for key in GuardBehaviorAlarmPolicyUpdate.model_fields}
+            require_configuration_values(values, expected_values)
             values = GuardBehaviorAlarmPolicyUpdate.model_validate({**values, **changes}).model_dump()
             validate_horn_binding(session, values["horn_enable"], values["horn_id"], values["horn_event_id"], department=site.department)
             for key, value in values.items():

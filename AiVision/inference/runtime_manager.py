@@ -15,6 +15,7 @@ from typing import Callable
 
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
+from AiVision.core.config_revision import require_configuration_values
 from AiVision.features.registry import all_specs
 from .model_registry import MODEL_SPECS, get_model_spec
 from .model_paths import load_model_paths, save_model_path, validate_model_path
@@ -548,7 +549,7 @@ class InferenceRuntimeManager:
                 "reload": dict(self._reload_results.get(name, {"status": "idle", "error": ""})),
             } for name, spec in MODEL_SPECS.items()]
 
-    def update_model_path(self, name: str, path: str) -> dict:
+    def update_model_path(self, name: str, path: str, *, expected_values: dict | None = None) -> dict:
         """保存模型路径，并在运行启用且功能声明依赖时发起异步重载。
 
         Args:
@@ -565,6 +566,8 @@ class InferenceRuntimeManager:
         """
         get_model_spec(name)
         with self._configuration_lock:
+            if expected_values is not None:
+                require_configuration_values({"path": load_model_paths().get(name, "")}, expected_values)
             if self._reload_thread is not None and self._reload_thread.is_alive():
                 raise RuntimeError("已有模型正在重载，请等待加载完成后再保存")
             declared = name in self._declared_model_names()

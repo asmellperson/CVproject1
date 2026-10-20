@@ -16,6 +16,7 @@ from AiVision.core.cache import config_cache
 from AiVision.core.db import get_session
 from AiVision.core.events import ConfigChangeEvent, config_event_bus
 from AiVision.core.logger import logger
+from AiVision.core.config_revision import configuration_values, require_configuration_values
 from AiVision.features.registry import all_specs
 from AiVision.features._shared.orm import CameraFeatureConfigBase
 from AiVision.alarms.devices.binding import validate_horn_binding
@@ -265,6 +266,7 @@ class LogisticsChannelService(MembershipTransaction):
         channel_id: int,
         channel_payload: Any,
         config_payload: Any | None,
+        *, expected_values: dict | None = None,
     ) -> dict | None:
         """在单事务内更新通道元数据和检测配置，并只发布一次刷新事件。"""
         feature_name = require_logistics_feature(feature_name)
@@ -283,6 +285,10 @@ class LogisticsChannelService(MembershipTransaction):
             channel = channels.get(channel_id)
             if channel is None or channel.feature_name != feature_name:
                 return False
+            if expected_values is not None:
+                current = {**configuration_values(channel, LogisticsChannelUpdate.model_fields),
+                           "config": LogisticsChannelConfigResponse.model_validate(channel).model_dump()}
+                require_configuration_values(current, expected_values)
             self._apply_channel_values(
                 session,
                 channel,
@@ -541,6 +547,7 @@ class LogisticsChannelService(MembershipTransaction):
         channel_id: int,
         camera_id: int,
         enabled: bool,
+        *, expected_values: dict | None = None,
     ) -> dict:
         """摄像头还在通道里但临时不参与检测"""
         feature_name = require_logistics_feature(feature_name)
@@ -573,6 +580,7 @@ class LogisticsChannelService(MembershipTransaction):
             )
             if member is None:
                 raise ValueError("通道摄像头成员不存在")
+            require_configuration_values({"enabled": bool(member.enabled)}, expected_values)
             member.enabled = bool(enabled)
             session.flush()
 
@@ -663,7 +671,8 @@ class LogisticsChannelService(MembershipTransaction):
         finally:
             session.close()
 
-    def update_camera_roi(self, feature_name: str, channel_id: int, camera_id: int, payload: dict) -> dict:
+    def update_camera_roi(self, feature_name: str, channel_id: int, camera_id: int, payload: dict,
+                          *, expected_values: dict | None = None) -> dict:
         """在成员事务内保存 ROI，提交后发布配置刷新通知。"""
         feature_name = require_logistics_feature(feature_name)
         values = LogisticsCameraRoiUpdate.model_validate(payload).model_dump()
@@ -694,6 +703,7 @@ class LogisticsChannelService(MembershipTransaction):
             )
             if config is None:
                 raise ValueError("物流摄像头 ROI 配置不存在")
+            require_configuration_values({"roi_pos": config.roi_pos}, expected_values)
             config.roi_pos = values["roi_pos"]
             session.flush()
             return self._camera_roi_response(camera, config), _CameraRef(camera.id, camera.shm_name)
@@ -747,6 +757,15 @@ class LogisticsChannelService(MembershipTransaction):
 
     def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
         """仅写入已校验且明确提交的通道字段。"""
+        if "alarm_schedule" in values:
+            from .alarm_schedule import LogisticsAlarmSchedule
+            from .orm import LogisticsChannelAlarmSchedule
+            previous = LogisticsAlarmSchedule.model_validate(channel.alarm_schedule) if channel.alarm_schedule else LogisticsAlarmSchedule()
+            schedule = LogisticsAlarmSchedule.model_validate({**previous.model_dump(), **values["alarm_schedule"]})
+            if channel.alarm_schedule is None:
+                channel.alarm_schedule = LogisticsChannelAlarmSchedule(channel_id=channel.id)
+            for key, value in schedule.model_dump().items():
+                setattr(channel.alarm_schedule, key, value)
         for field in (
             "detection_start",
             "detection_end",

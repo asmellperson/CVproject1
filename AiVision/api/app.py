@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import threading
 import time                                                        # 获取当前时间戳，用来判断异常报警是否还在冷却期
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware                 # 跨域访问控制
@@ -39,6 +40,7 @@ from AiVision.api.routes.horns import router as horns_router
 from AiVision.api.routes.runtime import router as runtime_router
 from AiVision.api.routes.overview import router as overview_router
 from AiVision.api.routes.alarm_dispositions import router as alarm_dispositions_router
+from AiVision.api.routes.assistant import router as assistant_router
 
 from AiVision.alarms.notifications.wechat import WeChatNotifier               # 调用企业微信发送报警信息
 from AiVision.core.logger import logger                             # 项目统一日志对象
@@ -105,8 +107,20 @@ def _send_api_exception_alert(path: str, detail: str):
 
 def create_app() -> FastAPI:
     """组装 AiVision 原生 API；检测生命周期由 Orchestrator 管理。"""
+    @asynccontextmanager
+    async def lifespan(app):
+        from AiVision.assistant.runtime import AssistantRuntime
+        from AiVision.assistant.service import assistant_service
+        await run_in_threadpool(assistant_service.recover)
+        app.state.assistant = AssistantRuntime()
+        try:
+            yield
+        finally:
+            await run_in_threadpool(app.state.assistant.close)
+
     # 创建FastAPI
     app = FastAPI(
+        lifespan=lifespan,
         title="AiVision Backend",                                 # 主要用于Swagger文档
         version="2.0.0",
         description="AiVision features-first refactored backend.",
@@ -178,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(horns_router)
     app.include_router(alarms_router)
     app.include_router(alarm_dispositions_router)
+    app.include_router(assistant_router)
     app.include_router(overview_router)
     app.include_router(public_alarms_router)
     app.include_router(departments_router)

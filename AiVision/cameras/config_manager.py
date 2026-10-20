@@ -33,6 +33,7 @@ from AiVision.core.system_config import AiSystemConfig
 from AiVision.core.db import session_scope, get_session     # 查数据库，写数据库
 from AiVision.core.events import config_event_bus, ConfigChangeEvent      # configChangeEvent：告诉Orchestrator配置变了
 from AiVision.core.cache import config_cache         # 摄像头配置改完后刷新内存缓存
+from AiVision.core.config_revision import require_configuration_values
 from AiVision.core.logger import logger
 from AiVision.features.registry import all_specs
 from AiVision.departments.department_registry import require_department
@@ -336,7 +337,8 @@ class CameraConfigManager:
         except Exception as exc:
             logger.warning(f"[CameraConfigManager] 摄像头新增通知失败 camera_id={camera_id}: {exc}")
 
-    def update_camera(self, key: str, payload: dict) -> Optional[dict]:
+    def update_camera(self, key: str, payload: dict, *, expected_values: dict | None = None,
+                      expected_department: str | None = None) -> Optional[dict]:
         """更新摄像头基础信息 — 不动功能配置"""
         for field in ("name", "url", "fps", "max_restart", "enabled"):
             if field in payload and payload[field] is None:
@@ -368,8 +370,13 @@ class CameraConfigManager:
                     )
                     if membership is not None:
                         raise ValueError("摄像头已绑定物流通道，请先解除物流通道绑定后再修改事业部")
+            else:
+                session.refresh(cam, with_for_update=True)
             # _event_snapshot:把当前摄像头的重要运行配置复制成一个普通dict
             old_value = self._event_snapshot(cam)
+            if expected_department is not None and cam.department != expected_department:
+                raise CameraOrderConflict("摄像头归属已变化，请重新读取配置")
+            require_configuration_values(old_value, expected_values)
             if "department" in payload and department != cam.department:
                 cam.sort_order = max((row.sort_order for row in locked_departments[department]), default=-1) + 1
             # 修改字段

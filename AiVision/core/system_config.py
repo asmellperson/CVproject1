@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import Column, JSON, String
 
 from AiVision.core.db import Base, session_scope, get_session
+from AiVision.core.config_revision import require_configuration_values
 
 
 class AiSystemConfig(Base):
@@ -30,6 +31,9 @@ class SystemConfigService:
     def get_exception_alert(self) -> dict[str, Any]:
         """从数据库读取exception_alert"""
         value = self._get_value(self.EXCEPTION_ALERT_KEY)
+        return self._exception_alert_values(value)
+
+    def _exception_alert_values(self, value) -> dict[str, Any]:
         if not isinstance(value, dict):
             value = {}
         # 哪怕数据库没配置也会返回这个
@@ -41,7 +45,7 @@ class SystemConfigService:
             ),
         }
 
-    def save_exception_alert(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def save_exception_alert(self, payload: dict[str, Any], *, expected_values: dict | None = None) -> dict[str, Any]:
         """写操作，API更新路由调用的是这个方法"""
         value = {
             "wechat_enable": bool(payload.get("wechat_enable", False)),
@@ -53,7 +57,13 @@ class SystemConfigService:
         if value["wechat_enable"] and not value["wechat_user"]:
             raise ValueError("wechat_user 不能为空")
         # 写数据库
-        self._set_value(self.EXCEPTION_ALERT_KEY, value)
+        with session_scope() as session:
+            row = session.get(AiSystemConfig, self.EXCEPTION_ALERT_KEY, with_for_update=True)
+            require_configuration_values(self._exception_alert_values(row.value if row else None), expected_values)
+            if row is None:
+                session.add(AiSystemConfig(key=self.EXCEPTION_ALERT_KEY, value=value))
+            else:
+                row.value = value
         return value
 
     def _normalize_exception_alert_interval(self, raw_value: Any) -> int:
@@ -81,13 +91,12 @@ class SystemConfigService:
 
     @staticmethod
     def _set_value(key: str, value):
-        """修改值，没有就新增。有就更新"""
+        """供 SIP 等配置服务复用的事务写入入口。"""
         with session_scope() as session:
-            row = session.query(AiSystemConfig).filter_by(key=key).first()
+            row = session.get(AiSystemConfig, key, with_for_update=True)
             if row is None:
                 session.add(AiSystemConfig(key=key, value=value))
             else:
                 row.value = value
-
 
 system_config_service = SystemConfigService()

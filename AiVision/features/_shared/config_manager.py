@@ -10,6 +10,7 @@ from typing import Optional
 from AiVision.core.db import session_scope, get_session
 from AiVision.core.events import config_event_bus, ConfigChangeEvent
 from AiVision.core.cache import config_cache
+from AiVision.core.config_revision import require_configuration_values
 from AiVision.features._shared.spec import FeatureSpec
 from AiVision.features._shared.orm import FeatureConfigBase
 from AiVision.alarms.devices.binding import validate_horn_binding
@@ -102,6 +103,7 @@ class FeatureConfigManager:
         payload: dict,
         *,
         expected_department: str | None = None,
+        expected_values: dict | None = None,
     ) -> Optional[dict]:
         """校验并保存普通功能的完整配置，缺失参数按对应 Schema 补齐默认值。
 
@@ -144,6 +146,9 @@ class FeatureConfigManager:
             )
             # 保存前先记住旧的enable，功能发生启停变化需要发detect_human_enabled.如果只是修改阈值，只发config_updated
             old_enable = bool(cfg.enable) if cfg is not None else False
+            if expected_values is not None:
+                current = spec.config_schema.model_validate(cfg.to_config_dict() if cfg is not None else {}).model_dump()
+                require_configuration_values(current, expected_values)
             new_enable = bool(payload.get("enable", False))
             if new_enable and not old_enable and not camera.enable:
                 raise ValueError("请先在平台启用该摄像头")

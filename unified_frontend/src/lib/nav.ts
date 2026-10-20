@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bot,
   Bell,
   Clock3,
   DoorOpen,
@@ -55,6 +56,7 @@ export const navGroups: NavGroup[] = [
     label: '',
     items: [
       { id: 'overview', label: '平台总览', icon: LayoutDashboard, description: '平台总览' },
+      { id: 'assistant', label: '千问平台助手', icon: Bot, description: '自然语言查询和调整平台配置' },
     ],
   },
   {

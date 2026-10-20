@@ -372,6 +372,12 @@ export function LogisticsChannelConfigView({
 
   const saveAlarmConfig = () => {
     if (!selectedChannelDetail || !alarmDraft || hydratedChannelSelection.current !== channelSelection) return
+    const start = detectionTimeSeconds(alarmDraft.alarm_schedule.start)
+    const end = detectionTimeSeconds(alarmDraft.alarm_schedule.end)
+    if (start === null || end === null || start >= end) {
+      setMessage('报警开始时间必须早于结束时间，计划须在同一天内。')
+      return
+    }
     if (!Number.isFinite(alarmDraft.alarm_interval) || alarmDraft.alarm_interval <= 0) {
       setMessage('报警间隔必须大于 0 秒。')
       return
@@ -660,6 +666,20 @@ export function LogisticsChannelConfigView({
             </TabsContent>
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警日历" description="只在选定星期和时段发送报警，其他时间仍持续检测并显示画面。" />
+                <DetectionConfigCardContent className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-3 sm:col-span-2"><Label>报警星期</Label><div className="flex flex-wrap gap-4">
+                    {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => <label key={day} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" disabled={!isAdmin || busy} checked={alarmDraft.alarm_schedule.weekdays.includes(day)} onChange={(event) => setAlarmDraft({ ...alarmDraft, alarm_schedule: {
+                        ...alarmDraft.alarm_schedule, weekdays: event.target.checked ? [...alarmDraft.alarm_schedule.weekdays, day].sort() : alarmDraft.alarm_schedule.weekdays.filter((value) => value !== day),
+                      } })} />{label}
+                    </label>)}
+                  </div><p className="text-xs text-slate-500 dark:text-slate-400">不选择任何星期表示不报警。时区：{alarmDraft.alarm_schedule.timezone}。</p></div>
+                  <ConfigNumber label="每日报警开始" id="logistics-alarm-start" type="time" value={timeForInput(alarmDraft.alarm_schedule.start)} disabled={!isAdmin || busy} onChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_schedule: { ...alarmDraft.alarm_schedule, start: timeForApi(value) } })} />
+                  <ConfigNumber label="每日报警结束" id="logistics-alarm-end" type="time" value={timeForInput(alarmDraft.alarm_schedule.end)} disabled={!isAdmin || busy} onChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_schedule: { ...alarmDraft.alarm_schedule, end: timeForApi(value) } })} />
+                </DetectionConfigCardContent>
+              </Card>
               <AlarmPushConfig
                 showSql
                 alarmInterval={String(alarmDraft.alarm_interval)}

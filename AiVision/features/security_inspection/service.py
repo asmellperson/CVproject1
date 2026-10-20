@@ -6,6 +6,7 @@ from sqlalchemy import func
 
 from AiVision.core.db import get_session, session_scope
 from AiVision.core.logger import logger
+from AiVision.core.config_revision import require_configuration_values
 from AiVision.core.media_cleanup import CLEANUP_BATCH_SIZE
 from AiVision.core.settings import settings
 from AiVision.core.system_config import AiSystemConfig
@@ -43,10 +44,15 @@ class InspectionService:
             row = session.get(AiSystemConfig, SETTINGS_KEY)
             return VlmSettings() if row is None else VlmSettings.model_validate(row.value)
 
-    def save_settings(self, settings: VlmSettings) -> None:
+    def save_settings(self, settings: VlmSettings, *, expected_values: dict | None = None) -> None:
         """在事务内创建或替换公共模型设置，运行时重载由调用方负责。"""
         with session_scope() as session:
-            row = session.get(AiSystemConfig, SETTINGS_KEY)
+            row = session.get(AiSystemConfig, SETTINGS_KEY, with_for_update=True)
+            if expected_values is not None:
+                require_configuration_values(
+                    VlmSettings.model_validate(row.value).model_dump() if row else VlmSettings().model_dump(),
+                    expected_values,
+                )
             if row is None:
                 session.add(AiSystemConfig(key=SETTINGS_KEY, value=settings.model_dump()))
             else:

@@ -80,6 +80,7 @@ const AccessAuditSection = lazy(() =>
 const FeatureManagementSection = lazy(() =>
   import('@/sections/FeatureManagementSection').then((module) => ({ default: module.FeatureManagementSection })),
 )
+const AssistantSection = lazy(() => import('@/sections/AssistantSection').then((module) => ({ default: module.AssistantSection })))
 
 function getInitialPage() {
   const params = new URLSearchParams(window.location.search)
@@ -160,6 +161,8 @@ function App() {
     switch (activePage) {
       case 'overview':
         return <HomeSection onNavigate={handlePageChange} overviewState={overviewState} />
+      case 'assistant':
+        return <AssistantSection />
       case 'security-vlm':
         return currentDepartment && <SecurityVlmSection department={currentDepartment} />
       case 'visual-language-detection':

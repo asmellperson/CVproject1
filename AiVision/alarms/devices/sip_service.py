@@ -5,6 +5,7 @@ import threading
 
 from AiVision.core.system_config import SystemConfigService
 from AiVision.core.logger import logger
+from AiVision.core.config_revision import require_configuration_values
 from .schema import SipServerConfig
 from .sip_protocol import SipAudioError
 from .sip_server import SipAudioServer
@@ -50,10 +51,11 @@ class HornSipService(SystemConfigService):
             self._error = str(exc) if isinstance(exc, SipAudioError) else "SIP 服务配置暂时无法读取"
             logger.warning(f"[HornSIP] {self._error}")
 
-    def save(self, config: SipServerConfig) -> dict:
+    def save(self, config: SipServerConfig, *, expected_values: dict | None = None) -> dict:
         """先验证端口可监听，再提交数据库；提交失败恢复原监听参数。"""
         with self._lock:
             old = self.config()
+            require_configuration_values(old.model_dump(), expected_values)
             self.server.configure(config)
             try:
                 self._set_value(self.CONFIG_KEY, config.model_dump())

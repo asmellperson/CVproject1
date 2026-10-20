@@ -31,6 +31,7 @@ export type LogisticsChannelAlarmConfig = {
 }
 
 export type LogisticsDetectionTime = string
+export type LogisticsAlarmSchedule = { weekdays: number[]; start: string; end: string; timezone: string }
 
 export type LogisticsChannelConfig = {
   detection_start: LogisticsDetectionTime
@@ -45,11 +46,12 @@ export type LogisticsChannelConfig = {
   multi_grace_seconds: number
   alarm_interval: number
   alarm: LogisticsChannelAlarmConfig
+  alarm_schedule: LogisticsAlarmSchedule
 }
 
-export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
+export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm' | 'alarm_interval' | 'alarm_schedule'>
 
-export type LogisticsChannelAlarmDraft = Pick<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
+export type LogisticsChannelAlarmDraft = Pick<LogisticsChannelConfig, 'alarm' | 'alarm_interval' | 'alarm_schedule'>
 
 export type LogisticsChannelConfigPatch = Partial<LogisticsChannelConfig>
 
@@ -133,6 +135,7 @@ export type LogisticsChannelRuntimeStatus = {
   channel_name: string
   reason: LogisticsChannelReason
   alarm: boolean
+  alarm_suppressed: boolean
   duration_seconds: number | null
   threshold_seconds: number | null
   camera_ids: number[]
