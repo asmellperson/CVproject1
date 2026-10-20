@@ -40,14 +40,16 @@ X-API-Key: <对接凭证>
 | GET | `/cameras` | 摄像头数组；`enabled_only=true` 默认只列摄像头和围栏均启用的设备；传 `false` 可查看该事业部全部摄像头 |
 | GET | `/status` | 该事业部所有已绑定围栏摄像头的状态数组，包含停用或离线状态 |
 | GET | `/cameras/{shm_name}/status` | 单个摄像头的围栏状态 |
-| GET | `/cameras/{shm_name}/frame.jpg` | JPEG；`annotated=true` 默认返回标注帧，`false` 返回原始帧；`quality=85`，范围 1–100；`max_width/max_height` 可选，范围 1–4096 |
+| GET | `/cameras/{shm_name}/frame.jpg` | JPEG；`annotated=true` 默认按实时采集帧合成 ROI 及有效检测框，`false` 返回原始帧；`quality=85`，范围 1–100；`max_width/max_height` 可选，范围 1–4096 |
 | GET | `/history` | 分页报警与原因统计，参数见下文 |
 | GET | `/alarms/{alarm_id}` | 报警详情；ID 使用历史返回的字符串 |
 | GET | `/alarms/{alarm_id}/image` | PNG 报警截图，按事件所属事业部授权 |
 
 摄像头字段沿用平台：`id`、`camera_id`、`name`、`shm_name`、`department`、`enabled`、`fps`、`sort_order`、`feature_sort_orders` 和 `functions`。后两项只包含 `security_fence`；列表已按围栏排序排列，不返回 RTSP 地址。`enabled` 是配置开关，实时在线状态见 `/status`。
 
-建议先读取事业部与摄像头，再串行轮询状态和画面；不要让上一请求未完成时继续累积相同请求。切换摄像头、离开页面或请求失败时清除旧画面及旧状态。
+建议先读取事业部与摄像头，再串行轮询状态和画面；不要让上一请求未完成时继续累积相同请求。新图加载并解码完成后再替换旧图；短暂取图失败时保留上一帧并明确提示刷新异常，不能将旧图视为实时在线。切换摄像头、事业部、离开页面或权限失效时清除旧画面及旧状态。
+
+围栏预览更新不等待模型推理完成。检测结果超过 5 秒、规则时段或分辨率改变时，预览撤销旧人体、人脸框并保留采集画面及 ROI；检测判定以状态接口为准，采集帧过期仍返回不可用。
 
 ## 实时状态与判定
 

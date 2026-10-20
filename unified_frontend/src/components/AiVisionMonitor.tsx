@@ -15,6 +15,7 @@ import {
 } from '@/lib/aivision'
 import {
   buildAiVisionPreviewFrameUrl,
+  createPreviewFrameBuffer,
   FRAME_REQUEST_TIMEOUT_MS,
   scheduleFrameRequestAbort,
 } from './AiVisionMonitor.frame'
@@ -47,12 +48,15 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   const [cameras, setCameras] = useState<AiVisionCamera[]>([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [loading, setLoading] = useState(true)
-  const [frameSrc, setFrameSrc] = useState('')
+  const [frameState, setFrameState] = useState<{ key: string; src: string; connected: boolean } | null>(null)
   const [message, setMessage] = useState('正在读取摄像头列表...')
   const [featureValueState, setFeatureValueState] = useState<CameraFeatureValueState | null>(null)
   const [isPageVisible, setIsPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
   const selectedCameraRef = useRef('')
-  const objectUrlRef = useRef<string | null>(null)
+  const frameBufferRef = useRef<ReturnType<typeof createPreviewFrameBuffer> | null>(null)
+  const frameKey = `${department}:${feature}:${selectedCamera}:${rawPreview}`
+  const frameSrc = frameState?.key === frameKey ? frameState.src : ''
+  const frameConnected = frameState?.key === frameKey && frameState.connected
 
   const selectedCameraInfo = useMemo(
     () => cameras.find((camera) => getAiVisionCameraKey(camera) === selectedCamera || camera.shm_name === selectedCamera),
@@ -78,13 +82,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     selectedCamera,
     selectedCameraName: selectedCameraInfo?.name || '',
   })
-
-  const revokeFrameUrl = useCallback(() => {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current)
-      objectUrlRef.current = null
-    }
-  }, [])
 
   const refreshCameras = useCallback(async () => {
     setLoading(true)
@@ -157,14 +154,12 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
 
   useEffect(() => {
     if (!selectedCamera) {
-      revokeFrameUrl()
-      setFrameSrc('')
+      setFrameState(null)
       return
     }
 
     if (!isPageVisible) {
-      revokeFrameUrl()
-      setFrameSrc('')
+      setFrameState(null)
       setMessage('页面不可见，已暂停实时画面刷新。')
       return
     }
@@ -173,6 +168,9 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     let timeoutId: number | undefined
     let requestTimeoutId: ReturnType<typeof setTimeout> | undefined
     let controller: AbortController | null = null
+    let hasFrame = false
+    const buffer = createPreviewFrameBuffer()
+    frameBufferRef.current = buffer
 
     const loadFrame = async () => {
       const startedAt = performance.now()
@@ -184,30 +182,35 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
           buildAiVisionPreviewFrameUrl(selectedCamera, rawPreview ? '' : feature, Date.now()),
           { cache: 'no-store', credentials: 'include', signal: controller.signal },
         )
+        if (cancelled) return
         if (response.status === 401) {
           window.dispatchEvent(new Event('aicv:unauthorized'))
+        }
+        if (response.status === 401 || response.status === 403) {
+          buffer.clear()
+          hasFrame = false
+          setFrameState(null)
         }
         if (!response.ok) {
           throw new Error(`${response.status} ${response.statusText}`)
         }
 
         const blob = await response.blob()
+        const nextFrameSrc = await buffer.prepare(blob, controller.signal)
         if (requestTimeoutId) {
           clearTimeout(requestTimeoutId)
           requestTimeoutId = undefined
         }
         if (cancelled) return
 
-        const nextFrameSrc = URL.createObjectURL(blob)
-        revokeFrameUrl()
-        objectUrlRef.current = nextFrameSrc
-        setFrameSrc(nextFrameSrc)
+        hasFrame = true
+        setFrameState({ key: frameKey, src: nextFrameSrc, connected: true })
         setMessage('实时画面已连接。')
       } catch {
         if (!cancelled) {
-          revokeFrameUrl()
-          setFrameSrc('')
-          setMessage('画面读取失败：请确认 AiVision 后端已启动、摄像头运行中，并且该检测功能已启用。')
+          setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)
+          setMessage(hasFrame ? '画面刷新暂不可用，当前显示上一帧，正在重试。'
+            : '画面暂不可用，正在重试。请检查摄像头及检测功能运行状态。')
         }
       } finally {
         if (requestTimeoutId) {
@@ -221,7 +224,6 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       }
     }
 
-    setFrameSrc('')
     setMessage('正在读取实时画面...')
     loadFrame()
 
@@ -230,9 +232,10 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
       controller?.abort()
       if (timeoutId) window.clearTimeout(timeoutId)
       if (requestTimeoutId) clearTimeout(requestTimeoutId)
-      revokeFrameUrl()
+      buffer.dispose()
+      if (frameBufferRef.current === buffer) frameBufferRef.current = null
     }
-  }, [feature, isPageVisible, rawPreview, revokeFrameUrl, selectedCamera])
+  }, [feature, frameKey, isPageVisible, rawPreview, selectedCamera])
 
   const frameContent = (
     <>
@@ -243,11 +246,15 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
             src={frameSrc}
             alt={`${title}实时画面`}
             className="h-full w-full object-contain"
-            onError={() => setMessage('画面渲染失败：请刷新后重试。')}
+            onLoad={(event) => frameBufferRef.current?.displayed(event.currentTarget.src)}
+            onError={() => {
+              setFrameState((current) => current?.key === frameKey ? { ...current, connected: false } : current)
+              setMessage('画面渲染失败，正在等待下一帧。')
+            }}
           />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-300">
-            正在读取实时画面...
+            {message}
           </div>
         )
       ) : (
@@ -263,7 +270,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
     return <FaceRecognitionMonitorView
         department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
-      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      frameConnected={frameConnected} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
     />
   }
@@ -271,7 +278,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   if (presentation === 'security-fence') {
     return <FenceMonitorView department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
-      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      frameConnected={frameConnected} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras}
     />
   }
@@ -279,7 +286,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
   if (presentation === 'visual-language') {
     return <VisualLanguageMonitorView key={`${department}:${selectedCamera}`} department={department}
       cameras={cameras} selectedCamera={selectedCamera} loading={loading} message={message}
-      frameConnected={Boolean(frameSrc)} frameContent={frameContent}
+      frameConnected={frameConnected} frameContent={frameContent}
       onSelectCamera={handleSelectCamera} onRefreshCameras={refreshCameras} />
   }
 
@@ -292,7 +299,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         selectedCameraInfo={selectedCameraInfo}
         loading={loading}
         message={message}
-        frameConnected={Boolean(frameSrc)}
+        frameConnected={frameConnected}
         frameContent={frameContent}
         featureValue={featureValue}
         status={logisticsMonitor.status}
@@ -312,7 +319,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         selectedCameraInfo={selectedCameraInfo}
         loading={loading}
         message={message}
-        frameConnected={Boolean(frameSrc)}
+        frameConnected={frameConnected}
         frameContent={frameContent}
         featureValue={featureValue}
         status={humanDwellMonitor.status}
@@ -334,7 +341,7 @@ export function AiVisionMonitor({ title, feature, department, presentation = 'de
         selectedCameraInfo={selectedCameraInfo}
         loading={loading}
         message={message}
-        frameConnected={Boolean(frameSrc)}
+        frameConnected={frameConnected}
         frameContent={frameContent}
         featureValue={featureValue}
         alarms={featureDashboardAlarms.recent}

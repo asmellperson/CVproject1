@@ -1,15 +1,13 @@
 """复用人体及身份推理队列，围栏独立管理状态和告警事件。"""
 import time
-from copy import deepcopy
 from datetime import datetime, timezone
-
-import cv2
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
 from AiVision.core.settings import settings
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 
 from .runtime import FenceRuntime, current_mode
+from .preview import FencePreview, draw_fence_detections
 from .schema import FORBIDDEN_ALARM, UNAUTHORIZED_ALARM, FencePerson, FenceValue
 
 
@@ -17,11 +15,16 @@ class FenceConsumer(BaseFunctionConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.runtimes: dict[int, FenceRuntime] = {}
-        self.monitor_status: dict[str, dict] = {}
+        self.preview = FencePreview(self.ROI_COLOR)
         self.processed_frames: dict[int, object] = {}
         self.alarm_subjects: dict[int, set[str]] = {}
         self.unidentified_subjects: dict[int, set[str]] = {}
         self.unidentified_slots: dict[int, dict[int, int]] = {}
+
+    def _load_initial_configs(self):
+        super()._load_initial_configs()
+        for camera_id, config in self.config_cache.items():
+            self.preview.configure(camera_id, config)
 
     def stop(self):
         super().stop()
@@ -34,16 +37,13 @@ class FenceConsumer(BaseFunctionConsumer):
             super().update_config(camera_id)
             self.runtimes.pop(camera_id, None)
             self.processed_frames.pop(camera_id, None)
-            key = self.config_cache.get(camera_id, {}).get("shm_name")
-            if key:
-                self.monitor_status.pop(key, None)
+            self.preview.configure(camera_id, self.config_cache.get(camera_id))
 
     def _clear_camera_state(self, camera_id, shm_name):
         super()._clear_camera_state(camera_id, shm_name)
         self.runtimes.pop(camera_id, None)
         self.processed_frames.pop(camera_id, None)
-        if shm_name:
-            self.monitor_status.pop(shm_name, None)
+        self.preview.configure(camera_id, None)
         self._reset_alarm_cooldown(camera_id)
 
     def _reset_alarm_cooldown(self, camera_id):
@@ -63,6 +63,7 @@ class FenceConsumer(BaseFunctionConsumer):
         with self._camera_state_lock:
             key = self.config_cache.get(camera_id, {}).get("shm_name")
             super().update_status(camera_id, enabled)
+            self.preview.configure(camera_id, self.config_cache.get(camera_id))
             if camera_id not in self.config_cache:
                 self._clear_camera_state(camera_id, key)
 
@@ -119,17 +120,9 @@ class FenceConsumer(BaseFunctionConsumer):
     def post_process(self, camera_id, result):
         frame = self._annotated_frame(camera_id)
         detail = result[1]
-        self.monitor_status[self.config_cache[camera_id]["shm_name"]] = detail
+        self.preview.publish(camera_id, detail)
         if frame is not None:
-            for person in detail["persons"]:
-                x1, y1, x2, y2 = map(int, person["bbox"])
-                color = (0, 0, 255) if person["alarm"] else (0, 180, 255) if person["identity"] == "pending" else (60, 200, 80)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, f'#{person["track_id"]} {person["identity"]}', (x1, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            # 人脸检测框与人体准入结论分开绘制，待核验也能看到真实检测结果。
-            for face in detail["faces"]:
-                x1, y1, x2, y2 = map(int, face["bbox"])
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 200, 0), 2)
+            draw_fence_detections(frame, detail)
         return frame
 
     def _handle_alarm(self, camera_id, result, frame, *, config=None):
@@ -199,5 +192,8 @@ class FenceConsumer(BaseFunctionConsumer):
         }
 
     def get_monitor_status(self, camera_key):
-        with self._camera_state_lock:
-            return deepcopy(self.monitor_status.get(camera_key))
+        return self.preview.status(camera_key)
+
+    def get_live_preview(self, camera_key, frame, *, now):
+        """实时画面与模型完成频率分离，过期身份不继续叠加到画面。"""
+        return self.preview.render(camera_key, frame, now=now)

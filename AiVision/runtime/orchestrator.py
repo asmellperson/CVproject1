@@ -731,7 +731,7 @@ class Orchestrator:
     def get_camera_frame_info(self, shm_name: str, feature: str | None = None):
         """
         从原始帧和算法标注帧中，选择当前最适合展示的一帧
-            1、指定检测功能时，只返回对应 Consumer 最近 2 秒内的标注画面
+            1、围栏按实时采集帧合成预览；其他功能返回最近 2 秒内的标注画面
             2、未指定检测功能时，返回最近 10 秒内的原始画面供配置编辑
             3、需要的画面过期或不存在时返回 None
         """
@@ -745,6 +745,13 @@ class Orchestrator:
         annotated_updated_at = 0.0               # 初始化标注帧更新时间
         if feature and feature in self.consumers:
             consumer = self.consumers[feature]            # 找到功能对应的Consumer
+            live_preview = getattr(consumer, "get_live_preview", None)
+            if callable(live_preview):
+                if not raw_is_fresh:
+                    return None, raw_updated_at
+                frame, _preview_updated_at = live_preview(shm_name, raw, now=now)
+                # 标注会因过期或时段切换消失，合成图缓存不能只依赖原始帧时间。
+                return frame, now if frame is not None else raw_updated_at
             # 从Consumer中拿标注画面
             annotated = consumer.result_dict.get(shm_name)
             annotated_updated_at = consumer.result_updated_at.get(shm_name, 0.0)
