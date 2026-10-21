@@ -30,12 +30,17 @@ class AlarmChannel(BaseModel, Generic[Params]):
     parm: Params = Field(default_factory=dict, validate_default=True)
 
 
+class TimedAlarmChannel(AlarmChannel[Params], Generic[Params]):
+    """通知通道独立冷却；未设置时沿用当前配置的报警记录间隔。"""
+    interval: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
 class AlarmConfigSchema(BaseModel):
     """数据库、喇叭和企业微信三个独立告警通道的配置。"""
     model_config = ConfigDict(extra="forbid", strict=True)
     sql: AlarmChannel[SqlAlarmParams] = Field(
         default_factory=lambda: AlarmChannel(parm=SqlAlarmParams()))
-    horn: AlarmChannel[HornAlarmParams] = Field(
-        default_factory=lambda: AlarmChannel(parm=HornAlarmParams()))
-    wechat: AlarmChannel[WechatAlarmParams] = Field(
-        default_factory=lambda: AlarmChannel(parm=WechatAlarmParams()))
+    horn: TimedAlarmChannel[HornAlarmParams] = Field(
+        default_factory=lambda: TimedAlarmChannel(parm=HornAlarmParams()))
+    wechat: TimedAlarmChannel[WechatAlarmParams] = Field(
+        default_factory=lambda: TimedAlarmChannel(parm=WechatAlarmParams()))

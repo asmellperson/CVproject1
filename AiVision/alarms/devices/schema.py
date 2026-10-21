@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from AiVision.departments.department_registry import require_department
 
 
+DEFAULT_VOLUME_PERCENT = 100
+MAX_VOLUME_PERCENT = 200
+
+
 class HornReference(BaseModel):
     """只返回定位绑定所需的信息，不包含摄像头地址或设备凭据。"""
     key: str
@@ -42,12 +46,13 @@ class HornDeleteRequest(BaseModel):
 
 
 class HornSipWrite(BaseModel):
-    """单台喇叭的 SIP 身份；写入密码不会进入公开响应。"""
+    """单台喇叭的 SIP 身份与音频响度；写入密码不会进入公开响应。"""
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     username: str = Field(min_length=1, max_length=64)
     auth_id: str = Field(min_length=1, max_length=64)
     password: SecretStr | None = Field(default=None, max_length=128)
     port: int = Field(default=5060, ge=1, le=65535, strict=True)
+    volume_percent: int = Field(default=DEFAULT_VOLUME_PERCENT, ge=0, le=MAX_VOLUME_PERCENT, strict=True)
 
     @field_validator("username", "auth_id")
     @classmethod
@@ -63,6 +68,7 @@ class HornSipResponse(BaseModel):
     username: str
     auth_id: str
     port: int
+    volume_percent: int
     password_set: bool
 
 

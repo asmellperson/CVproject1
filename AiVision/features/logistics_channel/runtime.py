@@ -791,6 +791,7 @@ class LogisticsChannelRuntime:
             "sql": {"enable": alarm["sql_enable"], "parm": {}},
             "horn": {
                 "enable": horn["enabled"],
+                "interval": horn.get("interval"),
                 "parm": {
                     "horn_id": horn["horn_id"],
                     "horn_event_id": horn["horn_event_id"],
@@ -798,6 +799,7 @@ class LogisticsChannelRuntime:
             },
             "wechat": {
                 "enable": wechat["enabled"],
+                "interval": wechat.get("interval"),
                 "parm": {"user": wechat["user"]},
             },
         }

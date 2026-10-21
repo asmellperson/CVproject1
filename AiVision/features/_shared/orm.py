@@ -15,6 +15,8 @@ from AiVision.features._shared import defaults
 class _AlarmFieldsMixin:
     """由摄像头直接发起告警的功能共享字段。"""
     alarm_interval = Column(Float, default=defaults.ALARM_INTERVAL, comment="告警间隔(秒)")
+    horn_interval = Column(Float, nullable=True, comment="喇叭间隔秒数，空值沿用报警记录间隔")
+    wechat_interval = Column(Float, nullable=True, comment="企业微信间隔秒数，空值沿用报警记录间隔")
     # Feature触发告警后，要不要保存数据库告警记录
     sql_enable = Column(Boolean, default=False, comment="SQL告警启用")
     # 要不要触发喇叭告警
@@ -131,6 +133,7 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
             "sql": {"enable": self.sql_enable, "parm": {}},
             "horn": {
                 "enable": self.horn_enable,
+                "interval": self.horn_interval if self.horn_interval is not None else self.alarm_interval,
                 "parm": {
                     "horn_id": self.horn_id,
                     "horn_event_id": self.horn_event_id,
@@ -138,6 +141,7 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
             },
             "wechat": {
                 "enable": self.wechat_enable,
+                "interval": self.wechat_interval if self.wechat_interval is not None else self.alarm_interval,
                 "parm": {"user": self.wechat_user or ""},
             },
         }
@@ -149,18 +153,20 @@ class FeatureConfigBase(_AlarmFieldsMixin, CameraFeatureConfigBase):
         wechat = alarm.get("wechat", {}) or {}
         self.sql_enable = sql.get("enable", False)
         self.horn_enable = horn.get("enable", False)
+        self.horn_interval = horn.get("interval")
         horn_parm = horn.get("parm") or {}
         if "horn_id" in horn_parm:
             self.horn_id = horn_parm["horn_id"]
         if "horn_event_id" in horn_parm:
             self.horn_event_id = horn_parm["horn_event_id"]
         self.wechat_enable = wechat.get("enable", False)
+        self.wechat_interval = wechat.get("interval")
         self.wechat_user = (wechat.get("parm") or {}).get("user", "")
 
     # 这些是非告警、非元数据的列名（哪些字段不属于Feature自己的检测参数） — 提取 value 字典时排除
     _NON_VALUE_COLUMNS: frozenset[str] = frozenset({
         "id", "camera_id", "enable", "sort_order",
         "sql_enable", "horn_enable", "horn_id", "horn_event_id",
-        "wechat_enable", "wechat_user",
+        "wechat_enable", "wechat_user", "horn_interval", "wechat_interval",
         "created_at", "updated_at",
     })

@@ -79,6 +79,13 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
           } })} placeholder="填写设备素材库中的音频文件 ID" />}
       </div>
     </div>
+    {value.interval !== undefined ? <div className="space-y-2">
+      <Label htmlFor={`${fieldId}-interval`}>喇叭报警间隔（秒）</Label>
+      <Input id={`${fieldId}-interval`} type="number" min={0} step="any" disabled={readOnly}
+        value={value.interval != null && Number.isFinite(value.interval) ? value.interval : ''}
+        onChange={(event) => onChange({ ...value, interval: event.target.value === '' ? NaN : Number(event.target.value) })} />
+      <p className="text-xs text-slate-500 dark:text-slate-400">0 秒表示不额外等待；同台喇叭串行播放，避免声音重叠。设备内置音频仍受设备播放保护间隔限制。</p>
+    </div> : null}
     {state ? <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">设备状态
       <Badge variant="outline" className={state === 'online'
         ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'

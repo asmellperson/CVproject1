@@ -556,7 +556,7 @@ Consumer 统计各摄像头/模型的推理结果、连续失败次数及最近�
 | `stable_confirm_seconds` / `stable_confirm_hits` | `1.0` 秒 / `3` 次 | 持续变化确认 |
 | `background_update_alpha` | `0.05` | 更新时当前画面占 5%，旧背景占 95% |
 | `first_alarm` | `60` 秒 | 确认变化后的首次告警等待 |
-| `alarm_interval` | `5.0` 秒 | 统一分发冷却 |
+| `alarm_interval` | `5.0` 秒 | 报警记录间隔，未单设的通知沿用该值 |
 
 默认流程是“先至少 1 秒且 3 次确认，再等待 60 秒”，两段计时分别执行。黄色 ROI 提示表示变化已确认，实际通知还受首次告警等待和渠道配置约束。
 
@@ -767,7 +767,7 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 | `cap_interval` | `0.1` | 检测请求最小间隔，同一采集帧不会重复处理 |
 | `foot_ratio` | `0.93` | 人体框高度内的代表点比例 |
 | `threshold` | `0.5` | 人体模型置信度阈值 |
-| `alarm_interval` | `30.0` | 同一事件的分发冷却，不抑制独立事件 |
+| `alarm_interval` | `30.0` | 同一事件的记录间隔，不抑制独立事件；通知可单设间隔 |
 
 配置表为 `ai_camera_config_tailgating`，通过摄像头外键确定部门归属；正式启动创建缺失表，摄像头功能默认停用，默认开启 SQL 报警记录。配置通过 `GET/PUT /api/features/tailgating/configs/{key}` 保存，事务提交后刷新缓存并发布热更新事件；摄像头启停、删除及部门变更同步刷新运行状态。管理员在功能分配中按部门开放入口，普通用户仅能读取已授权部门的资源。
 
@@ -793,7 +793,7 @@ Consumer / 通道状态机满足规则
 [dispatcher.py](alarms/dispatcher.py) 的冷却键为：
 
 ```text
-(cooldown_subject_type, cooldown_subject_id, violation_type)
+(cooldown_subject_type, cooldown_subject_id, violation_type, channel)
 ```
 
 普通检测按摄像头冷却，物流按通道，保安行为按保安室和告警类型。安检持久化主体仍为摄像头，冷却主体使用 `security_inspection_roi`，ID 为 `camera_id:roi_name`，避免不同工位相互抑制。冷却时间在分发尝试时登记，业务上的“已触发”不代表所有外部渠道都已成功送达。
@@ -833,6 +833,10 @@ Consumer / 通道状态机满足规则
 
 - `AsyncViolationWriter` 负责图片/记录保存、批量处理、数据库重试和相关清理；企微卡片需要记录时走即时保存入口。
 - 喇叭按设备 ID 和音频 ID 绑定。SIP 模式的音频 ID 引用服务器 AAC 素材，设备音频模式引用海康素材库的整数文件 ID。运行管理器处理播放队列、周期在线检查、冷却和配置变化；同台喇叭串行播放，不同设备可由独立工作线程发送。
+
+普通检测使用 `alarm.horn.interval` 和 `alarm.wechat.interval` 分别控制通知间隔，`value.alarm_interval` 控制报警记录。物流通道对应 `config.alarm.horn.interval`、`config.alarm.wechat.interval` 和 `config.alarm_interval`；保安室每类策略使用 `horn_interval`、`wechat_interval` 和 `alarm_interval`。通知间隔支持非负秒数，未设置时沿用该配置的记录间隔；分发器按冷却主体、报警类型和通道分别计时。微信卡片仍保存所需的报警记录。
+
+SIP 喇叭间隔为 `0` 时不加设备层冷却，同台待播或在播请求合并，不堆积重复音频。人员、人脸逗留持续成立时按有效观测反复触发，目标离开后不再续播；事件型检测保持各自的事件判定。设备内置音频模式仍保留播放保护间隔。
 - 企业微信在独立线程中发送；通知图片和公开缩略图由专门模块处理。
 - `ALARM_MEDIA_RETENTION_DAYS` 默认 `31`、最小 `31`，覆盖报警图片、视频、识别截图及安检 session；启动后立即清理，此后每 `ALARM_MEDIA_CLEANUP_INTERVAL_MINUTES=60` 分钟执行。只删除严格早于保留截止时间的数据。
 - `ALARM_MEDIA_MAX_GB=10` 是磁盘媒体容量告警阈值，超限只记录告警，不提前删除保留期内证据。该数值不包括数据库 BLOB，需按实际日增量准备磁盘与数据库空间。
@@ -847,6 +851,8 @@ Consumer / 通道状态机满足规则
 后台心跳与试播发现未完成注册时，会将设备 SIP 通道重新启用以触发即时注册，避免平台重启后等待设备原有注册有效期结束。只有实际通过注册才记录同步完成；注册超时会在后续心跳或试播中重试，正常注册期间不反复启停。超时错误区分未收到注册请求、账户不匹配和摘要认证未通过，不输出密码或原始认证报文。
 
 `audio.py` 校验上传的 AAC 并通过 FFmpeg 预转码，默认上限 10 MB、60 秒。原音频及 A-law 文件保存在 `DATA_PATH/horn_audio`，不参与报警证据的周期清理；被检测配置引用的素材需解绑后才能删除。手动试播和真实报警复用 `Horn.play()`。设备音频模式调用 `PUT /ISAPI/AccessControl/EventCardLinkageCfg/CustomAudio/{音频文件ID}/play?format=json`，同时检查 HTTP 与 ISAPI 业务状态。API 只返回密码设置状态和脱敏错误。
+
+每台 SIP 喇叭的 `sip.volume_percent` 保存在设备 JSON 配置中，范围为 `0–200`，默认 `100`，`0` 表示静音。发送前将 A-law 解码为 PCM、按百分比缩放并饱和限幅，再编码发送；`100%` 直接使用预转码数据。处理不改变共享音频文件和播放时长，试播与真实报警使用相同设置。
 
 设备配置具有独立的 `department` 归属。管理员设备接口必须指定 `department`，未归属设备通过 `unassigned=true` 单独读取和分配；设备详情、状态、编辑、删除和试播均核对请求范围，编辑与删除在事务内再次复核。普通检测、物流通道、保安室以及外部安检的喇叭选项和绑定校验遵守同一归属规则。SIP 服务及音频素材库仍为平台共享资源。
 
@@ -937,7 +943,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | --- | --- | --- |
 | `cap_interval` | `1.0` | 每台摄像头的最小发送间隔，秒 |
 | `roi_pos` | `[]` | 单个归一化多边形，空列表表示全帧 |
-| `alarm_interval` | `5.0` | 同一摄像头的业务告警冷却间隔，秒 |
+| `alarm_interval` | `5.0` | 同一摄像头的报警记录间隔，秒；通知可单设间隔 |
 | `jpeg_quality` | `80` | JPEG 编码质量 |
 | `max_image_width` | `960` | 等比例缩小图像的最大宽度 |
 | `max_tokens` | `256` | 最大输出 Token 数 |
@@ -1048,6 +1054,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 只读核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备 `ai_horn_config.department` 及索引、`sip_config` 和 `ai_horn_audio`。脚本读取 `AiVision/.env`，可重复执行，保留已有设备、凭据和报警绑定；空库由正常启动流程或 `schema_mysql.sql` 建表。
 
 旧设备默认保留为待分配。应用时可同时指定 `--legacy-department <事业部代码> --legacy-device-url <设备管理根地址>`，只为该地址对应的设备写入归属，其他旧设备保留待分配。已有绑定必须属于指定事业部，否则工具会要求先在前端核对和整理引用，不自动改动其他事业部的告警。
+
+独立通知间隔使用 `python -m AiVision.migrations.alarm_channel_intervals_20261021 --check` 只读核对。停止服务并备份数据库后，执行同一命令的 `--apply --offline`，为正式摄像头告警表、物流通道和保安室告警策略准备 `horn_interval`、`wechat_interval` 两个可空列。空值沿用当前 `alarm_interval`，脚本可重复执行，不改动检测参数、已有绑定和记录；空库由正常启动流程建表。
 
 ## 11. 环境准备与启动
 

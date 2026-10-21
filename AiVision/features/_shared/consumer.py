@@ -534,6 +534,7 @@ class BaseFunctionConsumer(ABC):
             },
             "horn": {
                 "enable": cfg.get("horn_enable", False),
+                "interval": cfg.get("horn_interval"),
                 "parm": {
                     "horn_id":       cfg.get("horn_id"),
                     "horn_event_id": cfg.get("horn_event_id"),
@@ -541,6 +542,7 @@ class BaseFunctionConsumer(ABC):
             },
             "wechat": {
                 "enable": cfg.get("wechat_enable", False),
+                "interval": cfg.get("wechat_interval"),
                 "parm": {"user": cfg.get("wechat_user", "")},
             },
         }

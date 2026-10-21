@@ -1,7 +1,7 @@
 import type { HornConnectionInput, HornDevice, HornState, HornWrite } from '@/lib/horns'
 import type { DepartmentId } from '@/auth/permissions'
 
-export const DEFAULT_HORN_SIP = { username: '10000', auth_id: '10000', port: 5060, password: '' }
+export const DEFAULT_HORN_SIP = { username: '10000', auth_id: '10000', port: 5060, volume_percent: 100, password: '' }
 
 export const HORN_STATE_LABELS: Record<HornState, string> = {
   online: '在线', offline: '离线', connecting: '连接中', failed: '连接失败',
@@ -13,7 +13,10 @@ export function hornDraft(device: HornDevice | null, department: DepartmentId): 
     name: device?.name ?? '', url: device?.url ?? '', username: device?.username ?? 'admin',
     department: device?.department ?? department,
     password: '', enable: device?.enable ?? false, description: device?.description ?? '',
-    sip: device ? (device.sip ? { username: device.sip.username, auth_id: device.sip.auth_id, port: device.sip.port, password: '' } : null)
+    sip: device ? (device.sip ? {
+      username: device.sip.username, auth_id: device.sip.auth_id, port: device.sip.port,
+      volume_percent: device.sip.volume_percent, password: '',
+    } : null)
       : { ...DEFAULT_HORN_SIP },
   }
 }
@@ -37,6 +40,9 @@ export function validateHornDraft(draft: HornWrite, editing: boolean, connection
       return 'SIP 账户和认证 ID 需填写 1–64 位字母、数字或 _ . + -。'
     }
     if (!Number.isInteger(draft.sip.port) || draft.sip.port < 1 || draft.sip.port > 65535) return '喇叭 SIP 本地端口必须为 1–65535 的整数。'
+    if (!Number.isInteger(draft.sip.volume_percent) || draft.sip.volume_percent < 0 || draft.sip.volume_percent > 200) {
+      return '音频响度必须为 0–200% 的整数。'
+    }
     if (!draft.sip.password && !sipPasswordSet) return '请输入 SIP 注册密码。'
     if ((draft.sip.password?.length ?? 0) > 128) return 'SIP 密码不能超过 128 个字符。'
   }
@@ -52,6 +58,7 @@ export function hornWritePayload(draft: HornWrite): HornWrite {
     ...(draft.password ? { password: draft.password } : {}),
     ...(draft.sip === undefined ? {} : { sip: draft.sip ? {
       username: draft.sip.username, auth_id: draft.sip.auth_id, port: draft.sip.port,
+      volume_percent: draft.sip.volume_percent,
       ...(draft.sip.password ? { password: draft.sip.password } : {}),
     } : null }),
   }

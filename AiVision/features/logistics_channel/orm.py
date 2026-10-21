@@ -68,6 +68,8 @@ class LogisticsChannel(Base):
     multi_grace_seconds = Column(Float, nullable=False, default=DEFAULT_MULTI_GRACE_SECONDS, comment="多人告警宽限秒数")
     # 报警间隔默认五秒
     alarm_interval = Column(Float, nullable=False, default=defaults.ALARM_INTERVAL, comment="告警间隔秒数")
+    horn_interval = Column(Float, nullable=True, comment="喇叭间隔秒数，空值沿用报警记录间隔")
+    wechat_interval = Column(Float, nullable=True, comment="企业微信间隔秒数，空值沿用报警记录间隔")
     sql_enable = Column(Boolean, nullable=False, default=False, comment="SQL告警启用")
     horn_enable = Column(Boolean, nullable=False, default=False, comment="喇叭告警启用")
     horn_id = Column(

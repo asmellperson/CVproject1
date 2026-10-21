@@ -11,6 +11,7 @@ import time                       # 告警冷却时间
 
 from AiVision.alarms.devices.hikvision import HikvisionSpeakerClient, HikvisionSpeakerError
 from AiVision.alarms.devices.audio import horn_audio_service, HornAudioError
+from AiVision.alarms.devices.schema import DEFAULT_VOLUME_PERCENT
 from AiVision.alarms.devices.sip_protocol import SipAudioError
 from AiVision.alarms.devices.sip_service import horn_sip_service
 from AiVision.core.logger import logger
@@ -42,7 +43,7 @@ class Horn:
     生命周期:
         1. __init__ 时自动调用 connect()，通过 ISAPI 摘要认证读取设备信息。
         2. 调用 start_heartbeat() 启动周期在线检查线程。
-        3. 业务层通过 play(event_id) 播放所选素材；内置冷却防抖避免短时重复播放。
+        3. 业务层通过 play(event_id) 播放所选素材；SIP 串行发送，设备素材保留保护冷却。
         4. 进程退出前可调用 stop_heartbeat() 优雅终止保活线程。
 
     线程安全:
@@ -72,8 +73,8 @@ class Horn:
         self._heart_thread: threading.Thread | None = None   # 真正启动心跳时，这里会保存心跳线程对象
 
         # ---- 触发冷却防抖 ----
-        # dispatcher也有冷却，它是业务防重复报警，这里是设备保护，防止声音重叠
-        self._cooldown = settings.alarm.horn_play_cooldown_seconds        # 两次 play() 之间的最小间隔（秒），防止语音重叠
+        # SIP 发送完成才返回；只有无法取得播放完成回执的设备素材模式使用保护间隔。
+        self._cooldown = settings.alarm.horn_play_cooldown_seconds
         self._last_trigger = 0.0   # 上次实际触发的 Unix 时间戳
         self._lock = threading.Lock()  # 保护 _last_trigger 的并发写入
         self._connect_lock = threading.Lock()
@@ -262,9 +263,8 @@ class Horn:
         """
         按设备的播放模式执行服务器素材或设备内置语音。
 
-        冷却防抖:
-            同一实例在 _cooldown 秒内的重复调用会被静默丢弃，
-            防止连续告警事件导致语音叠放或设备过载。
+        SIP 音频发送完成才返回，由运行队列保证串行；设备内置音频的播放时长
+        无法从触发接口取得，保留该模式的设备保护间隔。
 
         Args:
             event_id: SIP 模式为服务器音频 ID，设备模式为 ISAPI 素材 ID。
@@ -281,7 +281,7 @@ class Horn:
 
         now = time.time()
         with self._lock:
-            if not preview and now - self._last_trigger < self._cooldown:
+            if not preview and not self._sip and now - self._last_trigger < self._cooldown:
                 return  # 仍在冷却期，静默丢弃
             self._last_trigger = now  # 占位，防止并发重入
 
@@ -291,7 +291,9 @@ class Horn:
             with self._state_lock:
                 self._playing = True
             if self._sip:
-                audio = horn_audio_service.read_encoded(int(event_id))
+                audio = horn_audio_service.read_encoded(
+                    int(event_id), volume_percent=self._sip.get("volume_percent", DEFAULT_VOLUME_PERCENT),
+                )
                 self.prepare_sip()
                 if self._stop_event.is_set():
                     return False

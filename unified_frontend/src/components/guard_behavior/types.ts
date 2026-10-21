@@ -63,6 +63,8 @@ export type SitePolicy = SitePolicyValues & { id: number; site_id: number; creat
 export type GuardAlarmType = 8 | 9 | 10 | 11
 export type AlarmPolicyValues = {
   alarm_interval: number
+  horn_interval: number | null
+  wechat_interval: number | null
   sql_enable: boolean
   horn_enable: boolean
   horn_id: number | null

@@ -214,6 +214,8 @@ class GuardBehaviorRuntimeCameraConfig(_StrictSchema):
 class GuardBehaviorAlarmPolicyUpdate(_StrictSchema):
     """单类告警的冷却与通道参数，支持仅更新提交的字段。"""
     alarm_interval: PositiveSeconds | None = None
+    horn_interval: NonNegative | None = None
+    wechat_interval: NonNegative | None = None
     sql_enable: bool = ALARM_POLICY_DEFAULTS["sql_enable"]
     horn_enable: bool = ALARM_POLICY_DEFAULTS["horn_enable"]
     horn_id: HornId | None = ALARM_POLICY_DEFAULTS["horn_id"]

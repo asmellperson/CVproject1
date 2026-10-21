@@ -72,7 +72,7 @@ export function HornDeviceManager() {
                     <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:flex-1">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"><Volume2 className="h-5 w-5" /></span>
                       <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{device.name}</p>
-                        <p title={device.url} className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{device.url} · {device.sip ? 'SIP 音频' : '设备音频'}</p></div>
+                        <p title={device.url} className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{device.url} · {device.sip ? `SIP 音频 · 响度 ${device.sip.volume_percent}%${device.sip.volume_percent === 0 ? '（静音）' : ''}` : '设备音频'}</p></div>
                     </div>
                     <Badge variant="outline" className={state === 'online' ? 'border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}>{HORN_STATE_LABELS[state]}</Badge>
                     <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">启用<Switch checked={device.enable} disabled={devices.busy} aria-label={`启用${device.name}`} onCheckedChange={(enable) => { void devices.setEnabled(device, enable) }} /></label>

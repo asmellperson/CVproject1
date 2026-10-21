@@ -791,6 +791,8 @@ class LogisticsChannelService(MembershipTransaction):
         horn = alarm.get("horn", {})
         if horn:
             channel.horn_enable = bool(horn.get("enabled", False))
+            if "interval" in horn:
+                channel.horn_interval = horn["interval"]
             if "horn_id" in horn:
                 channel.horn_id = horn["horn_id"]
             if "horn_event_id" in horn:
@@ -799,6 +801,8 @@ class LogisticsChannelService(MembershipTransaction):
         wechat = alarm.get("wechat", {})
         if wechat:
             channel.wechat_enable = bool(wechat.get("enabled", False))
+            if "interval" in wechat:
+                channel.wechat_interval = wechat["interval"]
             channel.wechat_user = wechat.get("user", "")
 
     @staticmethod

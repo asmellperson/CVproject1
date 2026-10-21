@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import audioop
 import re
 import subprocess
 import tempfile
@@ -10,6 +11,7 @@ import uuid
 from AiVision.core.db import get_session, session_scope
 from AiVision.core.settings import settings
 from .orm import AiHornAudio, AiHornConfig
+from .schema import DEFAULT_VOLUME_PERCENT, MAX_VOLUME_PERCENT
 
 
 SAMPLE_RATE = 8000
@@ -98,8 +100,19 @@ class HornAudioService:
             raise HornAudioError(f"音频时长不能超过 {maximum:g} 秒")
         return result.stdout
 
-    def read_encoded(self, audio_id: int) -> bytes:
-        """仅允许读取数据库登记的素材，不解析传入文件路径。"""
+    @staticmethod
+    def adjust_volume(data: bytes, volume_percent: int) -> bytes:
+        """在 PCM 上缩放并饱和限幅，避免直接修改压缩字节导致噪音或幅值溢出。"""
+        if type(volume_percent) is not int or not 0 <= volume_percent <= MAX_VOLUME_PERCENT:
+            raise HornAudioError(f"音频响度必须是 0–{MAX_VOLUME_PERCENT} 的整数百分比")
+        if volume_percent == DEFAULT_VOLUME_PERCENT:
+            return data
+        pcm = audioop.alaw2lin(data, 2)
+        adjusted = audioop.mul(pcm, 2, volume_percent / DEFAULT_VOLUME_PERCENT)
+        return audioop.lin2alaw(adjusted, 2)
+
+    def read_encoded(self, audio_id: int, *, volume_percent: int = DEFAULT_VOLUME_PERCENT) -> bytes:
+        """只读取已登记素材，按设备响度生成本次播放数据，不改写共享原文件。"""
         session = get_session()
         try:
             row = session.get(AiHornAudio, audio_id)
@@ -120,7 +133,7 @@ class HornAudioService:
             raise HornAudioError("服务器音频文件缺失或不可读，请重新上传") from None
         if not data or len(data) > int(settings.alarm.horn_audio_max_seconds * SAMPLE_RATE):
             raise HornAudioError("服务器音频文件损坏，请重新上传")
-        return data
+        return self.adjust_volume(data, volume_percent)
 
     def delete(self, audio_id: int) -> bool:
         """已被检测绑定的素材必须先解绑，避免删除后静默丢失告警声音。"""

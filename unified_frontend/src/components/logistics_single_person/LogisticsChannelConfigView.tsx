@@ -376,7 +376,7 @@ export function LogisticsChannelConfigView({
   const saveAlarmConfig = () => {
     if (!selectedChannelDetail || !alarmDraft || hydratedChannelSelection.current !== channelSelection) return
     if (!Number.isFinite(alarmDraft.alarm_interval) || alarmDraft.alarm_interval <= 0) {
-      setMessage('报警间隔必须大于 0 秒。')
+      setMessage('报警记录间隔必须大于 0 秒；喇叭间隔可设为 0。')
       return
     }
     const hornError = validateHornBinding(toFeatureAlarm(alarmDraft.alarm).horn)

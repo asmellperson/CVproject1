@@ -10,6 +10,7 @@ import inspect
 import threading
 import time
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Literal, Optional
 from urllib.parse import quote
 
@@ -94,7 +95,7 @@ class AlarmDispatcher:
     全局告警分发器（单例）。
 
     职责:
-        1. 冷却控制  — 同一冷却主体 × 报警类型，在 alarm_interval 秒内只触发一次。
+        1. 冷却控制  — 同一冷却主体 × 报警类型的记录、喇叭、微信分别计时。
         2. 通道分发  — 按 alarm_config 中各通道的 enable 开关，分别调用
                        喇叭 / 微信 / SQL 三条告警链路。
         3. 异步解耦  — 微信发送通过内部队列 + 守护线程异步执行，
@@ -119,7 +120,7 @@ class AlarmDispatcher:
         self._wechat_lifecycle_lock = threading.Lock()
         self._wechat_started = False  # 防止 configure() 被重复调用时二次启动线程
         # 告警冷却表
-        self._last_alarm: dict[tuple[str, str, int], float] = {}
+        self._last_alarm: dict[tuple[str, str, int, str], float] = {}
         self._lock = threading.Lock()
 
     def configure(
@@ -170,32 +171,34 @@ class AlarmDispatcher:
         request: AlarmRequest,
         alarm_interval: float = 5.0,
     ) -> bool:
-        """
-        按明确的冷却主体和报警类型判断是否分发。
-        冷却逻辑:
-            冷却主体类型、主体标识和 violation_type 共同确定唯一冷却范围；
-            若距上次触发不足 alarm_interval 秒，静默丢弃并返回 False。
-        Args:
-            request        : 封装本次违规信息的 AlarmRequest 对象。
-            alarm_interval : 同一冷却主体与报警类型的冷却秒数，默认 5 秒。
-        Returns:
-            True  — 冷却已过，告警已提交各通道执行。
-            False — 仍在冷却期，本次告警被静默丢弃。
-        """
-        # 校验调用方提供的冷却身份，再占用冷却状态。
-        key = self._cooldown_key(request)
-        now = time.time()
+        """各通道分别冷却，0 秒不额外等待；alarm_interval 控制记录及未单设的通知。
 
+        返回是否有通道本次到期。喇叭到期不会提前触发微信或重复保存记录。
+        """
+        key = self._cooldown_key(request)
+        alarm = request.alarm_config or {}
+        intervals = {"sql": alarm_interval}
+        for channel in ("horn", "wechat"):
+            interval = (alarm.get(channel) or {}).get("interval")
+            intervals[channel] = alarm_interval if interval is None else interval
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not isfinite(value) or value < 0 for value in intervals.values()):
+            raise ValueError("报警通道间隔必须是有限的非负秒数")
+        now = time.monotonic()
+        due = set()
         with self._lock:
-            last = self._last_alarm.get(key, 0.0)
-            accepted = now - last >= alarm_interval
-            if accepted:
-                self._last_alarm[key] = now  # 更新时间戳，占位防并发重入
-        if not accepted:
+            for channel, interval in intervals.items():
+                config = alarm.get(channel) or {}
+                enabled = config.get("enable", channel == "sql")
+                channel_key = (*key, channel)
+                last = self._last_alarm.get(channel_key)
+                if enabled and (last is None or now - last >= interval):
+                    self._last_alarm[channel_key] = now
+                    due.add(channel)
+        if not due:
             self._cancel_episode(request)
             return False
-        # 报警冷却时间已过，真正执行告警
-        self._execute(request)
+        self._execute(request, due)
         return True
 
     def reset_cooldown(self, camera_id: int, violation_type: int) -> None:
@@ -211,7 +214,8 @@ class AlarmDispatcher:
         """清除指定冷却主体与报警类型的状态，不使用 SQL 业务主体。"""
         validate_cooldown_identity(cooldown_subject_type, cooldown_subject_id, violation_type)
         with self._lock:
-            self._last_alarm.pop((cooldown_subject_type, cooldown_subject_id, violation_type), None)
+            for channel in ("sql", "horn", "wechat"):
+                self._last_alarm.pop((cooldown_subject_type, cooldown_subject_id, violation_type, channel), None)
 
     @staticmethod
     def _cooldown_key(request: AlarmRequest) -> tuple[str, str, int]:
@@ -249,7 +253,7 @@ class AlarmDispatcher:
             return self.evidence_recorder.finish_episode(evidence.episode_token)
         return self.evidence_recorder.start_alarm(evidence.source_key, req.frame)
 
-    def _execute(self, req: AlarmRequest):
+    def _execute(self, req: AlarmRequest, channels: set[str]):
         """按各通道设置提交喇叭、持久化与微信任务，并隔离通道异常。
 
         喇叭播放只入队；微信卡片需同步取得告警 ID，普通 SQL 记录则异步入队。
@@ -262,10 +266,11 @@ class AlarmDispatcher:
         wechat_cfg = alarm.get("wechat") or {}             # 读取微信配置
         wechat_user = (wechat_cfg.get("parm") or {}).get("user", "")     # 微信发给谁
         # 企业微信真正可以发送，需要微信的enable为True、WeChatNotifier已经被orchestrator注入、配置接收用户
-        should_send_wechat = bool(wechat_cfg.get("enable") and self.wechat is not None and wechat_user)
+        should_send_wechat = bool("wechat" in channels and wechat_cfg.get("enable")
+                                  and self.wechat is not None and wechat_user)
         sql_cfg = alarm.get("sql")
         # 满足下面三个之一就可以写入SQL(为了兼容旧配置)
-        should_write_sql = (
+        should_write_sql = "sql" in channels and (
             not isinstance(sql_cfg, dict)
             or "enable" not in sql_cfg
             or bool(sql_cfg.get("enable"))
@@ -287,7 +292,7 @@ class AlarmDispatcher:
         # ---- 通道 1: 喇叭（后台队列）----
         # 拿喇叭配置
         horn_cfg = alarm.get("horn") or {}
-        if horn_cfg.get("enable"):
+        if "horn" in channels and horn_cfg.get("enable"):
             # 从配置中解析喇叭 ID 与事件 ID
             horn_id  = (horn_cfg.get("parm") or {}).get("horn_id")           # 这次报警用哪一个IP喇叭报警
             event_id = (horn_cfg.get("parm") or {}).get("horn_event_id")     # 这个喇叭里面要播放哪一个预录语音事件

@@ -125,14 +125,14 @@ class HornRuntimeManager:
             self.sync()
 
     def enqueue_play(self, horn_id: int, event_id: str | int) -> bool:
-        """非阻塞接收当前运行设备的播放任务，队列已满或设备不可用时返回 False。"""
+        """非阻塞接收播放；同台在播任务合并，队列已满或设备不可用返回 False。"""
         with self._lock:
             entry = self._entries.get(horn_id)
             if not self._active or entry is None:
                 return False
             if self._pending.get(horn_id) is entry[1]:
                 # 同台喇叭只保留一项待播或在播任务，避免长音频占满所有工作线程。
-                return False
+                return True
             try:
                 self._queue.put_nowait((horn_id, entry[1], event_id, time.monotonic()))
                 self._pending[horn_id] = entry[1]

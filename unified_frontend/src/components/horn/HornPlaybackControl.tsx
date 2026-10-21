@@ -49,7 +49,7 @@ export function HornPlaybackDialog({ device, files, error, onClose }: {
   return <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader><DialogTitle>试播 · {device.name}</DialogTitle>
-        <DialogDescription>选择音频后播放到这台喇叭，用于现场核对声音内容。</DialogDescription></DialogHeader>
+        <DialogDescription>选择音频后播放到这台喇叭，用于现场核对声音内容{device.sip ? `和已保存的响度（${device.sip.volume_percent}%${device.sip.volume_percent === 0 ? '，静音' : ''}）` : ''}。</DialogDescription></DialogHeader>
       {error ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p> : null}
       {device.sip && files === null && !error ? <p role="status" className="text-sm text-slate-500">正在读取音频库...</p> : null}
       <HornDevicePlayback device={device} files={files ?? []} disabled={Boolean(error) || Boolean(device.sip && files === null)} />

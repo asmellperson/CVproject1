@@ -302,8 +302,9 @@ class GuardBehaviorSiteRuntime:
                 cooldown_subject_type="guard_behavior_site", cooldown_subject_id=str(config.site_id),
                 reason=decision.reason, metadata=metadata,
                 alarm_config={"sql": {"enable": policy.sql_enable},
-                              "wechat": {"enable": policy.wechat_enable, "parm": {"user": policy.wechat_user}},
-                              "horn": {"enable": policy.horn_enable, "parm": {
+                              "wechat": {"enable": policy.wechat_enable, "interval": policy.wechat_interval,
+                                         "parm": {"user": policy.wechat_user}},
+                              "horn": {"enable": policy.horn_enable, "interval": policy.horn_interval, "parm": {
                                   "horn_id": policy.horn_id, "horn_event_id": policy.horn_event_id}}},
                 evidence=AlarmEvidenceRequest(source, "episode" if episode is not None else "clip", token),
             )

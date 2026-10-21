@@ -130,6 +130,8 @@ class GuardBehaviorAlarmPolicy(_Timestamps, Base):
                      nullable=False, index=True)
     violation_type = Column(Integer, nullable=False)
     alarm_interval = Column(Double, nullable=False, default=default_alarm_interval)
+    horn_interval = Column(Double, nullable=True, comment="喇叭间隔秒数，空值沿用报警记录间隔")
+    wechat_interval = Column(Double, nullable=True, comment="企业微信间隔秒数，空值沿用报警记录间隔")
     sql_enable = Column(Boolean, nullable=False, default=ALARM_POLICY_DEFAULTS["sql_enable"])
     horn_enable = Column(Boolean, nullable=False, default=ALARM_POLICY_DEFAULTS["horn_enable"])
     horn_id = Column(Integer, ForeignKey(AiHornConfig.id, ondelete="SET NULL"),

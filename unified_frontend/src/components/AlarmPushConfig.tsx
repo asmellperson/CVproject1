@@ -53,6 +53,10 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
       </label>
 
       <div className={cn('space-y-2 rounded-2xl border border-[#E8ECF5] bg-white p-4 transition-opacity dark:border-slate-800 dark:bg-slate-900/80', !value.enable && 'pointer-events-none opacity-45')}>
+        <Label htmlFor={`${fieldId}-wechat-interval`}>企业微信推送间隔（秒）</Label>
+        <Input id={`${fieldId}-wechat-interval`} type="number" min={0} step="any"
+          value={Number.isFinite(value.interval) ? value.interval : ''} disabled={disabled || !value.enable}
+          onChange={(event) => onChange({ ...value, interval: event.target.value === '' ? NaN : Number(event.target.value) })} />
         <Label htmlFor={`${fieldId}-wechat-user`}>接收报警的用户</Label>
         <Input
           id={`${fieldId}-wechat-user`}
@@ -69,9 +73,11 @@ export function WechatAlarmSettings({ value, disabled, onChange }: {
 }
 
 export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmIntervalChange, disabled, saving, message, onChange, onSave }: AlarmPushConfigProps) {
-  const merged = normalizeFeatureAlarmConfig(alarm)
+  const merged = normalizeFeatureAlarmConfig(alarm, alarmInterval === undefined ? undefined : Number(alarmInterval))
   const [hornError, setHornError] = useState<string | null>(null)
   const intervalId = useId()
+  const intervalError = !Number.isFinite(merged.wechat.interval) || merged.wechat.interval < 0
+    ? '企业微信推送间隔必须是非负秒数。' : null
 
   return (
     <>
@@ -84,7 +90,7 @@ export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmInterval
         />
         <DetectionConfigCardContent className="space-y-4">
           {alarmInterval !== undefined && onAlarmIntervalChange ? <div className="space-y-2">
-            <Label htmlFor={intervalId}>报警间隔（秒）</Label>
+            <Label htmlFor={intervalId}>报警记录间隔（秒）</Label>
             <Input id={intervalId} type="number" min={0.1} step={0.1} value={alarmInterval}
               disabled={disabled} onChange={(event) => onAlarmIntervalChange(event.target.value)} />
           </div> : null}
@@ -97,9 +103,10 @@ export function AlarmPushConfig({ alarm, showSql, alarmInterval, onAlarmInterval
             onChange={(horn) => onChange({ ...merged, horn })} onValidationChange={setHornError} />
           <WechatAlarmSettings value={merged.wechat} disabled={disabled}
             onChange={(wechat) => onChange({ ...merged, wechat })} />
+          {intervalError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{intervalError}</p> : null}
         </DetectionConfigCardContent>
       </Card>
-      {onSave ? <DetectionSaveBar message={message || '修改报警推送后需要保存配置才会生效。'} saving={saving} disabled={disabled || Boolean(hornError)} onSave={() => { if (!hornError) onSave() }} /> : null}
+      {onSave ? <DetectionSaveBar message={message || '喇叭、企业微信和报警记录分别计时；修改后保存配置生效。'} saving={saving} disabled={disabled || Boolean(hornError || intervalError)} onSave={() => { if (!hornError && !intervalError) onSave() }} /> : null}
     </>
   )
 }

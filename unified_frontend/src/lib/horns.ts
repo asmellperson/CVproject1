@@ -23,8 +23,8 @@ export type HornRuntime = {
   playing?: boolean
 }
 
-export type HornSip = { username: string; auth_id: string; port: number; password_set: boolean }
-export type HornSipWrite = { username: string; auth_id: string; port: number; password?: string }
+export type HornSip = { username: string; auth_id: string; port: number; volume_percent: number; password_set: boolean }
+export type HornSipWrite = { username: string; auth_id: string; port: number; volume_percent: number; password?: string }
 export type HornAudio = { id: number; name: string; size: number; duration: number }
 export type HornSipServer = { enabled: boolean; address: string; port: number; running: boolean; last_error: string | null }
 export type HornPlaybackResult = HornConnectionResult & { message: string }
@@ -90,7 +90,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
     const message = response.status === 403 ? '当前账号无权访问喇叭设备，请使用管理员账号。'
       : response.status === 404 ? (typeof data?.detail === 'string' ? data.detail : '记录已不存在，请刷新列表。')
         : serverMessage ? serverMessage
-            : response.status === 422 ? '设备信息校验失败，请检查名称、地址、用户名和密码。'
+            : response.status === 422 ? '设备信息校验失败，请检查名称、地址、账号、密码和音频响度。'
               : `喇叭设备请求失败（HTTP ${response.status}），请稍后重试。`
     throw new HornApiError(response.status, message, typeof detail === 'object' ? detail?.usage : undefined)
   }

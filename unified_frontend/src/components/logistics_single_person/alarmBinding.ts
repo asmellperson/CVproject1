@@ -4,8 +4,8 @@ import type { LogisticsChannelAlarmConfig } from './types'
 export function toFeatureAlarm(alarm: LogisticsChannelAlarmConfig): NormalizedFeatureAlarmConfig {
   return {
     sql: { enable: alarm.sql_enable, parm: {} },
-    horn: { enable: alarm.horn.enabled, parm: { horn_id: alarm.horn.horn_id, horn_event_id: alarm.horn.horn_event_id } },
-    wechat: { enable: alarm.wechat.enabled, parm: { user: alarm.wechat.user } },
+    horn: { enable: alarm.horn.enabled, interval: alarm.horn.interval ?? 5, parm: { horn_id: alarm.horn.horn_id, horn_event_id: alarm.horn.horn_event_id } },
+    wechat: { enable: alarm.wechat.enabled, interval: alarm.wechat.interval ?? 5, parm: { user: alarm.wechat.user } },
   }
 }
 
@@ -13,9 +13,9 @@ export function toLogisticsAlarm(alarm: FeatureAlarmConfig): LogisticsChannelAla
   const normalized = normalizeFeatureAlarmConfig(alarm)
   return {
     sql_enable: normalized.sql.enable,
-    horn: { enabled: normalized.horn.enable,
+    horn: { enabled: normalized.horn.enable, interval: normalized.horn.interval,
       horn_id: (normalized.horn.parm.horn_id as number | null) ?? null,
       horn_event_id: (normalized.horn.parm.horn_event_id as number | null) ?? null },
-    wechat: { enabled: normalized.wechat.enable, user: normalized.wechat.parm.user },
+    wechat: { enabled: normalized.wechat.enable, interval: normalized.wechat.interval, user: normalized.wechat.parm.user },
   }
 }

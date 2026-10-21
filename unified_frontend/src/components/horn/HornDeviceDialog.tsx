@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import type { HornConnectionInput, HornConnectionResult, HornDevice, HornWrite } from '@/lib/horns'
@@ -86,6 +87,16 @@ export function HornDeviceDialog({ device, department, busy, error, onClose, onS
             <Input id="horn-url" value={draft.url} maxLength={500} disabled={disabled} autoComplete="off"
               onChange={(event) => change({ url: event.target.value })} placeholder="http://192.168.1.100" />
           </div>
+          {draft.sip ? <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="horn-volume">音频响度</Label>
+              <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">{draft.sip.volume_percent}%{draft.sip.volume_percent === 0 ? '（静音）' : ''}</span>
+            </div>
+            <Slider id="horn-volume" aria-label="音频响度" aria-describedby="horn-volume-hint" min={0} max={200} step={1}
+              value={[draft.sip.volume_percent]} disabled={disabled}
+              onValueChange={([volume_percent]) => change({ sip: { ...draft.sip!, volume_percent } })} />
+            <p id="horn-volume-hint" className="text-xs text-slate-500 dark:text-slate-400">0–200%，100% 为原始响度，0% 静音。保存后试播和实际报警共用此设置。</p>
+          </div> : null}
           {draft.sip ? <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
             <p className="text-sm font-medium text-slate-900 dark:text-slate-100">这台喇叭的 SIP 配置</p>
             <div className="grid gap-3 sm:grid-cols-2">

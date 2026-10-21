@@ -66,6 +66,7 @@ class LogisticsChannelAlarmChannel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: bool = False
+    interval: float | None = Field(default=None, ge=0, strict=True)
     horn_id: int | None = Field(default=None, gt=0, le=MAX_HORN_ID, strict=True)
     horn_event_id: int | None = Field(default=None, gt=0, le=MAX_HORN_ID, strict=True)
 
@@ -81,6 +82,7 @@ class LogisticsChannelWechatChannel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: bool = False
+    interval: float | None = Field(default=None, ge=0, strict=True)
     user: str = ""
 
 class LogisticsChannelAlarm(BaseModel):
@@ -226,11 +228,13 @@ class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
                 "sql_enable": value.sql_enable,
                 "horn": {
                     "enabled": value.horn_enable,
+                    "interval": value.horn_interval if value.horn_interval is not None else value.alarm_interval,
                     "horn_id": value.horn_id,
                     "horn_event_id": value.horn_event_id,
                 },
                 "wechat": {
                     "enabled": value.wechat_enable,
+                    "interval": value.wechat_interval if value.wechat_interval is not None else value.alarm_interval,
                     "user": value.wechat_user or "",
                 },
             },

@@ -17,7 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from AiVision.core.db import session_scope, get_session          # session_scope:自动提交，异常回退，以及最后关闭与数据库的会话，get_session:自己创建一个数据Session
 from AiVision.core.config_revision import require_configuration_values
-from .schema import HornCreate, HornUpdate
+from .schema import DEFAULT_VOLUME_PERCENT, HornCreate, HornUpdate
 from .orm import AiHornConfig                           # 数据库里的配置
 from .references import collect_references, usage_snapshot, notify_detached
 
@@ -201,7 +201,9 @@ class HornService:
             "enable": bool(h.enable),
             "description": h.description,
             "sip": ({"username": h.sip_config["username"], "auth_id": h.sip_config["auth_id"],
-                     "port": h.sip_config["port"], "password_set": bool(h.sip_config.get("password"))}
+                     "port": h.sip_config["port"],
+                     "volume_percent": h.sip_config.get("volume_percent", DEFAULT_VOLUME_PERCENT),
+                     "password_set": bool(h.sip_config.get("password"))}
                     if h.sip_config else None),
         }
 

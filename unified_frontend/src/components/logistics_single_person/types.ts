@@ -15,12 +15,14 @@ export type LogisticsChannelReason =
 
 export type LogisticsChannelAlarmHorn = {
   enabled: boolean
+  interval: number | null
   horn_id: number | null
   horn_event_id: number | null
 }
 
 export type LogisticsChannelAlarmWechat = {
   enabled: boolean
+  interval: number | null
   user: string
 }
 

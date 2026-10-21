@@ -5,6 +5,7 @@ export type HornBinding = NonNullable<FeatureAlarmConfig['horn']>
 export const MAX_HORN_ID = 2147483647
 
 export function validateHornBinding(binding: HornBinding, devices?: HornDevice[] | null, audio?: HornAudio[] | null): string | null {
+  if (binding.interval != null && (!Number.isFinite(binding.interval) || binding.interval < 0)) return '喇叭报警间隔必须是非负秒数，0 表示不额外等待。'
   const { horn_id: id, horn_event_id: task } = binding.parm
   if (binding.enable && (id == null || task == null)) return '启用喇叭告警时必须选择设备和报警音频。'
   for (const [label, value] of [['喇叭设备 ID', id], ['语音任务 ID', task]] as const) {
