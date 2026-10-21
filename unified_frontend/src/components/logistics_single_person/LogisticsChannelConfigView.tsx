@@ -6,7 +6,7 @@ import { toFeatureAlarm, toLogisticsAlarm } from './alarmBinding'
 import { validateHornBinding } from '@/lib/horn-alarm-binding'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Bell, Camera, Crosshair, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bell, Camera, Clock, Crosshair, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
 import { AiVisionRoiEditor } from '@/components/AiVisionRoiEditor'
@@ -330,10 +330,10 @@ export function LogisticsChannelConfigView({
       setMessage('通道名称不能为空，且不得超过 100 个字符。')
       return
     }
-    const start = detectionTimeSeconds(detectionConfigDraft.detection_start)
-    const end = detectionTimeSeconds(detectionConfigDraft.detection_end)
+    const start = detectionTimeSeconds(detectionConfigDraft.schedule.start)
+    const end = detectionTimeSeconds(detectionConfigDraft.schedule.end)
     if (start === null || end === null || start >= end) {
-      setMessage('请填写有效的检测时间，开始时间必须早于结束时间。')
+      setMessage('请填写有效的检测与报警时段，开始时间必须早于结束时间，且在同一天内。')
       return
     }
     if (!Number.isFinite(detectionConfigDraft.confidence_threshold)
@@ -359,25 +359,22 @@ export function LogisticsChannelConfigView({
         name,
         config: {
           ...detectionConfigDraft,
-          detection_start: timeForApi(detectionConfigDraft.detection_start),
-          detection_end: timeForApi(detectionConfigDraft.detection_end),
+          schedule: {
+            ...detectionConfigDraft.schedule,
+            start: timeForApi(detectionConfigDraft.schedule.start),
+            end: timeForApi(detectionConfigDraft.schedule.end),
+          },
         },
       })
       if (currentChannelSelection.current === channelSelection) {
         setDetectionConfigDraft(splitChannelConfig(saved.config).detection)
         setChannelName(saved.name)
       }
-    }, '检测参数已保存。')
+    }, '时段与检测参数已保存。')
   }
 
   const saveAlarmConfig = () => {
     if (!selectedChannelDetail || !alarmDraft || hydratedChannelSelection.current !== channelSelection) return
-    const start = detectionTimeSeconds(alarmDraft.alarm_schedule.start)
-    const end = detectionTimeSeconds(alarmDraft.alarm_schedule.end)
-    if (start === null || end === null || start >= end) {
-      setMessage('报警开始时间必须早于结束时间，计划须在同一天内。')
-      return
-    }
     if (!Number.isFinite(alarmDraft.alarm_interval) || alarmDraft.alarm_interval <= 0) {
       setMessage('报警间隔必须大于 0 秒。')
       return
@@ -511,7 +508,7 @@ export function LogisticsChannelConfigView({
         tabs={<>
           <DetectionConfigTab value="channels" icon={Layers3}>通道管理</DetectionConfigTab>
           <DetectionConfigTab value="members" icon={Camera}>摄像头</DetectionConfigTab>
-          <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
+          <DetectionConfigTab value="params" icon={SlidersHorizontal}>时段与参数</DetectionConfigTab>
           <DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
           <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
         </>}
@@ -647,11 +644,23 @@ export function LogisticsChannelConfigView({
 
             <TabsContent value="params" className="mt-0 space-y-5">
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
+                <DetectionConfigCardHeader icon={Clock} tone="blue" title="检测与报警时段" description="在选定星期和每日时段内进行人员检测并触发异常报警；时段外停止检测和报警，实时画面仍可查看。" />
+                <DetectionConfigCardContent className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-3 sm:col-span-2"><Label>生效星期</Label><div className="flex flex-wrap gap-4">
+                    {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => <label key={day} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" disabled={!isAdmin || busy} checked={detectionConfigDraft.schedule.weekdays.includes(day)} onChange={(event) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: {
+                        ...detectionConfigDraft.schedule, weekdays: event.target.checked ? [...detectionConfigDraft.schedule.weekdays, day].sort() : detectionConfigDraft.schedule.weekdays.filter((value) => value !== day),
+                      } })} />{label}
+                    </label>)}
+                  </div><p className="text-xs text-slate-500 dark:text-slate-400">未选择星期时不检测、不报警。时区：{detectionConfigDraft.schedule.timezone}。</p></div>
+                  <ConfigNumber label="每日开始时间" id="logistics-schedule-start" type="time" value={timeForInput(detectionConfigDraft.schedule.start)} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, start: timeForApi(value) } })} />
+                  <ConfigNumber label="每日结束时间" id="logistics-schedule-end" type="time" value={timeForInput(detectionConfigDraft.schedule.end)} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, schedule: { ...detectionConfigDraft.schedule, end: timeForApi(value) } })} />
+                </DetectionConfigCardContent>
+              </Card>
+              <Card className={DETECTION_CONFIG_CARD_CLASS}>
                 <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="同一通道的所有摄像头统一使用以下检测策略，ROI 按摄像头独立配置。" />
                 <DetectionConfigCardContent className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="logistics-channel-name">物流通道名称</Label><Input id="logistics-channel-name" value={channelName} onChange={(event) => setChannelName(event.target.value)} disabled={!isAdmin || busy} /></div>
-                  <ConfigNumber label="每日检测开始时间" id="logistics-detection-start" type="time" value={timeForInput(detectionConfigDraft.detection_start)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, detection_start: value })} disabled={!isAdmin || busy} />
-                  <ConfigNumber label="每日检测结束时间" id="logistics-detection-end" type="time" value={timeForInput(detectionConfigDraft.detection_end)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, detection_end: value })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="人体检测阈值" id="logistics-confidence-threshold" value={String(detectionConfigDraft.confidence_threshold)} min={0} max={1} step={0.01} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, confidence_threshold: Number(value) })} disabled={!isAdmin || busy} />
                   <ConfigNumber label="模型检测 IOU（0～1）" id="logistics-channel-iou" value={String(detectionConfigDraft.model_iou_threshold)} min={0} max={1} step={0.01} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, model_iou_threshold: Number(value) })} />
                   <ConfigNumber label="最小检测框面积（像素平方）" id="logistics-channel-area" value={String(detectionConfigDraft.min_box_area)} min={0} step={1} disabled={!isAdmin || busy} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, min_box_area: Number(value) })} />
@@ -662,24 +671,10 @@ export function LogisticsChannelConfigView({
                   <ConfigNumber label="多人持续时间（秒）" id="logistics-multi-grace" value={String(detectionConfigDraft.multi_grace_seconds)} onChange={(value) => setDetectionConfigDraft({ ...detectionConfigDraft, multi_grace_seconds: Number(value) })} disabled={!isAdmin || busy} />
                 </DetectionConfigCardContent>
               </Card>
-              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存检测参数" />
+              <DetectionSaveBar message={message} saving={busy} disabled={!isAdmin || !channelName.trim()} onSave={saveDetectionConfig} saveLabel="保存时段与参数" />
             </TabsContent>
 
             <TabsContent value="alarm" className="mt-0 space-y-5">
-              <Card className={DETECTION_CONFIG_CARD_CLASS}>
-                <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警日历" description="只在选定星期和时段发送报警，其他时间仍持续检测并显示画面。" />
-                <DetectionConfigCardContent className="grid gap-5 sm:grid-cols-2">
-                  <div className="space-y-3 sm:col-span-2"><Label>报警星期</Label><div className="flex flex-wrap gap-4">
-                    {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => <label key={day} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" disabled={!isAdmin || busy} checked={alarmDraft.alarm_schedule.weekdays.includes(day)} onChange={(event) => setAlarmDraft({ ...alarmDraft, alarm_schedule: {
-                        ...alarmDraft.alarm_schedule, weekdays: event.target.checked ? [...alarmDraft.alarm_schedule.weekdays, day].sort() : alarmDraft.alarm_schedule.weekdays.filter((value) => value !== day),
-                      } })} />{label}
-                    </label>)}
-                  </div><p className="text-xs text-slate-500 dark:text-slate-400">不选择任何星期表示不报警。时区：{alarmDraft.alarm_schedule.timezone}。</p></div>
-                  <ConfigNumber label="每日报警开始" id="logistics-alarm-start" type="time" value={timeForInput(alarmDraft.alarm_schedule.start)} disabled={!isAdmin || busy} onChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_schedule: { ...alarmDraft.alarm_schedule, start: timeForApi(value) } })} />
-                  <ConfigNumber label="每日报警结束" id="logistics-alarm-end" type="time" value={timeForInput(alarmDraft.alarm_schedule.end)} disabled={!isAdmin || busy} onChange={(value) => setAlarmDraft({ ...alarmDraft, alarm_schedule: { ...alarmDraft.alarm_schedule, end: timeForApi(value) } })} />
-                </DetectionConfigCardContent>
-              </Card>
               <AlarmPushConfig
                 showSql
                 alarmInterval={String(alarmDraft.alarm_interval)}

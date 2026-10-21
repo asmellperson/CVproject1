@@ -284,7 +284,7 @@ export function LogisticsChannelMonitorView({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className={cn('rounded-full border-0 px-2.5 py-1 shadow-none', presentation.className)}>{presentation.label}</Badge>
-                    {status?.alarm_suppressed && <Badge variant="outline">报警计划外 · 仅监测</Badge>}
+                    {status?.alarm_suppressed && <Badge variant="outline">检测与报警未启用</Badge>}
                     <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold', frameStatusClassName)}>{framePresentation.label}</span>
                   </div>
                 </div>

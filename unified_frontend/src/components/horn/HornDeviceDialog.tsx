@@ -103,7 +103,7 @@ export function HornDeviceDialog({ device, department, busy, error, onClose, onS
                   placeholder={device?.sip?.password_set ? '留空保留已保存的 SIP 密码' : '请输入 SIP 密码'}
                   onChange={(event) => change({ sip: { ...draft.sip!, password: event.target.value } })} /></div>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">SIP 服务地址和监听端口在“喇叭配置”的 SIP 服务中统一设置。保存并启用设备后，平台自动将这些参数同步到喇叭；按设备地址和 SIP 账户定位。</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">SIP 服务地址和监听端口在“喇叭设备”的 SIP 服务中统一设置。保存并启用设备后，平台自动将这些参数同步到喇叭；按设备地址和 SIP 账户定位。</p>
           </div> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">

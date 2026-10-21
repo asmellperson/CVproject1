@@ -7,7 +7,8 @@ import {
   type AiVisionCamera, type AiVisionFeatureConfig,
 } from '@/lib/aivision'
 import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
-import type { NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
+import { normalizeFeatureAlarmConfig, type NormalizedFeatureAlarmConfig } from '@/lib/alarm-config'
+import { validateHornBinding } from '@/lib/horn-alarm-binding'
 import { FACE_FEATURE, getFacePersons, updateFacePerson, type FacePersonPage } from './api'
 
 const EMPTY_FORM = { roi: '', detectionThreshold: '', threshold: '', interval: '', cooldown: '', recordEnabled: false, alarmInterval: '' }
@@ -91,7 +92,6 @@ export function useRecognitionConfig(department: DepartmentId) {
   const [configRevision, setConfigRevision] = useState(0)
   const [form, setForm] = useState(EMPTY_FORM)
   const [config, setConfig] = useState<AiVisionFeatureConfig | null>(null)
-  const [hornError, setHornError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -119,7 +119,6 @@ export function useRecognitionConfig(department: DepartmentId) {
     configLoadRef.current = { key, revision: cameraRequestRef.current }
     setLoadedKey('')
     setConfig(null)
-    setHornError(null)
     setForm(EMPTY_FORM)
     setLoading(Boolean(key))
     if (!key || !getEnabledFeatureCameras(camerasRef.current, FACE_FEATURE, department).some((camera) => camera.shm_name === key)) {
@@ -190,7 +189,7 @@ export function useRecognitionConfig(department: DepartmentId) {
       cameraRequestRef.current += 1
       window.removeEventListener('aivision:cameras-changed', refresh)
     }
-  }, [refreshCameras])
+  }, [refreshCameras, selectCamera])
 
   useEffect(() => {
     // onConfigCopied 已主动读取本轮最终配置时，列表刷新不再重复请求或覆盖目标。
@@ -215,6 +214,7 @@ export function useRecognitionConfig(department: DepartmentId) {
       if (!form.alarmInterval.trim() || !Number.isFinite(alarmInterval) || alarmInterval <= 0) {
         throw new Error('报警间隔必须大于 0 秒。')
       }
+      const hornError = validateHornBinding(normalizeFeatureAlarmConfig(config.alarm).horn)
       if (hornError) throw new Error(hornError)
       const roi = parseNormalizedRoi(form.roi)
       setSaving(true)
@@ -231,7 +231,7 @@ export function useRecognitionConfig(department: DepartmentId) {
     }
   }
   return {
-    cameras, enabledCameras, cameraKey, form, setForm, config, setAlarm, hornError, setHornError, message, loading, cameraLoading, saving,
+    cameras, enabledCameras, cameraKey, form, setForm, config, setAlarm, message, loading, cameraLoading, saving,
     disabled: !isAdmin || loading || cameraLoading || saving,
     canSave: isAdmin && Boolean(config?.alarm) && Boolean(cameraKey) && loadedKey === cameraKey && !loading && !cameraLoading && !saving,
     selectCamera, loadConfig, refreshCameras, save,

@@ -1,66 +1,28 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense } from 'react'
 import { MessageSquareText, Settings2 } from 'lucide-react'
-import { useAuth } from '@/auth/useAuth'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
-import { parseNormalizedRoi } from '@/components/AiVisionRoiEditor.geometry'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
-import { getVisualLanguageConfig, saveVisualLanguageConfig, VISUAL_LANGUAGE_PARAMETERS, type VisualLanguageConfig } from '@/lib/visual-language-detection'
+import { VISUAL_LANGUAGE_PARAMETERS, type VisualLanguageConfig } from '@/lib/visual-language-detection'
 import { normalizeFeatureAlarmConfig } from '@/lib/alarm-config'
+import { validVisualLanguageParameters, type useVisualLanguageConfig } from './useVisualLanguageConfig'
 
 const AiVisionRoiEditor = lazy(() =>
   import('@/components/AiVisionRoiEditor').then((module) => ({ default: module.AiVisionRoiEditor })),
 )
 
-export function VisualLanguageConfiguration({ cameraKey, tab }: { cameraKey: string; tab: 'parameters' | 'prompt' | 'roi' | 'alarm' }) {
-  const { isAdmin } = useAuth()
-  const [config, setConfig] = useState<VisualLanguageConfig | null>(null)
-  const [roiJson, setRoiJson] = useState('[]')
-  const [message, setMessage] = useState('')
-  const [saving, setSaving] = useState(false)
-  const operation = useRef(0)
-  const savingRef = useRef(false)
-  useEffect(() => {
-    const version = ++operation.current
-    getVisualLanguageConfig(cameraKey).then((result) => {
-      if (version === operation.current) {
-        setConfig(result)
-        setRoiJson(JSON.stringify(result.value.roi_pos))
-      }
-    }).catch((cause: unknown) => {
-      if (version === operation.current) setMessage(`读取失败：${String(cause)}`)
-    })
-    return () => { operation.current += 1 }
-  }, [cameraKey])
-
-  const valid = config !== null && config.value.observation_prompt.trim().length > 0
-    && Number.isFinite(config.value.alarm_interval) && config.value.alarm_interval > 0
-    && VISUAL_LANGUAGE_PARAMETERS.every(([key, , min, max, step]) =>
-      Number.isFinite(config.value[key]) && config.value[key] >= min && config.value[key] <= max && (step !== 1 || Number.isInteger(config.value[key])))
-
-  const save = async () => {
-    if (!config || !isAdmin || savingRef.current) return
-    const version = operation.current
-    savingRef.current = true
-    setSaving(true); setMessage('')
-    try {
-      if (!valid) throw new Error('请填写有效的监控指令、推理参数和报警间隔')
-      const next = await saveVisualLanguageConfig(cameraKey, {
-        ...config, value: { ...config.value, roi_pos: parseNormalizedRoi(roiJson) },
-      })
-      if (version === operation.current) { setConfig(next); setMessage('配置已保存并生效') }
-    } catch (cause) {
-      if (version === operation.current) setMessage(`保存失败：${String(cause)}`)
-    } finally {
-      savingRef.current = false
-      if (version === operation.current) setSaving(false)
-    }
-  }
-  if (!config) return <p role="status" className="p-6 text-sm text-slate-500">{message || '正在读取配置…'}</p>
-  const disabled = !isAdmin || saving
+export function VisualLanguageConfiguration({ cameraKey, tab, state }: {
+  cameraKey: string; tab: 'parameters' | 'prompt' | 'roi' | 'alarm'; state: ReturnType<typeof useVisualLanguageConfig>
+}) {
+  const { message, saving, disabled, save, isAdmin } = state
+  if (!state.draft) return <p role="status" className="p-6 text-sm text-slate-500">{message || '正在读取配置…'}</p>
+  const { config, roiJson } = state.draft
+  const setConfig = (config: VisualLanguageConfig) => state.update((draft) => ({ ...draft, config }))
+  const setRoiJson = (roiJson: string) => state.update((draft) => ({ ...draft, roiJson }))
+  const valid = validVisualLanguageParameters(config)
   const saveMessage = message || (isAdmin ? '配置仅作用于当前摄像头，保存后生效。' : '当前账号可查看配置，修改需要管理员权限。')
   if (tab === 'roi') return <Suspense fallback={<p role="status" className="p-6 text-sm text-slate-500">正在加载 ROI 编辑器…</p>}>
     <AiVisionRoiEditor title="指令驱动智慧安防 ROI 绘制" cameraKey={cameraKey} roiJson={roiJson}

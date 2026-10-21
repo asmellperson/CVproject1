@@ -65,7 +65,7 @@ export function AlarmPolicies({ policies, busy, onChange }: { policies: AlarmPol
   }
   return <>
     <Card className={DETECTION_CONFIG_CARD_CLASS}>
-      <DetectionConfigCardHeader icon={Bell} tone="amber" title="企业微信报警推送" description="配置报警消息的接收用户与推送方式，四类报警分别生效。喇叭设备在“喇叭配置”中管理。" />
+      <DetectionConfigCardHeader icon={Bell} tone="amber" title="报警推送" description="维护企业微信、喇叭和报警记录，四类报警分别生效。设备和音频在“喇叭设备”中管理。" />
       <DetectionConfigCardContent className="space-y-6">
         {values.map((policy) => <AlarmPolicyFields key={policy.violation_type} policy={policy} disabled={!isAdmin || busy} onValidation={onValidation}
           onChange={(type, value) => setChanges((previous) => ({ ...previous, [type]: { ...previous[type], ...value } }))} />)}

@@ -975,7 +975,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `connectors/qwen/` 复用连接合同、Chat Completions 和请求并发预算，认证由环境变量提供。任务分类、平台工具及安检判定使用 `json_mode=True`；普通聊天不施加 `response_format` 约束。分类使用独立的小输出预算，不执行业务工具。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接福达AI；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
 
-物流通道的 `config.alarm_schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天全天。日历独立于 `detection_start/end`，计划外仍推进检测状态和画面，只阻止报警分发，接口返回 `alarm_suppressed=true`。星期从周一 `0` 到周日 `6`，空列表表示始终不报警，时段须在同一天内。配置在关联表持久化，通过原通道事件热更新；已有通道无需修改原列。
+物流通道的 `config.schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天 `08:00～20:00`。`features/logistics_channel/schedule.py` 为检测调度和报警分发提供相同的星期、时区及含端点时段判断；时段外停止检测和报警，保留实时画面。星期从周一 `0` 到周日 `6`，空列表表示不检测、不报警，时段须在同一天内。保存时同步通道起止列与 `ai_logistics_alarm_schedule`，读取时使用两处存储的有效交集，配置通过通道事件热更新。
 
 ## 10. 数据存储与权限边界
 
@@ -986,7 +986,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 摄像头 | `ai_camera_config` / `cameras/orm.py` | 视频源、名称、事业部、采集参数和总开关 |
 | 各功能配置 | 各功能 `orm.py` | 按 `camera_id` 关联；算法参数、ROI 和功能启用状态 |
 | 物流通道与成员 | `ai_logistics_channel`、`ai_logistics_channel_camera` | 通道配置、成员关系和排序 |
-| 物流报警日历 | `ai_logistics_alarm_schedule` | 独立的报警星期、每日时段和时区，缺少记录时默认全天 |
+| 物流通道时段 | `ai_logistics_alarm_schedule` | 检测和报警共用的星期、起止时间与时区；无记录时采用通道起止列和全部星期 |
 | 助手对话与操作 | `ai_assistant_session`、`ai_assistant_turn`、`ai_assistant_action` | 会话归属、请求幂等、执行状态及参数前后值 |
 | 告警事件 | `ai_violation_image` | 功能/事业部/主体快照及证据引用 |
 | 报警处置 | `ai_alarm_disposition` | 状态、备注、处理人及最近 20 次历史 |

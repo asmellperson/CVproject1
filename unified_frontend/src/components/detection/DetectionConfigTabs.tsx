@@ -12,7 +12,7 @@ export function DetectionConfigTabs({ tabs, children, tabListClassName = 'lg:gri
     <Tabs {...props}>
       <DetectionConfigTabsList className={tabListClassName}>
         {tabs}
-        {showHorns && <DetectionConfigTab value="horns" icon={Volume2}>喇叭配置</DetectionConfigTab>}
+        {showHorns && <DetectionConfigTab value="horns" icon={Volume2}>喇叭设备</DetectionConfigTab>}
       </DetectionConfigTabsList>
       {children}
       {showHorns && <TabsContent value="horns" className="mt-0 space-y-5">

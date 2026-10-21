@@ -31,7 +31,8 @@ from .constants import (
     require_logistics_feature,
 )
 from .membership_transaction import MembershipTransaction
-from .orm import LogisticsChannel, LogisticsChannelCamera
+from .orm import LogisticsChannel, LogisticsChannelCamera, LogisticsChannelAlarmSchedule
+from .schedule import LogisticsSchedule, schedule_from_storage
 from .schema import (
     LogisticsChannelDetailResponse, LogisticsChannelListResponse,
     LogisticsChannelUpdate, LogisticsChannelConfigUpdate, LogisticsChannelMemberCreate,
@@ -757,18 +758,17 @@ class LogisticsChannelService(MembershipTransaction):
 
     def _apply_config_values(self, channel: LogisticsChannel, values: dict) -> None:
         """仅写入已校验且明确提交的通道字段。"""
-        if "alarm_schedule" in values:
-            from .alarm_schedule import LogisticsAlarmSchedule
-            from .orm import LogisticsChannelAlarmSchedule
-            previous = LogisticsAlarmSchedule.model_validate(channel.alarm_schedule) if channel.alarm_schedule else LogisticsAlarmSchedule()
-            schedule = LogisticsAlarmSchedule.model_validate({**previous.model_dump(), **values["alarm_schedule"]})
+        if "schedule" in values:
+            previous = schedule_from_storage(channel.detection_start, channel.detection_end, channel.alarm_schedule)
+            schedule = LogisticsSchedule.model_validate({**previous.model_dump(), **values["schedule"]})
             if channel.alarm_schedule is None:
                 channel.alarm_schedule = LogisticsChannelAlarmSchedule(channel_id=channel.id)
             for key, value in schedule.model_dump().items():
                 setattr(channel.alarm_schedule, key, value)
+            # 现有存储列保持同一组起止值，对外和运行时只使用统一 schedule。
+            channel.detection_start = schedule.start
+            channel.detection_end = schedule.end
         for field in (
-            "detection_start",
-            "detection_end",
             "confidence_threshold",
             "model_iou_threshold",
             "min_box_area",

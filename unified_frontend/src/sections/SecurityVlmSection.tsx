@@ -1,6 +1,6 @@
 import { getEnabledFeatureCameras } from '@/lib/feature-cameras'
 import { useState, type ReactNode } from 'react'
-import { AlertTriangle, Bell, Camera, CheckCircle2, Clock3, Columns2, Crosshair, FileCheck2, Layers3, Settings2 } from 'lucide-react'
+import { AlertTriangle, Bell, Box, Camera, CheckCircle2, Clock3, Columns2, Crosshair, FileCheck2, Layers3, Settings2 } from 'lucide-react'
 import { DEPARTMENT_LABELS, type DepartmentId } from '@/auth/permissions'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
 import { apiGet } from '@/lib/api'
@@ -9,8 +9,10 @@ import { getInspectionHistory, getInspectionStatus, INSPECTION_FEATURE, type Ins
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
-import { DetectionConfigTab, DetectionConfigCardHeader, DetectionConfigCardContent, DETECTION_CONFIG_CARD_CLASS } from '@/components/detection/DetectionConfigUi'
+import { DetectionConfigTab } from '@/components/detection/DetectionConfigUi'
 import { InspectionConfiguration } from '@/components/security-inspection/InspectionConfiguration'
+import { InspectionModelConfig } from '@/components/security-inspection/InspectionModelConfig'
+import { useInspectionConfig } from '@/components/security-inspection/useInspectionConfig'
 import { InspectionHistory } from '@/components/security-inspection/InspectionHistory'
 import { SecurityVideoPanel } from '@/components/security-inspection/SecurityVideoPanel'
 import { inspectionStatusPresentation } from '@/components/security-inspection/statusPresentation'
@@ -38,6 +40,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
   const [configVersion, setConfigVersion] = useState(0)
   const enabled = getEnabledFeatureCameras(cameras, INSPECTION_FEATURE, department)
   const current = enabled.find((camera) => camera.shm_name === selected) || enabled[0]
+  const configuration = useInspectionConfig(current?.shm_name || '', configVersion)
   useSerialPoll(async (signal) => {
     const [nextCameras, nextStatus, history] = await Promise.all([
       apiGet<AiVisionCamera[]>(`/cameras?department=${encodeURIComponent(department)}`, { signal }),
@@ -94,18 +97,17 @@ function InspectionPage({ department }: { department: DepartmentId }) {
       <InspectionHistory department={department} cameras={cameras} />
     </TabsContent>
     <TabsContent value="config" className="space-y-6">
-      <DetectionConfigTabs value={configTab} onValueChange={setConfigTab} className="space-y-6" tabListClassName="sm:grid-cols-4"
-        tabs={<><DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab><DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
-          <DetectionConfigTab value="parameters" icon={Settings2}>检测参数</DetectionConfigTab><DetectionConfigTab value="alarm" icon={Bell}>报警配置</DetectionConfigTab></>}>
-        <TabsContent value="camera"><Card className={DETECTION_CONFIG_CARD_CLASS}>
-          <DetectionConfigCardHeader icon={Camera} tone="blue" title="摄像头" description="从当前部门的平台摄像头中启用安检检测。" />
-          <DetectionConfigCardContent><FeatureCameraManager cameras={cameras} feature={INSPECTION_FEATURE} department={department}
-            currentCameraName={current?.shm_name || ''} onSelectCamera={setSelected} onCamerasChanged={refreshCameras} /></DetectionConfigCardContent>
-        </Card></TabsContent>
+      <DetectionConfigTabs value={configTab} onValueChange={setConfigTab} className="space-y-6"
+        tabs={<><DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
+          <DetectionConfigTab value="parameters" icon={Settings2}>检测参数</DetectionConfigTab><DetectionConfigTab value="roi" icon={Crosshair}>ROI 配置</DetectionConfigTab>
+          <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab><DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab></>}>
+        <TabsContent value="camera"><FeatureCameraManager cameras={cameras} feature={INSPECTION_FEATURE} department={department}
+          currentCameraName={current?.shm_name || ''} onSelectCamera={setSelected} onCamerasChanged={refreshCameras} onConfigCopied={refreshCameras} /></TabsContent>
+        <TabsContent value="model"><InspectionModelConfig /></TabsContent>
         {(['roi', 'parameters', 'alarm'] as const).map((tab) => <TabsContent key={tab} value={tab} className="space-y-4">
           <Select value={current?.shm_name || ''} onValueChange={setSelected}><SelectTrigger className="w-64"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
             <SelectContent>{enabled.map((camera) => <SelectItem key={camera.shm_name} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent></Select>
-          {current ? <InspectionConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} />
+          {current ? <InspectionConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} state={configuration} />
             : <p className="p-6 text-sm text-slate-500">请先添加摄像头</p>}
         </TabsContent>)}
       </DetectionConfigTabs>

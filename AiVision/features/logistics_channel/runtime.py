@@ -19,7 +19,7 @@ from AiVision.cameras.config_manager import camera_config_manager
 from .compositor import CameraTile, compose_channel_frame
 from .constants import LOGISTICS_FEATURES, require_logistics_feature
 from .service import logistics_channel_service
-from .alarm_schedule import LogisticsAlarmSchedule, is_alarm_time
+from .schedule import LogisticsSchedule, is_scheduled_time
 from .state import CameraSnapshot, ChannelDecision, ChannelPresenceState, LogisticsDetectionConfig, classify_channel
 
 @dataclass(frozen=True)
@@ -37,14 +37,12 @@ class _ChannelConfig:
     channel_id: int
     name: str
     enabled: bool
-    detection_start: object
-    detection_end: object
     detection: LogisticsDetectionConfig
     empty_grace_seconds: float
     multi_grace_seconds: float
     alarm_interval: float
     alarm: dict
-    alarm_schedule: LogisticsAlarmSchedule
+    schedule: LogisticsSchedule
     cameras: tuple[_CameraInfo, ...]
 
 @dataclass(frozen=True)
@@ -481,7 +479,7 @@ class LogisticsChannelRuntime:
                 multi_grace_seconds=channel.multi_grace_seconds,
             )
             self._statuses[key] = self._build_status(channel, decision, prepared.states, now)
-            if not decision.alarm or not is_alarm_time(channel.alarm_schedule, self._wall_time_provider()):
+            if not decision.alarm or not self._channel_is_active(channel):
                 # 恢复正常只结束当前事件，不能清除分发器记录的最后告警时间。
                 # alarm_interval 表示同一通道、同一功能两次实际告警的最小间隔，
                 # 即使检测结果在正常与告警之间短暂波动，也必须继续受该间隔约束。
@@ -553,7 +551,7 @@ class LogisticsChannelRuntime:
         with self._lock:
             return (
                 self._channel_is_current_locked(work.channel, work.generation)
-                and is_alarm_time(work.channel.alarm_schedule, self._wall_time_provider())
+                and self._channel_is_active(work.channel)
                 and self._pending_incidents.get(work.key)
                 == (work.decision.reason, work.token, work.generation)
             )
@@ -609,8 +607,6 @@ class LogisticsChannelRuntime:
             channel_id=int(detail["id"]),
             name=str(detail["name"]),
             enabled=detail["enabled"],
-            detection_start=config["detection_start"],
-            detection_end=config["detection_end"],
             detection=LogisticsDetectionConfig(
                 confidence_threshold=config["confidence_threshold"],
                 model_iou_threshold=config["model_iou_threshold"],
@@ -622,7 +618,7 @@ class LogisticsChannelRuntime:
             empty_grace_seconds=config["empty_grace_seconds"],
             multi_grace_seconds=config["multi_grace_seconds"],
             alarm_interval=config["alarm_interval"],
-            alarm_schedule=LogisticsAlarmSchedule.model_validate(config["alarm_schedule"]),
+            schedule=LogisticsSchedule.model_validate(config["schedule"]),
             alarm=config["alarm"],
             cameras=tuple(cameras),
         )
@@ -678,11 +674,8 @@ class LogisticsChannelRuntime:
         )
 
     def _channel_is_active(self, channel: _ChannelConfig) -> bool:
-        """按本地时间判断启用通道是否处于含首尾边界的检测时段。"""
-        if not channel.enabled:
-            return False
-        local_time = self._wall_time_provider().timetz().replace(tzinfo=None)
-        return channel.detection_start <= local_time <= channel.detection_end
+        """按同一份星期、时区和时段控制检测调度与报警分发。"""
+        return channel.enabled and is_scheduled_time(channel.schedule, self._wall_time_provider())
 
     def _camera_online(self, camera: _CameraInfo) -> bool:
         """查询物理采集状态，查询异常记录原因并按离线处理。"""
@@ -755,7 +748,7 @@ class LogisticsChannelRuntime:
             "department": channel.department,
             "reason": decision.reason,
             "alarm": decision.alarm,
-            "alarm_suppressed": not is_alarm_time(channel.alarm_schedule, self._wall_time_provider()),
+            "alarm_suppressed": not self._channel_is_active(channel),
             "duration_seconds": decision.duration_seconds,
             "threshold_seconds": decision.threshold_seconds,
             "camera_ids": [camera.camera_id for camera in channel.cameras],

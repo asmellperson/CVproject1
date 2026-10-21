@@ -48,9 +48,8 @@ class LogisticsChannel(Base):
     enabled = Column(Boolean, nullable=False, default=True, comment="是否启用")
     # 排序，主要是前端展示顺序
     sort_order = Column(Integer, nullable=False, default=0, comment="展示排序")
-    # 检测开始，默认早上八点
+    # 起止列与日历表同步保存统一时段，保留现有数据库结构。
     detection_start = Column(Time, nullable=False, default=DEFAULT_DETECTION_START, comment="检测开始时间")
-    # 默认晚上八点以后就不检测了
     detection_end = Column(Time, nullable=False, default=DEFAULT_DETECTION_END, comment="检测结束时间")
     # 人员置信度
     confidence_threshold = Column(
@@ -100,7 +99,7 @@ class LogisticsChannel(Base):
 
 
 class LogisticsChannelAlarmSchedule(Base):
-    """独立表为已有通道提供默认全天报警计划，不改变既有通道列和配置值。"""
+    """保存通道统一时段的星期、时区和起止值。"""
     __tablename__ = "ai_logistics_alarm_schedule"
     channel_id = Column(Integer, ForeignKey("ai_logistics_channel.id", ondelete="CASCADE"), primary_key=True)
     weekdays = Column(JSON, nullable=False, default=lambda: list(range(7)))

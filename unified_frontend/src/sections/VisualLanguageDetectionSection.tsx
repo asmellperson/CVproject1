@@ -7,6 +7,7 @@ import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import { DetectionConfigTab } from '@/components/detection/DetectionConfigUi'
 import { VisualLanguageConfiguration } from '@/components/visual_language_detection/VisualLanguageConfiguration'
+import { useVisualLanguageConfig } from '@/components/visual_language_detection/useVisualLanguageConfig'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { useSerialPoll } from '@/hooks/use-serial-poll'
@@ -29,6 +30,7 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
   const requestVersion = useRef(0)
   const enabled = getEnabledFeatureCameras(cameras, VISUAL_LANGUAGE_FEATURE, department)
   const current = enabled.find((camera) => camera.shm_name === selected) || enabled[0]
+  const configuration = useVisualLanguageConfig(current?.shm_name || '', configVersion)
   const loadCameras = async (signal?: AbortSignal, preferred?: string) => {
     const version = ++requestVersion.current
     const next = await apiGet<AiVisionCamera[]>(`/cameras?department=${encodeURIComponent(department)}`, { signal })
@@ -64,7 +66,7 @@ function VisualLanguagePage({ department }: { department: DepartmentId }) {
             <SelectTrigger className="w-full sm:w-64" aria-label="配置摄像头"><SelectValue placeholder="选择摄像头" /></SelectTrigger>
             <SelectContent>{enabled.map((camera) => <SelectItem key={camera.camera_id} value={camera.shm_name}>{camera.name}</SelectItem>)}</SelectContent>
           </Select>
-          {current ? <VisualLanguageConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} />
+          {current ? <VisualLanguageConfiguration key={`${current.shm_name}:${configVersion}`} cameraKey={current.shm_name} tab={tab} state={configuration} />
             : <p className="p-6 text-sm text-slate-500">请先在摄像头配置中为指令驱动智慧安防添加摄像头。</p>}
         </TabsContent>)}
       </DetectionConfigTabs>

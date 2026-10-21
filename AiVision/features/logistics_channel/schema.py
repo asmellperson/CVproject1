@@ -1,16 +1,15 @@
 """物流摄像头 ROI、通道检测策略、成员请求和运行状态的数据合同。"""
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from AiVision.features._shared.roi import NormalizedRoi
-from .alarm_schedule import LogisticsAlarmSchedule
+from .schedule import LogisticsSchedule, schedule_from_storage
 from AiVision.alarms.devices.binding import MAX_HORN_ID
 from AiVision.features._shared import defaults
 from .constants import (
-    DEFAULT_DETECTION_END, DEFAULT_DETECTION_START,
     DEFAULT_PERSON_CONFIDENCE_THRESHOLD, MAX_CAMERAS_PER_CHANNEL,
     DEFAULT_EMPTY_GRACE_SECONDS, DEFAULT_MULTI_GRACE_SECONDS,
     DEFAULT_MODEL_IOU, DEFAULT_MIN_BOX_AREA,
@@ -111,8 +110,7 @@ class LogisticsChannelConfigUpdate(BaseModel):
     """通道统一检测时段、人体筛选、宽限期及告警策略。"""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    detection_start: time = DEFAULT_DETECTION_START
-    detection_end: time = DEFAULT_DETECTION_END
+    schedule: LogisticsSchedule = Field(default_factory=LogisticsSchedule)
     confidence_threshold: float = Field(
         default=DEFAULT_PERSON_CONFIDENCE_THRESHOLD,
         ge=0,
@@ -127,7 +125,6 @@ class LogisticsChannelConfigUpdate(BaseModel):
     multi_grace_seconds: float = Field(default=DEFAULT_MULTI_GRACE_SECONDS, ge=0)
     alarm_interval: float = Field(default=defaults.ALARM_INTERVAL, gt=0)
     alarm: LogisticsChannelAlarm = Field(default_factory=LogisticsChannelAlarm)
-    alarm_schedule: LogisticsAlarmSchedule = Field(default_factory=LogisticsAlarmSchedule)
 
     @model_validator(mode="after")
     def _validate_aspect_ratio(self) -> LogisticsChannelConfigUpdate:
@@ -136,22 +133,6 @@ class LogisticsChannelConfigUpdate(BaseModel):
         if {"min_aspect_ratio", "max_aspect_ratio"} <= self.model_fields_set:
             if self.max_aspect_ratio < self.min_aspect_ratio:
                 raise ValueError("max_aspect_ratio 不得小于 min_aspect_ratio")
-        return self
-
-    @model_validator(mode="after")
-    def _validate_detection_window(self) -> "LogisticsChannelConfigUpdate":
-        """拒绝带时区的时刻，同时提交起止值时要求同日起点早于终点。"""
-        if (
-            self.detection_start.tzinfo is not None
-            or self.detection_start.utcoffset() is not None
-            or self.detection_end.tzinfo is not None
-            or self.detection_end.utcoffset() is not None
-        ):
-            raise ValueError("detection_start 和 detection_end 不支持时区")
-        # 单字段更新由服务层合并数据库保留值后校验，不能使用另一字段的默认值。
-        if {"detection_start", "detection_end"} <= self.model_fields_set:
-            if self.detection_start >= self.detection_end:
-                raise ValueError("detection_start 必须早于 detection_end")
         return self
 
 class LogisticsChannelPatchRequest(LogisticsChannelUpdate):
@@ -231,8 +212,7 @@ class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
         if isinstance(value, dict) or not hasattr(value, "detection_start"):
             return value
         return {
-            "detection_start": value.detection_start,
-            "detection_end": value.detection_end,
+            "schedule": schedule_from_storage(value.detection_start, value.detection_end, value.alarm_schedule),
             "confidence_threshold": value.confidence_threshold,
             "model_iou_threshold": value.model_iou_threshold,
             "min_box_area": value.min_box_area,
@@ -242,7 +222,6 @@ class LogisticsChannelConfigResponse(LogisticsChannelConfigUpdate):
             "empty_grace_seconds": value.empty_grace_seconds,
             "multi_grace_seconds": value.multi_grace_seconds,
             "alarm_interval": value.alarm_interval,
-            "alarm_schedule": value.alarm_schedule or LogisticsAlarmSchedule(),
             "alarm": {
                 "sql_enable": value.sql_enable,
                 "horn": {

@@ -2,14 +2,13 @@ import { FeatureConfigGate } from '@/components/detection/FeatureConfigGate'
 import { normalizeFeatureAlarmConfig } from '@/lib/alarm-config'
 import type { DepartmentId } from '@/auth/permissions'
 import { lazy, Suspense, useState } from 'react'
-import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, UserCheck, Volume2 } from 'lucide-react'
+import { Bell, Box, Camera, MousePointer2, SlidersHorizontal, UserCheck } from 'lucide-react'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
 import { AlarmPushConfig } from '@/components/AlarmPushConfig'
-import { HornAlarmBinding } from '@/components/horn/HornAlarmBinding'
-import { HornDeviceManager } from '@/components/horn/HornDeviceManager'
+import { DetectionConfigTabs } from '@/components/detection/DetectionConfigTabs'
 import {
   DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader,
-  DetectionConfigTab, DetectionConfigTabsList, DetectionSaveBar,
+  DetectionConfigTab, DetectionSaveBar,
 } from '@/components/detection/DetectionConfigUi'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { TabsContent } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { FACE_FEATURE, type FacePerson } from './api'
 import { useFacePersons, useRecognitionConfig } from './useRecognitionConfig'
@@ -101,18 +100,17 @@ function FacePersonPermissions({ department }: { department: DepartmentId }) {
 export function RecognitionConfigView({ department }: { department: DepartmentId }) {
   const state = useRecognitionConfig(department)
   const alarm = state.config?.alarm
-  const cameraName = state.cameras.find((camera) => camera.shm_name === state.cameraKey)?.name
   return (
-    <Tabs defaultValue="camera" className="space-y-6">
-      <DetectionConfigTabsList className="lg:grid-cols-7">
+    <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-7"
+      tabs={<>
         <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
         <DetectionConfigTab value="params" icon={SlidersHorizontal}>识别参数</DetectionConfigTab>
         <DetectionConfigTab value="persons" icon={UserCheck}>人员权限</DetectionConfigTab>
         <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
         <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
         <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
-        <DetectionConfigTab value="horns" icon={Volume2}>喇叭配置</DetectionConfigTab>
-      </DetectionConfigTabsList>
+      </>}
+    >
       <TabsContent value="camera" className="space-y-4">
         <FeatureCameraManager cameras={state.cameras} feature={FACE_FEATURE} department={department}
           currentCameraName={state.cameraKey} disabled={state.disabled} onSelectCamera={state.selectCamera}
@@ -165,18 +163,7 @@ export function RecognitionConfigView({ department }: { department: DepartmentId
           onChange={(value) => state.setAlarm(normalizeFeatureAlarmConfig(value))} onSave={state.save} />
 
         </FeatureConfigGate></TabsContent>
-      <TabsContent value="horns" className="space-y-6">
-        <Card className={DETECTION_CONFIG_CARD_CLASS}>
-          <DetectionConfigCardHeader icon={Volume2} tone="violet" title="当前摄像头喇叭绑定" description={cameraName ? `${cameraName} · 人脸身份识别喇叭报警` : '请先添加并选择摄像头。'} />
-          <DetectionConfigCardContent>
-            {alarm ? <HornAlarmBinding value={alarm.horn} disabled={!state.canSave}
-              onChange={(horn) => state.setAlarm({ ...alarm, horn })} onValidationChange={state.setHornError} /> : null}
-          </DetectionConfigCardContent>
-        </Card>
-        <DetectionSaveBar message={state.message} loading={state.loading} saving={state.saving} disabled={!state.canSave || Boolean(state.hornError)} onReload={() => state.loadConfig(state.cameraKey)} onSave={state.save} />
-        <HornDeviceManager />
-      </TabsContent>
       <TabsContent value="persons"><FacePersonPermissions key={department} department={department} /></TabsContent>
-    </Tabs>
+    </DetectionConfigTabs>
   )
 }

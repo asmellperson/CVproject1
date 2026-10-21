@@ -88,13 +88,13 @@ export function HornAlarmBinding({ value, disabled, onChange, onValidationChange
     {!isAdmin ? <p className="text-xs text-slate-500 dark:text-slate-400">设备列表与实时状态仅管理员可查询，当前显示已保存的绑定。</p>
       : loadError ? <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{loadError}</p>
         : devices === null ? <p role="status" className="text-xs text-slate-500">正在读取喇叭设备...</p>
-          : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在旁边的“喇叭配置”中管理。</p> : null}
+          : !devices.some((device) => device.enable) ? <p className="text-xs text-slate-500 dark:text-slate-400">暂无已启用设备，请在“喇叭设备”中添加并启用。</p> : null}
     {warning ? <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{warning}</p> : null}
     {selected && isAdmin ? <HornPlaybackControl device={selected}
       audioId={typeof value.parm.horn_event_id === 'number' ? value.parm.horn_event_id : null}
       duration={audio.files?.find((file) => file.id === value.parm.horn_event_id)?.duration} disabled={readOnly || Boolean(validation)} /> : null}
     <p className="text-xs text-slate-500 dark:text-slate-400">{selected?.sip
-      ? '在“喇叭配置”上传 AAC 后选择报警音频，异常检测会由服务器通过 SIP 发送给所选喇叭。'
+      ? '在“喇叭设备”的音频库上传 AAC 后选择报警音频，异常检测会由服务器通过 SIP 发送给所选喇叭。'
       : '设备已有音频使用素材库中的文件 ID。'}修改后保存当前检测配置生效；试播会实际播放声音。</p>
   </div>
 }

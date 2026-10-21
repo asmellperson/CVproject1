@@ -12,13 +12,11 @@ import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
-import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import {
   getAiVisionCameras,
   getAiVisionFeatureConfig,
@@ -72,7 +70,8 @@ const defaultForm = {
   maxTime: '',
   maxLost: '',
   minBoxArea: '',
-  aspectRatioRange: '',
+  minAspectRatio: '',
+  maxAspectRatio: '',
   centerDistThreshold: '',
   areaRatioThreshold: '',
   matchScoreThreshold: '',
@@ -95,7 +94,8 @@ function toForm(shmName: string, config: HumanConfig) {
     maxTime: String(value.MAX_TIME),
     maxLost: String(value.MAX_LOST),
     minBoxArea: String(value.MIN_BOX_AREA),
-    aspectRatioRange: formatJson(value.ASPECT_RATIO_RANGE),
+    minAspectRatio: String(value.ASPECT_RATIO_RANGE[0]),
+    maxAspectRatio: String(value.ASPECT_RATIO_RANGE[1]),
     centerDistThreshold: String(value.CENTER_DIST_THR),
     areaRatioThreshold: String(value.AREA_RATIO_THR),
     matchScoreThreshold: String(value.MATCH_SCORE_THR),
@@ -235,17 +235,15 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
     }
 
     let roiPos: number[][]
-    let aspectRatioRange: number[]
     try {
-      const parsedRoi = parseNormalizedRoi(form.roiPos)
-      const parsedAspect = JSON.parse(form.aspectRatioRange)
-      if (!Array.isArray(parsedRoi) || !Array.isArray(parsedAspect)) {
-        throw new Error('ROI 和宽高比范围必须是数组')
-      }
-      roiPos = parsedRoi
-      aspectRatioRange = parsedAspect
+      roiPos = parseNormalizedRoi(form.roiPos)
     } catch (error) {
-      setMessage(`保存失败：数组字段不是合法 JSON。${error instanceof Error ? error.message : ''}`)
+      setMessage(`保存失败：${error instanceof Error ? error.message : 'ROI 区域无效'}`)
+      return
+    }
+    const aspectRatioRange = [Number(form.minAspectRatio), Number(form.maxAspectRatio)]
+    if (!aspectRatioRange.every((value) => Number.isFinite(value) && value >= 0) || aspectRatioRange[0] > aspectRatioRange[1]) {
+      setMessage('保存失败：宽高比必须为非负数，最小值不得大于最大值。')
       return
     }
 
@@ -417,7 +415,7 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !humanConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪、区域与过滤参数。" actions={<Badge variant="outline">AiVision {feature}</Badge>} />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的逗留、跟踪与人体过滤参数。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!humanConfig || !isAdmin || loading || saving || !form.cameraName}
@@ -550,24 +548,16 @@ export function HumanDetectionSection({ department }: { department: DepartmentId
 
                 </div>
 
-                <div className="grid gap-5 md:grid-cols-3">
+                <div className="grid gap-5 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="human-roi">人体 ROI（0~1 归一化坐标）</Label>
-                    <Textarea
-                      id="human-roi"
-                      value={form.roiPos}
-                      onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
-                      rows={5}
-                    />
+                    <Label htmlFor="human-min-aspect">最小宽高比（宽/高）</Label>
+                    <Input id="human-min-aspect" type="number" min={0} step={0.1} value={form.minAspectRatio}
+                      onChange={(event) => setForm((prev) => ({ ...prev, minAspectRatio: event.target.value }))} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="human-aspect">宽高比范围</Label>
-                    <Textarea
-                      id="human-aspect"
-                      value={form.aspectRatioRange}
-                      onChange={(event) => setForm((prev) => ({ ...prev, aspectRatioRange: event.target.value }))}
-                      rows={5}
-                    />
+                    <Label htmlFor="human-max-aspect">最大宽高比（宽/高）</Label>
+                    <Input id="human-max-aspect" type="number" min={0} step={0.1} value={form.maxAspectRatio}
+                      onChange={(event) => setForm((prev) => ({ ...prev, maxAspectRatio: event.target.value }))} />
                   </div>
                 </div>
 

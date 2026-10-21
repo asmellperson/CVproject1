@@ -30,12 +30,10 @@ export type LogisticsChannelAlarmConfig = {
   wechat: LogisticsChannelAlarmWechat
 }
 
-export type LogisticsDetectionTime = string
-export type LogisticsAlarmSchedule = { weekdays: number[]; start: string; end: string; timezone: string }
+export type LogisticsSchedule = { weekdays: number[]; start: string; end: string; timezone: string }
 
 export type LogisticsChannelConfig = {
-  detection_start: LogisticsDetectionTime
-  detection_end: LogisticsDetectionTime
+  schedule: LogisticsSchedule
   confidence_threshold: number
   model_iou_threshold: number
   min_box_area: number
@@ -46,12 +44,11 @@ export type LogisticsChannelConfig = {
   multi_grace_seconds: number
   alarm_interval: number
   alarm: LogisticsChannelAlarmConfig
-  alarm_schedule: LogisticsAlarmSchedule
 }
 
-export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm' | 'alarm_interval' | 'alarm_schedule'>
+export type LogisticsChannelDetectionConfig = Omit<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
 
-export type LogisticsChannelAlarmDraft = Pick<LogisticsChannelConfig, 'alarm' | 'alarm_interval' | 'alarm_schedule'>
+export type LogisticsChannelAlarmDraft = Pick<LogisticsChannelConfig, 'alarm' | 'alarm_interval'>
 
 export type LogisticsChannelConfigPatch = Partial<LogisticsChannelConfig>
 

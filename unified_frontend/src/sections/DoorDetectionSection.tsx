@@ -12,13 +12,11 @@ import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
-import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
@@ -398,7 +396,7 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !doorConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的大门状态、确认与环境参数。" actions={<Badge variant="outline">AiVision detect_door</Badge>} />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="维护当前摄像头的大门状态、确认与环境参数。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!doorConfig || !isAdmin || loading || saving || !form.cameraName}
@@ -499,17 +497,6 @@ export function DoorDetectionSection({ department }: { department: DepartmentId 
                     />
                   </div>
 
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="door-roi">大门 ROI 区域坐标</Label>
-                  <Textarea
-                    id="door-roi"
-                    value={form.roiPos}
-                    onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
-                    rows={6}
-                    placeholder="[[0.1,0.1],[0.5,0.1],[0.5,0.5],[0.1,0.5]]"
-                  />
                 </div>
 
               </DetectionConfigCardContent>

@@ -12,13 +12,11 @@ import { AiVisionMonitor } from '@/components/AiVisionMonitor'
 import { DETECTION_CONFIG_CARD_CLASS, DetectionConfigCardContent, DetectionConfigCardHeader, DetectionConfigTab, DetectionSaveBar } from '@/components/detection/DetectionConfigUi'
 import { DetectionPageHeader } from '@/components/detection/DetectionPageHeader'
 import { FeatureCameraManager } from '@/components/FeatureCameraManager'
-import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { getAiVisionCameras, getAiVisionFeatureConfig, saveAiVisionFeatureConfig, type AiVisionCamera } from '@/lib/aivision'
 import { useAuth } from '@/auth/useAuth'
 
@@ -369,7 +367,7 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
               <FeatureConfigGate cameraKey={form.cameraName} disabled={!isAdmin || !faceConfig || loading || saving}>
 
               <Card className={DETECTION_CONFIG_CARD_CLASS}>
-              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="InsightFace 检测人脸框，按轨迹计算逗留时间。" actions={<Badge variant="outline">AiVision detect_face</Badge>} />
+              <DetectionConfigCardHeader icon={SlidersHorizontal} tone="emerald" title="检测参数" description="检测人脸并按连续轨迹计算逗留时间。" />
               <DetectionConfigCardContent className="space-y-5">
                 <AiVisionPresetActions
                   disabled={!faceConfig || !isAdmin || loading || saving || !form.cameraName}
@@ -440,17 +438,6 @@ export function FaceDetectionSection({ department }: { department: DepartmentId 
                     <p className="text-xs text-slate-500">画面变化时也会触发检测；实际频率受推理耗时影响。丢失次数按跟踪更新累计。</p>
                   </div>
 
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="face-roi">人脸 ROI 区域坐标</Label>
-                  <Textarea
-                    id="face-roi"
-                    value={form.roiPos}
-                    onChange={(event) => setForm((prev) => ({ ...prev, roiPos: event.target.value }))}
-                    rows={6}
-                    placeholder="[]"
-                  />
                 </div>
 
               </DetectionConfigCardContent>

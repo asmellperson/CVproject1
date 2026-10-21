@@ -1,7 +1,7 @@
 import type { AssistantAction } from './types'
 
 const labels: Record<string, string> = { name: '名称', fps: '采集 FPS', enabled: '启用', enable: '启用', max_restart: '重连次数',
-  alarm_interval: '报警间隔', detection_start: '检测开始', detection_end: '检测结束', weekdays: '报警星期', start: '报警开始', end: '报警结束', state: '摄像头状态' }
+  alarm_interval: '报警间隔', detection_start: '检测开始', detection_end: '检测结束', weekdays: '生效星期', start: '开始时间', end: '结束时间', state: '摄像头状态' }
 const statusLabels: Record<AssistantAction['status'], string> = { saved: '已保存', executing: '正在执行', failed: '执行失败', unknown: '结果待核对', changed: '保存后已有变化' }
 
 function fields(value: Record<string, unknown>, prefix = ''): string[] {
