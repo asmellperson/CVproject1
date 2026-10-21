@@ -1,11 +1,15 @@
 """消费平台视频帧与人体推理结果，维护逐路安检状态。"""
 
 import time
+from collections import deque
+from dataclasses import dataclass
 
 import cv2
+import numpy as np
 
 from AiVision.alarms.dispatcher import AlarmEvidenceRequest, alarm_dispatcher
-from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.core.settings import settings
+from AiVision.features._shared.consumer import BaseFunctionConsumer, SubmittedInference
 from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.features.guard_behavior.tracking import CameraByteTracker
 from .evidence import build_evidence_image, encode_evidence_image
@@ -14,6 +18,16 @@ from .schema import InspectionValue
 from .service import InspectionService
 from .sessions import PairSessionManager
 from .vlm import encode_frames
+
+
+@dataclass
+class CameraInference:
+    """保留请求对应的原图和配置代次，避免把旧检测框绘制到新画面。"""
+
+    frame: np.ndarray
+    request: SubmittedInference
+    generation: int
+    captured_at: float
 
 
 class InspectionConsumer(BaseFunctionConsumer):
@@ -29,6 +43,8 @@ class InspectionConsumer(BaseFunctionConsumer):
         self._trackers: dict[int, CameraByteTracker] = {}
         self._generations: dict[int, int] = {}
         self._frame_shapes: dict[int, tuple] = {}
+        self._pending_inferences: dict[int, CameraInference] = {}
+        self._prefetch_camera_ids: deque[int] = deque()
 
     def start(self):
         """先启动异步判定服务，检测启动失败时回收其后台线程。"""
@@ -44,6 +60,10 @@ class InspectionConsumer(BaseFunctionConsumer):
         super().stop()
         self.vlm_runtime.stop()
         with self._camera_state_lock:
+            for pending in self._pending_inferences.values():
+                self.cancel_inference(pending.request)
+            self._pending_inferences.clear()
+            self._prefetch_camera_ids.clear()
             self._sessions.clear()
             self._trackers.clear()
             self._frame_shapes.clear()
@@ -51,6 +71,9 @@ class InspectionConsumer(BaseFunctionConsumer):
     def _invalidate(self, camera_id: int):
         """递增配置代次并取消待判定任务，使旧帧和旧结果失效。"""
         self._generations[camera_id] = self._generations.get(camera_id, 0) + 1
+        pending = self._pending_inferences.pop(camera_id, None)
+        if pending is not None:
+            self.cancel_inference(pending.request)
         self._sessions.pop(camera_id, None)
         self._trackers.pop(camera_id, None)
         self._frame_shapes.pop(camera_id, None)
@@ -92,8 +115,45 @@ class InspectionConsumer(BaseFunctionConsumer):
             return active
 
     def _get_roi(self, camera_id, frame):
-        """保留完整帧，由会话管理器分别处理多个安检 ROI。"""
+        """使用提前投递时的完整帧，保持跟踪、关键帧和标注与模型输入一致。"""
+        pending = self._pending_inferences.get(camera_id)
+        if pending is not None:
+            self.frame_cache[camera_id] = pending.frame
+            return pending.frame
         return frame
+
+    def _before_camera_round(self) -> None:
+        """按当前轮询顺序提前投递少量请求，每台摄像头最多保留一个。"""
+        with self._camera_state_lock:
+            self._prefetch_camera_ids = deque(self.config_cache)
+            self._fill_pending_inferences()
+
+    def _fill_pending_inferences(self) -> None:
+        """持有摄像头状态锁；一台完成后补投后续摄像头，避免逐路累计等待。"""
+        while (
+            self.running
+            and self._prefetch_camera_ids
+            and len(self._pending_inferences) < settings.runtime.security_inspection_inflight
+        ):
+            camera_id = self._prefetch_camera_ids.popleft()
+            if camera_id in self._pending_inferences:
+                continue
+            cfg = self.config_cache.get(camera_id)
+            if cfg is None or not self._should_process_now(camera_id, cfg):
+                continue
+            if not self.is_camera_active(cfg["shm_name"]):
+                continue
+            frame = self.latest_frames.get(cfg["shm_name"])
+            if frame is None:
+                continue
+            self._prepare_tracking_state(frame, camera_id)
+            captured_at = time.time()
+            request = self.submit_inference(
+                camera_id, "yolo_human", frame, {name: cfg[name] for name in ("conf", "iou", "imgsz")},
+            )
+            self._pending_inferences[camera_id] = CameraInference(
+                frame, request, self._generations[camera_id], captured_at,
+            )
 
     def _should_process_now(self, camera_id, cfg):
         """仅对启用且配置了安检区域的摄像头按采样周期处理。"""
@@ -107,11 +167,8 @@ class InspectionConsumer(BaseFunctionConsumer):
         """允许静止帧参与交互保持、结束及超时判断。"""
         return True
 
-    def _process(self, frame, camera_id):
-        """人体推理和跟踪后推进 ROI 会话，为已结束会话构造带代次的判定任务。
-
-        分辨率变化或推理失败会清空旧会话，避免混用坐标或跨未知时段形成证据。
-        """
+    def _prepare_tracking_state(self, frame, camera_id):
+        """投递前建立相同分辨率下的跟踪状态，避免收到结果时使自身请求失效。"""
         cfg = self.config_cache[camera_id]
         if self._frame_shapes.get(camera_id) != frame.shape:
             self._invalidate(camera_id)
@@ -122,9 +179,24 @@ class InspectionConsumer(BaseFunctionConsumer):
             tracker = CameraByteTracker(fps=1 / values.cap_interval)
             session = PairSessionManager(values)
             self._sessions[camera_id], self._trackers[camera_id] = session, tracker
-        result = self.dispatch_inference_sync(
-            camera_id, "yolo_human", frame, {name: cfg[name] for name in ("conf", "iou", "imgsz")}
-        )
+
+    def _process(self, frame, camera_id):
+        """接收对应原图的结果后推进会话；推理失败或配置代次变化不沿用旧证据。"""
+        cfg = self.config_cache[camera_id]
+        pending = self._pending_inferences.pop(camera_id, None)
+        if pending is None:
+            self._prepare_tracking_state(frame, camera_id)
+            captured_at = time.time()
+            result = self.dispatch_inference_sync(
+                camera_id, "yolo_human", frame, {name: cfg[name] for name in ("conf", "iou", "imgsz")},
+            )
+        else:
+            if pending.generation != self._generations.get(camera_id):
+                self.cancel_inference(pending.request)
+                return False, {"tracks": [], "tasks": []}
+            frame = self.frame_cache[camera_id] = pending.frame
+            captured_at = pending.captured_at
+            result = self.resolve_inference(pending.request)
         if result["status"] != "ok":
             self._invalidate(camera_id)
             return False, {"tracks": [], "tasks": []}
@@ -145,7 +217,7 @@ class InspectionConsumer(BaseFunctionConsumer):
             for name, points in cfg["staff_rois"].items()
         }
         tasks = []
-        for session in self._sessions[camera_id].step(frame, tracks, rois, time.time()):
+        for session in self._sessions[camera_id].step(frame, tracks, rois, captured_at):
             tasks.append(
                 InspectionTask(
                     session_id=session.session_id,
@@ -172,6 +244,8 @@ class InspectionConsumer(BaseFunctionConsumer):
                 self.vlm_runtime.submit(task)
             else:
                 self._complete(task, None, "摄像头状态或检测配置已变更", None)
+        with self._camera_state_lock:
+            self._fill_pending_inferences()
 
     def post_process(self, camera_id, result):
         """在原帧副本上绘制安检 ROI 和稳定人体轨迹。"""

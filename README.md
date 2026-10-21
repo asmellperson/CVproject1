@@ -130,6 +130,8 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 
 模型名称和 Worker 类型由 `inference/model_registry.py` 固定注册，本机权重路径保存在 `AiVision/config/model_paths.yaml`。同一物理权重且 Worker 类型相同的逻辑模型可以共用进程。保存模型路径后需检查后台重载状态，HTTP `202` 只表示配置已接受。
 
+YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默认 `640`；模型结果恢复为原始 ROI 坐标。Consumer 保留原图用于跟踪、标注和证据，减少队列传图的数据量。
+
 `GET /api/runtime/status` 按功能和摄像头返回推理统计。`last_outcome.timing_ms` 区分输入传输与排队、Worker 执行、结果返回和请求总耗时；公共 Consumer 循环的 `last_frame_timing` 记录读帧、业务处理、画图及实际处理间隔，用于定位多路检测更新缓慢的原因。
 
 ### 警戒围栏
@@ -169,6 +171,8 @@ RTSP → FFmpeg 采集 → 双缓冲共享内存 → 最新帧缓存
 ### 安检流程
 
 `InspectionConsumer` 从平台帧缓存取图，调用共享 `yolo_human`，按命名工位 ROI 跟踪双人交互、生成 session 并抽取关键帧。后台 `InspectionRuntime` 按事业部和摄像头轮询调度福达AI请求，检测线程不等待网络判定。
+
+安检每路最多保留一个人体检测请求，按摄像头顺序提前投递并重叠等待。`SECURITY_INSPECTION_INFLIGHT` 默认 `4`，范围 `1～4`；结果使用投递时的原图、采样时间和配置代次，禁用、离线或配置变化会取消相关请求。
 
 交互候选按轨迹 ID 识别，检测结果排序变化不重置同一人员配对；低帧率下按有效采样间隔折算运动量，过期轨迹不用于启动会话。
 

@@ -37,7 +37,7 @@ class YoloDetectorWorker(BaseModelWorker):
         Args:
             model: 已加载的 YOLO 实例。
             frame: 全帧或 ROI 的 BGR 图像。
-            task_meta: 必须包含 model_name；conf/iou 可覆盖注册表默认值，imgsz 仅在显式提供时传入。
+            task_meta: 必须包含 model_name；conf/iou/imgsz 可覆盖注册表默认值。
 
         Returns:
             list[dict]: 输入图像坐标中的 bbox、confidence、class_id、type；无框返回空列表。
@@ -49,9 +49,8 @@ class YoloDetectorWorker(BaseModelWorker):
         spec = get_model_spec(task_meta["model_name"])
         conf = float(task_meta.get("conf", spec.conf))
         iou = float(task_meta.get("iou", spec.iou))
-        predict_kwargs = {"conf": conf, "iou": iou, "verbose": False}
-        if "imgsz" in task_meta:
-            predict_kwargs["imgsz"] = task_meta["imgsz"]
+        predict_kwargs = {"conf": conf, "iou": iou, "verbose": False,
+                          "imgsz": task_meta.get("imgsz", spec.imgsz)}
         results = model.predict(frame, **predict_kwargs)
         if not results:
             return []

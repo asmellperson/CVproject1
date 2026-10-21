@@ -23,6 +23,7 @@ import time
 from uuid import uuid4
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import cv2
@@ -45,13 +46,27 @@ from AiVision.inference.contracts import (
     INFERENCE_STATUS_UNAVAILABLE,
     build_inference_result,
 )
-from AiVision.inference.result_router import InferenceResultRouter
+from AiVision.inference.input_frames import prepare_inference_task
+from AiVision.inference.result_router import InferenceResultRouter, PendingInference
 
 # 帧差计算不是每个摄像头都比，是每隔4个像素采样一次，降低计算量
 _FRAME_CHANGE_SAMPLE_STEP = 4
 # 高斯模糊核。比较两帧之前先模糊，减少噪点导致的假变化
 _FRAME_CHANGE_BLUR_KERNEL = (5, 5)
 _CONSUMER_STOP_TIMEOUT_SECONDS = 5.0
+_INFERENCE_TIMEOUT_SECONDS = 0.8
+
+
+@dataclass
+class SubmittedInference:
+    """已投递请求的等待信息，不持有输入图像；共享同步和流水线的结果处理。"""
+
+    camera_id: int
+    model_name: str
+    started_at: float
+    deadline_at: float
+    pending: PendingInference | None = None
+    result: dict | None = None
 
 class BaseFunctionConsumer(ABC):
     """
@@ -304,6 +319,7 @@ class BaseFunctionConsumer(ABC):
         """
         while self.running:
             try:
+                self._before_camera_round()
                 # 遍历所有的摄像头
                 for cam_id in list(self.config_cache.keys()):
                     if not self.running:
@@ -379,6 +395,9 @@ class BaseFunctionConsumer(ABC):
 
     def _after_process(self, camera_id: int, result: tuple):
         """状态锁释放后执行；异步功能可在此提交任务，避免拒绝回调在锁内执行。"""
+
+    def _before_camera_round(self) -> None:
+        """轮询摄像头前的扩展点，允许需要连续跟踪的功能提前投递有界请求。"""
 
     def _record_frame_timing(self, camera_id: int, stages: dict[str, float]) -> None:
         """保存最近完整处理帧的分段耗时和实际间隔，不保留图像或历史样本。"""
@@ -727,17 +746,29 @@ class BaseFunctionConsumer(ABC):
         model_name: str,
         roi: np.ndarray,
         task_meta: Optional[dict] = None,
-        timeout: float = 0.8,
+        timeout: float = _INFERENCE_TIMEOUT_SECONDS,
     ) -> dict:
-        """提交推理任务并等待与任务标识匹配的结果。
+        """投递并等待匹配结果，沿用统一错误状态、计时和请求清理。"""
+        request = self.submit_inference(camera_id, model_name, roi, task_meta, timeout)
+        return self.resolve_inference(request)
 
-        先注册等待者再入队，避免快速返回的结果丢失；退出路径统一注销等待者。
-        模型队列缺失、队列拥塞、超时和非法响应均转为统一结果状态，
-        调用方应检查状态后再解释 detections，不能把推理失败当作未检测到目标。
+    def submit_inference(
+        self,
+        camera_id: int,
+        model_name: str,
+        roi: np.ndarray,
+        task_meta: Optional[dict] = None,
+        timeout: float = _INFERENCE_TIMEOUT_SECONDS,
+    ) -> SubmittedInference:
+        """先登记再投递，不等待结果；YOLO 大图在进入进程队列前缩小。
+
+        调用方必须 resolve 或 cancel；单次等待预算从投递准备开始计算，
+        多路请求不能逐个重新累积完整超时。
         """
         import queue as _q
 
         started_at = time.monotonic()
+        request = SubmittedInference(camera_id, model_name, started_at, started_at + timeout)
         request_id = f"{self.feature_name}:{camera_id}:{uuid4().hex}"
         task = {
             **(task_meta or {}),
@@ -749,47 +780,74 @@ class BaseFunctionConsumer(ABC):
             "model_name": model_name,
         }
         if model_name not in self.infer_dict:
-            result = build_inference_result(
+            request.result = build_inference_result(
                 task, status=INFERENCE_STATUS_UNAVAILABLE,
                 error_code=INFERENCE_ERROR_UNAVAILABLE,
                 error_message=f"模型未注册: {model_name}",
             )
         else:
-            pending = None
+            task = prepare_inference_task(task)
             try:
-                result = None
                 with self._inference_submission_lock:
-                    pending = self.result_router.register(task)
+                    pending = request.pending = self.result_router.register(task)
                     if not pending.event.is_set():
                         try:
                             # 必须先注册再投递，结果可能在 put 返回前到达。
                             task["submitted_at_monotonic"] = time.monotonic()
                             self.infer_dict[model_name].put(task, timeout=0.02)
                         except _q.Full:
-                            result = build_inference_result(
+                            request.result = build_inference_result(
                                 task, status=INFERENCE_STATUS_DROPPED,
                                 error_code=INFERENCE_ERROR_QUEUE_FULL, error_message="模型推理队列已满",
                             )
-                if result is None:
-                    result = self.result_router.wait(pending, timeout)
-                if (
-                    result.get("status") not in (INFERENCE_STATUS_OK, *INFERENCE_FAILURE_STATUSES)
-                    or not isinstance(result.get("detections"), list)
-                ):
-                    result = build_inference_result(
-                        task, status=INFERENCE_STATUS_ERROR,
-                        error_code=INFERENCE_ERROR_INVALID_RESULT,
-                        error_message="推理结果必须包含明确的 status 和 detections 列表",
-                    )
-            finally:
-                if pending is not None:
-                    self.result_router.unregister(pending)
+            except Exception:
+                if request.pending is not None:
+                    self.result_router.unregister(request.pending)
+                raise
+        return request
+
+    def resolve_inference(self, request: SubmittedInference) -> dict:
+        """等待请求剩余时间，统一校验结果并注销登记、更新计时和健康统计。"""
+        try:
+            if request.result is not None:
+                result = request.result
+            elif request.pending is not None:
+                result = self.result_router.wait(
+                    request.pending, max(0.0, request.deadline_at - time.monotonic()),
+                )
+            else:
+                raise RuntimeError("推理请求缺少结果与等待对象")
+            if (
+                result.get("status") not in (INFERENCE_STATUS_OK, *INFERENCE_FAILURE_STATUSES)
+                or not isinstance(result.get("detections"), list)
+            ):
+                result = build_inference_result(
+                    result, status=INFERENCE_STATUS_ERROR,
+                    error_code=INFERENCE_ERROR_INVALID_RESULT,
+                    error_message="推理结果必须包含明确的 status 和 detections 列表",
+                )
+        finally:
+            if request.pending is not None:
+                self.result_router.unregister(request.pending)
         returned_at = time.monotonic()
-        result["round_trip_ms"] = round(max(0.0, returned_at - started_at) * 1000, 3)
+        result["round_trip_ms"] = round(max(0.0, returned_at - request.started_at) * 1000, 3)
         completed_at = result.get("completed_at_monotonic")
         result["result_return_ms"] = (
             round(max(0.0, returned_at - completed_at) * 1000, 3)
             if isinstance(completed_at, (int, float)) else None
         )
-        self._record_inference_outcomes(camera_id=camera_id, model_name=model_name, outcomes=[result])
+        self._record_inference_outcomes(
+            camera_id=request.camera_id, model_name=request.model_name, outcomes=[result],
+        )
         return result
+
+    def cancel_inference(self, request: SubmittedInference) -> None:
+        """撤销已失效请求的登记，迟到结果由路由器丢弃，不交给下一帧使用。"""
+        identity = request.result or {}
+        if request.pending is not None:
+            identity = request.pending.identity
+            self.result_router.unregister(request.pending)
+        request.result = build_inference_result(
+            identity, status=INFERENCE_STATUS_UNAVAILABLE,
+            error_code=INFERENCE_ERROR_UNAVAILABLE, error_message="推理请求已取消",
+        )

@@ -166,3 +166,73 @@ def test_timing_snapshots_are_independent_and_camera_removal_clears_them(runtime
     assert consumer.inference_status()["targets"] == []
     assert consumer._last_frame_timings == {}
     assert consumer._last_frame_started_at == {}
+
+
+def test_submitted_requests_match_their_camera_when_resolved_out_of_order(runtime):
+    from AiVision.inference.contracts import build_inference_result
+
+    consumer = runtime.consumer
+    consumer.result_router._state = "running"
+    tasks = []
+    consumer.infer_dict["test_model"] = SimpleNamespace(put=lambda task, timeout: tasks.append(task))
+    first = consumer.submit_inference(7, "test_model", np.zeros((4, 4, 3)))
+    second = consumer.submit_inference(8, "test_model", np.zeros((4, 4, 3)))
+    assert consumer.result_router.snapshot()["pending_count"] == 2
+    for request, task in ((second, tasks[1]), (first, tasks[0])):
+        consumer.result_router._route(build_inference_result(
+            task, status="ok", detections=[{"camera": task["camera_id"]}],
+        ))
+        result = consumer.resolve_inference(request)
+        assert result["detections"] == [{"camera": request.camera_id}]
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+def test_cancel_removes_registration_and_discards_late_result(runtime):
+    from AiVision.inference.contracts import build_inference_result
+
+    consumer = runtime.consumer
+    consumer.result_router._state = "running"
+    tasks = []
+    consumer.infer_dict["test_model"] = SimpleNamespace(put=lambda task, timeout: tasks.append(task))
+    request = consumer.submit_inference(7, "test_model", np.zeros((4, 4, 3)))
+    consumer.cancel_inference(request)
+    consumer.result_router._route(build_inference_result(tasks[0], status="ok"))
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+    assert consumer.result_router.snapshot()["orphan_count"] == 1
+    assert consumer.resolve_inference(request)["status"] == "unavailable"
+
+
+def test_submission_failure_unregisters_request(runtime):
+    consumer = runtime.consumer
+    consumer.result_router._state = "running"
+
+    def fail(task, timeout):
+        raise OSError("测试管道故障")
+
+    consumer.infer_dict["test_model"] = SimpleNamespace(put=fail)
+    with pytest.raises(OSError, match="测试管道故障"):
+        consumer.submit_inference(7, "test_model", np.zeros((4, 4, 3)))
+    assert consumer.result_router.snapshot()["pending_count"] == 0
+
+
+def test_parallel_requests_share_their_original_timeout_budget(runtime, monkeypatch):
+    from AiVision.inference.contracts import build_inference_result
+
+    consumer, clock = runtime.consumer, runtime.clock
+    consumer.result_router._state = "running"
+    consumer.infer_dict["test_model"] = SimpleNamespace(put=lambda *args, **kwargs: None)
+    requests = [consumer.submit_inference(camera, "test_model", np.zeros((4, 4, 3))) for camera in (7, 8, 9)]
+    clock.advance(0.5)
+    waits = []
+
+    def wait(pending, timeout):
+        waits.append(timeout)
+        clock.advance(timeout)
+        return build_inference_result(pending.identity, status="timeout", error_code="inference_timeout")
+
+    monkeypatch.setattr(consumer.result_router, "wait", wait)
+    for request in requests:
+        assert consumer.resolve_inference(request)["status"] == "timeout"
+    assert waits == pytest.approx([0.3, 0.0, 0.0])
+    assert clock.now == pytest.approx(100.8)
+    assert consumer.result_router.snapshot()["pending_count"] == 0

@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod    # ABC 抽象基类
 from typing import Any
 
 from AiVision.core.logger import logger
+from AiVision.inference.input_frames import restore_detection_coordinates
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_MODEL,
     INFERENCE_STATUS_ERROR,
@@ -144,6 +145,7 @@ class BaseModelWorker(ABC):
         started_at = time.perf_counter()
         try:
             detections = self.infer(model, task["frame"], task)
+            detections = restore_detection_coordinates(detections, task)
             # 推理成功，返回camera_id、roi_id、function_name、request_id.....
             return build_inference_result(
                 task,

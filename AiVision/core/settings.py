@@ -135,6 +135,8 @@ class RuntimeSettings(BaseSettings):
     # 限制同时探测和等待首帧的路数，避免离线设备串行拖慢整个平台启动。
     camera_start_workers: int = Field(4, ge=1, le=16, alias="CAMERA_START_WORKERS")
     qwen_max_concurrent_requests: int = Field(3, ge=1, le=16, alias="QWEN_MAX_CONCURRENT_REQUESTS")
+    # 为其他功能保留共享模型队列空间，安检最多提前投递四路。
+    security_inspection_inflight: int = Field(4, ge=1, le=4, alias="SECURITY_INSPECTION_INFLIGHT")
     assistant_workers: int = Field(1, ge=1, le=4, alias="ASSISTANT_WORKERS")
     assistant_queue_capacity: int = Field(16, ge=1, le=64, alias="ASSISTANT_QUEUE_CAPACITY")
     assistant_max_rounds: int = Field(24, ge=1, le=48, alias="ASSISTANT_MAX_ROUNDS")

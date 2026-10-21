@@ -25,7 +25,7 @@ class ModelSpec:
 
     name 是队列和业务依赖使用的标识；worker_class 决定推理实现。
     class_filter=None 表示不过滤类别，class_labels 可按类别覆盖 type_label。
-    conf/iou 是任务未显式提供时的默认值；type 用于权重路径和模型类型校验。
+    conf/iou/imgsz 是任务未显式提供时的默认值；type 用于权重路径和模型类型校验。
     """
     name: str
     worker_class: type
@@ -35,6 +35,7 @@ class ModelSpec:
     iou: float = 0.5
     type: str = "yolo"
     class_labels: tuple[tuple[int, str], ...] = ()
+    imgsz: int = 640
 
 # 固定模型注册表
 MODEL_SPECS = MappingProxyType({
