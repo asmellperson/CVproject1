@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.features._shared.roi import LINE_ADAPTER
+from AiVision.features._shared.line_overlay import ALARM_SIDE_COLOR, draw_direction_line
 
 
 class BlocksConsumer(BaseFunctionConsumer):
@@ -125,31 +126,10 @@ class BlocksConsumer(BaseFunctionConsumer):
 
     @staticmethod
     def _draw_line(frame: np.ndarray, line_points: list[list[float]], alarm_side: int):
-        """画警戒线和箭头"""
+        """青色边界与独立的琥珀色方向标记表示警戒线和报警侧。"""
         if len(line_points) != 2:
             cv2.putText(frame, "line not configured", (16, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
             return
 
-        a = np.array(line_points[0], dtype=np.float32)
-        b = np.array(line_points[1], dtype=np.float32)
-        p1 = tuple(np.round(a).astype(int).tolist())
-        p2 = tuple(np.round(b).astype(int).tolist())
-        cv2.line(frame, p1, p2, (0, 0, 255), 3)
-
-        direction = b - a
-        # normal是垂直于警戒线的方向
-        normal = np.array([-direction[1], direction[0]], dtype=np.float32)
-        # alarm_side < 0
-        if alarm_side < 0:
-            # 就把方向翻转
-            normal = -normal
-        norm = float(np.linalg.norm(normal))
-        if norm <= 1e-6:
-            return
-        normal = normal / norm
-        mid = (a + b) / 2.0
-        arrow_start = tuple(np.round(mid).astype(int).tolist())
-        arrow_end = tuple(np.round(mid + normal * 72.0).astype(int).tolist())
-        # 箭头指向当前配置的报警侧
-        cv2.arrowedLine(frame, arrow_start, arrow_end, (0, 0, 255), 3, tipLength=0.35)
-        cv2.putText(frame, "alarm side", arrow_end, cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+        direction = -1 if alarm_side < 0 else 1
+        draw_direction_line(frame, line_points, (direction,), direction_color=ALARM_SIDE_COLOR)

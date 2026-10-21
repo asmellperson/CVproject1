@@ -210,6 +210,8 @@ export function AiVisionRoiEditor({
     : points
   const polyline = displayPoints.map((point) => `${point.x},${point.y}`).join(' ')
   const bbox = displayPoints.length ? pointsToRect(displayPoints) : []
+  const BoundaryShape = displayPoints.length > 2 ? 'polygon' : 'polyline'
+  const handleSize = imageSize ? Math.max(imageSize.width, imageSize.height) * 0.012 : 10
 
   const useFullFrame = () => {
     if (!imageSize) return
@@ -281,15 +283,16 @@ export function AiVisionRoiEditor({
             >
               {displayPoints.length > 0 ? (
                 <>
-                  {displayPoints.length > 2 ? (
-                    <polygon points={polyline} fill="rgba(14, 165, 233, 0.24)" stroke="rgb(14, 165, 233)" strokeWidth="4" />
-                  ) : (
-                    <polyline points={polyline} fill="none" stroke="rgb(14, 165, 233)" strokeWidth="4" />
-                  )}
+                  <BoundaryShape points={polyline} fill={displayPoints.length > 2 ? 'rgba(34, 211, 238, 0.08)' : 'none'}
+                    stroke="rgba(15, 23, 42, 0.7)" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                  <BoundaryShape points={polyline} fill="none" stroke="rgb(34, 211, 238)" strokeWidth="2"
+                    strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
                   {displayPoints.map((point, index) => (
                     <g key={`${point.x}-${point.y}-${index}`}>
-                      <circle cx={point.x} cy={point.y} r="9" fill="rgb(14, 165, 233)" stroke="white" strokeWidth="3" />
-                      <text x={point.x} y={point.y + 4} textAnchor="middle" fontSize="12" fill="white">
+                      <rect x={point.x - handleSize / 2} y={point.y - handleSize / 2} width={handleSize} height={handleSize}
+                        rx={handleSize * 0.16} fill="rgb(34, 211, 238)" stroke="rgb(224, 242, 254)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                      <text x={point.x + handleSize} y={point.y - handleSize * 0.7} fontSize={handleSize * 1.25}
+                        fill="white" stroke="rgb(15, 23, 42)" strokeWidth={handleSize * 0.24} strokeLinejoin="round" paintOrder="stroke">
                         {index + 1}
                       </text>
                     </g>

@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from AiVision.features._shared.roi import roi_to_pixels
+from AiVision.features._shared.line_overlay import BOUNDARY_COLOR, draw_direction_line
 from .schema import TailgatingValue
 
 
@@ -19,16 +20,11 @@ def render_preview(frame, state: PreviewState, *, now: float):
     annotated = frame.copy()
     if state.value.roi_pos:
         polygon = roi_to_pixels(state.value.roi_pos, frame.shape)
-        cv2.polylines(annotated, [polygon], True, (238, 211, 34), 2)
+        cv2.polylines(annotated, [polygon], True, BOUNDARY_COLOR, 1, lineType=cv2.LINE_AA)
     if state.value.line_points:
         points = np.array(state.value.line_points) * [frame.shape[1], frame.shape[0]]
-        a, b = points
-        cv2.line(annotated, tuple(a.astype(int)), tuple(b.astype(int)), (0, 180, 255), 2)
-        normal = np.array([-(b - a)[1], (b - a)[0]])
-        normal = normal / np.linalg.norm(normal) * 50
-        middle = (a + b) / 2
-        for direction in ((-1, 1) if state.value.direction == 0 else (state.value.direction,)):
-            cv2.arrowedLine(annotated, tuple(middle.astype(int)), tuple((middle + direction * normal).astype(int)), (0, 180, 255), 2)
+        directions = (-1, 1) if state.value.direction == 0 else (state.value.direction,)
+        draw_direction_line(annotated, points, directions)
     detail = state.detail
     if (detail is None or detail["reason"] in ("sampling_gap", "inference_error")
             or not 0 <= now - detail["updated_at_s"] <= state.value.max_frame_gap_seconds
