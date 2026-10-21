@@ -10,6 +10,10 @@ from .geometry import bbox_in_roi
 from .schema import InspectionValue
 
 
+_MOTION_WINDOW_SECONDS = 1.0
+_TRACK_HISTORY_TTL_SECONDS = 5.0
+
+
 def bbox_center(box):
     """返回人体框中心，供配对距离及运动量计算。"""
     x1, y1, x2, y2 = box
@@ -150,21 +154,28 @@ class PairSessionManager:
             box = [t["x1"], t["y1"], t["x2"], t["y2"]]
             st.track_hists[tid].boxes.append((now, box))
             st.track_hists[tid].last_seen = now
-        stale = [tid for tid, th in st.track_hists.items() if now - th.last_seen > 5.0]
+        stale = [tid for tid, th in st.track_hists.items() if now - th.last_seen > _TRACK_HISTORY_TTL_SECONDS]
         for tid in stale:
             del st.track_hists[tid]
 
     def _recent_motion(self, st: RoiState, tid, now):
-        """使用最近一秒内的首末中心位移衡量运动量。"""
+        """优先使用一秒内位移；稀疏采样按实际间隔折算，避免慢轮询始终返回零。"""
         th = st.track_hists.get(tid)
         if th is None or len(th.boxes) < 2:
             return 0.0
-        recent = [b for ts, b in th.boxes if now - ts <= 1.0]
+        recent = [(ts, box) for ts, box in th.boxes if now - ts <= _MOTION_WINDOW_SECONDS]
         if len(recent) < 2:
+            recent = list(th.boxes)[-2:]
+        first_ts, first_box = recent[0]
+        last_ts, last_box = recent[-1]
+        elapsed = last_ts - first_ts
+        if elapsed <= 0 or elapsed > _TRACK_HISTORY_TTL_SECONDS or now - last_ts > _MOTION_WINDOW_SECONDS:
             return 0.0
-        cx0, cy0 = bbox_center(recent[0])
-        cx1, cy1 = bbox_center(recent[-1])
-        return ((cx1 - cx0) ** 2 + (cy1 - cy0) ** 2) ** 0.5
+        cx0, cy0 = bbox_center(first_box)
+        cx1, cy1 = bbox_center(last_box)
+        distance = ((cx1 - cx0) ** 2 + (cy1 - cy0) ** 2) ** 0.5
+        # 长间隔位移须折算到一秒，不能把缓慢移动累积成一次明显交互。
+        return distance * min(1.0, _MOTION_WINDOW_SECONDS / elapsed)
 
     def _find_interacting_pair(self, st: RoiState, tracks_in_roi, now):
         """根据相对距离与运动差异选择最可信的双人交互候选。"""
@@ -195,7 +206,8 @@ class PairSessionManager:
                 score = 1.0 / (1.0 + abs(dist_ratio - 0.8)) * (1.0 + motion_diff / max(motion_a + motion_b, 1.0))
                 if score > best_score:
                     best_score = score
-                    best = (a["track_id"], b["track_id"])
+                    # 检测排序变化不代表交互对象改变，候选身份按轨迹 ID 固定顺序。
+                    best = tuple(sorted((a["track_id"], b["track_id"])))
         return best
 
     def _refind_by_fingerprint(self, frame, sess: PairSession, tracks_in_roi):
