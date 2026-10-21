@@ -126,7 +126,7 @@ class InspectionService:
             return (row.image_data, row.media_type) if row is not None else None
 
     def history(self, department: str, *, camera_id: int | None, limit: int, offset: int) -> dict:
-        """统计和分页共用滚动保留窗口，列表不加载图片二进制内容。"""
+        """取消会话独立统计，历史分页仍保留窗口内的全部会话且不加载图片内容。"""
         with get_session() as session:
             query = session.query(InspectionSession).filter(
                 InspectionSession.department == department, InspectionSession.started_at >= self.retention_cutoff(),
@@ -137,6 +137,7 @@ class InspectionService:
                 query.with_entities(InspectionSession.status, func.count()).group_by(InspectionSession.status).all()
             )
             compliant, non_compliant = counts.get("compliant", 0), counts.get("non_compliant", 0)
+            cancelled = counts.get("cancelled", 0)
             has_image = session.query(InspectionSessionImage.session_id).filter(
                 InspectionSessionImage.session_id == InspectionSession.session_id,
             ).exists()
@@ -146,11 +147,11 @@ class InspectionService:
             return {
                 "retention_days": settings.storage.alarm_media_retention_days,
                 "stats": {
-                    "total": sum(counts.values()),
+                    "total": sum(counts.values()) - cancelled,
                     "compliant": compliant,
                     "non_compliant": non_compliant,
                     "error": counts.get("error", 0),
-                    "cancelled": counts.get("cancelled", 0),
+                    "cancelled": cancelled,
                     "rate": round(compliant * 100 / (compliant + non_compliant), 1)
                     if compliant + non_compliant
                     else 0.0,

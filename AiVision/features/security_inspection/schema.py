@@ -112,12 +112,12 @@ class InspectionVerdict(StrictModel):
 
 
 class InspectionStats(BaseModel):
-    """查询范围内的全部会话统计，合规率只基于成功判定。"""
-    total: int
+    """取消会话独立统计，合规率只基于成功判定。"""
+    total: int = Field(description="安检总数，包含合规、不合规和判定失败，不含已取消会话")
     compliant: int
     non_compliant: int
     error: int
-    cancelled: int
+    cancelled: int = Field(description="已取消会话数，保留在历史中但不计入安检总数")
     rate: float
 
 
@@ -138,7 +138,7 @@ class SessionResponse(BaseModel):
 
 
 class HistoryResponse(BaseModel):
-    """统计独立于分页，items 只包含当前页。"""
+    """统计独立于分页；历史记录数为 stats.total 与 stats.cancelled 之和。"""
     stats: InspectionStats
     items: list[SessionResponse]
     retention_days: int

@@ -20,11 +20,13 @@ export function InspectionHistory({ department, cameras }: { department: Departm
   useSerialPoll(async (signal) => {
     const next = await getInspectionHistory(department, size, page * size, cameraId === 'all' ? undefined : Number(cameraId), signal)
     if (signal.aborted) return
-    const lastPage = Math.max(0, Math.ceil(next.stats.total / size) - 1)
+    // 取消会话仍留在历史中，分页必须包含这部分记录。
+    const lastPage = Math.max(0, Math.ceil((next.stats.total + next.stats.cancelled) / size) - 1)
     if (page > lastPage) { setPage(lastPage); setData(null); setError(''); return }
     setData(next); setError('')
   }, { intervalMs: 4000, timeoutMs: 10000, restartKey: `${department}:${page}:${size}:${cameraId}`,
     onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)) })
+  const recordCount = data ? data.stats.total + data.stats.cancelled : 0
   const status = { compliant: '合规', non_compliant: '不合规', error: '判定失败', cancelled: '已取消' }
   return <Card>
     <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -56,14 +58,14 @@ export function InspectionHistory({ department, cameras }: { department: Departm
         {!data?.items.length && <TableRow><TableCell colSpan={7} className="h-24 text-center text-slate-500">{data ? '暂无判定结果' : error ? '读取失败' : '加载中…'}</TableCell></TableRow>}
       </TableBody></Table>
       <div className="mt-4 flex items-center justify-between gap-3 text-sm text-slate-500">
-        <span>共 {data?.stats.total ?? 0} 条</span>
+        <span>共 {recordCount} 条{data && data.stats.cancelled > 0 && `（含取消 ${data.stats.cancelled} 条）`}</span>
         <div className="flex items-center gap-3">
           <Select value={String(size)} onValueChange={(value) => { setSize(Number(value)); setPage(0); setData(null) }}>
             <SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent>{[10,20,50].map((value) => <SelectItem key={value} value={String(value)}>{value} 条 / 页</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" disabled={page === 0} onClick={() => { setPage(page - 1); setData(null) }}>上一页</Button>
           <span>{page + 1}</span>
-          <Button variant="outline" disabled={!data || (page + 1) * size >= data.stats.total} onClick={() => { setPage(page + 1); setData(null) }}>下一页</Button>
+          <Button variant="outline" disabled={!data || (page + 1) * size >= recordCount} onClick={() => { setPage(page + 1); setData(null) }}>下一页</Button>
         </div>
       </div>
     </CardContent>

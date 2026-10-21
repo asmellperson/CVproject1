@@ -938,7 +938,7 @@ SIP 喇叭间隔为 `0` 时不加设备层冷却，同台待播或在播请求�
 
 历史状态为 `compliant`、`non_compliant`、`error`、`cancelled`。只有不合规结果触发类型 `12` 的业务告警，错误不会冒充不合规；各工位独立冷却。历史写入和网络请求均避免长时间占用摄像头状态锁。
 
-会话、统计和证据读取统一按 `started_at` 过滤滚动最近 31 天。合规率为合规数除以合规数与不合规数之和，失败和取消只计入总量。过期会话按时间索引每批 500 条删除，关联数据库图片同步删除；分页和统计不会加载 BLOB。
+会话、统计和证据读取统一按 `started_at` 过滤滚动最近 31 天。`stats.total` 包含合规、不合规和判定失败；修改 ROI 等操作产生的取消会话计入 `stats.cancelled` 并保留历史，不计入安检总数。合规率为合规数除以合规数与不合规数之和。历史分页条数为 `stats.total + stats.cancelled`。过期会话按时间索引每批 500 条删除，关联数据库图片同步删除；分页和统计不会加载 BLOB。
 
 `evidence.py` 将会话关键帧拼图编码为 JPEG，`service.py` 将不合规会话与 `ai_security_inspection_session_image.image_data` 在同一事务中保存。图片表以 `session_id` 为主键及级联外键，`media_type` 为 `image/jpeg`，MySQL 类型为 `MEDIUMBLOB`。缺图或写入失败时事务不提交，并由运行时记录保存失败。SQL 通知开关、告警冷却及磁盘媒体清理不影响这份证据；统一报警通道仍按各自配置分发。
 
