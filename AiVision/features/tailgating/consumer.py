@@ -137,5 +137,5 @@ class TailgatingConsumer(BaseFunctionConsumer):
     def _alarm_context(self, camera_id, result):
         event = result[1]
         return {"cooldown_subject_type": "tailgating_event", "cooldown_subject_id": f'{camera_id}:{event["id"]}',
-                "reason": "同向通过计数线且在闸机区域内共同出现",
+                "reason": "过闸判定线检测到多人同向通行且在闸机区域内共同出现",
                 "metadata": {"tailgating": event}}

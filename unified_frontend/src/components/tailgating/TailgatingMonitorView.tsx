@@ -84,7 +84,7 @@ export function TailgatingMonitorView({ department, cameras, selectedCamera, loa
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
-            {status?.reason === 'unconfigured' && <p className="text-sm text-amber-700 dark:text-amber-400">请在配置管理中绘制并保存 ROI 和计数线。</p>}
+            {status?.reason === 'unconfigured' && <p className="text-sm text-amber-700 dark:text-amber-400">请在配置管理中绘制并保存 ROI 和过闸判定线。</p>}
             {status?.events.map((event) => <div
               key={event.id}
               className="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">

@@ -21,6 +21,7 @@ type AiVisionRoiEditorProps = {
   title: string
   cameraKey: string
   mode?: RoiMode
+  lineLabel?: string
   roiJson: string
   disabled?: boolean
   saving?: boolean
@@ -72,6 +73,7 @@ export function AiVisionRoiEditor({
   title,
   cameraKey,
   mode = 'polygon',
+  lineLabel = '警戒线',
   roiJson,
   disabled,
   saving,
@@ -236,7 +238,7 @@ export function AiVisionRoiEditor({
         icon={MousePointer2}
         tone="rose"
         title={title}
-        description="在实际摄像头画面上绘制区域；保存后会随码流分辨率自动适配。"
+        description={`在实际摄像头画面上绘制${mode === 'line' ? lineLabel : '区域'}；保存后会随码流分辨率自动适配。`}
         actions={(
           <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setNonce(Date.now())} disabled={!cameraKey}>
             <RefreshCw className="h-4 w-4" />
@@ -305,11 +307,11 @@ export function AiVisionRoiEditor({
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
           <div className="min-w-0 text-sm text-slate-600">
-            <div>{message || (mode === 'line' ? '警戒线修改后点击保存配置生效。' : 'ROI 修改后点击保存配置生效。')}</div>
+            <div>{message || (mode === 'line' ? `${lineLabel}修改后点击保存配置生效。` : 'ROI 修改后点击保存配置生效。')}</div>
             <div className="mt-1 font-mono text-xs text-slate-500">
               {mode === 'line'
                 ? points.length === 2
-                  ? `警戒线: [${Math.round(points[0].x)}, ${Math.round(points[0].y)}] -> [${Math.round(points[1].x)}, ${Math.round(points[1].y)}]`
+                  ? `${lineLabel}: [${Math.round(points[0].x)}, ${Math.round(points[0].y)}] -> [${Math.round(points[1].x)}, ${Math.round(points[1].y)}]`
                   : `端点数: ${points.length}/2`
                 : points.length === 0 && !coordinateError
                 ? emptyRoiLabel
@@ -348,7 +350,7 @@ export function AiVisionRoiEditor({
             ) : null}
             <Button className="gap-2" onClick={onSave} disabled={disabled || saving || !canSave}>
               <Save className="h-4 w-4" />
-              {saving ? '保存中' : mode === 'line' ? '保存警戒线' : '保存ROI'}
+              {saving ? '保存中' : mode === 'line' ? `保存${lineLabel}` : '保存ROI'}
             </Button>
           </div>
         </div>

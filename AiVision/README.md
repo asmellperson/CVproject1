@@ -769,15 +769,15 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 ### 7.9 非法闯闸：`tailgating`
 
-`features/tailgating/` 分离配置契约与 ORM、纯轨迹判定、Consumer、预览绘制和状态查询。`TailgatingConsumer` 复用 `yolo_human` 与公共 `IouTracker`，跟踪完整画面，按人体框内可配置的脚底参考点判断 ROI 和计数线位置。
+`features/tailgating/` 分离配置契约与 ORM、纯轨迹判定、Consumer、预览绘制和状态查询。`TailgatingConsumer` 复用 `yolo_human` 与公共 `IouTracker`，跟踪完整画面，按人体框内可配置的脚底参考点判断 ROI 和过闸判定线位置。
 
 `features/_shared/line_overlay.py` 为区域入侵和非法闯闸共用线条绘制：青色边界带抗锯齿和细暗描边，短双箭头与边界分离，并沿原有有序端点的法向表示方向。浅色标记表示闸机通行方向，双向监测时在线两侧显示；琥珀色标记表示区域入侵报警侧。标记尺寸随画面短边缩放。
 
-两个不同轨迹必须在同一 ROI 内连续共同出现，并且在同一次通行中沿相同方向跨越有限计数线，才形成报警。只看见两人、只有一人过线、方向相反、只跨越线段延长线或没有共同出现均不报警。计数线两侧使用小范围抖动容差；折返和重新进入 ROI 建立新的通行标识。丢失轨迹不计入共同出现时间，推理失败、实际采样间隔过大、配置或分辨率变化会清除旧证据。
+两个不同轨迹必须在同一 ROI 内连续共同出现，并且在同一次通行中沿相同方向跨越过闸判定线的有效线段，才形成报警。只看见两人、只有一人过线、方向相反、只跨越线段延长线或没有共同出现均不报警。过闸判定线两侧使用小范围抖动容差；折返和重新进入 ROI 建立新的通行标识。丢失轨迹不计入共同出现时间，推理失败、实际采样间隔过大、配置或分辨率变化会清除旧证据。
 
 | 配置字段 | 默认值 | 含义 |
 | --- | --- | --- |
-| `roi_pos`、`line_points` | 空数组 | ROI 与计数线均配置后开始检测 |
+| `roi_pos`、`line_points` | 空数组 | ROI 与过闸判定线均配置后开始检测 |
 | `direction` | `1` | 沿线段正法向；`-1` 反向，`0` 双向分别判断 |
 | `overlap_seconds` | `0.3` | 连续共同出现的最短确认时间 |
 | `crossing_window_seconds` | `3.0` | 共同出现结束后保留通行关联的时间 |
@@ -1021,7 +1021,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 | 用户与访问审计 | `auth_users`、`auth_access_viewers` | 项目根目录 `auth/` 模块，与业务共享 MySQL |
 | 保安室 | `ai_guard_behavior_site`、`ai_guard_behavior_site_camera` 等 | Site、成员、规则和告警策略 |
 | 围栏配置与独立白名单 | `ai_camera_config_security_fence` | 逐摄像头时段、ROI、人员引用及报警策略 |
-| 非法闯闸配置 | `ai_camera_config_tailgating` | ROI、计数线、方向、共同出现确认与报警策略 |
+| 非法闯闸配置 | `ai_camera_config_tailgating` | ROI、过闸判定线、方向、共同出现确认与报警策略 |
 | 安检会话 | `ai_security_inspection_session` | 合规、不合规、错误、取消及判定详情 |
 | 安检数据库图片 | `ai_security_inspection_session_image` | 与不合规 session 一对一关联的 JPEG 二进制，随会话过期删除 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` | 摄像头参数、观察结果、问答及处理错误 |

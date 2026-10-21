@@ -40,7 +40,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
       <DetectionConfigTab value="camera" icon={Camera}>摄像头</DetectionConfigTab>
       <DetectionConfigTab value="params" icon={SlidersHorizontal}>检测参数</DetectionConfigTab>
       <DetectionConfigTab value="roi" icon={MousePointer2}>ROI 配置</DetectionConfigTab>
-      <DetectionConfigTab value="line" icon={Waypoints}>计数线</DetectionConfigTab>
+      <DetectionConfigTab value="line" icon={Waypoints}>过闸判定线</DetectionConfigTab>
       <DetectionConfigTab value="model" icon={Box}>模型配置</DetectionConfigTab>
       <DetectionConfigTab value="alarm" icon={Bell}>报警推送</DetectionConfigTab>
     </>}>
@@ -63,7 +63,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
             icon={SlidersHorizontal}
             tone="emerald"
             title="非法闯闸判定"
-            description="两个不同人员同向通过计数线，并在 ROI 内共同出现达到确认时间，才触发报警。" />
+            description="两名人员在 ROI 内共同出现达到确认时间，并沿相同方向通过过闸判定线，才触发报警。" />
           <DetectionConfigCardContent className="grid gap-5 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tailgating-camera">摄像头</Label>
@@ -85,7 +85,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">沿计数线箭头方向</SelectItem>
+                    <SelectItem value="1">沿过闸判定线标示方向</SelectItem>
                     <SelectItem value="-1">反向（箭头随配置调整）</SelectItem>
                     <SelectItem value="0">双向监测，分别判定</SelectItem>
                   </SelectContent>
@@ -104,7 +104,7 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
                   onChange={(event) => update((current) => ({ ...current, numbers: { ...current.numbers, [key]: event.target.value } }))} />
               </div>)}
             </>}
-            <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">请先保存 ROI 和计数线，再在监控画面核对箭头。共同出现结束后，关联窗口用于等待双方完成过线；采样间隔过大或推理失败时重新建立通行状态。</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 md:col-span-2">请先保存 ROI 和过闸判定线，再在监控画面核对方向标记。共同出现结束后，关联窗口用于等待双方完成过线；采样间隔过大或推理失败时重新建立通行状态。</p>
           </DetectionConfigCardContent>
         </Card>{saveBar}
       </FeatureConfigGate>
@@ -114,7 +114,8 @@ export function TailgatingConfigView({ department }: { department: DepartmentId 
         {draft && <Suspense fallback={<p>正在加载区域编辑器…</p>}>
           <AiVisionRoiEditor
             key={`${cameraKey}:${kind}`}
-            title={kind === 'roi' ? '闸机通道 ROI' : '闸机通行计数线'}
+            title={kind === 'roi' ? '闸机通道 ROI' : '过闸判定线'}
+            lineLabel="过闸判定线"
             cameraKey={cameraKey}
             mode={kind === 'line' ? 'line' : 'polygon'}
             roiJson={draft[kind]}
