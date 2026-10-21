@@ -298,6 +298,19 @@ ROI 是要检测的图像区域，配置字段为 `value.roi_pos`。
 
 公共基类对发生变化的画面可提前处理，`cap_interval` 不能统一理解为所有功能的严格限频器。人脸身份识别和安检通过 `_should_process_now()` 额外限制采样间隔；物流通道还受成员关系和通道检测时段约束。
 
+`GET /api/runtime/status` 的 `inference.consumers.{feature}.targets` 保留各摄像头最近的计时结果，所有耗时单位均为毫秒：
+
+| 字段 | 含义 |
+| --- | --- |
+| `last_outcome.timing_ms.input_wait` | 同步请求投递至本机 Worker 开始执行，包含数组传输、反序列化和模型排队 |
+| `last_outcome.timing_ms.worker` | Worker 执行耗时，包含模型实现中的预处理、推理和结果转换，并非单独的 GPU 计算时间 |
+| `last_outcome.timing_ms.result_return` | Worker 完成至同步调用返回，包含结果传输和路由唤醒 |
+| `last_outcome.timing_ms.round_trip` | 整次同步调用耗时，包含本地登记、投递和等待 |
+| `last_frame_timing` | 公共循环最近完整帧的锁等待、状态检查、读帧、准备、业务处理、画图、发布与告警、锁外回调及总耗时 |
+| `last_frame_timing.interval_ms` | 同一路相邻两次已完成帧处理的开始时间间隔，包含轮询其他摄像头的时间；首帧为 `null` |
+
+未测量的推理阶段返回 `null`；帧计时仅在公共循环完成一帧后更新。统计只保留最近结果，不保存图像或计时历史，目标仍按用户授权的摄像头与功能过滤。
+
 ### 4.5 前端看到什么
 
 - `GET /api/cameras/{key}/frame.jpg`：读取原始帧，用于 ROI 等配置。
@@ -430,6 +443,8 @@ yolo_human 输入队列 ─┐
   "error_code": null,
   "error_message": null,
   "inference_ms": 18.2,
+  "input_wait_ms": 4.5,
+  "completed_at_monotonic": 1000.0182,
   "detections": [
     {"bbox": [20.0, 30.0, 100.0, 210.0], "confidence": 0.92, "class_id": 0, "type": "person"}
   ]

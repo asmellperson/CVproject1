@@ -116,6 +116,8 @@ class BaseFunctionConsumer(ABC):
         self._inference_last_status: dict[tuple[str, int], dict] = {}
         # 最近一次异常通知时间
         self._inference_last_alert_at: dict[tuple[str, int], float] = {}
+        self._last_frame_timings: dict[int, dict] = {}
+        self._last_frame_started_at: dict[int, float] = {}
         # 读或改inference status时加锁
         self._inference_status_lock = threading.Lock()
         # RLock允许同一个线程重复进入
@@ -279,6 +281,8 @@ class BaseFunctionConsumer(ABC):
             self.result_dict.pop(shm_name, None)
             self.result_updated_at.pop(shm_name, None)
         with self._inference_status_lock:
+            self._last_frame_timings.pop(camera_id, None)
+            self._last_frame_started_at.pop(camera_id, None)
             for cache in (
                 self._inference_outcome_counts_by_target, self._inference_consecutive_failures,
                 self._inference_last_status, self._inference_last_alert_at,
@@ -304,13 +308,17 @@ class BaseFunctionConsumer(ABC):
                 for cam_id in list(self.config_cache.keys()):
                     if not self.running:
                         break
+                    frame_started_at = time.monotonic()
                     with self._camera_state_lock:
+                        state_locked_at = time.monotonic()
                         cfg = self.config_cache.get(cam_id, {})
                         cam_name = cfg.get("shm_name")
                         if not cam_name or not self.is_camera_active(cam_name):
                             continue
 
+                        read_started_at = time.monotonic()
                         frame = self.latest_frames.get(cam_name)
+                        frame_ready_at = time.monotonic()
                         if frame is None:
                             continue
 
@@ -334,18 +342,34 @@ class BaseFunctionConsumer(ABC):
                         ):
                             continue
                         # 真正进入子类业务
+                        process_started_at = time.monotonic()
                         result = self._process(roi, cam_id)
+                        processed_at = time.monotonic()
                         # 更新最后处理时间
                         self._last_process_at[cam_id] = now
                         # 子类负责画检测框、画ROI、写人数、写状态文字
                         annotated = self.post_process(cam_id, result)
+                        annotated_at = time.monotonic()
                         # 保存前端预览
                         self.result_dict[cam_name] = annotated
                         # 保存更新时间
                         self.result_updated_at[cam_name] = time.time()
                         # _process：得到业务结果，post_process:得到标注画面，_handle_alarm:决定是否发AlarmRequest
                         self._handle_alarm(cam_id, result, annotated)
+                        published_at = time.monotonic()
                     self._after_process(cam_id, result)
+                    finished_at = time.monotonic()
+                    self._record_frame_timing(cam_id, {
+                        "start": frame_started_at,
+                        "lock_wait": state_locked_at,
+                        "state_check": read_started_at,
+                        "frame_read": frame_ready_at,
+                        "prepare": process_started_at,
+                        "process": processed_at,
+                        "post_process": annotated_at,
+                        "publish_alarm": published_at,
+                        "after_process": finished_at,
+                    })
 
                 time.sleep(0.05)
             except Exception:
@@ -355,6 +379,27 @@ class BaseFunctionConsumer(ABC):
 
     def _after_process(self, camera_id: int, result: tuple):
         """状态锁释放后执行；异步功能可在此提交任务，避免拒绝回调在锁内执行。"""
+
+    def _record_frame_timing(self, camera_id: int, stages: dict[str, float]) -> None:
+        """保存最近完整处理帧的分段耗时和实际间隔，不保留图像或历史样本。"""
+        started_at = previous_at = stages["start"]
+        timing = {"updated_at": time.time()}
+        for name, completed_at in stages.items():
+            if name != "start":
+                timing[f"{name}_ms"] = round(max(0.0, completed_at - previous_at) * 1000, 3)
+            previous_at = completed_at
+        timing["total_ms"] = round(max(0.0, previous_at - started_at) * 1000, 3)
+        with self._inference_status_lock:
+            # 删除摄像头可能发生在锁外回调期间，不能重新建立已清理的统计。
+            if camera_id not in self.config_cache:
+                return
+            last_started_at = self._last_frame_started_at.get(camera_id)
+            timing["interval_ms"] = (
+                round(max(0.0, started_at - last_started_at) * 1000, 3)
+                if last_started_at is not None else None
+            )
+            self._last_frame_started_at[camera_id] = started_at
+            self._last_frame_timings[camera_id] = timing
 
     #  抽象方法（子类必须实现）
     @abstractmethod
@@ -433,13 +478,20 @@ class BaseFunctionConsumer(ABC):
                 self.inference_outcome_counts[status] += 1
                 target_counts[status] += 1
 
+            last_outcome = failures[-1] if failures else outcomes[-1]
+            self._inference_last_status[target] = {
+                "status": str(last_outcome.get("status") or "unknown") if failures else INFERENCE_STATUS_OK,
+                "error_code": last_outcome.get("error_code") if failures else None,
+                "updated_at": time.time(),
+                "timing_ms": {
+                    "input_wait": last_outcome.get("input_wait_ms"),
+                    "worker": last_outcome.get("inference_ms"),
+                    "result_return": last_outcome.get("result_return_ms"),
+                    "round_trip": last_outcome.get("round_trip_ms"),
+                },
+            }
             if not failures:
                 self._inference_consecutive_failures[target] = 0
-                self._inference_last_status[target] = {
-                    "status": INFERENCE_STATUS_OK,
-                    "error_code": None,
-                    "updated_at": time.time(),
-                }
                 return
 
             consecutive = self._inference_consecutive_failures[target] + 1
@@ -447,12 +499,6 @@ class BaseFunctionConsumer(ABC):
             failure_counts: dict[str, int] = defaultdict(int)
             for outcome in failures:
                 failure_counts[str(outcome.get("status") or "unknown")] += 1
-            last_failure = failures[-1]
-            self._inference_last_status[target] = {
-                "status": str(last_failure.get("status") or "unknown"),
-                "error_code": last_failure.get("error_code"),
-                "updated_at": time.time(),
-            }
 
             threshold = settings.runtime.inference_alert_consecutive_failures
             last_alert_at = self._inference_last_alert_at.get(target)
@@ -488,6 +534,9 @@ class BaseFunctionConsumer(ABC):
                 self._inference_outcome_counts_by_target.items(),
                 key=lambda item: (item[0][0], item[0][1]),
             ):
+                last_outcome = dict(self._inference_last_status.get((model_name, camera_id), {}))
+                if "timing_ms" in last_outcome:
+                    last_outcome["timing_ms"] = dict(last_outcome["timing_ms"])
                 targets.append({
                     "model_name": model_name,
                     "camera_id": camera_id,
@@ -496,7 +545,8 @@ class BaseFunctionConsumer(ABC):
                         (model_name, camera_id),
                         0,
                     ),
-                    "last_outcome": dict(self._inference_last_status.get((model_name, camera_id), {})),
+                    "last_outcome": last_outcome,
+                    "last_frame_timing": dict(self._last_frame_timings.get(camera_id, {})),
                 })
             return {
                 "totals": dict(self.inference_outcome_counts),
@@ -687,6 +737,7 @@ class BaseFunctionConsumer(ABC):
         """
         import queue as _q
 
+        started_at = time.monotonic()
         request_id = f"{self.feature_name}:{camera_id}:{uuid4().hex}"
         task = {
             **(task_meta or {}),
@@ -712,6 +763,7 @@ class BaseFunctionConsumer(ABC):
                     if not pending.event.is_set():
                         try:
                             # 必须先注册再投递，结果可能在 put 返回前到达。
+                            task["submitted_at_monotonic"] = time.monotonic()
                             self.infer_dict[model_name].put(task, timeout=0.02)
                         except _q.Full:
                             result = build_inference_result(
@@ -732,5 +784,12 @@ class BaseFunctionConsumer(ABC):
             finally:
                 if pending is not None:
                     self.result_router.unregister(pending)
+        returned_at = time.monotonic()
+        result["round_trip_ms"] = round(max(0.0, returned_at - started_at) * 1000, 3)
+        completed_at = result.get("completed_at_monotonic")
+        result["result_return_ms"] = (
+            round(max(0.0, returned_at - completed_at) * 1000, 3)
+            if isinstance(completed_at, (int, float)) else None
+        )
         self._record_inference_outcomes(camera_id=camera_id, model_name=model_name, outcomes=[result])
         return result

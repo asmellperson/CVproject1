@@ -42,6 +42,8 @@ def build_inference_result(
     error_code: str | None = None,
     error_message: str | None = None,
     inference_ms: float | None = None,
+    input_wait_ms: float | None = None,
+    completed_at_monotonic: float | None = None,
 ) -> dict[str, Any]:
     """构造带任务身份的统一结果，不校验状态枚举或检测项内容。
 
@@ -52,6 +54,8 @@ def build_inference_result(
         error_code: 失败原因标识，成功时通常为 None。
         error_message: 可供排障的错误说明。
         inference_ms: 模型执行耗时，单位毫秒；未测量时为 None。
+        input_wait_ms: 投递至 Worker 开始执行的耗时，包含输入传输和排队。
+        completed_at_monotonic: Worker 完成时的单调时钟，仅用于计算结果回传耗时。
 
     Returns:
         dict: 包含五个身份字段、状态、检测、错误与耗时的统一结构。
@@ -67,5 +71,7 @@ def build_inference_result(
         "error_code": error_code,
         "error_message": error_message,
         "inference_ms": inference_ms,           # 模型推理耗时
+        "input_wait_ms": input_wait_ms,
+        "completed_at_monotonic": completed_at_monotonic,
         "detections": [] if detections is None else detections,
     }

@@ -134,6 +134,12 @@ class BaseModelWorker(ABC):
 
     def _execute_task(self, model: Any, task: dict) -> dict:
         """执行单个任务，并保留模型异常与正常空检测之间的语义差异。"""
+        submitted_at = task.get("submitted_at_monotonic")
+        # 单调时钟在本机进程间一致；这里的等待同时包含输入传输和模型队列。
+        input_wait_ms = (
+            round(max(0.0, time.monotonic() - submitted_at) * 1000, 3)
+            if isinstance(submitted_at, (int, float)) else None
+        )
         # 开始计时
         started_at = time.perf_counter()
         try:
@@ -144,6 +150,8 @@ class BaseModelWorker(ABC):
                 status=INFERENCE_STATUS_OK,
                 detections=detections,
                 inference_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                input_wait_ms=input_wait_ms,
+                completed_at_monotonic=time.monotonic(),
             )
         # 推理异常不退出，继续处理下一张
         except Exception as exc:
@@ -154,6 +162,8 @@ class BaseModelWorker(ABC):
                 error_code=INFERENCE_ERROR_MODEL,
                 error_message=str(exc),
                 inference_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                input_wait_ms=input_wait_ms,
+                completed_at_monotonic=time.monotonic(),
             )
 
     # ---------- 主循环(子进程内) ----------
