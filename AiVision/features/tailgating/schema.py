@@ -73,6 +73,7 @@ class TailgatingStatus(BaseModel):
     events: list[TailgatingEvent] = Field(default_factory=list)
     sample_interval_seconds: float | None = None
     updated_at: str | None = None
+    valid_for_seconds: float = Field(0.0, ge=0, le=STATUS_STALE_SECONDS)
     error: str | None = None
 
 

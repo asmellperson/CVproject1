@@ -789,7 +789,7 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 配置表为 `ai_camera_config_tailgating`，通过摄像头外键确定部门归属；正式启动创建缺失表，摄像头功能默认停用，默认开启 SQL 报警记录。配置通过 `GET/PUT /api/features/tailgating/configs/{key}` 保存，事务提交后刷新缓存并发布热更新事件；摄像头启停、删除及部门变更同步刷新运行状态。管理员在功能分配中按部门开放入口，普通用户仅能读取已授权部门的资源。
 
-`GET /api/tailgating/cameras/{key}/status` 返回状态、区域人数、人员轨迹、事件、实际采样间隔与错误信息；状态超过 2 秒失效。实时画面使用 `/api/cameras/{key}/frame.jpg?feature=tailgating`，由最新采集帧独立合成，检测框的有效期受 `max_frame_gap_seconds` 限制，配置不完整时仍提供底图。取图与状态均不持推理锁，配置替换或停用期间完成的旧图不会发布。
+`GET /api/tailgating/cameras/{key}/status` 返回状态、区域人数、人员轨迹、事件、实际采样间隔与错误信息；状态超过 2 秒失效。`valid_for_seconds` 返回服务器计算的剩余有效秒数，无有效快照时为 0；前端扣除请求耗时后用单调时钟计时，`updated_at` 仅用于显示结果时间。实时画面使用 `/api/cameras/{key}/frame.jpg?feature=tailgating`，由最新采集帧独立合成，检测框的有效期受 `max_frame_gap_seconds` 限制，配置不完整时仍提供底图。取图与状态均不持推理锁，配置替换或停用期间完成的旧图不会发布。
 
 外部大屏使用 `api/routes/external/tailgating.py` 下的 `/api/external/tailgating`，无需 API Key 或人员登录，按事业部当前功能分配及资源归属读取画面、状态、报警和图片。`features/tailgating/service.py` 的报警查询统一限定 `feature_name='tailgating'`、`violation_type=17` 和事业部，再筛选时间、摄像头及分页；响应中的图片地址不暴露磁盘路径。
 

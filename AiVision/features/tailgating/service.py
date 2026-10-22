@@ -30,6 +30,8 @@ def camera_status(camera: dict, orchestrator) -> TailgatingStatus:
         "persons": detail["persons"], "events": detail["events"], "error": detail["error"],
         "sample_interval_seconds": detail["sample_interval_seconds"],
         "updated_at": datetime.fromtimestamp(detail["updated_at_s"], timezone.utc).isoformat(),
+        # 返回剩余时长，避免浏览器与服务器时钟偏差导致有效结果反复被清空。
+        "valid_for_seconds": STATUS_STALE_SECONDS - age,
     })
 
 

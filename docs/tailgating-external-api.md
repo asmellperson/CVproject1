@@ -283,6 +283,7 @@ GET http://172.16.0.32:7862/api/external/tailgating/status?department=general_el
   ],
   "sample_interval_seconds": 0.1,
   "updated_at": "2026-10-22T09:00:00+08:00",
+  "valid_for_seconds": 1.8,
   "error": null
 }
 ```
@@ -299,8 +300,9 @@ GET http://172.16.0.32:7862/api/external/tailgating/status?department=general_el
 | `events` | 当前已确认的通行事件，轨迹 ID、方向和共同出现时长同数据库扩展字段 |
 | `sample_interval_seconds` | 相邻有效采样间隔，秒；空值表示尚无连续观测 |
 | `updated_at` / `error` | 带时区的结果时间 / 具体异常原因 |
+| `valid_for_seconds` | 服务端计算的剩余有效秒数，范围 0–2；无有效快照时为 0，前端扣除请求耗时后用于过期计时 |
 
-状态超过 2 秒失效。前端轮询中断时也应根据 `updated_at` 清除当前结论，避免持续显示旧的“无报警”。实时事件不等于全部已落库报警，历史列表和总数以数据库或 `/history` 为准。
+状态超过 2 秒失效。前端请求前记录 `performance.now()`，以该时刻加 `valid_for_seconds * 1000` 作为截止时间，接收后若已到期则直接显示等待更新；`updated_at` 仅用于显示，不与浏览器系统时间比较。短暂请求失败可保留同一摄像头尚未过期的数据，但不能顺延截止时间；轮询中断并到期时清除当前结论，避免持续显示旧的“无报警”。实时事件不等于全部已落库报警，历史列表和总数以数据库或 `/history` 为准。
 
 ## 7. 使用 HTTP 获取报警列表和详情
 

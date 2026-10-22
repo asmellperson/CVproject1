@@ -330,11 +330,27 @@ def test_tailgating_status_and_camera_responses_follow_existing_contract(externa
     assert status.json()["state"] == "ready"
     assert status.json()["count"] == 2 and status.json()["alarm"]
     assert status.json()["events"] == [external_api.tailgating_event]
+    assert 0 < status.json()["valid_for_seconds"] <= 2
 
 
-def test_tailgating_status_does_not_report_stale_events_as_current(external_api):
-    external_api.tailgating_snapshot["updated_at_s"] = time.time() - 3
+@pytest.mark.parametrize("age", [2.001, 3, -0.1])
+def test_tailgating_status_does_not_report_stale_events_as_current(external_api, monkeypatch, age):
+    monkeypatch.setattr("AiVision.features.tailgating.service.time.time", lambda: 1000.0)
+    external_api.tailgating_snapshot["updated_at_s"] = 1000.0 - age
     response = external_api.client.get("/api/external/tailgating/cameras/camera_1/status", params={"department": "general_electric"})
     assert response.status_code == 200
     assert response.json()["state"] == "stale" and response.json()["count"] is None
     assert response.json()["events"] == [] and not response.json()["alarm"]
+    assert response.json()["valid_for_seconds"] == 0
+
+
+@pytest.mark.parametrize("age", [0.0, 0.5, 1.9, 2.0])
+def test_tailgating_status_returns_remaining_lifetime_for_both_status_routes(external_api, monkeypatch, age):
+    monkeypatch.setattr("AiVision.features.tailgating.service.time.time", lambda: 1000.0)
+    external_api.tailgating_snapshot["updated_at_s"] = 1000.0 - age
+    for path in ("/status", "/cameras/camera_1/status"):
+        response = external_api.client.get(f"/api/external/tailgating{path}", params={"department": "general_electric"})
+        assert response.status_code == 200
+        data = response.json()[0] if path == "/status" else response.json()
+        assert data["state"] == "ready"
+        assert data["valid_for_seconds"] == pytest.approx(2.0 - age)
