@@ -1,6 +1,8 @@
 """严格任务分类、单次格式纠正与执行边界的回归验证，不连接模型或业务数据库。"""
 
 import json
+from copy import deepcopy
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 import traceback
@@ -471,3 +473,202 @@ def test_validation_details_and_failure_logs_exclude_original_content(runtime_ca
     assert case.service.finish.call_args.args[1] == "failed"
     assert secret not in case.service.finish.call_args.args[2]
     assert case.runtime._slots._value == case.module.settings.runtime.assistant_workers + case.module.settings.runtime.assistant_queue_capacity
+
+
+@pytest.fixture
+def feature_catalog_case(monkeypatch):
+    from AiVision.assistant import resources
+    from AiVision.features.tailgating.schema import TailgatingConfig
+
+    cameras = [
+        {"camera_id": 101, "shm_name": "camera_101", "name": "一号闸机", "department": "general_electric"},
+        {"camera_id": 102, "shm_name": "camera_102", "name": "二号闸机", "department": "general_electric"},
+        {"camera_id": 103, "shm_name": "camera_103", "name": "外部门闸机", "department": "research_institute"},
+    ]
+    configurations = {camera["camera_id"]: TailgatingConfig(enable=True).model_dump(mode="json") for camera in cameras}
+    manager = Mock()
+    manager.list_cameras.side_effect = lambda department: [item for item in cameras if item["department"] == department]
+    manager.get_camera.side_effect = lambda key: next(
+        (item for item in cameras if key in (item["camera_id"], item["shm_name"])), None,
+    )
+    monkeypatch.setattr(resources, "camera_config_manager", manager)
+    config_manager = Mock()
+    config_manager.get_config.side_effect = lambda _spec, key: {
+        "camera": next(item for item in cameras if item["camera_id"] == key),
+        "config": deepcopy(configurations[key]),
+    }
+
+    def save(_spec, key, config, **_kwargs):
+        camera = manager.get_camera(key)
+        configurations[camera["camera_id"]] = deepcopy(config)
+
+    config_manager.save_config.side_effect = save
+    monkeypatch.setattr(resources, "feature_config_manager", config_manager)
+    user = {"role": "admin", "feature_access": {"general_electric": ["tailgating"], "research_institute": ["tailgating"]}}
+    catalog = resources.ConfigurationCatalog(user, "general_electric")
+    return SimpleNamespace(module=resources, catalog=catalog, cameras=cameras, configurations=configurations,
+                           config_manager=config_manager, user=user)
+
+
+def test_parameter_search_returns_schema_and_recovery_hint_without_changing_camera_matches(feature_catalog_case):
+    case = feature_catalog_case
+    result = case.catalog.find(kind="feature", department="通用电气事业部", feature="tailgating", query="人体置信度配置值")
+    assert result["items"] == [] and result["total"] == 0
+    assert result["configuration_scope"] == "camera"
+    schema = result["schema_definition"]
+    value_schema = schema["$defs"]["TailgatingValue"]
+    field = value_schema["properties"]["threshold"]
+    assert field["title"] == "人体检测置信度" and "人体置信度配置值" in field["description"]
+    assert field["minimum"] == 0.01 and field["maximum"] == 1
+    assert schema["additionalProperties"] is False and value_schema["additionalProperties"] is False
+    assert "query" in result["search_hint"] and "摄像头" in result["search_hint"]
+    assert "参数" in result["search_hint"]
+    case.config_manager.get_config.assert_not_called()
+    case.config_manager.save_config.assert_not_called()
+
+
+def test_feature_discovery_keeps_department_feature_and_name_filters(feature_catalog_case):
+    case = feature_catalog_case
+    result = case.catalog.find(kind="feature", department="通用电气事业部", feature="tailgating")
+    assert [item["key"] for item in result["items"]] == ["feature:tailgating:101", "feature:tailgating:102"]
+    assert result["total"] == 2
+    page = case.catalog.find(kind="feature", feature="tailgating", limit=1)
+    assert len(page["items"]) == 1 and page["total"] == 2 and page["next_offset"] == 1
+    named = case.catalog.find(kind="feature", department="general_electric", feature="tailgating", query="一号闸机")
+    assert len(named["items"]) == 1 and named["items"][0]["identifier"] == "camera_101"
+    outside = case.catalog.find(kind="feature", department="research_institute", feature="tailgating")
+    assert outside["items"] == [] and "schema_definition" not in outside
+    case.user["feature_access"]["general_electric"] = []
+    forbidden = case.catalog.find(kind="feature", feature="tailgating")
+    assert forbidden["items"] == [] and "schema_definition" not in forbidden
+
+
+def test_schema_in_search_results_still_hides_credential_fields(feature_catalog_case, monkeypatch):
+    from pydantic import BaseModel, Field
+
+    class PrivateValue(BaseModel):
+        threshold: float = 0.5
+        api_key: str = "fixture-credential-sentinel"
+
+    class PrivateConfig(BaseModel):
+        value: PrivateValue = Field(default_factory=PrivateValue)
+        password: str
+
+    case = feature_catalog_case
+    monkeypatch.setattr(case.module, "get_spec", lambda _name: SimpleNamespace(config_schema=PrivateConfig))
+    result = case.catalog.find(kind="feature", feature="tailgating", query="人体置信度")
+    schema = result["schema_definition"]
+    assert "password" not in schema["properties"] and "password" not in schema.get("required", [])
+    assert set(schema["$defs"]["PrivateValue"]["properties"]) == {"threshold"}
+    assert "fixture-credential-sentinel" not in json.dumps(result)
+    case.config_manager.get_config.assert_not_called()
+
+
+@pytest.mark.parametrize("patch", [
+    {"value": {"threshold": 0.0}}, {"value": {"threshold": 1.1}}, {"value": {"threshold": "0.8"}},
+    {"value": {"threshold": float("nan")}}, {"value": {"人体置信度": 0.8}}, {"value.threshold": 0.8},
+])
+def test_parameter_metadata_keeps_strict_types_bounds_and_field_paths(feature_catalog_case, patch):
+    from pydantic import ValidationError
+
+    case = feature_catalog_case
+    resource = case.catalog.resolve("feature:tailgating:101")
+    before = deepcopy(resource.config)
+    with pytest.raises((ValidationError, ValueError)):
+        resource.prepare(patch)
+    assert resource.config == before
+    case.config_manager.save_config.assert_not_called()
+
+
+def test_resource_search_contract_distinguishes_parameter_and_camera_name():
+    from AiVision.assistant.tools import ListArguments
+
+    fields = ListArguments.model_json_schema()["properties"]
+    assert "参数名" in fields["query"]["description"] and "留空" in fields["query"]["description"]
+    assert "feature" in fields["kind"]["description"]
+    assert "能力目录" in fields["department"]["description"]
+
+
+@pytest.mark.parametrize("camera_count", [1, 2])
+def test_parameter_request_can_recover_then_update_unique_target_or_ask_about_real_candidates(
+    runtime_case, feature_catalog_case, monkeypatch, camera_count,
+):
+    from AiVision.assistant import tools as tool_module
+    from AiVision.assistant.schema import ActionResponse
+
+    case, feature = runtime_case, feature_catalog_case
+    if camera_count == 1:
+        feature.cameras.pop(1)
+    before = deepcopy(feature.configurations)
+    case.current.question = "通用电气事业部、非法闯闸功能，人体置信度配置值，改为0.8"
+    monkeypatch.setattr(case.module, "AssistantTools", tool_module.AssistantTools)
+    monkeypatch.setattr(tool_module, "assistant_service", case.service)
+    actions = []
+    case.service.actions.side_effect = lambda _turn_id: actions
+
+    def begin(_turn_id, reference, config, delta):
+        action = ActionResponse(id="action-1", resource=reference, status="executing", before=config, after=None,
+                                changes=delta, detail="", created_at=datetime.now(timezone.utc))
+        actions.append(action)
+        return action, True
+
+    def finish(_action_id, status, actual, detail):
+        action = actions[-1]
+        action.status, action.after, action.detail = status, actual, detail
+        return action
+
+    case.service.begin_action.side_effect = begin
+    case.service.finish_action.side_effect = finish
+    observed_revisions = []
+
+    def tool_reply(action, arguments):
+        return completion({"action": action, "arguments": arguments}), 0.1
+
+    def respond(**kwargs):
+        messages = kwargs["messages"]
+        if "只判断当前用户请求" in messages[0]["content"]:
+            return completion({"mode": "change", "operations": ["update_configurations"]}), 0.1
+        last = messages[-1]["content"]
+        if last.startswith("后台已查询当前能力和部门"):
+            # 复现模型把参数当成摄像头名称的第一步，随后检查工具反馈是否足够纠正。
+            return tool_reply("list_resources", {"kind": "feature", "department": "general_electric",
+                                                "feature": "tailgating", "query": "人体置信度配置值"})
+        data = json.loads(last.split("：", 1)[1])
+        if "items" in data and not data["items"]:
+            assert "参数" in data["search_hint"]
+            assert "人体检测置信度" in json.dumps(data["schema_definition"], ensure_ascii=False)
+            return tool_reply("list_resources", {"kind": "feature", "department": "general_electric", "feature": "tailgating"})
+        if "items" in data and "key" in data["items"][0]:
+            if len(data["items"]) > 1:
+                names = "、".join(item["name"] for item in data["items"])
+                return tool_reply("ask_user", {"question": f"人体置信度按摄像头保存。请选择：{names}；或明确是否修改全部。"})
+            return tool_reply("read_configurations", {"resource_keys": [data["items"][0]["key"]]})
+        if "items" in data:
+            item = data["items"][0]
+            observed_revisions.append(item["revision"])
+            return tool_reply("update_configurations", {"changes": [{"resource_key": item["resource"]["key"],
+                "expected_revision": item["revision"], "patch": {"value": {"threshold": 0.8}}}]})
+        return completion({"action": "answer", "answer": "结束本轮"}), 0.1
+
+    case.client.complete.side_effect = respond
+    case.runtime._execute("session-1", 1, lambda: feature.user, None)
+    assert case.service.finish.call_args.args[1] == "completed"
+    answer = case.service.finish.call_args.args[2]
+    if camera_count == 1:
+        feature.config_manager.save_config.assert_called_once()
+        saved = feature.config_manager.save_config.call_args
+        assert saved.args[1] == "camera_101"
+        assert saved.kwargs["expected_department"] == "general_electric"
+        assert saved.kwargs["expected_values"] == before[101]
+        assert observed_revisions and actions[0].changes == {"value": {"threshold": 0.8}}
+        expected = deepcopy(before[101])
+        expected["value"]["threshold"] = 0.8
+        assert feature.configurations[101] == expected
+        assert feature.configurations[102] == before[102] and feature.configurations[103] == before[103]
+        assert actions[0].status == "saved" and "已保存配置" in answer
+    else:
+        feature.config_manager.save_config.assert_not_called()
+        feature.config_manager.get_config.assert_not_called()
+        case.service.begin_action.assert_not_called()
+        assert "一号闸机" in answer and "二号闸机" in answer and "外部门闸机" not in answer
+        assert "对应的资源" not in answer

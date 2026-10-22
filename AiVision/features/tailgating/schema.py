@@ -22,7 +22,10 @@ class TailgatingValue(BaseModel):
     crossing_window_seconds: float = Field(3.0, ge=0.5, le=10)
     max_frame_gap_seconds: float = Field(1.0, ge=0.2, le=3)
     foot_ratio: float = Field(0.93, ge=0.5, le=1)
-    threshold: float = Field(0.5, ge=0.01, le=1)
+    threshold: float = Field(
+        0.5, ge=0.01, le=1, title="人体检测置信度",
+        description="人体检测结果的置信度阈值，也称人体置信度、人体置信度配置值；低于该值的目标不参与通行判定",
+    )
     cap_interval: float = Field(0.1, ge=0.05, le=0.5)
     alarm_interval: float = Field(30.0, ge=1)
 

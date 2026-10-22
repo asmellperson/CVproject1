@@ -18,7 +18,7 @@ from .schema import ConfigurationResponse, ResourceReference
 
 
 RESOURCE_KINDS = {
-    "feature": "普通检测的摄像头功能参数、启停、ROI 和报警设置，需指定 feature",
+    "feature": "按摄像头分别保存的普通检测参数、启停、ROI 和报警设置，需指定 feature；参数名称不是资源名称",
     "camera": "平台摄像头的名称、采集帧率、重连次数和启停；删除使用 delete_camera",
     "logistics": "物流通道检测参数、检测时段、报警日历、通知和宽限时间",
     "logistics_roi": "物流通道成员的 ROI，需指定物流通道 parent_key",
@@ -183,8 +183,9 @@ class ConfigurationCatalog:
     def find(self, *, kind: str, department: str | None = None, feature: str | None = None,
              query: str = "", parent_key: str | None = None, offset: int = 0, limit: int = 25) -> dict:
         departments = self.matching_departments(department)
+        spec = get_spec(feature or "") if kind == "feature" else None
         if kind in {"feature", "camera"}:
-            if kind == "feature" and not get_spec(feature or ""):
+            if kind == "feature" and spec is None:
                 raise ValueError("查询功能配置需要提供能力目录中的 feature 标识")
             refs = []
             for scope in departments:
@@ -210,8 +211,20 @@ class ConfigurationCatalog:
             if not needle or needle in searchable.casefold():
                 matches.append(ref)
         refs = matches
-        return {"items": [ref.model_dump() for ref in refs[offset:offset + limit]], "total": len(refs),
-                "next_offset": offset + limit if offset + limit < len(refs) else None}
+        result = {"items": [ref.model_dump() for ref in refs[offset:offset + limit]], "total": len(refs),
+                  "next_offset": offset + limit if offset + limit < len(refs) else None}
+        if (spec is not None and feature not in {"guard_behavior", "detect_logistics_single_person"}
+                and set(departments) & set(feature_departments(self.user, feature))):
+            # 字段属于功能 Schema，摄像头名称搜索为空不能说明参数不存在。
+            result["configuration_scope"] = "camera"
+            result["schema_definition"] = public_schema(spec.config_schema.model_json_schema())
+            if needle and not refs:
+                result["search_hint"] = (
+                    "query 仅匹配摄像头名称或标识，不匹配参数名；请从 schema_definition 识别字段。"
+                    "用户未指定摄像头时，保留 department 和 feature，将 query 留空重新查询。"
+                    "用户明确指定了摄像头但没有匹配时，应核对名称，不能擅自选择其他目标。"
+                )
+        return result
 
     def resolve(self, key: str) -> ConfigurationResource:
         parts = key.split(":")

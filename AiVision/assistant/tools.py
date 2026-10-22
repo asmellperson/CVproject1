@@ -21,10 +21,10 @@ class EmptyArguments(StrictModel):
 
 
 class ListArguments(StrictModel):
-    kind: str
-    department: str | None = None
-    feature: str | None = None
-    query: str = ""
+    kind: str = Field(description="能力目录中的资源类别；普通检测参数使用 feature，摄像头基础信息使用 camera")
+    department: str | None = Field(default=None, description="能力目录中的部门编码或完整名称，部门条件单独填写，不放入 query")
+    feature: str | None = Field(default=None, description="kind=feature 时填写能力目录中的功能标识，例如 tailgating；不是参数名")
+    query: str = Field(default="", description="仅筛选资源名称或标识；参数名、配置值和功能名称不放在这里。用户未指定摄像头名称或标识时留空")
     parent_key: str | None = None
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=25, ge=1, le=50)
@@ -70,7 +70,7 @@ class AskUserArguments(StrictModel):
 
 TOOL_MODELS = {
     "capabilities": (EmptyArguments, "查询可操作类别、功能、部门及一厂二厂别名"),
-    "list_resources": (ListArguments, "搜索真实资源，名称有歧义时列出候选并向用户澄清；支持分页"),
+    "list_resources": (ListArguments, "按部门和功能搜索真实资源；普通检测同时返回配置作用范围和脱敏 Schema，参数名不作为资源名称搜索；支持分页"),
     "read_configurations": (ReadArguments, "读取当前值、版本及严格字段 Schema，修改前必须读取"),
     "update_configurations": (UpdateArguments, "按已读取版本局部修改，保留其他字段；每项独立事务，结果逐项报告"),
     "undo_configuration": (UndoArguments, "撤销当前会话的一次已成功参数修改；被别人改过则拒绝覆盖，不撤销创建、绑定或删除"),
