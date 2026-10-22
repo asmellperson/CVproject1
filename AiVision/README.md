@@ -85,7 +85,7 @@ AiVision/
 │   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
 │   └── routes/                     # 摄像头、功能、模型、告警、通道等 API
-│       └── external/               # 可直接访问的安检和围栏接口，复用平台业务服务
+│       └── external/               # 可直接访问的安检、围栏和非法闯闸接口，复用平台业务服务
 ├── runtime/
 │   ├── bootstrap.py                # 启动阶段 ORM 注册、建表与结构核验
 │   ├── orchestrator.py             # 总编排、配置事件路由、运行状态聚合
@@ -791,6 +791,8 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 
 `GET /api/tailgating/cameras/{key}/status` 返回状态、区域人数、人员轨迹、事件、实际采样间隔与错误信息；状态超过 2 秒失效。实时画面使用 `/api/cameras/{key}/frame.jpg?feature=tailgating`，由最新采集帧独立合成，检测框的有效期受 `max_frame_gap_seconds` 限制，配置不完整时仍提供底图。取图与状态均不持推理锁，配置替换或停用期间完成的旧图不会发布。
 
+外部大屏使用 `api/routes/external/tailgating.py` 下的 `/api/external/tailgating`，无需 API Key 或人员登录，按事业部当前功能分配及资源归属读取画面、状态、报警和图片。`features/tailgating/service.py` 的报警查询统一限定 `feature_name='tailgating'`、`violation_type=17` 和事业部，再筛选时间、摄像头及分页；响应中的图片地址不暴露磁盘路径。
+
 报警类型 `17` 对应事件 `tailgating`，使用公共 SQL、喇叭、企业微信和证据链路。共享通行人员的异常合并为同组事件，同次通行分发一次，第三人加入同一持续事件不会重复通知；独立事件分别报警，冷却按摄像头与事件标识隔离。记录中的 `department` 为摄像头部门，元数据位于 `metadata.tailgating`。上线验收需覆盖并排、贴身跟随、快速通过、折返、遮挡和正常分离通行，并核对实际采样间隔。
 
 ## 8. 告警分发、证据与媒体清理
@@ -1057,7 +1059,7 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
-`api/routes/external/` 下的安检与围栏接口无需 API Key 或人员 Cookie/JWT，数据和图片地址可直接访问。业务请求校验正式事业部编码、平台当前功能分配和资源归属；图片可直接用于 `<img>`、缩略图或原图链接。安检配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，配置操作日志记录事业部与摄像头标识。平台管理接口继续使用人员登录和权限校验。
+`api/routes/external/` 下的安检、围栏与非法闯闸接口无需 API Key 或人员 Cookie/JWT，数据和图片地址可直接访问。业务请求校验正式事业部编码、平台当前功能分配和资源归属；图片可直接用于 `<img>`、缩略图或原图链接。安检配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，配置操作日志记录事业部与摄像头标识。平台管理接口继续使用人员登录和权限校验。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
@@ -1328,6 +1330,20 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 | GET | `/alarms/{alarm_id}`、`/alarms/{alarm_id}/image` | 报警详情 / 可直接显示的截图 |
 
 外部围栏接口只提供数据和图片查询，不提供围栏配置、白名单修改和人员库访问。配置由平台管理员管理；参数、状态语义和请求示例见[围栏外部 API 文档](../docs/security-fence-external-api.md)。
+
+### 12.7 非法闯闸外部对接
+
+前缀为 `/api/external/tailgating`，无需 API Key 或账号登录。除 `/departments` 外，全部请求要求单个 `department`，并校验平台当前功能分配与资源归属。
+
+| 方法 | 相对路径 | 用途 |
+| --- | --- | --- |
+| GET | `/departments`、`/cameras` | 已分配非法闯闸功能的事业部及摄像头，默认只列启用设备 |
+| GET | `/status`、`/cameras/{shm_name}/status` | 事业部状态数组 / 单摄像头状态，复用 `TailgatingStatus` |
+| GET | `/cameras/{shm_name}/frame.jpg` | 标注或原始 JPEG，支持质量和缩略尺寸参数 |
+| GET | `/history` | 报警总数和分页记录，按摄像头及带时区的时间范围筛选 |
+| GET | `/alarms/{alarm_id}`、`/alarms/{alarm_id}/image` | 报警详情 / 可直接显示的 PNG 抓拍图 |
+
+报警查询读取 `ai_violation_image`，限定 `feature_name='tailgating'`、`violation_type=17`。结构化通行数据位于 `event_metadata.tailgating`，包含事件 ID、轨迹编号、方向和共同出现时长；图片默认保留 31 天。接口只读，配置仍由平台管理员维护。数据库查询 SQL 和完整调用示例见[非法闯闸对接文档](../docs/tailgating-external-api.md)。
 
 ## 13. 人脸库同步与特征生成
 

@@ -74,3 +74,21 @@ class TailgatingStatus(BaseModel):
     sample_interval_seconds: float | None = None
     updated_at: str | None = None
     error: str | None = None
+
+
+class TailgatingAlarm(BaseModel):
+    """外部报警沿用通行事件字段，不暴露服务器证据路径。"""
+
+    id: str
+    camera_key: str | None
+    camera_name: str
+    department: str
+    reason: str
+    created_at: str
+    tailgating: TailgatingEvent | None
+    image_url: str | None
+
+
+class TailgatingHistory(BaseModel):
+    total: int
+    items: list[TailgatingAlarm]

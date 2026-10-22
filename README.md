@@ -156,6 +156,8 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 
 配置按摄像头保存在 `ai_camera_config_tailgating`，默认停用，由管理员在“功能分配”中开放给目标事业部。摄像头加入功能后需保存 ROI、过闸判定线和监测方向；参数与启停经现有事务、缓存和事件总线热更新。画面使用最新采集帧，状态查询不等待推理锁；采样间隔超过配置上限、推理失败、分辨率变化或配置变更时清除旧通行状态。实际部署需用闸机录像验证方向、贴身遮挡与检测采样频率。
 
+外部大屏通过 `/api/external/tailgating` 只读查询事业部、摄像头、画面、实时状态、报警和抓拍图，无需 API Key 或账号登录。报警也可从 `ai_violation_image` 按 `feature_name='tailgating'`、`violation_type=17` 和事业部查询；图片地址可直接用于缩略图和原图链接。数据库 SQL、字段和 HTTP 示例见[非法闯闸对接文档](docs/tailgating-external-api.md)。
+
 ### 物流通道
 
 一个通道最多绑定九路摄像头，每路独立配置 ROI，通道保存检测时段、人数阈值、持续时间和通知策略。联合规则按顺序判断：任一路多人 → 多人异常；否则至少一路单人 → 正常；否则存在未知 → 未知；全部有效且无人 → 无人异常。
@@ -187,7 +189,7 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 - 安检总数包含合规、不合规和判定失败；修改 ROI 等操作产生的取消会话单独统计并保留历史，不计入安检总数。合规率只基于合规与不合规判定。
 - 运行时提供模型健康检查、连续失败熔断和自动恢复状态。
 
-外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置；警戒围栏数据和图片使用 `/api/external/security-fence` 只读查询。两组接口均无需 API Key 或账号登录，按 `department` 和平台当前功能分配查询，并校验资源归属。图片地址可直接显示原图和缩略图，安检配置复用平台数据及热更新。接口字段和调用示例见[安检外部 API 文档](docs/security-inspection-external-api.md)和[围栏外部 API 文档](docs/security-fence-external-api.md)。
+外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置；警戒围栏和非法闯闸分别使用 `/api/external/security-fence`、`/api/external/tailgating` 只读查询。三组接口均无需 API Key 或账号登录，按 `department` 和平台当前功能分配查询，并校验资源归属。图片地址可直接显示原图和缩略图，安检配置复用平台数据及热更新。接入方式见[安检文档](docs/security-inspection-external-api.md)、[围栏文档](docs/security-fence-external-api.md)和[非法闯闸文档](docs/tailgating-external-api.md)。
 
 ## 4. 认证、权限与数据
 
@@ -241,6 +243,7 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
 | `/api/security-fence/*`、`/api/external/security-fence/*` | 围栏平台状态与人员选择 / 无需 API Key 或登录的大屏只读接口 |
 | `/api/tailgating/cameras/{key}/status` | 非法闯闸实时状态、轨迹与通行事件 |
+| `/api/external/tailgating/*` | 无需 API Key 或登录的非法闯闸画面、状态、报警和图片只读接口 |
 | `/api/security-inspection/*` | 安检历史、运行状态与福达AI设置 |
 | `/api/external/security-inspection/*` | 无需 API Key 或登录的安检展示、图片和摄像头配置接口 |
 | `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |
