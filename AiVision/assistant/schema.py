@@ -90,6 +90,7 @@ class RequestPlan(StrictModel):
     """先区分聊天与业务任务，业务任务不能凭模型正文结束为成功。"""
     mode: Literal["chat", "query", "change"]
     operations: list[MutationTool] = Field(default_factory=list, max_length=5)
+    query_tool: Literal["capabilities", "list_resources", "read_configurations"] | None = None
 
     @model_validator(mode="after")
     def check_operations(self):
@@ -97,6 +98,8 @@ class RequestPlan(StrictModel):
             raise ValueError("配置任务必须列出操作，聊天和查询不能携带配置操作")
         if len(self.operations) != len(set(self.operations)):
             raise ValueError("操作类别不能重复")
+        if (self.mode == "query") != (self.query_tool is not None):
+            raise ValueError("查询任务必须指定结果工具，聊天和配置任务不能携带查询目标")
         return self
 
 

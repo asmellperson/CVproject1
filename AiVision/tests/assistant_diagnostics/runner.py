@@ -3,6 +3,7 @@ import argparse
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -79,9 +80,11 @@ def model_cases():
         messages = [{"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
                     {"role": "user", "content": case.question}]
         cases.append({"name": "classification_" + name, "kind": "classification", "messages": messages,
-                      "json_mode": True, "expected": case.mode, "validate": parse_plan})
+                      "json_mode": True, "expected": case.mode, "validate": parse_plan,
+                      "response_schema": RequestPlan.model_json_schema(),
+                      "query_tool": ("capabilities" if name == "capabilities" else "list_resources") if case.mode == "query" else None})
     cases.append({"name": "classification_continuation_reply", "kind": "classification", "json_mode": True,
-                  "expected": "change", "validate": parse_plan, "messages": [
+                  "expected": "change", "validate": parse_plan, "response_schema": RequestPlan.model_json_schema(), "query_tool": None, "messages": [
                       {"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
                       {"role": "user", "content": SCENARIOS[15].question},
                       {"role": "assistant", "content": "请选择诊断闸机一号或诊断闸机二号，本轮没有执行配置操作。"},
@@ -121,16 +124,20 @@ def model_cases():
 
 
 def run_model_case(case, client, settings, repeat):
-    from AiVision.assistant.responses import completion_content, json_content
+    from AiVision.assistant.responses import completion_content, completion_metadata, json_content
     from AiVision.assistant.tools import UpdateArguments
+    from AiVision.core.settings import settings as application_settings
 
     started = time.perf_counter()
     row = {"scenario": case["name"], "label": case["name"], "repeat": repeat, "model_calls": 1,
            "real_model_calls": 1, "json_ok": [], "failure_layers": [], "errors": []}
     try:
         raw, _ = client.complete(base_url=settings["base_url"], model=settings["model"], messages=case["messages"],
-                                 max_tokens=min(256, settings["max_tokens"]) if case["kind"] == "classification" else settings["max_tokens"],
-                                 temperature=settings["temperature"], timeout=settings["timeout"], json_mode=case["json_mode"])
+                                 max_tokens=min(application_settings.runtime.assistant_plan_max_tokens, settings["max_tokens"]) if case["kind"] == "classification" else settings["max_tokens"],
+                                 temperature=settings["temperature"], timeout=settings["timeout"], json_mode=case["json_mode"],
+                                 response_schema=case.get("response_schema") or (
+                                     case["schema"].model_json_schema() if "schema" in case else None))
+        row["response_metadata"] = completion_metadata(raw)
         if case["json_mode"]:
             syntax_ok = json_validity(raw)
             if syntax_ok is not None:
@@ -143,9 +150,11 @@ def run_model_case(case, client, settings, repeat):
                 token in content for token in ('"action"', "尚未完成", "已删除摄像头", "已保存配置"))
         elif case["kind"] == "classification":
             plan = case["validate"](raw)
+            row["first_plan_valid"] = True
             row["classification_ok"] = plan.mode == case["expected"]
             row["planning_operations_ok"] = set(plan.operations) == ({"update_configurations"} if case["expected"] == "change" else set())
-            row["behavior_ok"] = row["classification_ok"] and row["planning_operations_ok"]
+            row["query_goal_ok"] = plan.query_tool == case["query_tool"]
+            row["behavior_ok"] = row["classification_ok"] and row["planning_operations_ok"] and row["query_goal_ok"]
         elif case["kind"] in {"resource", "parameter"}:
             value = case["schema"].model_validate_json(json_content(content)).model_dump()
             if case["kind"] == "parameter":
@@ -175,6 +184,7 @@ def run_model_case(case, client, settings, repeat):
             row[metric] = None if service_failed else False
         if case["kind"] == "classification":
             row["planning_operations_ok"] = None if service_failed else False
+            row["first_plan_valid"] = None if service_failed else False
         row["failure_layers"] = ["model_service" if service_failed else "model_output"]
     if not row["behavior_ok"] and not row["failure_layers"]:
         row["failure_layers"] = ["model_output"]
@@ -254,24 +264,25 @@ def run_tool_probe(name, settings):
 
 CHAIN = (
     ("消息接收", "MessageCreate、账号、会话、request_id", "脱敏正文、排队任务", "submit/duplicate/enqueue", "422、403、409、429；重复请求返回原轮次", "已有输入、权限保护；诊断补幂等及隔离持久化"),
-    ("任务分类", "当前消息、历史正文、RequestPlan Schema", "chat/query/change、操作类别", "_plan_request/parse_plan", "仅格式及 Schema 错误纠正一次，共用分类超时预算；其他错误终止", "已有严格 Schema、格式纠正、取消和超时；真实模型准确率需 A 层"),
+    ("任务分类", "当前消息、有界上下文、RequestPlan Schema", "chat/query/change、操作类别、查询结果工具", "_plan_request/parse_plan", "Schema 约束；仅格式及字段错误纠正一次，共用分类超时预算", "严格 Schema、格式纠正、取消和超时；真实模型准确率需 A 层"),
     ("模型传输", "messages、模型名、生成参数、JSON 模式", "Chat Completions 响应和耗时", "QwenClient.complete", "共享并发名额；区分网络、超时、服务错误；不自动重试", "已有请求体、并发、名额回收及错误脱敏"),
     ("工具选择", "工具目录、历史、累计工具结果", "AgentDecision", "_execute/parse_decision", "工具格式错误纠正一次；未执行就结束会提醒一次；工具类别受计划约束", "已有模拟调度；B/D 检查连续调用和结果传递"),
     ("工具执行", "工具参数、当前权限、资源目录", "资源、Schema、revision 或错误", "AssistantTools.run/catalog", "严格工具参数；每次校验权限；异常转安全错误进入模型", "已有部分匹配和版本检查；C 补真实事务和回读"),
     ("配置保存", "resource_key、读取版本、局部 patch", "业务事务及审计记录", "update/ConfigurationResource.prepare/save_config", "读版本、当前版本、事务内期望值三层核对；逐资源事务；保留其他字段", "C/D 使用真实 Schema、ORM、事务，缓存及事件为替身"),
     ("结果核验", "保存后的数据库配置、期望配置", "saved/changed/failed/unknown/unchanged", "AssistantTools.update/finish_action", "提交后报错仍回读；结果不明确不盲重放", "C 检查回读变化及提交后异常；SQLite 不证明 MySQL 行锁"),
-    ("用户答复", "分类、真实工具结果、审计", "最终状态和正文", "ExecutionOutcome.answer/query_answer", "配置结果不采用模型自述；操作类别完成集合不记录完整目标清单", "D 验证错误最终正文；额外探针验证部分完成与恢复状态"),
+    ("用户答复", "分类、真实工具结果、审计", "最终状态和正文", "ExecutionOutcome.answer/query_answer", "查询须满足计划目标及分页；配置结果依据审计，变更类别仍不代表完整目标清单", "D 验证错误最终正文；额外探针验证部分完成与恢复状态"),
     ("多轮与取消", "最近完成轮次、操作记录、取消标志", "新的上下文或停止状态", "conversation/_execute/cancel/cancelled", "独立问候隔离历史；澄清结束当前轮次；取消在调用前后及工具边界检查", "已有问候隔离；D 验证指代、续办和取消；不验证中断在途 HTTP"),
 )
 
 
 def markdown_report(report):
-    lines = ["# 福达 AI 助手分层诊断报告", "", f"生成时间：{report['generated_at']}；源码提交：`{report['revision']}`。", "",
+    lines = ["# 福达 AI 助手分层诊断报告", "", f"生成时间：{report['generated_at']}；源码提交：`{report['revision']}`。",
+             f"实际源码指纹：`{report.get('source_fingerprint', '未记录')}`；压缩包覆盖部署时以实际源码指纹核对版本。", "",
              "生产业务数据库未接入诊断。业务数据为临时 SQLite 中的三台虚构摄像头；缓存刷新和运行事件使用替身。真实模型只接收固定虚构输入。",
              "", "## 当前调用链", "", "| 阶段 | 输入 | 输出 | 代码入口 | 异常处理 | 覆盖情况 |", "|---|---|---|---|---|---|"]
     lines.extend("| " + " | ".join(stage) + " |" for stage in CHAIN)
     lines.extend(["", "## 方法与统计口径", "",
-                  f"每例重复 {report['settings']['repeats']} 次；temperature={report['settings']['temperature']}，业务生成上限 {report['settings']['max_tokens']}，分类上限 256 tokens，单次超时 {report['settings']['timeout']} 秒。",
+                  f"每例重复 {report['settings']['repeats']} 次；temperature={report['settings']['temperature']}，业务生成上限 {report['settings']['max_tokens']}，分类上限 {report.get('runtime_limits', {}).get('assistant_plan_max_tokens', '未记录')} tokens，单次超时 {report['settings']['timeout']} 秒。",
                   "模型层直接调用 Qwen，不经过 Agent；Agent 模拟层使用固定模型输出和模拟业务工具；业务层直接调用真实保存服务；端到端层运行真实 submit、runtime、工具、保存及审计。",
                   "脚本端到端用于判断程序行为，真实模型端到端用于判断自然语言实际成功率，两者分开统计。故障注入单独标记，不能归因为模型自然故障。",
                   "端到端任务成功率只统计有明确且合法目标值、能够完成的请求；越界、无权限、故障、歧义、取消另计预期处理行为通过率。",
@@ -339,12 +350,12 @@ def markdown_report(report):
                   "Qwen 的 API model 标识不能证明实际权重、量化、chat template 或启动参数；本诊断不修改或验证模型权重。",
                   "SQLite 用于验证事务结果、字段校验和版本逻辑，不覆盖 MySQL 的锁竞争、死锁重试及生产数据规模。",
                   "多轮测试在同一 session 内持续 10～13 轮，分别覆盖混合任务、历史窗口和重复完整配置查询。逐轮记录模型请求字符数；Token 数只采用服务 usage，不进行估算。",
-                  "当前后端默认仅携带最近 6 轮历史，限制轮数而不限制历史总字符；工具观察单独按 60000 字符裁剪。原始目标绑定片段的可见性只是字面证据，不能证明所有语义信息均已保留或丢失。",
+                  "历史同时受轮数和字符预算限制，规划历史不含助手答复正文，短期目标引用和待澄清任务按权限可见性隔离。工具观察单独按 60000 字符裁剪。片段可见性不证明完整语义记忆。",
                   "前端 sendAssistantMessage 只提交 request_id/text，由 useAssistant 复用 sessionId；源码未发现第 4 或第 5 轮的固定上限。本工具不运行浏览器，不能排除轮询、页面挂载或会话切换故障。",
                   "", "## 优先级最高的三项建议", "",
-                  "1. 将任务约束细化到明确的部门、资源、字段及目标值，并在执行前校验 patch 和目标集合，保留现有业务权限、版本及审计。",
-                  "2. 保存待澄清任务的结构化状态，按目标逐项核对完成情况，分别记录已恢复与未恢复的工具错误。",
-                  "3. 在实际 Qwen 服务上运行固定对话集，分离分类、提取、工具选择和保存结果指标，再根据失败归属决定调整模型服务或 Agent。",
+                  "1. 核验实际模型服务的 JSON Schema 与非思考模式，分别分析首次规划、纠正成功、截断和服务超时，不能只比较最终成功率。",
+                  "2. 将配置意图约束到具体资源、字段和目标值，在写入前校验 patch 与完整目标集合，保留现有权限、版本及审计。",
+                  "3. 按目标逐项核对配置任务完成情况，区分已恢复与未恢复的工具错误，并以实际 Qwen 多轮结果验证上下文及异常恢复。",
                   "", "建议应结合各层实测结果排序；未运行的层不支持对模型优劣作结论。", ""])
     return "\n".join(lines)
 
@@ -354,30 +365,48 @@ def run(args, progress=print, checkpoint=None):
                 "max_tokens": args.max_tokens, "timeout": args.timeout, "temperature": args.temperature}
     revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
                               cwd=Path(__file__).resolve().parents[3], check=False).stdout.strip() or "unknown"
+    root = Path(__file__).resolve().parents[3]
+    sources = [*root.joinpath("AiVision/assistant").glob("*.py"), *Path(__file__).parent.glob("*.py"),
+               root / "AiVision/connectors/qwen/client.py", root / "AiVision/core/settings.py"]
+    fingerprint = hashlib.sha256()
+    # 覆盖压缩包不会更新 Git HEAD，需用实际源码指纹区分服务器执行的版本。
+    for source in sorted(sources):
+        fingerprint.update(str(source.relative_to(root)).encode("utf-8") + b"\0" + source.read_bytes() + b"\0")
     report = {"generated_at": datetime.now(timezone.utc).isoformat(), "revision": revision,
+              "source_fingerprint": fingerprint.hexdigest(),
               "environment": {"python": system_platform.python_version(), **{name: importlib.metadata.version(name)
                               for name in ("pydantic", "sqlalchemy", "requests")}},
               "settings": {"model": args.model, "repeats": args.repeats, "temperature": args.temperature,
                            "max_tokens": args.max_tokens, "timeout": args.timeout}, "layers": {}}
     with diagnostic_environment():
-        from AiVision.assistant.schema import AssistantSettings
+        from AiVision.assistant.schema import AssistantSettings, RequestPlan
+        from AiVision.assistant.runtime import PLANNING_PROMPT
         from AiVision.connectors.qwen.client import QwenClient
         from AiVision.core.settings import settings as application_settings
 
         report["runtime_limits"] = {key: getattr(application_settings.runtime, key) for key in (
             "assistant_max_rounds", "assistant_max_changes", "assistant_history_turns", "assistant_workers",
-            "assistant_queue_capacity", "qwen_max_concurrent_requests")}
+            "assistant_queue_capacity", "qwen_max_concurrent_requests", "assistant_plan_max_tokens", "assistant_history_max_chars")}
         AssistantSettings(base_url=settings["base_url"], model=args.model, max_tokens=args.max_tokens,
                           api_timeout_sec=args.timeout, temperature=args.temperature)
         live_unavailable = None
         if args.base_url and set(args.layers.split(",")) & {"model", "e2e-live", "conversation-live"}:
             progress("[连接检查] 使用固定虚构问候验证模型服务，不读取生产业务数据。")
+            preflight_stage = "连接"
             try:
                 QwenClient().complete(base_url=settings["base_url"], model=args.model,
                     messages=[{"role": "user", "content": "你好，请简短回复。"}], max_tokens=128,
                     temperature=args.temperature, timeout=args.timeout, json_mode=False)
+                preflight_stage = "JSON Schema 请求"
+                progress("[连接检查] 检查服务是否接受 JSON Schema 请求，格式正确率仍按实际场景统计。")
+                QwenClient().complete(base_url=settings["base_url"], model=args.model,
+                    messages=[{"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
+                              {"role": "user", "content": "查询可用检测功能"}],
+                    max_tokens=min(args.max_tokens, application_settings.runtime.assistant_plan_max_tokens),
+                    temperature=0.0, timeout=args.timeout, json_mode=True,
+                    response_schema=RequestPlan.model_json_schema())
             except Exception as exc:
-                live_unavailable = type(exc).__name__
+                live_unavailable = preflight_stage + "未完成：" + type(exc).__name__
         for layer in args.layers.split(","):
             rows = []
             descriptions = {
@@ -402,7 +431,7 @@ def run(args, progress=print, checkpoint=None):
                 report["layers"][layer] = {"status": "blocked", "reason": "未显式提供 --base-url，未连接任何模型服务。", "rows": []}
                 continue
             if layer in {"model", "e2e-live", "conversation-live"} and live_unavailable:
-                report["layers"][layer] = {"status": "blocked", "reason": "模型连接检查未完成：" + live_unavailable,
+                report["layers"][layer] = {"status": "blocked", "reason": "模型" + live_unavailable,
                                            "rows": []}
                 continue
             if layer == "model":

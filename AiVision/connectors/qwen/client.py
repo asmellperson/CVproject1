@@ -45,12 +45,17 @@ def model_headers() -> dict[str, str]:
 
 class QwenClient:
     def complete(self, *, base_url: str, model: str, messages: list[dict], max_tokens: int,
-                 temperature: float, timeout: float, json_mode: bool = False) -> tuple[str, float]:
+                 temperature: float, timeout: float, json_mode: bool = False,
+                 response_schema: dict | None = None) -> tuple[str, float]:
         started = time.monotonic()
         payload = {"model": model, "messages": messages, "stream": False,
                    "max_tokens": max_tokens, "temperature": temperature,
                    "chat_template_kwargs": {"enable_thinking": False}}
-        if json_mode:
+        if response_schema is not None:
+            payload["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "assistant_response", "strict": True, "schema": response_schema,
+            }}
+        elif json_mode:
             payload["response_format"] = {"type": "json_object"}
         if not _slots.acquire(timeout=timeout):
             raise QwenTimeoutError("福达AI服务请求繁忙，等待超时")
@@ -67,7 +72,9 @@ class QwenClient:
                         timeout=(min(5.0, remaining), remaining), allow_redirects=False,
                     ) as response:
                         if response.status_code != 200:
-                            raise QwenServiceError(f"福达AI服务返回 HTTP {response.status_code}")
+                            detail = ("；请检查模型服务是否支持 response_format=json_schema"
+                                      if response_schema is not None and response.status_code in {400, 422} else "")
+                            raise QwenServiceError(f"福达AI服务返回 HTTP {response.status_code}" + detail)
                         return response.text, time.monotonic() - started
                 except requests.Timeout:
                     raise QwenTimeoutError("等待福达AI服务响应超时") from None

@@ -63,6 +63,7 @@ PROBES = (
 )
 
 METRICS = {
+    "first_plan_valid": "首次规划 Schema 通过率", "query_goal_ok": "查询目标规划准确率",
     "classification_ok": "任务分类准确率", "resource_ok": "资源识别准确率",
     "planning_operations_ok": "操作类别规划准确率",
     "tool_selection_ok": "工具选择准确率", "parameter_ok": "参数提取准确率",

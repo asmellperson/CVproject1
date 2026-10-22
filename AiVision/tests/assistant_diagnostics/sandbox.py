@@ -54,6 +54,17 @@ def observed_arguments(trace, tool, field, item_type):
     return values
 
 
+def context_statistics(messages):
+    from AiVision.assistant.context import CONTEXT_PREFIX
+
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, str) and content.startswith(CONTEXT_PREFIX):
+            data = json.loads(content[len(CONTEXT_PREFIX):])
+            return len(data["recent_turns"]), content
+    return max(0, (len(messages) - 2) // 2), "\n".join(str(item.get("content", "")) for item in messages[1:-1])
+
+
 class InlineExecutor:
     """同步投递保留 submit/幂等/取消链路；不把线程调度性能算作本次诊断结论。"""
 
@@ -83,7 +94,10 @@ class ScriptedClient:
         planning = "只判断当前用户请求" in messages[0]["content"]
         if planning:
             mode = "query" if platform.phase == "prelude" else case.mode
-            return completion({"mode": mode, "operations": ["update_configurations"] if mode == "change" else []}), 0.0
+            goal = ("capabilities" if case.name == "capabilities" else "list_resources" if case.name == "camera"
+                    else "read_configurations") if mode == "query" else None
+            return completion({"mode": mode, "operations": ["update_configurations"] if mode == "change" else [],
+                               "query_tool": goal}), 0.0
         if not kwargs["json_mode"]:
             return completion("你好呀，我是福达AI助手。"), 0.0
         last = messages[-1]["content"]
@@ -153,28 +167,30 @@ class MeasuredClient:
         self.requests = []
 
     def complete(self, **kwargs):
-        from AiVision.assistant.responses import completion_content, json_content, parse_plan
+        from AiVision.assistant.responses import completion_content, completion_metadata, json_content, parse_plan
 
         self.calls += 1
         platform, case = self.platform, self.platform.scenario
         planning = "只判断当前用户请求" in kwargs["messages"][0]["content"]
+        history_count, history_text = context_statistics(kwargs["messages"])
         request = {"kind": "planning" if planning else "business", "messages": len(kwargs["messages"]),
                    "characters": sum(len(str(message.get("content", ""))) for message in kwargs["messages"]),
-                   "history_pairs": max(0, (len(kwargs["messages"]) - 2) // 2) if planning else None}
+                   "history_pairs": history_count if planning else None,
+                   "max_tokens": kwargs["max_tokens"],
+                   "response_format": "json_schema" if kwargs.get("response_schema") is not None else "json_object" if kwargs["json_mode"] else "text"}
         anchor = getattr(platform, "history_anchor", None)
         if planning and anchor:
-            request["anchor_in_history"] = any(anchor in message.get("content", "") for message in kwargs["messages"][1:-1])
+            request["anchor_in_history"] = anchor in history_text
         binding = getattr(platform, "history_binding", None)
         if planning and binding:
-            request["binding_in_history"] = any(all(part in message.get("content", "") for part in binding)
-                                                for message in kwargs["messages"][1:-1])
+            request["binding_in_history"] = all(part in history_text for part in binding)
         self.requests.append(request)
         request_started = time.perf_counter()
         progress = getattr(platform, "model_progress", None)
         if progress:
             progress(request["kind"], self.calls)
         if platform.phase in {"continuation", "main_after_prelude"}:
-            self.saw_history |= any(message["role"] == "assistant" for message in kwargs["messages"])
+            self.saw_history |= history_count > 0
         try:
             if case.fault == "invalid_json" and planning and not self.injected:
                 raw, latency = completion('{"mode":'), 0.0
@@ -195,6 +211,7 @@ class MeasuredClient:
                     self.injected.append("wrong_answer")
             if kwargs["json_mode"]:
                 syntax_ok = json_validity(raw)
+                request["json_valid"] = syntax_ok
                 if syntax_ok is not None:
                     self.json_results.append(syntax_ok)
             if planning:
@@ -202,11 +219,15 @@ class MeasuredClient:
                     plan = parse_plan(raw)
                     self.plans.append(plan.mode)
                     self.plan_operations.append(plan.operations)
+                    request["plan_valid"] = True
                 except RuntimeError as exc:
                     self.errors.append(type(exc).__name__)
+                    request["plan_valid"] = False
+                    request["validation_category"] = getattr(exc, "category", type(exc).__name__)
             if case.fault == "cancel" and self.calls == 2:
                 platform.service.cancel(platform.session_id, platform.turn_id, platform.user)
                 self.injected.append("cancel")
+            request.update(completion_metadata(raw))
             try:
                 usage = json.loads(raw).get("usage", {})
                 for name in ("prompt_tokens", "completion_tokens", "total_tokens"):

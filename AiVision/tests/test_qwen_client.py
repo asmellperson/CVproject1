@@ -64,6 +64,32 @@ def test_payload_preserves_json_mode_auth_and_shared_concurrency_budget(transpor
     case.slots.release.assert_called_once_with()
 
 
+def test_schema_constraint_is_sent_without_changing_auth_timeout_or_concurrency(transport_case):
+    case = transport_case
+    schema = {"type": "object", "properties": {"mode": {"enum": ["chat", "query", "change"]}},
+              "required": ["mode"], "additionalProperties": False}
+    case.complete(timeout=10.0, json_mode=True, response_schema=schema)
+    payload = case.transport.post.call_args.kwargs["json"]
+    assert payload["response_format"] == {"type": "json_schema", "json_schema": {
+        "name": "assistant_response", "strict": True, "schema": schema,
+    }}
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert case.transport.post.call_args.kwargs["timeout"] == (5.0, 10.0)
+    case.slots.acquire.assert_called_once_with(timeout=10.0)
+    case.slots.release.assert_called_once_with()
+
+
+def test_rejected_schema_request_is_not_silently_downgraded_or_retried(transport_case):
+    case = transport_case
+    case.response.status_code = 400
+    case.response.text = "fixture-private-server-error"
+    with pytest.raises(case.module.QwenServiceError, match="response_format=json_schema") as caught:
+        case.complete(timeout=10.0, json_mode=True, response_schema={"type": "object"})
+    assert case.response.text not in str(caught.value)
+    assert case.transport.post.call_count == 1
+    case.slots.release.assert_called_once_with()
+
+
 @pytest.mark.parametrize("status", [400, 429, 500, 503])
 def test_http_service_errors_are_distinct_and_do_not_expose_response_bodies(transport_case, status):
     case = transport_case

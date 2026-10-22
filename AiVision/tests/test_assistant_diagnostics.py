@@ -143,7 +143,8 @@ def test_all_model_cases_use_the_same_fixed_settings_and_never_log_raw_content()
     rows = [run_model_case(case, client, settings, repeat) for repeat in range(1, 4)]
     assert case["messages"] == original
     assert len(client.complete.call_args_list) == 3
-    assert all(call.kwargs["temperature"] == 0.0 and call.kwargs["max_tokens"] == 256
+    from AiVision.core.settings import settings as application_settings
+    assert all(call.kwargs["temperature"] == 0.0 and call.kwargs["max_tokens"] == application_settings.runtime.assistant_plan_max_tokens
                for call in client.complete.call_args_list)
     assert secret not in json.dumps(rows)
 
@@ -154,6 +155,7 @@ def test_offline_cli_report_marks_real_model_layers_as_blocked(tmp_path):
     assert main(["--layers", "model,e2e-live", "--output", str(tmp_path)]) == 0
     report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
     assert all(layer["status"] == "blocked" and layer["rows"] == [] for layer in report["layers"].values())
+    assert len(report["source_fingerprint"]) == 64 and int(report["source_fingerprint"], 16) >= 0
     assert "未执行" in (tmp_path / "report.md").read_text(encoding="utf-8")
 
 
@@ -223,3 +225,125 @@ def test_reading_the_wrong_configuration_kind_is_a_resource_error(monkeypatch):
     monkeypatch.setattr(ConversationScriptedClient, "complete", wrong_kind)
     rows = run_conversation("pressure")
     assert all(row["resource_ok"] is False and row["behavior_ok"] is False for row in rows)
+
+
+def test_target_and_pending_parameter_survive_eight_greetings_and_save_with_a_fresh_read():
+    from AiVision.assistant.context import CONTEXT_PREFIX
+    from AiVision.core.config_revision import configuration_revision
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, DEPARTMENT, FEATURE, RESOURCE
+    from AiVision.tests.assistant_diagnostics.sandbox import execute_turn
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        reference = {"key": RESOURCE}
+        revision = configuration_revision(sandbox.before[RESOURCE])
+        lowering = "把这台摄像头的非法闯闸人体置信度调低一点"
+        replies = [
+            {"mode": "query", "query_tool": "read_configurations"},
+            {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+                "feature": FEATURE, "query": CAMERA_NAME}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
+            *["你好呀" for _ in range(8)],
+            {"mode": "change", "operations": ["update_configurations"]},
+            {"action": "ask_user", "arguments": {"question": "人体置信度想调低到哪个具体数值？"}},
+            {"mode": "change", "operations": ["update_configurations"]},
+            {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
+            {"action": "update_configurations", "arguments": {"changes": [{"resource_key": RESOURCE,
+                "expected_revision": revision, "patch": {"value": {"threshold": 0.55}}}]}},
+            {"action": "answer", "answer": "结束本轮"},
+        ]
+        client = Mock()
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in replies]
+        sandbox.runtime.client = client
+        first, _ = execute_turn(sandbox, f"读取通用电气事业部{CAMERA_NAME}的非法闯闸人体置信度")
+        assert first.status == "completed"
+        for _ in range(8):
+            greeting, _ = execute_turn(sandbox, "你好哇")
+            assert greeting.status == "completed"
+        before_clarification = client.complete.call_count
+        clarification, _ = execute_turn(sandbox, lowering)
+        assert clarification.status == "completed" and not sandbox.service.actions(clarification.id)
+        planning = client.complete.call_args_list[before_clarification].kwargs
+        context = next(message["content"] for message in planning["messages"] if message["content"].startswith(CONTEXT_PREFIX))
+        data = json.loads(context[len(CONTEXT_PREFIX):])
+        assert len(data["recent_turns"]) == 6
+        assert all(item["request"] == "你好哇" for item in data["recent_turns"])
+        assert data["task_context"]["last_read_resources"][0]["key"] == reference["key"]
+        before_continuation = client.complete.call_count
+        saved, _ = execute_turn(sandbox, "就改为0.55")
+        assert saved.status == "completed" and "已保存配置" in saved.answer
+        planning = client.complete.call_args_list[before_continuation].kwargs
+        context = next(message["content"] for message in planning["messages"] if message["content"].startswith(CONTEXT_PREFIX))
+        data = json.loads(context[len(CONTEXT_PREFIX):])
+        assert data["task_context"]["pending_task"]["request"] == lowering
+        assert data["task_context"]["last_read_resources"][0]["key"] == RESOURCE
+        assert "revision" not in data["task_context"]["last_read_resources"][0]
+        actual = sandbox.snapshot()
+        expected = deepcopy(sandbox.before)
+        expected[RESOURCE]["value"]["threshold"] = 0.55
+        assert actual == expected
+        assert len(sandbox.service.actions(saved.id)) == 1
+        recent_tools = [entry["tool"] for entry in sandbox.trace if entry.get("tool") != "capabilities"]
+        assert recent_tools == ["list_resources", "read_configurations", "ask_user", "read_configurations", "update_configurations"]
+
+
+def test_permission_change_hides_in_memory_targets_along_with_database_history():
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, DEPARTMENT, FEATURE, RESOURCE
+    from AiVision.tests.assistant_diagnostics.sandbox import execute_turn
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client = Mock()
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "query", "query_tool": "read_configurations"},
+            {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+                "feature": FEATURE, "query": CAMERA_NAME}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
+            {"mode": "query", "query_tool": "read_configurations"},
+            {"action": "ask_user", "arguments": {"question": "请明确摄像头名称"}},
+        ]]
+        sandbox.runtime.client = client
+        first, _ = execute_turn(sandbox, f"读取{CAMERA_NAME}的非法闯闸配置")
+        assert sandbox.runtime.memory.get(sandbox.session_id, {first.id}) is not None
+        sandbox.user["role"] = "viewer"
+        next_turn, _ = execute_turn(sandbox, "再查一下这台摄像头的配置")
+        assert next_turn.status == "completed" and not sandbox.service.actions(next_turn.id)
+        planning = client.complete.call_args_list[3].kwargs
+        assert CAMERA_NAME not in json.dumps(planning["messages"], ensure_ascii=False)
+        assert RESOURCE not in json.dumps(planning["messages"], ensure_ascii=False)
+        assert sandbox.snapshot() == sandbox.before
+
+
+def test_schema_service_incompatibility_is_reported_before_running_ninety_nine_turns(monkeypatch, tmp_path):
+    from AiVision.connectors.qwen.client import QwenServiceError
+    from AiVision.tests.assistant_diagnostics.runner import main
+
+    client = Mock()
+    client.complete.side_effect = [(completion("你好"), 0.0), QwenServiceError("HTTP 400")]
+    monkeypatch.setattr("AiVision.connectors.qwen.client.QwenClient", lambda: client)
+    assert main(["--base-url", "http://model.invalid/v1", "--layers", "conversation-live",
+                 "--output", str(tmp_path)]) == 0
+    report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    layer = report["layers"]["conversation-live"]
+    assert layer["status"] == "blocked" and layer["rows"] == []
+    assert "JSON Schema 请求" in layer["reason"]
+    assert client.complete.call_count == 2
+    assert client.complete.call_args.kwargs["response_schema"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("question, expected", [("人体置信度要调低到哪个具体数值？", True),
+                                                ("请确认哪台摄像头或所属部门？", False)])
+def test_numeric_clarification_uses_verified_target_without_requiring_an_unnecessary_read(monkeypatch, question, expected):
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+
+    original = ConversationScriptedClient.complete
+
+    def ask_without_read(self, **kwargs):
+        raw, latency = original(self, **kwargs)
+        body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
+        if self.sandbox.step.kind == "clarify_value" and body.get("action") == "read_configurations":
+            return completion({"action": "ask_user", "arguments": {"question": question}}), latency
+        return raw, latency
+
+    monkeypatch.setattr(ConversationScriptedClient, "complete", ask_without_read)
+    row = run_conversation("mixed")[11]
+    assert "read_configurations" not in row["tools"] and row["configuration_ok"]
+    assert row["behavior_ok"] is expected

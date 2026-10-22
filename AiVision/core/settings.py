@@ -142,6 +142,8 @@ class RuntimeSettings(BaseSettings):
     assistant_max_rounds: int = Field(24, ge=1, le=48, alias="ASSISTANT_MAX_ROUNDS")
     assistant_max_changes: int = Field(100, ge=1, le=200, alias="ASSISTANT_MAX_CHANGES")
     assistant_history_turns: int = Field(6, ge=0, le=20, alias="ASSISTANT_HISTORY_TURNS")
+    assistant_history_max_chars: int = Field(8000, ge=1000, le=32000, alias="ASSISTANT_HISTORY_MAX_CHARS")
+    assistant_plan_max_tokens: int = Field(1024, ge=256, le=4096, alias="ASSISTANT_PLAN_MAX_TOKENS")
     fence_inference_timeout_seconds: float = Field(5.0, gt=0, le=30, alias="FENCE_INFERENCE_TIMEOUT_SECONDS")
     slow_frame_log_seconds: float = Field(1.0, gt=0, alias="FRAME_SLOW_LOG_SECONDS")   # 一次获取摄像头画面超过多少秒，就记慢请求日志
     # 物流通道状态多久没更新，就认为他过旧

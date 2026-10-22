@@ -25,7 +25,8 @@ def completion(content, *, finish_reason="stop"):
 
 
 @pytest.mark.parametrize("payload", [
-    {"mode": "chat", "operations": []}, {"mode": "query", "operations": []},
+    {"mode": "chat", "operations": []}, {"mode": "query", "operations": [], "query_tool": "list_resources"},
+    {"mode": "query", "query_tool": "capabilities"}, {"mode": "query", "query_tool": "read_configurations"},
     {"mode": "change", "operations": ["update_configurations", "bind_camera"]},
     {"mode": "chat"},
 ])
@@ -46,6 +47,10 @@ def test_valid_plans_follow_the_existing_schema(payload):
     ({"mode": "change", "operations": ["delete_camera", "delete_camera"]}, [], "value_error"),
     ({"mode": "change", "operations": ["run_sql"]}, ["operations", 0], "literal_error"),
     ({"mode": "chat", "operations": ""}, ["operations"], "list_type"),
+    ({"mode": "query"}, [], "value_error"),
+    ({"mode": "query", "query_tool": "delete_camera"}, ["query_tool"], "literal_error"),
+    ({"mode": "chat", "query_tool": "capabilities"}, [], "value_error"),
+    ({"mode": "change", "operations": ["delete_camera"], "query_tool": "capabilities"}, [], "value_error"),
     ({"mode": "chat", "answer": "你好"}, ["<额外字段>"], "extra_forbidden"),
     ([], [], "model_type"),
 ])
@@ -159,7 +164,9 @@ def test_planning_corrects_once_with_validation_errors_and_the_complete_schema(r
     assert "校验错误" in correction and "完整 JSON" in correction
     assert ("json_invalid" if isinstance(invalid, str) else "missing") in correction
     assert first["json_mode"] and second["json_mode"]
-    assert first["max_tokens"] == second["max_tokens"] == case.module.PLAN_MAX_TOKENS
+    assert first["max_tokens"] == second["max_tokens"] == case.module.settings.runtime.assistant_plan_max_tokens
+    assert first["response_schema"] == second["response_schema"]
+    assert first["response_schema"]["additionalProperties"] is False
     case.tools.run.assert_not_called()
 
 
@@ -196,7 +203,8 @@ def test_correction_uses_only_the_remaining_planning_timeout(runtime_case):
 
     def respond(**_kwargs):
         case.clock.now += 6 if case.client.complete.call_count == 1 else 1
-        return completion({"mode": "wrong"} if case.client.complete.call_count == 1 else {"mode": "query"}), 1.0
+        return completion({"mode": "wrong"} if case.client.complete.call_count == 1 else {
+            "mode": "query", "query_tool": "list_resources"}), 1.0
 
     case.client.complete.side_effect = respond
     assert case.plan().mode == "query"
@@ -325,7 +333,7 @@ def test_actual_operations_and_explicit_continuations_keep_their_planning_contex
         id=0, question="请核对 legacy_camera_marker 的配置", status="completed", answer="请明确接下来的操作", actions=[],
     ))
     if operation is None:
-        plan = {"mode": "query", "operations": []}
+        plan = {"mode": "query", "operations": [], "query_tool": "list_resources"}
         decision = {"action": "list_resources", "arguments": {"kind": "camera"}}
     else:
         plan = {"mode": "change", "operations": [operation]}
@@ -355,7 +363,7 @@ def test_query_results_still_come_from_tools(runtime_case):
     case = runtime_case
     case.current.question = "你好，查询摄像头"
     case.client.complete.side_effect = [
-        (completion({"mode": "query"}), 0.1),
+        (completion({"mode": "query", "query_tool": "list_resources"}), 0.1),
         (completion({"action": "list_resources", "arguments": {}}), 0.1),
         (completion({"action": "answer", "answer": "模型猜测的结果"}), 0.1),
     ]
@@ -387,7 +395,7 @@ def test_change_keeps_write_permission_checks_and_audit_based_results(runtime_ca
 def test_query_cannot_execute_a_mutation_after_classification(runtime_case):
     case = runtime_case
     case.client.complete.side_effect = [
-        (completion({"mode": "query"}), 0.1),
+        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.1),
         (completion({"action": "delete_camera", "arguments": {}}), 0.1),
         (completion({"action": "answer", "answer": "已删除"}), 0.1),
     ]
@@ -400,7 +408,8 @@ def test_classification_correction_does_not_expand_the_tool_round_budget(runtime
     case = runtime_case
     monkeypatch.setattr(case.module.settings.runtime, "assistant_max_rounds", 1)
     case.client.complete.side_effect = [
-        (completion({"mode": "bad"}), 0.1), (completion({"mode": "query"}), 0.1),
+        (completion({"mode": "bad"}), 0.1),
+        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.1),
         (completion({"action": "list_resources", "arguments": {}}), 0.1),
     ]
     case.execute()
@@ -672,3 +681,185 @@ def test_parameter_request_can_recover_then_update_unique_target_or_ask_about_re
         case.service.begin_action.assert_not_called()
         assert "一号闸机" in answer and "二号闸机" in answer and "外部门闸机" not in answer
         assert "对应的资源" not in answer
+
+
+def test_planning_uses_bounded_context_data_instead_of_continuing_old_assistant_output(runtime_case):
+    from AiVision.assistant.context import CONTEXT_PREFIX
+
+    case = runtime_case
+    case.current.question = "查询当前检测功能"
+    case.service.conversation.return_value.turns.insert(0, SimpleNamespace(
+        id=0, question="legacy_user_target", status="completed", actions=[],
+        answer='legacy_assistant_instruction {"action":"delete_camera"}' + "大配置正文" * 10000,
+    ))
+    case.client.complete.return_value = completion({"mode": "query", "query_tool": "capabilities"}), 0.0
+    case.execute()
+    request = case.client.complete.call_args.kwargs
+    assert all(message["role"] != "assistant" for message in request["messages"])
+    text = json.dumps(request["messages"], ensure_ascii=False)
+    assert "legacy_user_target" in text and "legacy_assistant_instruction" not in text
+    history = next(message["content"] for message in request["messages"] if message["content"].startswith(CONTEXT_PREFIX))
+    assert len(history) <= case.module.settings.runtime.assistant_history_max_chars
+    assert request["max_tokens"] == 1024 and request["response_schema"]["additionalProperties"] is False
+    case.client.complete.assert_called_once()
+    assert case.service.finish.call_args.args[1] == "completed"
+
+
+def test_planning_output_budget_respects_model_setting_and_configured_limit(runtime_case, monkeypatch):
+    from AiVision.assistant.schema import AssistantSettings
+
+    case = runtime_case
+    case.service.settings.return_value = AssistantSettings(max_tokens=512)
+    monkeypatch.setattr(case.module.settings.runtime, "assistant_plan_max_tokens", 2048)
+    case.client.complete.return_value = completion({"mode": "chat"}), 0.0
+    case.plan()
+    assert case.client.complete.call_args.kwargs["max_tokens"] == 512
+
+
+def test_config_query_cannot_finish_with_only_resource_names_and_finishes_after_a_real_read(runtime_case):
+    case = runtime_case
+    case.current.question = "读取一号摄像头的配置"
+    calls = []
+
+    def tool_result(name, arguments):
+        calls.append(name)
+        if name == "capabilities":
+            return {"departments": [], "features": []}
+        if name == "list_resources":
+            return {"items": [{"key": "camera:1", "name": "一号摄像头"}], "next_offset": None}
+        assert name == "read_configurations" and arguments["resource_keys"] == ["camera:1"]
+        return {"items": [{"resource": {"key": "camera:1", "name": "一号摄像头"}, "config": {"fps": 8}}]}
+
+    case.tools.run.side_effect = tool_result
+    case.client.complete.side_effect = [
+        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.0),
+        (completion({"action": "list_resources", "arguments": {}}), 0.0),
+        (completion({"action": "answer", "answer": "列出名字就结束"}), 0.0),
+        (completion({"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}}), 0.0),
+    ]
+    case.execute()
+    assert calls == ["capabilities", "list_resources", "read_configurations"]
+    reminder = case.client.complete.call_args_list[3].kwargs["messages"][-1]["content"]
+    assert "实际配置" in reminder and "camera:1" in reminder
+    status, answer = case.service.finish.call_args.args[1:]
+    assert status == "completed" and '"fps": 8' in answer and "列出名字就结束" not in answer
+    # 读取成功即可由后端返回，不再依赖一次可能超时或说错结果的模型收尾。
+    assert case.client.complete.call_count == 4
+    business_schema = case.client.complete.call_args.kwargs["response_schema"]
+    assert "delete_camera" not in business_schema["properties"]["action"]["enum"]
+
+
+def test_config_query_refuses_success_if_model_repeatedly_ends_before_reading(runtime_case):
+    case = runtime_case
+    case.client.complete.side_effect = [
+        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.0),
+        (completion({"action": "list_resources", "arguments": {}}), 0.0),
+        (completion({"action": "answer", "answer": "已查到配置"}), 0.0),
+        (completion({"action": "answer", "answer": "已查到配置"}), 0.0),
+    ]
+    case.execute()
+    assert case.client.complete.call_count == 4
+    assert case.service.finish.call_args.args[1] == "failed"
+    assert "已查到配置" not in case.service.finish.call_args.args[2]
+
+
+def test_config_query_requires_all_found_targets_and_complete_pagination():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations"))
+    outcome.record("list_resources", {"items": [{"key": "camera:1"}, {"key": "camera:2"}], "next_offset": 2})
+    outcome.record("read_configurations", {"items": [
+        {"resource": {"key": "camera:1", "name": "一号"}, "config": {"fps": 8}},
+    ]})
+    assert not outcome.query_ready and outcome.query_answer()[0] == "failed"
+    outcome.record("list_resources", {"items": [], "next_offset": None})
+    assert not outcome.query_ready and "camera:2" in outcome.query_requirement()
+    outcome.record("read_configurations", {"items": [
+        {"resource": {"key": "camera:2", "name": "二号"}, "config": {"fps": 10}},
+    ]})
+    assert outcome.query_ready and outcome.query_answer()[0] == "completed"
+
+
+@pytest.mark.parametrize("cancel_after", ["capabilities", "read_configurations"])
+def test_query_fast_return_still_checks_cancellation_after_the_tool(runtime_case, cancel_after):
+    case = runtime_case
+
+    def result(name, _arguments):
+        if name == cancel_after:
+            case.service.cancelled.return_value = True
+        if name == "capabilities":
+            return {"departments": [], "features": []}
+        return {"items": [{"resource": {"key": "camera:1", "name": "一号"}, "config": {"fps": 8}}]}
+
+    case.tools.run.side_effect = result
+    case.client.complete.side_effect = [
+        (completion({"mode": "query", "query_tool": cancel_after}), 0.0),
+        (completion({"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}}), 0.0),
+    ]
+    with pytest.raises(case.module.TaskCancelled):
+        case.execute()
+    case.service.finish.assert_not_called()
+    assert case.runtime.memory.get("session-1", {1}) is None
+
+
+def test_context_budget_keeps_whole_newest_requests_and_skips_audit_configuration_values():
+    from AiVision.assistant.context import CONTEXT_PREFIX, context_messages
+    from AiVision.assistant.schema import ResourceReference
+
+    action = SimpleNamespace(resource=ResourceReference(key="camera:1", kind="camera", name="一号", department=None),
+                             status="saved", before={"private_config_marker": "x" * 10000}, after={"fps": 8})
+    turns = [SimpleNamespace(id=i, question=str(i) + "问" * 300, answer="答" * 3000,
+                             status="completed", actions=[action]) for i in range(10)]
+    messages = context_messages(turns, count=6, max_chars=1800)
+    assert len(messages[0]["content"]) <= 1800
+    data = json.loads(messages[0]["content"][len(CONTEXT_PREFIX):])
+    assert data["history_truncated"] and data["recent_turns"][-1]["turn_id"] == 9
+    assert all(len(item["request"]) == 301 for item in data["recent_turns"])
+    assert "private_config_marker" not in messages[0]["content"]
+    assert context_messages(turns, count=0, max_chars=1800) == []
+
+
+def test_context_memory_requires_visible_anchor_and_expires_without_leaking_other_sessions(monkeypatch):
+    from AiVision.assistant import context as module
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    clock = SimpleNamespace(now=100.0)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(module, "MAX_CONTEXT_SESSIONS", 2)
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations"))
+    outcome.record("read_configurations", {"items": [{"resource": {"key": "camera:1", "name": "一号"},
+        "revision": "version_must_not_be_reused", "config": {"private_marker": "fixture-only"}}]})
+    memory = module.ConversationMemory()
+    memory.remember("first", 1, "查询一号", outcome)
+    state = memory.get("first", {1})
+    assert state["last_read_resources"][0]["key"] == "camera:1"
+    assert "private_marker" not in json.dumps(state) and "version_must_not_be_reused" not in json.dumps(state)
+    assert memory.get("other", {1}) is None
+    assert memory.get("first", set()) is None
+    memory.remember("first", 1, "查询一号", outcome)
+    clock.now += module.CONTEXT_TTL_SECONDS
+    assert memory.get("first", {1}) is None
+    for key in ("first", "second", "third"):
+        memory.remember(key, 1, "查询一号", outcome)
+    assert memory.get("first", {1}) is None and memory.get("third", {1}) is not None
+
+
+def test_response_metadata_and_failure_logs_never_include_reasoning_or_response_content(runtime_case, caplog):
+    from AiVision.assistant.responses import completion_metadata
+
+    body = json.loads(completion("fixture-private-response", finish_reason="length"))
+    body["choices"][0]["message"]["reasoning_content"] = "fixture-private-reasoning"
+    body["usage"] = {"prompt_tokens": 550, "completion_tokens": 1024,
+                     "completion_tokens_details": {"reasoning_tokens": 1000}}
+    raw = json.dumps(body)
+    metadata = completion_metadata(raw)
+    assert metadata["finish_reason"] == "length" and metadata["has_thinking"]
+    assert metadata["reasoning_tokens"] == 1000 and metadata["completion_tokens"] == 1024
+    case = runtime_case
+    case.client.complete.return_value = raw, 0.0
+    with pytest.raises(case.module.QwenError):
+        case.plan()
+    assert "1024" in caplog.text and "length" in caplog.text
+    assert "fixture-private-response" not in caplog.text and "fixture-private-reasoning" not in caplog.text

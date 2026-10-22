@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import dataclass, field
 import json
+import re
 import time
 
 from .cases import CAMERA_NAME, DEPARTMENT, FEATURE, RESOURCE, SECOND_CAMERA_NAME, SECOND_RESOURCE, Scenario
@@ -60,7 +61,9 @@ class ConversationScriptedClient:
     def complete(self, **kwargs):
         step = self.sandbox.step
         if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
-            return completion({"mode": step.mode, "operations": ["update_configurations"] if step.mode == "change" else []}), 0.0
+            goal = ("capabilities" if step.kind == "capabilities" else "read_configurations") if step.mode == "query" else None
+            return completion({"mode": step.mode, "operations": ["update_configurations"] if step.mode == "change" else [],
+                               "query_tool": goal}), 0.0
         if not kwargs["json_mode"]:
             return completion("你好呀，我是福达AI助手，收到你的消息。"), 0.0
         last = kwargs["messages"][-1]["content"]
@@ -112,6 +115,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 if live:
                     sandbox.model_progress = lambda kind, count: progress(f"[conversation] {name} 第{repeat}组 第{number}轮 {kind} 请求{count}")
             before = sandbox.snapshot()
+            visible = sandbox.service.conversation(sandbox.session_id, sandbox.user)
+            previous_context = sandbox.runtime.memory.get(sandbox.session_id, {turn.id for turn in visible.turns}) or {}
             expected = deepcopy(before)
             for key in step.targets if step.kind == "write" else ():
                 expected[key]["value"].update(step.delta["value"])
@@ -144,6 +149,18 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 required = {"list_resources", "read_configurations"}
                 resource_ok = {item["resource"]["key"] for item in reads} == set(step.targets)
                 resource_ok &= all(item["config"] == before.get(item["resource"]["key"]) for item in reads)
+            if kind == "clarify_value":
+                # 已定位目标后询问具体值无需再次读配置；真正写入仍必须重新读取版本。
+                known = {item["key"] for item in previous_context.get("last_read_resources", [])}
+                known.update(item["resource"]["key"] for item in reads)
+                questions = [entry["arguments"].get("question", "") for entry in traces
+                             if entry["tool"] == "ask_user" and entry["ok"]]
+                asks_value = any(re.search(r"数值|多少|具体值|调低到", text) and not re.search(
+                    r"哪台|哪个摄像头|选择.*摄像头|完整名称|所属部门|资源.?ID", text, re.IGNORECASE,
+                ) for text in questions if isinstance(text, str))
+                resource_ok = known == set(step.targets) and asks_value
+                resource_ok &= all(item["resource"]["key"] in step.targets for item in reads)
+                required = {"ask_user"}
             if step.kind == "write":
                 required.add("update_configurations")
                 resource_ok &= all(isinstance(item.get("resource_key"), str) for item in changes)
@@ -192,6 +209,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                    "configuration_ok": configuration_ok, "report_ok": bool(report_ok), "behavior_ok": bool(behavior_ok),
                    "task_ok": bool(behavior_ok) if not kind.startswith("clarify") else None,
                    "json_ok": client.json_results[starts[3]:], "tool_execution_ok": [entry["ok"] for entry in traces],
+                   "first_plan_valid": planning_requests[0].get("plan_valid") if planning_requests else None,
                    "model_calls": client.calls - starts[0], "real_model_calls": client.real_calls - starts[1],
                    "duration_seconds": round(duration, 6), "tools": tools, "failure_layers": sorted(set(failure_layers)),
                    "errors": errors, "prior_failed_turns": sum(not row["behavior_ok"] for row in rows),

@@ -22,6 +22,7 @@ class ExecutionOutcome:
     query_result: dict | None = None
     query_resources: dict[str, dict] = field(default_factory=dict)
     query_configurations: dict[str, dict] = field(default_factory=dict)
+    query_next_offset: int | None = None
 
     def permits(self, tool: str) -> bool:
         return tool == "ask_user" or (self.plan.mode != "chat" and tool in READ_TOOLS) or tool in self.plan.operations
@@ -30,10 +31,11 @@ class ExecutionOutcome:
         if "error" in result:
             self.errors.append(str(result["error"]))
             return
-        if self.plan.mode == "query" and tool in READ_TOOLS:
+        if tool in READ_TOOLS:
             self.query_tool, self.query_result = tool, result
             if tool == "list_resources":
                 self.query_resources.update((item["key"], item) for item in result["items"])
+                self.query_next_offset = result.get("next_offset")
             elif tool == "read_configurations":
                 self.query_configurations.update((item["resource"]["key"], item) for item in result["items"])
         if tool not in self.plan.operations:
@@ -53,11 +55,33 @@ class ExecutionOutcome:
     def pending(self) -> set[str]:
         return set(self.plan.operations) - self.completed_operations
 
+    @property
+    def query_ready(self) -> bool:
+        if self.plan.mode != "query" or self.query_result is None or self.errors:
+            return False
+        if self.plan.query_tool == "capabilities":
+            return self.query_tool == "capabilities"
+        if self.query_next_offset is not None:
+            return False
+        if self.plan.query_tool == "list_resources":
+            return self.query_tool in {"list_resources", "read_configurations"}
+        return bool(self.query_configurations) and self.query_resources.keys() <= self.query_configurations.keys()
+
+    def query_requirement(self) -> str:
+        if self.query_next_offset is not None:
+            return "资源列表还有下一页，请按 next_offset 继续查询，不能把当前页当成全部目标。"
+        if self.plan.query_tool == "read_configurations":
+            missing = sorted(self.query_resources.keys() - self.query_configurations.keys())
+            return ("本轮要求实际配置，资源名称或搜索 Schema 不能替代读取结果。请调用 read_configurations"
+                    "；目标有歧义时调用 ask_user。尚未读取的候选：" + json.dumps(missing, ensure_ascii=False))
+        return "本轮尚未取得要求的查询结果，请调用 " + str(self.plan.query_tool) + "；缺少信息时使用 ask_user。"
+
     def query_answer(self) -> tuple[str, str]:
         if self.errors:
             return "failed", "查询尚未完成：" + self.errors[-1]
-        if self.query_result is None:
-            return "failed", "本轮未完成平台数据查询，不能确认实际状态。"
+        if not self.query_ready:
+            detail = "尚未读取全部目标的实际配置。" if self.plan.query_tool == "read_configurations" else "尚未取得完整查询结果。"
+            return "failed", "本轮查询尚未完成，不能确认实际状态。" + detail
         if self.query_tool == "capabilities" and not (self.query_configurations or self.query_resources):
             departments = "、".join(item["name"] for item in self.query_result["departments"])
             features = "、".join(item["label"] for item in self.query_result["features"])

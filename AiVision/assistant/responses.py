@@ -28,6 +28,7 @@ class PlanFormatError(QwenError):
                 + json.dumps(self.issues, ensure_ascii=False)
                 + "。请重新判断原始用户请求，只输出符合系统 Schema 的一个完整 JSON 对象。"
                 "必须包含合法 mode；chat/query 的 operations 为空，change 的 operations 必须非空且不重复。"
+                "query 必须指定 query_tool，其他 mode 的 query_tool 为 null。"
                 "不要输出解释、思考过程、工具指令或额外字段。")
 
 
@@ -37,7 +38,7 @@ def _plan_issues(exc: ValidationError) -> list[dict]:
         "missing": "缺少必需字段", "literal_error": "取值不在 Schema 允许范围内",
         "extra_forbidden": "包含 Schema 未允许的字段", "list_type": "字段必须为列表",
         "too_long": "列表超过 Schema 数量上限", "model_type": "分类必须为 JSON 对象",
-        "json_invalid": "必须输出语法完整的 JSON", "value_error": "mode 与 operations 不一致或操作重复",
+        "json_invalid": "必须输出语法完整的 JSON", "value_error": "mode、operations 或 query_tool 不符合任务约束",
     }
     issues = []
     for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]:
@@ -54,6 +55,30 @@ def is_simple_greeting(question: str) -> bool:
         r"(?:你好|您好|嗨|哈喽|hello|hi)[呀哇啊吖哟哦噢喔哈\s！!。.?？～~，,、；;]*",
         question.strip(), re.IGNORECASE,
     ) is not None
+
+
+def completion_metadata(raw: str) -> dict:
+    """只记录有界类别、计数和标记；异常输出和思考正文均不能进入日志。"""
+    try:
+        response = json.loads(raw)
+        choice = response["choices"][0]
+        message = choice["message"]
+        content = message.get("content")
+        reason = choice.get("finish_reason")
+        usage = response.get("usage") or {}
+        details = usage.get("completion_tokens_details") or {}
+        result = {"finish_reason": reason if reason in {"stop", "length", "content_filter", "error", "tool_calls"} else "other",
+                  "content_characters": len(content) if isinstance(content, str) else 0,
+                  "has_thinking": bool(message.get("reasoning") or message.get("reasoning_content")
+                                       or isinstance(content, str) and "<think>" in content)}
+        for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if type(usage.get(name)) is int and usage[name] >= 0:
+                result[name] = usage[name]
+        if type(details.get("reasoning_tokens")) is int and details["reasoning_tokens"] >= 0:
+            result["reasoning_tokens"] = details["reasoning_tokens"]
+        return result
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return {"envelope_valid": False}
 
 
 def completion_content(raw: str) -> str:
