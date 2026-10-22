@@ -16,10 +16,10 @@ from .sandbox import json_validity, response_statistics
 
 MAX_METADATA_BYTES = 2 * 1024 * 1024
 PRODUCTS = ("vllm", "sglang", "llama.cpp", "llama-cpp-python", "ollama", "text-generation-inference",
-            "xinference", "uvicorn", "gunicorn", "nginx", "transformers")
-PACKAGES = ("vllm", "sglang", "transformers", "llama_cpp_python", "fastapi", "uvicorn", "xgrammar", "outlines")
+            "xinference", "uvicorn", "gunicorn", "nginx", "transformers", "ms-swift")
+PACKAGES = ("vllm", "sglang", "transformers", "llama_cpp_python", "fastapi", "uvicorn", "xgrammar", "outlines", "ms_swift")
 REQUEST_FIELDS = {"model", "messages", "max_tokens", "temperature", "top_p", "response_format",
-                  "structured_outputs", "guided_json", "chat_template_kwargs", "reasoning_effort"}
+                  "structured_outputs", "structured_outputs_regex", "guided_json", "chat_template_kwargs", "reasoning_effort"}
 SOURCE_SIGNALS = ("response_format", "structured_outputs", "guided_json", "logits_processor",
                   "prefix_allowed_tokens_fn", "chat_template_kwargs", "enable_thinking", "max_tokens",
                   "max_new_tokens", "generate(", "transformers", "vllm")
@@ -138,6 +138,16 @@ def process_details(pid, proc_root=Path("/proc")):
             if isinstance(value, str) and value in {"auto", "xgrammar", "guidance", "outlines", "lm-format-enforcer"}:
                 backends.add(value)
         result["decoding_backend_hints"] = sorted(backends)
+        inference_backends = set()
+        for index, argument in enumerate(arguments):
+            flag, separator, value = argument.partition("=")
+            if flag != "--infer_backend":
+                continue
+            if not separator:
+                value = arguments[index + 1] if index + 1 < len(arguments) else ""
+            if value in {"vllm", "transformers", "sglang", "lmdeploy", "pt"}:
+                inference_backends.add(value)
+        result["inference_backend_hints"] = sorted(inference_backends)
         versions = {}
         prefixes = {executable.parent.parent}
         if arguments[0].startswith("/"):

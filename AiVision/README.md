@@ -1019,6 +1019,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `connectors/qwen/` 复用连接合同、Chat Completions 和请求并发预算，认证由环境变量提供。网络、超时、模型服务、响应解析和输出截断分别使用 `QwenError` 的专用子类，均向调用方提供不含连接信息或响应正文的错误。截断、网络、服务及响应封装错误不触发分类格式纠正。分类与平台工具使用 `response_format=json_schema`，业务动作枚举限定为本轮允许的工具；返回后仍通过 Pydantic 和业务合同检查，不自动降级为任意 JSON。服务需支持 [JSON Schema 结构化输出](https://docs.vllm.ai/en/stable/features/structured_outputs/)，不支持时按模型服务错误处理。安检继续使用 JSON 对象模式，普通聊天不施加格式约束。分类预算为模型输出上限与 `ASSISTANT_PLAN_MAX_TOKENS` 的较小值，后者默认 `1024`；日志仅记录安全的完成原因、字符数、Token 数和思考内容存在标记，不记录正文。助手模型设置保存在 `ai_system_config` 的 `assistant` 键；未保存时继承安检连接和生成参数。API 生命周期创建后台执行器但不主动连接福达AI；停止时阻止新的配置写入，等待正在进行的请求收尾。平台按正式入口运行一个 API 进程，摄像头凭据引用和任务队列不跨进程共享。
 
+模型服务器的 `connectors/qwen/swift_deploy.py` 可直接作为独立脚本执行，适配 `ms-swift 4.4.2`、`vLLM 0.27.1` 的异步引擎，复用模型环境已有的 `jsonschema`。它在 Chat Completions 请求中严格校验 `response_format`，将完整 Schema 或 JSON 对象模式传入单次生成参数，保留采样、模板、适配器及上游鉴权检查；正则冲突与不支持的约束明确报错。请求校验错误与包装层日志、JSONL 不保存对话正文。`--check` 在加载模型前核对依赖及实际 SDK 请求类型；模型服务器的真实解码效果通过 `service` 层另行验收。部署操作见[助手诊断文档](../docs/assistant-diagnostics.md#swift-部署与格式约束)。
+
 物流通道的 `config.schedule` 包含 `weekdays`、`start`、`end`、`timezone`，默认每天 `08:00～20:00`。`features/logistics_channel/schedule.py` 为检测调度和报警分发提供相同的星期、时区及含端点时段判断；时段外停止检测和报警，保留实时画面。星期从周一 `0` 到周日 `6`，空列表表示不检测、不报警，时段须在同一天内。保存时同步通道起止列与 `ai_logistics_alarm_schedule`，读取时使用两处存储的有效交集，配置通过通道事件热更新。
 
 ## 10. 数据存储与权限边界

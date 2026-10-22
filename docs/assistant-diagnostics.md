@@ -16,7 +16,7 @@ conda run --no-capture-output -n aivision \
   --output /tmp/fuda-ai-service-inspection
 ```
 
-`service` 层读取版本接口、模型目录及 OpenAPI 声明；本机回环地址还会读取监听 PID、程序入口摘要、解码参数标记和候选 Python 环境的安装包版本。它不读取进程环境变量、不输出完整启动命令、源码、密钥、模型路径或响应正文，也不执行服务程序或加载模型。元数据请求禁止跟随重定向，并限制响应大小。
+`service` 层读取版本接口、模型目录及 OpenAPI 声明；本机回环地址还会读取监听 PID、程序入口摘要、解码参数标记和候选 Python 环境的安装包版本，包含 `ms_swift`。`inference_backend_hints` 仅记录 `--infer_backend` 中固定白名单内的后端名称，属于命令行证据。它不读取进程环境变量、不输出完整启动命令、源码、密钥、模型路径或响应正文，也不执行服务程序或加载模型。元数据请求禁止跟随重定向，并限制响应大小。
 
 报告中的 HTTP Server、OpenAPI `application_version`、安装包版本及实际服务版本分别保留来源。`uvicorn`、应用版本 `0.1.0`、已安装的 vLLM 包或对外模型别名，均不能单独证明正在运行的推理引擎和权重。容器代理、权限不足或接口缺失时保留未确认状态。源码关键词仅检查直接 Python 入口，不代表完整调用链。
 
@@ -33,6 +33,58 @@ conda run --no-capture-output -n aivision \
 报告根字段 `service_inspection` 保存脱敏身份和接口证据，`layers.service.rows` 保存逐次行为。`service_contract` 表示客户端可见的合同检查失败。未知与失败分别记录；预期的非法 Schema 拒绝属于探针通过，不代表模型调用故障。声明包含 `response_format` 不证明已透传，接口输出符合样例也不能证明所有 Schema 均受约束；温度及其他参数的内部透传仍需核对服务实现。
 
 服务端合同参考：[vLLM 结构化输出](https://docs.vllm.ai/en/stable/features/structured_outputs/)、[llama.cpp 服务接口](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)、[Ollama 兼容接口](https://docs.ollama.com/api/openai-compatibility)。应结合实际服务及版本判断参数格式；诊断不会自动更改生产客户端或服务配置。
+
+## Swift 部署与格式约束
+
+独立入口为 `AiVision/connectors/qwen/swift_deploy.py`，适配 `ms-swift 4.4.2`、`vLLM 0.27.1`，要求原启动参数使用 `--infer_backend vllm` 和异步引擎。该脚本不导入项目设置或业务数据库，可单独复制到模型服务器；依赖沿用模型环境中的 FastAPI、Pydantic 和 vLLM 已依赖的 `jsonschema`。版本不匹配时拒绝启动。
+
+Swift 的 [4.4.2 请求协议](https://github.com/modelscope/ms-swift/blob/v4.4.2/swift/infer_engine/protocol.py)未声明标准 `response_format`，[vLLM 适配层](https://github.com/modelscope/ms-swift/blob/v4.4.2/swift/infer_engine/vllm_engine.py)只映射正则约束。部署入口补充该请求字段的严格校验，使用 vLLM 的 `StructuredOutputsParams(json=完整Schema)` 或 `json_object=True`，经当前请求的 `pre_infer_hook` 设置生成参数。它保留原端口锁定、模型与适配器、采样和模板参数、模型鉴权及 logprobs 检查。非法 Schema、约束冲突、后端不支持或未执行约束钩子时明确失败，不回退到普通生成。
+
+校验响应只返回固定消息和错误类型，包装层异常日志不包含异常正文；上游后处理仍负责响应转换和统计，但请求日志及 JSONL 中的正文使用脱敏占位。模型服务器其他框架、插件及启动日志需结合现场配置检查。该入口的本地回归使用真实 ASGI/Pydantic 与模拟引擎，不能替代 GPU 解码验收。
+
+在项目代码已同步到 `/srv/Fuda_CVPreject` 后，先使用正在运行的模型服务的 Python 解释器检查依赖和真实 SDK 请求类型。以下示例 PID 为 `497332`，如已重启应使用当前监听 PID；不要改用业务后端的 Python 环境。
+
+```bash
+cd /srv/Fuda_CVPreject
+python - <<'PY'
+from pathlib import Path
+import subprocess
+
+process = Path('/proc/497332')
+arguments = (process / 'cmdline').read_bytes().decode(errors='replace').split('\0')
+interpreter = Path(arguments[0])
+if not interpreter.is_absolute():
+    interpreter = process / 'exe'
+script = Path('AiVision/connectors/qwen/swift_deploy.py').resolve()
+subprocess.run([str(interpreter), str(script), '--check'], check=True)
+PY
+```
+
+`--check` 不创建推理引擎、不加载模型或启动 HTTP 服务。检查通过后，备份并替换原独立脚本，保持原启动命令及参数：
+
+```bash
+cp -n -- /srv/fuda_llm/scripts/swift_deploy_fixed_port.py /srv/fuda_llm/scripts/swift_deploy_fixed_port.py.bak-schema
+cp -- /srv/Fuda_CVPreject/AiVision/connectors/qwen/swift_deploy.py /srv/fuda_llm/scripts/swift_deploy_fixed_port.py
+```
+
+按原运行方式重启 18100 模型服务，使部署脚本生效，业务前后端无需重启。先运行 15 项服务探针，再根据报告继续模型分类和持续多轮测试：
+
+```bash
+cd /srv/Fuda_CVPreject
+conda run --no-capture-output -n aivision \
+  python -m AiVision.tests.assistant_diagnostics \
+  --base-url http://127.0.0.1:18100/v1 \
+  --model fuda-qwen38-27b --layers service --repeats 3 \
+  --output /tmp/fuda-ai-swift-format-check
+```
+
+格式验收检查 JSON 对象约束、Schema 约束和非法 Schema 拒绝各 `3/3`，并保持输出长度两组对照通过。HTTP 200、依赖检查通过和结构合规均不能替代任务分类、工具行为及多轮语义指标。
+
+报告保存在 `/tmp/fuda-ai-swift-format-check/report.md` 和 `results.json`。报告已转存后，可用 `rm -rf -- /tmp/fuda-ai-swift-format-check` 清理该次输出。回滚时将备份复制回原脚本，再按原方式重启模型服务：
+
+```bash
+cp -- /srv/fuda_llm/scripts/swift_deploy_fixed_port.py.bak-schema /srv/fuda_llm/scripts/swift_deploy_fixed_port.py
+```
 
 ## 在 Qwen 所在服务器运行
 

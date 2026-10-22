@@ -517,18 +517,22 @@ def test_service_process_inspection_redacts_arguments_and_reads_listener_environ
     process = tmp_path / "123"
     process.mkdir()
     (process / "exe").symlink_to("/env/bin/python3.11")
-    (process / "cmdline").write_bytes(b"/env/bin/python\0/srv/serve_model.py\0--api-key\0private-key-sentinel\0--structured-outputs-config.backend\0xgrammar\0")
+    (process / "cmdline").write_bytes(b"/env/bin/python\0/srv/serve_model.py\0--api-key\0private-key-sentinel\0--structured-outputs-config.backend\0xgrammar\0--infer_backend\0vllm\0")
     source = process / "root/srv/serve_model.py"
     source.parent.mkdir(parents=True)
     source.write_text("import transformers\nresponse_format = 'private-source-sentinel'\n", encoding="utf-8")
     metadata = process / "root/env/lib/python3.11/site-packages/transformers-5.1.0.dist-info/METADATA"
     metadata.parent.mkdir(parents=True)
     metadata.write_text("Name: transformers\nVersion: 5.1.0\nPrivate: private-metadata-sentinel\n", encoding="utf-8")
+    swift_metadata = metadata.parent.parent / "ms_swift-4.4.2.dist-info/METADATA"
+    swift_metadata.parent.mkdir()
+    swift_metadata.write_text("Name: ms-swift\nVersion: 4.4.2\n", encoding="utf-8")
     result = process_details(123, proc_root=tmp_path)
     assert result["entrypoint_name"] == "serve_model.py" and len(result["entrypoint_sha256"]) == 64
     assert result["source_signals"]["response_format"] and result["source_signals"]["transformers"]
-    assert result["installed_package_versions"] == {"transformers": ["5.1.0"]}
+    assert result["installed_package_versions"] == {"transformers": ["5.1.0"], "ms_swift": ["4.4.2"]}
     assert result["decoding_backend_hints"] == ["xgrammar"]
+    assert result["inference_backend_hints"] == ["vllm"]
     assert "private-" not in json.dumps(result) and "--api-key" not in json.dumps(result)
 
 
