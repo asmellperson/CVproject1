@@ -18,6 +18,7 @@ class Step:
     targets: tuple[str, ...] = (RESOURCE,)
     delta: dict = field(default_factory=dict)
     anchor_expected: bool | None = None
+    reference_alias: str | None = None
 
 
 def conversation_cases(history_turns=6):
@@ -42,7 +43,10 @@ def conversation_cases(history_turns=6):
     window.extend(Step(f"间隔闲聊{number + 1}", fillers[number % len(fillers)], "chat", "chat")
                   for number in range(max(6, history_turns)))
     window.extend([
-        Step("历史窗口外指代", "查询记忆代号甲的非法闯闸人体置信度", "query", "clarify_target", anchor_expected=False),
+        Step("历史窗口外指代", "查询记忆代号甲的非法闯闸人体置信度", "query", "clarify_target", anchor_expected=False,
+             reference_alias="记忆代号甲"),
+        Step("未绑定代号澄清", "查询记忆代号乙的非法闯闸人体置信度", "query", "clarify_target", anchor_expected=False,
+             reference_alias="记忆代号乙"),
         Step("重述目标后修改", "记忆代号甲对应诊断闸机一号。把通用电气事业部这台摄像头的非法闯闸人体置信度改为0.75。",
              "change", "write", delta={"value": {"threshold": 0.75}}),
         Step("重述后的指代回查", "再查一下这台摄像头的非法闯闸人体置信度", "query", "read", anchor_expected=True),
@@ -59,10 +63,34 @@ class ConversationScriptedClient:
         self.sandbox = sandbox
 
     def complete(self, **kwargs):
+        from AiVision.assistant.context import CONTEXT_PREFIX
+
         step = self.sandbox.step
+        memory = {}
+        for message in kwargs["messages"]:
+            if message["content"].startswith(CONTEXT_PREFIX):
+                memory = json.loads(message["content"][len(CONTEXT_PREFIX):]).get("task_context") or {}
+        binding = next((item for item in memory.get("target_bindings", []) if item["alias"] == step.reference_alias), None)
+        kind = "read" if step.kind == "clarify_target" and binding else step.kind
         if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
             goal = ("capabilities" if step.kind == "capabilities" else "read_configurations") if step.mode == "query" else None
-            return completion({"mode": step.mode, "operations": ["update_configurations"] if step.mode == "change" else [],
+            references, bindings = [], []
+            declaration = f"记忆代号甲对应{CAMERA_NAME}"
+            if declaration in step.question:
+                bindings = [{"alias": "记忆代号甲", "target": CAMERA_NAME, "evidence": declaration}]
+            if step.reference_alias:
+                references = [{"kind": "alias", "text": step.reference_alias}]
+            elif step.mode != "chat" and step.kind != "capabilities":
+                references = [{"kind": "named", "text": title} for title in (CAMERA_NAME, SECOND_CAMERA_NAME) if title in step.question]
+                if not references:
+                    pronoun = next((word for word in ("刚才那台摄像头", "这台摄像头", "它") if word in step.question), None)
+                    if pronoun:
+                        references = [{"kind": "context", "text": pronoun}]
+                    elif "两台" in step.question and len(memory.get("last_read_resources", [])) == 2:
+                        references = [{"kind": "context", "text": "两台"}]
+                    elif memory.get("pending_task") and step.mode == "change":
+                        references = [{"kind": "pending", "text": step.question}]
+            return completion({"target_context": {"references": references, "bindings": bindings}, "mode": step.mode, "operations": ["update_configurations"] if step.mode == "change" else [],
                                "query_tool": goal}), 0.0
         if not kwargs["json_mode"]:
             return completion("你好呀，我是福达AI助手，收到你的消息。"), 0.0
@@ -70,7 +98,7 @@ class ConversationScriptedClient:
         if last.startswith("后台已查询"):
             if step.kind == "capabilities":
                 return ScriptedClient.tool("capabilities", {})
-            query = "诊断闸机" if len(step.targets) > 1 or step.kind == "clarify_target" else (
+            query = (binding["resource"].get("target_name") or binding["resource"]["name"]) if binding else "诊断闸机" if len(step.targets) > 1 or kind == "clarify_target" else (
                 SECOND_CAMERA_NAME if step.targets[0] == SECOND_RESOURCE else CAMERA_NAME)
             return ScriptedClient.tool("list_resources", {"kind": "feature", "department": DEPARTMENT, "feature": FEATURE, "query": query})
         if not last.startswith("工具执行结果"):
@@ -79,7 +107,7 @@ class ConversationScriptedClient:
         if "error" in data:
             return ScriptedClient.answer()
         if "items" in data and data["items"] and "key" in data["items"][0]:
-            if step.kind == "clarify_target":
+            if kind == "clarify_target":
                 return ScriptedClient.tool("ask_user", {"question": f"请确认是哪台摄像头：{CAMERA_NAME}还是{SECOND_CAMERA_NAME}？"})
             return ScriptedClient.tool("read_configurations", {"resource_keys": [item["key"] for item in data["items"] if item["key"] in step.targets]})
         if "items" in data and data["items"] and "resource" in data["items"][0]:
@@ -108,6 +136,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
         sandbox.client = MeasuredClient(sandbox, delegate, live=live)
         sandbox.runtime.client = sandbox.client
         for number, step in enumerate(steps, 1):
+            if name == "window":
+                sandbox.history_binding = (step.reference_alias or "记忆代号甲", CAMERA_NAME)
             sandbox.step = step
             sandbox.scenario = Scenario("conversation", step.label, step.question, mode=step.mode, patch=step.delta)
             if progress:
@@ -130,8 +160,10 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             traces, requests = sandbox.trace[starts[5]:], client.requests[starts[4]:]
             planning_requests = [request for request in requests if request["kind"] == "planning"]
             binding_visible = planning_requests[0].get("binding_in_history") if planning_requests else None
-            # 模型若在后续闲聊中明确复述过目标绑定，仍允许依据该可见片段完成查询。
-            kind = "read" if step.kind == "clarify_target" and binding_visible else step.kind
+            verified_visible = planning_requests[0].get("verified_binding_in_context") if planning_requests else None
+            verified = any(item["alias"] == step.reference_alias for item in previous_context.get("target_bindings", []))
+            # 预期取自后台保存的核验关系，历史文字共同出现不能充当绑定证据。
+            kind = "read" if step.kind == "clarify_target" and verified else step.kind
             tools = [entry["tool"] for entry in traces]
             reads = [item for entry in traces if entry["tool"] == "read_configurations" and entry["ok"]
                      for item in entry["result"].get("items", [])]
@@ -149,6 +181,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             if kind in {"read", "write", "clarify_value"}:
                 required = {"read_configurations"}
                 known = {item["key"] for item in previous_context.get("last_read_resources", [])}
+                known.update(item["resource"]["key"] for item in previous_context.get("target_bindings", [])
+                             if item["alias"] in step.question)
                 searched = {item["key"] for entry in traces if entry["tool"] == "list_resources" and entry["ok"]
                             for item in entry["result"].get("items", [])}
                 read_keys = {item["resource"]["key"] for item in reads}
@@ -199,7 +233,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 failure_layers.append("agent_scheduling" if changes else "model_output" if live else "agent_scheduling")
             if not report_ok:
                 failure_layers.append("result_reporting")
-            if step.anchor_expected is False and anchor_visible is False and not binding_visible:
+            if not behavior_ok and step.anchor_expected is False and anchor_visible is False and not verified_visible:
                 failure_layers.append("context_transfer")
             errors = sorted(set(client.errors[starts[6]:] + [entry["error_type"] for entry in traces if "error_type" in entry]))
             service_failed = any(error in {"QwenNetworkError", "QwenTimeoutError", "QwenServiceError"} for error in errors)
@@ -228,6 +262,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                    "history_pairs": planning_requests[0]["history_pairs"] if planning_requests else 0,
                    "anchor_in_history": anchor_visible, "anchor_expected": step.anchor_expected,
                    "binding_in_history": binding_visible,
+                   "verified_binding_in_context": verified_visible,
                    "max_request_characters": max((request["characters"] for request in requests), default=0),
                    "max_prompt_tokens": max((request["prompt_tokens"] for request in requests if "prompt_tokens" in request), default=None),
                    "request_statistics": requests, "business_storage": "temporary_sqlite"}

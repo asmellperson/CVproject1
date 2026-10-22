@@ -25,10 +25,10 @@ def completion(content, *, finish_reason="stop"):
 
 
 @pytest.mark.parametrize("payload", [
-    {"mode": "chat", "operations": []}, {"mode": "query", "operations": [], "query_tool": "list_resources"},
-    {"mode": "query", "query_tool": "capabilities"}, {"mode": "query", "query_tool": "read_configurations"},
-    {"mode": "change", "operations": ["update_configurations", "bind_camera"]},
-    {"mode": "chat"},
+    {"target_context": {}, "mode": "chat", "operations": []}, {"target_context": {}, "mode": "query", "operations": [], "query_tool": "list_resources"},
+    {"target_context": {}, "mode": "query", "query_tool": "capabilities"}, {"target_context": {}, "mode": "query", "query_tool": "read_configurations"},
+    {"target_context": {}, "mode": "change", "operations": ["update_configurations", "bind_camera"]},
+    {"target_context": {}, "mode": "chat"},
 ])
 def test_valid_plans_follow_the_existing_schema(payload):
     from AiVision.assistant.responses import parse_plan
@@ -39,19 +39,19 @@ def test_valid_plans_follow_the_existing_schema(payload):
 
 @pytest.mark.parametrize("payload, location, code", [
     ({"operations": []}, ["mode"], "missing"),
-    ({"mode": "unknown"}, ["mode"], "literal_error"),
-    ({"mode": "change", "operations": []}, [], "value_error"),
-    ({"mode": "change"}, [], "value_error"),
-    ({"mode": "chat", "operations": ["delete_camera"]}, [], "value_error"),
-    ({"mode": "query", "operations": ["add_camera"]}, [], "value_error"),
-    ({"mode": "change", "operations": ["delete_camera", "delete_camera"]}, [], "value_error"),
-    ({"mode": "change", "operations": ["run_sql"]}, ["operations", 0], "literal_error"),
-    ({"mode": "chat", "operations": ""}, ["operations"], "list_type"),
-    ({"mode": "query"}, [], "value_error"),
-    ({"mode": "query", "query_tool": "delete_camera"}, ["query_tool"], "literal_error"),
-    ({"mode": "chat", "query_tool": "capabilities"}, [], "value_error"),
-    ({"mode": "change", "operations": ["delete_camera"], "query_tool": "capabilities"}, [], "value_error"),
-    ({"mode": "chat", "answer": "你好"}, ["<额外字段>"], "extra_forbidden"),
+    ({"target_context": {}, "mode": "unknown"}, ["mode"], "literal_error"),
+    ({"target_context": {}, "mode": "change", "operations": []}, [], "value_error"),
+    ({"target_context": {}, "mode": "change"}, [], "value_error"),
+    ({"target_context": {}, "mode": "chat", "operations": ["delete_camera"]}, [], "value_error"),
+    ({"target_context": {}, "mode": "query", "operations": ["add_camera"]}, [], "value_error"),
+    ({"target_context": {}, "mode": "change", "operations": ["delete_camera", "delete_camera"]}, [], "value_error"),
+    ({"target_context": {}, "mode": "change", "operations": ["run_sql"]}, ["operations", 0], "literal_error"),
+    ({"target_context": {}, "mode": "chat", "operations": ""}, ["operations"], "list_type"),
+    ({"target_context": {}, "mode": "query"}, [], "value_error"),
+    ({"target_context": {}, "mode": "query", "query_tool": "delete_camera"}, ["query_tool"], "literal_error"),
+    ({"target_context": {}, "mode": "chat", "query_tool": "capabilities"}, [], "value_error"),
+    ({"target_context": {}, "mode": "change", "operations": ["delete_camera"], "query_tool": "capabilities"}, [], "value_error"),
+    ({"target_context": {}, "mode": "chat", "answer": "你好"}, ["<额外字段>"], "extra_forbidden"),
     ([], [], "model_type"),
 ])
 def test_schema_errors_keep_safe_field_locations_and_types(payload, location, code):
@@ -154,7 +154,7 @@ def runtime_case(monkeypatch):
 @pytest.mark.parametrize("invalid", [{"operations": []}, '{"mode":'])
 def test_planning_corrects_once_with_validation_errors_and_the_complete_schema(runtime_case, invalid):
     case = runtime_case
-    case.client.complete.side_effect = [(completion(invalid), 0.1), (completion({"mode": "chat"}), 0.1)]
+    case.client.complete.side_effect = [(completion(invalid), 0.1), (completion({"target_context": {}, "mode": "chat"}), 0.1)]
     assert case.plan().mode == "chat"
     assert case.client.complete.call_count == 2
     first, second = [call.kwargs for call in case.client.complete.call_args_list]
@@ -174,7 +174,7 @@ def test_failed_correction_stops_before_any_business_tool(runtime_case):
     from AiVision.assistant.responses import PlanFormatError
 
     case = runtime_case
-    case.client.complete.side_effect = [(completion({"mode": "bad"}), 0.1)] * 3
+    case.client.complete.side_effect = [(completion({"target_context": {}, "mode": "bad"}), 0.1)] * 3
     with pytest.raises(PlanFormatError) as caught:
         case.execute()
     assert caught.value.category == "plan_schema"
@@ -203,7 +203,7 @@ def test_correction_uses_only_the_remaining_planning_timeout(runtime_case):
 
     def respond(**_kwargs):
         case.clock.now += 6 if case.client.complete.call_count == 1 else 1
-        return completion({"mode": "wrong"} if case.client.complete.call_count == 1 else {
+        return completion({"target_context": {}, "mode": "wrong"} if case.client.complete.call_count == 1 else {"target_context": {},
             "mode": "query", "query_tool": "list_resources"}), 1.0
 
     case.client.complete.side_effect = respond
@@ -219,7 +219,7 @@ def test_exhausted_planning_budget_does_not_issue_another_request(runtime_case, 
 
     def late_reply(**_kwargs):
         case.clock.now += 10
-        return completion({"mode": "chat" if valid_reply else "wrong"}), 10.0
+        return completion({"target_context": {}, "mode": "chat" if valid_reply else "wrong"}), 10.0
 
     case.client.complete.side_effect = late_reply
     with pytest.raises(QwenTimeoutError):
@@ -230,19 +230,19 @@ def test_exhausted_planning_budget_does_not_issue_another_request(runtime_case, 
 @pytest.mark.parametrize("cancel_at", ["before", "after_response", "before_retry", "after_retry_response", "stopping"])
 def test_cancellation_prevents_followup_requests_and_tools(runtime_case, cancel_at):
     case = runtime_case
-    case.client.complete.return_value = (completion({"mode": "bad"}), 0.1)
+    case.client.complete.return_value = (completion({"target_context": {}, "mode": "bad"}), 0.1)
     if cancel_at == "before":
         case.service.cancelled.return_value = True
     elif cancel_at == "after_response":
         def cancelled_reply(**_kwargs):
             case.service.cancelled.return_value = True
-            return completion({"mode": "bad"}), 0.1
+            return completion({"target_context": {}, "mode": "bad"}), 0.1
         case.client.complete.side_effect = cancelled_reply
     elif cancel_at == "after_retry_response":
         def cancelled_retry(**_kwargs):
             if case.client.complete.call_count == 2:
                 case.service.cancelled.return_value = True
-            return completion({"mode": "bad" if case.client.complete.call_count == 1 else "chat"}), 0.1
+            return completion({"target_context": {}, "mode": "bad" if case.client.complete.call_count == 1 else "chat"}), 0.1
         case.client.complete.side_effect = cancelled_retry
     else:
         def cancel_on_correction(_turn_id, progress):
@@ -288,7 +288,7 @@ def test_greeting_does_not_resume_or_include_a_previous_configuration_task(runti
 
     def reply(**kwargs):
         # 即使规划模型会错误延续删除任务，独立问候也不能进入该调用路径。
-        content = {"mode": "change", "operations": ["delete_camera"]} if kwargs["json_mode"] else "你好呀，有什么可以帮你？"
+        content = {"target_context": {}, "mode": "change", "operations": ["delete_camera"]} if kwargs["json_mode"] else "你好呀，有什么可以帮你？"
         return completion(content), 0.1
 
     case.client.complete.side_effect = reply
@@ -333,10 +333,10 @@ def test_actual_operations_and_explicit_continuations_keep_their_planning_contex
         id=0, question="请核对 legacy_camera_marker 的配置", status="completed", answer="请明确接下来的操作", actions=[],
     ))
     if operation is None:
-        plan = {"mode": "query", "operations": [], "query_tool": "list_resources"}
+        plan = {"target_context": {}, "mode": "query", "operations": [], "query_tool": "list_resources"}
         decision = {"action": "list_resources", "arguments": {"kind": "camera"}}
     else:
-        plan = {"mode": "change", "operations": [operation]}
+        plan = {"target_context": {}, "mode": "change", "operations": [operation]}
         arguments = {"camera_key": "camera:1", "expected_revision": "a" * 64} if operation == "delete_camera" else {
             "changes": [{"resource_key": "camera:1", "expected_revision": "a" * 64, "patch": {"fps": 8}}],
         }
@@ -363,7 +363,7 @@ def test_query_results_still_come_from_tools(runtime_case):
     case = runtime_case
     case.current.question = "你好，查询摄像头"
     case.client.complete.side_effect = [
-        (completion({"mode": "query", "query_tool": "list_resources"}), 0.1),
+        (completion({"target_context": {}, "mode": "query", "query_tool": "list_resources"}), 0.1),
         (completion({"action": "list_resources", "arguments": {}}), 0.1),
         (completion({"action": "answer", "answer": "模型猜测的结果"}), 0.1),
     ]
@@ -381,7 +381,7 @@ def test_change_keeps_write_permission_checks_and_audit_based_results(runtime_ca
         status="saved", after={"fps": 8}, detail="数据库记录确认保存",
     )]
     case.client.complete.side_effect = [
-        (completion({"mode": "change", "operations": ["update_configurations"]}), 0.1),
+        (completion({"target_context": {}, "mode": "change", "operations": ["update_configurations"]}), 0.1),
         (completion({"action": "update_configurations", "arguments": {"changes": []}}), 0.1),
         (completion({"action": "answer", "answer": "模型自行声称成功"}), 0.1),
     ]
@@ -395,7 +395,7 @@ def test_change_keeps_write_permission_checks_and_audit_based_results(runtime_ca
 def test_query_cannot_execute_a_mutation_after_classification(runtime_case):
     case = runtime_case
     case.client.complete.side_effect = [
-        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.1),
+        (completion({"target_context": {}, "mode": "query", "query_tool": "read_configurations"}), 0.1),
         (completion({"action": "delete_camera", "arguments": {}}), 0.1),
         (completion({"action": "answer", "answer": "已删除"}), 0.1),
     ]
@@ -408,8 +408,8 @@ def test_classification_correction_does_not_expand_the_tool_round_budget(runtime
     case = runtime_case
     monkeypatch.setattr(case.module.settings.runtime, "assistant_max_rounds", 1)
     case.client.complete.side_effect = [
-        (completion({"mode": "bad"}), 0.1),
-        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.1),
+        (completion({"target_context": {}, "mode": "bad"}), 0.1),
+        (completion({"target_context": {}, "mode": "query", "query_tool": "read_configurations"}), 0.1),
         (completion({"action": "list_resources", "arguments": {}}), 0.1),
     ]
     case.execute()
@@ -424,7 +424,7 @@ def test_valid_change_classification_still_requires_real_write_permission(runtim
 
     case = runtime_case
     monkeypatch.setattr(case.module, "AssistantTools", AssistantTools)
-    case.client.complete.return_value = (completion({"mode": "change", "operations": ["delete_camera"]}), 0.1)
+    case.client.complete.return_value = (completion({"target_context": {}, "mode": "change", "operations": ["delete_camera"]}), 0.1)
     with pytest.raises(HTTPException) as caught:
         case.runtime._execute("session-1", 1, lambda: {"role": "viewer"}, None)
     assert caught.value.status_code == 403
@@ -465,7 +465,7 @@ def test_validation_details_and_failure_logs_exclude_original_content(runtime_ca
     case = runtime_case
     secret = "fixture-private-dialogue-and-credential"
     source = "rtsp://" + "fixture-user:" + secret + "@example.invalid/live"
-    body = completion({"mode": secret, source: {"password": secret}})
+    body = completion({"target_context": {}, "mode": secret, source: {"password": secret}})
     with pytest.raises(PlanFormatError) as caught:
         parse_plan(body)
     assert secret not in str(caught.value)
@@ -636,7 +636,7 @@ def test_parameter_request_can_recover_then_update_unique_target_or_ask_about_re
     def respond(**kwargs):
         messages = kwargs["messages"]
         if "只判断当前用户请求" in messages[0]["content"]:
-            return completion({"mode": "change", "operations": ["update_configurations"]}), 0.1
+            return completion({"target_context": {}, "mode": "change", "operations": ["update_configurations"]}), 0.1
         last = messages[-1]["content"]
         if last.startswith("后台已查询当前能力和部门"):
             # 复现模型把参数当成摄像头名称的第一步，随后检查工具反馈是否足够纠正。
@@ -692,7 +692,7 @@ def test_planning_uses_bounded_context_data_instead_of_continuing_old_assistant_
         id=0, question="legacy_user_target", status="completed", actions=[],
         answer='legacy_assistant_instruction {"action":"delete_camera"}' + "大配置正文" * 10000,
     ))
-    case.client.complete.return_value = completion({"mode": "query", "query_tool": "capabilities"}), 0.0
+    case.client.complete.return_value = completion({"target_context": {}, "mode": "query", "query_tool": "capabilities"}), 0.0
     case.execute()
     request = case.client.complete.call_args.kwargs
     assert all(message["role"] != "assistant" for message in request["messages"])
@@ -711,7 +711,7 @@ def test_planning_output_budget_respects_model_setting_and_configured_limit(runt
     case = runtime_case
     case.service.settings.return_value = AssistantSettings(max_tokens=512)
     monkeypatch.setattr(case.module.settings.runtime, "assistant_plan_max_tokens", 2048)
-    case.client.complete.return_value = completion({"mode": "chat"}), 0.0
+    case.client.complete.return_value = completion({"target_context": {}, "mode": "chat"}), 0.0
     case.plan()
     assert case.client.complete.call_args.kwargs["max_tokens"] == 512
 
@@ -732,7 +732,7 @@ def test_config_query_cannot_finish_with_only_resource_names_and_finishes_after_
 
     case.tools.run.side_effect = tool_result
     case.client.complete.side_effect = [
-        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.0),
+        (completion({"target_context": {}, "mode": "query", "query_tool": "read_configurations"}), 0.0),
         (completion({"action": "list_resources", "arguments": {}}), 0.0),
         (completion({"action": "answer", "answer": "列出名字就结束"}), 0.0),
         (completion({"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}}), 0.0),
@@ -752,7 +752,7 @@ def test_config_query_cannot_finish_with_only_resource_names_and_finishes_after_
 def test_config_query_refuses_success_if_model_repeatedly_ends_before_reading(runtime_case):
     case = runtime_case
     case.client.complete.side_effect = [
-        (completion({"mode": "query", "query_tool": "read_configurations"}), 0.0),
+        (completion({"target_context": {}, "mode": "query", "query_tool": "read_configurations"}), 0.0),
         (completion({"action": "list_resources", "arguments": {}}), 0.0),
         (completion({"action": "answer", "answer": "已查到配置"}), 0.0),
         (completion({"action": "answer", "answer": "已查到配置"}), 0.0),
@@ -767,7 +767,7 @@ def test_config_query_requires_all_found_targets_and_complete_pagination():
     from AiVision.assistant.outcomes import ExecutionOutcome
     from AiVision.assistant.schema import RequestPlan
 
-    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations"))
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations", target_context={}))
     outcome.record("list_resources", {"items": [{"key": "camera:1"}, {"key": "camera:2"}], "next_offset": 2})
     outcome.record("read_configurations", {"items": [
         {"resource": {"key": "camera:1", "name": "一号"}, "config": {"fps": 8}},
@@ -794,7 +794,7 @@ def test_query_fast_return_still_checks_cancellation_after_the_tool(runtime_case
 
     case.tools.run.side_effect = result
     case.client.complete.side_effect = [
-        (completion({"mode": "query", "query_tool": cancel_after}), 0.0),
+        (completion({"target_context": {}, "mode": "query", "query_tool": cancel_after}), 0.0),
         (completion({"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}}), 0.0),
     ]
     with pytest.raises(case.module.TaskCancelled):
@@ -828,7 +828,7 @@ def test_context_memory_requires_visible_anchor_and_expires_without_leaking_othe
     clock = SimpleNamespace(now=100.0)
     monkeypatch.setattr(module.time, "monotonic", lambda: clock.now)
     monkeypatch.setattr(module, "MAX_CONTEXT_SESSIONS", 2)
-    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations"))
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations", target_context={}))
     outcome.record("read_configurations", {"items": [{"resource": {"key": "camera:1", "name": "一号"},
         "revision": "version_must_not_be_reused", "config": {"private_marker": "fixture-only"}}]})
     memory = module.ConversationMemory()
@@ -844,6 +844,194 @@ def test_context_memory_requires_visible_anchor_and_expires_without_leaking_othe
     for key in ("first", "second", "third"):
         memory.remember(key, 1, "查询一号", outcome)
     assert memory.get("first", {1}) is None and memory.get("third", {1}) is not None
+
+
+@pytest.mark.parametrize("payload", [
+    {"mode": "query", "query_tool": "read_configurations"},
+    {"mode": "change", "operations": ["update_configurations"]},
+    {"mode": "query", "query_tool": "read_configurations", "target_context": {
+        "references": [{"kind": "alias", "text": "门口甲", "unregistered": True}]}},
+    {"mode": "query", "query_tool": "read_configurations", "target_context": {
+        "references": [{"kind": "guessed", "text": "门口甲"}]}},
+])
+def test_business_target_contract_is_required_and_does_not_accept_unregistered_fields(payload):
+    from AiVision.assistant.responses import PlanFormatError, parse_plan
+
+    with pytest.raises(PlanFormatError):
+        parse_plan(completion(payload))
+
+
+def target_plan(*, text=None, kind="alias", bindings=None):
+    from AiVision.assistant.schema import RequestPlan
+
+    return RequestPlan(mode="query", query_tool="read_configurations", target_context={
+        "references": [{"kind": kind, "text": text}] if text is not None else [], "bindings": bindings or [],
+    })
+
+
+def target_resource(number=1, name=None, department="general_electric"):
+    return {"key": f"feature:tailgating:{number}", "kind": "feature", "name": name or f"闸机{number}",
+            "department": department, "feature": "tailgating", "identifier": f"camera_{number}"}
+
+
+def target_outcome(plan, *resources):
+    from AiVision.assistant.outcomes import ExecutionOutcome
+
+    outcome = ExecutionOutcome(plan)
+    outcome.record("read_configurations", {"items": [
+        {"resource": resource, "config": {"private-value": "not-retained"}, "revision": "not-retained"}
+        for resource in resources]})
+    return outcome
+
+
+def test_verified_alias_keeps_its_origin_across_target_switches_and_expires_independently(monkeypatch):
+    from AiVision.assistant import context as module
+
+    clock = SimpleNamespace(now=100.0)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock.now)
+    memory = module.ConversationMemory()
+    question = "请记住：门口甲对应闸机1。查询这台摄像头的配置"
+    plan = target_plan(bindings=[{"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}])
+    memory.remember("first", 1, question, target_outcome(plan, target_resource()))
+    state = memory.get("first", {1})
+    assert state["target_bindings"][0]["resource"] == target_resource()
+    assert state["target_bindings"][0]["turn_id"] == 1
+    assert "not-retained" not in json.dumps(state) and "evidence" not in json.dumps(state)
+    clock.now += 50
+    memory.remember("first", 2, "查询闸机2", target_outcome(target_plan(), target_resource(2)), previous=state)
+    switched = memory.get("first", {1, 2})
+    assert switched["last_read_resources"] == [target_resource(2)]
+    assert switched["target_bindings"][0]["resource"] == target_resource()
+    assert memory.get("other", {1, 2}) is None
+    assert memory.get("first", {2})["target_bindings"] == []
+    clock.now = 100 + module.CONTEXT_TTL_SECONDS
+    assert memory.get("first", {1, 2})["target_bindings"] == []
+
+
+@pytest.mark.parametrize("proposal, question, resources", [
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "查询闸机1", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "不要把门口甲对应闸机1", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "门口甲对应闸机1", [target_resource(2)]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "门口甲对应闸机1", [target_resource(), target_resource(2, "闸机1")]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲与闸机1无关"}, "门口甲与闸机1无关", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "门口甲对应闸机1是错误的", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "例如：门口甲对应闸机1", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}, "门口甲对应闸机10", [target_resource()]),
+    ({"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机10"}, "门口甲对应闸机10", [target_resource()]),
+])
+def test_alias_is_not_saved_from_fabricated_negated_missing_or_ambiguous_evidence(proposal, question, resources):
+    from AiVision.assistant.context import ConversationMemory
+
+    memory = ConversationMemory()
+    memory.remember("first", 1, question, target_outcome(target_plan(bindings=[proposal]), *resources))
+    assert memory.get("first", {1})["target_bindings"] == []
+
+
+def test_alias_rebinding_requires_a_new_declaration_and_verified_read():
+    from AiVision.assistant.context import ConversationMemory
+
+    memory = ConversationMemory()
+    first = target_plan(bindings=[{"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}])
+    memory.remember("first", 1, "门口甲对应闸机1", target_outcome(first, target_resource()))
+    second = target_plan(bindings=[{"alias": "门口甲", "target": "闸机2", "evidence": "门口甲对应闸机2"}])
+    memory.remember("first", 2, "门口甲对应闸机2", target_outcome(second, target_resource(2)), previous=memory.get("first", {1}))
+    state = memory.get("first", {1, 2})
+    assert len(state["target_bindings"]) == 1
+    assert state["target_bindings"][0]["resource"] == target_resource(2)
+    assert state["target_bindings"][0]["turn_id"] == 2
+
+
+def test_alias_cannot_be_substituted_with_the_most_recent_or_cross_department_target():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    state = {"last_read_resources": [target_resource(2)],
+             "target_bindings": [{"alias": "门口甲", "resource": target_resource()}]}
+    policy = TargetPolicy("读取门口甲的配置", target_plan(text="门口甲"), state)
+    policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource(2)["key"]]))
+    other = target_resource(3, department="other")
+    policy.observe("list_resources", {"items": [other]})
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[other["key"]]))
+
+
+def test_undo_target_must_match_the_explicit_alias_even_with_a_valid_audit():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+
+    policy = TargetPolicy("撤销门口甲的配置修改", target_plan(text="门口甲"),
+                          {"target_bindings": [{"alias": "门口甲", "resource": target_resource()}]})
+    policy.check_audited_resource(target_resource())
+    with pytest.raises(TargetClarification):
+        policy.check_audited_resource(target_resource(2))
+
+
+@pytest.mark.parametrize("kind", ["alias", "named", "context", "pending"])
+def test_unverified_alias_is_not_authorized_by_relabelling_its_reference(kind):
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    policy = TargetPolicy("查询未知甲的配置", target_plan(text="未知甲", kind=kind),
+                          {"last_read_resources": [target_resource()]})
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+
+
+def test_missing_reference_metadata_does_not_authorize_a_cached_target():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    policy = TargetPolicy("查询未知甲的配置", target_plan(), {"last_read_resources": [target_resource()]})
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+
+
+@pytest.mark.parametrize("text, allowed", [("它", False), ("这台摄像头", False), ("它们", True)])
+def test_singular_context_reference_does_not_choose_between_multiple_targets(text, allowed):
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    policy = TargetPolicy(f"查询{text}的配置", target_plan(text=text, kind="context"),
+                          {"last_read_resources": [target_resource(), target_resource(2)]})
+    arguments = ReadArguments(resource_keys=[target_resource()["key"], target_resource(2)["key"]])
+    if allowed:
+        policy.check("read_configurations", arguments)
+    else:
+        with pytest.raises(TargetClarification):
+            policy.check("read_configurations", arguments)
+
+
+def test_binding_context_does_not_expose_internal_clock_or_configuration_values():
+    from AiVision.assistant.context import CONTEXT_PREFIX, context_messages
+
+    memory = {"target_bindings": [{"alias": "门口甲", "resource": target_resource(), "turn_id": 1, "confirmed_at": 100.0}]}
+    encoded = context_messages([], count=6, max_chars=8000, memory=memory)[0]["content"]
+    data = json.loads(encoded[len(CONTEXT_PREFIX):])
+    assert data["task_context"]["target_bindings"][0]["alias"] == "门口甲"
+    assert "confirmed_at" not in encoded
+    assert memory["target_bindings"][0]["confirmed_at"] == 100.0
+
+
+@pytest.mark.parametrize("evidence", ["门口甲对应闸机1", "闸机1的别名是门口甲", "把闸机1称为门口甲", "将闸机1叫作门口甲"])
+def test_explicit_positive_naming_relations_can_be_verified(evidence):
+    from AiVision.assistant.schema import TargetBindingProposal
+    from AiVision.assistant.targets import verified_bindings
+
+    proposal = TargetBindingProposal(alias="门口甲", target="闸机1", evidence=evidence)
+    assert verified_bindings([proposal], evidence, [target_resource()]) == [{"alias": "门口甲", "resource": target_resource()}]
+
+
+def test_context_budget_keeps_requested_alias_without_forwarding_all_other_bindings():
+    from AiVision.assistant.context import CONTEXT_PREFIX, context_messages
+
+    bindings = [{"alias": f"门口{number}", "resource": target_resource(number), "turn_id": number, "confirmed_at": 100.0}
+                for number in range(10, 42)]
+    message = context_messages([], count=6, max_chars=1500, memory={"target_bindings": bindings},
+                               question="查询门口41的配置")[0]["content"]
+    context = json.loads(message[len(CONTEXT_PREFIX):])
+    assert len(message) <= 1500
+    assert [item["alias"] for item in context["task_context"]["target_bindings"]] == ["门口41"]
 
 
 def test_response_metadata_and_failure_logs_never_include_reasoning_or_response_content(runtime_case, caplog):

@@ -40,6 +40,7 @@ class ResourceReference(StrictModel):
     department: str | None
     feature: str | None = None
     identifier: str | None = None
+    target_name: str | None = Field(default=None, description="实际主体名称，用于目标核验；name 可含功能展示后缀")
 
 
 class ConfigurationResponse(StrictModel):
@@ -86,11 +87,30 @@ class ConversationResponse(StrictModel):
 MutationTool = Literal["update_configurations", "undo_configuration", "add_camera", "bind_camera", "delete_camera"]
 
 
+class TargetReference(StrictModel):
+    """规划器提议的引用，text 必须来自本轮用户原文，不能充当资源身份证明。"""
+    kind: Literal["named", "alias", "context", "pending"]
+    text: str = Field(min_length=1, max_length=200)
+
+
+class TargetBindingProposal(StrictModel):
+    """用户声明的别名关系，仍须由后台核对原话和真实资源。"""
+    alias: str = Field(min_length=1, max_length=80)
+    target: str = Field(min_length=1, max_length=200)
+    evidence: str = Field(min_length=1, max_length=400)
+
+
+class TargetContext(StrictModel):
+    references: list[TargetReference] = Field(default_factory=list, max_length=10)
+    bindings: list[TargetBindingProposal] = Field(default_factory=list, max_length=10)
+
+
 class RequestPlan(StrictModel):
     """先区分聊天与业务任务，业务任务不能凭模型正文结束为成功。"""
     mode: Literal["chat", "query", "change"]
     operations: list[MutationTool] = Field(default_factory=list, max_length=5)
     query_tool: Literal["capabilities", "list_resources", "read_configurations"] | None = None
+    target_context: TargetContext | None = None
 
     @model_validator(mode="after")
     def check_operations(self):
@@ -100,6 +120,10 @@ class RequestPlan(StrictModel):
             raise ValueError("操作类别不能重复")
         if (self.mode == "query") != (self.query_tool is not None):
             raise ValueError("查询任务必须指定结果工具，聊天和配置任务不能携带查询目标")
+        if self.mode != "chat" and self.target_context is None:
+            raise ValueError("业务任务必须声明目标引用与绑定提议，无相关信息时使用空列表")
+        if self.mode == "chat" and self.target_context and (self.target_context.references or self.target_context.bindings):
+            raise ValueError("聊天任务不能携带资源绑定或执行目标")
         return self
 
 

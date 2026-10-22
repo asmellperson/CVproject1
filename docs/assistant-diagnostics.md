@@ -119,16 +119,30 @@ python -m AiVision.tests.assistant_diagnostics \
 | 对话 | 默认轮数 | 重点 |
 |---|---:|---|
 | `mixed` | 13 | 查询、修改、第 4～6 轮指代、切换摄像头、批量修改、任务后问候、澄清后续办 |
-| `window` | 10 | 初始目标绑定经过闲聊后是否还在历史中、窗口外指代是否澄清、重述目标后能否恢复 |
+| `window` | 11 | 核验绑定跨历史窗口读取、未知代号澄清、重述目标后修改及回查 |
 | `pressure` | 10 | 连续查询两台虚构摄像头完整配置，观察历史和请求体增长 |
 
-`window` 的闲聊轮数会随运行环境的 `ASSISTANT_HISTORY_TURNS` 增加，保证能跨过历史窗口；默认值为 6。`mixed` 和 `pressure` 的轮数固定。
+`window` 的闲聊轮数会随运行环境的 `ASSISTANT_HISTORY_TURNS` 增加，保证能跨过历史窗口；默认值为 6。`mixed` 和 `pressure` 的轮数固定。默认三组各重复三次，共统计 102 轮。
 
 逐轮记录分类、目标、参数、工具、保存结果、最终状态、请求字符数、服务实际返回的 Token 用量、模型调用数和耗时。`first_plan_valid` 区分首次规划与纠正后成功；逐请求统计包含输出预算、格式约束、完成原因、校验类别和思考内容存在标记，不保存思考正文。服务不提供 `usage` 时 Token 数标为缺失，不用字符数冒充 Token 数。报告显示第 4、5、6 轮及后续轮次的结果，可以定位最早失败轮次；JSON 中的 `prior_failed_turns` 用于识别连带影响。
 
 `response_metadata` 和 `request_statistics` 记录 `thinking_wrapper`（无、已闭合、未闭合）、`thinking_characters`、`reasoning_characters`、`answer_format` 和 `object_shape`。这些字段只包含固定类别与长度。`has_thinking=true` 包括空的 `<think></think>` 标签，不能直接据此判断模型正在思考或服务忽略了非思考设置。分类校验错误保留脱敏的 `validation_issues`，不记录错误输出全文或未知字段原名。
 
-历史诊断同时记录原始目标绑定文本是否仍可见。模型在后续回复中复述目标绑定时，允许根据可见绑定继续查询，不强行要求澄清。字面片段可见性不等同于完整语义记忆能力。
+`anchor_in_history` 与 `binding_in_history` 记录原始片段和名称共同出现的可见性，`verified_binding_in_context` 单独记录传入模型的后台核验绑定。历史文字共同出现或模型自行复述不能建立绑定。`window` 先用明确声明与真实读取结果建立“记忆代号甲”，跨窗口后应重新读取其配置；未绑定的“记忆代号乙”必须澄清。预期行为取自实际后台绑定，评分不以模型是否声称记住为依据。
+
+仅验收模型规划格式及绑定的多轮表现：
+
+```bash
+conda run --no-capture-output -n aivision python -m AiVision.tests.assistant_diagnostics \
+  --base-url http://127.0.0.1:18100/v1 \
+  --model fuda-qwen38-27b \
+  --layers model,conversation-live \
+  --conversations window \
+  --repeats 3 \
+  --output /tmp/fuda-ai-target-bindings
+```
+
+默认统计 48 条模型用例和 33 轮对话。结果为 `/tmp/fuda-ai-target-bindings/report.md` 与 `results.json`；确认已保存结果后，可执行 `rm -rf -- /tmp/fuda-ai-target-bindings` 清理输出。命令直接导入当前代码，不启动后端或摄像头；网页使用更新后的助手逻辑需要重启 AiVision 后端，无需重启模型服务或前端。
 
 ## 分层运行
 

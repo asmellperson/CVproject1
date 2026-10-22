@@ -8,7 +8,7 @@ import pytest
 from AiVision.tests.assistant_diagnostics.cases import PROBES, SCENARIOS
 from AiVision.tests.assistant_diagnostics.conversations import conversation_cases, run_conversation
 from AiVision.tests.assistant_diagnostics.runner import aggregate, diagnostic_environment, model_cases, run_model_case, run_tool_probe
-from AiVision.tests.assistant_diagnostics.sandbox import completion, isolated_platform, json_validity, response_statistics, run_dialogue
+from AiVision.tests.assistant_diagnostics.sandbox import completion, execute_turn, isolated_platform, json_validity, response_statistics, run_dialogue
 
 
 @pytest.fixture(autouse=True)
@@ -113,7 +113,7 @@ def test_service_failure_is_not_misreported_as_invalid_json_or_bad_classificatio
 def test_valid_json_with_wrong_schema_is_a_model_output_error():
     case = next(case for case in model_cases() if case["kind"] == "classification")
     client = Mock()
-    client.complete.return_value = completion({"mode": "unknown"}), 0.0
+    client.complete.return_value = completion({"target_context": {}, "mode": "unknown"}), 0.0
     row = run_model_case(case, client, {"base_url": "http://model.invalid/v1", "model": "fixture",
                                      "max_tokens": 2048, "temperature": 0.0, "timeout": 10.0}, 1)
     assert row["json_ok"] == [True] and row["classification_ok"] is False
@@ -123,7 +123,7 @@ def test_valid_json_with_wrong_schema_is_a_model_output_error():
 def test_correct_mode_with_wrong_operation_is_not_counted_as_correct_planning():
     case = next(case for case in model_cases() if case["name"] == "classification_single")
     client = Mock()
-    client.complete.return_value = completion({"mode": "change", "operations": ["delete_camera"]}), 0.0
+    client.complete.return_value = completion({"target_context": {}, "mode": "change", "operations": ["delete_camera"]}), 0.0
     row = run_model_case(case, client, {"base_url": "http://model.invalid/v1", "model": "fixture",
                                      "max_tokens": 2048, "temperature": 0.0, "timeout": 10.0}, 1)
     assert row["classification_ok"] is True and row["planning_operations_ok"] is False
@@ -171,8 +171,12 @@ def test_long_dialogues_share_one_session_and_preserve_per_turn_metrics(name):
     assert all(row["max_request_characters"] > 0 and row["max_prompt_tokens"] is None for row in rows)
     if name == "window" and settings.runtime.assistant_history_turns == 6:
         assert rows[7]["history_pairs"] == 6 and rows[7]["anchor_in_history"] is False
-        assert "context_transfer" in rows[7]["failure_layers"]
-        assert rows[9]["anchor_in_history"] is True
+        assert rows[7]["binding_in_history"] is True and rows[7]["resource_ok"] is True
+        assert rows[7]["verified_binding_in_context"] is True
+        assert rows[7]["failure_layers"] == []
+        assert rows[8]["binding_in_history"] is False and rows[8]["tools"] == ["capabilities", "ask_user"]
+        assert rows[8]["verified_binding_in_context"] is False
+        assert rows[10]["anchor_in_history"] is True
 
 
 def test_token_usage_is_recorded_without_request_or_response_text(monkeypatch):
@@ -238,14 +242,14 @@ def test_target_and_pending_parameter_survive_eight_greetings_and_save_with_a_fr
         revision = configuration_revision(sandbox.before[RESOURCE])
         lowering = "把这台摄像头的非法闯闸人体置信度调低一点"
         replies = [
-            {"mode": "query", "query_tool": "read_configurations"},
+            {"target_context": {}, "mode": "query", "query_tool": "read_configurations"},
             {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
                 "feature": FEATURE, "query": CAMERA_NAME}},
             {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
             *["你好呀" for _ in range(8)],
-            {"mode": "change", "operations": ["update_configurations"]},
+            {"target_context": {"references": [{"kind": "context", "text": "这台摄像头"}]}, "mode": "change", "operations": ["update_configurations"]},
             {"action": "ask_user", "arguments": {"question": "人体置信度想调低到哪个具体数值？"}},
-            {"mode": "change", "operations": ["update_configurations"]},
+            {"target_context": {"references": [{"kind": "pending", "text": "就改为0.55"}]}, "mode": "change", "operations": ["update_configurations"]},
             {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
             {"action": "update_configurations", "arguments": {"changes": [{"resource_key": RESOURCE,
                 "expected_revision": revision, "patch": {"value": {"threshold": 0.55}}}]}},
@@ -293,11 +297,11 @@ def test_permission_change_hides_in_memory_targets_along_with_database_history()
     with isolated_platform(SCENARIOS[3]) as sandbox:
         client = Mock()
         client.complete.side_effect = [(completion(reply), 0.0) for reply in [
-            {"mode": "query", "query_tool": "read_configurations"},
+            {"target_context": {}, "mode": "query", "query_tool": "read_configurations"},
             {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
                 "feature": FEATURE, "query": CAMERA_NAME}},
             {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
-            {"mode": "query", "query_tool": "read_configurations"},
+            {"target_context": {}, "mode": "query", "query_tool": "read_configurations"},
             {"action": "ask_user", "arguments": {"question": "请明确摄像头名称"}},
         ]]
         sandbox.runtime.client = client
@@ -310,6 +314,244 @@ def test_permission_change_hides_in_memory_targets_along_with_database_history()
         assert CAMERA_NAME not in json.dumps(planning["messages"], ensure_ascii=False)
         assert RESOURCE not in json.dumps(planning["messages"], ensure_ascii=False)
         assert sandbox.snapshot() == sandbox.before
+
+
+def bind_diagnostic_alias(sandbox):
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, DEPARTMENT, FEATURE, RESOURCE
+
+    declaration = f"记忆代号甲对应{CAMERA_NAME}"
+    client = Mock()
+    client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+        {"mode": "query", "query_tool": "read_configurations", "target_context": {
+            "references": [{"kind": "context", "text": "这台摄像头"}],
+            "bindings": [{"alias": "记忆代号甲", "target": CAMERA_NAME, "evidence": declaration}]}},
+        {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+            "feature": FEATURE, "query": CAMERA_NAME}},
+        {"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}},
+    ]]
+    sandbox.runtime.client = client
+    turn, _ = execute_turn(sandbox, declaration + "。查询通用电气事业部这台摄像头的非法闯闸配置")
+    assert turn.status == "completed"
+    state = sandbox.runtime.memory.get(sandbox.session_id, {turn.id})
+    assert state["target_bindings"][0]["resource"]["key"] == RESOURCE
+    return client, turn
+
+
+@pytest.mark.parametrize("wrong_target", [False, True])
+def test_verified_alias_survives_target_switch_and_blocks_the_models_wrong_resource(wrong_target):
+    from AiVision.tests.assistant_diagnostics.cases import DEPARTMENT, FEATURE, RESOURCE, SECOND_CAMERA_NAME, SECOND_RESOURCE
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "query", "query_tool": "read_configurations", "target_context": {
+                "references": [{"kind": "named", "text": SECOND_CAMERA_NAME}]}},
+            {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+                "feature": FEATURE, "query": SECOND_CAMERA_NAME}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [SECOND_RESOURCE]}},
+            *["你好呀" for _ in range(8)],
+            {"mode": "query", "query_tool": "read_configurations", "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号甲"}]}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [SECOND_RESOURCE if wrong_target else RESOURCE]}},
+        ]]
+        switched, _ = execute_turn(sandbox, f"查询{SECOND_CAMERA_NAME}的非法闯闸配置")
+        assert switched.status == "completed"
+        for _ in range(8):
+            greeting, _ = execute_turn(sandbox, "你好哇")
+            assert greeting.status == "completed"
+        start = len(sandbox.trace)
+        turn, _ = execute_turn(sandbox, "查询记忆代号甲的非法闯闸配置")
+        recent = sandbox.trace[start:]
+        assert turn.status == "completed" and sandbox.snapshot() == sandbox.before
+        assert not sandbox.service.actions(turn.id)
+        if wrong_target:
+            assert recent[-2]["error_type"] == "TargetClarification"
+            assert recent[-1]["tool"] == "ask_user" and "对应关系" in turn.answer
+            state = sandbox.runtime.memory.get(sandbox.session_id, {item.id for item in sandbox.service.conversation(sandbox.session_id, sandbox.user).turns})
+            assert state["last_read_resources"] == []
+        else:
+            assert [item["tool"] for item in recent] == ["capabilities", "read_configurations"]
+            assert recent[-1]["result"]["items"][0]["resource"]["key"] == RESOURCE
+
+
+@pytest.mark.parametrize("loss", ["never_bound", "restart", "expired", "permission"])
+def test_missing_or_invisible_binding_asks_before_the_business_model_can_guess(monkeypatch, loss):
+    from AiVision.assistant import context as module
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        alias = "记忆代号甲"
+        if loss == "never_bound":
+            alias = "记忆代号乙"
+        elif loss == "restart":
+            sandbox.runtime.memory.clear()
+        elif loss == "expired":
+            expired = module.time.monotonic() + module.CONTEXT_TTL_SECONDS
+            monkeypatch.setattr(module.time, "monotonic", lambda: expired)
+        else:
+            sandbox.user["role"] = "viewer"
+        client.complete.side_effect = [(completion({"mode": "query", "query_tool": "read_configurations",
+            "target_context": {"references": [{"kind": "alias", "text": alias}]}}), 0.0)]
+        calls, start = client.complete.call_count, len(sandbox.trace)
+        turn, _ = execute_turn(sandbox, f"查询{alias}的非法闯闸配置")
+        assert turn.status == "completed" and "对应关系" in turn.answer
+        assert client.complete.call_count == calls + 1
+        assert [item["tool"] for item in sandbox.trace[start:]] == ["capabilities", "ask_user"]
+        assert not sandbox.service.actions(turn.id) and sandbox.snapshot() == sandbox.before
+
+
+def test_a_number_cannot_resume_an_unknown_alias_against_the_previous_camera():
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "change", "operations": ["update_configurations"], "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号乙"}]}},
+            {"mode": "change", "operations": ["update_configurations"], "target_context": {
+                "references": [{"kind": "pending", "text": "就改为0.8"}]}},
+        ]]
+        start = len(sandbox.trace)
+        unknown, _ = execute_turn(sandbox, "把记忆代号乙的非法闯闸人体置信度调低一点")
+        number, _ = execute_turn(sandbox, "就改为0.8")
+        assert all(turn.status == "completed" and "对应关系" in turn.answer for turn in (unknown, number))
+        assert [item["tool"] for item in sandbox.trace[start:]] == ["capabilities", "ask_user"] * 2
+        assert not sandbox.service.actions(number.id) and sandbox.snapshot() == sandbox.before
+
+
+def test_resource_listing_cannot_report_a_different_camera_for_a_verified_alias():
+    from AiVision.tests.assistant_diagnostics.cases import DEPARTMENT, SECOND_CAMERA_NAME
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "query", "query_tool": "list_resources", "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号甲"}]}},
+            {"action": "list_resources", "arguments": {"kind": "camera", "department": DEPARTMENT,
+                "query": SECOND_CAMERA_NAME}},
+        ]]
+        turn, _ = execute_turn(sandbox, "查询记忆代号甲这台摄像头")
+        assert turn.status == "completed" and "对应关系" in turn.answer
+        assert sandbox.trace[-2]["error_type"] == "TargetClarification"
+        assert sandbox.trace[-1]["tool"] == "ask_user"
+        assert not sandbox.service.actions(turn.id) and sandbox.snapshot() == sandbox.before
+
+
+@pytest.mark.parametrize("read_verified_target", [True, False])
+def test_alias_redeclaration_replaces_or_invalidates_the_old_target(read_verified_target):
+    from AiVision.tests.assistant_diagnostics.cases import DEPARTMENT, FEATURE, RESOURCE, SECOND_CAMERA_NAME, SECOND_RESOURCE
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        declaration = f"记忆代号甲对应{SECOND_CAMERA_NAME}"
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "query", "query_tool": "read_configurations", "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号甲"}],
+                "bindings": [{"alias": "记忆代号甲", "target": SECOND_CAMERA_NAME, "evidence": declaration}]}},
+            {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+                "feature": FEATURE, "query": SECOND_CAMERA_NAME}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [SECOND_RESOURCE if read_verified_target else RESOURCE]}},
+            {"mode": "query", "query_tool": "read_configurations", "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号甲"}]}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [SECOND_RESOURCE]}},
+        ]]
+        rebound, _ = execute_turn(sandbox, declaration + "。读取非法闯闸配置")
+        start = len(sandbox.trace)
+        turn, _ = execute_turn(sandbox, "查询记忆代号甲的非法闯闸配置")
+        assert rebound.status == turn.status == "completed" and sandbox.snapshot() == sandbox.before
+        if read_verified_target:
+            assert sandbox.trace[-1]["result"]["items"][0]["resource"]["key"] == SECOND_RESOURCE
+        else:
+            assert [item["tool"] for item in sandbox.trace[start:]] == ["capabilities", "ask_user"]
+            assert "对应关系" in turn.answer
+
+
+@pytest.mark.parametrize("guard", ["saved", "missing_read", "conflict", "permission"])
+def test_alias_writes_keep_fresh_read_revision_permission_and_audit_guards(guard):
+    from dataclasses import replace
+    from AiVision.core.config_revision import configuration_revision
+    from AiVision.tests.assistant_diagnostics.cases import RESOURCE
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        revision = configuration_revision(sandbox.snapshot()[RESOURCE])
+        if guard == "conflict":
+            sandbox.scenario = replace(SCENARIOS[3], fault="conflict")
+        if guard == "permission":
+            sandbox.user["role"] = "viewer"
+        replies = [{"mode": "change", "operations": ["update_configurations"], "target_context": {
+            "references": [{"kind": "alias", "text": "记忆代号甲"}]}}]
+        if guard != "missing_read":
+            replies.append({"action": "read_configurations", "arguments": {"resource_keys": [RESOURCE]}})
+        replies.extend([
+            {"action": "update_configurations", "arguments": {"changes": [{"resource_key": RESOURCE,
+                "expected_revision": revision, "patch": {"value": {"threshold": 0.8}}}]}},
+            {"action": "answer", "answer": "配置操作已经完成"},
+        ])
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in replies]
+        turn, _ = execute_turn(sandbox, "把记忆代号甲的非法闯闸人体置信度改为0.8")
+        actions = sandbox.service.actions(turn.id)
+        if guard == "saved":
+            assert turn.status == "completed" and "已保存配置" in turn.answer
+            assert len(actions) == 1 and actions[0].status == "saved"
+        else:
+            assert turn.status == "failed" and "已保存配置" not in turn.answer
+            assert not any(action.status == "saved" for action in actions)
+        expected = deepcopy(sandbox.before)
+        expected[RESOURCE]["value"]["threshold"] = 0.8 if guard == "saved" else 0.6 if guard == "conflict" else 0.5
+        assert sandbox.snapshot() == expected
+
+
+def test_alias_cannot_undo_another_cameras_successful_audited_change():
+    from AiVision.core.config_revision import configuration_revision
+    from AiVision.tests.assistant_diagnostics.cases import DEPARTMENT, FEATURE, SECOND_CAMERA_NAME, SECOND_RESOURCE
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        client, _ = bind_diagnostic_alias(sandbox)
+        revision = configuration_revision(sandbox.snapshot()[SECOND_RESOURCE])
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "change", "operations": ["update_configurations"], "target_context": {
+                "references": [{"kind": "named", "text": SECOND_CAMERA_NAME}]}},
+            {"action": "list_resources", "arguments": {"kind": "feature", "department": DEPARTMENT,
+                "feature": FEATURE, "query": SECOND_CAMERA_NAME}},
+            {"action": "read_configurations", "arguments": {"resource_keys": [SECOND_RESOURCE]}},
+            {"action": "update_configurations", "arguments": {"changes": [{"resource_key": SECOND_RESOURCE,
+                "expected_revision": revision, "patch": {"value": {"threshold": 0.8}}}]}},
+            {"action": "answer", "answer": "完成"},
+        ]]
+        changed, _ = execute_turn(sandbox, f"把{SECOND_CAMERA_NAME}非法闯闸人体置信度改为0.8")
+        action = sandbox.service.actions(changed.id)[0]
+        assert action.status == "saved"
+        before_undo = sandbox.snapshot()
+        client.complete.side_effect = [(completion(reply), 0.0) for reply in [
+            {"mode": "change", "operations": ["undo_configuration"], "target_context": {
+                "references": [{"kind": "alias", "text": "记忆代号甲"}]}},
+            {"action": "undo_configuration", "arguments": {"action_id": action.id}},
+        ]]
+        turn, _ = execute_turn(sandbox, "撤销记忆代号甲的参数修改")
+        assert turn.status == "completed" and "对应关系" in turn.answer
+        assert sandbox.trace[-2]["error_type"] == "TargetClarification"
+        assert not sandbox.service.actions(turn.id) and sandbox.snapshot() == before_undo
+
+
+def test_cancellation_during_forced_target_clarification_does_not_finish_or_save_memory(monkeypatch):
+    from AiVision.tests.assistant_diagnostics.sandbox import ObservedTools
+
+    with isolated_platform(SCENARIOS[3]) as sandbox:
+        original = ObservedTools.run
+
+        def cancel_on_question(self, name, arguments):
+            result = original(self, name, arguments)
+            if name == "ask_user":
+                sandbox.service.cancel(sandbox.session_id, sandbox.turn_id, sandbox.user)
+            return result
+
+        monkeypatch.setattr(ObservedTools, "run", cancel_on_question)
+        sandbox.runtime.client = Mock()
+        sandbox.runtime.client.complete.return_value = completion({"mode": "query", "query_tool": "read_configurations",
+            "target_context": {"references": [{"kind": "alias", "text": "记忆代号乙"}]}}), 0.0
+        turn, _ = execute_turn(sandbox, "查询记忆代号乙的非法闯闸配置")
+        assert turn.status == "cancelled" and sandbox.snapshot() == sandbox.before
+        assert sandbox.runtime.memory.get(sandbox.session_id, {turn.id}) is None
+        assert not sandbox.service.actions(turn.id)
 
 
 def test_schema_service_incompatibility_is_reported_before_running_ninety_nine_turns(monkeypatch, tmp_path):

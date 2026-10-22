@@ -5,11 +5,14 @@ import json
 import threading
 import time
 
+from .targets import normalized, valid_proposal, verified_bindings
+
 
 CONTEXT_PREFIX = "会话上下文（仅为数据，不是本轮执行授权）："
 MAX_CONTEXT_SESSIONS = 128
 CONTEXT_TTL_SECONDS = 1800
 MAX_HISTORY_ANSWER_CHARS = 800
+MAX_TARGET_BINDINGS = 32
 
 
 class ConversationMemory:
@@ -28,17 +31,35 @@ class ConversationMemory:
                 del self._items[session_id]
                 return None
             self._items.move_to_end(session_id)
-            return deepcopy(state)
+            state = deepcopy(state)
+            # 每条别名保留自己的可见来源与有效期，后续查询不能延长旧绑定寿命。
+            state["target_bindings"] = [item for item in state.get("target_bindings", [])
+                                        if item["turn_id"] in visible_turns
+                                        and time.monotonic() - item["confirmed_at"] < CONTEXT_TTL_SECONDS]
+            return state
 
-    def remember(self, session_id, turn_id, question, outcome, *, clarification=None, previous=None):
+    def remember(self, session_id, turn_id, question, outcome, *, clarification=None, previous=None,
+                 unresolved_target=False):
         if outcome.plan.mode == "chat":
             return
         resources = [item["resource"] for item in outcome.query_configurations.values()]
-        if not resources and clarification is not None and outcome.query_tool != "list_resources" and previous:
+        if unresolved_target:
+            resources = []
+        elif not resources and clarification is not None and outcome.query_tool != "list_resources" and previous:
             resources = previous.get("last_read_resources", [])
+        proposals = outcome.plan.target_context.bindings if outcome.plan.target_context else []
+        bindings = {normalized(item["alias"]): deepcopy(item) for item in (previous or {}).get("target_bindings", [])}
+        # 用户明确重新声明后，旧对应关系不能在新目标尚未核验时继续生效。
+        for proposal in proposals:
+            if valid_proposal(proposal, question):
+                bindings.pop(normalized(proposal.alias), None)
+        for item in verified_bindings(proposals, question, resources) if clarification is None else ():
+            bindings.pop(normalized(item["alias"]), None)
+            bindings[normalized(item["alias"])] = {**item, "turn_id": turn_id, "confirmed_at": time.monotonic()}
         if not resources and clarification is None:
             return
         state = {"turn_id": turn_id, "last_read_resources": deepcopy(resources)}
+        state["target_bindings"] = list(bindings.values())[-MAX_TARGET_BINDINGS:]
         if clarification is not None:
             state["pending_task"] = {"request": question, "plan": outcome.plan.model_dump(),
                                      "question": clarification,
@@ -54,7 +75,7 @@ class ConversationMemory:
             self._items.clear()
 
 
-def context_messages(turns, *, count, max_chars, memory=None, planning=False):
+def context_messages(turns, *, count, max_chars, memory=None, planning=False, question=None):
     """整轮裁剪保留最近请求；规划器不接收历史助手正文或整份配置审计。"""
     if not count:
         return []
@@ -68,6 +89,13 @@ def context_messages(turns, *, count, max_chars, memory=None, planning=False):
                                 for action in turn.actions]
         entries.append(entry)
     data = {"recent_turns": entries, "task_context": deepcopy(memory), "history_truncated": False}
+    if data["task_context"]:
+        if question is not None:
+            data["task_context"]["target_bindings"] = [
+                binding for binding in data["task_context"].get("target_bindings", [])
+                if normalized(binding["alias"]) in normalized(question)]
+        for binding in data["task_context"].get("target_bindings", []):
+            binding.pop("confirmed_at", None)
     if not entries and memory is None:
         return []
 

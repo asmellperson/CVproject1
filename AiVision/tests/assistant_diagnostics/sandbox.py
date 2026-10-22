@@ -135,9 +135,13 @@ class ScriptedClient:
         planning = "只判断当前用户请求" in messages[0]["content"]
         if planning:
             mode = "query" if platform.phase == "prelude" else case.mode
+            question = case.prelude if platform.phase == "prelude" else case.continuation if platform.phase == "continuation" else case.question
+            references = [{"kind": "named", "text": title} for title in (CAMERA_NAME, SECOND_CAMERA_NAME) if title in question]
+            if not references and "这个阈值" in question:
+                references = [{"kind": "context", "text": "这个阈值"}]
             goal = ("capabilities" if case.name == "capabilities" else "list_resources" if case.name == "camera"
                     else "read_configurations") if mode == "query" else None
-            return completion({"mode": mode, "operations": ["update_configurations"] if mode == "change" else [],
+            return completion({"target_context": {"references": references}, "mode": mode, "operations": ["update_configurations"] if mode == "change" else [],
                                "query_tool": goal}), 0.0
         if not kwargs["json_mode"]:
             return completion("你好呀，我是福达AI助手。"), 0.0
@@ -225,6 +229,12 @@ class MeasuredClient:
         binding = getattr(platform, "history_binding", None)
         if planning and binding:
             request["binding_in_history"] = all(part in history_text for part in binding)
+            from AiVision.assistant.context import CONTEXT_PREFIX
+            from AiVision.assistant.targets import matches_name
+            context = json.loads(history_text[len(CONTEXT_PREFIX):]) if history_text.startswith(CONTEXT_PREFIX) else {}
+            request["verified_binding_in_context"] = any(
+                item["alias"] == binding[0] and matches_name(binding[1], item["resource"])
+                for item in (context.get("task_context") or {}).get("target_bindings", []))
         self.requests.append(request)
         request_started = time.perf_counter()
         progress = getattr(platform, "model_progress", None)
@@ -294,6 +304,14 @@ class ObservedTools:
         self.delegate = AssistantTools(**kwargs)
         self.turn_id = kwargs["turn_id"]
 
+    @property
+    def target_policy(self):
+        return self.delegate.target_policy
+
+    @target_policy.setter
+    def target_policy(self, value):
+        self.delegate.target_policy = value
+
     def catalog(self, **kwargs):
         return self.delegate.catalog(**kwargs)
 
@@ -305,7 +323,16 @@ class ObservedTools:
             if platform.scenario.fault == "tool_error" and name == "list_resources":
                 platform.injected.append("tool_error")
                 raise RuntimeError("诊断注入的工具故障")
-            result = self.fake_run(name, arguments) if platform.fake_tools else self.delegate.run(name, arguments)
+            if platform.fake_tools:
+                from AiVision.assistant.tools import TOOL_MODELS
+                if self.target_policy is not None:
+                    args = TOOL_MODELS[name][0].model_validate_json(json.dumps(arguments))
+                    self.target_policy.check(name, args)
+                result = self.fake_run(name, arguments)
+                if self.target_policy is not None:
+                    self.target_policy.observe(name, result)
+            else:
+                result = self.delegate.run(name, arguments)
             entry["ok"] = "error" not in result
             entry["result"] = result
             if platform.scenario.fault == "conflict" and name == "read_configurations" and not platform.injected:

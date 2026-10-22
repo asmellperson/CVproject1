@@ -197,7 +197,7 @@ class ConfigurationCatalog:
                     refs.append(ResourceReference(
                         key=f"feature:{feature}:{camera['camera_id']}" if kind == "feature" else f"camera:{camera['camera_id']}",
                         kind=kind, name=camera["name"], department=scope, feature=feature if kind == "feature" else None,
-                        identifier=camera["shm_name"],
+                        identifier=camera["shm_name"], target_name=camera["name"],
                     ))
         else:
             from .native_resources import find_native_resources
@@ -238,7 +238,8 @@ class ConfigurationCatalog:
             camera = camera_config_manager.get_camera(data["camera"]["shm_name"])
             self.require_department(camera["department"], spec.name)
             ref = ResourceReference(key=key, kind="feature", name=camera["name"] + " · " + spec.display_name,
-                                    department=camera["department"], feature=spec.name)
+                                    department=camera["department"], feature=spec.name,
+                                    identifier=camera["shm_name"], target_name=camera["name"])
 
             def save(full, patch, previous):
                 feature_config_manager.save_config(spec, camera["shm_name"], full,
@@ -251,7 +252,7 @@ class ConfigurationCatalog:
                 raise HTTPException(404, "资源不可访问或不存在")
             self.require_department(camera["department"])
             ref = ResourceReference(key=key, kind="camera", name=camera["name"], department=camera["department"],
-                                    identifier=camera["shm_name"])
+                                    identifier=camera["shm_name"], target_name=camera["name"])
             raw = {field: camera[field] for field in CameraParameters.model_fields}
 
             def save(full, patch, previous):

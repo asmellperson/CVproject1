@@ -106,6 +106,7 @@ class AssistantTools:
         self.load_user, self.sources, self.orchestrator, self.check_cancel = load_user, sources, orchestrator, check_cancel
         self.read_versions = {}
         self.change_count = 0
+        self.target_policy = None
 
     def catalog(self, *, write=False):
         self.check_cancel()
@@ -119,17 +120,25 @@ class AssistantTools:
             raise ValueError("未知工具，请按工具目录选择")
         args = TOOL_MODELS[name][0].model_validate_json(json.dumps(arguments))
         catalog = self.catalog()
+        if self.target_policy is not None:
+            self.target_policy.check(name, args)
         if name == "capabilities":
             return catalog.capabilities()
         if name == "ask_user":
             return {"question": args.question}
         if name == "list_resources":
-            return catalog.find(**args.model_dump())
+            result = catalog.find(**args.model_dump())
+            if self.target_policy is not None:
+                self.target_policy.observe(name, result)
+            return result
         if name == "read_configurations":
             resources = [catalog.resolve(key) for key in args.resource_keys]
             for resource in resources:
                 self.read_versions[resource.reference.key] = resource.revision
-            return {"items": [resource.response().model_dump(mode="json") for resource in resources]}
+            result = {"items": [resource.response().model_dump(mode="json") for resource in resources]}
+            if self.target_policy is not None:
+                self.target_policy.observe(name, result)
+            return result
         if name == "update_configurations":
             return self.update(args.changes)
         if name == "undo_configuration":
@@ -137,6 +146,8 @@ class AssistantTools:
             if previous.status != "saved" or previous.after is None or previous.resource.kind in {"camera_creation", "camera_binding", "camera_deletion"}:
                 raise ValueError("此记录不是可撤销的已保存参数修改")
             resource = self.catalog(write=True).resolve(previous.resource.key)
+            if self.target_policy is not None:
+                self.target_policy.check_audited_resource(resource.reference.model_dump())
             if resource.config != previous.after:
                 raise ConfigurationConflict("配置在该操作之后已经变化，不能覆盖，请读取后明确指定新值")
             self.read_versions[resource.reference.key] = resource.revision

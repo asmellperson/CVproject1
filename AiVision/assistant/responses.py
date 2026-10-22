@@ -29,6 +29,7 @@ class PlanFormatError(QwenError):
                 + "。请重新判断原始用户请求，只输出符合系统 Schema 的一个完整 JSON 对象。"
                 "必须包含合法 mode；chat/query 的 operations 为空，change 的 operations 必须非空且不重复。"
                 "query 必须指定 query_tool，其他 mode 的 query_tool 为 null。"
+                "业务任务必须提供 target_context（references 和 bindings）；引用和绑定只能来自用户原文。"
                 "不要输出解释、思考过程、工具指令或额外字段。")
 
 
@@ -38,11 +39,12 @@ def _plan_issues(exc: ValidationError) -> list[dict]:
         "missing": "缺少必需字段", "literal_error": "取值不在 Schema 允许范围内",
         "extra_forbidden": "包含 Schema 未允许的字段", "list_type": "字段必须为列表",
         "too_long": "列表超过 Schema 数量上限", "model_type": "分类必须为 JSON 对象",
-        "json_invalid": "必须输出语法完整的 JSON", "value_error": "mode、operations 或 query_tool 不符合任务约束",
+        "json_invalid": "必须输出语法完整的 JSON", "value_error": "任务类型、目标引用或绑定不符合任务约束",
     }
     issues = []
     for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]:
-        location = [part if isinstance(part, int) or part in RequestPlan.model_fields else "<额外字段>"
+        known_fields = set(RequestPlan.model_fields) | {"references", "bindings", "kind", "text", "alias", "target", "evidence"}
+        location = [part if isinstance(part, int) or part in known_fields else "<额外字段>"
                     for part in error["loc"]]
         issues.append({"loc": location, "type": error["type"],
                        "message": messages.get(error["type"], "字段类型或取值不符合 Schema")})
