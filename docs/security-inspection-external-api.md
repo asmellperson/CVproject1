@@ -9,7 +9,6 @@
 | 内容 | 用途 |
 | --- | --- |
 | 接口地址 `API_BASE` | 所有接口的公共地址，已包含 `/api/external/security-inspection` |
-| 调用凭证 `API_KEY` | 调用接口时放在请求头 `X-API-Key` 中 |
 | 在线文档地址 | [http://172.16.0.32:7862/docs](http://172.16.0.32:7862/docs)，在浏览器中打开，可查看字段和调试接口 |
 
 ### 访问地址
@@ -24,13 +23,12 @@
 
 `/docs` 接在服务地址后面，不接在 `API_BASE` 后面。
 
-后续示例中的 `{API_BASE}` 替换为 `http://172.16.0.32:7862/api/external/security-inspection`，`{API_KEY}` 替换为后端提供的调用凭证。**不需要调用账号登录接口。** 修改配置需要开通配置修改权限，对接时说明需要修改配置即可。
+后续示例中的 `{API_BASE}` 替换为 `http://172.16.0.32:7862/api/external/security-inspection`。**所有外部接口均无需 API Key 或账号登录，安检配置也可直接读写。** 事业部范围以 `/departments` 返回的平台当前功能分配为准，摄像头和证据仍校验所属事业部。
 
 例如，获取事业部列表的请求是：
 
 ```http
 GET {API_BASE}/departments
-X-API-Key: {API_KEY}
 ```
 
 保存配置时增加请求头：
@@ -39,7 +37,7 @@ X-API-Key: {API_KEY}
 Content-Type: application/json
 ```
 
-除画面接口返回 JPEG 图片外，其余接口直接返回 JSON 对象或数组，没有统一的 `code`、`data` 外层包装。
+画面和会话证据接口返回 JPEG 图片，其余接口直接返回 JSON 对象或数组，没有统一的 `code`、`data` 外层包装。
 
 ### 页面与接口的对应关系
 
@@ -66,7 +64,6 @@ Content-Type: application/json
 
 ```http
 GET {API_BASE}/departments
-X-API-Key: {API_KEY}
 ```
 
 返回示例：
@@ -93,7 +90,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/cameras?department=general_electric&enabled_only=true
-X-API-Key: {API_KEY}
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -145,7 +141,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/cameras/inspection_a/frame.jpg?department=general_electric&annotated=true&max_width=1280
-X-API-Key: {API_KEY}
 ```
 
 | 参数 | 类型 | 必填 | 默认值 / 说明 |
@@ -160,8 +155,8 @@ X-API-Key: {API_KEY}
 
 - 大屏展示使用 `annotated=true`。
 - 绘制检测区域使用 `annotated=false`，避免检测标注遮挡底图。
-- 图片不能调用 `response.json()`，应使用 `response.blob()`，再通过 `URL.createObjectURL()` 赋给图片元素。
-- 直接请求时需要携带 `X-API-Key` 请求头，普通 `<img src="接口地址">` 不能设置这个请求头。
+- 可直接将完整图片地址设置为 `<img src="接口地址">`，也可作为原图链接使用，无需额外请求头；设置 `max_width/max_height` 可返回缩略尺寸。
+- 使用 `fetch` 时，图片不能调用 `response.json()`，应使用 `response.blob()`，再通过 `URL.createObjectURL()` 赋给图片元素。
 - 可以在上一次请求完成后，间隔约 500 毫秒请求下一张；不要让未完成的请求不断堆积。替换图片时释放旧的 Blob URL，离开页面时停止刷新。
 
 本接口返回连续刷新的单张图片，不提供视频播放地址。返回 404 时可以显示“等待画面”；返回 503 时显示“画面暂不可用”，稍后重试。
@@ -172,7 +167,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/history?department=general_electric&limit=20&offset=0
-X-API-Key: {API_KEY}
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -274,10 +268,9 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/history/{session_id}/image.jpg?department=general_electric
-X-API-Key: {API_KEY}
 ```
 
-仅当 `has_image=true` 时请求，`session_id` 应进行 URL 编码。成功返回 JPEG 二进制和 `Cache-Control: no-store`；不存在、过期或指定事业部内找不到图片时返回 404。请求未授权事业部返回 403。外部前端可通过受控后端代理，或带请求头获取 Blob 后展示；普通 `<img>` 不能设置 API Key。
+仅当 `has_image=true` 时请求，`session_id` 应进行 URL 编码。成功返回 JPEG 二进制和 `Cache-Control: no-store`；不存在、过期或指定事业部内找不到图片时返回 404。事业部未分配安检功能时返回 403。图片地址可直接用于 `<img>` 显示缩略图，点击同一地址打开原图，无需 API Key 或后端转发。
 
 图像是该次安检关键帧拼图，与不合规 session 在同一事务保存，报警冷却或通知开关不影响留存。已有历史原图不存在时 `has_image=false`，应显示“无留存图片”。
 
@@ -293,7 +286,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/status?department=general_electric
-X-API-Key: {API_KEY}
 ```
 
 查询参数 `department` 必填，使用事业部编码。
@@ -347,7 +339,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/cameras/inspection_a/config?department=general_electric
-X-API-Key: {API_KEY}
 ```
 
 路径使用摄像头的 `shm_name`，查询参数 `department` 必填。
@@ -411,7 +402,6 @@ X-API-Key: {API_KEY}
 
 ```http
 PUT {API_BASE}/cameras/inspection_a/config?department=general_electric
-X-API-Key: {API_KEY}
 Content-Type: application/json
 ```
 
@@ -523,7 +513,6 @@ const body = JSON.stringify(config);
 
 ```http
 GET {API_BASE}/config-schema
-X-API-Key: {API_KEY}
 ```
 
 此接口不需要查询参数。
@@ -542,7 +531,6 @@ X-API-Key: {API_KEY}
 
 ```http
 GET {API_BASE}/horns?department=general_electric
-X-API-Key: {API_KEY}
 ```
 
 查询参数 `department` 必填，使用当前摄像头所属事业部编码。
@@ -590,12 +578,11 @@ X-API-Key: {API_KEY}
 | HTTP 状态 | 含义 | 前端处理 |
 | --- | --- | --- |
 | 400 | 事业部编码或配置内容不正确 | 根据 `detail` 修改请求 |
-| 401 | 调用凭证缺失或已失效 | 检查 `X-API-Key` 请求头，联系后端对接人确认凭证 |
-| 403 | 当前凭证不能访问此数据或不能修改配置 | 联系后端对接人确认可访问数据和配置修改权限 |
+| 403 | 事业部未分配安检功能，或摄像头不属于所选事业部 | 检查 `department` 和摄像头归属，确认平台功能分配 |
 | 404 | 摄像头不存在，或暂时没有画面 | 检查 `shm_name`；画面接口可显示“等待画面” |
 | 409 | 保存期间摄像头所属事业部发生变化 | 重新获取摄像头列表及配置后再操作 |
 | 422 | 参数类型、范围、检测区域或配置完整性不符合要求 | 根据错误字段修正表单，完整提交配置 |
 | 500 | 服务处理失败 | 提示请求失败；保存操作先重新读取配置确认结果 |
 | 503 | 检测服务或画面暂不可用 | 显示未就绪，稍后重试 |
 
-需要在线调试时，在浏览器打开 [http://172.16.0.32:7862/docs](http://172.16.0.32:7862/docs)，找到 `external-security-inspection` 分组。在 **Authorize → ExternalApiKey** 中填入调用凭证，再展开对应接口填写参数并执行。
+需要在线调试时，在浏览器打开 [http://172.16.0.32:7862/docs](http://172.16.0.32:7862/docs)，找到 `external-security-inspection` 分组，直接展开对应接口填写参数并执行，无需进行 Authorize。

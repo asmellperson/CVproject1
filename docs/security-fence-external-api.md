@@ -2,33 +2,15 @@
 
 围栏由平台管理员配置每日禁入时段、ROI 和独立白名单。大屏通过以下只读接口展示画面、运行状态和报警，不负责保存检测配置。接口直接返回 JSON 对象或数组，图片接口返回图片字节；没有 `code/data` 包装。
 
-## 认证与接入
+## 接入方式
 
-公共前缀为 `{服务地址}/api/external/security-fence`，完整字段可在服务的 `/docs` 或 `/openapi.json` 查看。每次请求携带一个 `X-API-Key` 请求头：
+公共前缀为 `{服务地址}/api/external/security-fence`，完整字段可在服务的 `/docs` 或 `/openapi.json` 查看。所有接口均可直接请求，无需 API Key 或账号登录：
 
 ```http
 GET /api/external/security-fence/cameras?department=general_electric
-X-API-Key: <对接凭证>
 ```
 
-凭证需要 `security_fence:read`，并明确授权所查询的事业部；平台也必须在“系统管理 → 功能分配”中为该事业部分配警戒围栏。安检读取权限不会自动授予围栏权限。平台页面使用账号登录 Cookie，不使用 API Key。
-
-密钥由大屏的服务端或同源代理保管，从部署环境读取后附加请求头，不写入前端源码、URL 或浏览器长期存储。图片同样需要认证；浏览器 `<img>` 无法直接附加自定义请求头，应使用受控代理提供的图片地址，或由已授权请求取回 Blob 后展示。不要把密钥放在图片 URL 中。
-
-管理员登录后，通过 `POST /api/admin/external-clients` 创建凭证，请求体例如：
-
-```json
-{
-  "name": "室内围栏大屏",
-  "departments": ["general_electric", "electronics_electrician", "electrical_components"],
-  "scopes": ["security_fence:read"],
-  "expires_at": null
-}
-```
-
-`expires_at` 必须明确提交：`null` 表示永不过期；有限有效期使用带时区的未来时间，例如 `"2027-01-01T00:00:00+08:00"`。示例仅授权通用电气、电子电工、电气部件三个事业部。返回 `client` 元数据和 `api_key`，明文只在创建或轮换时返回一次。沿用平台凭证管理接口查询、修改授权、停用和轮换；停用、撤权、过期和轮换在后续请求立即生效。永久凭证仍受事业部和功能分配约束，也可停用或轮换。数据库只保存密钥摘要。
-
-凭证表的 `expires_at` 字段必须允许 `NULL`；已有表在启动服务前执行 `AiVision/migrations/external_clients_expiration_20261016.sql` 准备该字段。
+事业部必须在“系统管理 → 功能分配”中分配警戒围栏。图片地址可直接用于 `<img src="图片地址">`、缩略图和原图链接；摄像头画面支持 `max_width/max_height` 缩放。平台页面继续使用账号登录 Cookie。
 
 ## 接口目录
 
@@ -36,18 +18,18 @@ X-API-Key: <对接凭证>
 
 | 方法 | 路径 | 响应与参数 |
 | --- | --- | --- |
-| GET | `/departments` | `[{name, display_name}]`，只包含当前获准访问的围栏事业部 |
+| GET | `/departments` | `[{name, display_name}]`，只包含平台当前已分配围栏功能的事业部 |
 | GET | `/cameras` | 摄像头数组；`enabled_only=true` 默认只列摄像头和围栏均启用的设备；传 `false` 可查看该事业部全部摄像头 |
 | GET | `/status` | 该事业部所有已绑定围栏摄像头的状态数组，包含停用或离线状态 |
 | GET | `/cameras/{shm_name}/status` | 单个摄像头的围栏状态 |
 | GET | `/cameras/{shm_name}/frame.jpg` | JPEG；`annotated=true` 默认按实时采集帧合成 ROI 及有效检测框，`false` 返回原始帧；`quality=85`，范围 1–100；`max_width/max_height` 可选，范围 1–4096 |
 | GET | `/history` | 分页报警与原因统计，参数见下文 |
 | GET | `/alarms/{alarm_id}` | 报警详情；ID 使用历史返回的字符串 |
-| GET | `/alarms/{alarm_id}/image` | PNG 报警截图，按事件所属事业部授权 |
+| GET | `/alarms/{alarm_id}/image` | PNG 报警截图，校验事件所属事业部 |
 
 摄像头字段沿用平台：`id`、`camera_id`、`name`、`shm_name`、`department`、`enabled`、`fps`、`sort_order`、`feature_sort_orders` 和 `functions`。后两项只包含 `security_fence`；列表已按围栏排序排列，不返回 RTSP 地址。`enabled` 是配置开关，实时在线状态见 `/status`。
 
-建议先读取事业部与摄像头，再串行轮询状态和画面；不要让上一请求未完成时继续累积相同请求。新图加载并解码完成后再替换旧图；短暂取图失败时保留上一帧并明确提示刷新异常，不能将旧图视为实时在线。切换摄像头、事业部、离开页面或权限失效时清除旧画面及旧状态。
+建议先读取事业部与摄像头，再串行轮询状态和画面；不要让上一请求未完成时继续累积相同请求。新图加载并解码完成后再替换旧图；短暂取图失败时保留上一帧并明确提示刷新异常，不能将旧图视为实时在线。切换摄像头、事业部、离开页面或功能分配失效时清除旧画面及旧状态。
 
 围栏预览更新不等待模型推理完成。检测结果超过 5 秒、规则时段或分辨率改变时，预览撤销旧人体、人脸框并保留采集画面及 ROI；检测判定以状态接口为准，采集帧过期仍返回不可用。
 
@@ -113,7 +95,6 @@ X-API-Key: <对接凭证>
 
 ```http
 GET /api/external/security-fence/history?department=general_electric&camera_key=room_door&start=2026-10-12T00%3A00%3A00%2B08%3A00&end=2026-10-13T00%3A00%3A00%2B08%3A00&limit=100&offset=0
-X-API-Key: <对接凭证>
 ```
 
 - `camera_key` 可选，使用 `shm_name`，省略查询该事业部全部围栏报警。
@@ -121,7 +102,7 @@ X-API-Key: <对接凭证>
 - `limit` 默认 100，范围 1–500；`offset` 默认 0，不能为负。
 - 返回 `{total, by_reason, items}`；统计针对完整筛选范围，不仅统计当前页，记录按时间和 ID 倒序。
 
-单条记录包含 `id`、`camera_key`、`camera_name`、`department`、`reason`、`created_at`、`person`、`image_url`。`department` 为摄像头事业部，显示名称可从 `/departments` 获取；人员组织信息为 `person.org_index_code`。`person` 结构同状态中的人员项，位置与违规原因来自首次报警快照；禁入报警首次身份待核验时，持续违规期间确认的姓名、工号和组织编码会补全到同一记录，`id`、`created_at` 和证据不变。库外人员的 `person_id=null`、`person_name="未知人员"`；待核验人员的姓名仍为 `null`，不能当作已确认库外人员。`image_url` 是需要同一凭证授权的相对地址，`created_at` 含时区。禁止把响应中的图片路径改为平台公开截图地址来绕过鉴权。
+单条记录包含 `id`、`camera_key`、`camera_name`、`department`、`reason`、`created_at`、`person`、`image_url`。`department` 为摄像头事业部，显示名称可从 `/departments` 获取；人员组织信息为 `person.org_index_code`。`person` 结构同状态中的人员项，位置与违规原因来自首次报警快照；禁入报警首次身份待核验时，持续违规期间确认的姓名、工号和组织编码会补全到同一记录，`id`、`created_at` 和证据不变。库外人员的 `person_id=null`、`person_name="未知人员"`；待核验人员的姓名仍为 `null`，不能当作已确认库外人员。`image_url` 是可直接访问的相对地址，前面拼接服务地址即可显示缩略图或打开原图；`created_at` 含时区。
 
 | `reason` | 含义 | 统一报警类型 |
 | --- | --- | --- |
@@ -140,9 +121,8 @@ X-API-Key: <对接凭证>
 | HTTP 状态 | 处理 |
 | --- | --- |
 | 400 / 422 | 查询参数、事业部编码或时间格式不正确，修正请求 |
-| 401 | 缺少、错误、重复、停用、过期或已轮换的 API Key，停止重试并更新凭证 |
-| 403 | 凭证缺少围栏读取权限、事业部越权或平台未分配围栏功能 |
+| 403 | 平台未分配围栏功能，或摄像头不属于所选事业部 |
 | 404 | 摄像头 / 报警不存在、截图不存在，或请求了未提供的写入接口 |
 | 503 | 视频帧或运行服务暂不可用，显示不可用并稍后重试 |
 
-错误响应使用 FastAPI 的 `detail` 字段。有效业务数据和图片响应使用 `Cache-Control: private, no-store`。外部接口不提供配置、白名单、全局人员库、模型设置或报警处置的写入权限。
+错误响应使用 FastAPI 的 `detail` 字段。有效业务数据和图片响应使用 `Cache-Control: no-store`。外部接口只提供围栏数据和图片查询，不提供配置、白名单、全局人员库、模型设置或报警处置的写入接口。

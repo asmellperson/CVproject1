@@ -26,8 +26,7 @@ from AiVision.features.security_inspection.schema import (
     StatusResponse,
 )
 from AiVision.features.security_inspection.service import InspectionService
-from auth.external import inspection_reader, inspection_writer
-from auth.external_schema import ExternalClientInfo, INSPECTION_FEATURE
+from auth.external_schema import INSPECTION_FEATURE
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/security-inspection", tags=["external-security-inspection"])
@@ -84,11 +83,10 @@ def get_config_manager():
 
 def department_access(
     department: str,
-    client: ExternalClientInfo = Depends(inspection_reader),
     service=Depends(get_department_service),
 ) -> str:
-    """同时检查凭证授权与平台当前功能分配。"""
-    return require_feature_department(department, client, INSPECTION_FEATURE, service)
+    """按平台当前功能分配检查事业部是否提供安检接口。"""
+    return require_feature_department(department, INSPECTION_FEATURE, service)
 
 
 def scoped_camera(
@@ -96,18 +94,18 @@ def scoped_camera(
     department: str = Depends(department_access),
     manager=Depends(get_camera_config_manager),
 ) -> dict:
-    """以真实资源归属授权，外部接口只接受 shm_name，避免别名歧义。"""
+    """校验真实资源归属，外部接口只接受 shm_name，避免别名歧义。"""
     return find_scoped_camera(manager, shm_name, department)
 
 
 @router.get("/departments", response_model=list[DepartmentResponse])
-def departments(client: ExternalClientInfo = Depends(inspection_reader), service=Depends(get_department_service)):
-    """返回此凭证当前可访问的安检事业部。"""
+def departments(service=Depends(get_department_service)):
+    """返回平台当前已分配安检功能的事业部。"""
     access = service.feature_access()
     return [
         DepartmentResponse(name=name, display_name=spec.display_name)
         for name, spec in DEPARTMENT_SPECS.items()
-        if name in client.departments and INSPECTION_FEATURE in access.get(name, [])
+        if INSPECTION_FEATURE in access.get(name, [])
     ]
 
 
@@ -149,7 +147,7 @@ def history(
     offset: int = Query(0, ge=0),
     service=Depends(get_inspection_service),
 ):
-    """只查询获准事业部的历史；统计覆盖该范围全部记录，不受分页影响。"""
+    """只查询所选事业部的历史；统计覆盖该范围全部记录，不受分页影响。"""
     return service.history(department, camera_id=camera_id, limit=limit, offset=offset)
 
 
@@ -160,7 +158,7 @@ def history_image(
     department: str = Depends(department_access),
     service=Depends(get_inspection_service),
 ):
-    """使用外部只读凭证获取会话证据，保留事业部隔离。"""
+    """通过图片直链获取会话证据，保留事业部范围校验。"""
     return build_inspection_image_response(service, department, session_id)
 
 
@@ -195,7 +193,6 @@ def get_config(camera: dict = Depends(scoped_camera), manager=Depends(get_config
 @router.put("/cameras/{shm_name}/config", response_model=ConfigResponse)
 def save_config(
     payload: ConfigWrite,
-    client: ExternalClientInfo = Depends(inspection_writer),
     camera: dict = Depends(scoped_camera),
     manager=Depends(get_config_manager),
 ):
@@ -214,8 +211,7 @@ def save_config(
     if result is None:
         raise HTTPException(404, "camera not found")
     logger.info(
-        "外部安检配置已保存 client_id=%s department=%s camera_id=%s",
-        client.id,
+        "外部安检配置已保存 department=%s camera_id=%s",
         camera["department"],
         camera["camera_id"],
     )
@@ -223,11 +219,11 @@ def save_config(
 
 
 @router.get("/config-schema", response_model=ConfigSchemaResponse)
-def config_schema(_client: ExternalClientInfo = Depends(inspection_reader)):
+def config_schema():
     return ConfigSchemaResponse(default_config=InspectionConfig(), config_schema=InspectionConfig.model_json_schema())
 
 
-@router.get("/horns", response_model=list[HornChoiceResponse], dependencies=[Depends(inspection_writer)])
+@router.get("/horns", response_model=list[HornChoiceResponse])
 def horn_choices(department: str = Depends(department_access), service=Depends(get_horn_service)):
-    """按已授权事业部返回喇叭选项，避免外部配置绑定其他事业部设备。"""
+    """按所选事业部返回喇叭选项，避免外部配置绑定其他事业部设备。"""
     return service.list_horns(department=department)

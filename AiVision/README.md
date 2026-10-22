@@ -85,7 +85,7 @@ AiVision/
 │   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
 │   └── routes/                     # 摄像头、功能、模型、告警、通道等 API
-│       └── external/               # 系统凭证认证的安检和围栏接口，复用平台业务服务
+│       └── external/               # 可直接访问的安检和围栏接口，复用平台业务服务
 ├── runtime/
 │   ├── bootstrap.py                # 启动阶段 ORM 注册、建表与结构核验
 │   ├── orchestrator.py             # 总编排、配置事件路由、运行状态聚合
@@ -763,7 +763,7 @@ Consumer 更新结构化姓名、工号、相似度和全图框；图像主要�
 - 同一次持续异常只分发一次。轨迹与报警关联的保留窗口为 `max(alarm_interval, tracking_gap_seconds)`，默认 30 秒；短暂漏检、ROI 边界往返和重新核验不会立即结束事件。当前唯一的库内人脸可根据身份候选或原事件恢复关联，推理故障撤销身份后仍可恢复原事件。已确认人员使用 `fence_event` 冷却；待核验和未知人员使用 `fence_unidentified`，按摄像头与当前可见违规人员的横向序位共享间隔，阻止新轨迹绕过冷却，同时保留多人分别记录。人员身份确认后可独立记录，停止检测或重置摄像头配置时回收冷却状态。
 - 围栏人脸识别等待上限由 `FENCE_INFERENCE_TIMEOUT_SECONDS` 配置，默认 5 秒，范围大于 0 且不超过 30 秒。状态中的错误包含实际超时、模型或索引刷新失败的状态及原因。
 - `preview.py` 使用独立短锁发布配置和检测快照，画面及状态读取不等待 Consumer 的人体、人脸推理锁。预览和报警证据复用标注样式，证据仍使用触发检测的原始帧；配置更新、停用和移除会清理对应快照。
-- 默认开启 SQL 报警记录，异常时间类型为 `15`，异常人员类型为 `16`；持久化主体为摄像头，元数据包含该次人员框、身份和原因，以及 `person_name`、`job_no`、`org_index_code`。禁入报警首次身份待核验时，持续违规期间的确认结果通过公共报警写入队列按唯一事件键补全同一记录，保留首次时间、原因和证据，不重新触发通知；已确认库外人员后续识别到库内身份时也可补全。事件结束后不跨事件补写身份。报警的 `department` 表示摄像头事业部，人员组织信息使用底库的组织编码，不推断部门名称。截图访问需要平台登录或对应外部凭证。
+- 默认开启 SQL 报警记录，异常时间类型为 `15`，异常人员类型为 `16`；持久化主体为摄像头，元数据包含该次人员框、身份和原因，以及 `person_name`、`job_no`、`org_index_code`。禁入报警首次身份待核验时，持续违规期间的确认结果通过公共报警写入队列按唯一事件键补全同一记录，保留首次时间、原因和证据，不重新触发通知；已确认库外人员后续识别到库内身份时也可补全。事件结束后不跨事件补写身份。报警的 `department` 表示摄像头事业部，人员组织信息使用底库的组织编码，不推断部门名称。平台截图接口校验人员登录，外部抓拍图接口可直接访问并校验所属事业部。
 
 平台通过 `GET/PUT /api/features/security_fence/configs/{key}` 保存 `{enable, value, alarm}`，启停与配置变化走现有事件热更新。状态超过 5 秒、摄像头离线、检测未运行或规则时段已切换时，接口不返回旧人数和旧身份结论。检测异常且没有确定报警时 `alarm=null`。实际部署需要验证相机位置、光照和多人出入，画面识别不替代强制门禁核验。
 
@@ -1057,11 +1057,11 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 `auth/feature_permissions.py` 提供 `feature_departments()` 和 `require_feature_access()`，通用功能、保安室、物流通道、安检和视觉语言接口复用这些判断。认证用户响应携带 `feature_access`，普通账号只收到所属事业部的配置；接口请求读取数据库最新分配，前端通过 `/api/departments/feature-access` 定期同步，不重复记录访问审计。总览和运行统计按功能过滤摄像头，避免多事业部账号串用权限。取消分配只控制访问，不修改摄像头、Consumer、AGV 公开触发入口或历史报警权限。
 
-`api/routes/external/` 的全部路由统一依赖 `auth/external.py` 校验 `X-API-Key`，不使用人员 Cookie/JWT。凭证表 `auth_external_clients` 保存摘要、事业部、操作权限和有效期，每次请求重新校验；管理员使用 `/api/admin/external-clients` 管理凭证。`expires_at` 必须明确提交，带时区的未来时间表示到期失效，`null` 表示永久有效；永久凭证仍校验授权、启停和密钥摘要。安检外部接口同时校验事业部当前功能分配，配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，操作日志记录服务身份及资源标识。
+`api/routes/external/` 下的安检与围栏接口无需 API Key 或人员 Cookie/JWT，数据和图片地址可直接访问。业务请求校验正式事业部编码、平台当前功能分配和资源归属；图片可直接用于 `<img>`、缩略图或原图链接。安检配置写入复用 `FeatureConfigManager`，并在锁定摄像头后核对归属，归属变化返回 409。响应不包含摄像头视频源或喇叭凭据，配置操作日志记录事业部与摄像头标识。平台管理接口继续使用人员登录和权限校验。
 
 报警处置读取/写入遵守报警访问权限，列表按主键游标分页，默认 50 条、最多 100 条，返回 `items` 和 `next_cursor`。处置更新锁定报警主记录，保存当前状态并保留最近 20 次历史。不能把全部写操作都理解为管理员专属。
 
-`/api/runtime/health`、登录和登出是公开接口；`/api/public/alarms/...` 的通知图片需签名及有效期校验，其余告警媒体仍需登录和授权。`AUTH_SECRET` 由运行环境提供，运维脚本从 `scripts/auth_secret` 注入。
+`/api/runtime/health`、登录、登出和 `/api/external/...` 是公开接口；`/api/public/alarms/...` 的通知图片需签名及有效期校验，平台其余告警媒体仍需登录和授权。`AUTH_SECRET` 由运行环境提供，运维脚本从 `scripts/auth_secret` 注入。
 
 ### 10.3 数据迁移边界
 
@@ -1296,38 +1296,38 @@ curl --fail --silent --show-error http://127.0.0.1:7862/api/runtime/health
 
 ### 12.5 安检外部对接
 
-前缀为 `/api/external/security-inspection`，通过 `X-API-Key` 验证系统身份。除事业部列表与配置 Schema 外，下面的业务查询均要求 `department` 参数。
+前缀为 `/api/external/security-inspection`，无需 API Key 或账号登录。除事业部列表与配置 Schema 外，下面的业务查询均要求 `department` 参数。
 
 | 方法 | 后缀 | 用途 |
 | --- | --- | --- |
-| GET | `/departments` | 凭证当前可访问的安检事业部 |
+| GET | `/departments` | 平台当前已分配安检功能的事业部 |
 | GET | `/cameras` | 摄像头列表，可用 `enabled_only` 筛选 |
 | GET | `/status`、`/history` | 与平台一致的状态、最近 31 天会话及统计 |
-| GET | `/history/{session_id}/image.jpg` | 读取授权事业部内的数据库 JPEG 证据 |
+| GET | `/history/{session_id}/image.jpg` | 直接读取所选事业部内的数据库 JPEG 证据 |
 | GET | `/cameras/{shm_name}/frame.jpg` | 安检标注帧；`annotated=false` 返回绘制 ROI 的原始帧 |
 | GET / PUT | `/cameras/{shm_name}/config` | 读取 / 完整保存摄像头安检配置 |
 | GET | `/config-schema` | 默认配置和字段约束 |
-| GET | `/horns` | 配置写权限可读取的当前授权事业部喇叭选项 |
+| GET | `/horns` | 所选事业部的喇叭选项 |
 
-外部配置必须完整提交，未知字段和缺失字段均拒绝。该入口不提供平台设备管理、其他功能或全局福达AI设置。凭证管理由平台管理员通过 `/api/admin/external-clients` 完成，支持授权更新、启停和轮换；新表由正式启动创建，也可执行 `migrations/external_clients_20261009.sql` 建表。凭证表的 `expires_at` 必须允许 `NULL`；已有表可在启动前执行 `migrations/external_clients_expiration_20261016.sql` 放宽该字段的非空约束。
+外部配置必须完整提交，未知字段和缺失字段均拒绝。配置读写均无需请求头凭证，并校验事业部及摄像头归属。该入口不提供平台设备管理、其他功能或全局福达AI设置。
 
-部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端只负责展示、配置交互和屏幕适配；长期凭证由受控服务端或代理保管。
+部署与完整请求示例见[安检外部 API 文档](../docs/security-inspection-external-api.md)。外部前端负责展示、配置交互和屏幕适配，图片可直接通过地址显示。
 
 ### 12.6 围栏平台与外部对接
 
 平台登录接口：`GET /api/security-fence/cameras/{key}/status`、`GET /api/security-fence/persons`；人员查询要求 `department`，支持 `keyword`、`page`、`page_size` 与重复的 `person_ids` 查询参数。
 
-外部前缀 `/api/external/security-fence` 要求请求头 `X-API-Key`、`security_fence:read` 权限及当前事业部功能授权。除 `/departments` 外均要求 `department`。
+外部前缀 `/api/external/security-fence` 无需 API Key 或账号登录，按平台当前事业部功能分配查询。除 `/departments` 外均要求 `department`。
 
 | 方法 | 相对路径 | 用途 |
 | --- | --- | --- |
-| GET | `/departments`、`/cameras` | 授权事业部及摄像头，默认只列启用的围栏摄像头 |
+| GET | `/departments`、`/cameras` | 已分配围栏功能的事业部及摄像头，默认只列启用的围栏摄像头 |
 | GET | `/status`、`/cameras/{shm_name}/status` | 事业部围栏状态列表 / 单摄像头状态 |
 | GET | `/cameras/{shm_name}/frame.jpg` | 标注或原始 JPEG 画面 |
 | GET | `/history` | 分页报警记录与按原因统计 |
-| GET | `/alarms/{alarm_id}`、`/alarms/{alarm_id}/image` | 报警详情 / 受权限保护的截图 |
+| GET | `/alarms/{alarm_id}`、`/alarms/{alarm_id}/image` | 报警详情 / 可直接显示的截图 |
 
-外部凭证不授予围栏配置、白名单修改和人员库访问。配置由平台管理员管理；参数、状态语义和请求示例见[围栏外部 API 文档](../docs/security-fence-external-api.md)。
+外部围栏接口只提供数据和图片查询，不提供围栏配置、白名单修改和人员库访问。配置由平台管理员管理；参数、状态语义和请求示例见[围栏外部 API 文档](../docs/security-fence-external-api.md)。
 
 ## 13. 人脸库同步与特征生成
 

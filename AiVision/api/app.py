@@ -145,7 +145,7 @@ def create_app() -> FastAPI:
         """
         path = request.url.path
         if path.startswith(EXTERNAL_API_PREFIX + "/"):
-            # 外部路由统一依赖系统凭证校验；不把服务身份伪装成人员账号。
+            # 外部对接数据和图片允许直连，事业部及资源归属由业务路由校验。
             response = await call_next(request)
             response.headers["Cache-Control"] = "no-store"
             return response

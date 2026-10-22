@@ -23,13 +23,13 @@ class CameraResponse(BaseModel):
     functions: dict[str, bool]
 
 
-def require_feature_department(department, client, feature, service):
+def require_feature_department(department, feature, service):
     try:
         require_department(department)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if department not in client.departments or feature not in service.feature_access().get(department, []):
-        raise HTTPException(403, "凭证无权访问此事业部的功能")
+    if feature not in service.feature_access().get(department, []):
+        raise HTTPException(403, "此事业部未分配对应功能")
     return department
 
 
@@ -38,5 +38,5 @@ def scoped_camera(manager, shm_name, department):
     if camera is None or camera["shm_name"] != shm_name:
         raise HTTPException(404, "camera not found")
     if camera["department"] != department:
-        raise HTTPException(403, "摄像头不属于获准访问的事业部")
+        raise HTTPException(403, "摄像头不属于所选事业部")
     return camera

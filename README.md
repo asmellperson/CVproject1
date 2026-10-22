@@ -146,7 +146,7 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 
 围栏页面沿用其他检测页的实时监控和配置管理两个标签；监控区左侧展示摄像头选择和当前识别结果，右侧展示实时画面，支持拖动调整宽度，窄屏自动上下排列。配置包含摄像头、参数、ROI、模型和报警设置，报警间隔位于“报警推送”。报警统一在“数据中心 → 报警记录”中查看、筛选和处置，显示姓名、工号和摄像头所属事业部；详情另显示人员组织编码。人员库未提供部门名称，组织编码不等同于摄像头事业部。
 
-大屏通过 `/api/external/security-fence` 读取摄像头、画面、实时状态及报警历史，凭证需要 `security_fence:read` 权限和对应事业部授权。接入方式见[围栏外部 API 文档](docs/security-fence-external-api.md)。摄像头安装后应验证入口正脸像素、光照、多人遮挡及跟踪效果；该功能不保证未露出可识别人脸的人员一定触发身份报警。
+大屏通过 `/api/external/security-fence` 读取摄像头、画面、实时状态及报警历史，无需 API Key 或账号登录，按事业部及平台当前功能分配查询。接入方式见[围栏外部 API 文档](docs/security-fence-external-api.md)。摄像头安装后应验证入口正脸像素、光照、多人遮挡及跟踪效果；该功能不保证未露出可识别人脸的人员一定触发身份报警。
 
 ### 非法闯闸
 
@@ -187,13 +187,13 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 - 安检总数包含合规、不合规和判定失败；修改 ROI 等操作产生的取消会话单独统计并保留历史，不计入安检总数。合规率只基于合规与不合规判定。
 - 运行时提供模型健康检查、连续失败熔断和自动恢复状态。
 
-外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置。外部接口使用独立 `X-API-Key` 凭证，按事业部和读写权限授权，复用平台数据及配置热更新；凭证由受控服务端或代理保管。接口字段和调用示例见[安检外部 API 文档](docs/security-inspection-external-api.md)。
+外部安防大屏使用 `/api/external/security-inspection` 查询摄像头、画面、状态和会话历史，并读写摄像头安检配置；警戒围栏数据和图片使用 `/api/external/security-fence` 只读查询。两组接口均无需 API Key 或账号登录，按 `department` 和平台当前功能分配查询，并校验资源归属。图片地址可直接显示原图和缩略图，安检配置复用平台数据及热更新。接口字段和调用示例见[安检外部 API 文档](docs/security-inspection-external-api.md)和[围栏外部 API 文档](docs/security-fence-external-api.md)。
 
 ## 4. 认证、权限与数据
 
 [auth/api.py](auth/api.py) 提供登录、登出、当前用户、修改密码、用户管理和访问审计接口，由 AiVision 的 `create_app()` 注册。浏览器通过 Cookie 维持登录，前端请求携带 `credentials: 'include'`；接口返回 `401` 时清空前端登录状态。
 
-[auth/external.py](auth/external.py) 校验外部系统凭证；管理员通过 `/api/admin/external-clients` 管理授权、有效期、启停和轮换。创建或修改凭证时必须明确提交 `expires_at`：带时区的未来时间表示到期失效，`null` 表示永久有效。永久凭证仍受事业部、操作权限、启停和轮换约束。密钥摘要保存于 `auth_external_clients`，明文仅在创建和轮换时返回。外部凭证不授予人员账号接口或全局模型设置的访问权限。
+`/api/external/` 下的数据、图片和安检配置接口允许直接访问，无需请求头凭证，也不依赖人员登录 Cookie。平台账号接口、管理接口和全局模型设置仍校验人员登录及对应权限。
 
 | 数据 | MySQL 表 / 存储 |
 | --- | --- |
@@ -239,10 +239,10 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 | `/api/alarm-dispositions` | 报警处置 |
 | `/api/logistics-channels/*` | 通道与成员管理、状态及拼图 |
 | `/api/guard-behavior/sites/*` | 保安室、策略、成员及运行状态 |
-| `/api/security-fence/*`、`/api/external/security-fence/*` | 围栏平台状态与人员选择 / 大屏只读接口 |
+| `/api/security-fence/*`、`/api/external/security-fence/*` | 围栏平台状态与人员选择 / 无需 API Key 或登录的大屏只读接口 |
 | `/api/tailgating/cameras/{key}/status` | 非法闯闸实时状态、轨迹与通行事件 |
 | `/api/security-inspection/*` | 安检历史、运行状态与福达AI设置 |
-| `/api/external/security-inspection/*` | 独立系统凭证认证的安检展示和摄像头配置接口 |
+| `/api/external/security-inspection/*` | 无需 API Key 或登录的安检展示、图片和摄像头配置接口 |
 | `/api/visual-language-detection/cameras/{key}/*` | 视觉理解结果、事件与视频提问 |
 | `/api/face-recognition/records` | 身份识别记录 |
 | `/api/horns`、`/api/exception-alert` | 喇叭与系统异常通知 |

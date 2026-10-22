@@ -35,7 +35,7 @@ def history(
 
 
 def build_inspection_image_response(service: InspectionService, department: str, session_id: str) -> Response:
-    """两类认证入口复用同一证据读取响应，禁止客户端缓存已过期或已撤权的图片。"""
+    """平台与外部入口复用证据读取响应，禁止客户端缓存已过期的图片。"""
     result = service.image(department, session_id)
     if result is None:
         raise HTTPException(404, "安检证据不存在或已过期")

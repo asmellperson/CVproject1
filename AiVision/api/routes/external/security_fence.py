@@ -3,8 +3,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import AwareDatetime
 
-from auth.external import fence_reader
-from auth.external_schema import ExternalClientInfo
 from AiVision.api.deps import get_camera_config_manager, get_current_orchestrator, get_department_service, get_optional_orchestrator
 from AiVision.api.routes.cameras import build_camera_frame_response
 from AiVision.departments.department_registry import DEPARTMENT_SPECS
@@ -17,11 +15,11 @@ def no_store(response: Response):
     response.headers["Cache-Control"] = "private, no-store"
 
 
-router = APIRouter(prefix="/security-fence", tags=["external-security-fence"], dependencies=[Depends(fence_reader), Depends(no_store)])
+router = APIRouter(prefix="/security-fence", tags=["external-security-fence"], dependencies=[Depends(no_store)])
 
 
-def department_access(department: str, client: ExternalClientInfo = Depends(fence_reader), catalog=Depends(get_department_service)):
-    return common.require_feature_department(department, client, FEATURE, catalog)
+def department_access(department: str, catalog=Depends(get_department_service)):
+    return common.require_feature_department(department, FEATURE, catalog)
 
 
 def scoped_camera(shm_name: str, department: str = Depends(department_access), manager=Depends(get_camera_config_manager)):
@@ -29,10 +27,10 @@ def scoped_camera(shm_name: str, department: str = Depends(department_access), m
 
 
 @router.get("/departments", response_model=list[common.DepartmentResponse])
-def departments(client: ExternalClientInfo = Depends(fence_reader), catalog=Depends(get_department_service)):
+def departments(catalog=Depends(get_department_service)):
     access = catalog.feature_access()
     return [{"name": name, "display_name": spec.display_name} for name, spec in DEPARTMENT_SPECS.items()
-            if name in client.departments and FEATURE in access.get(name, [])]
+            if FEATURE in access.get(name, [])]
 
 
 @router.get("/cameras", response_model=list[common.CameraResponse])
