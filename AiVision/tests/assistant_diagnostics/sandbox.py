@@ -42,6 +42,47 @@ def json_validity(raw):
         return False
 
 
+def response_statistics(raw):
+    """格式诊断只保留白名单类别和长度，空思考标签不能等同于实际思考。"""
+    from AiVision.assistant.responses import completion_metadata, json_content
+
+    result = completion_metadata(raw)
+    try:
+        message = json.loads(raw)["choices"][0]["message"]
+        content = message.get("content")
+        if not isinstance(content, str):
+            return result
+        body = content.strip()
+        result["reasoning_characters"] = sum(len(message[key]) for key in ("reasoning", "reasoning_content")
+                                             if isinstance(message.get(key), str))
+        result["thinking_wrapper"] = "absent"
+        result["thinking_characters"] = 0
+        if body.startswith("<think>"):
+            thinking, separator, body = body[len("<think>"):].partition("</think>")
+            result["thinking_wrapper"] = "closed" if separator else "unclosed"
+            result["thinking_characters"] = len(thinking.strip())
+            if not separator:
+                result["answer_format"] = "unclosed_thinking"
+                return result
+            body = body.strip()
+        candidate = json_content(body)
+        result["code_fenced"] = candidate != body
+        result["answer_characters"] = len(candidate)
+        if not candidate:
+            result["answer_format"] = "empty"
+        elif json_validity(completion(candidate)):
+            value = json.loads(candidate)
+            result["answer_format"] = ("object" if isinstance(value, dict) else "array" if isinstance(value, list)
+                                       else "scalar")
+            if isinstance(value, dict):
+                result["object_shape"] = "request_plan" if "mode" in value else "agent_decision" if "action" in value else "other"
+        else:
+            result["answer_format"] = "invalid_json" if candidate.startswith(("{", "[", '"', "```")) else "text"
+        return result
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return {"envelope_valid": False}
+
+
 def observed_arguments(trace, tool, field, item_type):
     """模型可能提交错误类型，统计器也必须容纳被工具拒绝的输入。"""
     values = []
@@ -167,7 +208,7 @@ class MeasuredClient:
         self.requests = []
 
     def complete(self, **kwargs):
-        from AiVision.assistant.responses import completion_content, completion_metadata, json_content, parse_plan
+        from AiVision.assistant.responses import completion_content, json_content, parse_plan
 
         self.calls += 1
         platform, case = self.platform, self.platform.scenario
@@ -224,10 +265,12 @@ class MeasuredClient:
                     self.errors.append(type(exc).__name__)
                     request["plan_valid"] = False
                     request["validation_category"] = getattr(exc, "category", type(exc).__name__)
+                    if hasattr(exc, "issues"):
+                        request["validation_issues"] = exc.issues
             if case.fault == "cancel" and self.calls == 2:
                 platform.service.cancel(platform.session_id, platform.turn_id, platform.user)
                 self.injected.append("cancel")
-            request.update(completion_metadata(raw))
+            request.update(response_statistics(raw))
             try:
                 usage = json.loads(raw).get("usage", {})
                 for name in ("prompt_tokens", "completion_tokens", "total_tokens"):

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from .cases import CAMERA_NAME, DEPARTMENT, FEATURE, METRICS, PROBES, RESOURCE, SCENARIOS
 from .conversations import conversation_cases, run_conversation
-from .sandbox import ObservedTools, isolated_platform, json_validity, run_dialogue
+from .sandbox import ObservedTools, isolated_platform, json_validity, response_statistics, run_dialogue
 
 
 @contextmanager
@@ -48,7 +48,7 @@ def aggregate(rows):
 def model_cases():
     from typing import Literal
     from pydantic import BaseModel, ConfigDict
-    from AiVision.assistant.responses import parse_decision, parse_plan
+    from AiVision.assistant.responses import parse_plan
     from AiVision.assistant.runtime import CHAT_SYSTEM_PROMPT, PLANNING_PROMPT
     from AiVision.assistant.schema import AgentDecision, RequestPlan
     from AiVision.assistant.tools import UpdateArguments
@@ -70,11 +70,25 @@ def model_cases():
         model_config = ConfigDict(extra="forbid", strict=True)
         assignments: list[Assignment]
 
+    class FormatProbe(BaseModel):
+        model_config = ConfigDict(extra="forbid", strict=True)
+        probe: Literal["schema_ok"]
+
     catalog = {"departments": [{"id": DEPARTMENT, "name": "通用电气事业部"}],
                "features": [{"name": FEATURE, "label": "非法闯闸"}], "camera_names": [CAMERA_NAME, "诊断闸机二号"]}
     schema_text = json.dumps(TailgatingConfig.model_json_schema(), ensure_ascii=False)
     cases = [{"name": "chat", "kind": "chat", "messages": [
         {"role": "system", "content": CHAT_SYSTEM_PROMPT}, {"role": "user", "content": "你好哇"}], "json_mode": False}]
+    # 同一输出合同分别配合一致及冲突的提示，区分服务接受参数与实际约束输出。
+    # 冲突只涉及固定的格式文本，不包含业务数据，也不涉及任何工具执行。
+    for name, question in (
+        ("schema_aligned", '只输出 {"probe":"schema_ok"}，不要其他文字。'),
+        ("schema_conflicting", "只输出一句普通文本：格式探针完成。不要输出 JSON 或代码块。"),
+    ):
+        cases.append({"name": name, "kind": "format", "json_mode": True, "schema": FormatProbe,
+                      "expected": {"probe": "schema_ok"}, "messages": [
+                          {"role": "system", "content": "这是固定虚构的输出格式测试，请按用户指定的形式作答。"},
+                          {"role": "user", "content": question}]})
     for name in ("greeting", "capabilities", "camera", "single", "double", "continuation"):
         case = next(item for item in SCENARIOS if item.name == name)
         messages = [{"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
@@ -112,7 +126,8 @@ def model_cases():
         cases.append({"name": "parameter_" + name, "kind": "parameter", "json_mode": True, "schema": Parameters,
                       "expected": {"assignments": assignments},
                       "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": question}]})
-    cases.append({"name": "structured_tool", "kind": "tool", "json_mode": True, "validate": parse_decision,
+    cases.append({"name": "structured_tool", "kind": "tool", "json_mode": True,
+                  "response_schema": AgentDecision.model_json_schema(),
                   "messages": [{"role": "system", "content": "只输出一个修改配置工具 JSON，不要其他文字。工具参数 Schema："
                                 + json.dumps(UpdateArguments.model_json_schema(), ensure_ascii=False)
                                 + "\n外层 Schema：" + json.dumps(AgentDecision.model_json_schema(), ensure_ascii=False)},
@@ -124,7 +139,8 @@ def model_cases():
 
 
 def run_model_case(case, client, settings, repeat):
-    from AiVision.assistant.responses import completion_content, completion_metadata, json_content
+    from AiVision.assistant.responses import completion_content, json_content
+    from AiVision.assistant.schema import AgentDecision
     from AiVision.assistant.tools import UpdateArguments
     from AiVision.core.settings import settings as application_settings
 
@@ -132,41 +148,45 @@ def run_model_case(case, client, settings, repeat):
     row = {"scenario": case["name"], "label": case["name"], "repeat": repeat, "model_calls": 1,
            "real_model_calls": 1, "json_ok": [], "failure_layers": [], "errors": []}
     try:
+        schema = case.get("response_schema") or (case["schema"].model_json_schema() if "schema" in case else None)
+        row["requested_response_format"] = "json_schema" if schema is not None else "json_object" if case["json_mode"] else "text"
         raw, _ = client.complete(base_url=settings["base_url"], model=settings["model"], messages=case["messages"],
                                  max_tokens=min(application_settings.runtime.assistant_plan_max_tokens, settings["max_tokens"]) if case["kind"] == "classification" else settings["max_tokens"],
                                  temperature=settings["temperature"], timeout=settings["timeout"], json_mode=case["json_mode"],
-                                 response_schema=case.get("response_schema") or (
-                                     case["schema"].model_json_schema() if "schema" in case else None))
-        row["response_metadata"] = completion_metadata(raw)
+                                 response_schema=schema)
+        row["response_metadata"] = response_statistics(raw)
         if case["json_mode"]:
             syntax_ok = json_validity(raw)
             if syntax_ok is not None:
                 row["json_ok"] = [syntax_ok]
         content = completion_content(raw)
-        if case["json_mode"] and row["json_ok"] == [False]:
-            raise ValueError("invalid_json")
         if case["kind"] == "chat":
             row["behavior_ok"] = any(token in content for token in ("你好", "您好", "嗨", "哈喽")) and not any(
                 token in content for token in ('"action"', "尚未完成", "已删除摄像头", "已保存配置"))
         elif case["kind"] == "classification":
             plan = case["validate"](raw)
+            row["schema_output_ok"] = True
             row["first_plan_valid"] = True
             row["classification_ok"] = plan.mode == case["expected"]
             row["planning_operations_ok"] = set(plan.operations) == ({"update_configurations"} if case["expected"] == "change" else set())
             row["query_goal_ok"] = plan.query_tool == case["query_tool"]
             row["behavior_ok"] = row["classification_ok"] and row["planning_operations_ok"] and row["query_goal_ok"]
-        elif case["kind"] in {"resource", "parameter"}:
+        elif case["kind"] in {"resource", "parameter", "format"}:
             value = case["schema"].model_validate_json(json_content(content)).model_dump()
+            row["schema_output_ok"] = True
             if case["kind"] == "parameter":
                 value["assignments"].sort(key=lambda item: item["path"])
                 expected = deepcopy(case["expected"])
                 expected["assignments"].sort(key=lambda item: item["path"])
             else:
                 expected = case["expected"]
-            row["resource_ok" if case["kind"] == "resource" else "parameter_ok"] = value == expected
+            if case["kind"] != "format":
+                row["resource_ok" if case["kind"] == "resource" else "parameter_ok"] = value == expected
             row["behavior_ok"] = value == expected
         else:
-            decision = case["validate"](raw)
+            # 诊断不能将生产解析器允许的普通答复当成符合工具输出合同。
+            decision = AgentDecision.model_validate_json(json_content(content))
+            row["schema_output_ok"] = True
             row["tool_selection_ok"] = decision.action == "update_configurations"
             arguments = UpdateArguments.model_validate(decision.arguments).model_dump()
             row["parameter_ok"] = arguments == case["expected"]
@@ -176,10 +196,16 @@ def run_model_case(case, client, settings, repeat):
         categories = {"ValidationError": "schema_validation", "ValueError": "json_syntax",
                       "QwenResponseError": "response_envelope", "QwenTruncatedError": "output_truncated"}
         row["error_category"] = getattr(exc, "category", categories.get(type(exc).__name__, "service_or_transport"))
+        if type(exc).__name__ == "ValidationError" and row["json_ok"] == [False]:
+            row["error_category"] = "json_syntax"
+        if hasattr(exc, "issues"):
+            row["validation_issues"] = exc.issues
         row["behavior_ok"] = False
         metric = {"classification": "classification_ok", "resource": "resource_ok", "parameter": "parameter_ok",
                   "tool": "tool_selection_ok"}.get(case["kind"])
         service_failed = type(exc).__name__ in {"QwenNetworkError", "QwenTimeoutError", "QwenServiceError"}
+        if case["json_mode"] and "schema_output_ok" not in row:
+            row["schema_output_ok"] = None if service_failed else False
         if metric:
             row[metric] = None if service_failed else False
         if case["kind"] == "classification":
@@ -287,6 +313,7 @@ def markdown_report(report):
                   "脚本端到端用于判断程序行为，真实模型端到端用于判断自然语言实际成功率，两者分开统计。故障注入单独标记，不能归因为模型自然故障。",
                   "端到端任务成功率只统计有明确且合法目标值、能够完成的请求；越界、无权限、故障、歧义、取消另计预期处理行为通过率。",
                   "JSON 有效率按结构化响应尝试计数；聊天正文不计入分母。工具执行成功率按实际调用计数，预期拒绝和故障注入也会降低该值，不能单独据此判断业务服务质量。",
+                  "输出合同通过率独立于业务语义正确率：合法 JSON 仍须通过对应 Pydantic Schema。已有可见目标引用可以直接读取，工具选择不强制重复搜索；本轮仍须读取全部预期目标及新版本，猜测标识或漏读目标不能通过。",
                   "平均模型调用次数包括分类、纠正和业务请求；模型替身及故障注入不等于实际网络调用，结果中另有 real_model_calls。耗时为本次环境实测，不代表生产吞吐。",
                   "本工具同步投递任务，保留 submit、幂等和取消流程；不验证线程池压力、MySQL 行锁、GPU、摄像头连通或运行层热更新效果。",
                   "", "## 分层结果", ""])
@@ -310,6 +337,21 @@ def markdown_report(report):
             injected = sorted({item for row in rows for item in row.get("injected_faults", [])})
             lines.append(f"| {rows[0]['label']} | {sum(row.get('behavior_ok', False) for row in rows)}/{len(rows)} | {', '.join(faults) or '无'} | {', '.join(errors) or '无'} | {', '.join(injected) or '无'} |")
         lines.append("")
+        if name == "model":
+            lines.extend(["格式探针分别使用与 Schema 一致、与 Schema 冲突的固定提示，检查 HTTP 接受请求后实际返回的格式；不调用任何业务工具。",
+                          "探针通过只证明这些样例符合约束，不证明服务支持所有 Schema。失败需结合服务实现、模板和模型输出排查，不能单独归因为模型理解能力。",
+                          "has_thinking 包括空的 <think> 标签；thinking_characters 和 reasoning_characters 只统计字符数，不保存正文，也不能据此确认服务启动设置。", "",
+                          "| 场景 | 输出合同通过/适用次数 | 回复格式 | 对象结构 | 非空思考内容次数 |",
+                          "|---|---|---|---|---|"])
+            for scenario in dict.fromkeys(row["scenario"] for row in layer["rows"]):
+                samples = [row for row in layer["rows"] if row["scenario"] == scenario]
+                contracts = [row["schema_output_ok"] for row in samples if isinstance(row.get("schema_output_ok"), bool)]
+                metadata = [row.get("response_metadata", {}) for row in samples]
+                formats = sorted({item.get("answer_format", "未记录") for item in metadata})
+                shapes = sorted({item["object_shape"] for item in metadata if "object_shape" in item})
+                thinking = sum(bool(item.get("thinking_characters", 0) or item.get("reasoning_characters", 0)) for item in metadata)
+                lines.append(f"| {samples[0]['label']} | {sum(contracts)}/{len(contracts)} | {', '.join(formats)} | {', '.join(shapes) or '不适用'} | {thinking} |")
+            lines.append("")
         if name.startswith("conversation-"):
             groups = {(row["conversation"], row["repeat"]) for row in layer["rows"] if "conversation" in row}
             successful = 0

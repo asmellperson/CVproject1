@@ -42,6 +42,8 @@ python -m AiVision.tests.assistant_diagnostics \
 
 逐轮记录分类、目标、参数、工具、保存结果、最终状态、请求字符数、服务实际返回的 Token 用量、模型调用数和耗时。`first_plan_valid` 区分首次规划与纠正后成功；逐请求统计包含输出预算、格式约束、完成原因、校验类别和思考内容存在标记，不保存思考正文。服务不提供 `usage` 时 Token 数标为缺失，不用字符数冒充 Token 数。报告显示第 4、5、6 轮及后续轮次的结果，可以定位最早失败轮次；JSON 中的 `prior_failed_turns` 用于识别连带影响。
 
+`response_metadata` 和 `request_statistics` 记录 `thinking_wrapper`（无、已闭合、未闭合）、`thinking_characters`、`reasoning_characters`、`answer_format` 和 `object_shape`。这些字段只包含固定类别与长度。`has_thinking=true` 包括空的 `<think></think>` 标签，不能直接据此判断模型正在思考或服务忽略了非思考设置。分类校验错误保留脱敏的 `validation_issues`，不记录错误输出全文或未知字段原名。
+
 历史诊断同时记录原始目标绑定文本是否仍可见。模型在后续回复中复述目标绑定时，允许根据可见绑定继续查询，不强行要求澄清。字面片段可见性不等同于完整语义记忆能力。
 
 ## 分层运行
@@ -50,7 +52,7 @@ python -m AiVision.tests.assistant_diagnostics \
 
 | 层 | 模型 | 业务执行 | 用途 |
 |---|---|---|---|
-| `model` | 真实 Qwen | 无 | 直接测试问候、分类、资源提取、参数提取和工具 JSON，共 14 个固定样例 |
+| `model` | 真实 Qwen | 无 | 直接测试格式约束、问候、分类、资源提取、参数提取和工具 JSON，共 16 个固定样例 |
 | `agent` | 固定模型替身 | 模拟工具 | 验证工具顺序、结果传递、连续调用、上下文和错误处理 |
 | `tools` | 无 | 真实服务＋临时 SQLite | 10 项资源、校验、权限、版本、局部保存及回读验证 |
 | `e2e-scripted` | 固定模型替身 | 真实服务＋临时 SQLite | 18 个场景的完整程序链路 |
@@ -67,6 +69,19 @@ python -m AiVision.tests.assistant_diagnostics \
 ```
 
 真实模型连接检查失败时不会用模型替身代替，也不会把该层记为通过。程序先发送固定问候及分类 Schema 请求，检查服务是否接受接口参数，这两次预检不计入场景指标。Schema 请求被服务拒绝时，真实模型层标为 `blocked`，避免重复执行整套对话；服务接受请求不代表返回格式正确，正确率仍按场景实测。
+
+模型层的 `schema_aligned`、`schema_conflicting` 使用相同的严格输出 Schema，分别提供格式一致和格式冲突的固定提示。返回结果必须真正符合 Schema，HTTP 200 不计为格式通过。它们用于排查结构化输出约束，不调用业务工具，也不表示业务任务分类准确。少量探针通过不能证明服务支持全部 Schema；失败仍需结合模型服务实现、模板和实际格式排查。
+
+只检查模型和输出格式时，在项目根目录运行：
+
+```bash
+python -m AiVision.tests.assistant_diagnostics \
+  --base-url http://127.0.0.1:18100/v1 \
+  --model fuda-qwen38-27b \
+  --layers model \
+  --repeats 3 \
+  --output /tmp/fuda-ai-model-format
+```
 
 ## 安全边界
 
@@ -90,6 +105,10 @@ python -m AiVision.tests.assistant_diagnostics \
 
 任务分类、资源识别、工具选择、参数提取、JSON 有效性、工具执行、最终配置、任务完成、报告正确性分别统计。不适用和没有响应的项目不放入相应分母。工具执行成功率包含预期拒绝，需结合“预期处理行为通过率”和注入标记理解。
 
+`schema_output_ok` 单独统计模型输出是否通过对应的 Pydantic 输出合同，与模式、资源及参数取值是否符合用户请求分开。模型独立分类使用与运行时相同的 `parse_plan()`，无效 JSON 与字段错误分别保留 `plan_json`、`plan_schema` 类别。
+
+多轮查询和修改可以复用权限可见的 `last_read_resources`，不强制每轮再次调用 `list_resources`。`resource_resolution_ok` 核对读取目标是否来自可见上下文或本轮真实搜索；本轮仍须读取全部预期目标及配置，实际写入必须取得新的版本。猜测资源标识、目标错误、批量漏读和未重新读取即写入均不能通过。
+
 参数提取和资源识别的端到端指标可能受上游分类截断或服务超时影响，应结合逐轮错误与是否实际进入工具阶段分析，不能全部归为语义提取错误。已定位目标后的数值澄清不强制再次读取配置；测试同时核对目标引用和澄清问题，不能把重新索要已明确目标当作正确的数值澄清。实际写入仍必须重新读取配置及版本。
 
 “任务成功”只统计明确且合法、能够完成的业务请求。无权限时正确拒绝、目标歧义时正确澄清、取消时正确停止，计为保护行为通过，不计为修改任务成功。模型替身的成功率不能代表真实 Qwen 的成功率。
@@ -108,3 +127,13 @@ python -m pytest -q \
 ```
 
 测试中的三个 `xfail` 是对现有 Agent 缺口的保护性探针，不是修复完成标记：额外修改合法字段、批量只处理一个目标、错误恢复后仍报失败。诊断入口会将它们作为真实失败样例写入报告。本机脚本模型的实测基线见 [诊断基线报告](assistant-diagnostics-baseline.md)。
+
+## 清理测试输出
+
+报告保存到其他位置后，删除本次命令指定的输出目录即可：
+
+```bash
+rm -rf -- /tmp/fuda-ai-diagnostics /tmp/fuda-ai-conversations /tmp/fuda-ai-model-format
+```
+
+`AiVision/assistant/context.py`、`AiVision/tests/assistant_diagnostics/` 及正式测试均属于项目代码，随 Git 同步保留。运行诊断不会修改这些源码；临时 SQLite 在每次隔离测试结束时自动清理。

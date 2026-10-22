@@ -8,7 +8,7 @@ import pytest
 from AiVision.tests.assistant_diagnostics.cases import PROBES, SCENARIOS
 from AiVision.tests.assistant_diagnostics.conversations import conversation_cases, run_conversation
 from AiVision.tests.assistant_diagnostics.runner import aggregate, diagnostic_environment, model_cases, run_model_case, run_tool_probe
-from AiVision.tests.assistant_diagnostics.sandbox import completion, isolated_platform, json_validity, run_dialogue
+from AiVision.tests.assistant_diagnostics.sandbox import completion, isolated_platform, json_validity, response_statistics, run_dialogue
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +132,7 @@ def test_correct_mode_with_wrong_operation_is_not_counted_as_correct_planning():
 
 def test_all_model_cases_use_the_same_fixed_settings_and_never_log_raw_content():
     cases = model_cases()
-    assert {case["kind"] for case in cases} == {"chat", "classification", "resource", "parameter", "tool"}
+    assert {case["kind"] for case in cases} == {"chat", "classification", "resource", "parameter", "tool", "format"}
     client = Mock()
     secret = "fixture-private-response-sentinel"
     client.complete.return_value = completion(secret), 0.0
@@ -347,3 +347,152 @@ def test_numeric_clarification_uses_verified_target_without_requiring_an_unneces
     row = run_conversation("mixed")[11]
     assert "read_configurations" not in row["tools"] and row["configuration_ok"]
     assert row["behavior_ok"] is expected
+
+
+@pytest.mark.parametrize("name", ["mixed", "pressure"])
+def test_reusing_a_verified_target_still_requires_a_fresh_read_but_not_another_search(monkeypatch, name):
+    from AiVision.assistant.context import CONTEXT_PREFIX
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    original = ConversationScriptedClient.complete
+
+    def reuse_target(self, **kwargs):
+        step = self.sandbox.step
+        if kwargs["messages"][-1]["content"].startswith("后台已查询"):
+            for message in kwargs["messages"]:
+                content = message["content"]
+                if not content.startswith(CONTEXT_PREFIX):
+                    continue
+                context = json.loads(content[len(CONTEXT_PREFIX):])
+                known = {item["key"] for item in (context.get("task_context") or {}).get("last_read_resources", [])}
+                if set(step.targets) <= known and step.kind in {"read", "write", "clarify_value"}:
+                    return ScriptedClient.tool("read_configurations", {"resource_keys": list(step.targets)})
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(ConversationScriptedClient, "complete", reuse_target)
+    rows = run_conversation(name)
+    direct = [row for row in rows if "read_configurations" in row["tools"] and "list_resources" not in row["tools"]]
+    assert direct and all(row["resource_resolution_ok"] for row in direct)
+    assert all(row["tool_selection_ok"] and row["behavior_ok"] for row in rows)
+    if name == "mixed":
+        assert all("list_resources" not in rows[index]["tools"] for index in (3, 5, 7, 12))
+
+
+@pytest.mark.parametrize("fault", ["unresolved_key", "wrong_target", "partial_targets", "no_read"])
+def test_revised_scoring_rejects_unresolved_wrong_or_unread_targets(monkeypatch, fault):
+    from AiVision.tests.assistant_diagnostics.cases import RESOURCE, SECOND_RESOURCE
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    original = ConversationScriptedClient.complete
+
+    def faulty_read(self, **kwargs):
+        last = kwargs["messages"][-1]["content"]
+        if fault == "unresolved_key" and last.startswith("后台已查询"):
+            return ScriptedClient.tool("read_configurations", {"resource_keys": [RESOURCE, SECOND_RESOURCE]})
+        raw, latency = original(self, **kwargs)
+        body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
+        if body.get("action") == "read_configurations":
+            if fault == "no_read":
+                return ScriptedClient.answer()
+            body["arguments"]["resource_keys"] = ["camera:101"] if fault == "wrong_target" else [RESOURCE]
+            return completion(body), latency
+        return raw, latency
+
+    monkeypatch.setattr(ConversationScriptedClient, "complete", faulty_read)
+    row = run_conversation("pressure")[0]
+    assert row["behavior_ok"] is False and row["configuration_ok"] is True
+    assert row["resource_ok"] is False or row["tool_selection_ok"] is False
+    if fault == "unresolved_key":
+        assert row["status"] == "completed" and row["resource_resolution_ok"] is False
+
+
+def test_cached_target_cannot_supply_a_read_version_for_a_later_write(monkeypatch):
+    from AiVision.core.config_revision import configuration_revision
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    original = ConversationScriptedClient.complete
+
+    def skip_read(self, **kwargs):
+        step = self.sandbox.step
+        if step.kind == "write" and kwargs["messages"][-1]["content"].startswith("后台已查询"):
+            configs = self.sandbox.snapshot()
+            return ScriptedClient.tool("update_configurations", {"changes": [
+                {"resource_key": key, "expected_revision": configuration_revision(configs[key]), "patch": step.delta}
+                for key in step.targets]})
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(ConversationScriptedClient, "complete", skip_read)
+    row = run_conversation("mixed")[3]
+    assert row["status"] == "failed" and row["configuration_ok"] is False and row["behavior_ok"] is False
+    assert "read_configurations" not in row["tools"] and "ConfigurationConflict" in row["errors"]
+
+
+@pytest.mark.parametrize("content, wrapper, thinking, format_, shape", [
+    ('<think>\n</think>\n{"mode":"chat"}', "closed", 0, "object", "request_plan"),
+    ('<think>private-thinking-sentinel</think>\n```json\n{"action":"answer"}\n```', "closed", 25, "object", "agent_decision"),
+    ("<think>private-thinking-sentinel", "unclosed", 25, "unclosed_thinking", None),
+    ("private-answer-sentinel", "absent", 0, "text", None),
+    ('{"private-field-sentinel":', "absent", 0, "invalid_json", None),
+    ('{"private-field-sentinel":"private-answer-sentinel"}', "absent", 0, "object", "other"),
+    ("[1,2]", "absent", 0, "array", None),
+    ("null", "absent", 0, "scalar", None),
+])
+def test_response_statistics_reveal_shape_without_logging_private_content(content, wrapper, thinking, format_, shape):
+    raw = json.loads(completion(content))
+    raw["choices"][0]["message"]["reasoning_content"] = "private-reasoning-sentinel"
+    statistics = response_statistics(json.dumps(raw))
+    assert statistics["thinking_wrapper"] == wrapper and statistics["thinking_characters"] == thinking
+    assert statistics["answer_format"] == format_ and statistics.get("object_shape") == shape
+    assert statistics["reasoning_characters"] == len("private-reasoning-sentinel")
+    assert "private-" not in json.dumps(statistics)
+
+
+@pytest.mark.parametrize("raw", ['{"error":{}}', "not-json", '{"choices":null}', '{"choices":[{"message":null}]}'])
+def test_response_statistics_handle_invalid_envelopes(raw):
+    assert response_statistics(raw) == {"envelope_valid": False}
+
+
+@pytest.mark.parametrize("content, category", [('not json', "plan_json"), ('{}', "plan_schema")])
+def test_independent_classification_uses_the_same_strict_parser_as_runtime(content, category):
+    case = next(case for case in model_cases() if case["kind"] == "classification")
+    client = Mock()
+    client.complete.return_value = completion(content), 0.0
+    row = run_model_case(case, client, {"base_url": "http://model.invalid/v1", "model": "fixture",
+                                     "max_tokens": 2048, "temperature": 0.0, "timeout": 10.0}, 1)
+    assert row["errors"] == ["PlanFormatError"] and row["error_category"] == category
+    assert row["schema_output_ok"] is False and row["validation_issues"]
+
+
+@pytest.mark.parametrize("name", ["schema_aligned", "schema_conflicting"])
+@pytest.mark.parametrize("content, expected", [({"probe": "schema_ok"}, True), ("格式探针完成", False),
+                                             ({"probe": "wrong"}, False), ({"probe": "schema_ok", "extra": 1}, False)])
+def test_format_probes_check_actual_output_instead_of_http_acceptance(name, content, expected):
+    case = next(case for case in model_cases() if case["name"] == name)
+    client = Mock()
+    client.complete.return_value = completion(content), 0.0
+    row = run_model_case(case, client, {"base_url": "http://model.invalid/v1", "model": "fixture",
+                                     "max_tokens": 2048, "temperature": 0.0, "timeout": 10.0}, 1)
+    assert row["schema_output_ok"] is expected and row["behavior_ok"] is expected
+    assert client.complete.call_args.kwargs["response_schema"]["additionalProperties"] is False
+    assert row["requested_response_format"] == "json_schema"
+
+
+def test_model_cli_renders_format_evidence_without_raw_content(monkeypatch, tmp_path):
+    from AiVision.tests.assistant_diagnostics.runner import main
+
+    client = Mock()
+    client.complete.return_value = completion('<think>private-thinking-sentinel</think>\n{"probe":"schema_ok"}'), 0.0
+    monkeypatch.setattr("AiVision.connectors.qwen.client.QwenClient", lambda: client)
+    assert main(["--base-url", "http://model.invalid/v1", "--layers", "model", "--repeats", "3",
+                 "--output", str(tmp_path)]) == 0
+    report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    rows = report["layers"]["model"]["rows"]
+    assert len(rows) == len(model_cases()) * 3
+    assert sum(row["behavior_ok"] for row in rows if row["scenario"].startswith("schema_")) == 6
+    assert all(row["response_metadata"]["thinking_characters"] == 25 for row in rows)
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "schema_conflicting" in markdown and "输出合同通过/适用次数" in markdown
+    assert "private-" not in markdown and "private-" not in json.dumps(report)

@@ -347,7 +347,7 @@ npm --prefix unified_frontend run build
 
 后端改动按实际影响进行 Python 语法检查、接口验证与现场验证，重点核对权限、配置保存、资源生命周期和业务判定。
 
-福达AI助手可在项目根目录运行 `python -m AiVision.tests.assistant_diagnostics --base-url http://127.0.0.1:18100/v1 --model fuda-qwen38-27b --output /tmp/fuda-ai-diagnostics`，分别检查模型、Agent、业务工具、端到端及持续多轮对话。业务写入仅使用临时 SQLite，输出脱敏报告；真实模型与脚本模型的结果分别统计。命令和统计口径见[助手分层诊断](docs/assistant-diagnostics.md)。
+福达AI助手可在项目根目录运行 `python -m AiVision.tests.assistant_diagnostics --base-url http://127.0.0.1:18100/v1 --model fuda-qwen38-27b --output /tmp/fuda-ai-diagnostics`，分别检查模型、Agent、业务工具、端到端及持续多轮对话。业务写入仅使用临时 SQLite，输出脱敏报告；真实模型与脚本模型的结果分别统计。模型层含格式一致与格式冲突的 Schema 探针，区分接口接受请求和实际输出合规；多轮评分允许复用已定位目标，仍要求本轮重新读取配置和版本。命令和统计口径见[助手分层诊断](docs/assistant-diagnostics.md)。
 
 纯文档修改可执行：
 

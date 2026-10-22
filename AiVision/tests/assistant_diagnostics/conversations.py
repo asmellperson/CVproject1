@@ -144,10 +144,19 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             configuration_ok = actual == expected
             resource_ok = None
             parameter_ok = None
+            resolution_ok = None
             required = set()
             if kind in {"read", "write", "clarify_value"}:
-                required = {"list_resources", "read_configurations"}
-                resource_ok = {item["resource"]["key"] for item in reads} == set(step.targets)
+                required = {"read_configurations"}
+                known = {item["key"] for item in previous_context.get("last_read_resources", [])}
+                searched = {item["key"] for entry in traces if entry["tool"] == "list_resources" and entry["ok"]
+                            for item in entry["result"].get("items", [])}
+                read_keys = {item["resource"]["key"] for item in reads}
+                resolved = known | searched
+                # 允许复用权限可见的目标引用，但配置与版本必须在本轮重新读取。
+                # 固定用例没有直接给出资源 key，不能把猜中标识当作完成目标定位。
+                resolution_ok = bool(read_keys) and read_keys <= resolved
+                resource_ok = read_keys == set(step.targets) and resolution_ok
                 resource_ok &= all(item["config"] == before.get(item["resource"]["key"]) for item in reads)
             if kind == "clarify_value":
                 # 已定位目标后询问具体值无需再次读配置；真正写入仍必须重新读取版本。
@@ -160,6 +169,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 ) for text in questions if isinstance(text, str))
                 resource_ok = known == set(step.targets) and asks_value
                 resource_ok &= all(item["resource"]["key"] in step.targets for item in reads)
+                resolution_ok = set(step.targets) <= resolved
+                resource_ok &= resolution_ok
                 required = {"ask_user"}
             if step.kind == "write":
                 required.add("update_configurations")
@@ -206,6 +217,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                    "status": turn.status, "classification_ok": classification_ok,
                    "planning_operations_ok": operations_ok,
                    "resource_ok": resource_ok, "parameter_ok": parameter_ok, "tool_selection_ok": tool_ok,
+                   "resource_resolution_ok": resolution_ok,
                    "configuration_ok": configuration_ok, "report_ok": bool(report_ok), "behavior_ok": bool(behavior_ok),
                    "task_ok": bool(behavior_ok) if not kind.startswith("clarify") else None,
                    "json_ok": client.json_results[starts[3]:], "tool_execution_ok": [entry["ok"] for entry in traces],
