@@ -1,6 +1,8 @@
 """围栏事业部授权、运行时撤销和历史名单迁移的隔离回归验证。"""
 from datetime import datetime, timezone
+import json
 import os
+import sqlite3
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -321,6 +323,48 @@ def test_empty_database_is_left_for_normal_bootstrap(backend):
         assert inspect(engine).get_table_names() == []
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("authorization_exists", [False, True])
+def test_migration_cli_uses_fresh_processes_before_and_after_apply(backend, legacy, tmp_path, authorization_exists):
+    engine, _ = legacy
+    if authorization_exists:
+        # 主程序在发现摄像头旧列前可能已经创建授权表，迁移也必须能处理此状态。
+        backend.authorization.__table__.create(engine)
+    database = tmp_path / "fence.sqlite"
+    with engine.connect() as source, sqlite3.connect(database) as destination:
+        source.connection.driver_connection.backup(destination)
+
+    # 每次都运行真正的 CLI 入口，避免父进程预先导入 ORM 掩盖外键依赖遗漏。
+    script = """
+import runpy
+import sys
+import sqlalchemy
+
+engine = sqlalchemy.create_engine(sys.argv[1])
+sqlalchemy.create_engine = lambda *args, **kwargs: engine
+sys.argv = ["AiVision.migrations.security_fence_authorization_20261022", *sys.argv[2:]]
+runpy.run_module(sys.argv[0], run_name="__main__")
+"""
+
+    def invoke(*args):
+        result = subprocess.run([
+            sys.executable, "-c", script, f"sqlite:///{database}", *args,
+        ], capture_output=True, text=True, timeout=30,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    for args in ((), ("--check",)):
+        state = invoke(*args)
+        assert state["needs_migration"] is True
+        assert state["needs_authorization_table"] is not authorization_exists
+        assert state["department_authorizations"] == {A: 3, B: 1}
+    assert invoke("--apply", "--offline")["copied"] == 4
+    state = invoke("--check")
+    assert state["needs_migration"] is False
+    assert state["needs_authorization_table"] is False
+    assert invoke("--apply", "--offline")["copied"] == 0
 
 
 def test_migration_cli_refuses_apply_without_explicit_offline_confirmation():

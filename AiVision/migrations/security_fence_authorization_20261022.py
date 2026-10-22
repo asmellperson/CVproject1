@@ -55,6 +55,8 @@ def _legacy_authorizations(connection, config) -> tuple[set[tuple[str, int]], in
 def check(engine) -> dict:
     """检查历史结构和按事业部合并的授权数量，不改变数据库。"""
     from AiVision.core.schema import assert_table_matches
+    # 已有授权表会先于摄像头配置核验，独立 CLI 必须先注册其引用的人员模型。
+    from AiVision.features.face_recognition.library.orm import FacePerson  # noqa: F401
     from AiVision.features.security_fence.orm import FenceConfigORM, FencePersonAuthorization
 
     with engine.connect() as connection:
@@ -140,12 +142,14 @@ def main() -> None:
     from AiVision.core.settings import settings
 
     engine = create_engine(settings.db.sqlalchemy_url, echo=False)
+    action = "迁移" if args.apply else "只读检查"
     try:
         print(json.dumps(apply(engine) if args.apply else check(engine), ensure_ascii=False))
     except ValueError as exc:
-        parser.exit(1, f"迁移停止：{exc}\n")
+        parser.exit(1, f"{action}停止：{exc}\n")
     except Exception as exc:
-        parser.exit(1, f"迁移停止：{type(exc).__name__}；请保持停写并核查数据库。\n")
+        hint = "请保持停写并核查数据库。" if args.apply else "请核查脚本依赖和数据库结构。"
+        parser.exit(1, f"{action}停止：{type(exc).__name__}；{hint}\n")
     finally:
         engine.dispose()
 
