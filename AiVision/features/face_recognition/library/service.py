@@ -40,6 +40,10 @@ class SyncCounts:
 
 class FaceLibraryService:
     """管理人员资料、通行授权及特征写入，保持数据库事务边界。"""
+    def __init__(self, *, authorization_model=FacePersonAuthorization):
+        # 共享人员资料及事务逻辑，功能各自提供授权表，避免不同功能的允许状态互相影响。
+        self.authorization_model = authorization_model
+
     def list_embedding_candidates(self) -> list[EmbeddingCandidate]:
         """列出在用人员及现有特征元数据，由生成任务判断是否需要重建。"""
         with get_session() as session:
@@ -82,16 +86,16 @@ class FaceLibraryService:
         with get_session() as session:
             return session.query(FacePerson).filter_by(hik_source=source, hik_person_id=person_id).one_or_none()
 
-    @staticmethod
-    def _person_query(session, department: str):
+    def _person_query(self, session, department: str):
         """人员资料共享，允许状态只由当前事业部的授权行决定。"""
+        authorization = self.authorization_model
         return session.query(
             *FacePerson.__table__.columns,
-            FacePersonAuthorization.person_id.is_not(None).label("is_allowed"),
+            authorization.person_id.is_not(None).label("is_allowed"),
         ).select_from(FacePerson).outerjoin(
-            FacePersonAuthorization,
-            (FacePersonAuthorization.person_id == FacePerson.id)
-            & (FacePersonAuthorization.department == department),
+            authorization,
+            (authorization.person_id == FacePerson.id)
+            & (authorization.department == department),
         )
 
     def list_persons(
@@ -111,8 +115,8 @@ class FaceLibraryService:
             if is_active is not None:
                 query = query.filter(FacePerson.is_active.is_(is_active))
             if is_allowed is not None:
-                query = query.filter(FacePersonAuthorization.person_id.is_not(None) if is_allowed
-                                     else FacePersonAuthorization.person_id.is_(None))
+                query = query.filter(self.authorization_model.person_id.is_not(None) if is_allowed
+                                     else self.authorization_model.person_id.is_(None))
             if keyword and keyword.strip():
                 query = query.filter(or_(*(column.icontains(keyword.strip(), autoescape=True) for column in (
                     FacePerson.person_name, FacePerson.job_no, FacePerson.person_code,
@@ -132,9 +136,9 @@ class FaceLibraryService:
             person = session.get(FacePerson, person_id, with_for_update=True)
             if person is None:
                 return None
-            authorization = session.get(FacePersonAuthorization, (department, person_id))
+            authorization = session.get(self.authorization_model, (department, person_id))
             if is_allowed and authorization is None:
-                session.add(FacePersonAuthorization(department=department, person_id=person_id))
+                session.add(self.authorization_model(department=department, person_id=person_id))
             elif not is_allowed and authorization is not None:
                 session.delete(authorization)
         # 提交后重新读取数据库状态，响应包含实际保存值和时间戳。
@@ -146,8 +150,8 @@ class FaceLibraryService:
         """仅返回当前事业部内仍在用且获准通行的人员 ID。"""
         require_department(department)
         with get_session() as session:
-            return set(session.scalars(select(FacePerson.id).join(FacePersonAuthorization).where(
-                FacePerson.is_active.is_(True), FacePersonAuthorization.department == department,
+            return set(session.scalars(select(FacePerson.id).join(self.authorization_model).where(
+                FacePerson.is_active.is_(True), self.authorization_model.department == department,
             )))
 
     def apply_snapshot(self, source: str, persons: Sequence[HikvisionPerson]) -> SyncCounts:

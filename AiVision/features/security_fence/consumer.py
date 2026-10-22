@@ -3,12 +3,16 @@ import time
 from datetime import datetime, timezone
 
 from AiVision.alarms.dispatcher import alarm_dispatcher
+from AiVision.core.logger import logger
 from AiVision.core.settings import settings
+from AiVision.departments.department_registry import require_department
 from AiVision.features._shared.consumer import BaseFunctionConsumer
+from AiVision.features.face_recognition.library.constants import AUTHORIZATION_REFRESH_SECONDS
 
 from .runtime import FenceRuntime, current_mode
 from .preview import FencePreview, draw_fence_detections
 from .schema import FORBIDDEN_ALARM, UNAUTHORIZED_ALARM, FencePerson, FenceValue
+from .service import person_library
 
 
 class FenceConsumer(BaseFunctionConsumer):
@@ -20,6 +24,9 @@ class FenceConsumer(BaseFunctionConsumer):
         self.alarm_subjects: dict[int, set[str]] = {}
         self.unidentified_subjects: dict[int, set[str]] = {}
         self.unidentified_slots: dict[int, dict[int, int]] = {}
+        self.library = person_library
+        self._allowed_person_ids: dict[str, set[int]] = {}
+        self._authorization_refresh_at: dict[str, float] = {}
 
     def _load_initial_configs(self):
         super()._load_initial_configs()
@@ -31,6 +38,8 @@ class FenceConsumer(BaseFunctionConsumer):
         with self._camera_state_lock:
             for camera_id, config in self.config_cache.items():
                 self._clear_camera_state(camera_id, config.get("shm_name"))
+            self._allowed_person_ids.clear()
+            self._authorization_refresh_at.clear()
 
     def update_config(self, camera_id):
         with self._camera_state_lock:
@@ -100,6 +109,18 @@ class FenceConsumer(BaseFunctionConsumer):
         }, timeout=settings.runtime.fence_inference_timeout_seconds)
         errors = []
         faces = response["detections"] if response["status"] == "ok" else []
+        department = cfg["department"]
+        try:
+            allowed = self._department_allowed_people(department)
+        except Exception as exc:
+            # 读取失败时撤销旧权限和身份；禁入时段仍按人体观测报警，不误用旧名单放行。
+            self._allowed_person_ids.pop(department, None)
+            self._authorization_refresh_at.pop(department, None)
+            runtime.identities.clear()
+            faces = []
+            allowed = set()
+            errors.append("事业部围栏白名单读取失败")
+            logger.warning(f"[security_fence] 事业部围栏白名单读取失败 department={department} error={type(exc).__name__}")
         if response["status"] != "ok":
             # 推理或人员底库异常时撤销身份，禁止沿用旧的白名单结论。
             runtime.identities.clear()
@@ -110,7 +131,8 @@ class FenceConsumer(BaseFunctionConsumer):
             persons = []
             errors.append("人体检测暂不可用")
         else:
-            persons = runtime.update(people["detections"], faces, roi.shape, now=now, monotonic=time.monotonic())
+            persons = runtime.update(people["detections"], faces, roi.shape, now=now,
+                                     monotonic=time.monotonic(), allowed_person_ids=allowed)
         detail = {
             "mode": mode, "persons": [person.model_dump() for person in persons], "faces": faces,
             "count": sum(person.in_roi for person in persons) if people["status"] == "ok" else None,
@@ -119,6 +141,14 @@ class FenceConsumer(BaseFunctionConsumer):
             "frame_width": roi.shape[1], "frame_height": roi.shape[0], "updated_at_s": time.time(),
         }
         return detail["alarm"], detail
+
+    def _department_allowed_people(self, department: str) -> set[int]:
+        """同事业部共用授权缓存，刷新周期与人脸身份识别保持一致。"""
+        require_department(department)
+        if time.monotonic() >= self._authorization_refresh_at.get(department, 0.0):
+            self._allowed_person_ids[department] = self.library.get_allowed_person_ids(department)
+            self._authorization_refresh_at[department] = time.monotonic() + AUTHORIZATION_REFRESH_SECONDS
+        return self._allowed_person_ids[department]
 
     def post_process(self, camera_id, result):
         frame = self._annotated_frame(camera_id)

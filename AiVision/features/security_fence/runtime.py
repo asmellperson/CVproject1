@@ -1,5 +1,6 @@
 """单摄像头人员身份状态机，不依赖数据库、HTTP 或模型加载。"""
 from collections import Counter
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import ceil
@@ -86,7 +87,8 @@ class FenceRuntime:
         self.events.clear()
         self.last_seen = None
 
-    def update(self, detections: list[dict], faces: list[dict], shape: tuple[int, ...], *, now: datetime, monotonic: float) -> list[FencePerson]:
+    def update(self, detections: list[dict], faces: list[dict], shape: tuple[int, ...], *, now: datetime,
+               monotonic: float, allowed_person_ids: Collection[int] = ()) -> list[FencePerson]:
         gap = monotonic - self.last_seen if self.last_seen is not None else 0.0
         if self.shape != shape or gap > self.retention_seconds:
             self.clear()
@@ -108,7 +110,8 @@ class FenceRuntime:
             tracks[tid].velocity = (0.0, 0.0)
         polygon = roi_to_pixels(self.config.roi_pos, shape)
         mode = current_mode(self.config, now)
-        allowed = set(self.config.allowed_person_ids)
+        # 每次判定使用事业部当前授权，撤销授权无需重建轨迹或修改摄像头参数。
+        allowed = set(allowed_person_ids)
         overlapping = {
             tid for tid, track in visible.items()
             if any(other != tid and iou(track.bbox, item.bbox) >= self.config.tracking_overlap_threshold

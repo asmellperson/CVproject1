@@ -1,9 +1,8 @@
-"""逐摄像头围栏规则；白名单只引用共享人员库 ID。"""
-from sqlalchemy import Column, Float, Integer, JSON, String, select
-from sqlalchemy.orm import object_session
+"""摄像头独立保存围栏规则，事业部共享围栏通行授权。"""
+from sqlalchemy import Column, Float, ForeignKey, Integer, JSON, String, TIMESTAMP, text
 
+from AiVision.core.db import Base
 from AiVision.features._shared.orm import FeatureConfigBase
-from AiVision.features.face_recognition.library.orm import FacePerson
 from .schema import FenceValue
 
 _DEFAULT = FenceValue()
@@ -15,7 +14,6 @@ class FenceConfigORM(FeatureConfigBase):
     forbidden_start = Column(String(5), nullable=False, default=_DEFAULT.forbidden_start)
     forbidden_end = Column(String(5), nullable=False, default=_DEFAULT.forbidden_end)
     timezone = Column(String(64), nullable=False, default=_DEFAULT.timezone)
-    allowed_person_ids = Column(JSON, nullable=False, default=list)
     cap_interval = Column(Float, nullable=False, default=_DEFAULT.cap_interval)
     threshold = Column(Float, nullable=False, default=_DEFAULT.threshold)
     detection_threshold = Column(Float, nullable=False, default=_DEFAULT.detection_threshold)
@@ -28,12 +26,12 @@ class FenceConfigORM(FeatureConfigBase):
     tracking_overlap_threshold = Column(Float, nullable=False, default=_DEFAULT.tracking_overlap_threshold)
     tracking_gap_seconds = Column(Float, nullable=False, default=_DEFAULT.tracking_gap_seconds)
 
-    def apply_config_dict(self, config: dict):
-        ids = config["value"]["allowed_person_ids"]
-        session = object_session(self)
-        if ids and session is None:
-            raise RuntimeError("围栏配置必须在数据库事务中保存")
-        found = set(session.scalars(select(FacePerson.id).where(FacePerson.id.in_(ids)))) if ids else set()
-        if found != set(ids):
-            raise ValueError("白名单中存在已删除或不存在的人员，请重新选择")
-        super().apply_config_dict(config)
+
+class FencePersonAuthorization(Base):
+    """一行代表人员在指定事业部获准通过围栏，与人脸识别授权独立。"""
+    __tablename__ = "ai_security_fence_person_authorization"
+    __table_args__ = {"comment": "事业部警戒围栏通行白名单", "mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+
+    department = Column(String(64), primary_key=True, comment="授权事业部")
+    person_id = Column(Integer, ForeignKey("ai_face_person.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))

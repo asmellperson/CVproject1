@@ -1,4 +1,4 @@
-"""围栏配置和监控契约；人员资料共享，准入授权按摄像头隔离。"""
+"""围栏配置和监控契约；摄像头规则独立，准入授权按事业部共享。"""
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -20,7 +20,6 @@ class FenceValue(BaseModel):
     forbidden_start: ClockTime = "22:00"
     forbidden_end: ClockTime = "08:00"
     timezone: str = "Asia/Shanghai"
-    allowed_person_ids: list[Annotated[int, Field(gt=0)]] = Field(default_factory=list, max_length=10000)
     cap_interval: float = Field(0.2, ge=0.1, le=1.0)
     alarm_interval: float = Field(30.0, ge=1)
     threshold: float = Field(0.5, gt=0, le=1)
@@ -42,13 +41,6 @@ class FenceValue(BaseModel):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError("请选择有效的 IANA 时区") from exc
         return value
-
-    @field_validator("allowed_person_ids")
-    @classmethod
-    def unique_people(cls, value):
-        if len(value) != len(set(value)):
-            raise ValueError("白名单人员不能重复")
-        return sorted(value)
 
     @model_validator(mode="after")
     def separate_thresholds(self):
@@ -95,18 +87,6 @@ class FenceStatus(BaseModel):
     frame_height: int | None = None
     updated_at: str | None = None
     error: str | None = None
-
-
-class PersonChoice(BaseModel):
-    id: int
-    person_name: str | None
-    job_no: str | None
-    is_active: bool
-
-
-class PersonChoices(BaseModel):
-    total: int
-    items: list[PersonChoice]
 
 
 class FenceAlarm(BaseModel):

@@ -142,7 +142,7 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 
 ### 警戒围栏
 
-`security_fence` 按摄像头保存每日禁入时段、时区、警戒 ROI 和独立白名单。两个时段均使用 InsightFace 比对完整有效人员特征库：禁入时段内 ROI 有人即形成异常时间报警，包括白名单人员；其余时段白名单放行，确认库内非白名单或库外未知人员后形成异常人员报警。白名单只决定准入，不限制身份识别范围，也不修改原有人脸身份识别的通行授权。识别与人脸身份识别共用有效特征库，不检查白名单是否人人都有特征；个别人员缺少特征不阻塞其他人员识别，未匹配的人脸按未知人员规则确认。
+`security_fence` 按摄像头保存每日禁入时段、时区和警戒 ROI，通行白名单按事业部管理，同一事业部的围栏摄像头共用。管理员在“围栏白名单”逐人设置允许状态并即时保存，无需先选择摄像头；未添加人员默认不允许通行，不同事业部和人脸身份识别功能的授权分别维护。两个时段均使用 InsightFace 比对完整有效人员特征库：禁入时段内 ROI 有人即形成异常时间报警，包括白名单人员；其余时段白名单放行，确认库内非白名单或库外未知人员后形成异常人员报警。白名单只决定准入，不限制身份识别范围。识别与人脸身份识别共用有效特征库，不检查白名单是否人人都有特征；个别人员缺少特征不阻塞其他人员识别，未匹配的人脸按未知人员规则确认。
 
 身份识别使用完整画面，人体和人脸分别检测，监控同时显示人体框与人脸框；人员进入 ROI 后执行区域规则。库内身份复用人脸身份识别的匹配结论，在可靠的单摄像头轨迹内累计确认，单次无人脸不清空有效观测；库外未知身份额外核对人脸质量。禁入报警先记录，持续违规期间确认身份后补全同一记录，不重复通知；库外人员标记为“未知人员”。无有效身份依据或相似度不确定时保持“身份待核验”，不按等待时间判为未知人员，禁入时段仍然报警。短暂漏检或处理间隔变长时撤销通行身份，并在报警间隔窗口内保留事件关联；恢复后需当前有效人脸重新确认，持续违规不重复记录，不同人员分别记录。多人身份关联不明、配置变化或推理异常会重新核验。
 
@@ -215,7 +215,8 @@ YOLO 检测大图在进入进程队列前按当前 `imgsz` 等比例缩小，默
 | 安检 session | `ai_security_inspection_session` |
 | 安检不合规图片 | `ai_security_inspection_session_image`，按 `session_id` 关联的 JPEG 二进制 |
 | 指令驱动智慧安防配置与事件 | `ai_camera_config_visual_language_detection`、`ai_visual_language_event` |
-| 围栏时段、ROI 与独立白名单 | `ai_camera_config_security_fence` |
+| 围栏时段、ROI 与报警策略 | `ai_camera_config_security_fence` |
+| 围栏事业部通行白名单 | `ai_security_fence_person_authorization` |
 | 闸机 ROI、过闸判定线与共同出现规则 | `ai_camera_config_tailgating` |
 | 人脸底库 | `ai_face_person`、`ai_face_embedding` |
 | 人脸识别事业部通行白名单 | `ai_face_person_authorization` |
@@ -290,6 +291,8 @@ npm ci
 已有数据库的喇叭结构使用 `python -m AiVision.migrations.horn_sip_audio_20261016 --check` 核对。停止服务并备份数据库后，在项目根目录执行 `python -m AiVision.migrations.horn_sip_audio_20261016 --apply --offline`，准备事业部归属、SIP 配置列和音频表，再启动服务。工具支持为明确指定地址的旧设备分配事业部，参数见 [后端数据迁移说明](AiVision/README.md#103-数据迁移边界)。空库由正常启动流程建表。
 
 独立通知间隔要求各告警配置表包含 `horn_interval` 和 `wechat_interval`。使用 `python -m AiVision.migrations.alarm_channel_intervals_20261021 --check` 只读核对；停止服务并备份数据库后执行同一命令的 `--apply --offline`，完成后再启动服务。未单独设置的通知间隔沿用该配置的报警记录间隔。
+
+围栏事业部白名单使用 `python -m AiVision.migrations.security_fence_authorization_20261022 --check` 只读核对。停止后端及相关写入并备份数据库后，执行同一命令的 `--apply --offline`，按摄像头所属事业部合并已有人员授权，再启动后端。部署命令和生效方式见 [run_guide.txt](run_guide.txt) 第九节。
 
 AiVision 启动命令使用默认参数，监听地址和端口读取 `API_HOST`、`API_PORT`，默认 `0.0.0.0:7862`。前端代理、启动健康检查和状态脚本使用后端端口 `7862`，前端端口为 `3000`；自定义端口时应同步调整代理目标和运维检查配置。
 

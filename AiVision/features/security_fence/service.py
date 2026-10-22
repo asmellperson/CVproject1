@@ -3,14 +3,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 import time
 
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from AiVision.alarms.records.orm import AiAlarmEvent
 from AiVision.core.db import get_session
 from AiVision.features._shared.config_manager import feature_config_manager
-from AiVision.features.face_recognition.library.orm import FacePerson
+from AiVision.features.face_recognition.library.service import FaceLibraryService
+from .orm import FencePersonAuthorization
 from .runtime import current_mode
-from .schema import FEATURE, STALE_SECONDS, FenceAlarm, FenceConfig, FenceHistory, FenceStatus, PersonChoice, PersonChoices
+from .schema import FEATURE, STALE_SECONDS, FenceAlarm, FenceConfig, FenceHistory, FenceStatus
+
+
+person_library = FaceLibraryService(authorization_model=FencePersonAuthorization)
 
 
 def camera_status(camera: dict, orchestrator) -> FenceStatus:
@@ -43,21 +47,6 @@ def camera_status(camera: dict, orchestrator) -> FenceStatus:
             if snapshot["error"] and not result.alarm:
                 result.alarm = None
     return FenceStatus.model_validate(result.model_dump())
-
-
-def person_choices(keyword: str | None, page: int, page_size: int, person_ids: list[int] | None = None) -> PersonChoices:
-    with get_session() as session:
-        query = session.query(FacePerson)
-        if person_ids is not None:
-            query = query.filter(FacePerson.id.in_(person_ids))
-        if keyword and keyword.strip():
-            query = query.filter(or_(FacePerson.person_name.icontains(keyword.strip(), autoescape=True),
-                                     FacePerson.job_no.icontains(keyword.strip(), autoescape=True)))
-        total = query.count()
-        rows = query.order_by(FacePerson.id).offset((page - 1) * page_size).limit(page_size)
-        return PersonChoices(total=total, items=[PersonChoice(
-            id=row.id, person_name=row.person_name, job_no=row.job_no, is_active=row.is_active,
-        ) for row in rows])
 
 
 def _query(session, department: str):

@@ -61,10 +61,9 @@ export function FenceConfigView({ department }: { department: DepartmentId }) {
         </DetectionConfigCardContent>
       </Card>{saveBar}
     </FeatureConfigGate></TabsContent>
-    <TabsContent value="persons" className="space-y-6"><FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>
-      {draft && <FenceWhitelist key={cameraKey} department={department} selected={draft.config.value.allowed_person_ids} disabled={disabled}
-        onChange={(allowed_person_ids) => update((current) => ({ ...current, config: { ...current.config, value: { ...current.config.value, allowed_person_ids } } }))} />}{saveBar}
-    </FeatureConfigGate></TabsContent>
+    <TabsContent value="persons" className="space-y-6">
+      <FenceWhitelist key={department} department={department} />
+    </TabsContent>
     <TabsContent value="roi"><FeatureConfigGate cameraKey={cameraKey} disabled={disabled}>
       {draft && <Suspense fallback={<p>正在加载 ROI 编辑器…</p>}><AiVisionRoiEditor key={cameraKey} title="警戒围栏 ROI 绘制" cameraKey={cameraKey} roiJson={draft.roi} disabled={disabled} saving={saving} message={message}
         onChange={(roi) => update((current) => ({ ...current, roi }))} onSave={save} /></Suspense>}

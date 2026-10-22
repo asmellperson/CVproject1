@@ -90,29 +90,41 @@ export function getRecognitionRecords(department: DepartmentId, page: number, ca
   return requestRecognition<RecognitionRecordPage>(`face-recognition/records?${params}`, { signal })
 }
 
-export function getFacePersons(department: DepartmentId, query: {
+export type PersonPermissionsQuery = {
   page: number
   page_size: number
   keyword?: string
   source?: FacePerson['hik_source']
   is_active?: boolean
   is_allowed?: boolean
-}, signal?: AbortSignal) {
-  const params = new URLSearchParams({ department, page: String(query.page), page_size: String(query.page_size) })
-  if (query.keyword) params.set('keyword', query.keyword)
-  if (query.source) params.set('source', query.source)
-  if (query.is_active !== undefined) params.set('is_active', String(query.is_active))
-  if (query.is_allowed !== undefined) params.set('is_allowed', String(query.is_allowed))
-  return requestRecognition<FacePersonPage>(`face-recognition/persons?${params}`, { signal })
 }
 
-export function updateFacePerson(department: DepartmentId, personId: number, isAllowed: boolean, signal?: AbortSignal) {
-  const params = new URLSearchParams({ department })
-  return requestRecognition<FacePerson>(`face-recognition/persons/${personId}?${params}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ is_allowed: isAllowed }), signal,
-  })
+export type PersonPermissionsApi = {
+  list: (department: DepartmentId, query: PersonPermissionsQuery, signal?: AbortSignal) => Promise<FacePersonPage>
+  update: (department: DepartmentId, personId: number, isAllowed: boolean, signal?: AbortSignal) => Promise<FacePerson>
 }
+
+export function createPersonPermissionsApi(resource: 'face-recognition' | 'security-fence'): PersonPermissionsApi {
+  return {
+    list(department, query, signal) {
+      const params = new URLSearchParams({ department, page: String(query.page), page_size: String(query.page_size) })
+      if (query.keyword) params.set('keyword', query.keyword)
+      if (query.source) params.set('source', query.source)
+      if (query.is_active !== undefined) params.set('is_active', String(query.is_active))
+      if (query.is_allowed !== undefined) params.set('is_allowed', String(query.is_allowed))
+      return requestRecognition<FacePersonPage>(`${resource}/persons?${params}`, { signal })
+    },
+    update(department, personId, isAllowed, signal) {
+      const params = new URLSearchParams({ department })
+      return requestRecognition<FacePerson>(`${resource}/persons/${personId}?${params}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_allowed: isAllowed }), signal,
+      })
+    },
+  }
+}
+
+export const facePersonPermissionsApi = createPersonPermissionsApi('face-recognition')
 
 export function recognitionImageUrl(path: string) {
   return apiUrl(path.replace(/^\/api\//, ''))
