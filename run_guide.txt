@@ -149,3 +149,51 @@ python -m AiVision.main
 - 离线、过期或无结果按未知处理，不能当作 0 人。
 
 上线前应备份 AiVision 数据库。前端直接访问 AiVision 的 /api/logistics-channels/{feature}。
+
+八、海康人脸库自动更新
+----------------------
+
+人脸库由独立 systemd 任务管理，依次同步海康 one、two 人员资料并增量生成人脸特征，写入共享 MySQL。
+安装此任务、手动触发更新及查询状态均不需要重启前端、后端或现有算法进程。
+运行中的识别 Worker 在处理识别请求时按约 60 秒周期刷新索引，自动读取有效的新特征。
+
+以下命令以 root 账号、项目位于 /srv/Fuda_CVPreject、Python 位于
+/root/miniconda3/envs/aivision/bin/python 为例；实际路径不同时请对应替换。
+部署前需成功更新项目代码，并确认存在 AiVision/face_library.py。
+如果 git pull 被本地修改或未跟踪文件阻止，应先保留并处理这些改动，再继续安装任务。
+
+1. 校验入口并安装或更新定时任务
+
+cd /srv/Fuda_CVPreject
+/root/miniconda3/envs/aivision/bin/python -m AiVision.face_library --check
+/root/miniconda3/envs/aivision/bin/python -m AiVision.face_library --install-systemd
+
+--check 仅校验业务入口可导入，不访问海康、数据库或加载模型。
+安装命令需要 root、systemctl 和 systemd-analyze，会按当前项目目录及解释器生成配置，校验后安装到
+/etc/systemd/system/，备份被替换的 unit、重载配置并检查实际生效入口，然后启用 timer 并安排一次立即更新。
+安装命令成功只表示已安排执行，更新是否完成需通过状态或日志确认。
+项目目录或 Python 环境发生变化时，使用目标解释器重新执行安装命令。
+
+2. 查询自动更新状态
+
+/root/miniconda3/envs/aivision/bin/python -m AiVision.face_library --status
+
+查询同时核对定时器启用状态、实际执行入口、工作目录及最近执行结果。
+执行中会明确显示正在更新；没有完成记录或任一阶段失败时，不会报告更新成功。
+不能仅凭 timer 为 active 判断同步成功；service 成功执行后显示 inactive 是正常的 oneshot 行为。
+
+3. 手动运行一次完整更新
+
+systemctl start hikvision-face-library-sync.service
+
+通过同一个 service 触发可避免与定时任务并发执行；命令会等待本次任务完成。
+单次任务结束后间隔 10 分钟再次自动执行；开机约 2 分钟后首次触发，单次最长运行 30 分钟。
+来源或人员失败会记录到日志并使任务返回非零，已成功提交的数据保留，未完成项在后续任务中重试。
+
+4. 查询执行日志与调度时间
+
+journalctl -u hikvision-face-library-sync.service -n 100 --no-pager
+systemctl list-timers --all --no-pager -l
+
+日志中分别包含人员同步和特征生成阶段，以及 one、two 的处理统计。
+人员资料的 last_synced_at 只在资料实际变化时更新，不能作为任务是否持续执行的判断依据。
