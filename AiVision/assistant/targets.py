@@ -2,8 +2,15 @@
 import re
 import unicodedata
 
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
+
 
 CLARIFY_TARGET = "目前无法核验这个目标的对应关系。请提供完整摄像头或资源名称、标识，并确认所属部门和功能。"
+CONTEXT_REFERENCE = re.compile(
+    r"(?:(?:它们|这些|那些|它|这|那|刚才|刚刚|之前|上述|上面|前面)"
+    r"(?:的|那|这)?(?:一|几)?(?:台|个|些)?"
+    r"(?:摄像头|相机|资源|目标|参数|阈值|配置|通道|保安室)?|(?:这|那)?两台)"
+)
 
 
 class TargetClarification(ValueError):
@@ -23,8 +30,20 @@ def resource_identity(resource):
     return resource.get("kind"), resource.get("department"), resource["key"]
 
 
+def reference_scope(text):
+    value = normalized(text)
+    for spec in DEPARTMENT_SPECS.values():
+        for label in (spec.display_name, spec.name):
+            if value.startswith(normalized(label)):
+                return spec.name, value[len(label):].strip().removeprefix("的").strip()
+    return None, value
+
+
 def matches_name(text, resource):
-    return any(normalized(text) == normalized(resource[field]) for field in ("target_name", "name", "identifier", "key")
+    department, value = reference_scope(text)
+    if department is not None and department != resource.get("department"):
+        return False
+    return any(normalized(resource[field]) in {normalized(text), value} for field in ("target_name", "name", "identifier", "key")
                if resource.get(field))
 
 
@@ -79,6 +98,8 @@ class TargetPolicy:
         self.candidates = {item["key"]: item for item in self.memory.get("last_read_resources", [])}
         self.searched = set()
         self.selectors = []
+        self.reference_departments = set()
+        self.context_sizes = set()
         self.needs_clarification = False
         bindings = {normalized(item["alias"]): item["resource"] for item in self.memory.get("target_bindings", [])}
         self.candidates.update((item["resource"]["key"], item["resource"]) for item in self.memory.get("target_bindings", []))
@@ -86,49 +107,58 @@ class TargetPolicy:
         if len(declarations) != len(self.proposals):
             self.needs_clarification = True
         self.selectors.extend(("name", item.target) for item in declarations.values())
-        explicit_target = bool(declarations) or any(item.kind in {"named", "alias"} for item in self.references)
+        contextual = []
         for reference in self.references:
             if not reference.text.strip() or reference.text not in question:
                 self.needs_clarification = True
                 continue
-            if reference.kind == "named":
+            department, literal = reference_scope(reference.text)
+            if department is not None:
+                self.reference_departments.add(department)
+            if department is not None and not literal:
+                continue
+            # 模型的 kind 只是提议；已核验别名和有确定语法的指代按真实证据解析。
+            if literal in declarations:
+                self.selectors.append(("name", declarations[literal].target))
+            elif literal in bindings:
+                self.selectors.append(("identity", resource_identity(bindings[literal])))
+            elif reference.kind in {"named", "context"} and CONTEXT_REFERENCE.fullmatch(literal):
+                contextual.append(("context", literal))
+            elif reference.kind == "named":
                 self.selectors.append(("name", reference.text))
-            elif reference.kind == "alias":
-                alias = normalized(reference.text)
-                if alias in declarations:
-                    self.selectors.append(("name", declarations[alias].target))
-                elif alias in bindings:
-                    self.selectors.append(("identity", resource_identity(bindings[alias])))
-                else:
-                    self.needs_clarification = True
+            elif reference.kind == "pending":
+                contextual.append(("pending", literal))
             else:
-                if reference.kind == "context":
-                    deictic = re.fullmatch(r"(?:(?:它们|这些|那些|它|这|那|刚才|刚刚|之前|上述|上面|前面)(?:的|那|这)?(?:一|几)?(?:台|个|些)?(?:摄像头|相机|资源|目标|参数|阈值|配置|通道|保安室)?|(?:这|那)?两台)", reference.text)
-                    available = bool(deictic)
-                    # 本轮声明或明确点名优先于旧目标，“甲对应一号，查它”不能落到上次的二号。
-                    if available and explicit_target:
-                        continue
-                else:
-                    pending = self.memory.get("pending_task", {})
-                    available = bool(pending) and pending.get("plan", {}).get("mode") == plan.mode
-                resources = self.memory.get("last_read_resources", [])
-                identities = {resource_identity(item) for item in resources}
-                if reference.kind == "context":
-                    if "两台" in reference.text:
-                        available &= len(identities) == 2
-                    elif len(identities) > 1 and not re.search(r"们|些|几", reference.text):
-                        available = False
-                if not available or not resources:
-                    self.needs_clarification = True
-                else:
-                    self.selectors.extend(("identity", resource_identity(item)) for item in resources)
-        # 已有别名出现在本轮时即参与核验，不能靠规划器漏填引用跳过绑定约束。
-        if not self.references:
+                self.needs_clarification = True
+        # 只有范围或指代时，也不能漏掉本轮明确提到的已核验别名而退回最近目标。
+        if not self.selectors:
             mentioned = [resource for alias, resource in bindings.items()
                          if alias in normalized(question) and alias not in declarations]
             if len({resource_identity(item) for item in mentioned}) > 1:
                 self.needs_clarification = True
             self.selectors.extend(("identity", resource_identity(item)) for item in mentioned)
+        for kind, literal in contextual:
+            camera_only = kind == "context" and bool(re.search(r"摄像头|相机", literal))
+            if kind == "pending":
+                pending = self.memory.get("pending_task", {})
+                if not pending or pending.get("plan", {}).get("mode") != plan.mode:
+                    self.needs_clarification = True
+                    continue
+            else:
+                size = 2 if "两台" in literal else None if re.search(r"们|些|几", literal) else 1
+                if size is not None:
+                    self.context_sizes.add((size, camera_only))
+            # 先解析本轮全部明确目标，不能因指代排在名称前面而套用旧摄像头。
+            if not self.selectors:
+                resources = [item for item in self.memory.get("last_read_resources", [])
+                             if not self.reference_departments or item.get("department") in self.reference_departments]
+                if camera_only:
+                    cameras = [item for item in resources if resource_identity(item)[0] == "camera"]
+                    resources = cameras or resources
+                if not resources or (kind == "context" and size is not None
+                                     and len({resource_identity(item) for item in resources}) != size):
+                    self.needs_clarification = True
+                self.selectors.extend(("identity", resource_identity(item)) for item in resources)
 
     def observe(self, tool, result):
         if "error" in result:
@@ -138,8 +168,8 @@ class TargetPolicy:
                 self.candidates[item["key"]] = item
                 self.searched.add(item["key"])
             # 名称列表本身就是查询结果时，也必须核验目标，不能绕过后续的读取检查。
-            if self.plan.query_tool == "list_resources" and self.selectors:
-                if not result.get("items"):
+            if self.plan.query_tool == "list_resources" and (self.selectors or self.reference_departments):
+                if self.selectors and not result.get("items"):
                     raise TargetClarification(CLARIFY_TARGET)
                 self._check_keys([item["key"] for item in result["items"]])
         elif tool == "read_configurations":
@@ -167,19 +197,30 @@ class TargetPolicy:
         if self.needs_clarification:
             raise TargetClarification(CLARIFY_TARGET)
         self.candidates[resource["key"]] = resource
-        if self.selectors:
+        if self.selectors or self.reference_departments:
             self._check_keys([resource["key"]])
 
+    def matching_resources(self, kind, value):
+        return [resource for resource in self.candidates.values()
+                if (not self.reference_departments or resource.get("department") in self.reference_departments)
+                and (matches_name(value, resource) if kind == "name" else resource_identity(resource) == value)]
+
     def _check_keys(self, keys):
-        permitted = set()
+        permitted, identities = set(), set()
         for kind, value in self.selectors:
-            matches = [resource for resource in self.candidates.values() if (
-                matches_name(value, resource) if kind == "name" else resource_identity(resource) == value)]
+            matches = self.matching_resources(kind, value)
             if len({resource_identity(resource) for resource in matches}) != 1:
                 raise TargetClarification(CLARIFY_TARGET)
             permitted.update(resource["key"] for resource in matches)
+            identities.update(resource_identity(resource) for resource in matches)
+        cameras = {item for item in identities if item[0] == "camera"}
+        if any(len(cameras or identities if camera_only else identities) != size
+               for size, camera_only in self.context_sizes):
+            raise TargetClarification(CLARIFY_TARGET)
         for key in keys:
             resource = self.candidates.get(key)
+            if resource is not None and self.reference_departments and resource.get("department") not in self.reference_departments:
+                raise TargetClarification(CLARIFY_TARGET)
             explicit = resource is not None and any(resource.get(field) and resource[field] in self.question
                                                     for field in ("target_name", "name", "identifier", "key"))
             if resource is None or (key not in permitted if self.selectors else key not in self.searched and not explicit):

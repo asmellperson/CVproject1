@@ -13,6 +13,7 @@ import numpy as np
 from AiVision.core.logger import logger
 
 from .schema import AgvPersonCheckValueSchema, PersonCheckResult
+from .monitor import AgvRequestMonitor
 
 MAX_PENDING_REQUESTS = 32
 POLL_INTERVAL_SECONDS = 0.05
@@ -59,6 +60,7 @@ class AgvPersonCheckService:
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._requests: dict[int, CheckRequest] = {}
+        self.monitor = AgvRequestMonitor()
 
     def detecting_camera_ids(self) -> set[int]:
         """总览只读取尚未完成判定的请求，不把待机或等待回调计为检测。"""
@@ -81,6 +83,7 @@ class AgvPersonCheckService:
                 raise PersonCheckError("not_configured", str(exc)) from exc
             request = CheckRequest(camera_id, camera_key, config, cfg)
             self._requests[camera_id] = request
+            self.monitor.accept(request)
             self._wake.set()
             return request
 
@@ -90,7 +93,8 @@ class AgvPersonCheckService:
             if self._requests.get(request.camera_id) is request:
                 self._requests.pop(request.camera_id)
             if not request.future.done():
-                request.future.set_exception(PersonCheckError("cancelled", "检测请求已取消"))
+                self._fail(request, PersonCheckError("cancelled", "检测请求已取消"))
+            self.monitor.release(request)
             request.last_frame = None
             self._wake.set()
 
@@ -107,13 +111,21 @@ class AgvPersonCheckService:
             for request in self._requests.values():
                 self._fail(request, PersonCheckError("unavailable", "AGV 检测功能已停止"))
             self._requests.clear()
+            self.monitor.clear()
             self._wake.set()
 
     def _fail(self, request: CheckRequest, error: PersonCheckError):
         """记录请求错误，仅在 Future 尚未完成时写入异常。"""
         request.error = error
+        self.monitor.fail(request, error)
         if not request.future.done():
             request.future.set_exception(error)
+
+    def fail(self, request: CheckRequest, error: PersonCheckError):
+        """接口等待超时或取消时，结束同一请求并同步发布失败状态。"""
+        with self._lock:
+            if self._requests.get(request.camera_id) is request:
+                self._fail(request, error)
 
     def run(self, sample: Callable, is_running: Callable[[], bool], on_result: Callable):
         """轮询有效请求，按间隔采样并在截止前聚合结果。
@@ -150,9 +162,11 @@ class AgvPersonCheckService:
                         frame, result = sampled
                         request.last_frame = frame
                         request.sample_count += 1
+                        self.monitor.progress(request)
                         request.next_sample_at = now + request.config.cap_interval
                         # 一帧有人即可确认；无人必须完成整个采样窗口。
                         if result.person_present or request.sample_count >= request.config.sample_count:
+                            self.monitor.complete(request, result)
                             request.future.set_result(result)
                         else:
                             continue

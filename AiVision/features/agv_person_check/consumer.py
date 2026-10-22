@@ -77,6 +77,10 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
             return None
         return self.preview.render(camera_key, frame)
 
+    def remove_camera(self, camera_id: int, shm_name: str | None = None):
+        super().remove_camera(camera_id, shm_name)
+        self.service.monitor.clear_camera(camera_id)
+
     def _sample(self, request: CheckRequest):
         """只接受请求创建后到达、尚未使用且未过期的帧。
 

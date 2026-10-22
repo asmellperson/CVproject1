@@ -957,6 +957,119 @@ def test_alias_cannot_be_substituted_with_the_most_recent_or_cross_department_ta
         policy.check("read_configurations", ReadArguments(resource_keys=[other["key"]]))
 
 
+@pytest.mark.parametrize("text, kind", [
+    ("这台摄像头", "named"), ("通用电气事业部这台摄像头", "named"),
+    ("通用电气事业部的这台摄像头", "named"), ("通用电气事业部这台摄像头", "context"),
+    ("通用电气事业部", "named"), ("通用电气事业部闸机1", "named"),
+    ("通用电气事业部的闸机1", "named"), ("门口甲", "named"),
+    ("通用电气事业部门口甲", "alias"),
+])
+def test_literal_scope_and_context_resolve_to_the_current_declared_target(text, kind):
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    declaration = {"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}
+    plan = target_plan(text=text, kind=kind, bindings=[declaration])
+    policy = TargetPolicy(f"门口甲对应闸机1。查询{text}的配置", plan,
+                          {"last_read_resources": [target_resource(2)]})
+    policy.observe("list_resources", {"items": [target_resource(), target_resource(2)]})
+    policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource(2)["key"]]))
+
+
+def test_department_qualifier_disambiguates_identical_names_without_authorizing_other_departments():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    question = "门口甲对应闸机1。查询通用电气事业部这台摄像头的配置"
+    plan = target_plan(text="通用电气事业部这台摄像头", kind="named", bindings=[
+        {"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}])
+    policy = TargetPolicy(question, plan)
+    other = target_resource(3, "闸机1", "research_institute")
+    policy.observe("list_resources", {"items": [target_resource(), other]})
+    policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[other["key"]]))
+
+
+def test_a_recognized_department_does_not_make_an_unknown_name_or_singular_ambiguity_valid():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    for text in ("通用电气事业部未知门口", "福达新材院这台摄像头", "通用电气事业部这台摄像头"):
+        declarations = [{"alias": "门口甲", "target": "闸机1", "evidence": "门口甲对应闸机1"}]
+        question = f"门口甲对应闸机1。查询{text}的配置"
+        if text == "通用电气事业部这台摄像头":
+            declarations.append({"alias": "门口乙", "target": "闸机2", "evidence": "门口乙对应闸机2"})
+            question = "门口乙对应闸机2。" + question
+        policy = TargetPolicy(question, target_plan(text=text, kind="named", bindings=declarations))
+        policy.observe("list_resources", {"items": [target_resource(), target_resource(2)]})
+        with pytest.raises(TargetClarification):
+            policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+
+
+def test_scope_only_metadata_cannot_authorize_cached_resources_without_a_target_or_search():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    policy = TargetPolicy("查询通用电气事业部的配置", target_plan(text="通用电气事业部", kind="named"),
+                          {"last_read_resources": [target_resource()]})
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+
+
+def test_scope_only_reference_still_uses_a_mentioned_verified_alias_instead_of_the_recent_target():
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    policy = TargetPolicy("查询通用电气事业部门口甲的配置", target_plan(text="通用电气事业部", kind="named"),
+                          {"last_read_resources": [target_resource(2)],
+                           "target_bindings": [{"alias": "门口甲", "resource": target_resource()}]})
+    policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource(2)["key"]]))
+
+
+def test_current_literal_target_takes_priority_when_context_reference_comes_first():
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    plan = RequestPlan(mode="query", query_tool="read_configurations", target_context={"references": [
+        {"kind": "context", "text": "这台摄像头"}, {"kind": "named", "text": "闸机1"}]})
+    policy = TargetPolicy("闸机1，查询这台摄像头的配置", plan, {"last_read_resources": [target_resource(2)]})
+    policy.observe("list_resources", {"items": [target_resource(), target_resource(2)]})
+    policy.check("read_configurations", ReadArguments(resource_keys=[target_resource()["key"]]))
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(resource_keys=[target_resource(2)["key"]]))
+
+
+def test_singular_camera_reference_does_not_count_the_explicit_binding_parent_as_a_second_camera():
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+    from AiVision.assistant.tools import BindCameraArguments
+
+    plan = RequestPlan(mode="change", operations=["bind_camera"], target_context={"references": [
+        {"kind": "named", "text": "闸机1"}, {"kind": "context", "text": "这台摄像头"},
+        {"kind": "named", "text": "保安室甲"}]})
+    policy = TargetPolicy("闸机1，把这台摄像头加入保安室甲", plan)
+    policy.observe("list_resources", {"items": [
+        {"key": "camera:1", "kind": "camera", "name": "闸机1", "department": "general_electric"},
+        {"key": "guard:1", "kind": "guard", "name": "保安室甲", "department": "general_electric"}]})
+    policy.check("bind_camera", BindCameraArguments(camera_key="camera:1", parent_key="guard:1"))
+
+
+def test_single_native_camera_configuration_remains_a_valid_visible_context():
+    from AiVision.assistant.targets import TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+
+    resource = {"key": "guard_roi:1:2", "kind": "guard_roi", "name": "闸机1 ROI", "department": "general_electric"}
+    policy = TargetPolicy("查询这台摄像头的 ROI", target_plan(text="这台摄像头", kind="context"),
+                          {"last_read_resources": [resource]})
+    policy.check("read_configurations", ReadArguments(resource_keys=[resource["key"]]))
+
+
 def test_undo_target_must_match_the_explicit_alias_even_with_a_valid_audit():
     from AiVision.assistant.targets import TargetClarification, TargetPolicy
 

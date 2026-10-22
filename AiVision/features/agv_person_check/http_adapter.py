@@ -7,6 +7,10 @@ from .schema import HttpConfigSchema, PersonCheckResult
 class CallbackError(RuntimeError):
     """对外隐藏回调地址和请求凭据的通信错误。"""
 
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 def render_body(config: HttpConfigSchema, result: PersonCheckResult, *, camera_key: str, request_id: str):
     """递归替换模板中的完整占位符值，保留结果原本的 JSON 数据类型。"""
@@ -29,7 +33,7 @@ def render_body(config: HttpConfigSchema, result: PersonCheckResult, *, camera_k
     return render(config.body_template)
 
 
-def send_callback(config: HttpConfigSchema, body):
+def send_callback(config: HttpConfigSchema, body) -> int:
     """GET 和 POST 均使用配置的 JSON Body，不改写为查询参数，不自动重试。"""
     try:
         with requests.request(
@@ -37,7 +41,8 @@ def send_callback(config: HttpConfigSchema, body):
             timeout=config.timeout_seconds, allow_redirects=False, stream=True,
         ) as response:
             if not 200 <= response.status_code < 300:
-                raise CallbackError(f"AGV 回调返回非成功状态 HTTP {response.status_code}")
+                raise CallbackError(f"AGV 回调返回非成功状态 HTTP {response.status_code}", response.status_code)
+            return response.status_code
     except requests.RequestException as exc:
         # 不携带目标 URL、Headers 或响应正文。
         raise CallbackError(f"AGV 回调通信失败：{type(exc).__name__}") from exc

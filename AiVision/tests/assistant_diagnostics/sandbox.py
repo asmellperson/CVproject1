@@ -108,6 +108,16 @@ def context_statistics(messages):
 
 def target_literal_role(value):
     """只输出固定虚构词的类别，未知名称、引用和标识不进入报告。"""
+    from AiVision.assistant.targets import CONTEXT_REFERENCE, reference_scope
+
+    department, literal = reference_scope(value)
+    if department is not None:
+        if not literal:
+            return "department_scope"
+        if CONTEXT_REFERENCE.fullmatch(literal):
+            return "qualified_context"
+        if literal in {CAMERA_NAME, SECOND_CAMERA_NAME}:
+            return "qualified_fixture_target"
     groups = {
         "fixture_alias": {"记忆代号甲", "记忆代号乙"},
         "fixture_target": {CAMERA_NAME, SECOND_CAMERA_NAME, RESOURCE, SECOND_RESOURCE,
@@ -132,12 +142,11 @@ def planning_target_evidence(plan, question):
 
 def tool_target_evidence(policy, name, arguments, *, expected_keys=()):
     """保留实际检查边界的匹配数量与来源，不导出用户原话、资源 key 或配置。"""
-    from AiVision.assistant.targets import matches_name, resource_identity
+    from AiVision.assistant.targets import resource_identity
 
     selectors, permitted = [], set()
     for kind, value in policy.selectors:
-        matches = [resource for resource in policy.candidates.values() if (
-            matches_name(value, resource) if kind == "name" else resource_identity(resource) == value)]
+        matches = policy.matching_resources(kind, value)
         selectors.append({"kind": kind, "role": target_literal_role(value) if kind == "name" else "identity",
                           "matched_identities": len({resource_identity(resource) for resource in matches})})
         permitted.update(resource["key"] for resource in matches)
@@ -158,6 +167,7 @@ def tool_target_evidence(policy, name, arguments, *, expected_keys=()):
                      "discovered": key in policy.candidates, "searched_this_turn": key in policy.searched,
                      "matches_selector": key in permitted if selectors else None})
     return {"tool": name, "needs_clarification": policy.needs_clarification,
+            "department_scope_count": len(policy.reference_departments),
             "candidate_count": len(policy.candidates), "searched_count": len(policy.searched),
             "candidate_kinds": sorted({item["kind"] if item.get("kind") in {"camera", "feature"} else "other"
                                        for item in policy.candidates.values()}),

@@ -179,7 +179,30 @@ def test_long_dialogues_share_one_session_and_preserve_per_turn_metrics(name):
         assert rows[10]["anchor_in_history"] is True
 
 
-@pytest.mark.parametrize("fault", ["unknown_key", "different_target", "named_alias", "ambiguous_name"])
+@pytest.mark.parametrize("text", ["这台摄像头", "通用电气事业部这台摄像头", "通用电气事业部", "记忆代号甲"])
+def test_named_scope_or_context_does_not_block_a_verified_binding_and_its_later_use(monkeypatch, text):
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+
+    original = ConversationScriptedClient.complete
+
+    def literal_reference(self, **kwargs):
+        raw, latency = original(self, **kwargs)
+        if "只判断当前用户请求" in kwargs["messages"][0]["content"] and "对应" in self.sandbox.step.question:
+            body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
+            body["target_context"]["references"] = [{"kind": "named", "text": text}]
+            return completion(body), latency
+        return raw, latency
+
+    monkeypatch.setattr(ConversationScriptedClient, "complete", literal_reference)
+    rows = run_conversation("window")
+    assert all(row["behavior_ok"] and row["configuration_ok"] for row in rows)
+    assert rows[7]["binding_prerequisite_ok"] is True and rows[7]["verified_binding_in_context"] is True
+    assert rows[8]["tools"] == ["capabilities", "ask_user"]
+    assert "update_configurations" in rows[9]["tools"]
+    assert all("ask_user" not in rows[index]["tools"] for index in (0, 7, 9, 10))
+
+
+@pytest.mark.parametrize("fault", ["unknown_key", "different_target", "unbound_named_alias", "ambiguous_name"])
 def test_target_block_evidence_distinguishes_lookup_selector_and_identity_failures(fault):
     from AiVision.assistant.schema import RequestPlan
     from AiVision.assistant.targets import TargetClarification, TargetPolicy
@@ -188,7 +211,8 @@ def test_target_block_evidence_distinguishes_lookup_selector_and_identity_failur
     from AiVision.tests.assistant_diagnostics.sandbox import tool_target_evidence
 
     question = f"记忆代号甲对应{CAMERA_NAME}。查询配置"
-    reference = "记忆代号甲" if fault == "named_alias" else CAMERA_NAME
+    reference = "记忆代号乙" if fault == "unbound_named_alias" else CAMERA_NAME
+    question += reference
     plan = RequestPlan(mode="query", query_tool="read_configurations", target_context={
         "references": [{"kind": "named", "text": reference}],
         "bindings": [{"alias": "记忆代号甲", "target": CAMERA_NAME, "evidence": f"记忆代号甲对应{CAMERA_NAME}"}]})
@@ -208,7 +232,7 @@ def test_target_block_evidence_distinguishes_lookup_selector_and_identity_failur
         assert not requested["discovered"] and all(item["matched_identities"] == 1 for item in evidence["selectors"])
     elif fault == "different_target":
         assert requested["discovered"] and not requested["matches_selector"]
-    elif fault == "named_alias":
+    elif fault == "unbound_named_alias":
         assert requested["discovered"] and evidence["selectors"][-1] == {
             "kind": "name", "role": "fixture_alias", "matched_identities": 0}
     else:
@@ -246,7 +270,7 @@ def test_failed_binding_cannot_make_subsequent_alias_clarification_pass(monkeypa
 
     def fail_setup(self, **kwargs):
         raw, latency = original(self, **kwargs)
-        if self.sandbox.step.label == "建立会话指代" and kwargs["json_mode"]:
+        if self.sandbox.step.label in {"建立会话指代", "重述目标后修改"} and kwargs["json_mode"]:
             body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
             if body.get("action") == "read_configurations":
                 body["arguments"]["resource_keys"] = ["feature:tailgating:9999"]
@@ -274,6 +298,7 @@ def test_failed_binding_cannot_make_subsequent_alias_clarification_pass(monkeypa
     if live:
         assert "target_resolution" in first["failure_layers"] and "model_output" not in first["failure_layers"]
         assert "target_resolution" in later["failure_layers"] and "model_output" not in later["failure_layers"]
+        assert "target_resolution" in rows[9]["failure_layers"] and "model_output" not in rows[9]["failure_layers"]
         assert rows[8]["failure_layers"] == []
     report = markdown_report({"generated_at": "fixture", "revision": "fixture", "settings": {
         "repeats": 3, "temperature": 0, "max_tokens": 2048, "timeout": 45}, "layers": {

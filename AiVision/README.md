@@ -74,6 +74,8 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 
 AGV 监控通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check` 使用公共功能标注帧入口。`AgvPersonCheckConsumer.get_live_preview()` 在最新采集帧上叠加已保存的 `roi_pos`，与普通检测共用 `_shared/roi.py` 的边框绘制；空 ROI 表示全画面。预览配置使用独立短锁，待机和请求结束后仍可取图，采样推理不阻塞预览。配置热更新、摄像头停用和移除时同步替换或清理预览；原始画面过期时沿用公共取图接口的失败状态。人体检测仍仅由 HTTP 请求触发，检测输入与预览使用同一份 ROI 配置。
 
+`GET /api/agv-person-check/cameras/{key}/status` 在登录会话下校验摄像头所属事业部及 AGV 功能权限，返回待机、检测、回传或不可用状态，以及当前请求的采样进度和最近一次结果。`features/agv_person_check/monitor.py` 通过独立短锁保存每路当前请求及最近一次完成记录，查询不等待推理或执行回调。同步响应记录已生成的响应正文和状态码；回调记录实际发送正文、对端 HTTP 状态码及通信失败原因，不读取对端正文或暴露回调地址、认证 Header。检测失败、取消和回传失败分别表示，失败不生成无人判定。记录仅存在于内存，摄像头移除或检测服务停止时清理。
+
 保安行为与安检流程均在同一个注册表和 Orchestrator 下运行，共享平台摄像头、模型与告警设施；没有独立 Web 子应用。
 
 ## 2. 整体架构与目录职责
@@ -1008,6 +1010,8 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 合法分类包括 `{"mode":"chat","operations":[],"query_tool":null}`、`{"mode":"query","operations":[],"query_tool":"read_configurations","target_context":{"references":[],"bindings":[]}}` 和 `{"mode":"change","operations":["update_configurations"],"query_tool":null,"target_context":{"references":[],"bindings":[]}}`。查询必须指定 `query_tool`：能力目录为 `capabilities`、资源名称列表为 `list_resources`、当前配置及参数值为 `read_configurations`；其他任务不能携带查询目标。操作类别受 Schema 枚举约束，配置任务的列表须非空且不重复，聊天和查询不能携带配置操作。整条独立问候支持“你好哇”“您好啊”等口语语气词，无论是否已有历史均直接识别为聊天，本轮回复不注入旧配置请求、失败提示或操作审计。附带实际查询或配置正文、引用及明确续办指令仍由规划器结合上下文判断，独立问候不能作为历史任务的继续或删除确认。
 
 业务分类必须提供 `target_context`。`references` 用 `kind` 区分实际名称或标识 `named`、自定义别名 `alias`、普通指代 `context` 和澄清续办 `pending`，`text` 必须来自本轮原文；仅给出部门、功能或全部范围时可为空。`bindings` 提议 `{alias,target,evidence}`，后台核对用户本轮的正向命名声明、完整名称及真实读取结果，否定、示例、截取名称前缀和存在歧义的关系均不能建立绑定。摄像头与普通功能资源使用 `target_name` 表达实际主体名称，带功能后缀的 `name` 用于展示；身份核对使用部门和摄像头 ID。模型提议不直接授权执行，资源列表作为最终结果、配置读取、修改、绑定、删除及指定目标的参数撤销均受目标核验约束。
+
+`targets.py` 使用正式部门目录拆分引用的范围与对象，完整部门名称或编码可限定真实资源名、别名及指代。已核验别名和具有确定语法的指代根据原文及资源证据解析，`kind` 不充当身份证明；“通用电气事业部这台摄像头”中的部门限定范围，“这台摄像头”关联本轮明确目标，本轮无目标时才使用可见的近期读取目标。名称仍须完整匹配并唯一确认，未知名称不能因其他选择器匹配而被忽略；单数指代不能选择多个物理目标。仅给出部门不能授权使用缓存资源，配置和值仍须重新查询；诊断与执行共用 `matching_resources()` 核对匹配结果。
 
 `parse_plan()` 保留严格 Pydantic 校验，分类 JSON 和字段错误以 `PlanFormatError` 分别标记为 `plan_json`、`plan_schema`。`runtime.py` 仅为这两类错误发起一次纠正，提供安全字段位置、校验错误类别及完整 Schema，不回传错误输出全文。首次与纠正请求共用 `api_timeout_sec` 分类预算，每次调用前后检查取消；纠正不增加业务工具调用轮数。日志只记录任务编号、错误类别和脱敏校验摘要，不包含校验输入、动态异常正文、未知字段原名、完整对话或设备凭据。
 

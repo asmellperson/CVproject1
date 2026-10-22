@@ -132,6 +132,8 @@ python -m AiVision.tests.assistant_diagnostics \
 
 `request_statistics[].target_context_evidence` 仅记录规划引用的 `kind`、固定虚构词的类别、原文存在标记和正向绑定声明校验结果。`target_evidence` 记录工具边界的候选数量及类别、每个选择器匹配的身份数量，以及请求资源是否已发现、是否来自本轮搜索、是否符合选择器及固定预期目标。匹配数为 0 与请求标识未发现是不同问题；`TargetClarification` 单独归为 `target_resolution`，需结合这些证据区分模型标识错误和后台误拦，不能仅凭异常类型归责模型。未知名称、引用原文、资源 key、凭据及配置均不进入这些字段。Markdown 报告为每个失败场景展示首个失败样本的脱敏证据。
 
+引用类别包括 `department_scope`（正式部门范围）、`qualified_context`（带部门范围的指代）和 `qualified_fixture_target`（带部门范围的固定虚构目标）；这些字段只输出类别。`department_scope_count` 记录范围约束的数量，选择器匹配数与实际执行共用后台的 `matching_resources()`，同时应用范围与资源身份条件。
+
 仅验收模型规划格式及绑定的多轮表现：
 
 ```bash

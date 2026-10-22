@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ResizableMonitorLayout } from '@/components/monitor/ResizableMonitorLayout'
+import { AgvRequestStatusCard } from '@/components/agv_person_check/AgvRequestStatusCard'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -201,6 +202,8 @@ export function FeatureDashboardMonitorView({
               <Button type="button" variant="outline" className="w-full gap-2 rounded-xl border-slate-200 text-slate-600 active:[&>svg]:animate-spin dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={onRefreshCameras} disabled={loading}><RefreshCw className="h-4 w-4" />{loading ? '读取中' : '刷新状态'}</Button>
             </CardContent>
           </Card>
+
+          {feature === 'agv_person_check' && <AgvRequestStatusCard key={`${selectedCameraInfo?.department}:${cameraKey}`} cameraKey={cameraKey} />}
 
           <Card className={CARD_CLASS}>
             <CardHeader className="p-5 pb-3"><CardTitle className="flex items-center gap-3 text-base font-bold text-slate-950 dark:text-slate-100"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF0FE] text-[#1B3FA0] dark:bg-blue-950/60 dark:text-blue-300"><Info className="h-4 w-4" /></span>判定说明</CardTitle></CardHeader>

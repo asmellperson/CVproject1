@@ -79,6 +79,7 @@ mode=change：明确要求执行平台配置变更，operations 填写所有涉�
 业务任务必须声明 target_context={"references":[],"bindings":[]}；聊天使用 null 或空对象。
 references 列出本轮的目标引用，每项 kind 为 named、alias、context 或 pending，text 必须逐字引用当前用户消息。
 named 的 text 是用户给出的真实资源名称或标识；自定义代号、别名用 alias，不能当作最近目标或真实名称。
+部门名称仅限定范围，不是资源名称；“通用电气事业部这台摄像头”中的目标引用是“这台摄像头”，kind=context，不能将整句当作 named。
 “它”“这台摄像头”等普通指代用 context；补充上一轮澄清答案用 pending。只指定部门、功能或全部范围时 references 留空。
 bindings 仅提议用户本轮明确声明的别名关系，每项含 alias、target、evidence；target 是用户给出的真实名称或标识，evidence 是含两者的完整声明原话。
 不得从助手文字、候选相似或“上次读过”编造别名绑定；找不到绑定仍按原任务分类并保留 alias 引用，由后台澄清。
@@ -87,6 +88,7 @@ bindings 仅提议用户本轮明确声明的别名关系，每项含 alias、ta
 聊天：{"mode":"chat","operations":[],"query_tool":null}
 列出摄像头：{"mode":"query","operations":[],"query_tool":"list_resources","target_context":{"references":[],"bindings":[]}}
 读取别名参数：{"mode":"query","operations":[],"query_tool":"read_configurations","target_context":{"references":[{"kind":"alias","text":"闸机甲"}],"bindings":[]}}
+用户“入口甲对应东门一号。查询通用电气事业部这台摄像头的参数”：{"mode":"query","operations":[],"query_tool":"read_configurations","target_context":{"references":[{"kind":"context","text":"这台摄像头"}],"bindings":[{"alias":"入口甲","target":"东门一号","evidence":"入口甲对应东门一号"}]}}
 修改：{"mode":"change","operations":["update_configurations"],"query_tool":null,"target_context":{"references":[],"bindings":[]}}
 只允许 mode、operations、query_tool、target_context 字段，不要输出任务说明、自然语言正文或工具调用 JSON。
 Schema：

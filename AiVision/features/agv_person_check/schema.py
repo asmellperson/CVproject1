@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -135,3 +136,31 @@ class PersonCheckResult(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     person_present: bool
+
+
+class AgvRequestStatus(BaseModel):
+    """仅保存可展示的请求进度和实际回传内容，不包含连接地址或认证 Header。"""
+    request_id: str
+    camera_key: str
+    mode: Literal["sync", "callback"]
+    state: Literal["detecting", "completed", "error", "cancelled"] = "detecting"
+    started_at: datetime
+    finished_at: datetime | None = None
+    duration_seconds: float = 0.0
+    sample_count: int = 0
+    sample_target: int
+    person_present: bool | None = None
+    delivery_state: Literal["pending", "ready", "sending", "succeeded", "failed", "not_sent"] = "pending"
+    delivery_status_code: int | None = None
+    response_body: JsonValue | None = None
+    error_code: str | None = None
+    error: str | None = None
+    delivery_error: str | None = None
+
+
+class AgvMonitorStatus(BaseModel):
+    """当前摄像头的请求状态和最近一次完成记录，独立于监控图像刷新。"""
+    camera_key: str
+    state: Literal["waiting", "detecting", "returning", "offline", "disabled", "unavailable"]
+    active_request: AgvRequestStatus | None = None
+    latest_result: AgvRequestStatus | None = None

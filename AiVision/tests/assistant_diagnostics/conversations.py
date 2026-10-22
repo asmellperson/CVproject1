@@ -246,7 +246,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 failure_layers.append("context_transfer")
             if live and not behavior_ok and (target_question or "TargetClarification" in errors):
                 if classification_ok and operations_ok and "model_output" in failure_layers:
-                    failure_layers.remove("model_output")
+                    failure_layers = [layer for layer in failure_layers if layer != "model_output"]
                 failure_layers.append("target_resolution")
             service_failed = any(error in {"QwenNetworkError", "QwenTimeoutError", "QwenServiceError"} for error in errors)
             if service_failed:

@@ -33,7 +33,7 @@ from AiVision.api.routes.guard_behavior import router as guard_behavior_router
 from AiVision.api.routes.security_inspection import router as security_inspection_router
 from AiVision.api.routes.security_fence import router as security_fence_router
 from AiVision.api.routes.tailgating import router as tailgating_router
-from AiVision.api.routes.agv_person_check import router as agv_person_check_router
+from AiVision.api.routes.agv_person_check import router as agv_person_check_router, status_router as agv_status_router
 from AiVision.api.routes.visual_language_detection import router as visual_language_detection_router
 from AiVision.api.routes.models import router as models_router
 from AiVision.api.routes.horns import router as horns_router
@@ -203,6 +203,7 @@ def create_app() -> FastAPI:
     app.include_router(security_fence_router)
     app.include_router(tailgating_router)
     app.include_router(agv_person_check_router)
+    app.include_router(agv_status_router)
     app.include_router(visual_language_detection_router)
 
     return app
