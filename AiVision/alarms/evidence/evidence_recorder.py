@@ -34,6 +34,7 @@ class _ClipTask:
     end_time: float            # 当前时间+10秒
     frames: list[bytes]        # 前十秒已经缓存的帧（不是numpy，而是jpeg bytes）
     spool: BinaryIO | None = None
+    sealed: bool = False
 
 class AlarmEvidenceRecorder:
     """以固定工作线程和容量限制管理多源视频证据。"""
@@ -199,7 +200,7 @@ class AlarmEvidenceRecorder:
                 buffer.popleft()
 
             for token, episode in tuple(self._episodes.items()):
-                if episode.source_key != source_key:
+                if episode.source_key != source_key or episode.sealed:
                     continue
                 try:
                     self._append_episode_frame(episode, sampled)
@@ -307,6 +308,15 @@ class AlarmEvidenceRecorder:
                 self._task_slots.release()
                 logger.warning(f"[AlarmEvidence] 无法开始事件证据 source={source_key}: {exc}")
                 return None
+
+    def seal_episode(self, token: str) -> bool:
+        """停止事件采帧并保留临时证据，供异步判定后决定编码还是取消。"""
+        with self._lock:
+            task = self._episodes.get(token)
+            if task is None:
+                return False
+            task.sealed = True
+            return True
 
     def finish_episode(self, token: str) -> str | None:
         """封存完整事件并交给公共编码队列；同一个 token 只能结束一次。"""

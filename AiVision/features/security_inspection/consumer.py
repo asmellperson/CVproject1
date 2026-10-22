@@ -12,7 +12,7 @@ from AiVision.core.settings import settings
 from AiVision.features._shared.consumer import BaseFunctionConsumer, SubmittedInference
 from AiVision.features._shared.roi import roi_to_pixels
 from AiVision.features.guard_behavior.tracking import CameraByteTracker
-from .evidence import build_evidence_image, encode_evidence_image
+from .evidence import InspectionSessionEvidence, build_evidence_image, encode_evidence_image
 from .runtime import InspectionRuntime, InspectionTask
 from .schema import InspectionValue
 from .service import InspectionService
@@ -39,6 +39,7 @@ class InspectionConsumer(BaseFunctionConsumer):
         super().__init__(**kwargs)
         self.service = InspectionService()
         self.vlm_runtime = InspectionRuntime(self._complete)
+        self._session_evidence = InspectionSessionEvidence()
         self._sessions: dict[int, PairSessionManager] = {}
         self._trackers: dict[int, CameraByteTracker] = {}
         self._generations: dict[int, int] = {}
@@ -67,10 +68,12 @@ class InspectionConsumer(BaseFunctionConsumer):
             self._sessions.clear()
             self._trackers.clear()
             self._frame_shapes.clear()
+            self._session_evidence.clear()
 
     def _invalidate(self, camera_id: int):
         """递增配置代次并取消待判定任务，使旧帧和旧结果失效。"""
         self._generations[camera_id] = self._generations.get(camera_id, 0) + 1
+        self._session_evidence.cancel_camera(camera_id)
         pending = self._pending_inferences.pop(camera_id, None)
         if pending is not None:
             self.cancel_inference(pending.request)
@@ -216,23 +219,36 @@ class InspectionConsumer(BaseFunctionConsumer):
             name: roi_to_pixels(points, frame.shape).astype(float).tolist()
             for name, points in cfg["staff_rois"].items()
         }
+        manager = self._sessions[camera_id]
+        completed = manager.step(frame, tracks, rois, captured_at)
+        # 只为可能持久化报警的会话预留录像，其他渠道不占用公共取证容量。
+        active = {state.active.session_id for state in manager.roi_states.values() if state.active is not None}
+        if not (cfg.get("sql_enable") or cfg.get("wechat_enable")):
+            active.clear()
+        self._session_evidence.sync(camera_id, cfg["shm_name"], frame, active,
+                                    {session.session_id for session in completed})
         tasks = []
-        for session in self._sessions[camera_id].step(frame, tracks, rois, captured_at):
-            tasks.append(
-                InspectionTask(
-                    session_id=session.session_id,
-                    camera_id=camera_id,
-                    camera_name=cfg["name"],
-                    camera_key=cfg["shm_name"],
-                    department=cfg["department"],
-                    roi_name=session.roi_name,
-                    start_ts=session.start_ts,
-                    end_ts=session.end_ts,
-                    generation=self._generations[camera_id],
-                    frames=encode_frames(session.keyframes, self.vlm_runtime.settings),
-                    queued_at=time.monotonic(),
+        try:
+            for session in completed:
+                tasks.append(
+                    InspectionTask(
+                        session_id=session.session_id,
+                        camera_id=camera_id,
+                        camera_name=cfg["name"],
+                        camera_key=cfg["shm_name"],
+                        department=cfg["department"],
+                        roi_name=session.roi_name,
+                        start_ts=session.start_ts,
+                        end_ts=session.end_ts,
+                        generation=self._generations[camera_id],
+                        frames=encode_frames(session.keyframes, self.vlm_runtime.settings),
+                        queued_at=time.monotonic(),
+                    )
                 )
-            )
+        except Exception:
+            for session in completed:
+                self._session_evidence.cancel_session(session.session_id)
+            raise
         return False, {"tracks": tracks, "tasks": tasks}
 
     def _after_process(self, camera_id, result):
@@ -271,7 +287,14 @@ class InspectionConsumer(BaseFunctionConsumer):
         )
 
     def _complete(self, task, verdict, error, latency):
-        """记录有效判定历史，只为明确不合格结果生成基于会话关键帧的告警。
+        """记录有效判定历史，结束后回收未被告警分发器接收的会话录像。"""
+        try:
+            self._record_verdict(task, verdict, error, latency)
+        finally:
+            self._session_evidence.cancel_session(task.session_id)
+
+    def _record_verdict(self, task, verdict, error, latency):
+        """不合格告警使用本会话关键帧和已封存录像，判定延迟不追加现场画面。
 
         回调到达时与告警前均核对配置代次，过期结果记录为取消而不触发告警。
         """
@@ -303,7 +326,10 @@ class InspectionConsumer(BaseFunctionConsumer):
                         "ended_at": task.end_ts,
                         "verdict": verdict.model_dump(),
                     },
-                    "evidence": AlarmEvidenceRequest(source_key=cfg["shm_name"], mode="snapshot"),
+                    "evidence": AlarmEvidenceRequest(
+                        source_key=cfg["shm_name"], mode="episode",
+                        episode_token=self._session_evidence.token_for(task.session_id),
+                    ),
                 },
             ),
             frame,

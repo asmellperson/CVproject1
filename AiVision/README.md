@@ -847,7 +847,9 @@ Consumer / 通道状态机满足规则
 
 视频经历 `pending → ready/failed`，由回调更新记录。启动时间较短、摄像头断流或缓存不足时，实际片段可能短于配置的前后时长；任务满或编码失败时应查看视频状态和日志。
 
-该功能保存报警证据片段，不能作为全天连续录像存储使用。物流证据使用通道画面；安检告警采用 `snapshot` 模式，保存已结束 session 的关键帧拼图，不使用模型返回时的实时帧代替证据。
+该功能保存报警证据片段，不能作为全天连续录像存储使用。物流证据使用通道画面；安检告警采用 `episode` 模式，录像包含会话开始时已有的前录缓存及整个交互过程。会话结束后通过 `seal_episode()` 停止追加画面并保留临时证据，异步判定为不合规且本次允许持久化报警时，再通过 `finish_episode()` 编码 MP4。录像不包含模型等待阶段，截图仍使用该 session 的关键帧拼图。
+
+安检合规、判定失败、配置失效或未获准持久化的会话取消临时录像；关闭公共录像或取证容量不足时保留截图证据，不关联替代现场短片。临时采集、等待判定和后台编码共用 `ALARM_CLIP_MAX_TASKS` 容量。安检报警视频沿用 `ai_violation_image.video_path/video_status`、`GET /api/alarms/{alarm_id}/video` 及报警详情播放器，访问需要人员登录和事业部权限。
 
 ### 8.4 后台写入、通知和清理
 
@@ -906,10 +908,10 @@ SIP 喇叭间隔为 `0` 时不加设备层冷却，同台待播或在播请求�
 
 ```text
 平台最新帧 → 共享 yolo_human → 摄像头独立 ByteTrack
-           → 命名工位 ROI → 双人交互 session → JPEG 关键帧
+           → 命名工位 ROI → 双人交互 session → JPEG 关键帧与会话录像（结束时封存）
            → 按事业部/摄像头轮询的有界队列 → 福达AI Chat Completions
            → 严格校验 verdict → MySQL session 历史（不合规时与 JPEG 证据原子提交）
-           → non_compliant 时提交统一告警与关键帧拼图
+           → non_compliant 时提交统一告警、关键帧拼图与对应会话录像
 ```
 
 摄像头、开关、ROI、检测参数和告警配置复用公共 API。`staff_rois` 使用归一化坐标，单台摄像头最多 16 个工位，每个工位 3–64 个顶点；不同工位使用不同名称。跟踪器和会话全部构造成功后才写入摄像头状态，初始化失败可在下一帧重试。在线检查导致的离线清理与检测处理使用同一状态锁。配置更新、禁用、分辨率变化或推理失败时，会清理相关跟踪/会话，旧配置的异步结果不能继续产生新告警。
@@ -945,7 +947,9 @@ SIP 喇叭间隔为 `0` 时不加设备层冷却，同台待播或在播请求�
 
 会话、统计和证据读取统一按 `started_at` 过滤滚动最近 31 天。`stats.total` 包含合规、不合规和判定失败；修改 ROI 等操作产生的取消会话计入 `stats.cancelled` 并保留历史，不计入安检总数。合规率为合规数除以合规数与不合规数之和。历史分页条数为 `stats.total + stats.cancelled`。过期会话按时间索引每批 500 条删除，关联数据库图片同步删除；分页和统计不会加载 BLOB。
 
-`evidence.py` 将会话关键帧拼图编码为 JPEG，`service.py` 将不合规会话与 `ai_security_inspection_session_image.image_data` 在同一事务中保存。图片表以 `session_id` 为主键及级联外键，`media_type` 为 `image/jpeg`，MySQL 类型为 `MEDIUMBLOB`。缺图或写入失败时事务不提交，并由运行时记录保存失败。SQL 通知开关、告警冷却及磁盘媒体清理不影响这份证据；统一报警通道仍按各自配置分发。
+`evidence.py` 将会话关键帧拼图编码为 JPEG，`service.py` 将不合规会话与 `ai_security_inspection_session_image.image_data` 在同一事务中保存。图片表以 `session_id` 为主键及级联外键，`media_type` 为 `image/jpeg`，MySQL 类型为 `MEDIUMBLOB`。缺图或写入失败时事务不提交，并由运行时记录保存失败。SQL 通知开关、告警冷却及磁盘媒体清理不影响这份图片证据；统一报警通道仍按各自配置分发。
+
+`InspectionSessionEvidence` 在 `evidence.py` 中按摄像头和 `session_id` 管理录像令牌，仅为启用 SQL 或企微通道的会话预留采集资源。`Consumer` 同步交互会话的开始与结束，结束时立即封存，关键帧不足的会话直接取消录像。异步判定只使用本会话的封存令牌，记录保存失败、结果取消、摄像头离线、配置变化及停止检测均回收尚未提交的录像。
 
 安检没有独立采集进程、FrameHub、外部 Worker Python 或旧版预算配置；原生 Consumer 随 Orchestrator 管理，通过摄像头/功能开关决定是否产生检测任务。
 
