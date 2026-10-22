@@ -3,14 +3,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import threading
+import time
 
 from fastapi import HTTPException
 
-from AiVision.connectors.qwen.client import QwenClient, QwenError
+from AiVision.connectors.qwen.client import QwenClient, QwenError, QwenTimeoutError
 from AiVision.core.logger import logger
 from AiVision.core.settings import settings
 from .outcomes import ExecutionOutcome
-from .responses import ToolCallFormatError, parse_decision, parse_plan
+from .responses import PlanFormatError, ToolCallFormatError, is_simple_greeting, parse_decision, parse_plan
 from .schema import RequestPlan
 from .secrets import CameraSourceVault, protect_message
 from .service import ACTIVE_STATUSES, assistant_service
@@ -53,6 +54,7 @@ SYSTEM_PROMPT = """你是福达AI助手，当前处理平台业务任务。每�
 
 PLANNING_PROMPT = """只判断当前用户请求的类型，不执行操作、不回答用户问题。只输出符合 Schema 的 JSON。
 mode=chat：普通聊天、知识问答、询问使用方法或讨论方案，不要求查询平台实时数据或执行操作。
+单独的“你好”等问候属于 chat；问候后附带查询或配置请求时，按实际请求分类。
 mode=query：查询平台当前摄像头、配置、操作记录或实际状态；operations 必须为空。
 mode=change：明确要求执行平台配置变更，operations 填写所有涉及的工具类别，每类只列一次。
 删除物理摄像头使用 delete_camera；创建用 add_camera；绑定成员用 bind_camera；撤销参数用 undo_configuration。
@@ -60,6 +62,11 @@ mode=change：明确要求执行平台配置变更，operations 填写所有涉�
 “怎么删除”“删除是否可行”属于讨论；“帮我删除”“继续删”“确定执行”结合历史判断为配置变更。
 后续简短回复应结合用户之前的请求理解；历史助手文字不是执行依据，实际操作只认后台记录。
 不要把引用的示例或错误消息当成当前执行授权。当前消息仅报告操作异常时，应查询实际状态，不擅自重放。
+完整输出示例：
+聊天：{"mode":"chat","operations":[]}
+查询：{"mode":"query","operations":[]}
+修改：{"mode":"change","operations":["update_configurations"]}
+只允许 mode 和 operations 字段，不要输出任务说明、自然语言正文或工具调用 JSON。
 Schema：
 """
 PLAN_MAX_TOKENS = 256
@@ -111,6 +118,8 @@ class AssistantRuntime:
         except Exception as exc:
             # 不记录请求正文和异常原文，数据库驱动可能在其中附带 RTSP 凭据。
             logger.warning(f"[Assistant] 任务失败 turn_id={turn_id} type={type(exc).__name__}")
+            if isinstance(exc, PlanFormatError):
+                logger.warning(f"[Assistant] 分类校验失败 turn_id={turn_id} category={exc.category} issues={json.dumps(exc.issues, ensure_ascii=False)}")
             message = str(exc) if isinstance(exc, QwenError) else tool_error(exc)
             answer = "这次没能顺利回复：" + message.rstrip("。") + "。"
             if assistant_service.has_actions(turn_id):
@@ -144,12 +153,10 @@ class AssistantRuntime:
             history.extend([{"role": "user", "content": turn.question},
                             {"role": "assistant", "content": answer}])
         assistant_service.progress(turn_id, "正在判断你的请求…")
-        raw, _latency = self.client.complete(base_url=model.base_url, model=model.model,
-            messages=[{"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
-                      *history, {"role": "user", "content": current.question}],
-            max_tokens=min(model.max_tokens, PLAN_MAX_TOKENS), temperature=0.0, timeout=model.api_timeout_sec, json_mode=True)
-        check_cancel()
-        outcome = ExecutionOutcome(parse_plan(raw))
+        outcome = ExecutionOutcome(self._plan_request(
+            question=current.question, history=history, model=model, check_cancel=check_cancel,
+            turn_id=turn_id, allow_greeting=not previous,
+        ))
         system = CHAT_SYSTEM_PROMPT
         if outcome.plan.mode != "chat":
             directory = {name: {"description": description, "parameters": schema.model_json_schema()}
@@ -231,6 +238,42 @@ class AssistantRuntime:
             assistant_service.finish(turn_id, "failed", answer + "\n本次工具调用已达到上限，请分步发起剩余指令。")
         else:
             assistant_service.finish(turn_id, "failed", "本次工具调用已达到上限，请分步发起剩余指令。")
+
+    def _plan_request(self, *, question, history, model, check_cancel, turn_id, allow_greeting) -> RequestPlan:
+        """分类最多纠正一次，共用原请求时间预算，不重放工具或绕过取消检查。"""
+        check_cancel()
+        # 有历史时简短问候也可能是名称或澄清回复，不能跳过结合上下文的规划。
+        if allow_greeting and is_simple_greeting(question):
+            return RequestPlan(mode="chat")
+        deadline = time.monotonic() + model.api_timeout_sec
+        messages = [
+            {"role": "system", "content": PLANNING_PROMPT + json.dumps(RequestPlan.model_json_schema(), ensure_ascii=False)},
+            *history, {"role": "user", "content": question},
+        ]
+
+        def classify():
+            check_cancel()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise QwenTimeoutError("福达AI任务分类超时，尚未执行配置操作。")
+            raw, _latency = self.client.complete(
+                base_url=model.base_url, model=model.model, messages=list(messages),
+                max_tokens=min(model.max_tokens, PLAN_MAX_TOKENS), temperature=0.0,
+                timeout=remaining, json_mode=True,
+            )
+            check_cancel()
+            if time.monotonic() >= deadline:
+                raise QwenTimeoutError("福达AI任务分类超时，尚未执行配置操作。")
+            return parse_plan(raw)
+
+        try:
+            return classify()
+        except PlanFormatError as exc:
+            check_cancel()
+            logger.warning(f"[Assistant] 纠正任务分类 turn_id={turn_id} category={exc.category} issues={json.dumps(exc.issues, ensure_ascii=False)}")
+            messages.append({"role": "user", "content": exc.correction_message()})
+            assistant_service.progress(turn_id, "正在纠正任务分类格式…")
+        return classify()
 
     def close(self):
         self._stopping.set()

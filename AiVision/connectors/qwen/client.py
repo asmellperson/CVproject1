@@ -12,6 +12,26 @@ class QwenError(RuntimeError):
     """不包含凭据、请求正文或证据内容的模型服务异常。"""
 
 
+class QwenNetworkError(QwenError):
+    """模型请求的连接或传输失败，不包含底层异常中的地址。"""
+
+
+class QwenTimeoutError(QwenError):
+    """等待并发名额或模型响应超时。"""
+
+
+class QwenServiceError(QwenError):
+    """模型服务返回错误或未正常完成生成。"""
+
+
+class QwenResponseError(QwenError):
+    """模型响应封装或正文无法解析。"""
+
+
+class QwenTruncatedError(QwenError):
+    """模型因输出长度限制提前终止生成。"""
+
+
 _slots = threading.BoundedSemaphore(settings.runtime.qwen_max_concurrent_requests)
 
 
@@ -33,11 +53,11 @@ class QwenClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         if not _slots.acquire(timeout=timeout):
-            raise QwenError("福达AI服务请求繁忙，等待超时")
+            raise QwenTimeoutError("福达AI服务请求繁忙，等待超时")
         try:
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
-                raise QwenError("等待福达AI服务超时")
+                raise QwenTimeoutError("等待福达AI服务超时")
             with requests.Session() as transport:
                 transport.trust_env = False
                 try:
@@ -47,9 +67,11 @@ class QwenClient:
                         timeout=(min(5.0, remaining), remaining), allow_redirects=False,
                     ) as response:
                         if response.status_code != 200:
-                            raise QwenError(f"福达AI服务返回 HTTP {response.status_code}")
+                            raise QwenServiceError(f"福达AI服务返回 HTTP {response.status_code}")
                         return response.text, time.monotonic() - started
+                except requests.Timeout:
+                    raise QwenTimeoutError("等待福达AI服务响应超时") from None
                 except requests.RequestException as exc:
-                    raise QwenError(f"福达AI服务请求失败：{type(exc).__name__}") from exc
+                    raise QwenNetworkError(f"福达AI服务请求失败：{type(exc).__name__}") from None
         finally:
             _slots.release()
