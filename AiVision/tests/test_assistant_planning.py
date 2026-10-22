@@ -91,7 +91,11 @@ def test_complete_empty_thinking_and_json_fences_keep_working():
 
 @pytest.mark.parametrize("text, expected", [
     ("你好", True), (" 您好！ ", True), ("Hello!", True), ("hi?", True),
+    ("你好哇", True), ("你好呀！", True), ("您好啊", True), ("哈喽呀～", True),
+    ("你好啊啊啊！", True), ("你好 哇", True),
     ("你好，帮我修改摄像头 FPS", False), ("你好\n删除一号摄像头", False),
+    ("你好哇，帮我删除摄像头", False), ("你好呀！查询当前摄像头", False),
+    ("你好啊\n请停用报警", False), ("继续删", False), ("确认删除", False),
     ("你好! 请关闭报警", False), ("把摄像头名称改为你好", False), ("查询当前配置", False),
     ("‘你好’", False), ("", False),
 ])
@@ -134,7 +138,7 @@ def runtime_case(monkeypatch):
         execute=lambda: runtime._execute("session-1", 1, lambda: {"role": "admin"}, None),
         plan=lambda **kwargs: runtime._plan_request(
             question=current.question, history=[], model=service.settings(),
-            check_cancel=lambda: None, turn_id=1, allow_greeting=False, **kwargs,
+            check_cancel=lambda: None, turn_id=1, **kwargs,
         ),
     )
     runtime.close()
@@ -255,15 +259,94 @@ def test_standalone_greeting_skips_planning_but_still_uses_the_chat_model(runtim
     case.tools.run.assert_not_called()
 
 
-def test_greeting_with_existing_context_still_uses_the_planner(runtime_case):
+@pytest.mark.parametrize("question", ["你好", "你好哇", "你好呀！", "您好啊"])
+@pytest.mark.parametrize("previous_task", ["failed_delete", "completed_delete", "name_question"])
+def test_greeting_does_not_resume_or_include_a_previous_configuration_task(runtime_case, question, previous_task):
     case = runtime_case
-    case.current.question = "你好"
-    previous = SimpleNamespace(id=0, question="请修改摄像头名称", status="completed", answer="请提供名称", actions=[])
+    case.current.question = question
+    action = Mock()
+    action.model_dump.return_value = {"status": "saved", "target": "legacy_camera_marker"}
+    previous = SimpleNamespace(
+        id=0, question="请删除 legacy_camera_marker 摄像头", status="failed",
+        answer="本轮没有执行配置变更，不能确认操作完成。尚未完成：删除摄像头。", actions=[],
+    )
+    if previous_task == "completed_delete":
+        previous.status, previous.answer, previous.actions = "completed", "已删除 legacy_camera_marker", [action]
+    elif previous_task == "name_question":
+        previous.question, previous.answer = "重命名 legacy_camera_marker", "请输入摄像头新名称"
     case.service.conversation.return_value.turns.insert(0, previous)
-    case.client.complete.side_effect = [(completion({"mode": "chat"}), 0.1), (completion("你好"), 0.1)]
+
+    def reply(**kwargs):
+        # 即使规划模型会错误延续删除任务，独立问候也不能进入该调用路径。
+        content = {"mode": "change", "operations": ["delete_camera"]} if kwargs["json_mode"] else "你好呀，有什么可以帮你？"
+        return completion(content), 0.1
+
+    case.client.complete.side_effect = reply
     case.execute()
-    assert case.client.complete.call_count == 2
-    assert case.client.complete.call_args_list[0].kwargs["json_mode"] is True
+    assert case.client.complete.call_count == 1
+    request = case.client.complete.call_args.kwargs
+    assert request["json_mode"] is False
+    assert len(request["messages"]) == 2
+    assert "legacy_camera_marker" not in json.dumps(request["messages"], ensure_ascii=False)
+    assert request["messages"][-1]["content"] == question
+    case.tools.run.assert_not_called()
+    case.tools.catalog.assert_not_called()
+    action.model_dump.assert_not_called()
+    case.service.finish.assert_called_once_with(1, "completed", "你好呀，有什么可以帮你？")
+
+
+def test_greeting_cannot_authorize_a_delete_even_if_chat_model_returns_a_tool_call(runtime_case, monkeypatch):
+    case = runtime_case
+    case.current.question = "你好哇"
+    monkeypatch.setattr(case.module.settings.runtime, "assistant_max_rounds", 1)
+    case.client.complete.return_value = (completion({
+        "action": "delete_camera", "arguments": {"camera_key": "camera:1", "expected_revision": "a" * 64},
+    }), 0.1)
+    case.execute()
+    assert case.client.complete.call_args.kwargs["json_mode"] is False
+    case.tools.run.assert_not_called()
+    case.tools.catalog.assert_not_called()
+    assert case.service.finish.call_args.args[1] == "failed"
+    assert "尚未完成：删除摄像头" not in case.service.finish.call_args.args[2]
+
+
+@pytest.mark.parametrize("question, operation", [
+    ("你好哇，先查询当前摄像头", None),
+    ("你好呀，帮我把摄像头 FPS 改成 8", "update_configurations"),
+    ("你好啊，帮我删除 camera_1 摄像头", "delete_camera"),
+    ("继续删", "delete_camera"),
+])
+def test_actual_operations_and_explicit_continuations_keep_their_planning_context(runtime_case, question, operation):
+    case = runtime_case
+    case.current.question = question
+    case.service.conversation.return_value.turns.insert(0, SimpleNamespace(
+        id=0, question="请核对 legacy_camera_marker 的配置", status="completed", answer="请明确接下来的操作", actions=[],
+    ))
+    if operation is None:
+        plan = {"mode": "query", "operations": []}
+        decision = {"action": "list_resources", "arguments": {"kind": "camera"}}
+    else:
+        plan = {"mode": "change", "operations": [operation]}
+        arguments = {"camera_key": "camera:1", "expected_revision": "a" * 64} if operation == "delete_camera" else {
+            "changes": [{"resource_key": "camera:1", "expected_revision": "a" * 64, "patch": {"fps": 8}}],
+        }
+        decision = {"action": operation, "arguments": arguments}
+        case.service.actions.return_value = [SimpleNamespace(
+            resource=SimpleNamespace(kind="camera_deletion" if operation == "delete_camera" else "camera",
+                                     name="一号摄像头", identifier="camera_1"),
+            status="saved", after={"fps": 8}, detail="数据库记录确认保存",
+        )]
+    case.client.complete.side_effect = [
+        (completion(plan), 0.1), (completion(decision), 0.1),
+        (completion({"action": "answer", "answer": "结束本轮"}), 0.1),
+    ]
+    case.execute()
+    planning = case.client.complete.call_args_list[0].kwargs
+    assert planning["json_mode"] is True
+    assert "legacy_camera_marker" in json.dumps(planning["messages"], ensure_ascii=False)
+    expected_tool = operation or "list_resources"
+    assert any(call.args[0] == expected_tool for call in case.tools.run.call_args_list)
+    assert case.service.finish.call_args.args[1] == "completed"
 
 
 def test_query_results_still_come_from_tools(runtime_case):

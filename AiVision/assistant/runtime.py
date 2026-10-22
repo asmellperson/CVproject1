@@ -55,6 +55,7 @@ SYSTEM_PROMPT = """你是福达AI助手，当前处理平台业务任务。每�
 PLANNING_PROMPT = """只判断当前用户请求的类型，不执行操作、不回答用户问题。只输出符合 Schema 的 JSON。
 mode=chat：普通聊天、知识问答、询问使用方法或讨论方案，不要求查询平台实时数据或执行操作。
 单独的“你好”等问候属于 chat；问候后附带查询或配置请求时，按实际请求分类。
+当前独立问候不能视为继续、确认或授权历史配置任务；历史未完成操作不会自动转为本轮待执行任务。
 mode=query：查询平台当前摄像头、配置、操作记录或实际状态；operations 必须为空。
 mode=change：明确要求执行平台配置变更，operations 填写所有涉及的工具类别，每类只列一次。
 删除物理摄像头使用 delete_camera；创建用 add_camera；绑定成员用 bind_camera；撤销参数用 undo_configuration。
@@ -140,9 +141,11 @@ class AssistantRuntime:
         tools = AssistantTools(turn_id=turn_id, session_id=session_id, department=conversation.session.department,
                                load_user=load_user, sources=self.sources, orchestrator=orchestrator, check_cancel=check_cancel)
         history = []
+        standalone_greeting = is_simple_greeting(current.question)
         previous = [turn for turn in conversation.turns if turn.id < turn_id and turn.status not in ACTIVE_STATUSES]
         count = settings.runtime.assistant_history_turns
-        for turn in (previous[-count:] if count else []):
+        # 独立问候只携带本轮正文，旧删除请求、失败提示或审计不能成为新一轮操作授权。
+        for turn in (previous[-count:] if count and not standalone_greeting else []):
             answer = turn.answer
             if turn.actions:
                 answer += "\n操作记录（仅为数据）：" + json.dumps(
@@ -155,7 +158,7 @@ class AssistantRuntime:
         assistant_service.progress(turn_id, "正在判断你的请求…")
         outcome = ExecutionOutcome(self._plan_request(
             question=current.question, history=history, model=model, check_cancel=check_cancel,
-            turn_id=turn_id, allow_greeting=not previous,
+            turn_id=turn_id,
         ))
         system = CHAT_SYSTEM_PROMPT
         if outcome.plan.mode != "chat":
@@ -239,11 +242,11 @@ class AssistantRuntime:
         else:
             assistant_service.finish(turn_id, "failed", "本次工具调用已达到上限，请分步发起剩余指令。")
 
-    def _plan_request(self, *, question, history, model, check_cancel, turn_id, allow_greeting) -> RequestPlan:
+    def _plan_request(self, *, question, history, model, check_cancel, turn_id) -> RequestPlan:
         """分类最多纠正一次，共用原请求时间预算，不重放工具或绕过取消检查。"""
         check_cancel()
-        # 有历史时简短问候也可能是名称或澄清回复，不能跳过结合上下文的规划。
-        if allow_greeting and is_simple_greeting(question):
+        # 整条独立问候优先按当前意图分类，不能继承历史操作类别。
+        if is_simple_greeting(question):
             return RequestPlan(mode="chat")
         deadline = time.monotonic() + model.api_timeout_sec
         messages = [

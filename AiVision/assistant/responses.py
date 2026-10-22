@@ -50,7 +50,10 @@ def _plan_issues(exc: ValidationError) -> list[dict]:
 
 def is_simple_greeting(question: str) -> bool:
     """只识别整条独立问候，包含配置请求、引用或其他正文时交给规划器。"""
-    return re.fullmatch(r"(?:你好|您好|嗨|哈喽|hello|hi)[\s！!。.?？～~]*", question.strip(), re.IGNORECASE) is not None
+    return re.fullmatch(
+        r"(?:你好|您好|嗨|哈喽|hello|hi)[呀哇啊吖哟哦噢喔哈\s！!。.?？～~，,、；;]*",
+        question.strip(), re.IGNORECASE,
+    ) is not None
 
 
 def completion_content(raw: str) -> str:
