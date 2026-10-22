@@ -496,3 +496,196 @@ def test_model_cli_renders_format_evidence_without_raw_content(monkeypatch, tmp_
     markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "schema_conflicting" in markdown and "输出合同通过/适用次数" in markdown
     assert "private-" not in markdown and "private-" not in json.dumps(report)
+
+
+def test_service_openapi_contract_follows_references_without_logging_defaults():
+    from AiVision.tests.assistant_diagnostics.service import openapi_contract
+
+    schema = {"paths": {"/v1/chat/completions": {"post": {"requestBody": {"$ref": "#/components/requestBodies/Input"}}}},
+              "components": {"requestBodies": {"Input": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Input"}}}}},
+                             "schemas": {"Input": {"allOf": [{"properties": {"messages": {}, "response_format": {},
+                                 "private-field-sentinel": {"default": "private-value-sentinel"}}, "additionalProperties": False},
+                                 {"$ref": "#/components/schemas/Input"}]}}}}
+    result = openapi_contract(schema)
+    assert result == {"chat_completions_found": True, "declared_fields": ["messages", "response_format"], "extra_fields_policy": "forbid"}
+    assert "private-" not in json.dumps(result)
+
+
+def test_service_process_inspection_redacts_arguments_and_reads_listener_environment(tmp_path):
+    from AiVision.tests.assistant_diagnostics.service import process_details
+
+    process = tmp_path / "123"
+    process.mkdir()
+    (process / "exe").symlink_to("/env/bin/python3.11")
+    (process / "cmdline").write_bytes(b"/env/bin/python\0/srv/serve_model.py\0--api-key\0private-key-sentinel\0--structured-outputs-config.backend\0xgrammar\0")
+    source = process / "root/srv/serve_model.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("import transformers\nresponse_format = 'private-source-sentinel'\n", encoding="utf-8")
+    metadata = process / "root/env/lib/python3.11/site-packages/transformers-5.1.0.dist-info/METADATA"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text("Name: transformers\nVersion: 5.1.0\nPrivate: private-metadata-sentinel\n", encoding="utf-8")
+    result = process_details(123, proc_root=tmp_path)
+    assert result["entrypoint_name"] == "serve_model.py" and len(result["entrypoint_sha256"]) == 64
+    assert result["source_signals"]["response_format"] and result["source_signals"]["transformers"]
+    assert result["installed_package_versions"] == {"transformers": ["5.1.0"]}
+    assert result["decoding_backend_hints"] == ["xgrammar"]
+    assert "private-" not in json.dumps(result) and "--api-key" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("entry,expected", [
+    (["-u", "-m", "vllm.entrypoints.openai.api_server"], "vllm.entrypoints.openai.api_server"),
+    (["serve_model.py", "-m", "private_module_sentinel"], None),
+])
+def test_service_process_module_detection_does_not_expose_application_arguments(tmp_path, entry, expected):
+    from AiVision.tests.assistant_diagnostics.service import process_details
+
+    process = tmp_path / "123"
+    process.mkdir()
+    (process / "exe").symlink_to("/env/bin/python3.11")
+    (process / "cmdline").write_bytes("\0".join(["/env/bin/python", *entry]).encode())
+    result = process_details(123, proc_root=tmp_path)
+    assert result.get("python_module") == expected and "private_module_sentinel" not in json.dumps(result)
+
+
+def test_service_metadata_retains_only_version_and_contract_evidence(monkeypatch):
+    from AiVision.tests.assistant_diagnostics import service
+
+    monkeypatch.setattr(service, "local_listener", lambda _url: {"status": "not_found", "processes": []})
+    monkeypatch.setenv("SECURITY_VLM_API_KEY", "private-header-sentinel")
+    document = {"version": "0.8.2", "build_info": "private-version-sentinel", "password": "private-password-sentinel",
+                "info": {"title": "vLLM private-title-sentinel", "version": "0.1.0"},
+                "data": [{"id": "fixture", "owned_by": "vllm", "root": "private-path-sentinel"}]}
+    calls = []
+
+    def get(_self, url, **kwargs):
+        assert kwargs["allow_redirects"] is False and kwargs["stream"] is True
+        assert kwargs["headers"]["Authorization"] == "Bearer private-header-sentinel"
+        calls.append(url)
+        response = Mock(status_code=200, headers={"Server": "uvicorn private-server-sentinel"})
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.iter_content.return_value = [json.dumps(document).encode()]
+        return response
+
+    monkeypatch.setattr("requests.Session.get", get)
+    result = service.service_metadata({"base_url": "http://model.invalid/proxy/v1", "model": "fixture", "timeout": 10.0})
+    assert len(calls) == 6 and "http://model.invalid/proxy/version" in calls
+    assert result["endpoints"]["version"]["versions"] == {"version": "0.8.2"}
+    assert result["endpoints"]["openapi"]["application_version"] == "0.1.0"
+    assert result["endpoints"]["models"]["owner_hints"] == ["vllm"]
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("payload,status,error", [(b'{"version":"1.2.3"}', 302, None), (b'not-json', 200, "JSONDecodeError"),
+                                                (b'x' * (2 * 1024 * 1024 + 1), 200, "ValueError")])
+def test_service_metadata_handles_redirects_invalid_json_and_size_limits(monkeypatch, payload, status, error):
+    from AiVision.tests.assistant_diagnostics import service
+
+    monkeypatch.setattr(service, "local_listener", lambda _url: {})
+    response = Mock(status_code=status, headers={"Location": "private-redirect-sentinel"})
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    response.iter_content.side_effect = lambda **_kwargs: iter([payload])
+    monkeypatch.setattr("requests.Session.get", lambda *_args, **_kwargs: response)
+    result = service.service_metadata({"base_url": "http://model.invalid/v1", "model": "fixture", "timeout": 10.0})
+    assert all(entry["http_status"] == status for entry in result["endpoints"].values())
+    if status == 200:
+        assert all(entry["error_type"] == error for entry in result["endpoints"].values())
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("network_error", [False, True])
+def test_service_contract_probes_preserve_rejections_limits_and_inconclusive_results(monkeypatch, network_error):
+    from AiVision.connectors.qwen.client import QwenNetworkError, QwenServiceError
+    from AiVision.tests.assistant_diagnostics.service import run_service_probes
+
+    calls = []
+
+    def complete(**kwargs):
+        calls.append(kwargs)
+        if network_error:
+            raise QwenNetworkError("private-network-sentinel")
+        schema = kwargs.get("response_schema") or {}
+        if schema.get("type") == "assistant_diagnostic_invalid_type":
+            raise QwenServiceError("HTTP 422 private-error-sentinel")
+        body = json.loads(completion({"probe": "schema_ok"} if kwargs["json_mode"] else "private-response-sentinel"))
+        body["usage"] = {"completion_tokens": 1 if kwargs["max_tokens"] == 1 else 12}
+        return json.dumps(body), 0.0
+
+    client = Mock()
+    client.complete.side_effect = complete
+    monkeypatch.setattr("AiVision.connectors.qwen.client.QwenClient", lambda: client)
+    rows = []
+    run_service_probes({"base_url": "http://model.invalid/v1", "model": "fixture", "timeout": 10.0}, 3, rows.append, lambda _message: None)
+    assert len(rows) == 15 and len(calls) == 15
+    assert all(call["temperature"] == 0.0 and call["timeout"] == 10.0 for call in calls)
+    if network_error:
+        assert all(row["probe_status"] == "inconclusive" and row["failure_layers"] == ["model_service"] for row in rows)
+    else:
+        assert all(row["behavior_ok"] and row["probe_status"] == "passed" for row in rows)
+        assert all(row["http_status"] == 422 for row in rows if row["scenario"] == "invalid_schema_rejection")
+        assert all(row["max_tokens_ok"] for row in rows if row["scenario"] == "max_tokens_one")
+    assert "private-" not in json.dumps(rows)
+
+
+def test_service_layer_is_blocked_without_an_explicit_target(tmp_path):
+    from AiVision.tests.assistant_diagnostics.runner import main
+
+    assert main(["--layers", "service", "--output", str(tmp_path)]) == 0
+    report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    assert report["layers"]["service"]["status"] == "blocked" and "service_inspection" not in report
+
+
+@pytest.mark.parametrize("fault", ["ignored_schema", "ignored_length", "missing_usage", "short_control"])
+def test_service_probes_do_not_confuse_ignored_parameters_with_success(monkeypatch, fault):
+    from AiVision.tests.assistant_diagnostics.service import run_service_probes
+
+    def complete(**kwargs):
+        body = json.loads(completion("fixed text" if fault == "ignored_schema" else {"probe": "schema_ok"}))
+        if fault != "missing_usage":
+            body["usage"] = {"completion_tokens": 10 if fault == "ignored_length" else 1 if kwargs["max_tokens"] == 1 or fault == "short_control" else 12}
+        return json.dumps(body), 0.0
+
+    client = Mock()
+    client.complete.side_effect = complete
+    monkeypatch.setattr("AiVision.connectors.qwen.client.QwenClient", lambda: client)
+    rows = []
+    run_service_probes({"base_url": "http://model.invalid/v1", "model": "fixture", "timeout": 10.0}, 3, rows.append, lambda _message: None)
+    rejection = [row for row in rows if row["scenario"] == "invalid_schema_rejection"]
+    assert all(row["schema_rejection_ok"] is False for row in rejection)
+    if fault == "ignored_schema":
+        assert all(row["behavior_ok"] is False for row in rows if row["scenario"] in {"json_object_conflict", "json_schema_conflict"})
+    length = [row for row in rows if row["scenario"] == "max_tokens_one"]
+    if fault != "ignored_schema":
+        assert all(row["probe_status"] == ("failed" if fault == "ignored_length" else "inconclusive") for row in length)
+
+
+def test_service_cli_writes_identity_and_probe_results_without_database_access(monkeypatch, tmp_path):
+    from AiVision.connectors.qwen.client import QwenServiceError
+    from AiVision.tests.assistant_diagnostics import service
+    from AiVision.tests.assistant_diagnostics.runner import main
+
+    monkeypatch.setattr(service, "service_metadata", lambda _settings: {"listener": {"status": "not_found"}, "endpoints": {}})
+
+    def no_database(*_args, **_kwargs):
+        raise AssertionError("服务检查不得连接业务数据库")
+
+    monkeypatch.setattr("sqlalchemy.engine.Engine.connect", no_database)
+
+    def complete(**kwargs):
+        schema = kwargs.get("response_schema") or {}
+        if schema.get("type") == "assistant_diagnostic_invalid_type":
+            raise QwenServiceError("HTTP 400")
+        body = json.loads(completion({"probe": "schema_ok"} if kwargs["json_mode"] else "fixed text"))
+        body["usage"] = {"completion_tokens": 1 if kwargs["max_tokens"] == 1 else 12}
+        return json.dumps(body), 0.0
+
+    client = Mock()
+    client.complete.side_effect = complete
+    monkeypatch.setattr("AiVision.connectors.qwen.client.QwenClient", lambda: client)
+    assert main(["--base-url", "http://model.invalid/v1", "--layers", "service", "--output", str(tmp_path)]) == 0
+    report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    assert len(report["layers"]["service"]["rows"]) == 15 and client.complete.call_count == 15
+    assert report["service_inspection"]["listener"]["status"] == "not_found"
+    markdown = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "模型服务身份与合同证据" in markdown and "invalid_schema_rejection" in markdown

@@ -307,6 +307,14 @@ def markdown_report(report):
              "生产业务数据库未接入诊断。业务数据为临时 SQLite 中的三台虚构摄像头；缓存刷新和运行事件使用替身。真实模型只接收固定虚构输入。",
              "", "## 当前调用链", "", "| 阶段 | 输入 | 输出 | 代码入口 | 异常处理 | 覆盖情况 |", "|---|---|---|---|---|---|"]
     lines.extend("| " + " | ".join(stage) + " |" for stage in CHAIN)
+    inspection = report.get("service_inspection")
+    if inspection is not None:
+        lines.extend(["", "## 模型服务身份与合同证据", "",
+                      "监听进程与安装包版本只在目标为本机时采集；代理进程、候选环境安装包和 HTTP Server 头均不能单独证明实际推理引擎。",
+                      "application_version 为 OpenAPI 应用版本，不等同于推理运行库版本。请求字段声明和入口源码关键词不证明真实透传，需结合固定探针及服务实现确认。",
+                      "无显式解码启动标志不等于禁用解码；输出长度缺少 usage 或对照不足时标记 inconclusive，不假称通过。",
+                      "以下元数据仅包含脱敏标记、固定字段、版本和代码摘要：", "", "```json",
+                      json.dumps(inspection, ensure_ascii=False, indent=2), "```", ""])
     lines.extend(["", "## 方法与统计口径", "",
                   f"每例重复 {report['settings']['repeats']} 次；temperature={report['settings']['temperature']}，业务生成上限 {report['settings']['max_tokens']}，分类上限 {report.get('runtime_limits', {}).get('assistant_plan_max_tokens', '未记录')} tokens，单次超时 {report['settings']['timeout']} 秒。",
                   "模型层直接调用 Qwen，不经过 Agent；Agent 模拟层使用固定模型输出和模拟业务工具；业务层直接调用真实保存服务；端到端层运行真实 submit、runtime、工具、保存及审计。",
@@ -337,6 +345,15 @@ def markdown_report(report):
             injected = sorted({item for row in rows for item in row.get("injected_faults", [])})
             lines.append(f"| {rows[0]['label']} | {sum(row.get('behavior_ok', False) for row in rows)}/{len(rows)} | {', '.join(faults) or '无'} | {', '.join(errors) or '无'} | {', '.join(injected) or '无'} |")
         lines.append("")
+        if name == "service":
+            lines.extend(["服务探针每项重复三次以上，串行复用 QwenClient 的超时与并发名额。非法 Schema 探针预期 HTTP 400/422，符合预期的拒绝不是服务故障。",
+                          "格式探针分别检查 JSON 对象及固定 Schema；长度探针对照相同输入的 128 与 1 token 请求。结果只能核对客户端可见行为，不能仅据此确定转发层还是解码层丢失了参数。", "",
+                          "| 探针 | 重复 | 状态 | HTTP | 请求 Token 上限 | 实际输出 Tokens |",
+                          "|---|---|---|---|---|---|"])
+            for row in layer["rows"]:
+                tokens = row.get("response_metadata", {}).get("completion_tokens", "未提供")
+                lines.append(f"| {row['scenario']} | {row['repeat']} | {row.get('probe_status', '未知')} | {row.get('http_status')} | {row.get('requested_max_tokens')} | {tokens} |")
+            lines.append("")
         if name == "model":
             lines.extend(["格式探针分别使用与 Schema 一致、与 Schema 冲突的固定提示，检查 HTTP 接受请求后实际返回的格式；不调用任何业务工具。",
                           "探针通过只证明这些样例符合约束，不证明服务支持所有 Schema。失败需结合服务实现、模板和模型输出排查，不能单独归因为模型理解能力。",
@@ -452,6 +469,7 @@ def run(args, progress=print, checkpoint=None):
         for layer in args.layers.split(","):
             rows = []
             descriptions = {
+                "service": "只读服务身份与接口合同检查；固定格式和输出长度探针，不访问业务数据库。",
                 "agent": "固定模型与模拟业务工具；配置核验只对应虚构字典，不代表数据库保存能力。",
                 "tools": "真实业务工具、Schema、ORM、事务和回读；存储为临时 SQLite。",
                 "e2e-scripted": "固定模型与真实业务工具；只证明程序流程，不证明模型理解能力。",
@@ -476,7 +494,17 @@ def run(args, progress=print, checkpoint=None):
                 report["layers"][layer] = {"status": "blocked", "reason": "模型" + live_unavailable,
                                            "rows": []}
                 continue
-            if layer == "model":
+            if layer == "service":
+                if not args.base_url:
+                    report["layers"][layer] = {"status": "blocked", "reason": "未显式提供 --base-url，未检查任何模型服务。", "rows": []}
+                    continue
+                from .service import run_service_probes, service_metadata
+                progress("[service] 只读采集监听进程、版本接口及 OpenAPI；不保存原始命令行或响应正文。")
+                report["service_inspection"] = service_metadata(settings)
+                if checkpoint:
+                    checkpoint(report)
+                run_service_probes(settings, args.repeats, record, progress)
+            elif layer == "model":
                 for case in model_cases():
                     for repeat in range(1, args.repeats + 1):
                         record(run_model_case(case, QwenClient(), settings, repeat))
@@ -518,7 +546,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="福达 AI 分层诊断；业务写入只使用临时 SQLite，不加载生产 .env")
     parser.add_argument("--base-url", default=os.environ.get("ASSISTANT_DIAGNOSTIC_BASE_URL"))
     parser.add_argument("--model", default=os.environ.get("ASSISTANT_DIAGNOSTIC_MODEL", "fuda-qwen38-27b"))
-    parser.add_argument("--layers", default="model,agent,tools,e2e-scripted,e2e-live,probes,conversation-scripted,conversation-live")
+    parser.add_argument("--layers", default="service,model,agent,tools,e2e-scripted,e2e-live,probes,conversation-scripted,conversation-live")
     parser.add_argument("--conversations", default="mixed,window,pressure")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--max-tokens", type=int, default=2048)
@@ -526,7 +554,7 @@ def main(argv=None):
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    allowed = {"model", "agent", "tools", "e2e-scripted", "e2e-live", "probes", "conversation-scripted", "conversation-live"}
+    allowed = {"service", "model", "agent", "tools", "e2e-scripted", "e2e-live", "probes", "conversation-scripted", "conversation-live"}
     if args.repeats < 3:
         parser.error("--repeats 至少为 3")
     if not set(args.layers.split(",")) <= allowed:

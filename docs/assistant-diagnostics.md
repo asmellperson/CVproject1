@@ -2,6 +2,38 @@
 
 诊断入口为 `AiVision/tests/assistant_diagnostics/`，在 CVproject1 项目根目录运行。使用项目现有 Python 环境和依赖，命令行入口不依赖 pytest，不启动 API、摄像头或推理 Worker。
 
+## 确认模型服务与参数合同
+
+在监听 18100 的模型服务器上执行以下命令，无需启动或重启前后端、模型服务：
+
+```bash
+conda run --no-capture-output -n aivision \
+  python -m AiVision.tests.assistant_diagnostics \
+  --base-url http://127.0.0.1:18100/v1 \
+  --model fuda-qwen38-27b \
+  --layers service \
+  --repeats 3 \
+  --output /tmp/fuda-ai-service-inspection
+```
+
+`service` 层读取版本接口、模型目录及 OpenAPI 声明；本机回环地址还会读取监听 PID、程序入口摘要、解码参数标记和候选 Python 环境的安装包版本。它不读取进程环境变量、不输出完整启动命令、源码、密钥、模型路径或响应正文，也不执行服务程序或加载模型。元数据请求禁止跟随重定向，并限制响应大小。
+
+报告中的 HTTP Server、OpenAPI `application_version`、安装包版本及实际服务版本分别保留来源。`uvicorn`、应用版本 `0.1.0`、已安装的 vLLM 包或对外模型别名，均不能单独证明正在运行的推理引擎和权重。容器代理、权限不足或接口缺失时保留未确认状态。源码关键词仅检查直接 Python 入口，不代表完整调用链。
+
+五项固定探针每项重复三次，共 15 次串行请求，复用原 QwenClient 的并发名额、超时及非思考请求参数：
+
+| 探针 | 检查内容 |
+|---|---|
+| `json_object_conflict` | 用户要求普通文字时，JSON 对象模式是否实际约束输出 |
+| `json_schema_conflict` | 同一要求下，输出是否满足固定的严格 Schema |
+| `invalid_schema_rejection` | 非法 Schema 是否被 HTTP 400/422 拒绝；HTTP 200 不计为正确拒绝 |
+| `max_tokens_control` | 固定英文单词请求在 128 token 上限下是否产生足够的对照输出 |
+| `max_tokens_one` | 相同输入的 1 token 上限是否生效；没有 usage 或有效对照时标记 `inconclusive` |
+
+报告根字段 `service_inspection` 保存脱敏身份和接口证据，`layers.service.rows` 保存逐次行为。`service_contract` 表示客户端可见的合同检查失败。未知与失败分别记录；预期的非法 Schema 拒绝属于探针通过，不代表模型调用故障。声明包含 `response_format` 不证明已透传，接口输出符合样例也不能证明所有 Schema 均受约束；温度及其他参数的内部透传仍需核对服务实现。
+
+服务端合同参考：[vLLM 结构化输出](https://docs.vllm.ai/en/stable/features/structured_outputs/)、[llama.cpp 服务接口](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)、[Ollama 兼容接口](https://docs.ollama.com/api/openai-compatibility)。应结合实际服务及版本判断参数格式；诊断不会自动更改生产客户端或服务配置。
+
 ## 在 Qwen 所在服务器运行
 
 ```bash
@@ -52,6 +84,7 @@ python -m AiVision.tests.assistant_diagnostics \
 
 | 层 | 模型 | 业务执行 | 用途 |
 |---|---|---|---|
+| `service` | 真实服务，固定短请求 | 无 | 只读识别监听进程、版本和接口声明，15 次格式与长度合同探针 |
 | `model` | 真实 Qwen | 无 | 直接测试格式约束、问候、分类、资源提取、参数提取和工具 JSON，共 16 个固定样例 |
 | `agent` | 固定模型替身 | 模拟工具 | 验证工具顺序、结果传递、连续调用、上下文和错误处理 |
 | `tools` | 无 | 真实服务＋临时 SQLite | 10 项资源、校验、权限、版本、局部保存及回读验证 |
@@ -133,7 +166,7 @@ python -m pytest -q \
 报告保存到其他位置后，删除本次命令指定的输出目录即可：
 
 ```bash
-rm -rf -- /tmp/fuda-ai-diagnostics /tmp/fuda-ai-conversations /tmp/fuda-ai-model-format
+rm -rf -- /tmp/fuda-ai-diagnostics /tmp/fuda-ai-conversations /tmp/fuda-ai-model-format /tmp/fuda-ai-service-inspection
 ```
 
 `AiVision/assistant/context.py`、`AiVision/tests/assistant_diagnostics/` 及正式测试均属于项目代码，随 Git 同步保留。运行诊断不会修改这些源码；临时 SQLite 在每次隔离测试结束时自动清理。
