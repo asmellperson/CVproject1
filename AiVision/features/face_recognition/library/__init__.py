@@ -25,6 +25,7 @@ features/face_recognition/library/：人员底库与特征索引
         HikvisionSyncSettings 分别读取 HIKVISION_ONE_ / HIKVISION_TWO_ 配置。
     embedding.py：增量读取待生成项、下载照片、解码并要求恰好检测到一张人脸，
         复用 InsightFaceRecognizer 提取特征；模型与照片签名未变化的项可以跳过。
+    automation.py：生成、校验并安装 systemd 配置，核对实际任务入口和最近执行结果。
     index.py：照片签名、特征字节编解码和 FaceIndex。
         refresh() 整体替换索引，match() 在内存中进行相似度匹配。
 
@@ -43,6 +44,8 @@ features/face_recognition/library/：人员底库与特征索引
         python -m AiVision.features.face_recognition.library.embedding
     前者会读取外部平台并写人员数据；后者还会加载模型、读取照片并写特征。
     它们是实际运维任务，不是检查 __init__.py 注释的命令；包导入不会自动执行。
+    自动更新统一使用固定入口 python -m AiVision.face_library，依次执行两个阶段。
+    目标服务器通过该入口的 --install-systemd 安装定时任务，通过 --status 核对运行结果。
 
 五、修改与验证
 

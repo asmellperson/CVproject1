@@ -81,6 +81,7 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 ```text
 AiVision/
 ├── main.py                         # 正式启动入口
+├── face_library.py                 # 人脸底库自动更新、定时任务安装与状态查询固定入口
 ├── api/
 │   ├── app.py                      # FastAPI、认证中间件和全部 API 路由
 │   ├── deps.py                     # 运行对象和服务的依赖注入
@@ -1384,6 +1385,7 @@ python -m AiVision.features.face_recognition.library.sync
 - 对分页完整性、总数和重复人员进行检查，完整获取成功后再提交该来源的同步事务。
 - 输出新增、更新、未变化、停用和失败统计；来源失败会返回非零退出状态。
 - 这是人员元数据同步，不会自动完成照片特征生成。
+- `last_synced_at` 记录资料实际变化的写入时间；资料未变化时保留原值，任务是否持续执行通过 systemd 时间与日志确认。
 
 ### 13.2 特征生成
 
@@ -1399,17 +1401,33 @@ python -m AiVision.features.face_recognition.library.embedding
 
 两项 CLI 根据源码位置定位 `AiVision/.env`，已注入环境变量优先；模块命令本身仍需要项目在 Python 导入路径中。两项操作都会使用实际人员来源和数据库。
 
-### 13.3 定时同步模板
+### 13.3 自动更新与 systemd 部署
 
-现有 [service](features/face_recognition/library/hikvision-face-library-sync.service) 和 [timer](features/face_recognition/library/hikvision-face-library-sync.timer) 模板：
+固定运维入口为 `python -m AiVision.face_library`。默认依次执行人员同步与特征生成；一个阶段失败仍继续尝试另一个阶段，两个阶段均完成才返回零。各来源和人员保留各自的事务边界，已提交的数据不因其他来源或人员失败而回滚。照片、网络或配置异常按现有模块记录并使任务返回非零，未完成项在后续任务中重新尝试。
 
-- 开机约 `2` 分钟后首次触发。
-- 从上次 service 启动计算，每 `10` 分钟触发人员同步。
-- `ExecStart` 指向新的 `AiVision.features.face_recognition.library.sync` 模块。
-- 模板工作目录是 `/srv/Fuda_CVPreject`，解释器是 `/root/miniconda3/envs/aivision/bin/python`，部署时应替换为目标机器实际值。
-- 模板没有 `EnvironmentFile`，环境文件由同步 CLI 加载。
+在实际运行服务器的项目根目录，使用已配置的人脸识别 Python 环境部署：
 
-仓库内存在 unit 文件只代表提供了部署模板，不代表本机已安装或启用。当前 timer 执行的是 `sync`，特征生成需要单独安排。
+```bash
+conda activate aivision
+python -m AiVision.face_library --check
+sudo "$(command -v python)" -m AiVision.face_library --install-systemd
+python -m AiVision.face_library --status
+```
+
+- `--check` 校验实际业务模块和 `main` 入口可导入，不连接海康、数据库或加载模型；正式更新仍需有效凭据、数据库结构及 InsightFace 环境和权重。
+- `--install-systemd` 需要 root、`systemctl` 和 `systemd-analyze`，从仓库的 [service](features/face_recognition/library/hikvision-face-library-sync.service) 和 [timer](features/face_recognition/library/hikvision-face-library-sync.timer) 生成当前目录和当前解释器对应的配置，先进行原生配置校验，再安装到 `/etc/systemd/system/`。覆盖前保留 `.bak`，内容相同不重写。
+- 安装命令执行 `daemon-reload` 并核对实际生效的固定入口和工作目录；存在不匹配的 drop-in 覆盖时返回失败。确认后启用 timer，并提交一次立即更新请求，安装完成不代表本次更新已经成功。
+- 更新代码或变更部署目录、Python 环境后，使用目标解释器重复执行安装命令。系统服务始终调用 `AiVision.face_library`，功能包内的同步与生成模块由该入口维护。
+- 开机约 `2` 分钟后首次触发，上次任务结束后间隔 `10` 分钟再次执行。同一 service 不并发运行，失败后仍继续调度；单次更新最长运行 `30` 分钟。
+- `--status` 同时检查定时器启用状态、实际执行入口、工作目录和最近执行结果。任务正在运行时明确显示执行中，没有完成记录或任一阶段失败时不报告更新成功。`service` 在成功完成后显示 `inactive` 是正常的 oneshot 行为。
+- 两个业务阶段按源码位置加载 `AiVision/.env`，已注入环境变量优先。单项维护仍使用 13.1、13.2 的 CLI。
+
+通过同一个 service 手动触发并查看日志：
+
+```bash
+sudo systemctl start hikvision-face-library-sync.service
+sudo journalctl -u hikvision-face-library-sync.service -n 100 --no-pager
+```
 
 ## 14. 验证、调参与故障定位
 

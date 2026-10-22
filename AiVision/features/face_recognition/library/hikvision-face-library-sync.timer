@@ -1,11 +1,11 @@
 [Unit]
-Description=海康人员库同步定时器
+Description=海康人员及人脸特征自动更新定时器
 
 [Timer]
 # 开机约 2 分钟后首次执行；开机超过 2 分钟才启用时，会立即触发一次。
 OnBootSec=2min
-# 从上次 service 启动计算，每 10 分钟触发一次。
-OnUnitActiveSec=10min
+# 从上次执行结束计算，耗时较长或失败后仍能继续调度，且不会重叠执行。
+OnUnitInactiveSec=10min
 AccuracySec=1s
 Unit=hikvision-face-library-sync.service
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=海康人员库同步（one、two）
+Description=海康人员及人脸特征自动更新（one、two）
 Wants=network-online.target
 After=network-online.target
 
@@ -8,13 +8,12 @@ Type=oneshot
 # Python 环境位于 /root，使用 root 运行。
 User=root
 WorkingDirectory=/srv/Fuda_CVPreject
-# 同步入口自行读取 /srv/Fuda_CVPreject/AiVision/.env 中的海康及数据库配置。
-# 此处只设置日志输出方式，不存放业务凭据。
+# 安装命令按当前项目与 Python 环境生成路径；业务入口自行读取 AiVision/.env。
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/root/miniconda3/envs/aivision/bin/python -m AiVision.features.face_recognition.library.sync
+ExecStart=/root/miniconda3/envs/aivision/bin/python -m AiVision.face_library
 
 # oneshot 的运行时间受启动超时限制；停止后最多等待 30 秒，再强制结束。
-TimeoutStartSec=8min
+TimeoutStartSec=30min
 TimeoutStopSec=30s
 KillMode=control-group
 # 执行结束后退出，允许 timer 再次启动。
