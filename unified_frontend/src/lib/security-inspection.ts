@@ -73,7 +73,7 @@ export type InspectionSession = {
 }
 export type InspectionHistory = {
   retention_days: number
-  // 安检总数不含取消会话；历史记录总条数为 total + cancelled。
+  // 安检总数仅含合规与不合规；历史记录总条数为 total + error + cancelled。
   stats: { total: number; compliant: number; non_compliant: number; error: number; cancelled: number; rate: number }
   items: InspectionSession[]
 }

@@ -184,7 +184,7 @@ GET {API_BASE}/history?department=general_electric&limit=20&offset=0
 {
   "retention_days": 31,
   "stats": {
-    "total": 11,
+    "total": 10,
     "compliant": 8,
     "non_compliant": 2,
     "error": 1,
@@ -218,10 +218,10 @@ GET {API_BASE}/history?department=general_electric&limit=20&offset=0
 
 | 字段 | 页面含义 |
 | --- | --- |
-| `stats.total` | 安检总数，包含合规、不合规和判定失败，不含已取消 |
+| `stats.total` | 安检总数，等于 `stats.compliant + stats.non_compliant`，不含判定失败和已取消 |
 | `stats.compliant` | 合规次数 |
 | `stats.non_compliant` | 不合规次数 |
-| `stats.error` | 判定失败次数 |
+| `stats.error` | 判定失败次数，保留在历史中，不计入安检总数 |
 | `stats.cancelled` | 已取消次数，单独统计并保留在历史中，不计入安检总数 |
 | `stats.rate` | 合规率，`80.0` 显示为 `80.0%`，不要再乘 100 |
 
@@ -229,7 +229,7 @@ GET {API_BASE}/history?department=general_electric&limit=20&offset=0
 
 **统计和列表采用同一滚动保留窗口，默认最近 31 天，不是自然月或全部历史。** `retention_days` 返回实际保留天数；翻页只影响 `items`，不影响 `stats`。接口没有自定义日期筛选和每日趋势数据。
 
-历史列表包含已取消会话，分页总条数为 `stats.total + stats.cancelled`。上述示例的安检总数为 11，历史记录共 12 条；页数、下一页按钮和列表条数应使用 12 计算。
+历史列表包含判定失败和已取消会话，分页总条数为 `stats.total + stats.error + stats.cancelled`。上述示例的安检总数为 10，历史记录共 12 条；页数、下一页按钮和列表条数应使用 12 计算。
 
 ### 记录列表怎么展示
 
@@ -276,7 +276,23 @@ GET {API_BASE}/history/{session_id}/image.jpg?department=general_electric
 
 ### 数据库只读对接
 
-受控后端也可使用授权的只读数据库连接，自行筛选事业部和最近 31 天。统计以 `ai_security_inspection_session` 为准，具体原因取 JSON 字段 `verdict.reason`，时长为 `ended_at - started_at`；安检总数包含合规、不合规和判定失败，取消会话单独统计，历史分页包含四种状态。合规率分母只含合规与不合规。查询的本地时区须与服务一致。
+受控后端也可使用授权的只读数据库连接，自行筛选事业部和最近 31 天。统计以 `ai_security_inspection_session` 为准，具体原因取 JSON 字段 `verdict.reason`，时长为 `ended_at - started_at`；安检总数只包含合规和不合规，失败及取消会话单独统计，历史分页包含四种状态。合规率分母只含合规与不合规。查询的本地时区须与服务一致。
+
+与平台默认统计窗口一致的 SQL 如下。`status` 条件仅用于合规统计；查询全部历史明细时保留失败和取消记录。
+
+```sql
+SELECT
+    COUNT(*) AS totalSessions,
+    COALESCE(SUM(status = 'compliant'), 0) AS compliantCount,
+    COALESCE(SUM(status = 'non_compliant'), 0) AS nonCompliantCount,
+    COALESCE(ROUND(SUM(status = 'compliant') * 100.0 / NULLIF(COUNT(*), 0), 1), 0.0) AS complianceRate
+FROM ai_security_inspection_session
+WHERE started_at >= NOW() - INTERVAL 31 DAY
+  AND department = 'general_electric'
+  AND status IN ('compliant', 'non_compliant');
+```
+
+平台实际窗口以 `retention_days` 为准。仅查询某日及之后的数据时，可替换 `started_at` 条件，但不能与最近 31 天的总数直接比较；按单日查询需同时限定当天零点和次日零点。聚合 SQL 本身没有 500 条上限，HTTP 历史接口的 `limit` 只限制每页 `items` 数量。
 
 不合规明细筛选 `status='non_compliant'`，按 `session_id` 左关联 `ai_security_inspection_session_image`；`image_data` 是 JPEG 字节，`media_type` 是 `image/jpeg`。先分页查询文字和是否有图，再按需读取单条图片，避免列表一次加载大量 BLOB。过滤条件使用 `started_at >= NOW() - INTERVAL 31 DAY`，不要依赖每小时清理任务恰好已经执行。
 

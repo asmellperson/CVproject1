@@ -1,6 +1,7 @@
-"""安检取消会话的统计口径、历史保留和分页回归验证。"""
+"""安检有效判定的统计口径、失败与取消历史保留和分页回归验证。"""
 
 from datetime import datetime, timedelta
+from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
@@ -69,7 +70,8 @@ def history_database(monkeypatch, tmp_path):
     engine.dispose()
 
 
-def test_cancelled_session_is_retained_but_excluded_from_inspection_total(history_database):
+@pytest.mark.parametrize("entrypoint", ["service", "platform", "external"])
+def test_only_completed_verdicts_count_towards_total_without_losing_history(history_database, entrypoint):
     database = history_database
     for session_id, status in (
         ("good-1", "compliant"), ("good-2", "compliant"), ("bad", "non_compliant"),
@@ -77,13 +79,18 @@ def test_cancelled_session_is_retained_but_excluded_from_inspection_total(histor
     ):
         database.add(session_id, status)
 
-    result = database.response.model_validate(database.service.history(
-        "general_electric", camera_id=None, limit=10, offset=0,
-    ))
+    query = {"department": "general_electric", "camera_id": None, "limit": 10, "offset": 0}
+    if entrypoint == "service":
+        payload = database.service.history(**query)
+    else:
+        module = "AiVision.api.routes.security_inspection" if entrypoint == "platform" else "AiVision.api.routes.external.security_inspection"
+        payload = import_module(module).history(**query, service=database.service)
+    result = database.response.model_validate(payload)
     assert result.stats.model_dump() == {
-        "total": 4, "compliant": 2, "non_compliant": 1, "error": 1, "cancelled": 1, "rate": 66.7,
+        "total": 3, "compliant": 2, "non_compliant": 1, "error": 1, "cancelled": 1, "rate": 66.7,
     }
-    assert len(result.items) == result.stats.total + result.stats.cancelled == 5
+    assert result.stats.total == result.stats.compliant + result.stats.non_compliant
+    assert len(result.items) == result.stats.total + result.stats.error + result.stats.cancelled == 5
     cancelled = next(item for item in result.items if item.session_id == "roi-change")
     assert cancelled.status == "cancelled"
     assert cancelled.error == "摄像头状态或检测配置已变更"
@@ -92,7 +99,9 @@ def test_cancelled_session_is_retained_but_excluded_from_inspection_total(histor
         assert session.query(database.record).count() == 5
 
 
-@pytest.mark.parametrize("statuses, total, cancelled", [([], 0, 0), (["cancelled", "cancelled"], 0, 2), (["error"], 1, 0)])
+@pytest.mark.parametrize("statuses, total, cancelled", [
+    ([], 0, 0), (["cancelled", "cancelled"], 0, 2), (["error"], 0, 0), (["error", "cancelled"], 0, 1),
+])
 def test_no_completed_verdict_keeps_zero_rate_without_hiding_failures(history_database, statuses, total, cancelled):
     database = history_database
     for index, status in enumerate(statuses):
@@ -101,22 +110,26 @@ def test_no_completed_verdict_keeps_zero_rate_without_hiding_failures(history_da
     result = database.service.history("general_electric", camera_id=None, limit=10, offset=0)
     assert result["stats"]["total"] == total
     assert result["stats"]["cancelled"] == cancelled
+    assert result["stats"]["error"] == statuses.count("error")
     assert result["stats"]["rate"] == 0.0
     assert len(result["items"]) == len(statuses)
 
 
-def test_history_pagination_includes_cancelled_records_on_every_page(history_database):
+def test_history_pagination_includes_failed_and_cancelled_records_on_every_page(history_database):
     database = history_database
     database.add("good", "compliant")
+    database.add("bad", "non_compliant")
+    database.add("failed", "error")
     for index in range(3):
         database.add(f"cancelled-{index}", "cancelled")
 
     results = [database.service.history("general_electric", camera_id=None, limit=2, offset=offset)
-               for offset in (0, 2)]
-    assert all(result["stats"]["total"] == 1 and result["stats"]["cancelled"] == 3 for result in results)
+               for offset in (0, 2, 4)]
+    assert all(result["stats"]["total"] == 2 and result["stats"]["error"] == 1
+               and result["stats"]["cancelled"] == 3 for result in results)
     ids = [item["session_id"] for result in results for item in result["items"]]
-    assert len(ids) == len(set(ids)) == 4
-    assert set(ids) == {"good", "cancelled-0", "cancelled-1", "cancelled-2"}
+    assert len(ids) == len(set(ids)) == 6
+    assert set(ids) == {"good", "bad", "failed", "cancelled-0", "cancelled-1", "cancelled-2"}
 
 
 @pytest.mark.parametrize("camera_id, total, non_compliant", [(None, 2, 1), (1, 1, 0)])

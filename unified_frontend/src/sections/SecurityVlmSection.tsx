@@ -74,7 +74,7 @@ function InspectionPage({ department }: { department: DepartmentId }) {
         <CardContent className="space-y-6 p-5 lg:p-6 2xl:space-y-8 2xl:p-8">
           <section className="space-y-3 2xl:space-y-4">
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 2xl:text-lg">数据汇总 · 最近 {retentionDays} 天</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">取消会话不计入安检总数；合规率仅按合规与不合规计算。</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">安检总数为合规与不合规次数之和；判定失败和取消会话仅保留在历史中，不计入总数与合规率。</p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-4">
               <StatCard title="安检总数" value={stats?.total ?? 0} icon={<Layers3 className="h-5 w-5 text-slate-600" />} />
               <StatCard title="合规" value={stats?.compliant ?? 0} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} valueClassName="text-emerald-600" />

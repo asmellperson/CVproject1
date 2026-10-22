@@ -126,7 +126,7 @@ class InspectionService:
             return (row.image_data, row.media_type) if row is not None else None
 
     def history(self, department: str, *, camera_id: int | None, limit: int, offset: int) -> dict:
-        """取消会话独立统计，历史分页仍保留窗口内的全部会话且不加载图片内容。"""
+        """安检总数只计有效判定，历史分页保留失败和取消会话且不加载图片内容。"""
         with get_session() as session:
             query = session.query(InspectionSession).filter(
                 InspectionSession.department == department, InspectionSession.started_at >= self.retention_cutoff(),
@@ -147,7 +147,7 @@ class InspectionService:
             return {
                 "retention_days": settings.storage.alarm_media_retention_days,
                 "stats": {
-                    "total": sum(counts.values()) - cancelled,
+                    "total": compliant + non_compliant,
                     "compliant": compliant,
                     "non_compliant": non_compliant,
                     "error": counts.get("error", 0),
