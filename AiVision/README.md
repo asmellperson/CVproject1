@@ -1450,7 +1450,7 @@ sudo journalctl -u hikvision-face-library-sync.service -n 100 --no-pager
 3. 在已准备的环境检查健康接口、登录后的业务 API 和配置保存结果。
 4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和福达AI，静态检查不能替代现场验证。
 
-福达AI助手的隔离诊断入口为 `python -m AiVision.tests.assistant_diagnostics --output /tmp/fuda-ai-diagnostics`，代码位于 `tests/assistant_diagnostics/`。通过 `--base-url` 和 `--model` 连接实际 Qwen 服务；真实 Schema、保存与审计只访问临时 SQLite，缓存与事件使用替身，不读取生产 `.env`。`service.py` 提供 `service` 层，只读采集版本、接口声明及本机监听进程的脱敏证据，分别测试 JSON 对象、严格 Schema、非法 Schema 拒绝和输出长度限制，不连接业务数据库；安装包与应用版本不能替代实际推理引擎版本。`model` 包含格式一致及格式冲突的 Schema 探针，分别统计输出合同与业务语义。`conversation-live` 在同一会话中连续执行默认 10～13 轮，逐轮记录历史窗口、请求字符、服务 Token 用量及结果；已定位目标可直接重新读取，评分仍核对目标来源、完整目标集合和实际保存结果。格式观测仅保留固定类别、长度及脱敏校验摘要，空思考标签与思考正文分开记录。完整用法及局限见[助手分层诊断](../docs/assistant-diagnostics.md)。
+福达AI助手的隔离诊断入口为 `python -m AiVision.tests.assistant_diagnostics --output /tmp/fuda-ai-diagnostics`，代码位于 `tests/assistant_diagnostics/`。通过 `--base-url` 和 `--model` 连接实际 Qwen 服务；真实 Schema、保存与审计只访问临时 SQLite，缓存与事件使用替身，不读取生产 `.env`。`service.py` 提供 `service` 层，只读采集版本、接口声明及本机监听进程的脱敏证据，分别测试 JSON 对象、严格 Schema、非法 Schema 拒绝和输出长度限制，不连接业务数据库；安装包与应用版本不能替代实际推理引擎版本。`model` 包含格式一致及格式冲突的 Schema 探针，分别统计输出合同与业务语义。`conversation-live` 在同一会话中连续执行默认 10～13 轮，逐轮记录历史窗口、请求字符、服务 Token 用量及结果；已定位目标可直接重新读取，评分仍核对目标来源、完整目标集合和实际保存结果。已声明代号的预期不随实际绑定失败而降低，`binding_prerequisite_ok` 标记本轮绑定前提；`target_context_evidence` 和 `target_evidence` 分别记录规划引用类别、实际匹配数量及资源来源，不导出名称、原文或资源 key。真实模型触发目标拦截时归为 `target_resolution`，需结合证据区分模型选错标识与后台误拦；如实澄清与任务完成分别统计。格式观测仅保留固定类别、长度及脱敏校验摘要，空思考标签与思考正文分开记录。完整用法及局限见[助手分层诊断](../docs/assistant-diagnostics.md)。
 
 在项目根目录检查文档：
 

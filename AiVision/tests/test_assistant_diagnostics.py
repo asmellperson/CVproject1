@@ -179,6 +179,111 @@ def test_long_dialogues_share_one_session_and_preserve_per_turn_metrics(name):
         assert rows[10]["anchor_in_history"] is True
 
 
+@pytest.mark.parametrize("fault", ["unknown_key", "different_target", "named_alias", "ambiguous_name"])
+def test_target_block_evidence_distinguishes_lookup_selector_and_identity_failures(fault):
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetClarification, TargetPolicy
+    from AiVision.assistant.tools import ReadArguments
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, DEPARTMENT, RESOURCE, SECOND_CAMERA_NAME, SECOND_RESOURCE
+    from AiVision.tests.assistant_diagnostics.sandbox import tool_target_evidence
+
+    question = f"记忆代号甲对应{CAMERA_NAME}。查询配置"
+    reference = "记忆代号甲" if fault == "named_alias" else CAMERA_NAME
+    plan = RequestPlan(mode="query", query_tool="read_configurations", target_context={
+        "references": [{"kind": "named", "text": reference}],
+        "bindings": [{"alias": "记忆代号甲", "target": CAMERA_NAME, "evidence": f"记忆代号甲对应{CAMERA_NAME}"}]})
+    policy = TargetPolicy(question, plan)
+    candidates = [{"key": RESOURCE, "kind": "feature", "name": CAMERA_NAME, "department": DEPARTMENT}]
+    if fault in {"different_target", "ambiguous_name"}:
+        candidates.append({"key": SECOND_RESOURCE, "kind": "feature", "department": DEPARTMENT,
+                           "name": CAMERA_NAME if fault == "ambiguous_name" else SECOND_CAMERA_NAME})
+    policy.observe("list_resources", {"items": candidates})
+    key = "feature:tailgating:9999" if fault == "unknown_key" else SECOND_RESOURCE if fault == "different_target" else RESOURCE
+    arguments = {"resource_keys": [key]}
+    with pytest.raises(TargetClarification):
+        policy.check("read_configurations", ReadArguments(**arguments))
+    evidence = tool_target_evidence(policy, "read_configurations", arguments)
+    requested = evidence["requested_resources"][0]
+    if fault == "unknown_key":
+        assert not requested["discovered"] and all(item["matched_identities"] == 1 for item in evidence["selectors"])
+    elif fault == "different_target":
+        assert requested["discovered"] and not requested["matches_selector"]
+    elif fault == "named_alias":
+        assert requested["discovered"] and evidence["selectors"][-1] == {
+            "kind": "name", "role": "fixture_alias", "matched_identities": 0}
+    else:
+        assert evidence["selectors"][0]["matched_identities"] == 2
+    assert key not in json.dumps(evidence) and CAMERA_NAME not in json.dumps(evidence, ensure_ascii=False)
+
+
+def test_target_evidence_never_exports_unknown_literals_evidence_keys_or_configuration():
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+    from AiVision.tests.assistant_diagnostics.sandbox import planning_target_evidence, tool_target_evidence
+
+    alias, target, key = "private-alias-sentinel", "private-target-sentinel", "private-key-sentinel"
+    question = f"{alias}对应{target}。private-conversation-sentinel"
+    plan = RequestPlan(mode="query", query_tool="read_configurations", target_context={
+        "references": [{"kind": "named", "text": target}],
+        "bindings": [{"alias": alias, "target": target, "evidence": question.split("。", 1)[0]}]})
+    policy = TargetPolicy(question, plan)
+    policy.observe("list_resources", {"items": [{"key": key, "kind": "other", "name": target, "department": None,
+                                                "config": {"password": "private-password-sentinel"}}]})
+    evidence = {"planning": planning_target_evidence(plan, question),
+                "tools": tool_target_evidence(policy, "read_configurations", {"resource_keys": [key]})}
+    assert "private-" not in json.dumps(evidence)
+    assert evidence["planning"]["references"] == [{"kind": "named", "role": "other", "literal_in_message": True}]
+    assert evidence["planning"]["bindings"][0]["positive_relation"] is True
+    assert evidence["tools"]["requested_resources"][0]["discovered"] is True
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_failed_binding_cannot_make_subsequent_alias_clarification_pass(monkeypatch, live):
+    from AiVision.tests.assistant_diagnostics import conversations as module
+    from AiVision.tests.assistant_diagnostics.runner import markdown_report
+
+    original = module.ConversationScriptedClient.complete
+
+    def fail_setup(self, **kwargs):
+        raw, latency = original(self, **kwargs)
+        if self.sandbox.step.label == "建立会话指代" and kwargs["json_mode"]:
+            body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
+            if body.get("action") == "read_configurations":
+                body["arguments"]["resource_keys"] = ["feature:tailgating:9999"]
+                return completion(body), latency
+        return raw, latency
+
+    monkeypatch.setattr(module.ConversationScriptedClient, "complete", fail_setup)
+    if live:
+        # 此处替代真实网络，只验证真实模型分支的故障归属规则。
+        measured = module.MeasuredClient
+        monkeypatch.setattr(module, "MeasuredClient", lambda sandbox, _delegate, **options:
+                            measured(sandbox, module.ConversationScriptedClient(sandbox), **options))
+    rows = run_conversation("window", live=live)
+    first, later = rows[0], rows[7]
+    assert not first["behavior_ok"] and first["errors"] == ["TargetClarification"]
+    assert first["report_ok"] is True
+    assert later["tools"] == ["capabilities", "ask_user"] and later["report_ok"] is True
+    assert later["binding_prerequisite_ok"] is False
+    assert later["behavior_ok"] is False and later["task_ok"] is False and later["resource_ok"] is False
+    assert rows[8]["behavior_ok"] is True
+    read = next(item for item in first["target_evidence"] if item["tool"] == "read_configurations")
+    assert read["requested_resources"][0]["discovered"] is False
+    planning = first["request_statistics"][0]["target_context_evidence"]
+    assert planning["bindings"][0]["positive_relation"] is True
+    if live:
+        assert "target_resolution" in first["failure_layers"] and "model_output" not in first["failure_layers"]
+        assert "target_resolution" in later["failure_layers"] and "model_output" not in later["failure_layers"]
+        assert rows[8]["failure_layers"] == []
+    report = markdown_report({"generated_at": "fixture", "revision": "fixture", "settings": {
+        "repeats": 3, "temperature": 0, "max_tokens": 2048, "timeout": 45}, "layers": {
+            "conversation-live" if live else "conversation-scripted": {
+                "status": "completed", "rows": rows, "summary": aggregate(rows)}}})
+    assert "目标核验失败证据" in report and '"discovered": false' in report
+    assert "1. 优先核对目标拦截证据" in report
+    assert "feature:tailgating:9999" not in report
+
+
 def test_token_usage_is_recorded_without_request_or_response_text(monkeypatch):
     client = Mock()
     response = json.loads(completion("你好呀"))

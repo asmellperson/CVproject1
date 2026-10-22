@@ -354,7 +354,7 @@ npm --prefix unified_frontend run build
 
 后端改动按实际影响进行 Python 语法检查、接口验证与现场验证，重点核对权限、配置保存、资源生命周期和业务判定。
 
-福达AI助手可在项目根目录运行 `python -m AiVision.tests.assistant_diagnostics --base-url http://127.0.0.1:18100/v1 --model fuda-qwen38-27b --output /tmp/fuda-ai-diagnostics`，分别检查服务、模型、Agent、业务工具、端到端及持续多轮对话。`--layers service` 只读采集服务版本、监听进程和接口声明，以固定短请求核对格式约束与输出长度，不访问业务数据库。业务写入仅使用临时 SQLite，输出脱敏报告；真实模型与脚本模型的结果分别统计。模型层含格式一致与格式冲突的 Schema 探针，区分接口接受请求和实际输出合规；多轮评分允许复用已定位目标，仍要求本轮重新读取配置和版本。命令和统计口径见[助手分层诊断](docs/assistant-diagnostics.md)。
+福达AI助手可在项目根目录运行 `python -m AiVision.tests.assistant_diagnostics --base-url http://127.0.0.1:18100/v1 --model fuda-qwen38-27b --output /tmp/fuda-ai-diagnostics`，分别检查服务、模型、Agent、业务工具、端到端及持续多轮对话。`--layers service` 只读采集服务版本、监听进程和接口声明，以固定短请求核对格式约束与输出长度，不访问业务数据库。业务写入仅使用临时 SQLite，输出脱敏报告；真实模型与脚本模型的结果分别统计。模型层含格式一致与格式冲突的 Schema 探针，区分接口接受请求和实际输出合规；多轮评分允许复用已定位目标，仍要求本轮重新读取配置和版本。已声明代号的查询以实际读取为预期，首次绑定失败后的澄清不计为查询成功；目标拦截记录脱敏的引用类别、匹配数量和资源来源。命令和统计口径见[助手分层诊断](docs/assistant-diagnostics.md)。
 
 `AiVision/connectors/qwen/swift_deploy.py` 是模型服务器的独立部署入口，适配 `ms-swift 4.4.2` 和 `vLLM 0.27.1`，保留显式 `--port`，将 Chat Completions 的 JSON 对象及完整 JSON Schema 约束传入解码器。脚本可单独复制运行，`--check` 只检查依赖和请求协议；安装及实际生成验收见[Swift 部署与格式约束](docs/assistant-diagnostics.md#swift-部署与格式约束)。
 

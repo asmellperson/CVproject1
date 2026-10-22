@@ -106,6 +106,64 @@ def context_statistics(messages):
     return max(0, (len(messages) - 2) // 2), "\n".join(str(item.get("content", "")) for item in messages[1:-1])
 
 
+def target_literal_role(value):
+    """只输出固定虚构词的类别，未知名称、引用和标识不进入报告。"""
+    groups = {
+        "fixture_alias": {"记忆代号甲", "记忆代号乙"},
+        "fixture_target": {CAMERA_NAME, SECOND_CAMERA_NAME, RESOURCE, SECOND_RESOURCE,
+                           "camera:101", "camera:102", "camera_101", "camera_102"},
+        "context_reference": {"这台摄像头", "刚才那台摄像头", "它", "它们", "两台", "这个阈值"},
+    }
+    return next((role for role, values in groups.items() if value in values), "other")
+
+
+def planning_target_evidence(plan, question):
+    from AiVision.assistant.targets import valid_proposal
+
+    context = plan.target_context
+    return {"present": context is not None,
+            "references": [{"kind": item.kind, "role": target_literal_role(item.text),
+                            "literal_in_message": item.text in question}
+                           for item in context.references] if context else [],
+            "bindings": [{"alias_role": target_literal_role(item.alias), "target_role": target_literal_role(item.target),
+                          "evidence_in_message": item.evidence in question, "positive_relation": valid_proposal(item, question)}
+                         for item in context.bindings] if context else []}
+
+
+def tool_target_evidence(policy, name, arguments, *, expected_keys=()):
+    """保留实际检查边界的匹配数量与来源，不导出用户原话、资源 key 或配置。"""
+    from AiVision.assistant.targets import matches_name, resource_identity
+
+    selectors, permitted = [], set()
+    for kind, value in policy.selectors:
+        matches = [resource for resource in policy.candidates.values() if (
+            matches_name(value, resource) if kind == "name" else resource_identity(resource) == value)]
+        selectors.append({"kind": kind, "role": target_literal_role(value) if kind == "name" else "identity",
+                          "matched_identities": len({resource_identity(resource) for resource in matches})})
+        permitted.update(resource["key"] for resource in matches)
+    requested = []
+    if name == "read_configurations" and isinstance(arguments.get("resource_keys"), list):
+        requested = arguments["resource_keys"]
+    elif name == "update_configurations" and isinstance(arguments.get("changes"), list):
+        requested = [change.get("resource_key") for change in arguments["changes"] if isinstance(change, dict)]
+    keys = []
+    for key in requested:
+        if not isinstance(key, str):
+            keys.append({"valid_type": False})
+            continue
+        prefix = key.split(":", 1)[0]
+        keys.append({"valid_type": True, "kind": prefix if prefix in {"camera", "feature"} else "other",
+                     "fixture_key": key in {RESOURCE, SECOND_RESOURCE, "camera:101", "camera:102"},
+                     "expected_target": key in expected_keys if expected_keys else None,
+                     "discovered": key in policy.candidates, "searched_this_turn": key in policy.searched,
+                     "matches_selector": key in permitted if selectors else None})
+    return {"tool": name, "needs_clarification": policy.needs_clarification,
+            "candidate_count": len(policy.candidates), "searched_count": len(policy.searched),
+            "candidate_kinds": sorted({item["kind"] if item.get("kind") in {"camera", "feature"} else "other"
+                                       for item in policy.candidates.values()}),
+            "selectors": selectors, "requested_resources": keys}
+
+
 class InlineExecutor:
     """同步投递保留 submit/幂等/取消链路；不把线程调度性能算作本次诊断结论。"""
 
@@ -271,6 +329,9 @@ class MeasuredClient:
                     self.plans.append(plan.mode)
                     self.plan_operations.append(plan.operations)
                     request["plan_valid"] = True
+                    question = (platform.step.question if hasattr(platform, "step") else case.prelude if platform.phase == "prelude"
+                                else case.continuation if platform.phase == "continuation" else case.question)
+                    request["target_context_evidence"] = planning_target_evidence(plan, question)
                 except RuntimeError as exc:
                     self.errors.append(type(exc).__name__)
                     request["plan_valid"] = False
@@ -342,6 +403,11 @@ class ObservedTools:
         except Exception as exc:
             entry["error_type"] = type(exc).__name__
             raise
+        finally:
+            if self.target_policy is not None:
+                step = getattr(platform, "step", None)
+                entry["target_evidence"] = tool_target_evidence(self.target_policy, name, arguments,
+                                                               expected_keys=step.targets if step else ())
 
     def fake_run(self, name, arguments):
         """模拟层只更新虚构字典和隔离审计，不调用摄像头配置保存服务。"""

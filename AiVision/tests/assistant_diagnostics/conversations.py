@@ -43,7 +43,7 @@ def conversation_cases(history_turns=6):
     window.extend(Step(f"间隔闲聊{number + 1}", fillers[number % len(fillers)], "chat", "chat")
                   for number in range(max(6, history_turns)))
     window.extend([
-        Step("历史窗口外指代", "查询记忆代号甲的非法闯闸人体置信度", "query", "clarify_target", anchor_expected=False,
+        Step("历史窗口外指代", "查询记忆代号甲的非法闯闸人体置信度", "query", "read", anchor_expected=False,
              reference_alias="记忆代号甲"),
         Step("未绑定代号澄清", "查询记忆代号乙的非法闯闸人体置信度", "query", "clarify_target", anchor_expected=False,
              reference_alias="记忆代号乙"),
@@ -71,7 +71,7 @@ class ConversationScriptedClient:
             if message["content"].startswith(CONTEXT_PREFIX):
                 memory = json.loads(message["content"][len(CONTEXT_PREFIX):]).get("task_context") or {}
         binding = next((item for item in memory.get("target_bindings", []) if item["alias"] == step.reference_alias), None)
-        kind = "read" if step.kind == "clarify_target" and binding else step.kind
+        kind = step.kind
         if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
             goal = ("capabilities" if step.kind == "capabilities" else "read_configurations") if step.mode == "query" else None
             references, bindings = [], []
@@ -121,6 +121,7 @@ class ConversationScriptedClient:
 
 def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, **settings):
     from AiVision.assistant.responses import is_simple_greeting
+    from AiVision.assistant.targets import CLARIFY_TARGET
     from AiVision.connectors.qwen.client import QwenClient
     from AiVision.core.settings import settings as application_settings
 
@@ -161,13 +162,17 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             planning_requests = [request for request in requests if request["kind"] == "planning"]
             binding_visible = planning_requests[0].get("binding_in_history") if planning_requests else None
             verified_visible = planning_requests[0].get("verified_binding_in_context") if planning_requests else None
-            verified = any(item["alias"] == step.reference_alias for item in previous_context.get("target_bindings", []))
-            # 预期取自后台保存的核验关系，历史文字共同出现不能充当绑定证据。
-            kind = "read" if step.kind == "clarify_target" and verified else step.kind
+            # 已声明的甲必须完成读取；不能因为首次绑定失败而把后续澄清计为成功。
+            kind = step.kind
+            prerequisite = (any(item["alias"] == step.reference_alias for item in previous_context.get("target_bindings", []))
+                            if step.reference_alias and kind == "read" else None)
             tools = [entry["tool"] for entry in traces]
             reads = [item for entry in traces if entry["tool"] == "read_configurations" and entry["ok"]
                      for item in entry["result"].get("items", [])]
             changes = observed_arguments(traces, "update_configurations", "changes", dict)
+            errors = sorted(set(client.errors[starts[6]:] + [entry["error_type"] for entry in traces if "error_type" in entry]))
+            target_question = any(entry["tool"] == "ask_user" and entry["ok"]
+                                  and entry["arguments"].get("question") == CLARIFY_TARGET for entry in traces)
             plans = client.plans[starts[2]:]
             classification_ok = plans[-1] == step.mode if plans else step.mode == "chat" and is_simple_greeting(step.question)
             operations = client.plan_operations[starts[2]:]
@@ -210,7 +215,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 required.add("update_configurations")
                 resource_ok &= all(isinstance(item.get("resource_key"), str) for item in changes)
                 resource_ok &= {item.get("resource_key") for item in changes if isinstance(item.get("resource_key"), str)} == set(step.targets)
-                parameter_ok = bool(changes) and all(item["patch"] == step.delta for item in changes)
+                parameter_ok = (None if target_question and not changes else
+                                bool(changes) and all(item["patch"] == step.delta for item in changes))
             if kind.startswith("clarify"):
                 required.add("ask_user")
             if step.kind == "capabilities":
@@ -224,6 +230,9 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                     word in turn.answer for word in ("尚未完成", "已保存配置", "已删除摄像头", '"action"'))
             else:
                 report_ok = turn.status == "completed" and not sandbox.service.actions(turn.id) and tool_ok
+            if target_question and not sandbox.service.actions(turn.id):
+                # 如实报告目标不明不等于任务成功，也不能据此声称最终答复撒谎。
+                report_ok = turn.status == "completed" and CLARIFY_TARGET in turn.answer
             behavior_ok = classification_ok and operations_ok and configuration_ok and tool_ok and report_ok and resource_ok is not False and parameter_ok is not False
             anchor_visible = planning_requests[0].get("anchor_in_history") if planning_requests else None
             failure_layers = []
@@ -235,7 +244,10 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                 failure_layers.append("result_reporting")
             if not behavior_ok and step.anchor_expected is False and anchor_visible is False and not verified_visible:
                 failure_layers.append("context_transfer")
-            errors = sorted(set(client.errors[starts[6]:] + [entry["error_type"] for entry in traces if "error_type" in entry]))
+            if live and not behavior_ok and (target_question or "TargetClarification" in errors):
+                if classification_ok and operations_ok and "model_output" in failure_layers:
+                    failure_layers.remove("model_output")
+                failure_layers.append("target_resolution")
             service_failed = any(error in {"QwenNetworkError", "QwenTimeoutError", "QwenServiceError"} for error in errors)
             if service_failed:
                 failure_layers = ["model_service"] + (["result_reporting"] if not report_ok else [])
@@ -263,6 +275,8 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                    "anchor_in_history": anchor_visible, "anchor_expected": step.anchor_expected,
                    "binding_in_history": binding_visible,
                    "verified_binding_in_context": verified_visible,
+                   "binding_prerequisite_ok": prerequisite,
+                   "target_evidence": [entry["target_evidence"] for entry in traces if "target_evidence" in entry],
                    "max_request_characters": max((request["characters"] for request in requests), default=0),
                    "max_prompt_tokens": max((request["prompt_tokens"] for request in requests if "prompt_tokens" in request), default=None),
                    "request_statistics": requests, "business_storage": "temporary_sqlite"}

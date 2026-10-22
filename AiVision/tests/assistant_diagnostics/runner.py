@@ -319,7 +319,7 @@ def markdown_report(report):
                   f"每例重复 {report['settings']['repeats']} 次；temperature={report['settings']['temperature']}，业务生成上限 {report['settings']['max_tokens']}，分类上限 {report.get('runtime_limits', {}).get('assistant_plan_max_tokens', '未记录')} tokens，单次超时 {report['settings']['timeout']} 秒。",
                   "模型层直接调用 Qwen，不经过 Agent；Agent 模拟层使用固定模型输出和模拟业务工具；业务层直接调用真实保存服务；端到端层运行真实 submit、runtime、工具、保存及审计。",
                   "脚本端到端用于判断程序行为，真实模型端到端用于判断自然语言实际成功率，两者分开统计。故障注入单独标记，不能归因为模型自然故障。",
-                  "端到端任务成功率只统计有明确且合法目标值、能够完成的请求；越界、无权限、故障、歧义、取消另计预期处理行为通过率。",
+                  "端到端任务成功率统计预期可完成的聊天、查询及明确合法的配置请求，不等于配置写入成功次数；越界、无权限、故障、歧义、取消另计预期处理行为通过率。",
                   "JSON 有效率按结构化响应尝试计数；聊天正文不计入分母。工具执行成功率按实际调用计数，预期拒绝和故障注入也会降低该值，不能单独据此判断业务服务质量。",
                   "输出合同通过率独立于业务语义正确率：合法 JSON 仍须通过对应 Pydantic Schema。已有可见目标引用可以直接读取，工具选择不强制重复搜索；本轮仍须读取全部预期目标及新版本，猜测标识或漏读目标不能通过。",
                   "平均模型调用次数包括分类、纠正和业务请求；模型替身及故障注入不等于实际网络调用，结果中另有 real_model_calls。耗时为本次环境实测，不代表生产吞吐。",
@@ -386,11 +386,23 @@ def markdown_report(report):
                              f"{max(row.get('history_pairs', 0) for row in samples)} | "
                              f"{samples[0].get('anchor_in_history')} |")
             lines.append("")
+            failed = [row for row in layer["rows"] if not row.get("behavior_ok")]
+            if failed:
+                lines.extend(["目标核验失败证据（每个场景取首个失败样本）：", "",
+                              "只记录引用类别、固定虚构词类别、匹配数量及资源是否来自真实搜索；不记录名称、资源 key、原文或配置。",
+                              "已声明代号的查询必须实际读取，首次绑定未建立后的澄清不能计为跨窗口成功。", ""])
+                for scenario in dict.fromkeys(row["scenario"] for row in failed):
+                    row = next(item for item in failed if item["scenario"] == scenario)
+                    planning = next((item for item in row.get("request_statistics", []) if item["kind"] == "planning"), {})
+                    evidence = {"scenario": scenario, "binding_prerequisite_ok": row.get("binding_prerequisite_ok"),
+                                "planning": planning.get("target_context_evidence"), "tools": row.get("target_evidence")}
+                    lines.extend(["```json", json.dumps(evidence, ensure_ascii=False, indent=2), "```", ""])
     lines.extend(["## 失败证据与归属", "",
                   "JSON 及严格分类 Schema 失败归入 model_output；网络/超时/模型服务错误归入 model_service，不计为模型理解错误。",
                   "固定模型已给出可解析指令，但额外字段或未完成目标未被约束，归入 agent_scheduling；真实保存、校验或回读不符归入 business_execution；最终状态与实际配置不符归入 result_reporting。",
+                  "真实模型触发 TargetClarification 时标记 target_resolution；须结合选择器匹配数量与资源来源区分模型标识错误和后台误拦，不能仅凭异常类型归责模型。如实澄清不等于任务完成，尚未发出修改指令时不评价参数提取。",
                   "额外探针主动提交合法但偏离用户意图的指令，检验后端约束能力；探针失败不代表真实模型必然产生同类指令。探针仍通过才说明相应约束有效。",
-                  "失败记录只保留场景编号、错误类型、布尔指标及工具名称。完整请求、响应和认证头均不写入报告。",
+                  "失败记录只保留场景编号、错误类型、固定类别、数量、布尔指标及工具名称。完整请求、响应和认证头均不写入报告。",
                   ""])
     probe_explanations = {
         "extra_field": "请求仅包含人体置信度，但实际保存包含其他字段；当前工具校验合法字段及版本，未将 patch 限制在用户请求字段内。",
@@ -404,6 +416,16 @@ def markdown_report(report):
             explanation = probe_explanations.get(row["scenario"])
             if explanation:
                 lines.extend([f"- {row['label']}：{explanation} 证据：`{json.dumps(row.get('evidence', {}), ensure_ascii=False)}`", ""])
+    recommendations = [
+        "核验实际模型服务的 JSON Schema 与非思考模式，分别分析首次规划、纠正成功、截断和服务超时，不能只比较最终成功率。",
+        "将配置意图约束到具体资源、字段和目标值，在写入前校验 patch 与完整目标集合，保留现有权限、版本及审计。",
+        "按目标逐项核对配置任务完成情况，区分已恢复与未恢复的工具错误，并以实际 Qwen 多轮结果验证上下文及异常恢复。",
+    ]
+    if any("TargetClarification" in row.get("errors", []) for layer in report["layers"].values() for row in layer.get("rows", [])):
+        recommendations[:2] = [
+            "优先核对目标拦截证据：引用类别、选择器匹配数量、真实搜索结果与请求资源来源。证据不足时不能把后台误拦和模型选错标识混为一谈。",
+            "先验收首次绑定建立，再验证跨窗口读取和重述恢复；前置绑定失败后的澄清不能计为已声明代号查询成功。",
+        ]
     lines.extend(["## 证据不足", "",
                   "缺少或不可达的模型层会标记 blocked，不以脚本模型结果代替。即使全部虚构样例通过，也不能证明所有自然语言表达和生产部署均可靠。",
                   "Qwen 的 API model 标识不能证明实际权重、量化、chat template 或启动参数；本诊断不修改或验证模型权重。",
@@ -412,9 +434,7 @@ def markdown_report(report):
                   "历史同时受轮数和字符预算限制，规划历史不含助手答复正文，短期目标引用和待澄清任务按权限可见性隔离。工具观察单独按 60000 字符裁剪。片段可见性不证明完整语义记忆。",
                   "前端 sendAssistantMessage 只提交 request_id/text，由 useAssistant 复用 sessionId；源码未发现第 4 或第 5 轮的固定上限。本工具不运行浏览器，不能排除轮询、页面挂载或会话切换故障。",
                   "", "## 优先级最高的三项建议", "",
-                  "1. 核验实际模型服务的 JSON Schema 与非思考模式，分别分析首次规划、纠正成功、截断和服务超时，不能只比较最终成功率。",
-                  "2. 将配置意图约束到具体资源、字段和目标值，在写入前校验 patch 与完整目标集合，保留现有权限、版本及审计。",
-                  "3. 按目标逐项核对配置任务完成情况，区分已恢复与未恢复的工具错误，并以实际 Qwen 多轮结果验证上下文及异常恢复。",
+                  *[f"{number}. {item}" for number, item in enumerate(recommendations, 1)],
                   "", "建议应结合各层实测结果排序；未运行的层不支持对模型优劣作结论。", ""])
     return "\n".join(lines)
 

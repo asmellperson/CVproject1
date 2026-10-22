@@ -128,7 +128,9 @@ python -m AiVision.tests.assistant_diagnostics \
 
 `response_metadata` 和 `request_statistics` 记录 `thinking_wrapper`（无、已闭合、未闭合）、`thinking_characters`、`reasoning_characters`、`answer_format` 和 `object_shape`。这些字段只包含固定类别与长度。`has_thinking=true` 包括空的 `<think></think>` 标签，不能直接据此判断模型正在思考或服务忽略了非思考设置。分类校验错误保留脱敏的 `validation_issues`，不记录错误输出全文或未知字段原名。
 
-`anchor_in_history` 与 `binding_in_history` 记录原始片段和名称共同出现的可见性，`verified_binding_in_context` 单独记录传入模型的后台核验绑定。历史文字共同出现或模型自行复述不能建立绑定。`window` 先用明确声明与真实读取结果建立“记忆代号甲”，跨窗口后应重新读取其配置；未绑定的“记忆代号乙”必须澄清。预期行为取自实际后台绑定，评分不以模型是否声称记住为依据。
+`anchor_in_history` 与 `binding_in_history` 记录原始片段和名称共同出现的可见性，`verified_binding_in_context` 单独记录传入模型的后台核验绑定。历史文字共同出现或模型自行复述不能建立绑定。`window` 先用明确声明与真实读取结果建立“记忆代号甲”，跨窗口后应重新读取其配置；未绑定的“记忆代号乙”必须澄清。预期行为以固定用例为准，首次绑定失败不能把甲的后续查询降为澄清后计作成功。`binding_prerequisite_ok=false` 标明该查询缺少前置绑定，如实澄清可算答复正确，任务仍失败。
+
+`request_statistics[].target_context_evidence` 仅记录规划引用的 `kind`、固定虚构词的类别、原文存在标记和正向绑定声明校验结果。`target_evidence` 记录工具边界的候选数量及类别、每个选择器匹配的身份数量，以及请求资源是否已发现、是否来自本轮搜索、是否符合选择器及固定预期目标。匹配数为 0 与请求标识未发现是不同问题；`TargetClarification` 单独归为 `target_resolution`，需结合这些证据区分模型标识错误和后台误拦，不能仅凭异常类型归责模型。未知名称、引用原文、资源 key、凭据及配置均不进入这些字段。Markdown 报告为每个失败场景展示首个失败样本的脱敏证据。
 
 仅验收模型规划格式及绑定的多轮表现：
 
@@ -143,6 +145,8 @@ conda run --no-capture-output -n aivision python -m AiVision.tests.assistant_dia
 ```
 
 默认统计 48 条模型用例和 33 轮对话。结果为 `/tmp/fuda-ai-target-bindings/report.md` 与 `results.json`；确认已保存结果后，可执行 `rm -rf -- /tmp/fuda-ai-target-bindings` 清理输出。命令直接导入当前代码，不启动后端或摄像头；网页使用更新后的助手逻辑需要重启 AiVision 后端，无需重启模型服务或前端。
+
+仅排查目标核验拦截时可使用 `--layers conversation-live --conversations window`，默认执行 33 轮，无需重复模型独立测试。诊断代码通过新进程导入，无需重启服务。
 
 ## 分层运行
 
@@ -210,7 +214,7 @@ python -m AiVision.tests.assistant_diagnostics \
 
 参数提取和资源识别的端到端指标可能受上游分类截断或服务超时影响，应结合逐轮错误与是否实际进入工具阶段分析，不能全部归为语义提取错误。已定位目标后的数值澄清不强制再次读取配置；测试同时核对目标引用和澄清问题，不能把重新索要已明确目标当作正确的数值澄清。实际写入仍必须重新读取配置及版本。
 
-“任务成功”只统计明确且合法、能够完成的业务请求。无权限时正确拒绝、目标歧义时正确澄清、取消时正确停止，计为保护行为通过，不计为修改任务成功。模型替身的成功率不能代表真实 Qwen 的成功率。
+“任务成功”统计预期可完成的聊天、查询及明确合法的配置请求，不能当作配置写入成功次数。无权限时正确拒绝、目标歧义时正确澄清、取消时正确停止，计为保护行为通过，不计为修改任务成功。目标拦截后尚未发出修改指令时，参数提取标为不适用，任务仍按实际完成情况判定。模型替身的成功率不能代表真实 Qwen 的成功率。
 
 `failure_layers` 区分 `model_output`、`model_service`、`agent_scheduling`、`business_execution`、`result_reporting` 和 `context_transfer`。`diagnostic_harness` 表示诊断设施本身异常，不能当成 Agent 故障。
 
