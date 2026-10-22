@@ -1418,6 +1418,8 @@ python -m AiVision.features.face_recognition.library.embedding
 3. 在已准备的环境检查健康接口、登录后的业务 API 和配置保存结果。
 4. 真实检测需验证摄像头、模型、GPU、数据库、喇叭、企微和福达AI，静态检查不能替代现场验证。
 
+福达AI助手的隔离诊断入口为 `python -m AiVision.tests.assistant_diagnostics --output /tmp/fuda-ai-diagnostics`，代码位于 `tests/assistant_diagnostics/`。通过 `--base-url` 和 `--model` 连接实际 Qwen 服务；真实 Schema、保存与审计只访问临时 SQLite，缓存与事件使用替身，不读取生产 `.env`。`conversation-live` 在同一会话中连续执行默认 10～13 轮，逐轮记录历史窗口、请求字符、服务 Token 用量和结果。完整用法及局限见[助手分层诊断](../docs/assistant-diagnostics.md)。
+
 在项目根目录检查文档：
 
 ```bash
