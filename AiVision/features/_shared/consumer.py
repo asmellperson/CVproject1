@@ -34,7 +34,7 @@ from AiVision.core.logger import logger
 from AiVision.alarms.dispatcher import alarm_dispatcher, AlarmRequest
 from AiVision.core.settings import settings
 from AiVision.features._shared.spec import FeatureSpec
-from AiVision.features._shared.roi import roi_to_pixels
+from AiVision.features._shared.roi import annotate_roi, roi_to_pixels
 from AiVision.inference.contracts import (
     INFERENCE_ERROR_INVALID_RESULT,
     INFERENCE_ERROR_QUEUE_FULL,
@@ -710,13 +710,8 @@ class BaseFunctionConsumer(ABC):
         frame = self.frame_cache.get(camera_id)
         if frame is None:
             return None
-        annotated = frame.copy()
         points = self.config_cache[camera_id].get("roi_pos", [])
-        polygon = roi_to_pixels(points, frame.shape)
-        # x=width、y=height 是裁剪边界；描边需要落在最末一个有效像素上。
-        polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])
-        cv2.polylines(annotated, [polygon], True, self.ROI_COLOR, 2)
-        return annotated
+        return annotate_roi(frame, points, self.ROI_COLOR)
 
     def _frame_changed(self, camera_id: int, roi: np.ndarray, threshold: float = 0.005) -> bool:
         """单 ROI 下采样帧差；显著变化时更新供门检测使用的完整模糊帧。"""

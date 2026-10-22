@@ -8,6 +8,7 @@ from AiVision.inference.contracts import INFERENCE_STATUS_OK
 
 from .schema import PersonCheckResult
 from .service import AgvPersonCheckService, CheckRequest, PersonCheckError
+from .preview import AgvPreview
 
 
 class AgvPersonCheckConsumer(BaseFunctionConsumer):
@@ -16,6 +17,13 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
         """建立请求聚合服务，实际采样仍在消费者线程中执行。"""
         super().__init__(**kwargs)
         self.service = AgvPersonCheckService()
+        self.preview = AgvPreview(self.ROI_COLOR)
+
+    def _load_initial_configs(self):
+        super()._load_initial_configs()
+        self.preview.clear()
+        for camera_id, config in self.config_cache.items():
+            self.preview.configure(camera_id, config)
 
     def submit(self, camera_key: str) -> CheckRequest:
         """校验功能和摄像头可用性，按共享帧标识创建检测请求。"""
@@ -47,18 +55,27 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
         """停止帧处理并结束尚未完成的检测请求。"""
         super().stop()
         self.service.stop()
+        self.preview.clear()
 
     def update_config(self, camera_id: int):
         """先取消旧配置下的请求，再加载新配置，避免混合采样窗口。"""
         with self._camera_state_lock:
             self.service.cancel_camera(camera_id)
             super().update_config(camera_id)
+            self.preview.configure(camera_id, self.config_cache.get(camera_id))
 
     def update_status(self, camera_id: int, enabled: bool):
         """启用状态改变时取消当前请求，并同步公共消费者状态。"""
         with self._camera_state_lock:
             self.service.cancel_camera(camera_id)
             super().update_status(camera_id, enabled)
+            self.preview.configure(camera_id, self.config_cache.get(camera_id))
+
+    def get_live_preview(self, camera_key, frame, *, now):
+        """沿用功能标注帧入口；待机和请求结束后也在最新画面上显示 ROI。"""
+        if not self.running or not self.is_camera_active(camera_key):
+            return None
+        return self.preview.render(camera_key, frame)
 
     def _sample(self, request: CheckRequest):
         """只接受请求创建后到达、尚未使用且未过期的帧。

@@ -31,7 +31,7 @@ export function AgvPersonCheckSection({ department }: { department: DepartmentId
         <DetectionPageHeader title="AGV无人运货检测" subtitle="实时查看摄像头画面；收到 HTTP 请求后检测，返回结果后结束本次检测。"
           departmentLabel={DEPARTMENT_LABELS[department]} />
         <TabsContent value="monitor" className="mt-0 space-y-5">
-          <AiVisionMonitor title="AGV无人运货检测监控" feature={AGV_FEATURE} department={department} presentation="feature-dashboard" rawPreview />
+          <AiVisionMonitor title="AGV无人运货检测监控" feature={AGV_FEATURE} department={department} presentation="feature-dashboard" />
         </TabsContent>
         <TabsContent value="config" className="mt-0 space-y-6">
           <DetectionConfigTabs defaultValue="camera" className="space-y-6" tabListClassName="lg:grid-cols-7" tabs={<>

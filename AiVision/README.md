@@ -72,6 +72,8 @@ Python 目录名用于组织代码，业务标识用于 API、数据库、缓存
 
 事业部功能权限由 `departments/service.py` 读取 MySQL 中的 `department_feature_access` 配置，FeatureSpec 只声明功能元数据。管理员和普通账号均按“事业部＋功能”配对授权，管理员可配置全部事业部的功能分配。人员逗留共用一套 `HumanConsumer`、Schema 和配置表；人脸身份识别提供独立识别记录，不触发普通违规告警。
 
+AGV 监控通过 `/api/cameras/{key}/frame.jpg?feature=agv_person_check` 使用公共功能标注帧入口。`AgvPersonCheckConsumer.get_live_preview()` 在最新采集帧上叠加已保存的 `roi_pos`，与普通检测共用 `_shared/roi.py` 的边框绘制；空 ROI 表示全画面。预览配置使用独立短锁，待机和请求结束后仍可取图，采样推理不阻塞预览。配置热更新、摄像头停用和移除时同步替换或清理预览；原始画面过期时沿用公共取图接口的失败状态。人体检测仍仅由 HTTP 请求触发，检测输入与预览使用同一份 ROI 配置。
+
 保安行为与安检流程均在同一个注册表和 Orchestrator 下运行，共享平台摄像头、模型与告警设施；没有独立 Web 子应用。
 
 ## 2. 整体架构与目录职责

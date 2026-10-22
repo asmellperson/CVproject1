@@ -1,4 +1,4 @@
-"""普通 Feature 的单个归一化 ROI：校验与原始帧坐标转换。"""
+"""普通 Feature 的单个归一化 ROI：校验、原始帧坐标转换和预览边框绘制。"""
 from __future__ import annotations
 
 from typing import Annotated
@@ -49,3 +49,15 @@ def roi_to_pixels(points: list[list[float]], shape: tuple[int, ...]) -> np.ndarr
     if width <= 0 or height <= 0:
         raise ValueError("摄像头帧尺寸无效")
     return np.rint(np.asarray(normalized) * [width, height]).astype(np.int32)
+
+
+def annotate_roi(frame: np.ndarray, points: list[list[float]], color: tuple[int, int, int]) -> np.ndarray:
+    """在原始帧副本绘制统一的 ROI 边框，预览和普通检测使用相同的像素边界。"""
+    import cv2
+
+    annotated = frame.copy()
+    polygon = roi_to_pixels(points, frame.shape)
+    # 归一化端点可以位于裁剪边界，描边必须落在最后一个有效像素上。
+    polygon = np.clip(polygon, [0, 0], [frame.shape[1] - 1, frame.shape[0] - 1])
+    cv2.polylines(annotated, [polygon], True, color, 2)
+    return annotated
