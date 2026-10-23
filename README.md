@@ -313,7 +313,9 @@ bash scripts/start.sh
 bash scripts/status.sh
 ```
 
-停止服务使用 `bash scripts/stop.sh`；`start.sh --force` 会先关闭已有同名会话，再重新启动。普通 `start.sh` 会跳过已有会话。
+停止服务使用 `bash scripts/stop.sh`；`start.sh --force` 会等待已有后端正常退出后重新启动，普通 `start.sh` 会跳过已有会话。后端收到正常停止通知后拒绝 AGV 新请求，保持摄像头和模型运行，等待已接收请求完成检测、同步响应或后台回调，再清理运行资源。`AiVision/.env` 中的 `SHUTDOWN_GRACE_SECONDS` 控制请求等待上限，默认 `75` 秒；请求本身的检测及回调超时仍然有效。
+
+停止脚本只向当前 tmux 会话内的后端主进程发送 `SIGTERM`，不会直接终止模型和采集子进程。`scripts/cold_start.env` 的 `FUDA_STOP_TIMEOUT_SECONDS` 控制进程退出等待上限，默认 `180` 秒，应大于请求等待上限并留出资源清理时间；超时保留会话、返回失败，重启命令不会启动另一个后端。更新时先完成停止，再部署代码并启动；暂停接收和启动期间的新调用需要由 AGV 端在遇到 HTTP `503` 或连接失败后重试。
 
 单独排障时，在已配置 `AUTH_SECRET` 的终端启动后端：
 

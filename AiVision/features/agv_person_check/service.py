@@ -58,9 +58,35 @@ class AgvPersonCheckService:
     def __init__(self):
         """初始化受锁保护的请求集合与循环唤醒事件。"""
         self._lock = threading.RLock()
+        self._idle = threading.Condition(self._lock)
         self._wake = threading.Event()
         self._requests: dict[int, CheckRequest] = {}
+        self._accepting = True
+        self._shutdown_deadline: float | None = None
         self.monitor = AgvRequestMonitor()
+
+    def start(self):
+        """消费者重新启动后恢复接收，不能覆盖仍在回传的旧请求。"""
+        with self._lock:
+            if self._requests:
+                raise RuntimeError("AGV 旧请求尚未释放，不能重新启动")
+            self._accepting = True
+            self._shutdown_deadline = None
+
+    def begin_shutdown(self, timeout_seconds: float) -> int:
+        """立即停止接收新请求，重复退出通知沿用首次截止时间。"""
+        with self._lock:
+            self._accepting = False
+            if self._shutdown_deadline is None:
+                self._shutdown_deadline = time.monotonic() + timeout_seconds
+            return len(self._requests)
+
+    def wait_for_idle(self, timeout_seconds: float) -> bool:
+        """等待响应或回调释放请求，等待期间不阻塞消费者继续采样。"""
+        self.begin_shutdown(timeout_seconds)
+        with self._idle:
+            remaining = max(0.0, self._shutdown_deadline - time.monotonic())
+            return self._idle.wait_for(lambda: not self._requests, timeout=remaining)
 
     def detecting_camera_ids(self) -> set[int]:
         """总览只读取尚未完成判定的请求，不把待机或等待回调计为检测。"""
@@ -70,6 +96,8 @@ class AgvPersonCheckService:
     def submit(self, camera_id: int, camera_key: str, cfg: dict) -> CheckRequest:
         """限制每路并发及总容量，确认通信配置可用后登记请求并唤醒采样。"""
         with self._lock:
+            if not self._accepting:
+                raise PersonCheckError("unavailable", "AGV 检测服务正在停止，请在服务恢复后重试")
             if camera_id in self._requests:
                 raise PersonCheckError("busy", "该摄像头已有检测请求尚未结束")
             if len(self._requests) >= MAX_PENDING_REQUESTS:
@@ -97,6 +125,7 @@ class AgvPersonCheckService:
             self.monitor.release(request)
             request.last_frame = None
             self._wake.set()
+            self._idle.notify_all()
 
     def cancel_camera(self, camera_id: int):
         """以配置变化原因终止摄像头的未完成请求，容量由响应流程释放。"""
@@ -108,11 +137,13 @@ class AgvPersonCheckService:
     def stop(self):
         """结束全部请求并唤醒等待循环，使消费者停止时不会遗留等待者。"""
         with self._lock:
+            self._accepting = False
             for request in self._requests.values():
                 self._fail(request, PersonCheckError("unavailable", "AGV 检测功能已停止"))
             self._requests.clear()
             self.monitor.clear()
             self._wake.set()
+            self._idle.notify_all()
 
     def _fail(self, request: CheckRequest, error: PersonCheckError):
         """记录请求错误，仅在 Future 尚未完成时写入异常。"""

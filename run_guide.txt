@@ -77,10 +77,23 @@ vi scripts/cold_start.env
 以下命令均在项目根目录执行：
 
 bash scripts/start.sh          # 启动；已有同名会话时安全跳过
-bash scripts/start.sh --force  # 重启当前两个服务
+bash scripts/start.sh --force  # 等待已有请求及后端退出后重启当前两个服务
 bash scripts/status.sh         # 查询 tmux、端口和 health
 bash scripts/stop.sh           # 确认后停止当前两个服务
 bash scripts/stop.sh -y        # 无交互停止当前两个服务
+
+正常停止时会先拒绝 AGV 新请求，保持模型和采集运行，等待已接收请求完成检测和
+同步返回或后台回调后再退出。AiVision/.env 中 SHUTDOWN_GRACE_SECONDS 默认 75 秒；
+原有单次检测和回调超时仍然有效，失败不能作为无人放行结果。
+
+scripts/cold_start.env 中 FUDA_STOP_TIMEOUT_SECONDS 默认 180 秒，用于等待后端进程
+完成请求及资源清理，应大于 SHUTDOWN_GRACE_SECONDS 并留出清理时间。超时会保留
+tmux 会话并返回失败，不强杀或继续启动另一个后端；查看 aivision 日志后再处理。
+
+更新代码时先执行 bash scripts/stop.sh -y，确认成功后更新代码，再执行
+bash scripts/start.sh。请使用这两个脚本或向后端主进程发送 SIGTERM 正常停止。
+暂停接收及启动期间的新请求可能收到 HTTP 503 或连接失败，需要 AGV 调用方重试；
+该流程保护已接收请求，不在服务停机期间缓存新请求。
 
 启动后应存在：
 

@@ -202,7 +202,11 @@ flowchart TD
 4. 摄像头按总开关和功能启用关系启动；启动时还会整理共享内存名称、补齐默认功能配置。探测与首帧等待使用有限并行，`CAMERA_START_WORKERS` 默认 `4`，范围 `1～16`；每路仍独立管理启停与失败重试。
 5. 模型运行管理器按注册模型建立物理 Worker 分组；并非只为当前开启的摄像头临时加载一个模型。
 6. 保安行为通过专用运行时汇总摄像头快照；安检 Consumer 管理福达AI调度线程。各功能依照配置和模型就绪情况参与检测。
-7. `SIGINT`、`SIGTERM` 和主循环退出会进入资源清理，停止 Consumer、运行时、模型、告警服务、采集及共享管理器。
+7. HTTP 服务运行期间收到 `SIGINT` 或 `SIGTERM` 时，`api/server.py` 的 `GracefulServer` 先调用 `Orchestrator.begin_shutdown()` 关闭 AGV 新请求入口，再由 Uvicorn 等待已接收的 HTTP 响应及后台回调。摄像头、模型及消费者在等待期间继续运行；HTTP 服务退出后才停止 Consumer、运行时、模型、告警服务、采集及共享管理器。
+
+`SHUTDOWN_GRACE_SECONDS` 设置正常退出的请求等待上限，默认 `75` 秒，覆盖 AGV 最长 `60` 秒检测窗口和最长 `10` 秒回调超时。AGV 按响应或回调释放请求容量，判定完成但回调尚未结束的请求仍需等待；重复停止通知不会延长原有截止时间。消费者直接停止也先等待已接收请求释放，等待超时后以不可用结束未完成检测，不能生成无人判定。服务恢复前的新调用可能收到 HTTP `503` 或连接失败，调用方需重试。
+
+`scripts/stop.sh` 与 `scripts/start.sh --force` 共用 `scripts/service_control.sh`，向当前 tmux 会话的 Python 主入口发送 `SIGTERM` 并等待其退出，再关闭会话。`FUDA_STOP_TIMEOUT_SECONDS` 在 `scripts/cold_start.env` 中配置，默认 `180` 秒，包含请求等待与运行资源清理；超时保留会话并返回失败，不强杀后端或继续启动新后端。
 
 `bootstrap_database()` 的职责是准备数据库结构；业务采集与推理由 Orchestrator 启动。已有业务字段转换和历史数据合并通过离线迁移完成，主启动不会代替迁移脚本修改这些业务语义。
 

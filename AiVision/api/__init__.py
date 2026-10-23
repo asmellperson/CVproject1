@@ -15,6 +15,8 @@ api/：AiVision 的 HTTP 接口入口
         get_current_orchestrator() 在编排器尚未初始化时返回 HTTP 503。
         get_optional_orchestrator() 允许不依赖运行状态的配置接口继续工作。
         获取已有管理器不等于创建另一套摄像头、Worker 或后台线程。
+    server.py：退出时关闭 AGV 请求入口，等待 HTTP 响应和后台回调结束，
+        主入口随后再清理模型、采集和共享管理器。
     routes/：按摄像头、检测功能、模型、告警、通道等业务拆分 endpoint。
         子目录的 __init__.py 列出具体路由文件及职责。
 

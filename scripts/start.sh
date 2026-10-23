@@ -10,7 +10,7 @@
 #
 # 用法：
 #   bash scripts/start.sh                  # 安全模式：已存在会话则跳过
-#   bash scripts/start.sh --force          # 强制：先 kill 旧会话再启动
+#   bash scripts/start.sh --force          # 等待旧服务正常退出后重新启动
 #   bash scripts/start.sh --no-check       # 跳过端口健康检查
 #   bash scripts/start.sh --skip-precheck  # 跳过启动前配置文件检查
 #   bash scripts/start.sh --yes            # 非交互：跳过首次生成 AUTH_SECRET 的确认
@@ -43,6 +43,7 @@ PROJECT_ROOT="${FUDA_CVP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # ---- 加载可选本地配置（覆盖自动探测结果）------------------------------------
 [[ -f "$SCRIPT_DIR/cold_start.env" ]] && source "$SCRIPT_DIR/cold_start.env"
+source "$SCRIPT_DIR/service_control.sh"
 
 # ---- 颜色 ------------------------------------------------------------------
 if [[ -t 1 ]]; then
@@ -820,9 +821,11 @@ start_one() {
 
   if tmux has-session -t "$name" 2>/dev/null; then
     if [[ $FORCE -eq 1 ]]; then
-      warn "--force 模式：先杀掉已存在的会话 ${name}"
-      tmux kill-session -t "$name"
-      sleep 1
+      warn "--force 模式：先正常停止已有服务 ${name}"
+      if ! fuda_stop_session "$name"; then
+        err "${name} 尚未正常退出，取消启动新进程"
+        return 4
+      fi
     else
       skip "tmux 会话 ${name} 已存在，跳过启动（如需重启请用 --force）"
       return 0

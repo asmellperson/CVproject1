@@ -18,7 +18,8 @@ HTTP 路由和认证中间件由 api/app.py 组装。
     数据库、模型路径及其他业务参数继续由各自的 Settings 或配置服务管理。
 
 退出流程：
-    信号回调或检测/HTTP 运行阶段退出 → _cleanup_once()
+    HTTP 运行期间收到退出信号 → 关闭 AGV 接收入口 → 等待响应及后台回调结束
+        → _cleanup_once()；其他退出路径直接进入 _cleanup_once()
         → Orchestrator.stop() → Manager.shutdown()。
     清理标志用于避免多个退出入口重复回收资源，表示已开始清理，不保证全部清理成功。
     外层 try/finally 从检测启动处开始；更早的配置、数据库和编排器初始化不在其范围内。
@@ -118,6 +119,7 @@ def main() -> None:
     from AiVision.core.logger import logger
     from AiVision.runtime.bootstrap import bootstrap_database
     from AiVision.runtime.orchestrator import init_orchestrator
+    from AiVision.api.server import GracefulServer
 
     logger.info(
         f"[main] OpenCV 线程限制 配置需求={settings.runtime.opencv_threads} "
@@ -182,15 +184,17 @@ def main() -> None:
             f"即将监听 {args.host or settings.api.host}:{args.port or settings.api.port}"
         )
 
-        # 检测启动返回后才进入 HTTP 服务；uvicorn.run() 在服务运行期间阻塞此流程。
-        uvicorn.run(
+        # HTTP 先完成已接收的响应及后台回调，之后 finally 才能关闭模型和摄像头。
+        server = GracefulServer(uvicorn.Config(
             create_app(),
             # 按现有 or 表达式回退：空 host 或值为 0 的 port 也会使用 Settings。
             host=args.host or settings.api.host,
             port=args.port or settings.api.port,
             log_level="info",
             access_log=False,  # 关闭逐请求访问日志，业务日志仍由各模块记录。
-        )
+            timeout_graceful_shutdown=settings.runtime.shutdown_grace_seconds,
+        ), on_shutdown=orchestrator.begin_shutdown)
+        server.run()
     # 若中断以 KeyboardInterrupt 形式到达这里，记录后仍由 finally 执行统一清理。
     except KeyboardInterrupt:
         logger.info("[main] KeyboardInterrupt,准备退出")

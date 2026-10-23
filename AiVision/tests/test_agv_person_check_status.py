@@ -1,11 +1,17 @@
 """AGV 请求进度、真实回传内容与平台访问权限的回归验证。"""
 import asyncio
+import signal
+import socket
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
+import requests
+import uvicorn
 from fastapi.testclient import TestClient
 
 
@@ -323,3 +329,147 @@ def test_callback_adapter_records_only_status_code_and_never_reads_remote_body(a
             agv.http_adapter.send_callback(config, {"result": 0})
         assert caught.value.status_code == code
     response.json.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["sync", "callback"])
+def test_server_shutdown_finishes_accepted_detection_and_callback_before_returning(agv_status, monkeypatch, mode):
+    """用真实 HTTP 连接覆盖退出时的检测、响应和后台回调等待顺序。"""
+    from AiVision.api.server import GracefulServer
+
+    agv = agv_status
+    agv.config["http"].update(mode=mode, callback_url="https://example.invalid/callback" if mode == "callback" else "")
+    accepted = threading.Event()
+    allow_sample = threading.Event()
+    callback_entered = threading.Event()
+    allow_callback = threading.Event()
+    running = threading.Event()
+    running.set()
+    received = []
+
+    def submit(key):
+        request = agv.service.submit(1, key, agv.config)
+        received.append(request)
+        accepted.set()
+        return request
+
+    def sample(_):
+        if not allow_sample.is_set():
+            return None
+        from AiVision.features.agv_person_check.schema import PersonCheckResult
+        return np.zeros((2, 2, 3), dtype=np.uint8), PersonCheckResult(person_present=False)
+
+    def callback(config, body):
+        assert body == {"result": 0}
+        callback_entered.set()
+        assert allow_callback.wait(3), "测试必须释放回调"
+        return 204
+
+    agv.consumer.submit = submit
+    monkeypatch.setattr(agv.route, "send_callback", callback)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    url = f"http://127.0.0.1:{listener.getsockname()[1]}/api/public/agv/person-check/camera_1"
+    server = GracefulServer(
+        uvicorn.Config(agv.client.app, lifespan="off", access_log=False, timeout_graceful_shutdown=3),
+        on_shutdown=lambda: agv.service.begin_shutdown(3),
+    )
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        worker = executor.submit(agv.service.run, sample, running.is_set, lambda *args: None)
+        serving = executor.submit(server.run, sockets=[listener])
+        try:
+            deadline = time.monotonic() + 3
+            while not server.started and not serving.done() and time.monotonic() < deadline:
+                time.sleep(.01)
+            assert server.started
+            response = executor.submit(requests.post, url, timeout=5)
+            assert accepted.wait(3)
+            server.handle_exit(signal.SIGTERM, None)
+            assert not serving.done()
+            # 即使已有连接进入路由，也不能在停止通知之后登记新请求。
+            rejected = agv.client.post("/api/public/agv/person-check/camera_1")
+            assert rejected.status_code == 503
+            assert "重试" in rejected.json()["detail"]
+            assert len(received) == 1
+            allow_sample.set()
+            assert received[0].future.result(timeout=3).person_present is False
+            if mode == "callback":
+                assert callback_entered.wait(3)
+                assert not serving.done(), "判定完成后仍须等待后台回调"
+                assert agv.service.monitor.status(1)[0] is not None
+                allow_callback.set()
+            result = response.result(timeout=3)
+            assert result.status_code == (202 if mode == "callback" else 200)
+            if mode == "sync":
+                assert result.json() == {"result": 0}
+            serving.result(timeout=3)
+            assert agv.service.wait_for_idle(0)
+            latest = agv.service.monitor.status(1)[1]
+            assert latest.delivery_state == ("succeeded" if mode == "callback" else "ready")
+            assert latest.person_present is False
+        finally:
+            allow_sample.set()
+            allow_callback.set()
+            running.clear()
+            server.should_exit = True
+            agv.service.stop()
+            worker.result(timeout=3)
+            serving.result(timeout=5)
+            listener.close()
+
+
+def test_shutdown_deadline_is_not_extended_and_stop_never_creates_absent_result(agv_status):
+    agv = agv_status
+    request = agv.submit()
+    agv.service.begin_shutdown(.03)
+    deadline = agv.service._shutdown_deadline
+    agv.service.begin_shutdown(10)
+    assert agv.service._shutdown_deadline == deadline
+    assert not agv.service.wait_for_idle(10)
+    assert not request.future.done()
+    agv.service.stop()
+    with pytest.raises(agv.PersonCheckError, match="已停止") as caught:
+        request.future.result()
+    assert caught.value.code == "unavailable"
+    with pytest.raises(agv.PersonCheckError):
+        agv.submit()
+    agv.service.start()
+    following = agv.submit()
+    agv.service.release(following)
+
+
+def test_main_keeps_algorithm_and_manager_alive_until_http_finishes(agv_status, monkeypatch):
+    """主入口必须先完成 HTTP 排空，再释放推理和跨进程共享资源。"""
+    from AiVision import main
+    from AiVision.api import server as server_module
+    from AiVision.runtime import bootstrap, orchestrator as orchestrator_module
+
+    events = []
+    orchestrator = SimpleNamespace(
+        start=lambda: events.append("start"),
+        begin_shutdown=lambda: events.append("admission_closed"),
+        stop=lambda: events.append("algorithm_stopped"),
+    )
+
+    class Server:
+        def __init__(self, config, *, on_shutdown):
+            assert config.timeout_graceful_shutdown > 0
+            self.on_shutdown = on_shutdown
+
+        def run(self):
+            self.on_shutdown()
+            assert "algorithm_stopped" not in events
+            assert "manager_stopped" not in events
+            events.append("http_finished")
+
+    monkeypatch.setattr(main, "_load_env_file", lambda: None)
+    monkeypatch.setattr(main, "_set_spawn_start_method", lambda: None)
+    monkeypatch.setattr(main, "_configure_opencv_threads", lambda value: value)
+    monkeypatch.setattr(main.mp, "Manager", lambda: SimpleNamespace(shutdown=lambda: events.append("manager_stopped")))
+    monkeypatch.setattr(main.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(bootstrap, "bootstrap_database", lambda: None)
+    monkeypatch.setattr(orchestrator_module, "init_orchestrator", lambda manager: orchestrator)
+    monkeypatch.setattr(agv_status.app_module, "create_app", lambda: agv_status.client.app)
+    monkeypatch.setattr(server_module, "GracefulServer", Server)
+    monkeypatch.setattr("sys.argv", ["AiVision.main"])
+    main.main()
+    assert events == ["start", "admission_closed", "http_finished", "algorithm_stopped", "manager_stopped"]

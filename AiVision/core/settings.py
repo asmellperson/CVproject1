@@ -132,6 +132,8 @@ class RuntimeSettings(BaseSettings):
     场景中，应用层已经存在并发，继续按全机核心数并行会造成线程争抢。
     """
     opencv_threads: int = Field(4, ge=1, alias="OPENCV_NUM_THREADS")      # 限制OpenCV自己内部最多开多少CPU线程
+    # 覆盖最长 60 秒检测窗口和 10 秒回调，退出时先完成已接收的请求。
+    shutdown_grace_seconds: int = Field(75, ge=1, le=600, alias="SHUTDOWN_GRACE_SECONDS")
     # 限制同时探测和等待首帧的路数，避免离线设备串行拖慢整个平台启动。
     camera_start_workers: int = Field(4, ge=1, le=16, alias="CAMERA_START_WORKERS")
     qwen_max_concurrent_requests: int = Field(3, ge=1, le=16, alias="QWEN_MAX_CONCURRENT_REQUESTS")

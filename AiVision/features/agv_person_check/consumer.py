@@ -3,6 +3,7 @@ import time
 
 from AiVision.cameras.frame_reader import frame_reader_registry
 from AiVision.core.logger import logger
+from AiVision.core.settings import settings
 from AiVision.features._shared.consumer import BaseFunctionConsumer
 from AiVision.inference.contracts import INFERENCE_STATUS_OK
 
@@ -21,6 +22,7 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
 
     def _load_initial_configs(self):
         super()._load_initial_configs()
+        self.service.start()
         self.preview.clear()
         for camera_id, config in self.config_cache.items():
             self.preview.configure(camera_id, config)
@@ -52,9 +54,11 @@ class AgvPersonCheckConsumer(BaseFunctionConsumer):
             logger.exception(f"[agv_person_check] 有人告警失败 request_id={request.request_id}")
 
     def stop(self):
-        """停止帧处理并结束尚未完成的检测请求。"""
-        super().stop()
+        """保持采样和推理可用，等待已接收请求回传结束后再停止。"""
+        if not self.service.wait_for_idle(settings.runtime.shutdown_grace_seconds):
+            logger.error("[agv_person_check] 停止等待超时，未完成请求将以不可用结束")
         self.service.stop()
+        super().stop()
         self.preview.clear()
 
     def update_config(self, camera_id: int):

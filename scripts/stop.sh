@@ -5,7 +5,7 @@
 # =============================================================================
 # 福达视觉平台 - 一键关停脚本
 # -----------------------------------------------------------------------------
-# 作用：关停当前 2 个 tmux 服务。
+# 作用：先等待后端已接收请求结束，再关停当前 2 个 tmux 服务。
 # 用法：
 #   bash scripts/stop.sh            # 关停全部服务
 #   bash scripts/stop.sh -y         # 跳过确认，直接关停
@@ -18,6 +18,10 @@
 # =============================================================================
 
 set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "$SCRIPT_DIR/cold_start.env" ]] && source "$SCRIPT_DIR/cold_start.env"
+source "$SCRIPT_DIR/service_control.sh"
 
 SERVICES=(aivision unified_frontend)
 
@@ -64,9 +68,10 @@ if [[ $YES -ne 1 ]]; then
 fi
 
 for s in "${RUNNING[@]}"; do
-  if tmux kill-session -t "$s" 2>/dev/null; then
+  if fuda_stop_session "$s"; then
     echo "${C_GRN}[ OK ]${C_RST} 已关停 $s"
   else
     echo "${C_RED}[FAIL]${C_RST} 关停失败 $s"
+    exit 1
   fi
 done

@@ -1,5 +1,6 @@
 """AGV 标注预览与普通检测 ROI 一致，待机取图不触发推理的回归验证。"""
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from queue import Queue
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -54,6 +55,37 @@ def test_idle_preview_draws_saved_roi_like_other_features_on_current_frame(agv, 
     assert np.all(consumer.frame_cache[1] == 5)
     consumer.dispatch_inference_sync.assert_not_called()
     assert consumer.service.detecting_camera_ids() == set()
+
+
+def test_consumer_stop_preserves_processing_until_response_releases_request(agv, monkeypatch):
+    from AiVision.features.agv_person_check.schema import AgvPersonCheckValueSchema, PersonCheckResult
+
+    consumer = agv.consumer
+    request = consumer.service.submit(1, "camera_1", AgvPersonCheckValueSchema(
+        http={"present_value": 1, "absent_value": 0},
+    ).model_dump())
+    stopping = threading.Event()
+    begin = consumer.service.begin_shutdown
+
+    def begin_shutdown(timeout):
+        pending = begin(timeout)
+        stopping.set()
+        return pending
+
+    monkeypatch.setattr(consumer.service, "begin_shutdown", begin_shutdown)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        stopped = executor.submit(consumer.stop)
+        try:
+            assert stopping.wait(2)
+            assert consumer.running
+            assert not request.future.done()
+            request.future.set_result(PersonCheckResult(person_present=False))
+            assert not stopped.done(), "判定结束还不能停止，须等回传释放请求"
+        finally:
+            consumer.service.release(request)
+        stopped.result(timeout=2)
+    assert not consumer.running
+    assert request.error is None
 
 
 def test_empty_roi_draws_full_frame_with_visible_final_pixel(agv):

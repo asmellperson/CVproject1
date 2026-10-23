@@ -198,6 +198,13 @@ class Orchestrator:
         self._started = True                          # Orchestrator已经完成启动流程
         logger.info("=" * 20 + " Orchestrator 启动完成 " + "=" * 20)
 
+    def begin_shutdown(self):
+        """只关闭 AGV 请求入口，HTTP 排空期间保留模型、采集和消费者。"""
+        consumer = self.consumers.get("agv_person_check")
+        if consumer is not None:
+            pending = consumer.service.begin_shutdown(settings.runtime.shutdown_grace_seconds)
+            logger.info(f"[Orchestrator] 停止接收 AGV 新请求，等待 {pending} 个已接收请求完成检测和回传")
+
     def stop(self):
         """
         关闭顺序是启动的反方向
@@ -207,6 +214,7 @@ class Orchestrator:
         # 没启动不用重复关闭
         if not self._started:
             return
+        self.begin_shutdown()
         logger.info("=" * 20 + " Orchestrator 停止 " + "=" * 20)
         inference_runtime_manager.configure_runtime_monitor(None)
 
