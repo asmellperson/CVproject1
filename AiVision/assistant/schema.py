@@ -85,6 +85,7 @@ class ConversationResponse(StrictModel):
 
 
 MutationTool = Literal["update_configurations", "undo_configuration", "add_camera", "bind_camera", "delete_camera"]
+QueryTool = Literal["capabilities", "list_resources", "read_configurations"]
 
 
 class TargetReference(StrictModel):
@@ -105,12 +106,32 @@ class TargetContext(StrictModel):
     bindings: list[TargetBindingProposal] = Field(default_factory=list, max_length=10)
 
 
+class SpecialistTask(StrictModel):
+    """协调器只能按用户原话分派有序任务，专家不能自行扩大工具权限。"""
+    agent: Literal["query", "configuration"]
+    request: str = Field(min_length=1, max_length=4000, description="逐字引用当前用户消息中的连续任务片段，保留范围、否定和条件")
+    query_tool: QueryTool | None = None
+    operations: list[MutationTool] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def check_role(self):
+        if self.agent == "query" and (self.query_tool is None or self.operations):
+            raise ValueError("查询专家必须声明查询目标且不能携带修改操作")
+        if self.agent == "configuration" and (self.query_tool is not None or not self.operations):
+            raise ValueError("配置专家必须声明修改操作且不能携带查询目标")
+        if len(self.operations) != len(set(self.operations)):
+            raise ValueError("操作类别不能重复")
+        return self
+
+
 class RequestPlan(StrictModel):
     """先区分聊天与业务任务，业务任务不能凭模型正文结束为成功。"""
     mode: Literal["chat", "query", "change"]
     operations: list[MutationTool] = Field(default_factory=list, max_length=5)
-    query_tool: Literal["capabilities", "list_resources", "read_configurations"] | None = None
+    query_tool: QueryTool | None = None
     target_context: TargetContext | None = None
+    tasks: list[SpecialistTask] = Field(default_factory=list, max_length=6,
+                                      description="单一任务留空；明确的复合任务按原文顺序分成二至六步")
 
     @model_validator(mode="after")
     def check_operations(self):
@@ -124,6 +145,14 @@ class RequestPlan(StrictModel):
             raise ValueError("业务任务必须声明目标引用与绑定提议，无相关信息时使用空列表")
         if self.mode == "chat" and self.target_context and (self.target_context.references or self.target_context.bindings):
             raise ValueError("聊天任务不能携带资源绑定或执行目标")
+        if self.tasks:
+            if self.mode == "chat" or len(self.tasks) < 2:
+                raise ValueError("只有明确的复合业务请求才能分派多个任务")
+            operations = {operation for task in self.tasks for operation in task.operations}
+            if operations != set(self.operations):
+                raise ValueError("子任务操作必须与本轮授权操作完全一致")
+            if self.mode == "query" and self.query_tool != self.tasks[-1].query_tool:
+                raise ValueError("复合查询目标必须与最后一步一致")
         return self
 
 

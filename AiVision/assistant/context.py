@@ -39,10 +39,11 @@ class ConversationMemory:
             return state
 
     def remember(self, session_id, turn_id, question, outcome, *, clarification=None, previous=None,
-                 unresolved_target=False):
+                 unresolved_target=False, remaining_tasks=None, verified_resources=None):
         if outcome.plan.mode == "chat":
             return
-        resources = [item["resource"] for item in outcome.query_configurations.values()]
+        resources = ([item["resource"] for item in outcome.query_configurations.values()]
+                     if verified_resources is None else verified_resources)
         if unresolved_target:
             resources = []
         elif not resources and clarification is not None and outcome.query_tool != "list_resources" and previous:
@@ -56,7 +57,7 @@ class ConversationMemory:
         for item in verified_bindings(proposals, question, resources) if clarification is None else ():
             bindings.pop(normalized(item["alias"]), None)
             bindings[normalized(item["alias"])] = {**item, "turn_id": turn_id, "confirmed_at": time.monotonic()}
-        if not resources and clarification is None:
+        if not resources and clarification is None and verified_resources is None:
             return
         state = {"turn_id": turn_id, "last_read_resources": deepcopy(resources)}
         state["target_bindings"] = list(bindings.values())[-MAX_TARGET_BINDINGS:]
@@ -64,6 +65,8 @@ class ConversationMemory:
             state["pending_task"] = {"request": question, "plan": outcome.plan.model_dump(),
                                      "question": clarification,
                                      "candidates": list(outcome.query_resources.values())}
+            if remaining_tasks:
+                state["pending_task"]["remaining_tasks"] = deepcopy(remaining_tasks)
         with self._lock:
             self._items[session_id] = (time.monotonic(), state)
             self._items.move_to_end(session_id)

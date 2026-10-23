@@ -281,6 +281,7 @@ class MeasuredClient:
 
     def complete(self, **kwargs):
         from AiVision.assistant.responses import completion_content, json_content, parse_plan
+        from AiVision.assistant.orchestration import validate_task_sources
 
         self.calls += 1
         platform, case = self.platform, self.platform.scenario
@@ -291,6 +292,9 @@ class MeasuredClient:
                    "history_pairs": history_count if planning else None,
                    "max_tokens": kwargs["max_tokens"],
                    "response_format": "json_schema" if kwargs.get("response_schema") is not None else "json_object" if kwargs["json_mode"] else "text"}
+        system = kwargs["messages"][0]["content"]
+        request["agent"] = ("coordinator" if planning else "query" if "当前专家：查询专家" in system
+                            else "configuration" if "当前专家：配置专家" in system else "chat")
         anchor = getattr(platform, "history_anchor", None)
         if planning and anchor:
             request["anchor_in_history"] = anchor in history_text
@@ -338,9 +342,11 @@ class MeasuredClient:
                     plan = parse_plan(raw)
                     self.plans.append(plan.mode)
                     self.plan_operations.append(plan.operations)
-                    request["plan_valid"] = True
                     question = (platform.step.question if hasattr(platform, "step") else case.prelude if platform.phase == "prelude"
                                 else case.continuation if platform.phase == "continuation" else case.question)
+                    validate_task_sources(plan, question)
+                    request["plan_valid"] = True
+                    request["task_agents"] = [task.agent for task in plan.tasks]
                     request["target_context_evidence"] = planning_target_evidence(plan, question)
                 except RuntimeError as exc:
                     self.errors.append(type(exc).__name__)
@@ -394,9 +400,12 @@ class ObservedTools:
     def catalog(self, **kwargs):
         return self.delegate.catalog(**kwargs)
 
+    def begin_task(self, task_index=1):
+        self.delegate.begin_task(task_index)
+
     def run(self, name, arguments):
         platform = self.platform
-        entry = {"tool": name, "arguments": deepcopy(arguments), "ok": False}
+        entry = {"tool": name, "arguments": deepcopy(arguments), "ok": False, "task_index": self.delegate.task_index}
         platform.trace.append(entry)
         try:
             if platform.scenario.fault == "tool_error" and name == "list_resources":

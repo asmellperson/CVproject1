@@ -68,6 +68,7 @@ METRICS = {
     "first_plan_valid": "首次规划 Schema 通过率", "query_goal_ok": "查询目标规划准确率",
     "classification_ok": "任务分类准确率", "resource_ok": "资源识别准确率",
     "planning_operations_ok": "操作类别规划准确率",
+    "orchestration_ok": "专家任务编排通过率",
     "tool_selection_ok": "工具选择准确率", "parameter_ok": "参数提取准确率",
     "json_ok": "JSON 格式有效率", "schema_output_ok": "输出合同通过率", "tool_execution_ok": "工具执行成功率",
     "configuration_ok": "最终配置核验通过率", "task_ok": "端到端任务成功率",

@@ -30,6 +30,7 @@ class PlanFormatError(QwenError):
                 "必须包含合法 mode；chat/query 的 operations 为空，change 的 operations 必须非空且不重复。"
                 "query 必须指定 query_tool，其他 mode 的 query_tool 为 null。"
                 "业务任务必须提供 target_context（references 和 bindings）；引用和绑定只能来自用户原文。"
+                "单一任务的 tasks 留空；复合任务的每个 request 按顺序逐字引用原文并覆盖全部实际要求，不得丢失否定、条件或范围。"
                 "不要输出解释、思考过程、工具指令或额外字段。")
 
 
@@ -43,7 +44,7 @@ def _plan_issues(exc: ValidationError) -> list[dict]:
     }
     issues = []
     for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]:
-        known_fields = set(RequestPlan.model_fields) | {"references", "bindings", "kind", "text", "alias", "target", "evidence"}
+        known_fields = set(RequestPlan.model_fields) | {"references", "bindings", "kind", "text", "alias", "target", "evidence", "agent", "request"}
         location = [part if isinstance(part, int) or part in known_fields else "<额外字段>"
                     for part in error["loc"]]
         issues.append({"loc": location, "type": error["type"],

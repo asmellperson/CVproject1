@@ -91,7 +91,7 @@ def verified_bindings(proposals, question, resources):
 
 
 class TargetPolicy:
-    def __init__(self, question, plan, memory=None):
+    def __init__(self, question, plan, memory=None, *, source_question=None):
         self.question, self.plan, self.memory = question, plan, memory or {}
         self.references = plan.target_context.references if plan.target_context else []
         self.proposals = plan.target_context.bindings if plan.target_context else []
@@ -103,7 +103,8 @@ class TargetPolicy:
         self.needs_clarification = False
         bindings = {normalized(item["alias"]): item["resource"] for item in self.memory.get("target_bindings", [])}
         self.candidates.update((item["resource"]["key"], item["resource"]) for item in self.memory.get("target_bindings", []))
-        declarations = {normalized(item.alias): item for item in self.proposals if valid_proposal(item, question)}
+        declarations = {normalized(item.alias): item for item in self.proposals
+                        if valid_proposal(item, source_question if source_question is not None else question)}
         if len(declarations) != len(self.proposals):
             self.needs_clarification = True
         self.selectors.extend(("name", item.target) for item in declarations.values())

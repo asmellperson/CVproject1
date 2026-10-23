@@ -216,7 +216,7 @@ def test_offline_cli_report_marks_real_model_layers_as_blocked(tmp_path):
     assert "未执行" in (tmp_path / "report.md").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("name", ["mixed", "window", "pressure"])
+@pytest.mark.parametrize("name", ["mixed", "window", "pressure", "collaboration"])
 def test_long_dialogues_share_one_session_and_preserve_per_turn_metrics(name):
     from AiVision.core.settings import settings
 
@@ -234,6 +234,135 @@ def test_long_dialogues_share_one_session_and_preserve_per_turn_metrics(name):
         assert rows[8]["binding_in_history"] is False and rows[8]["tools"] == ["capabilities", "ask_user"]
         assert rows[8]["verified_binding_in_context"] is False
         assert rows[10]["anchor_in_history"] is True
+
+
+@pytest.mark.parametrize("repeat", [1, 2, 3])
+def test_specialist_conversation_is_verified_across_ten_turns_with_real_sqlite(repeat):
+    rows = run_conversation("collaboration", repeat=repeat)
+    assert len(rows) == 10
+    assert all(row["behavior_ok"] and row["configuration_ok"] for row in rows)
+    assert all(row["real_model_calls"] == 0 and row["business_storage"] == "temporary_sqlite" for row in rows)
+    compound = [row for row in rows if row["orchestration_ok"] is not None]
+    assert len(compound) == 6 and all(row["orchestration_ok"] for row in compound)
+    assert rows[4]["tools"].count("update_configurations") == 2
+    assert rows[7]["tools"].count("read_configurations") == 3
+    assert rows[5]["tools"] == [] and rows[8]["tools"] == ["capabilities", "ask_user"]
+
+
+def prepare_specialist_dialogue(platform, index=4):
+    from AiVision.tests.assistant_diagnostics.cases import Scenario
+    from AiVision.tests.assistant_diagnostics.conversations import ConversationScriptedClient
+
+    platform.step = conversation_cases()["collaboration"][index]
+    platform.scenario = Scenario("collaboration", "专家交接", platform.step.question, mode=platform.step.mode)
+    platform.runtime.client = Mock(wraps=ConversationScriptedClient(platform))
+
+
+def test_later_specialist_must_read_again_even_with_an_earlier_valid_revision():
+    from AiVision.tests.assistant_diagnostics.cases import RESOURCE
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    with isolated_platform(SCENARIOS[3]) as platform:
+        prepare_specialist_dialogue(platform, 1)
+        original = platform.runtime.client.complete._mock_wraps
+
+        def skip_read(**kwargs):
+            last = kwargs["messages"][-1]["content"]
+            if last.startswith("协调器已核验") and '"current_step": 2' in last:
+                read = next(entry["result"]["items"][0] for entry in platform.trace if entry["tool"] == "read_configurations")
+                return ScriptedClient.tool("update_configurations", {"changes": [{"resource_key": RESOURCE,
+                    "expected_revision": read["revision"], "patch": {"value": {"threshold": 0.8}}}]})
+            return original(**kwargs)
+
+        platform.runtime.client.complete.side_effect = skip_read
+        turn, _ = execute_turn(platform, platform.step.question)
+        assert turn.status == "failed" and platform.snapshot() == platform.before and not turn.actions
+        assert any(entry.get("error_type") == "ConfigurationConflict" for entry in platform.trace)
+
+
+@pytest.mark.parametrize("fault", ["cancel", "conflict", "clarify", "service"])
+def test_partial_completion_never_replays_completed_steps_or_claims_whole_task_success(fault):
+    from AiVision.connectors.qwen.client import QwenServiceError
+    from AiVision.tests.assistant_diagnostics.cases import CAMERA_NAME, RESOURCE, SECOND_RESOURCE
+    from AiVision.tests.assistant_diagnostics.conversations import Step
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    with isolated_platform(SCENARIOS[3]) as platform:
+        prepare_specialist_dialogue(platform)
+        original = platform.runtime.client.complete._mock_wraps
+        injected = False
+
+        def fail_later(**kwargs):
+            nonlocal injected
+            messages = kwargs["messages"]
+            later = any(message["content"].startswith("协调器已核验") and '"current_step": 2' in message["content"] for message in messages)
+            raw, latency = original(**kwargs)
+            if not kwargs["json_mode"]:
+                return raw, latency
+            body = json.loads(json.loads(raw)["choices"][0]["message"]["content"])
+            if later and not injected:
+                if fault == "conflict" and body.get("action") != "update_configurations":
+                    return raw, latency
+                injected = True
+                if fault == "cancel":
+                    platform.service.cancel(platform.session_id, platform.turn_id, platform.user)
+                elif fault == "service":
+                    raise QwenServiceError("固定服务错误")
+                elif fault == "clarify":
+                    return ScriptedClient.tool("ask_user", {"question": "请确认二号摄像头的检测间隔。"})
+                else:
+                    platform.set_threshold(102, 0.9)
+            return raw, latency
+
+        platform.runtime.client.complete.side_effect = fail_later
+        turn, _ = execute_turn(platform, platform.step.question)
+        assert injected
+        actual = platform.snapshot()
+        assert actual[RESOURCE]["value"]["threshold"] == 0.65
+        assert actual[SECOND_RESOURCE]["value"]["cap_interval"] == platform.before[SECOND_RESOURCE]["value"]["cap_interval"]
+        assert len(turn.actions) == 1 and turn.actions[0].status == "saved" and turn.actions[0].resource.key == RESOURCE
+        assert turn.status == ("cancelled" if fault == "cancel" else "completed" if fault == "clarify" else "failed")
+        if fault in {"conflict", "clarify"}:
+            assert "尚未完成的任务：2" in turn.answer
+        if fault == "clarify":
+            memory = platform.runtime.memory.get(platform.session_id, {turn.id})
+            assert CAMERA_NAME not in memory["pending_task"]["request"]
+            assert len(memory["pending_task"]["remaining_tasks"]) == 1
+            assert memory["last_read_resources"] == []
+            # 独立问候不会重新执行已经保存的一号操作，也不继续二号任务。
+            platform.step = Step("独立问候", "你好哇", "chat", "chat")
+            greeting, _ = execute_turn(platform, platform.step.question)
+            assert greeting.status == "completed" and not greeting.actions
+            assert platform.snapshot() == actual
+
+
+def test_compound_request_keeps_permission_checks_and_duplicate_request_idempotence():
+    with isolated_platform(SCENARIOS[8]) as platform:
+        prepare_specialist_dialogue(platform, 1)
+        turn, _ = execute_turn(platform, platform.step.question)
+        assert turn.status == "failed" and not turn.actions and platform.trace == []
+        assert platform.snapshot() == platform.before
+    with isolated_platform(SCENARIOS[3]) as platform:
+        prepare_specialist_dialogue(platform)
+        first, payload = execute_turn(platform, platform.step.question)
+        calls = platform.runtime.client.complete.call_count
+        second, _ = execute_turn(platform, platform.step.question, payload.request_id)
+        assert first.status == "completed" and first.id == second.id and len(second.actions) == 2
+        assert calls == platform.runtime.client.complete.call_count
+
+
+def test_specialist_logs_only_contain_routing_metadata(monkeypatch):
+    from AiVision.assistant import runtime
+
+    log = Mock()
+    monkeypatch.setattr(runtime, "logger", log)
+    with isolated_platform(SCENARIOS[3]) as platform:
+        prepare_specialist_dialogue(platform)
+        turn, _ = execute_turn(platform, platform.step.question)
+        assert turn.status == "completed"
+        entries = str(log.mock_calls)
+        assert "agent=configuration" in entries and "step=2/2" in entries
+        assert platform.step.question not in entries and "rtsp://" not in entries and "diagnostic-user" not in entries
 
 
 @pytest.mark.parametrize("text", ["这台摄像头", "通用电气事业部这台摄像头", "通用电气事业部", "记忆代号甲"])

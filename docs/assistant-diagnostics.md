@@ -109,20 +109,25 @@ python -m AiVision.tests.assistant_diagnostics \
   --base-url http://127.0.0.1:18100/v1 \
   --model fuda-qwen38-27b \
   --layers conversation-live \
-  --conversations mixed,window,pressure \
+  --conversations mixed,window,pressure,collaboration \
   --repeats 3 \
   --output /tmp/fuda-ai-conversations
 ```
 
-三组对话都在各自的同一个 session 中连续执行，各重复 3 次：
+四组对话都在各自的同一个 session 中连续执行，各重复 3 次：
 
 | 对话 | 默认轮数 | 重点 |
 |---|---:|---|
 | `mixed` | 13 | 查询、修改、第 4～6 轮指代、切换摄像头、批量修改、任务后问候、澄清后续办 |
 | `window` | 11 | 核验绑定跨历史窗口读取、未知代号澄清、重述目标后修改及回查 |
 | `pressure` | 10 | 连续查询两台虚构摄像头完整配置，观察历史和请求体增长 |
+| `collaboration` | 10 | 查询与配置专家交接、不同目标修改不同参数、保存后回查、问候及未绑定代号澄清 |
 
-`window` 的闲聊轮数会随运行环境的 `ASSISTANT_HISTORY_TURNS` 增加，保证能跨过历史窗口；默认值为 6。`mixed` 和 `pressure` 的轮数固定。默认三组各重复三次，共统计 102 轮。
+`window` 的闲聊轮数会随运行环境的 `ASSISTANT_HISTORY_TURNS` 增加，保证能跨过历史窗口；默认值为 6。其他三组轮数固定。默认四组各重复三次，共统计 132 轮。
+
+只验收专家编排与连续对话时，使用 `--layers conversation-live --conversations collaboration --repeats 3 --output /tmp/fuda-ai-collaboration`，其余模型连接参数同上。该组执行 30 轮，保存与审计仅访问临时 SQLite。输出为 `/tmp/fuda-ai-collaboration/report.md` 和 `/tmp/fuda-ai-collaboration/results.json`；保存结果后可用 `rm -rf -- /tmp/fuda-ai-collaboration` 清理。诊断命令直接导入代码，网页使用对应运行逻辑需要重启 AiVision 后端，模型服务及前端无需重启。
+
+`orchestration_ok` 统计复合请求是否按预期分派专家，`request_statistics[].agent` 记录固定角色，规划请求的 `task_agents` 记录子任务角色顺序。各步骤分别核对真实目标、参数和工具；后续查询使用该步骤执行前的配置快照，不能用保存前的旧结果代替回查。规划分工和实际任务完成分别计量，只有分工正确但没有真实保存仍然失败。角色、布尔结果、数量及错误类别可以进入报告，子任务原文和完整对话不进入报告。
 
 逐轮记录分类、目标、参数、工具、保存结果、最终状态、请求字符数、服务实际返回的 Token 用量、模型调用数和耗时。`first_plan_valid` 区分首次规划与纠正后成功；逐请求统计包含输出预算、格式约束、完成原因、校验类别和思考内容存在标记，不保存思考正文。服务不提供 `usage` 时 Token 数标为缺失，不用字符数冒充 Token 数。报告显示第 4、5、6 轮及后续轮次的结果，可以定位最早失败轮次；JSON 中的 `prior_failed_turns` 用于识别连带影响。
 

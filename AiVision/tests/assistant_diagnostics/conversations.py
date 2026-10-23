@@ -19,6 +19,7 @@ class Step:
     delta: dict = field(default_factory=dict)
     anchor_expected: bool | None = None
     reference_alias: str | None = None
+    tasks: tuple["Step", ...] = ()
 
 
 def conversation_cases(history_turns=6):
@@ -53,7 +54,31 @@ def conversation_cases(history_turns=6):
     ])
     pressure = [Step(f"完整配置查询{number}", "查询通用电气事业部两台诊断闸机的完整非法闯闸配置，不要修改。",
                      "query", "read", targets=(RESOURCE, SECOND_RESOURCE)) for number in range(1, 11)]
-    return {"mixed": mixed, "window": window, "pressure": pressure}
+
+    def compound(label, *tasks):
+        return Step(label, "；然后".join(task.question for task in tasks),
+                    "change" if any(task.mode == "change" for task in tasks) else "query", "compound", tasks=tasks)
+
+    read_a = Step("读取一号", f"查询通用电气事业部{CAMERA_NAME}非法闯闸的参数", "query", "read")
+    read_b = Step("读取二号", f"查询通用电气事业部{SECOND_CAMERA_NAME}非法闯闸的参数", "query", "read", targets=(SECOND_RESOURCE,))
+    collaboration = [
+        Step("问候", "你好哇", "chat", "chat"),
+        compound("一号查询后修改", read_a, Step("指代修改", "把它的非法闯闸人体置信度改为0.8", "change", "write", delta={"value": {"threshold": 0.8}})),
+        Step("第3轮回查", "查询它的非法闯闸人体置信度", "query", "read"),
+        compound("第4轮切换二号", read_b, Step("二号指代修改", "把它的非法闯闸人体置信度改为0.7", "change", "write", targets=(SECOND_RESOURCE,), delta={"value": {"threshold": 0.7}})),
+        compound("第5轮不同目标不同参数",
+                 Step("一号置信度", f"把通用电气事业部{CAMERA_NAME}非法闯闸人体置信度改为0.65", "change", "write", delta={"value": {"threshold": 0.65}}),
+                 Step("二号间隔", f"把通用电气事业部{SECOND_CAMERA_NAME}非法闯闸检测间隔改为0.3秒", "change", "write", targets=(SECOND_RESOURCE,), delta={"value": {"cap_interval": 0.3}})),
+        Step("操作后独立问候", "你好哇", "chat", "chat"),
+        compound("查询专家连续交接", Step("目录", "查询可用检测功能", "query", "capabilities"), read_a),
+        compound("三步骤保存后回查", read_a,
+                 Step("一号阈值", "把它的非法闯闸人体置信度改为0.6", "change", "write", delta={"value": {"threshold": 0.6}}),
+                 Step("回查", "查询它的非法闯闸人体置信度", "query", "read")),
+        Step("未绑定代号澄清", "查询记忆代号乙的非法闯闸人体置信度", "query", "clarify_target", reference_alias="记忆代号乙"),
+        compound("澄清后切回二号", read_b,
+                 Step("二号阈值", "把它的非法闯闸人体置信度改为0.55", "change", "write", targets=(SECOND_RESOURCE,), delta={"value": {"threshold": 0.55}})),
+    ]
+    return {"mixed": mixed, "window": window, "pressure": pressure, "collaboration": collaboration}
 
 
 class ConversationScriptedClient:
@@ -70,6 +95,11 @@ class ConversationScriptedClient:
         for message in kwargs["messages"]:
             if message["content"].startswith(CONTEXT_PREFIX):
                 memory = json.loads(message["content"][len(CONTEXT_PREFIX):]).get("task_context") or {}
+        if step.tasks and "只判断当前用户请求" not in kwargs["messages"][0]["content"]:
+            shared = next(json.loads(message["content"].split("：", 1)[1]) for message in kwargs["messages"]
+                          if message["content"].startswith("协调器已核验"))
+            memory.update(last_read_resources=shared["last_read_resources"], target_bindings=shared["target_bindings"])
+            step = step.tasks[shared["current_step"] - 1]
         binding = next((item for item in memory.get("target_bindings", []) if item["alias"] == step.reference_alias), None)
         kind = step.kind
         if "只判断当前用户请求" in kwargs["messages"][0]["content"]:
@@ -90,12 +120,19 @@ class ConversationScriptedClient:
                         references = [{"kind": "context", "text": "两台"}]
                     elif memory.get("pending_task") and step.mode == "change":
                         references = [{"kind": "pending", "text": step.question}]
-            return completion({"target_context": {"references": references, "bindings": bindings}, "mode": step.mode, "operations": ["update_configurations"] if step.mode == "change" else [],
-                               "query_tool": goal}), 0.0
+            plan = {"target_context": {"references": references, "bindings": bindings}, "mode": step.mode,
+                    "operations": ["update_configurations"] if step.mode == "change" else [], "query_tool": goal}
+            if step.tasks:
+                if "它" in step.question:
+                    references.append({"kind": "context", "text": "它"})
+                plan["tasks"] = [{"agent": "query" if task.mode == "query" else "configuration", "request": task.question,
+                                  "query_tool": ("capabilities" if task.kind == "capabilities" else "read_configurations") if task.mode == "query" else None,
+                                  "operations": ["update_configurations"] if task.mode == "change" else []} for task in step.tasks]
+            return completion(plan), 0.0
         if not kwargs["json_mode"]:
             return completion("你好呀，我是福达AI助手，收到你的消息。"), 0.0
         last = kwargs["messages"][-1]["content"]
-        if last.startswith("后台已查询"):
+        if last.startswith(("后台已查询", "协调器已核验")):
             if step.kind == "capabilities":
                 return ScriptedClient.tool("capabilities", {})
             query = (binding["resource"].get("target_name") or binding["resource"]["name"]) if binding else "诊断闸机" if len(step.targets) > 1 or kind == "clarify_target" else (
@@ -117,6 +154,38 @@ class ConversationScriptedClient:
                 return ScriptedClient.tool("update_configurations", {"changes": [{"resource_key": item["resource"]["key"],
                     "expected_revision": item["revision"], "patch": step.delta} for item in data["items"]]})
         return ScriptedClient.answer()
+
+
+def compound_evidence(step, traces, before, previous_context):
+    """按预期步骤逐次推进配置快照，不能用最终总数掩盖漏步或保存后读到旧值。"""
+    expected = deepcopy(before)
+    known = {item["key"] for item in previous_context.get("last_read_resources", [])}
+    known.update(item["resource"]["key"] for item in previous_context.get("target_bindings", []))
+    resource_ok = parameter_ok = tool_ok = True
+    for index, task in enumerate(step.tasks, 1):
+        entries = [entry for entry in traces if entry["task_index"] == index]
+        tools = {entry["tool"] for entry in entries}
+        for entry in entries:
+            if entry["tool"] == "list_resources" and entry["ok"]:
+                known.update(item["key"] for item in entry["result"].get("items", []))
+        reads = [item for entry in entries if entry["tool"] == "read_configurations" and entry["ok"]
+                 for item in entry["result"].get("items", [])]
+        if task.kind in {"read", "write"}:
+            keys = {item["resource"]["key"] for item in reads}
+            resource_ok &= keys == set(task.targets) and keys <= known
+            resource_ok &= all(item["config"] == expected.get(item["resource"]["key"]) for item in reads)
+            tool_ok &= "read_configurations" in tools
+            known.update(keys)
+        changes = observed_arguments(entries, "update_configurations", "changes", dict)
+        if task.kind == "write":
+            parameter_ok &= bool(changes) and all(item.get("patch") == task.delta for item in changes)
+            resource_ok &= {item.get("resource_key") for item in changes if isinstance(item.get("resource_key"), str)} == set(task.targets)
+            tool_ok &= "update_configurations" in tools
+            for key in task.targets:
+                expected[key]["value"].update(task.delta["value"])
+        else:
+            tool_ok &= not changes
+    return expected, bool(resource_ok), bool(parameter_ok), bool(tool_ok)
 
 
 def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, **settings):
@@ -151,6 +220,10 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             expected = deepcopy(before)
             for key in step.targets if step.kind == "write" else ():
                 expected[key]["value"].update(step.delta["value"])
+            if step.tasks:
+                for task in step.tasks:
+                    for key in task.targets if task.kind == "write" else ():
+                        expected[key]["value"].update(task.delta["value"])
             client = sandbox.client
             starts = (client.calls, client.real_calls, len(client.plans), len(client.json_results), len(client.requests),
                       len(sandbox.trace), len(client.errors))
@@ -222,6 +295,11 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
             if step.kind == "capabilities":
                 required.add("capabilities")
             tool_ok = required <= set(tools)
+            orchestration_ok = None
+            if step.tasks:
+                _expected, resource_ok, parameter_ok, tool_ok = compound_evidence(step, traces, before, previous_context)
+                expected_agents = ["query" if task.mode == "query" else "configuration" for task in step.tasks]
+                orchestration_ok = bool(planning_requests) and planning_requests[-1].get("task_agents") == expected_agents
             if step.kind == "write":
                 success = "已保存配置" in turn.answer or "已是目标值" in turn.answer
                 report_ok = (turn.status == "completed" and success) if configuration_ok else (turn.status == "failed" and not success)
@@ -230,13 +308,22 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                     word in turn.answer for word in ("尚未完成", "已保存配置", "已删除摄像头", '"action"'))
             else:
                 report_ok = turn.status == "completed" and not sandbox.service.actions(turn.id) and tool_ok
+            if step.tasks:
+                actions = sandbox.service.actions(turn.id)
+                report_ok = (turn.status == "completed" and tool_ok and "尚未完成的任务" not in turn.answer
+                             and all(action.status == "saved" and action.after is not None for action in actions))
+                if step.mode == "change":
+                    report_ok &= bool(actions) and "已保存配置" in turn.answer
             if target_question and not sandbox.service.actions(turn.id):
                 # 如实报告目标不明不等于任务成功，也不能据此声称最终答复撒谎。
                 report_ok = turn.status == "completed" and CLARIFY_TARGET in turn.answer
-            behavior_ok = classification_ok and operations_ok and configuration_ok and tool_ok and report_ok and resource_ok is not False and parameter_ok is not False
+            behavior_ok = (classification_ok and operations_ok and configuration_ok and tool_ok and report_ok
+                           and resource_ok is not False and parameter_ok is not False and orchestration_ok is not False)
             anchor_visible = planning_requests[0].get("anchor_in_history") if planning_requests else None
             failure_layers = []
             if not classification_ok or not operations_ok or resource_ok is False or parameter_ok is False or not tool_ok:
+                failure_layers.append("model_output" if live else "agent_scheduling")
+            if orchestration_ok is False:
                 failure_layers.append("model_output" if live else "agent_scheduling")
             if not configuration_ok:
                 failure_layers.append("agent_scheduling" if changes else "model_output" if live else "agent_scheduling")
@@ -262,6 +349,7 @@ def run_conversation(name, *, repeat=1, live=False, on_row=None, progress=None, 
                    "repeat": repeat, "turn_index": number, "conversation_total_turns": len(steps),
                    "status": turn.status, "classification_ok": classification_ok,
                    "planning_operations_ok": operations_ok,
+                   "orchestration_ok": orchestration_ok,
                    "resource_ok": resource_ok, "parameter_ok": parameter_ok, "tool_selection_ok": tool_ok,
                    "resource_resolution_ok": resolution_ok,
                    "configuration_ok": configuration_ok, "report_ok": bool(report_ok), "behavior_ok": bool(behavior_ok),

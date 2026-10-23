@@ -108,6 +108,13 @@ class AssistantTools:
         self.change_count = 0
         self.target_policy = None
         self.change_policy = None
+        self.task_index = 1
+
+    def begin_task(self, task_index=1):
+        # 专家交接不能复用上一子任务的写入版本；整轮变更计数和审计保持共享。
+        self.check_cancel()
+        self.read_versions.clear()
+        self.task_index = task_index
 
     def catalog(self, *, write=False):
         self.check_cancel()

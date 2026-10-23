@@ -142,6 +142,8 @@ class RuntimeSettings(BaseSettings):
     assistant_workers: int = Field(1, ge=1, le=4, alias="ASSISTANT_WORKERS")
     assistant_queue_capacity: int = Field(16, ge=1, le=64, alias="ASSISTANT_QUEUE_CAPACITY")
     assistant_max_rounds: int = Field(24, ge=1, le=48, alias="ASSISTANT_MAX_ROUNDS")
+    # 规划、专家交接和工具循环共享整轮期限，不能随专家数量重新计时。
+    assistant_task_timeout_sec: float = Field(300.0, ge=10, le=1800, alias="ASSISTANT_TASK_TIMEOUT_SEC")
     assistant_max_changes: int = Field(100, ge=1, le=200, alias="ASSISTANT_MAX_CHANGES")
     assistant_history_turns: int = Field(6, ge=0, le=20, alias="ASSISTANT_HISTORY_TURNS")
     assistant_history_max_chars: int = Field(8000, ge=1000, le=32000, alias="ASSISTANT_HISTORY_MAX_CHARS")

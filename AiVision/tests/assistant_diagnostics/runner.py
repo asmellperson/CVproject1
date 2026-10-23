@@ -430,7 +430,7 @@ def markdown_report(report):
                   "缺少或不可达的模型层会标记 blocked，不以脚本模型结果代替。即使全部虚构样例通过，也不能证明所有自然语言表达和生产部署均可靠。",
                   "Qwen 的 API model 标识不能证明实际权重、量化、chat template 或启动参数；本诊断不修改或验证模型权重。",
                   "SQLite 用于验证事务结果、字段校验和版本逻辑，不覆盖 MySQL 的锁竞争、死锁重试及生产数据规模。",
-                  "多轮测试在同一 session 内持续 10～13 轮，分别覆盖混合任务、历史窗口和重复完整配置查询。逐轮记录模型请求字符数；Token 数只采用服务 usage，不进行估算。",
+                  "多轮测试在同一 session 内持续 10～13 轮，分别覆盖混合任务、历史窗口、重复完整配置查询和专家交接。复合任务按步骤核对字段、目标与保存后回查，记录专家编排通过率。逐轮记录模型请求字符数；Token 数只采用服务 usage，不进行估算。",
                   "历史同时受轮数和字符预算限制，规划历史不含助手答复正文，短期目标引用和待澄清任务按权限可见性隔离。工具观察单独按 60000 字符裁剪。片段可见性不证明完整语义记忆。",
                   "前端 sendAssistantMessage 只提交 request_id/text，由 useAssistant 复用 sessionId；源码未发现第 4 或第 5 轮的固定上限。本工具不运行浏览器，不能排除轮询、页面挂载或会话切换故障。",
                   "", "## 优先级最高的三项建议", "",
@@ -567,7 +567,7 @@ def main(argv=None):
     parser.add_argument("--base-url", default=os.environ.get("ASSISTANT_DIAGNOSTIC_BASE_URL"))
     parser.add_argument("--model", default=os.environ.get("ASSISTANT_DIAGNOSTIC_MODEL", "fuda-qwen38-27b"))
     parser.add_argument("--layers", default="service,model,agent,tools,e2e-scripted,e2e-live,probes,conversation-scripted,conversation-live")
-    parser.add_argument("--conversations", default="mixed,window,pressure")
+    parser.add_argument("--conversations", default="mixed,window,pressure,collaboration")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--max-tokens", type=int, default=2048)
     parser.add_argument("--timeout", type=float, default=45.0)
@@ -580,7 +580,7 @@ def main(argv=None):
     if not set(args.layers.split(",")) <= allowed:
         parser.error("--layers 只能包含 " + ",".join(sorted(allowed)))
     if not set(args.conversations.split(",")) <= set(conversation_cases()):
-        parser.error("--conversations 只能包含 mixed,window,pressure")
+        parser.error("--conversations 只能包含 " + ",".join(conversation_cases()))
     args.output.mkdir(parents=True, exist_ok=True)
 
     def write_outputs(report):

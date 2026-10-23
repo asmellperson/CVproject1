@@ -1387,3 +1387,275 @@ def test_corrected_search_uses_canonical_department_identity_for_error_recovery(
     outcome.record("list_resources", {"items": [], "total": 0},
                    {"kind": "feature", "department": corrected, "feature": "tailgating"})
     assert not outcome.errors
+
+
+def compound_request_plan(first="查询一号摄像头的参数", second="把它的帧率改为8"):
+    return {"mode": "change", "operations": ["update_configurations"], "target_context": {
+        "references": [{"kind": "named", "text": "一号摄像头"}, {"kind": "context", "text": "它"}], "bindings": []},
+        "tasks": [
+            {"agent": "query", "request": first, "query_tool": "read_configurations"},
+            {"agent": "configuration", "request": second, "operations": ["update_configurations"]},
+        ]}
+
+
+@pytest.mark.parametrize("change", [
+    lambda plan: plan["tasks"][0].update(agent="unknown"),
+    lambda plan: plan["tasks"][0].update(operations=["delete_camera"]),
+    lambda plan: plan["tasks"][1].update(query_tool="capabilities"),
+    lambda plan: plan["tasks"][1].update(operations=[]),
+    lambda plan: plan["tasks"][1].update(operations=["delete_camera"]),
+    lambda plan: plan["tasks"][0].update(private_unknown_field="sensitive-placeholder"),
+    lambda plan: plan.update(tasks=plan["tasks"][:1]),
+    lambda plan: plan.update(mode="chat", operations=[]),
+    lambda plan: plan.update(tasks=plan["tasks"] * 4),
+])
+def test_specialist_contracts_are_strict_and_do_not_expand_outer_authorization(change):
+    from AiVision.assistant.responses import PlanFormatError, parse_plan
+
+    plan = compound_request_plan()
+    change(plan)
+    with pytest.raises(PlanFormatError) as error:
+        parse_plan(completion(plan))
+    assert error.value.category == "plan_schema"
+    assert "sensitive-placeholder" not in str(error.value)
+    assert "private_unknown_field" not in str(error.value)
+
+
+@pytest.mark.parametrize("question, first, second", [
+    ("不要查询一号摄像头的参数，然后把它的帧率改为8", "查询一号摄像头的参数", "把它的帧率改为8"),
+    ("查询一号摄像头的参数，然后把它的帧率改为8，且不能修改其他目标", "查询一号摄像头的参数", "把它的帧率改为8"),
+    ("查询全部一号摄像头的参数，然后把它的帧率改为8", "查询一号摄像头的参数", "把它的帧率改为8"),
+    ("把它的帧率改为8，然后查询一号摄像头的参数", "查询一号摄像头的参数", "把它的帧率改为8"),
+    ("查询一号摄像头的参数，然后把它的帧率改为8", "查询一号摄像头的参数，然后", "然后把它的帧率改为8"),
+])
+def test_task_sources_cannot_omit_negation_scope_conditions_or_reorder(question, first, second):
+    from AiVision.assistant.orchestration import TaskCoordinator
+    from AiVision.assistant.responses import PlanFormatError
+    from AiVision.assistant.schema import RequestPlan
+
+    with pytest.raises(PlanFormatError) as error:
+        TaskCoordinator(RequestPlan.model_validate(compound_request_plan(first, second)), question)
+    assert error.value.issues[0]["type"] == "task_source"
+    assert question not in str(error.value)
+
+
+def specialist_runtime_script(case):
+    """固定分工只验证调度；真实业务保存由 SQLite 集成测试另外覆盖。"""
+    plan = compound_request_plan()
+    case.current.question = "查询一号摄像头的参数，然后把它的帧率改为8"
+    resource = {"key": "camera:1", "kind": "camera", "name": "一号摄像头", "identifier": "camera_1",
+                "department": "general_electric", "feature": None}
+    original = case.tools.run.side_effect
+
+    def run(name, arguments):
+        if name == "read_configurations":
+            return {"items": [{"resource": resource, "config": {"fps": 4}, "revision": "a" * 64, "schema_definition": {}}]}
+        return original(name, arguments)
+
+    case.tools.run.side_effect = run
+    case.service.actions.return_value = [SimpleNamespace(resource=SimpleNamespace(**resource), status="saved",
+                                                         after={"fps": 8}, detail="隔离审计核验通过")]
+    steps = [plan, {"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}},
+             {"action": "read_configurations", "arguments": {"resource_keys": ["camera:1"]}},
+             {"action": "update_configurations", "arguments": {"changes": [
+                 {"resource_key": "camera:1", "expected_revision": "a" * 64, "patch": {"fps": 8}}]}},
+             {"action": "answer", "answer": "模型错误声称改成了99"}]
+    return steps
+
+
+def test_coordinator_dispatches_separate_specialists_and_reports_only_verified_results(runtime_case):
+    case = runtime_case
+    case.client.complete.side_effect = [(completion(step), 0.1) for step in specialist_runtime_script(case)]
+    case.execute()
+    calls = [call.kwargs for call in case.client.complete.call_args_list]
+    assert len(calls) == 5
+    assert "当前专家：查询专家" in calls[1]["messages"][0]["content"]
+    assert "当前专家：配置专家" in calls[2]["messages"][0]["content"]
+    assert case.current.question in calls[2]["messages"][0]["content"]
+    assert calls[2]["messages"][1]["content"] == "把它的帧率改为8"
+    assert "update_configurations" not in calls[1]["response_schema"]["properties"]["action"]["enum"]
+    assert "update_configurations" in calls[2]["response_schema"]["properties"]["action"]["enum"]
+    assert "delete_camera" not in calls[2]["response_schema"]["properties"]["action"]["enum"]
+    shared = next(message["content"] for message in calls[2]["messages"] if message["content"].startswith("协调器已核验"))
+    assert '"current_step": 2' in shared and "camera:1" in shared and "completed_steps" in shared
+    assert '"revision"' not in shared and '"config"' not in shared
+    assert all(not message["content"].startswith("工具执行结果") for message in calls[2]["messages"])
+    assert [call.args[0] for call in case.tools.run.call_args_list] == [
+        "capabilities", "read_configurations", "read_configurations", "update_configurations"]
+    assert case.tools.begin_task.call_count == 2
+    case.tools.catalog.assert_called_once_with(write=True)
+    status, answer = case.service.finish.call_args.args[1:]
+    assert status == "completed" and "隔离审计核验通过" in answer and '"fps": 4' in answer
+    assert "改成了99" not in answer and "尚未完成的任务" not in answer
+
+
+def test_query_specialist_cannot_write_even_when_outer_request_authorizes_a_later_write(runtime_case):
+    case = runtime_case
+    steps = specialist_runtime_script(case)
+    case.client.complete.side_effect = [(completion(steps[0]), 0.1), (completion(steps[3]), 0.1)]
+    case.execute()
+    assert [call.args[0] for call in case.tools.run.call_args_list] == ["capabilities"]
+    assert case.client.complete.call_count == 2
+    assert case.service.finish.call_args.args[1] == "failed"
+    assert "尚未完成的任务：1、2" in case.service.finish.call_args.args[2]
+
+
+def test_completing_one_operation_does_not_complete_later_tasks_using_the_same_tool():
+    from AiVision.assistant.orchestration import TaskCoordinator
+    from AiVision.assistant.schema import RequestPlan
+
+    plan = compound_request_plan("一号摄像头的帧率改为8", "二号摄像头的帧率改为10")
+    plan["tasks"][0] = {"agent": "configuration", "request": plan["tasks"][0]["request"], "operations": ["update_configurations"]}
+    coordinator = TaskCoordinator(RequestPlan.model_validate(plan), "一号摄像头的帧率改为8；二号摄像头的帧率改为10")
+    coordinator.record("update_configurations", {"resource_key": "camera:1", "resource_name": "一号摄像头", "status": "unchanged"})
+    assert coordinator.complete()
+    assert not coordinator.outcome.pending
+    assert coordinator.active.outcome.pending == {"update_configurations"}
+    status, answer = coordinator.answer([])
+    assert status == "failed" and "尚未完成的任务：2" in answer
+
+
+def test_task_source_errors_share_the_single_planning_correction_budget(runtime_case):
+    case = runtime_case
+    steps = specialist_runtime_script(case)
+    bad = deepcopy(steps[0])
+    bad["tasks"][0]["request"] = "一号摄像头的参数"
+    case.client.complete.side_effect = [(completion(bad), 0.1), (completion(steps[0]), 0.1)]
+    assert case.plan().tasks
+    assert case.client.complete.call_count == 2
+    assert "task_source" in case.client.complete.call_args.kwargs["messages"][-1]["content"]
+    case.tools.run.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["cancel", "timeout"])
+def test_handoff_cannot_reset_cancellation_or_the_whole_turn_deadline(runtime_case, monkeypatch, failure):
+    from AiVision.connectors.qwen.client import QwenTimeoutError
+
+    case = runtime_case
+    steps = iter(specialist_runtime_script(case))
+    monkeypatch.setattr(case.module.settings.runtime, "assistant_task_timeout_sec", 10.0)
+
+    def reply(**kwargs):
+        case.clock.now += 3
+        return completion(next(steps)), 0.1
+
+    case.client.complete.side_effect = reply
+    original = case.tools.run.side_effect
+    reads = 0
+
+    def run(name, arguments):
+        nonlocal reads
+        result = original(name, arguments)
+        if name == "read_configurations":
+            reads += 1
+            if failure == "cancel":
+                case.service.cancelled.return_value = True
+            elif reads == 2:
+                case.clock.now = 110.0
+        return result
+
+    case.tools.run.side_effect = run
+    with pytest.raises(case.module.TaskCancelled if failure == "cancel" else QwenTimeoutError):
+        case.execute()
+    assert all(call.args[0] != "update_configurations" for call in case.tools.run.call_args_list)
+    if failure == "timeout":
+        assert [call.kwargs["timeout"] for call in case.client.complete.call_args_list] == [10.0, 7.0, 4.0]
+
+
+def test_specialists_share_the_existing_round_limit(runtime_case, monkeypatch):
+    case = runtime_case
+    monkeypatch.setattr(case.module.settings.runtime, "assistant_max_rounds", 2)
+    case.client.complete.side_effect = [(completion(step), 0.1) for step in specialist_runtime_script(case)]
+    case.execute()
+    assert case.client.complete.call_count == 3
+    assert all(call.args[0] != "update_configurations" for call in case.tools.run.call_args_list)
+    assert case.service.finish.call_args.args[1] == "failed"
+    assert "调用已达到上限" in case.service.finish.call_args.args[2]
+
+
+def test_specialists_share_one_tool_format_correction(runtime_case):
+    from AiVision.assistant.responses import ToolCallFormatError
+
+    case = runtime_case
+    steps = specialist_runtime_script(case)
+    invalid = '{"action":"read_configurations",'
+    case.client.complete.side_effect = [(completion(step), 0.1) for step in [steps[0], invalid, steps[1], invalid]]
+    with pytest.raises(ToolCallFormatError):
+        case.execute()
+    assert case.client.complete.call_count == 4
+    assert all(call.args[0] != "update_configurations" for call in case.tools.run.call_args_list)
+
+
+def test_conditional_compound_changes_are_clarified_before_execution(runtime_case):
+    case = runtime_case
+    plan = compound_request_plan(second="如果帧率小于8就把它的帧率改为8")
+    case.current.question = "查询一号摄像头的参数；如果帧率小于8就把它的帧率改为8"
+    case.client.complete.return_value = completion(plan), 0.1
+    original = case.tools.run.side_effect
+    case.tools.run.side_effect = lambda name, args: {"question": args["question"]} if name == "ask_user" else original(name, args)
+    case.execute()
+    assert [call.args[0] for call in case.tools.run.call_args_list] == ["capabilities", "ask_user"]
+    assert case.client.complete.call_count == 1
+    assert "尚未完成的任务：1、2" in case.service.finish.call_args.args[2]
+
+
+def test_handoff_clears_versions_without_resetting_the_shared_mutation_limit():
+    from AiVision.assistant.tools import AssistantTools
+    from AiVision.core.settings import settings
+
+    tools = AssistantTools(turn_id=1, session_id="isolated", department=None, load_user=Mock(),
+                           sources=Mock(), orchestrator=None, check_cancel=Mock())
+    tools.read_versions["camera:1"] = "a" * 64
+    tools.change_count = settings.runtime.assistant_max_changes - 1
+    tools.begin_task(2)
+    assert tools.read_versions == {} and tools.task_index == 2
+    assert tools.change_count == settings.runtime.assistant_max_changes - 1
+    with pytest.raises(ValueError, match="操作数量达到上限"):
+        tools.count_changes(2)
+
+
+def test_structural_handoff_cannot_reuse_the_previous_live_target():
+    from AiVision.assistant.orchestration import TaskCoordinator
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+
+    plan = compound_request_plan("删除一号摄像头", "把它的帧率改为8")
+    plan["operations"] = ["delete_camera", "update_configurations"]
+    plan["tasks"][0] = {"agent": "configuration", "request": "删除一号摄像头", "operations": ["delete_camera"]}
+    coordinator = TaskCoordinator(RequestPlan.model_validate(plan), "删除一号摄像头；把它的帧率改为8")
+    resource = {"key": "camera:1", "kind": "camera", "name": "一号摄像头", "department": "general_electric"}
+    coordinator.record("read_configurations", {"items": [{"resource": resource, "config": {"fps": 4}}]})
+    coordinator.record("delete_camera", {"resource": {**resource, "key": "delete:camera:1", "kind": "camera_deletion"},
+                                         "status": "saved", "after": {"state": "已删除"}})
+    assert coordinator.complete()
+    assert coordinator.memory["last_read_resources"] == []
+    assert not coordinator.outcome.query_configurations
+    task = coordinator.active
+    assert TargetPolicy(task.request, task.outcome.plan, coordinator.memory).needs_clarification
+
+
+def test_shared_context_is_bounded_without_passing_a_partial_target_set():
+    from AiVision.assistant.orchestration import TaskCoordinator
+    from AiVision.assistant.schema import RequestPlan
+
+    coordinator = TaskCoordinator(RequestPlan.model_validate(compound_request_plan()),
+                                  "查询一号摄像头的参数，然后把它的帧率改为8",
+                                  {"last_read_resources": [target_resource(number) for number in range(50)]})
+    context = coordinator.shared_context(max_chars=1000)
+    assert context["history_truncated"] and context["last_read_resources"] == []
+    assert len(coordinator.memory["last_read_resources"]) == 50
+
+
+@pytest.mark.parametrize("status", ["unknown", "changed", "failed"])
+def test_unverified_step_results_cannot_be_handed_to_another_expert(status):
+    from AiVision.assistant.orchestration import TaskCoordinator
+    from AiVision.assistant.schema import RequestPlan
+
+    plan = compound_request_plan("一号摄像头的帧率改为8", "二号摄像头的帧率改为10")
+    plan["tasks"][0] = {"agent": "configuration", "request": plan["tasks"][0]["request"], "operations": ["update_configurations"]}
+    coordinator = TaskCoordinator(RequestPlan.model_validate(plan), "一号摄像头的帧率改为8；二号摄像头的帧率改为10")
+    coordinator.record("update_configurations", {"resource": {"key": "camera:1"}, "status": status,
+                                                 "after": None, "detail": "保存结果尚未核实"})
+    with pytest.raises(ValueError, match="尚未核验完成"):
+        coordinator.complete()
+    assert coordinator.index == 0 and not any(task.completed for task in coordinator.tasks)
