@@ -107,6 +107,7 @@ class AssistantTools:
         self.read_versions = {}
         self.change_count = 0
         self.target_policy = None
+        self.change_policy = None
 
     def catalog(self, *, write=False):
         self.check_cancel()
@@ -130,6 +131,8 @@ class AssistantTools:
             result = catalog.find(**args.model_dump())
             if self.target_policy is not None:
                 self.target_policy.observe(name, result)
+            if self.change_policy is not None:
+                self.change_policy.observe(name, result, args.model_dump())
             return result
         if name == "read_configurations":
             resources = [catalog.resolve(key) for key in args.resource_keys]
@@ -138,6 +141,8 @@ class AssistantTools:
             result = {"items": [resource.response().model_dump(mode="json") for resource in resources]}
             if self.target_policy is not None:
                 self.target_policy.observe(name, result)
+            if self.change_policy is not None:
+                self.change_policy.observe(name, result, args.model_dump())
             return result
         if name == "update_configurations":
             return self.update(args.changes)
@@ -174,7 +179,11 @@ class AssistantTools:
             if self.read_versions.get(change.resource_key) != change.expected_revision or resource.revision != change.expected_revision:
                 raise ConfigurationConflict("必须先读取当前配置，且读取后的版本不能发生变化")
             resource.prepare(change.patch)
+            if self.change_policy is not None:
+                self.change_policy.check_patch(resource, change.patch)
             prepared.append((change, resource))
+        if self.change_policy is not None:
+            self.change_policy.check_targets(changes)
         results = []
         for change, previous in prepared:
             resource = self.catalog(write=True).resolve(change.resource_key)

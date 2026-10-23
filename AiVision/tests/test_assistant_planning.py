@@ -132,7 +132,7 @@ def runtime_case(monkeypatch):
             return {"departments": [{"name": "通用电气"}], "features": []}
         if name == "list_resources":
             return {"items": [{"key": "camera:1", "name": "一号摄像头", "identifier": "camera_1"}]}
-        return {"status": "saved", "after": {"fps": 8}}
+        return {"resource": {"key": "camera:1"}, "status": "saved", "after": {"fps": 8}}
 
     tools.run.side_effect = tool_result
     monkeypatch.setattr(module, "AssistantTools", Mock(return_value=tools))
@@ -1164,3 +1164,226 @@ def test_response_metadata_and_failure_logs_never_include_reasoning_or_response_
         case.plan()
     assert "1024" in caplog.text and "length" in caplog.text
     assert "fixture-private-response" not in caplog.text and "fixture-private-reasoning" not in caplog.text
+
+
+def change_policy(question, *, memory=None, references=()):
+    from AiVision.assistant.changes import ChangePolicy
+    from AiVision.assistant.schema import RequestPlan
+    from AiVision.assistant.targets import TargetPolicy
+
+    plan = RequestPlan(mode="change", operations=["update_configurations"],
+                       target_context={"references": list(references)})
+    return ChangePolicy(question, plan, TargetPolicy(question, plan, memory), memory)
+
+
+def change_resource():
+    from AiVision.assistant.resources import ConfigurationResource
+    from AiVision.assistant.schema import ResourceReference
+    from AiVision.features.tailgating.schema import TailgatingConfig
+
+    return ConfigurationResource(ResourceReference(key="feature:tailgating:1", kind="feature", name="闸机1",
+        department="general_electric", feature="tailgating"), TailgatingConfig, TailgatingConfig().model_dump(), Mock())
+
+
+@pytest.mark.parametrize("question, patch", [
+    ("闸机1的人体置信度改为0.8", {"value": {"threshold": 0.8}}),
+    ("人体置信度配置值改为0.8，检测间隔改为0.2秒", {"value": {"threshold": 0.8, "cap_interval": 0.2}}),
+    ("把 value.cap_interval 改为0.2", {"value": {"cap_interval": 0.2}}),
+    ("人体置信度保持0.5", {"value": {"threshold": 0.5}}),
+    ("当前人体置信度是0.5，检测间隔改为0.2", {"value": {"cap_interval": 0.2}}),
+    ("当前人体置信度是0.5，只修改检测间隔为0.2", {"value": {"cap_interval": 0.2}}),
+    ("人体置信度当前0.5，帮我调整检测间隔为0.2", {"value": {"cap_interval": 0.2}}),
+])
+def test_change_scope_accepts_only_explicit_requested_parameters(question, patch):
+    change_policy(question).check_patch(change_resource(), patch)
+
+
+@pytest.mark.parametrize("question, patch", [
+    ("人体置信度改为0.8", {"value": {"threshold": 0.8, "cap_interval": 0.2}}),
+    ("人体置信度改为0.8，不要改检测间隔", {"value": {"threshold": 0.8, "cap_interval": 0.2}}),
+    ("人体置信度和检测间隔分别改为0.8和0.2", {"value": {"threshold": 0.8}}),
+    ("把 max_threshold 改为0.8", {"value": {"threshold": 0.8}}),
+    ("当前人体置信度是0.5，检测间隔改为0.2", {"value": {"threshold": 0.8, "cap_interval": 0.2}}),
+    ("只修改检测间隔为0.2，别修改人体置信度", {"value": {"threshold": 0.8, "cap_interval": 0.2}}),
+])
+def test_change_scope_rejects_extra_missing_negated_or_unverified_parameters(question, patch):
+    with pytest.raises(ValueError):
+        change_policy(question).check_patch(change_resource(), patch)
+
+
+def test_change_scope_uses_only_an_active_pending_request_for_a_short_reply():
+    pending = {"pending_task": {"request": "人体置信度调低一点", "plan": {"mode": "change"}}}
+    reference = [{"kind": "pending", "text": "就改为0.55"}]
+    change_policy("就改为0.55", memory=pending, references=reference).check_patch(
+        change_resource(), {"value": {"threshold": 0.55}})
+    with pytest.raises(ValueError):
+        change_policy("检测间隔改为0.2", memory=pending).check_patch(
+            change_resource(), {"value": {"threshold": 0.8, "cap_interval": 0.2}})
+    change_policy("检测间隔改为0.2", memory=pending,
+                  references=[{"kind": "pending", "text": "检测间隔改为0.2"}]).check_patch(
+                      change_resource(), {"value": {"cap_interval": 0.2}})
+
+
+@pytest.mark.parametrize("question, submitted, next_offset, expected", [
+    ("两台闸机的人体置信度都改为0.8", [1, 2], None, True),
+    ("两台闸机的人体置信度都改为0.8", [1], None, False),
+    ("全部闸机的人体置信度改为0.8", [1, 2], 2, False),
+    ("全部闸机的人体置信度改为0.8", [1, 2], None, True),
+])
+def test_batch_scope_requires_complete_discovery_and_the_complete_target_set(question, submitted, next_offset, expected):
+    policy = change_policy(question)
+    items = [target_resource(number) for number in (1, 2)]
+    policy.observe("list_resources", {"items": items, "total": 3 if next_offset else 2, "next_offset": next_offset},
+                   {"kind": "feature", "feature": "tailgating", "query": "闸机", "offset": 0})
+    changes = [SimpleNamespace(resource_key=target_resource(number)["key"]) for number in submitted]
+    if expected:
+        policy.check_targets(changes)
+    else:
+        with pytest.raises(ValueError):
+            policy.check_targets(changes)
+
+
+def test_batch_scope_does_not_treat_an_invented_narrow_search_as_all_targets():
+    policy = change_policy("全部闸机的人体置信度改为0.8")
+    policy.observe("list_resources", {"items": [target_resource()], "total": 1, "next_offset": None},
+                   {"kind": "feature", "feature": "tailgating", "query": "闸机1"})
+    with pytest.raises(ValueError):
+        policy.check_targets([SimpleNamespace(resource_key=target_resource()["key"])])
+
+
+def test_batch_scope_requires_continuous_pages_instead_of_only_the_last_page():
+    policy = change_policy("所有闸机的人体置信度改为0.8")
+    for offset, numbers, following in [(0, (1,), 1), (2, (3,), None)]:
+        policy.observe("list_resources", {"items": [target_resource(number) for number in numbers],
+            "total": 3, "next_offset": following}, {"kind": "feature", "feature": "tailgating", "query": "闸机", "offset": offset})
+    changes = [SimpleNamespace(resource_key=target_resource(number)["key"]) for number in (1, 2, 3)]
+    with pytest.raises(ValueError):
+        policy.check_targets(changes)
+    policy.observe("list_resources", {"items": [target_resource(2)], "total": 3, "next_offset": 2},
+                   {"kind": "feature", "feature": "tailgating", "query": "闸机", "offset": 1})
+    policy.check_targets(changes)
+
+
+@pytest.mark.parametrize("recoverable", [True, False])
+def test_only_recoverable_errors_of_the_same_tool_scope_can_be_resolved(recoverable):
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="change", operations=["update_configurations"], target_context={}))
+    arguments = {"kind": "feature", "department": "general_electric"}
+    outcome.record("list_resources", {"error": "本次查询未执行", "recoverable": recoverable}, arguments)
+    outcome.record("capabilities", {})
+    assert outcome.errors
+    outcome.record("list_resources", {"items": [], "total": 0}, {"kind": "camera"})
+    assert outcome.errors
+    outcome.record("list_resources", {"items": [], "total": 0}, {**arguments, "feature": "tailgating"})
+    assert bool(outcome.errors) is not recoverable
+
+
+def test_batch_outcome_requires_a_verified_result_for_every_submitted_target():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="change", operations=["update_configurations"], target_context={}))
+    arguments = {"changes": [{"resource_key": "camera:1"}, {"resource_key": "camera:2"}]}
+    first = {"resource_key": "camera:1", "resource_name": "一号", "status": "unchanged"}
+    outcome.record("update_configurations", {"results": [first]}, arguments)
+    assert outcome.pending == {"update_configurations"}
+    second = {"resource_key": "camera:2", "resource_name": "二号", "status": "unchanged"}
+    outcome.record("update_configurations", {"results": [first, second]}, arguments)
+    assert not outcome.pending
+
+
+@pytest.mark.parametrize("tool, arguments", [
+    ("list_resources", {"kind": [], "department": {"invalid": True}}),
+    ("read_configurations", {"resource_keys": None}),
+    ("read_configurations", {"resource_keys": [1, {}, "camera:1"]}),
+    ("update_configurations", {"changes": None}),
+    ("update_configurations", {"changes": [True, {"resource_key": []}]}),
+])
+def test_error_bookkeeping_does_not_crash_on_rejected_invalid_tool_arguments(tool, arguments):
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="change", operations=["update_configurations"], target_context={}))
+    outcome.record(tool, {"error": "参数不合法", "recoverable": True}, arguments)
+    assert outcome.errors == ["参数不合法"]
+
+
+def test_success_on_another_resource_does_not_resolve_a_failed_update():
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="change", operations=["update_configurations"], target_context={}))
+    outcome.record("update_configurations", {"error": "尚未保存", "recoverable": True},
+                   {"changes": [{"resource_key": "camera:1"}]})
+    outcome.record("update_configurations", {"results": [{"resource_key": "camera:2", "resource_name": "二号",
+                   "status": "unchanged"}]}, {"changes": [{"resource_key": "camera:2"}]})
+    assert outcome.errors == ["尚未保存"]
+    outcome.record("update_configurations", {"results": [
+        {"resource_key": f"camera:{number}", "resource_name": str(number), "status": "unchanged"}
+        for number in (1, 2)]}, {"changes": [{"resource_key": f"camera:{number}"} for number in (1, 2)]})
+    assert not outcome.errors and not outcome.pending
+
+
+@pytest.mark.parametrize("name", ["两台入口", "全部入口"])
+def test_words_inside_a_verified_resource_name_are_not_batch_quantifiers(name):
+    policy = change_policy(f"把{name}的人体置信度改为0.8", references=[{"kind": "named", "text": name}])
+    result = {"items": [target_resource(name=name)], "total": 1, "next_offset": None}
+    policy.target_policy.observe("list_resources", result)
+    policy.observe("list_resources", result, {"kind": "feature", "feature": "tailgating", "query": name})
+    policy.check_targets([SimpleNamespace(resource_key=target_resource()["key"])])
+
+
+def test_schema_titles_and_array_parameters_are_checked_without_changing_the_business_schema():
+    from pydantic import BaseModel, Field
+    from AiVision.assistant.resources import ConfigurationResource
+
+    class Parameters(BaseModel):
+        duration: float = Field(10, title="驻留时长", gt=0)
+
+    original = change_resource()
+    resource = ConfigurationResource(original.reference, Parameters, Parameters().model_dump(), Mock())
+    change_policy("驻留时长改为20").check_patch(resource, {"duration": 20})
+    change_policy("ROI改为空区域").check_patch(original, {"value": {"roi_pos": []}})
+    with pytest.raises(ValueError):
+        change_policy("驻留时长改为20").check_patch(resource, {"duration": 20, "extra": 1})
+    assert Parameters.model_json_schema()["properties"]["duration"]["exclusiveMinimum"] == 0
+
+
+@pytest.mark.parametrize("status", ["failed", "unknown", "changed", "executing"])
+def test_unverified_batch_item_remains_failed_after_unrelated_queries(status):
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="change", operations=["update_configurations"], target_context={}))
+    outcome.record("list_resources", {"items": [{"key": "camera:2", "name": "二号摄像头"}]})
+    outcome.record("update_configurations", {"results": [
+        {"resource_key": "camera:1", "resource_name": "一号摄像头", "status": "unchanged"},
+        {"resource": {"key": "camera:2"}, "status": status, "detail": "尚未确认保存"},
+    ]}, {"changes": [{"resource_key": "camera:1"}, {"resource_key": "camera:2"}]})
+    outcome.record("capabilities", {})
+    actual_status, answer = outcome.answer([])
+    assert actual_status == "failed" and "二号摄像头" in answer and outcome.errors
+
+
+@pytest.mark.parametrize("prefix", ["示例：", "例如", "假设"])
+def test_parameters_in_examples_do_not_authorize_extra_writes(prefix):
+    policy = change_policy(f"{prefix}检测间隔改为0.2；实际把人体置信度改为0.8")
+    policy.check_patch(change_resource(), {"value": {"threshold": 0.8}})
+    with pytest.raises(ValueError):
+        policy.check_patch(change_resource(), {"value": {"threshold": 0.8, "cap_interval": 0.2}})
+
+
+@pytest.mark.parametrize("first, corrected", [
+    ("通用电气事业部", "general_electric"), ("general_electric", "通用电气事业部"),
+])
+def test_corrected_search_uses_canonical_department_identity_for_error_recovery(first, corrected):
+    from AiVision.assistant.outcomes import ExecutionOutcome
+    from AiVision.assistant.schema import RequestPlan
+
+    outcome = ExecutionOutcome(RequestPlan(mode="query", query_tool="read_configurations", target_context={}))
+    outcome.record("list_resources", {"error": "缺少功能", "recoverable": True}, {"kind": "feature", "department": first})
+    outcome.record("list_resources", {"items": [], "total": 0},
+                   {"kind": "feature", "department": corrected, "feature": "tailgating"})
+    assert not outcome.errors

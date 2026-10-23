@@ -64,11 +64,68 @@ def test_tools_reject_invalid_changes_and_verify_real_database_results(name):
 
 
 @pytest.mark.parametrize("probe", PROBES, ids=lambda case: case.name)
-@pytest.mark.xfail(reason="诊断探针揭示现有 Agent 的任务约束与结果状态缺口；未修改生产执行逻辑", strict=False)
 def test_current_agent_enforces_the_requested_scope_and_reports_recovery(probe):
-    # 保留真实失败结果，不能以放宽预期或伪造业务返回让该保护性探针通过。
     row = run_dialogue(probe)
-    assert row["behavior_ok"]
+    assert row["behavior_ok"] and row["configuration_ok"] and row["report_ok"]
+    if probe.expected == "scope_rejected":
+        assert row["status"] == "failed" and row["task_ok"] is None
+        assert row["evidence"]["saved_action_count"] == 0
+        assert row["evidence"]["changed_value_fields"] == []
+        assert "ChangeScopeError" in row["errors"]
+    else:
+        assert row["status"] == "completed" and row["evidence"]["saved_action_count"] == 1
+
+
+@pytest.mark.parametrize("probe", PROBES[:2], ids=lambda case: case.name)
+@pytest.mark.parametrize("fake_tools", [False, True])
+def test_rejected_scope_can_be_corrected_and_then_really_saved(monkeypatch, probe, fake_tools):
+    from dataclasses import replace
+    from AiVision.tests.assistant_diagnostics.cases import RESOURCE, SECOND_RESOURCE
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    original = ScriptedClient.complete
+
+    def corrected(self, **kwargs):
+        last = kwargs["messages"][-1]["content"]
+        if last.startswith("工具执行结果"):
+            data = json.loads(last.split("：", 1)[1])
+            if "error" in data and "尚未保存" in data["error"]:
+                self.scope_corrected = True
+                keys = [RESOURCE, SECOND_RESOURCE] if probe.name == "partial_batch" else [RESOURCE]
+                return self.tool("read_configurations", {"resource_keys": keys})
+            if getattr(self, "scope_corrected", False) and data.get("items") and "resource" in data["items"][0]:
+                return self.tool("update_configurations", {"changes": [{
+                    "resource_key": item["resource"]["key"], "expected_revision": item["revision"], "patch": probe.patch,
+                } for item in data["items"]]})
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(ScriptedClient, "complete", corrected)
+    row = run_dialogue(replace(probe, expected="saved", eligible=True), fake_tools=fake_tools)
+    assert row["configuration_ok"] and row["report_ok"] and row["status"] == "completed"
+    assert row["task_ok"] and row["behavior_ok"] and row["evidence"]["scope_recovered"]
+    if probe.name == "extra_field":
+        assert row["parameter_ok"] is False
+    assert "ChangeScopeError" in row["errors"]
+    assert row["evidence"]["changed_value_fields"] == ["threshold"]
+    assert row["evidence"]["saved_action_count"] == (2 if probe.name == "partial_batch" else 1)
+
+
+def test_cancel_after_scope_rejection_does_not_execute_the_corrected_proposal(monkeypatch):
+    from AiVision.tests.assistant_diagnostics.sandbox import ScriptedClient
+
+    original = ScriptedClient.complete
+
+    def cancel_on_correction(self, **kwargs):
+        last = kwargs["messages"][-1]["content"]
+        if last.startswith("工具执行结果") and "尚未保存" in last:
+            self.platform.runtime._stopping.set()
+            return self.tool("read_configurations", {"resource_keys": ["feature:tailgating:101"]})
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(ScriptedClient, "complete", cancel_on_correction)
+    row = run_dialogue(PROBES[0])
+    assert row["status"] == "cancelled" and row["configuration_ok"]
+    assert row["evidence"]["saved_action_count"] == 0
 
 
 def test_aggregate_keeps_not_applicable_values_out_of_the_denominator():

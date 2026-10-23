@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 import json
 
 from .schema import ActionResponse, MutationTool, RequestPlan
+from .targets import normalized
+from AiVision.departments.department_registry import DEPARTMENT_SPECS
 
 
 OPERATION_LABELS: dict[MutationTool, str] = {
@@ -17,7 +19,10 @@ class ExecutionOutcome:
     plan: RequestPlan
     completed_operations: set[str] = field(default_factory=set)
     unchanged: dict[str, str] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)
+    unresolved_errors: list[str] = field(default_factory=list)
+    recoverable_errors: dict[tuple, str] = field(default_factory=dict)
+    required_targets: dict[str, set[str]] = field(default_factory=dict)
+    completed_targets: dict[str, set[str]] = field(default_factory=dict)
     query_tool: str | None = None
     query_result: dict | None = None
     query_resources: dict[str, dict] = field(default_factory=dict)
@@ -27,11 +32,41 @@ class ExecutionOutcome:
     def permits(self, tool: str) -> bool:
         return tool == "ask_user" or (self.plan.mode != "chat" and tool in READ_TOOLS) or tool in self.plan.operations
 
-    def record(self, tool: str, result: dict) -> None:
+    @property
+    def errors(self) -> list[str]:
+        return [*self.unresolved_errors, *self.recoverable_errors.values()]
+
+    @staticmethod
+    def error_scope(tool, arguments):
+        def identifiers(value):
+            return tuple(sorted({item for item in value if isinstance(item, str)})) if isinstance(value, list) else ()
+
+        if tool == "list_resources":
+            department = arguments.get("department")
+            if isinstance(department, str):
+                department = next((spec.name for spec in DEPARTMENT_SPECS.values()
+                                   if normalized(department) in {normalized(spec.name), normalized(spec.display_name)}), department)
+            return tool, tuple(value if isinstance(value, str) else None
+                               for value in (arguments.get("kind"), department, arguments.get("parent_key")))
+        if tool == "read_configurations":
+            return tool, identifiers(arguments.get("resource_keys"))
+        if tool == "update_configurations":
+            changes = arguments.get("changes")
+            return tool, identifiers([change.get("resource_key") for change in changes if isinstance(change, dict)]
+                                      if isinstance(changes, list) else [])
+        return tool, ()
+
+    def record(self, tool: str, result: dict, arguments: dict | None = None) -> None:
+        arguments = arguments or {}
+        scope = self.error_scope(tool, arguments)
         if "error" in result:
-            self.errors.append(str(result["error"]))
+            if result.get("recoverable") is True:
+                self.recoverable_errors[scope] = str(result["error"])
+            else:
+                self.unresolved_errors.append(str(result["error"]))
             return
         if tool in READ_TOOLS:
+            self.recoverable_errors.pop(scope, None)
             self.query_tool, self.query_result = tool, result
             if tool == "list_resources":
                 self.query_resources.update((item["key"], item) for item in result["items"])
@@ -40,16 +75,34 @@ class ExecutionOutcome:
                 self.query_configurations.update((item["resource"]["key"], item) for item in result["items"])
         if tool not in self.plan.operations:
             return
-        for item in result.get("results", [result]):
-            if item.get("status") == "saved" and item.get("after") is not None:
-                self.completed_operations.add(tool)
-            elif item.get("status") == "unchanged":
-                self.completed_operations.add(tool)
+        expected = {change["resource_key"] for change in arguments.get("changes", [])}
+        self.required_targets.setdefault(tool, set()).update(expected)
+        verified = self.completed_targets.setdefault(tool, set())
+        current_verified = set()
+        items = result.get("results", [result])
+        complete = bool(items)
+        for item in items:
+            key = item.get("resource_key") or item.get("resource", {}).get("key")
+            succeeded = ((item.get("status") == "saved" and item.get("after") is not None)
+                         or item.get("status") == "unchanged")
+            if succeeded and key:
+                verified.add(key)
+                current_verified.add(key)
+            if item.get("status") == "unchanged":
                 self.unchanged[item["resource_key"]] = item["resource_name"]
-            elif "error" in item:
-                self.errors.append(str(item["error"]))
-            elif item.get("status") in {"failed", "unknown", "changed", "executing"}:
-                self.errors.append(item.get("detail") or "操作结果未核实，请查看操作记录")
+            if "error" in item:
+                self.unresolved_errors.append(str(item["error"]))
+            elif not succeeded:
+                self.unresolved_errors.append(item.get("detail") or "操作结果未核实，请查看操作记录")
+            complete &= succeeded
+        if complete and self.required_targets[tool] <= verified:
+            self.completed_operations.add(tool)
+            # 批量纠正可以覆盖原失败子集；另一资源的成功不能解除本目标的错误。
+            for previous in list(self.recoverable_errors):
+                if previous == scope or (previous[0] == tool and set(previous[1]) <= current_verified):
+                    del self.recoverable_errors[previous]
+        else:
+            self.completed_operations.discard(tool)
 
     @property
     def pending(self) -> set[str]:
@@ -128,6 +181,12 @@ class ExecutionOutcome:
         if self.pending:
             labels = [OPERATION_LABELS[name] for name in self.plan.operations if name in self.pending]
             lines.append("尚未完成：" + "、".join(labels) + "。")
+            missing = set().union(*(self.required_targets.get(tool, set()) - self.completed_targets.get(tool, set())
+                                    for tool in self.pending))
+            if missing:
+                names = [self.query_resources.get(key, self.query_configurations.get(key, {}).get("resource", {})).get("name", key)
+                         for key in sorted(missing)]
+                lines.append("尚未完成的目标：" + "、".join(names) + "。")
         if self.errors:
             lines.append("未完成原因：" + self.errors[-1])
         return ("failed" if failed else "completed"), "\n".join(lines)

@@ -1001,11 +1001,15 @@ Consumer 随 Orchestrator 自动启动，加入该功能的摄像头按配置采
 
 ### 福达AI助手
 
-`assistant/resources.py` 通过真实业务 Schema 暴露资源及可编辑字段，`native_resources.py` 适配物流、保安室和喇叭，`global_resources.py` 适配模型设置、异常通知、模型路径、部门功能分配与 SIP 服务。`tools.py` 执行配置查询、局部更新、参数撤销、摄像头创建、删除及成员绑定，统一保留审计；`service.py` 管理会话和幂等请求，`runtime.py` 在有界线程池中协调聊天与工具执行，`context.py` 整理有长度上限的历史及短期任务上下文，`targets.py` 核验目标引用和别名绑定，`responses.py` 解析任务分类、正文和严格工具指令，`outcomes.py` 依据真实工具数据及操作记录生成业务结果。模型不直接访问 SQL、文件系统或命令行。
+`assistant/resources.py` 通过真实业务 Schema 暴露资源及可编辑字段，`native_resources.py` 适配物流、保安室和喇叭，`global_resources.py` 适配模型设置、异常通知、模型路径、部门功能分配与 SIP 服务。`tools.py` 执行配置查询、局部更新、参数撤销、摄像头创建、删除及成员绑定，统一保留审计；`service.py` 管理会话和幂等请求，`runtime.py` 在有界线程池中协调聊天与工具执行，`context.py` 整理有长度上限的历史及短期任务上下文，`targets.py` 核验目标引用和别名绑定，`changes.py` 在保存前核验请求字段及完整目标集合，`responses.py` 解析任务分类、正文和严格工具指令，`outcomes.py` 依据真实工具数据及操作记录生成业务结果。模型不直接访问 SQL、文件系统或命令行。
 
 `RequestPlan` 先区分普通聊天、平台查询和配置任务，配置任务须列出允许的操作类别。普通聊天默认轻松亲切、适度俏皮，不调用业务工具；正文直接保存，封闭的思考区块不展示。平台任务只能使用本轮允许的工具，只有完整且符合合同的指令能够进入业务执行。目标或参数不明确时通过 `ask_user` 提问，未执行的配置任务不能以模型正文报告成功。
 
 `list_resources` 的 `department`、`feature` 与名称筛选 `query` 分别表达部门、功能和资源目标，参数名及目标数值不作为资源名称搜索。授权范围内的普通检测查询同时返回 `configuration_scope=camera` 和脱敏 `schema_definition`；名称搜索为空时提供 `search_hint`，提示区分字段与摄像头并保留部门、功能条件纠正查询。非法闯闸的“人体检测置信度”“人体置信度配置值”由 Schema 中文标题和描述对应至 `value.threshold`，仍严格校验数值类型与 `0.01–1` 范围。唯一候选须读取配置及 revision 后局部修改；未明确范围的多个候选通过真实名称和标识澄清，分页使用 `total` 判断候选总数。搜索返回的 Schema 不替代配置读取与版本核对。
+
+`ChangePolicy` 依据用户原话中的修改要求、字段标识、正式 Schema 标题和常用参数名称核对局部 patch，额外字段、缺少请求参数或无法核验的字段在任何写入前拒绝。只读描述、否定和示例不提供修改授权，实际资源名称中的参数或数量词不作为配置要求。简短澄清回复仅可继承仍有效的待澄清请求；当前消息明确指定新参数时使用当前要求。批量修改记录真实搜索分页，核对连续页、总数、明确数量及完整目标，读取全部配置和版本后一次提交；各资源仍使用原保存事务和回读审计，不承诺跨资源原子提交。
+
+`ExecutionOutcome` 按本轮提交的资源逐项核对已保存或无需修改结果，缺少目标、失败、未知及回读变化均不能仅凭一次工具成功结束为完成，答复列出未完成目标。参数或检索校验错误只在同一工具及对应范围被后续成功结果覆盖后解除；批量纠正须覆盖原失败子集，其他资源或其他工具的成功不能消除原错误。权限、版本、服务和保存结果不明的异常保留。所有纠正沿用原工具轮数、取消、并发及配置数量限制。
 
 合法分类包括 `{"mode":"chat","operations":[],"query_tool":null}`、`{"mode":"query","operations":[],"query_tool":"read_configurations","target_context":{"references":[],"bindings":[]}}` 和 `{"mode":"change","operations":["update_configurations"],"query_tool":null,"target_context":{"references":[],"bindings":[]}}`。查询必须指定 `query_tool`：能力目录为 `capabilities`、资源名称列表为 `list_resources`、当前配置及参数值为 `read_configurations`；其他任务不能携带查询目标。操作类别受 Schema 枚举约束，配置任务的列表须非空且不重复，聊天和查询不能携带配置操作。整条独立问候支持“你好哇”“您好啊”等口语语气词，无论是否已有历史均直接识别为聊天，本轮回复不注入旧配置请求、失败提示或操作审计。附带实际查询或配置正文、引用及明确续办指令仍由规划器结合上下文判断，独立问候不能作为历史任务的继续或删除确认。
 

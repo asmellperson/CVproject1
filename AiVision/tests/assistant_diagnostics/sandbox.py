@@ -383,6 +383,14 @@ class ObservedTools:
     def target_policy(self, value):
         self.delegate.target_policy = value
 
+    @property
+    def change_policy(self):
+        return self.delegate.change_policy
+
+    @change_policy.setter
+    def change_policy(self, value):
+        self.delegate.change_policy = value
+
     def catalog(self, **kwargs):
         return self.delegate.catalog(**kwargs)
 
@@ -402,6 +410,8 @@ class ObservedTools:
                 result = self.fake_run(name, arguments)
                 if self.target_policy is not None:
                     self.target_policy.observe(name, result)
+                if self.change_policy is not None:
+                    self.change_policy.observe(name, result, arguments)
             else:
                 result = self.delegate.run(name, arguments)
             entry["ok"] = "error" not in result
@@ -445,6 +455,19 @@ class ObservedTools:
                                "schema_definition": TailgatingConfig.model_json_schema()}
                               for key in arguments["resource_keys"]]}
         if name == "update_configurations":
+            if self.change_policy is not None:
+                from AiVision.assistant.resources import ConfigurationResource
+                from AiVision.assistant.tools import UpdateArguments
+
+                changes = UpdateArguments.model_validate_json(json.dumps(arguments)).changes
+                for change in changes:
+                    resource = ConfigurationResource(
+                        ResourceReference(**self.change_policy.resources[change.resource_key]), TailgatingConfig,
+                        platform.fake_configs[change.resource_key], lambda *_args: None,
+                    )
+                    resource.prepare(change.patch)
+                    self.change_policy.check_patch(resource, change.patch)
+                self.change_policy.check_targets(changes)
             results = []
             for change in arguments["changes"]:
                 key, delta = change["resource_key"], change["patch"]
@@ -600,7 +623,7 @@ def evaluate(platform, turn, duration, duplicate_ok):
     expected = deepcopy(platform.before)
     if case.expected in {"saved", "unchanged"}:
         expected[RESOURCE]["value"].update(case.patch["value"])
-    if case.name == "partial_batch":
+    if case.name == "partial_batch" and case.expected == "saved":
         expected[SECOND_RESOURCE]["value"].update(case.patch["value"])
     if "conflict" in platform.injected:
         expected[RESOURCE]["value"]["threshold"] = 0.6
@@ -608,6 +631,11 @@ def evaluate(platform, turn, duration, duplicate_ok):
     actions = platform.service.actions(turn.id)
     tools = [entry["tool"] for entry in platform.trace]
     writes = observed_arguments(platform.trace, "update_configurations", "changes", dict)
+    executed_writes = observed_arguments([item for item in platform.trace if item["ok"]],
+                                        "update_configurations", "changes", dict)
+    scope_rejected = any(item.get("error_type") == "ChangeScopeError" for item in platform.trace)
+    scope_recovered = bool(scope_rejected and executed_writes and configuration_ok
+                           and all(change.get("patch") == case.patch for change in executed_writes))
     parameter_ok = bool(writes) and all(change.get("patch") == case.patch for change in writes) if "update_configurations" in tools else None
     allowed_keys = ({"camera:101"} if case.name == "camera" else
                     {RESOURCE, SECOND_RESOURCE} if case.name == "partial_batch" else {RESOURCE})
@@ -627,7 +655,7 @@ def evaluate(platform, turn, duration, duplicate_ok):
     if case.expected in {"saved", "unchanged"}:
         report_ok = ((turn.status == "completed" and success_words) if configuration_ok else
                      (turn.status == "failed" and bool(turn.answer) and not success_words))
-        behavior_ok = configuration_ok and report_ok and tool_selection_ok and parameter_ok is not False
+        behavior_ok = configuration_ok and report_ok and tool_selection_ok and (parameter_ok is not False or scope_recovered)
     elif case.expected.startswith("clarify"):
         report_ok = not success_words and not actions and turn.status == "completed"
         if case.expected == "clarify_target":
@@ -641,6 +669,11 @@ def evaluate(platform, turn, duration, duplicate_ok):
     elif case.expected == "rejected":
         report_ok = not success_words and not any(action.status == "saved" for action in actions)
         behavior_ok = configuration_ok and report_ok and turn.status in {"failed", "completed"}
+    elif case.expected == "scope_rejected":
+        # 固定模型持续提交越界指令时，只能判定保护生效，不能计为原修改任务完成。
+        report_ok = not success_words and not actions and turn.status == "failed"
+        behavior_ok = configuration_ok and report_ok and any(
+            item.get("error_type") == "ChangeScopeError" for item in platform.trace)
     elif case.expected == "chat":
         report_ok = (turn.status == "completed" and not tools and
                      any(token in turn.answer for token in ("你好", "您好", "嗨", "哈喽")) and not any(
@@ -672,7 +705,7 @@ def evaluate(platform, turn, duration, duplicate_ok):
     if classification_ok is False or operations_ok is False:
         faults.append("model_output")
     if not service_failed and (tool_selection_ok is False or resource_ok is False or parameter_ok is False):
-        faults.append("model_output" if platform.client.live else "agent_scheduling")
+        faults.append("model_output" if platform.client.live or scope_rejected else "agent_scheduling")
     if not configuration_ok and not service_failed:
         if case.name in {"extra_field", "partial_batch"}:
             faults.append("agent_scheduling")
@@ -688,7 +721,11 @@ def evaluate(platform, turn, duration, duplicate_ok):
                             if actual[RESOURCE]["value"][key] != platform.before[RESOURCE]["value"].get(key))
     evidence = {"requested_value_fields": sorted(case.patch.get("value", {})), "changed_value_fields": changed_fields,
                 "saved_action_count": sum(action.status == "saved" for action in actions),
-                "goal_verified": configuration_ok, "reported_status": turn.status}
+                "goal_verified": configuration_ok and case.expected != "scope_rejected", "reported_status": turn.status}
+    if case.expected == "scope_rejected":
+        evidence["protection_verified"] = bool(behavior_ok)
+    if scope_recovered:
+        evidence["scope_recovered"] = True
     if case.name == "partial_batch":
         evidence.update(expected_targets=2, verified_targets=sum(
             actual[key]["value"]["threshold"] == 0.8 for key in (RESOURCE, SECOND_RESOURCE)))

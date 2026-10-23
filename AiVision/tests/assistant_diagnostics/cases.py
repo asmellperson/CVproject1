@@ -57,8 +57,10 @@ SCENARIOS = (
 )
 
 PROBES = (
-    Scenario("extra_field", "模型额外修改未请求字段", f"通用电气事业部{CAMERA_NAME}非法闯闸人体置信度改为0.8"),
-    Scenario("partial_batch", "批量任务只完成一个目标", "把通用电气事业部两台诊断闸机的非法闯闸人体置信度都改为0.8"),
+    Scenario("extra_field", "拦截模型额外修改未请求字段", f"通用电气事业部{CAMERA_NAME}非法闯闸人体置信度改为0.8",
+             expected="scope_rejected", eligible=False),
+    Scenario("partial_batch", "拦截批量任务漏目标", "把通用电气事业部两台诊断闸机的非法闯闸人体置信度都改为0.8",
+             expected="scope_rejected", eligible=False),
     Scenario("recovered_tool_error", "工具纠正成功后的最终状态", f"通用电气事业部{CAMERA_NAME}非法闯闸人体置信度改为0.8"),
 )
 
